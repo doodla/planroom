@@ -56,7 +56,13 @@ Design this first, as a versioned contract (in the style of Iris; see `<release>
 - **`observability`**: signals (metric, log, trace span), instrumentation points, dashboards, alerts and SLOs. Relations: `emits` (code → signal), `monitors` (dashboard or alert → signal), `guards` (SLO → service), `pages` (alert → owner). Extractors read the OpenTelemetry and logging calls in code, collector configs, Prometheus rules, and dashboard JSON. The pack answers questions like "how does observability work here?", "what's unmonitored?" and "what fires if this breaks?"
 - **`release`**, across repos: repos, packages, versions, releases, environments and pipelines. Relations: `depends_on` (with version range and resolved version), `publishes`, `deploys_to`, `promotes`. Extractors read manifests, lockfiles, tags, changelogs and CI and CD workflows. The pack answers questions like "what must release, in what order, for this change to ship?", "who's on a stale version?" and "what breaks if I bump X?"
 
-These four ship in v0.1 and prove the extension model. Writing a pack must not require touching the core, so add a guide, "Write a pack", plus a test that loads a toy pack from outside the source tree.
+- **`artifacts`**: the things work is made of: prompts, docs, ADRs, specs, skills, agent configs, issues, PRs, commits, code reviews, review threads and CI runs.
+  - Entities: document, section, instruction, constraint, requirement, check, example, step, trigger; and PR, commit, review, thread, comment, check-run.
+  - Relations: `contains`, `requires`, `constrains`, `verifies`, `refines`, `contradicts`, `addresses` (commit or PR → thread or requirement), `reviews`, `blocks`.
+  - Sources: local git always; GitHub via `gh` or the GitHub MCP tools when available. A skill is a document with triggers, steps, tools and scripts.
+- **`workflow`**: state machines: machine, state (including nested and parallel), transition, event, guard and action. Relations: `transitions_to`, `triggered_by`, `guarded_by`, `performs`, `implements` (machine → code or artifact).
+
+These six ship in v0.1 and prove the extension model. Writing a pack must not require touching the core, so add a guide, "Write a pack", plus a test that loads a toy pack from outside the source tree.
 
 **Workspaces span repos.** A workspace is a set of repos, local paths or git URLs. When a manifest or lockfile in one repo names a package that another repo in the workspace publishes, the extractor resolves it to a cross-repo relation, so release and dependency views cross repo boundaries.
 
@@ -112,6 +118,36 @@ The store serves many writers at once from day one: several Claude sessions, the
 - **Conflicts are diffs.** Concurrent edits to the same field, or an edit that contradicts an override or a claim, become a diff item for me, or for the owning agent, to resolve. Nothing is last-writer-wins on user-authored state.
 - **Queries.** A small, typed query API over the graph: traverse by kind and level, neighbourhood, paths, aggregates up the hierarchy, and diff between two versions or layers. Every view, lens, mod pane and Jev state slice uses it. Don't invent a query language. A typed builder plus a handful of named queries is enough.
 </state_store>
+
+<artifact_anatomy>
+Planroom should break down any artifact the way you'd explain it to me. The canonical example: I asked a Claude session "what are the components of that prompt?" and got back a table of its sections, what each covers, and why it's there. Planroom does that for any artifact (a prompt, a skill, a PR, a code review, a doc, a CI workflow, a module) and keeps the result live and editable.
+
+- **Anatomy view.** An artifact becomes a graph:
+  - its parts, each with a one-line purpose and why it exists;
+  - how the parts relate: which constrains which, which verifies which, where they contradict, what's missing.
+
+  It's shown as both a structured outline (the table-like reading) and a graph, at every zoom level. For a PR or a review, the anatomy is:
+  - intent, changes grouped by component, review threads and their state, checks, what's addressed and what's still open;
+  - all linked to the system model, so I can see which services and dependencies a PR touches, and what it risks.
+- **State machine extraction.** A first-class output of any breakdown. Planroom finds the machines implicit in code and prose and makes them explicit:
+  - **From code:** enums plus switch or transition tables, reducers, explicit FSM libraries, status fields with guarded updates, and job and queue lifecycles.
+  - **From config:** CI and CD workflows, deployment promotions, alert lifecycles.
+  - **From prose:** "a PR goes from draft to review to approved", an agent's escalation policy, a prompt's phases, a skill's steps.
+
+  Each machine renders as a **statechart view** in the component kit, with:
+  - states, transitions, events, guards and actions;
+  - evidence linked to source lines;
+  - checks: unreachable states, dead ends, missing transitions for known events, nondeterminism, and drift between the prose version and the code version of the same machine;
+  - a step-through simulator.
+
+  Planroom's own loops, such as Jev escalation, implementer hand-off and reconcile, are modelled this way, and their machines are kept in sync with the code that implements them.
+- **Round-trip.** Edits to a breakdown flow back to the source as a diff: reorder sections, tighten an instruction, add a missing transition, resolve a contradiction. Code and prose changes go through the implementer. Small text edits to a doc, prompt or skill can be applied directly once I approve.
+- **How extraction works.**
+  - **Deterministic parsing first**, wherever structure exists: markdown headings, XML-style tags, front matter, YAML and JSON, tree-sitter ASTs, GitHub objects.
+  - **Claude** for semantic segmentation, purposes and relations.
+  - **Jev** for the cheap, high-volume calls, for example "Is this paragraph an instruction, a constraint or an example?", "Does this commit address this thread?", "Is this a transition of machine M?" and "Do these two statements contradict?"
+  - Every extracted part carries provenance and confidence, and the evidence popover shows it.
+</artifact_anatomy>
 
 <language_agnostic_mapping>
 Planroom must work on any repo. The core never knows a language. Extractors emit facts into one normalized graph (nodes, edges, evidence, confidence), and a builder assembles the levels from those facts. Extractors stack in tiers, each optional, and each makes the map more precise:
@@ -247,6 +283,8 @@ Bold and playful, with craft: a tactile, toy-like planning table for engineers, 
   - **Path finder**: "How does A reach B?" Highlight the shortest paths, with evidence on each hop.
   - **Impact radius**: show what a tweak or diff touches, transitively, with a heat ramp by distance. It's used by the diff and hand-off views.
   - **Dependency matrix (DSM)**: an alternate view for dense graphs, with cycles and layering violations highlighted. It stays in sync with the selection on the graph.
+  - **Anatomy outline**: the table-like breakdown of an artifact (part → purpose → why → relations), synced with the graph selection.
+  - **Statechart view**: nested and parallel states, animated transitions, the simulator, and check results inline.
   - **Evidence popover**: on any edge or inferred node, show why it exists (extractor, file and line, confidence), and let me confirm or reject it.
   - **Minimap and search**: fuzzy search across every level that jumps and zooms to the result.
 
@@ -300,6 +338,9 @@ Build it right, in phases. Commit and push after each meaningful step.
      - the kernel plus the four packs (code, plan, observability, release), and a toy pack loaded from outside the source tree;
      - a multi-repo workspace with cross-repo dependency and release views;
      - multiple concurrent writers: two sessions or agents plus a canvas tab on two projects, with live updates, claims and presence, and a stale write turned into a diff;
+     - artifact anatomy for a prompt, a skill, a PR with its review threads, and a CI workflow;
+     - state machine extraction from code, config and prose, in the statechart view with checks and the simulator;
+     - round-trip edits from a breakdown back to source as a diff;
      - abstraction zoom across all five levels, with edge aggregation;
      - lenses, focus view, path finder, impact radius and evidence popovers;
      - extractor tiers 1, 2 (TS/JS at least) and 4, working on the fixture;
@@ -335,6 +376,11 @@ Build it right, in phases. Commit and push after each meaningful step.
 
 <verification>
 - Unit tests cover the schema, diff engine, reconciler classification, decision policy (with a mocked `decide()`), lint and interview state machine. A small live Jev smoke test is gated behind an env flag.
+- **Anatomy and state machine checks.**
+  - Run anatomy on this very prompt (`KICKOFF.md`). The parts should match its sections, with sensible purposes, and at least the phase and autonomy machines extracted.
+  - On the fixture:
+    - seed an order or job lifecycle in code, plus a doc that describes it slightly differently. Planroom must extract both and flag the drift;
+    - make a PR with review threads, where a later commit addresses one of them. Planroom must show which threads are addressed and which are open.
 - **Concurrency test.** Run two agents and a Playwright canvas tab against one workspace and two projects, writing at the same time. Assert:
   - no lost events;
   - idempotent retries;
