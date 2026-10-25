@@ -31,14 +31,23 @@ There are three surfaces over one shared model:
 2. **The canvas web app is the surface for understanding and tweaking.** Zoom from the whole system down to modules and files. Overlay the plan on the architecture. Edit both directly: drag, re-parent, rename, re-scope, re-wire dependencies, mark the intended state. Everything is tweakable and undoable. It should be beautiful and fast on desktop and on my phone.
 3. **The CLI / local server is the engine.** `npx planroom` (or the installed binary) in any repo: it scans the repo, owns the `.planroom/` store, serves the canvas locally with live updates, and exposes the API that the mod and the canvas both use.
 
-   Cloud sessions can't reach localhost, so also publish the canvas as a **Claude Artifact** for remote viewing and editing. Its state lives in the Artifact `db`, and the Claude session syncs it with the ArtifactData tool. The local and remote modes share one codebase.
+   Cloud sessions can't reach localhost, so also publish the canvas as a **Claude Artifact** for remote viewing and editing. The local and remote modes share one codebase. Sync works like this:
+   - `.planroom/` is the source of truth.
+   - The Claude session pushes snapshots into the Artifact `db` with the ArtifactData tool.
+   - Edits made in the Artifact are written as events to a `db` collection. The session imports them as user-provenance events, and any conflict becomes a diff item.
+   - Sync runs on `/plan open`, at the start of each turn, and when an Artifact edit notice arrives.
+   - The Artifact shows Jev decisions that are already cached, and queues new ones as pending until the next sync.
 </product_vision>
 
 <core_model>
 Design this first, as a versioned contract (in the style of Iris; see `<release>`).
 
 - **System model.** Components, interfaces and dependencies, mapped to code (file globs, symbols). It comes in two layers:
-  - **actual**: derived from scanning the repo (imports, packages, entry points, git history);
+  - **actual**: derived from scanning the repo (imports, packages, entry points, git history). Support levels for v0.1:
+    - TS/JS: a full import graph.
+    - Python: if time allows.
+    - Every other language: a package- and directory-level map built from manifests and folder structure, flagged as low-confidence.
+    - Document these limits in the reference docs.
   - **intended**: what I and Claude say it should be.
 - **Intent graph.** Each plan node has a type (goal, outcome, deliverable, action, risk, decision), status, `doneWhen`, estimate, priority, provenance (user, Claude, scan or Jev) and an `accepted` flag. Nodes link to the system components they touch. Proposals from the AI stay ghosts until I accept them.
 - **History.** An append-only event log with snapshots. Every change is an event with provenance, so any two versions can be diffed and any change undone.
@@ -47,7 +56,9 @@ Design this first, as a versioned contract (in the style of Iris; see `<release>
   - *intended vs actual*: where the intended architecture and the real code disagree;
   - *proposed code change*: the code diff an implementation would make, mapped onto canvas nodes.
 - **Reconciler.** It re-scans, rebuilds *actual*, compares it to *intended* and to the plan, and produces drift items. Each item is classified as expected, in progress, done, unplanned or regression. It can run on demand, on git events, and when an agent finishes.
-- **Hand-off.** When I approve a tweak that needs code, Planroom writes a self-contained change spec (intent, affected components, acceptance criteria, the diff of intended vs actual) and hands it to a **separate implementer agent**: an agent type the mod registers, working on its own branch or worktree. Its result comes back as a proposed code diff for me to review. After merging, the reconciler closes the loop. Claude in the main chat stays the planning partner and never silently implements.
+- **Hand-off.** When I approve a tweak that needs code, Planroom writes a self-contained change spec (intent, affected components, acceptance criteria, the diff of intended vs actual) and hands it to a **separate implementer agent**, behind an `Implementer` interface with two implementations:
+  - the real one: an agent type the mod registers, with `isolation: 'worktree'`;
+  - a deterministic fixture implementer that applies canned patches to `examples/`, for tests and CI. Its result comes back as a proposed code diff for me to review. After merging, the reconciler closes the loop. Claude in the main chat stays the planning partner and never silently implements.
 </core_model>
 
 <cheap_decisions_with_jev>
@@ -78,7 +89,12 @@ Make this explicit in code, so every decision kind declares its question, its th
 - Limits: 32k tokens for state plus the longest question, and 64k per request. So send scoped slices of the model, never the whole repo, and batch several questions per call against the same state.
 - Cache answers by hash of state and question.
 - Record every decision (inputs hash, answer, probability, what was done) in the history, so I can see and override why something happened.
-- Build a small eval set of real cases with agreed outcomes, and test each decision kind's thresholds against it before enabling automatic action.
+- Build an eval set in `evals/decisions/*.json`, with at least 25 realistic cases per decision kind. You label them, with a one-line rationale per label.
+  - Enable automatic action for a kind only if its precision is at least 0.95 at the chosen threshold.
+  - Below that bar, the kind defaults to the one-tap card.
+  - Report the table at the end.
+- Test direct TypeSafe mode against fixtures built from its docs, plus a live smoke test that runs only when `TYPESAFE_API_KEY` is set (it isn't set here).
+- Spend cap: keep total live Jev, gateway and `sample` spend during the build under $3. Gate every live test behind an env flag.
 
 I verified this live call from this container. It returned a choice with probabilities and a confidence, in about 50 ms, for about $0.000016:
 
@@ -111,17 +127,20 @@ The interview uses established methods in stages I can jump between at any time:
 4. **Next actions**: GTD and HTN. Each leaf is a verb-first physical action with a `doneWhen`, sized at a day or less.
 5. **Prioritize**: MoSCoW plus a walking-skeleton MVP line.
 6. **Pre-mortem**: Klein's method. Each risk becomes a node with a mitigation.
-7. **Lint**: as cheap Jev checks:
-   - children cover 100% of their parent's scope;
-   - siblings are MECE;
-   - each parent has 2–7 children;
-   - every leaf is actionable and has a done-test;
-   - every leaf traces up to the outcome;
-   - the goal is SMART;
-   - there are no dependency cycles;
-   - every Must branch has a risk;
-   - siblings are at a similar granularity;
-   - unconfirmed inferences are flagged.
+7. **Lint**, in two kinds:
+   - **Structural, computed exactly in code:**
+     - each parent has 2–7 children;
+     - there are no dependency cycles;
+     - every leaf traces up to the outcome;
+     - every Must branch has a risk;
+     - every leaf has a done-test;
+     - unconfirmed inferences are flagged by provenance.
+   - **Semantic, as cheap Jev checks:**
+     - children cover 100% of their parent's scope;
+     - siblings are MECE;
+     - every leaf is actionable;
+     - the goal is SMART;
+     - siblings are at a similar granularity.
 
 For a repo, the system model grounds every stage. Breakdown nodes attach to real components, and next actions name the files they touch.
 </planning_philosophy>
@@ -134,6 +153,12 @@ Bold and playful, with craft: a tactile, toy-like planning table for engineers, 
 - **Don't use**: a cream or off-white background, purple-on-white gradients, italic accent words in headlines, numbered "01/02/03" section labels, monospace labels as decoration, pill-shaped buttons everywhere, or a generic three-card hero layout.
 - **Mobile first**: a bottom-sheet guide, pinch-zoom and pan, thumb-reachable controls, large touch targets, and no horizontal page scroll.
 - **The mod**: within its element set it should feel as considered as the canvas, with tight layout, clear hierarchy, and the next action always one key away.
+- **Measurable bars:**
+  - every mod action is reachable in 2 keys or fewer;
+  - the canvas is interactive in under 1 s on the fixture;
+  - pan and zoom stay smooth (about 60 fps) at 200 nodes;
+  - no layout overflows at 390 px;
+  - every edit type has an undo test.
 </design_direction>
 
 <runtime_notes>
@@ -152,11 +177,17 @@ Ship it the way `doodla/iris` is shipped. Clone it with `GIT_LFS_SKIP_SMUDGE=1 g
 - Docs are split into guides, concepts, reference and contributing. Each fact has one home.
 - `AGENTS.md` (with `CLAUDE.md` importing it) holds the invariants.
 - Include `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, a `CHANGELOG.md` in Keep a Changelog format, issue and PR templates, and Dependabot.
-- CI runs lint, format check, typecheck, unit tests, Playwright end-to-end tests, `claude plugin validate` and the mod's tests, and a schema-drift check. A release workflow (tag → GitHub release, plus npm publishing as a dry run until I add a token) produces versioned artifacts.
-- The mod is installable from the repo: `.claude-plugin/marketplace.json` and a README line `/plugin install planroom --marketplace doodla/planroom`.
+- **CI**:
+  - Runs lint, format check, typecheck, unit tests, Playwright end-to-end tests (using the fixture implementer), `claude plugin validate` and the mod's tests, and a schema-drift check.
+  - Triggers on push to any branch as well as on PRs. Watch it with `gh run list` / `gh run watch`.
+  - Pin the Claude Code version that's installed here (`claude --version`) for the mod jobs. Confirm those commands run without credentials. If they can't, gate the job and record why in `progress.md`.
+- **Release workflow**: a tag produces a GitHub release, and npm publishing runs as a dry run until I add a token. Write the `v0.1.0` release notes, but don't push the tag.
+- **Mod install**: the mod is installable from the repo. `.claude-plugin/marketplace.json` lives at the repo root, and its plugin `source` points at `./mod`. The README install lines are `/plugin marketplace add doodla/planroom`, then `/plugin install planroom@<marketplace name>`.
 - Add a demo fixture repo under `examples/` that the end-to-end tests and screenshots use.
 - **Images come from Iris**, my CLI: logo, README hero, GitHub social preview (1280×640), and empty-state illustrations.
   - Install it with `curl -fsSL https://raw.githubusercontent.com/doodla/iris/main/install.sh | sh` (it goes into `~/.local/bin`), then run `iris doctor`.
+  - Iris never picks a model. Choose one from `iris models list` and pass `-m`.
+  - Generate at a supported size, then crop (for example to 1280×640).
   - Always `--dry-run --json` first to see the cost, and pass `--max-cost`.
   - Draft at low quality, then finalize the chosen ones.
   - Keep total image spend under $5. Commit the prompts next to the images, so they can be regenerated.
@@ -166,8 +197,18 @@ Ship it the way `doodla/iris` is shipped. Clone it with `GIT_LFS_SKIP_SMUDGE=1 g
 Build it right, in phases. Commit and push after each meaningful step.
 1. **Design.**
    - Write `docs/contributing/architecture.md` and short ADRs in `docs/contributing/decisions.md`: stack, store format, diff engine, reconciler, Jev decision policy, mod ↔ server ↔ canvas protocol, and local vs Artifact modes.
-   - Define the schemas, plus `feature_list.json` with one entry per user-visible feature, each with `passes: false`, and `progress.md` for decisions, assumptions and what's next.
+   - Define the schemas, plus `feature_list.json` with one entry per user-visible feature, each with `passes: false` and a `tier` (`must`, `should` or `could`), and `progress.md` for decisions, assumptions and what's next.
+   - The `must` tier includes at least everything in the Playwright flow under `<verification>`, plus:
+     - mod pane, band, commands and tools;
+     - Jev decisions with escalation;
+     - the three diff views;
+     - reconcile;
+     - undo;
+     - Artifact publish with sync;
+     - the release files.
+   - Never merge, weaken or delete a `must` entry once it's written.
    - Before building, get an independent review of the design from a subagent at your own model level. Give it the documents, not your conclusions, and address its findings.
+1b. **Walking skeleton.** Build one thin slice through every surface before deepening any of them: scan the fixture, then a node in the store, then the mod pane showing it, then the canvas showing it, then the Artifact publishing it from `db`. This raises the "turn on mods" and Artifact consent prompts early, while I'm likely still around, and it shows you the real constraints of each runtime before the design hardens. Adjust the design docs to match what you learn.
 2. **Engine.** Schema, store, event log, diff engine, scanner, reconciler, the Jev adapter and its eval set, and the CLI. Use test-driven development where it pays.
 3. **Canvas.** Map, plan overlay, direct editing, the three diff views, reconcile view, the guided interview, then polish and mobile.
 4. **Mod.** Pane, band, commands, tools, and the implementer agent hand-off loop.
@@ -181,6 +222,7 @@ Build it right, in phases. Commit and push after each meaningful step.
 
 <verification>
 - Unit tests cover the schema, diff engine, reconciler classification, decision policy (with a mocked `decide()`), lint and interview state machine. A small live Jev smoke test is gated behind an env flag.
+- The real implementer hand-off is covered by `claude plugin test`. Also run it once live in this session, and record the output as evidence.
 - Run Planroom on the `examples/` fixture and on Planroom's own repo. In the fixture, introduce a real code change and confirm the reconciler reports the correct drift.
 - Drive the canvas with Playwright as a person would. Do one full flow: open repo → map appears → set intent → break down → tweak the intended architecture → see the intended-vs-actual diff → hand off to the implementer → review its code diff → merge → reconcile shows the result as resolved.
 - Screenshot every main view at 1440×900 and 390×844, in light and dark mode. Look at them, critique them against the design direction and the planning philosophy (is the next action obvious? is any decision costlier than it needs to be?), fix, and re-shoot. There should be no console errors.
@@ -188,8 +230,9 @@ Build it right, in phases. Commit and push after each meaningful step.
 </verification>
 
 <definition_of_done>
-- Every entry in `feature_list.json` passes. CI is green on the pushed branch.
-- `npx planroom` (or the built CLI) works on a fresh clone of the fixture.
+- Every `must` entry in `feature_list.json` passes. List the `should` and `could` entries that don't pass as known gaps.
+- CI is green on the pushed branch.
+- The packed CLI works on a fresh clone of the fixture: test with `npm pack`, then `npx ./planroom-*.tgz`. The npm name isn't claimed yet, so list claiming it among my clicks.
 - The canvas is published as an Artifact and I have its link. The mod validates, passes its tests, and is loaded in this session.
 - The repo is release-ready per `<release>`. Screenshots are committed under `docs/screenshots/`, and the Iris art and its prompts are committed.
 - Everything is committed and pushed.
