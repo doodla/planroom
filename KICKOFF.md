@@ -36,7 +36,13 @@ Two ideas shape every decision. When a requirement is unclear, resolve it in the
    - Never show a blank state. Never ask a question a good default could answer. Never lose or overwrite what someone did.
    - Everything is reversible, which is what makes bold defaults safe.
 2. **Agent-native.** Planroom's code is written by agents, for agents, and run mostly by agents. People steer through the mod and the canvas, while agents do the reading, extracting, reconciling and implementing.
-   - Every capability is reachable by an agent through a stable, typed, documented interface: CLI commands with `--json`, the local API, and the mod's tools. Each has stable error codes.
+   - Agents are the primary users of the engine. Every capability is reachable through stable, typed, documented interfaces, with stable error codes and one versioned schema behind all of them:
+     - CLI commands with `--json`;
+     - the local API;
+     - tools agents can call (the mod's tools, and an MCP server if the architecture calls for one);
+     - skills that teach agents when and how to use each capability.
+
+     Output is designed for agents first: structured, compact, paginated, with stable IDs and pointers to evidence rather than prose. The human surfaces render that same output.
    - The repo itself is easy for agents to work in:
      - `AGENTS.md` invariants;
      - small modules with clear contracts;
@@ -95,6 +101,8 @@ Every decision kind has a declared policy and an eval behind its threshold. Ever
 - **A Claude Code mod that guides.** It lives beside the chat. Max out its UX: the current focus, the one open decision with pre-answered choices, progress, pending diffs, drift, and who's working on what. It also has a band above the prompt with the next best action, slash commands, tools the model calls, and a mini-map where the surface can draw one. It is keyboard-first.
 - **A canvas web app** for understanding and tweaking. It's beautiful and fast on desktop and on a phone. It runs locally, and is also published as a Claude Artifact for when localhost isn't reachable, for example from a cloud session.
 - **A CLI and local server, the engine**, which agents use directly.
+
+All three ship as **one Claude Code plugin**. Installing it gives an agent or a person everything: the mod, Planroom's skills and agent types (the implementer and the curator), and the engine. Within the plugin's limits, the engine binary is resolved on first use.
 
 **R14. A tiny surface to learn.** The whole mental model a person needs is five ideas: **Levels** (where I am), **Lenses** (which relationships I see), **Intent** (what I want, grouped into projects), **Diffs** (what's different) and **Decisions** (what needs me). There is one CLI entry point and one slash-command family (`/room …`; `plan` is already a Claude Code permission-mode name, so avoid `/plan`). Everything else stays internal. Before adding any concept, flag or setting, check whether a better default would remove the need for it.
 
@@ -193,7 +201,11 @@ All merges in the scenarios happen in that copy, so the fixture is the same on e
 
 **S14. Release.**
 - CI is green on the pushed branch.
-- A fresh clone of planroom builds the fixture and runs the packed CLI on it (`npm pack`, then `npx ./planroom-*.tgz`).
+- From a fresh clone of planroom, the release build (`cargo build --release` plus the frontend build) runs on the built fixture.
+- **Plugin install, end to end:**
+  1. In a fresh Claude Code session, run `/plugin marketplace add <local path to the repo>`, then `/plugin install planroom@<marketplace name>`.
+  2. On first use, the engine binary resolves: a checksum-verified release asset, or a source build when no release exists yet.
+  3. `/room` works, Planroom's skills and agent types are listed, and an agent can drive S1 and S2 using only the plugin's tools and skills.
 - The docs, art, changelog and release notes are complete per `<constraints>`.
 
 **S15. Tiny surface and principles.**
@@ -206,6 +218,18 @@ All merges in the scenarios happen in that copy, so the fixture is the same on e
 
 <constraints>
 - **Surfaces**: a Claude Code mod, a canvas web app also published as a Claude Artifact, and a CLI with a local server. The implementer is a separate agent.
+- **Packaging**: everything ships as one Claude Code plugin, installable from this repo's `marketplace.json`.
+  - The plugin carries the mod, skills, agent definitions and any tool or MCP wiring.
+  - Plugins can't contain a `bin/` folder, so the engine binary is fetched from a GitHub release on first use (checksum-verified, in the style of Iris's `install.sh`), with a `cargo install` or source-build fallback.
+  - The release workflow builds the engine for Linux and macOS, on x86_64 and arm64.
+- **Languages**:
+  - The **engine** (scanning, extraction, store, server, reconciler, diff engine, Jev and Claude adapters, CLI) is written in **Rust**.
+  - The **mod** is TypeScript, because that's what the mod API loads.
+  - The **canvas** is TypeScript, and the local server serves its built assets.
+  - Contracts have **one source of truth**. Schemas for the store, the API, the CLI `--json` output, the tools and the domain packs are generated from that source for every language, and a test fails on drift. Never hand-copy types across the language boundary.
+- **Build on good libraries.** Use mature, well-maintained, widely used libraries with permissive licenses, rather than hand-rolling parsing, graphs, layout, storage, HTTP, diffing, git access, CLI parsing, UI primitives or animation. Hand-roll only Planroom's own core: the kernel, the decision policy, reconciliation and the domain packs.
+  - Pin versions, and audit dependencies in CI (`cargo-deny` as in Iris, plus an npm audit).
+  - Record each significant library choice, and the alternatives you rejected, in the decision records.
 - **Jev** (TypeSafe AI) is the cheap-decision model. Support both the Vercel AI Gateway and direct TypeSafe connections behind one adapter.
   - Pin `typesafe-ai/jev-1.14.0` on the gateway.
   - On the direct API, pin a versioned ID if the docs list one. Otherwise send `jev-latest`, record the version the response reports, and fail the evals if it changes. Ignore thejevai.com: it isn't affiliated with TypeSafe.
@@ -222,9 +246,14 @@ All merges in the scenarios happen in that copy, so the fixture is the same on e
   - docs split into guides, concepts, reference and contributing, with each fact in one place;
   - `AGENTS.md`, with `CLAUDE.md` importing it;
   - `CODE_OF_CONDUCT.md`, issue and PR templates, and Dependabot;
-  - CI covering lint, format, typecheck, unit tests, end-to-end tests, mod validation and tests, and schema drift;
+  - CI covering:
+    - Rust: `fmt`, `clippy` with warnings as errors, tests, `cargo-deny`;
+    - TypeScript: lint, format, typecheck, tests;
+    - end-to-end tests;
+    - plugin and mod validation and tests;
+    - schema drift between the languages;
   - a release workflow;
-  - a `marketplace.json` so the mod is installable.
+  - a `marketplace.json`, so the whole plugin is installable.
 - **How Claude is reached**: through the mod (the chat model, `$.model.complete`), the Artifact (`sample`), or Claude models on the Vercel AI Gateway for the engine. Pick a model from the gateway's `/v1/models` list and pin it in config.
   - `OPENAI_API_KEY` and `GEMINI_API_KEY` are for Iris only. Never use them for inference.
   - When no model is reachable, every surface falls back to the deterministic extractor tiers, so no repo gets nothing.
@@ -232,8 +261,8 @@ All merges in the scenarios happen in that copy, so the fixture is the same on e
 - **Spend**:
   - Live Jev, gateway (including Claude) and `sample` calls made by the product and its tests during the build stay under $3 in total. Gate every live test behind an env flag.
   - There's no hard cap on the build's own agent tokens, but keep it proportionate: at most 3 candidate architectures, at most 7 review lenses, at most 3 review rounds. Log a rough spend per phase in `progress.md`.
-- **Code**: TypeScript throughout, so contracts are shared by every surface. Keep it minimal: no speculative abstractions, no defensive code for impossible cases, and no hard-coding to pass tests.
-- **Don't, without me**: publish to npm, push tags, create GitHub releases, or change repo settings. Prepare all of these, and list exactly what I need to click.
+- **Code**: keep it minimal: no speculative abstractions, no defensive code for impossible cases, and no hard-coding to pass tests.
+- **Don't, without me**: publish packages (crates.io or npm), push tags, create GitHub releases, or change repo settings. Prepare all of these, and list exactly what I need to click.
 </constraints>
 
 <verified_facts>
@@ -275,7 +304,8 @@ I checked these in this container. Rely on them.
   - `sample` asks Claude, and `db` is shared storage that the session reads and writes with the ArtifactData tool.
   - Pages can't call arbitrary hosts, so Jev runs on the server and mod side.
 - **CI**: Iris's CI triggers only on pushes to `main` and on PRs. Planroom's must also trigger on pushes to any branch.
-- **npm**: the name `planroom` is unclaimed on npm.
+- **Toolchains**: Rust 1.97 (`cargo`, `clippy`, `rustfmt`) and Node 22 are installed here.
+- **Plugins**: a saved plugin's `name` is lowercase letters, digits and hyphens (64 at most), and **a plugin with a `bin/` folder is refused**. Agent types can be declared in a plugin's `agents/*.md` files or with `$.agent.register`. Check the current plugin docs, through the `claude-code-guide` agent, for how a plugin declares skills and MCP servers before you design around them.
 </verified_facts>
 
 <design_starting_points>
@@ -291,9 +321,32 @@ These are not binding. Each is a reasonable first guess. Validate it during arch
   - IDs are stable and namespaced, for example `<repo>:<kind>:<key>`.
 - **Domain packs**: declarative files that add entity and relation kinds, which level each kind sits on, aggregation rules, extractors, lenses, decision kinds and a default view. Six ship in v0.1: code, plan, observability, release, artifacts, workflow.
 - **Levels**: the C4 model (System, Container, Component, Code) with Intent on top. Each node has one parent on the level above, and edges aggregate upward with counts.
+- **Libraries to evaluate first** (these are suggestions; pick on maintenance, fit and licence, and record the choice):
+  - Rust:
+    - `tree-sitter` with its language grammars;
+    - `petgraph` for graph algorithms;
+    - `rusqlite` or `sqlx` for SQLite;
+    - `axum` and `tokio` for the server and live stream;
+    - `serde` and `schemars` for schemas;
+    - `clap` for the CLI;
+    - `gix` (gitoxide) or `git2` for git;
+    - `notify` for file watching;
+    - `similar` for diffs;
+    - `rmcp` (the official Rust MCP SDK) if you build an MCP server;
+    - `tracing` for logs;
+    - `reqwest` for the Jev and gateway calls.
+  - TypeScript:
+    - Vite;
+    - React with `@xyflow/react` (React Flow) for the node canvas;
+    - `elkjs` for stable hierarchical layout;
+    - Motion for animation;
+    - Radix UI primitives;
+    - TanStack Query, or a small store, for state;
+    - XState for the statechart simulator;
+    - generated types from the shared schemas (for example `json-schema-to-typescript`, or a Rust-to-TS generator such as `ts-rs` or `specta`).
 - **Extractors**, in tiers:
   1. universal: the file tree, git history (co-change, ownership, churn), manifests and lockfiles;
-  2. syntactic: tree-sitter with per-language query files and import resolvers; TS/JS, Python, Go and Rust in v0.1;
+  2. syntactic: tree-sitter with per-language query files and import resolvers; TS/JS, Python, Go and Rust as scanned languages in v0.1;
   3. precise: SCIP/LSIF indexes or a language server, when present;
   4. config: Docker, compose, k8s, Terraform, CI, OpenAPI, protobuf, OpenTelemetry and Prometheus configs, dashboards;
   5. inference: Claude for groupings and purposes, Jev for cheap calls at scale, both marked as inferred.
@@ -358,7 +411,7 @@ Plan from the top down, review independently, build in thin vertical slices.
    - Each reviewer reports findings within their own lens. A separate independent verifier then tries to refute each finding, and every finding the verifier fails to refute gets fixed. Don't vote across lenses: a security finding must not need the UX reviewer's agreement.
    - A finding is **material** when it would make a tier A or B scenario fail, violates a principle or constraint, or is a security or data-loss risk.
    - Repeat until a round finds nothing material, up to 3 rounds. Record anything left after round 3 in the decision records as accepted risk, with a one-line reason.
-4. **Walking skeleton.** Build one thin slice through every surface before deepening any of them: scan the fixture, then a node in the store, then the mod pane showing it, then the canvas showing it, then the Artifact publishing it. This raises the mod and Artifact consent prompts early, while I'm likely still around. Update the architecture with anything the skeleton teaches you.
+4. **Walking skeleton.** Build one thin slice through every surface before deepening any of them: scan the fixture, then a node in the store, then the mod pane showing it, then the canvas showing it, then the Artifact publishing it. Load all of it through the plugin install from day one, with the Rust engine built from source, so the packaging is real from the start. This raises the mod and Artifact consent prompts early, while I'm likely still around. Update the architecture with anything the skeleton teaches you.
 5. **Milestones.** Order them so each one ends shippable and green:
    1. kernel, store, code and plan packs, mod and canvas basics;
    2. diffs, reconciliation, hand-off and Jev decisions;
@@ -390,7 +443,7 @@ Plan from the top down, review independently, build in thin vertical slices.
 - The final review finds nothing material, or what's left after 3 rounds is recorded as accepted risk.
 - Everything is committed and pushed, and CI is green.
 - Screenshots are committed under `docs/screenshots/`. The Iris art and its prompts are committed.
-- The final message leads with the Artifact link and what works. It shows the evidence: test and CI output, the S7 decision-eval table, screenshot paths, Iris and Jev spend, and the review outcomes. Then it lists known gaps honestly, and the exact clicks I owe (npm name and token, tag, release, repo settings).
+- The final message leads with the Artifact link and what works. It shows the evidence: test and CI output, the S7 decision-eval table, screenshot paths, Iris and Jev spend, and the review outcomes. Then it lists known gaps honestly, and the exact clicks I owe (tag, release, any registry names or tokens, repo settings).
 </definition_of_done>
 
 <autonomy>
