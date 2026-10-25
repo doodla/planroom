@@ -1,0 +1,75 @@
+<title>Planroom Sync Probe</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible+Next:wght@400;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+  /* Layout: one centered column of checks on a tabletop, each check a row with a state chip. */
+  :root {
+    --table: #cfe6dc;
+    --card: #f6fbf8;
+    --ink: #1b2a33;
+    --muted: #4c6170;
+    --accent: #e8492b;
+    --pass: #1f7a4d;
+    --fail: #b3261e;
+    --wait: #7a6a12;
+    --line: #a9c9bb;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+    --body: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
+    --mono: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --table: #10231d; --card: #17312a; --ink: #e4f1ea; --muted: #9db8ab; --accent: #ff7a5c;
+      --pass: #5fd39a; --fail: #ff8a80; --wait: #e6cf6a; --line: #2c4c41; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --table: #10231d; --card: #17312a; --ink: #e4f1ea; --muted: #9db8ab; --accent: #ff7a5c;
+    --pass: #5fd39a; --fail: #ff8a80; --wait: #e6cf6a; --line: #2c4c41; color-scheme: dark;
+  }
+  body {
+    background: var(--table); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.5;
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 32px;
+  }
+  main { max-width: 640px; margin: 0 auto; display: grid; gap: 20px; }
+  h1 { font-family: var(--display); font-weight: 800; font-size: clamp(28px, 6vw, 40px); line-height: 1.1; margin: 0; text-wrap: balance; }
+  h1 span { color: var(--accent); }
+  p { margin: 0; color: var(--muted); max-width: 60ch; }
+  ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  li {
+    background: var(--card); border: 2px solid var(--line); border-radius: 14px; padding: 12px 14px;
+    display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; align-items: baseline;
+    box-shadow: 0 3px 0 var(--line);
+  }
+  .chip {
+    grid-row: span 2; align-self: center; font-family: var(--display); font-weight: 600; font-size: 13px;
+    letter-spacing: 0.02em; padding: 4px 10px; border-radius: 8px; border: 2px solid currentColor; min-width: 64px; text-align: center;
+    color: var(--wait);
+  }
+  li[data-status="pass"] .chip { color: var(--pass); }
+  li[data-status="fail"] .chip { color: var(--fail); }
+  li[data-status="skip"] .chip { color: var(--muted); }
+  .label { font-weight: 600; min-width: 0; }
+  .detail { font-family: var(--mono); font-size: 13px; color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+  #note { font-size: 14px; }
+  @media (prefers-reduced-motion: no-preference) {
+    li { transition: transform 160ms ease-out; }
+    li[data-status="pass"] { transform: translateY(-1px); }
+  }
+</style>
+<main>
+  <h1>Planroom <span>sync probe</span></h1>
+  <p>This page tests how Planroom's canvas will sync with the session that built it. It runs these checks when you open it and saves the results for the session to read. You don't need to do anything else.</p>
+  <ol id="checks" aria-live="polite"></ol>
+  <p id="note">If a check still says Waiting after a minute, it couldn't run in this view.</p>
+</main>
+<script>
+  setTimeout(function () {
+    if (document.documentElement.dataset.module !== 'ok') {
+      document.getElementById('note').textContent = "The page's module script didn't run, so the checks couldn't start. The session reads this as a failed check.";
+    }
+  }, 6000)
+</script>
+<script type="module" src="./assets/probe.js"></script>
