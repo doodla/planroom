@@ -1,0 +1,4 @@
+message = "Show 24 products per catalog page"
+author = "Alice Ng <alice@acme.test>"
+date = "2026-10-18T10:05:00Z"
+branch = "routine"

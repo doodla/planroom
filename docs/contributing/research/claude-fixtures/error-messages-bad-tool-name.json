@@ -1,0 +1,125 @@
+{
+  "name": "error-messages-bad-tool-name",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/messages",
+    "headers": {
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json"
+    },
+    "body": {
+      "model": "anthropic/claude-haiku-5.5",
+      "max_tokens": 20,
+      "tools": [
+        {
+          "name": "bad name!",
+          "description": "x",
+          "input_schema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": "hi"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {},
+    "body": {
+      "error": {
+        "message": "tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'",
+        "type": "AI_APICallError",
+        "param": {
+          "error": "tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'",
+          "statusCode": 400,
+          "name": "AI_APICallError",
+          "message": "tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'",
+          "isRetryable": false,
+          "type": "AI_APICallError"
+        }
+      },
+      "providerMetadata": {
+        "gateway": {
+          "routing": {
+            "originalModelId": "anthropic/claude-haiku-5.5",
+            "resolvedProvider": "anthropic",
+            "fallbacksAvailable": [
+              "bedrock",
+              "vertexAnthropic",
+              "claudeaws"
+            ],
+            "canonicalSlug": "anthropic/claude-haiku-5.5",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "anthropic/claude-haiku-5.5",
+                "success": false,
+                "providerAttemptCount": 4,
+                "providerAttempts": [
+                  {
+                    "provider": "anthropic",
+                    "credentialType": "system",
+                    "success": false,
+                    "error": "tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'",
+                    "startTime": 1792969128214,
+                    "endTime": 1792969128383,
+                    "providerRequestId": "req_011CgPnSMfpY2UnL5EALW789",
+                    "statusCode": 400
+                  },
+                  {
+                    "provider": "bedrock",
+                    "credentialType": "system",
+                    "success": false,
+                    "error": "tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'",
+                    "startTime": 1792969128388,
+                    "endTime": 1792969128589,
+                    "providerRequestId": "fb37224b-a2d3-4f75-8637-445e49642b1d",
+                    "statusCode": 400
+                  },
+                  {
+                    "provider": "vertexAnthropic",
+                    "credentialType": "system",
+                    "success": false,
+                    "error": "tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'",
+                    "startTime": 1792969128594,
+                    "endTime": 1792969128949,
+                    "providerRequestId": "req_vrtx_011CgPnSQ3hTQV4naJfxF6dy",
+                    "statusCode": 400
+                  },
+                  {
+                    "provider": "claudeaws",
+                    "credentialType": "system",
+                    "success": false,
+                    "error": "tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'",
+                    "startTime": 1792969128956,
+                    "endTime": 1792969129163,
+                    "providerRequestId": "req_011CgPnSQwn6JVceoiHtd5mi",
+                    "statusCode": 400
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 4,
+            "affinity": {
+              "outcome": "skipped_below_min_prefix"
+            },
+            "clientSessionId": "fab2a796910b81bc05289dfd52273acc",
+            "clientSessionIdSource": "fingerprint"
+          },
+          "generationId": "gen_01M5TMKE7WRGDM92YMTKYBB9K2"
+        }
+      }
+    }
+  },
+  "measured": {
+    "ttfb_s": 1.100828,
+    "total_s": 1.102578,
+    "at": "2026-10-25T22:58:49Z"
+  }
+}

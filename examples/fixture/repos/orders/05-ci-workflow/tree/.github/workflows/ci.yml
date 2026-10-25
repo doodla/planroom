@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.60.3
+      - name: Lint OpenAPI spec
+        run: npx --yes @redocly/cli@1.25.3 lint api/openapi.yaml
+
+  test:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16.4
+        env:
+          POSTGRES_USER: orders
+          POSTGRES_PASSWORD: orders
+          POSTGRES_DB: orders
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U orders"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://orders:orders@localhost:5432/orders?sslmode=disable
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Apply migrations
+        run: for f in migrations/*.sql; do psql "$DATABASE_URL" -f "$f"; done
+      - name: Test
+        run: go test -race -count=1 ./...
+
+  build:
+    runs-on: ubuntu-24.04
+    needs: [lint, test]
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build binary
+        run: CGO_ENABLED=0 go build -trimpath -o bin/orders ./cmd/orders
+      - name: Build image
+        run: docker build -t acme/orders:${{ github.sha }} .

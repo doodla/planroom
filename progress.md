@@ -47,3 +47,4 @@ Recorded per milestone at the end of Phase 2.
 ## Log
 
 - 2026-10-25: Read `KICKOFF.md`, `CLAUDE.md`, `.claude/guardrails/`. Snapshot copied. Phase 1 research workflow started.
+- 2026-10-25: Fixture built from the `examples/README.md` contract (5 repos, 9 branches, deterministic heads, 191 evidence items). Truth review round 1: 0 blockers, 4 material, 6 minor. The material ones were unstated rules (direct vs indirect alert coverage, which edges a path follows, the impact-radius rule, and S4 compose evidence surviving a worker-only patch). Resolution: the contract now states each rule, and the S4 hand-off is multi-repo (one patch per touched repo), which also makes the implementer contract general. Round 2 is running.

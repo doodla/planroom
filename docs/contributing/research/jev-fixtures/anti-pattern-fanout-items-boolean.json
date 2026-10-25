@@ -1,0 +1,282 @@
+{
+  "scenario": "anti-pattern-fanout-items-boolean",
+  "source": "live",
+  "captured_at": "2026-10-25T22:56:23+00:00",
+  "notes": "DON'T: 15 next actions in one state, one boolean per items[i]. Case am4 moved from p=0.08 (single call) to 0.92; am3 from 0.75 to 0.14.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev-1.14.0",
+      "state": {
+        "items": [
+          "Add a `decision_cache` table to planroom-store; done when `cargo test -p planroom-store cache_roundtrip` passes.",
+          "Rename `Edge::kind` to `Edge::relation` in crates/planroom-kernel/src/edge.rs; done when `cargo check --workspace` is clean.",
+          "Write a Playwright test in web/canvas/e2e/zoom.spec.ts that pinches to zoom at 390x844; done when it passes in CI.",
+          "Make `planroom scan --json` emit a `stats.files` count; done when the snapshot test `scan_json_stats` matches the new output.",
+          "Delete the unused `legacy_layout` module from planroom-server; done when `cargo clippy -- -D warnings` passes with no dead-code warnings.",
+          "Think about performance.",
+          "Make the app better.",
+          "Look into the flaky stuff people mentioned.",
+          "Improve things where needed.",
+          "Keep going on the plan.",
+          "Refactor the store module to use prepared statements.",
+          "Make sure all the tests pass before Friday.",
+          "Add caching to planroom-decide so rescans get faster; check the rescan benchmark afterwards.",
+          "Fix the bug in the canvas that Sam reported.",
+          "Port the Go extractor to tree-sitter; it is done when the Go fixture graph matches TRUTH.json."
+        ]
+      },
+      "questions": {
+        "ep1": {
+          "type": "boolean",
+          "instructions": "Is `items[0]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "ep2": {
+          "type": "boolean",
+          "instructions": "Is `items[1]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "ep3": {
+          "type": "boolean",
+          "instructions": "Is `items[2]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "ep4": {
+          "type": "boolean",
+          "instructions": "Is `items[3]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "ep5": {
+          "type": "boolean",
+          "instructions": "Is `items[4]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "en1": {
+          "type": "boolean",
+          "instructions": "Is `items[5]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "en2": {
+          "type": "boolean",
+          "instructions": "Is `items[6]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "en3": {
+          "type": "boolean",
+          "instructions": "Is `items[7]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "en4": {
+          "type": "boolean",
+          "instructions": "Is `items[8]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "en5": {
+          "type": "boolean",
+          "instructions": "Is `items[9]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "am1": {
+          "type": "boolean",
+          "instructions": "Is `items[10]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "am2": {
+          "type": "boolean",
+          "instructions": "Is `items[11]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "am3": {
+          "type": "boolean",
+          "instructions": "Is `items[12]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "am4": {
+          "type": "boolean",
+          "instructions": "Is `items[13]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        },
+        "am5": {
+          "type": "boolean",
+          "instructions": "Is `items[14]` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/v1/evaluate",
+      "x-vercel-id": "iad1::iad1::7n5dt-1792968983142-b510a95a4cbd"
+    },
+    "body": {
+      "answers": {
+        "ep1": {
+          "type": "boolean",
+          "probability": 0.98
+        },
+        "ep2": {
+          "type": "boolean",
+          "probability": 0.97
+        },
+        "ep3": {
+          "type": "boolean",
+          "probability": 0.92
+        },
+        "ep4": {
+          "type": "boolean",
+          "probability": 0.95
+        },
+        "ep5": {
+          "type": "boolean",
+          "probability": 0.98
+        },
+        "en1": {
+          "type": "boolean",
+          "probability": 0.02
+        },
+        "en2": {
+          "type": "boolean",
+          "probability": 0.02
+        },
+        "en3": {
+          "type": "boolean",
+          "probability": 0.03
+        },
+        "en4": {
+          "type": "boolean",
+          "probability": 0.02
+        },
+        "en5": {
+          "type": "boolean",
+          "probability": 0.11
+        },
+        "am1": {
+          "type": "boolean",
+          "probability": 0.29
+        },
+        "am2": {
+          "type": "boolean",
+          "probability": 0.35
+        },
+        "am3": {
+          "type": "boolean",
+          "probability": 0.14
+        },
+        "am4": {
+          "type": "boolean",
+          "probability": 0.92
+        },
+        "am5": {
+          "type": "boolean",
+          "probability": 0.9
+        }
+      },
+      "model": "typesafe-ai/jev-1.14.0",
+      "providerMetadata": {
+        "typesafe": {
+          "confidence": {}
+        },
+        "gateway": {
+          "routing": {
+            "originalModelId": "typesafe-ai/jev-1.14.0",
+            "resolvedProvider": "typesafe-ai",
+            "fallbacksAvailable": [],
+            "planningReasoning": "System credentials planned for: typesafe-ai. Total execution order: typesafe-ai(system)",
+            "canonicalSlug": "typesafe-ai/jev-1.14.0",
+            "finalProvider": "typesafe-ai",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "typesafe-ai/jev-1.14.0",
+                "success": true,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "typesafe-ai",
+                    "credentialType": "system",
+                    "success": true,
+                    "startTime": 1792968983206,
+                    "endTime": 1792968983293,
+                    "statusCode": 200
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1
+          },
+          "cost": "0.00008463",
+          "marketCost": "0.00008463",
+          "surchargeCost": "0",
+          "gatewayCost": "0.00008463",
+          "inferenceCost": "0.00008463",
+          "inputInferenceCost": "0.00008463",
+          "outputInferenceCost": "0",
+          "generationId": "gen_01M5TMF0MKDJTRCDNQ0DCBW0ZN"
+        }
+      },
+      "usage": {
+        "inputTokens": 2015,
+        "outputTokens": 259
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 297.4,
+    "provider_ms": 87,
+    "cost_usd": "0.00008463"
+  }
+}

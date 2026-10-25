@@ -1,0 +1,8 @@
+message = """
+Publish to npm when a version tag is pushed
+
+The release workflow checks the tag against package.json, tests, builds and
+runs npm publish.
+"""
+author = "Dev Patel <dev@acme.test>"
+date = "2026-08-06T14:20:00Z"

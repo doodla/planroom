@@ -1,0 +1,8 @@
+message = """
+Initial orders service
+
+Create and read orders over HTTP, persisted in Postgres. The lifecycle
+lives in internal/order as an explicit transitions table.
+"""
+author = "Bob Okafor <bob@acme.test>"
+date = "2026-08-03T09:12:00Z"

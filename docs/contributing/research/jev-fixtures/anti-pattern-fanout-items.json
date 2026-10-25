@@ -1,0 +1,433 @@
+{
+  "scenario": "anti-pattern-fanout-items",
+  "source": "live",
+  "captured_at": "2026-10-25T22:56:23+00:00",
+  "notes": "DON'T: 15 plan items in one state, one score question per items[i]. 2.8x fewer tokens than 15 single calls, but precise items scored up to 2.03 levels too vague. Batch questions about one item, not items per request.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev-1.14.0",
+      "state": {
+        "items": [
+          "Make it nicer.",
+          "Improve quality overall.",
+          "Be more scalable someday.",
+          "Fix things.",
+          "General cleanup as needed.",
+          "Add a `--json` flag to `planroom scan` in crates/planroom-cli; done when the scan_json snapshot test passes.",
+          "Set SQLite journal_mode=WAL in planroom-store's Store::open; done when `cargo test -p planroom-store wal_mode` passes.",
+          "Raise DecisionCard button height to 48px in web/canvas/src/DecisionCard.tsx; done when the 390x844 Playwright tap-target check passes.",
+          "Return JevError::RateLimited on HTTP 429 in crates/planroom-decide/src/jev.rs; done when the jev_429 contract test passes.",
+          "Remove legacy_layout.rs from planroom-server; done when clippy passes with -D warnings.",
+          "Add a decision cache to planroom-store keyed by state hash.",
+          "Make rescans cheaper.",
+          "Speed up the canvas so it loads in under a second.",
+          "Improve the Go extractor's accuracy.",
+          "Write docs for the CLI; done when a new user can follow them."
+        ]
+      },
+      "questions": {
+        "ep1": {
+          "type": "score",
+          "instructions": "How vague is `items[0]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "ep2": {
+          "type": "score",
+          "instructions": "How vague is `items[1]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "ep3": {
+          "type": "score",
+          "instructions": "How vague is `items[2]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "ep4": {
+          "type": "score",
+          "instructions": "How vague is `items[3]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "ep5": {
+          "type": "score",
+          "instructions": "How vague is `items[4]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "en1": {
+          "type": "score",
+          "instructions": "How vague is `items[5]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "en2": {
+          "type": "score",
+          "instructions": "How vague is `items[6]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "en3": {
+          "type": "score",
+          "instructions": "How vague is `items[7]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "en4": {
+          "type": "score",
+          "instructions": "How vague is `items[8]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "en5": {
+          "type": "score",
+          "instructions": "How vague is `items[9]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "am1": {
+          "type": "score",
+          "instructions": "How vague is `items[10]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "am2": {
+          "type": "score",
+          "instructions": "How vague is `items[11]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "am3": {
+          "type": "score",
+          "instructions": "How vague is `items[12]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "am4": {
+          "type": "score",
+          "instructions": "How vague is `items[13]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        },
+        "am5": {
+          "type": "score",
+          "instructions": "How vague is `items[14]`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/v1/evaluate",
+      "x-vercel-id": "iad1::iad1::ch5wf-1792968983477-df34b9e72953"
+    },
+    "body": {
+      "answers": {
+        "ep1": {
+          "type": "score",
+          "score": 2.97,
+          "probabilities": {
+            "0": 0,
+            "1": 0,
+            "2": 0.03,
+            "3": 0.97
+          },
+          "confidence": 0.97
+        },
+        "ep2": {
+          "type": "score",
+          "score": 2.63,
+          "probabilities": {
+            "0": 0,
+            "1": 0,
+            "2": 0.36,
+            "3": 0.64
+          },
+          "confidence": 0.64
+        },
+        "ep3": {
+          "type": "score",
+          "score": 2.74,
+          "probabilities": {
+            "0": 0,
+            "1": 0,
+            "2": 0.26,
+            "3": 0.74
+          },
+          "confidence": 0.74
+        },
+        "ep4": {
+          "type": "score",
+          "score": 2.88,
+          "probabilities": {
+            "0": 0,
+            "1": 0,
+            "2": 0.12,
+            "3": 0.88
+          },
+          "confidence": 0.88
+        },
+        "ep5": {
+          "type": "score",
+          "score": 2.78,
+          "probabilities": {
+            "0": 0,
+            "1": 0,
+            "2": 0.22,
+            "3": 0.78
+          },
+          "confidence": 0.78
+        },
+        "en1": {
+          "type": "score",
+          "score": 0.21,
+          "probabilities": {
+            "0": 0.91,
+            "1": 0.03,
+            "2": 0.02,
+            "3": 0.04
+          },
+          "confidence": 0.81
+        },
+        "en2": {
+          "type": "score",
+          "score": 0.92,
+          "probabilities": {
+            "0": 0.58,
+            "1": 0.06,
+            "2": 0.2,
+            "3": 0.16
+          },
+          "confidence": 0.06
+        },
+        "en3": {
+          "type": "score",
+          "score": 0.75,
+          "probabilities": {
+            "0": 0.56,
+            "1": 0.18,
+            "2": 0.21,
+            "3": 0.05
+          },
+          "confidence": 0.25
+        },
+        "en4": {
+          "type": "score",
+          "score": 2.03,
+          "probabilities": {
+            "0": 0.01,
+            "1": 0.08,
+            "2": 0.78,
+            "3": 0.13
+          },
+          "confidence": 0.77
+        },
+        "en5": {
+          "type": "score",
+          "score": 1.9,
+          "probabilities": {
+            "0": 0.04,
+            "1": 0.15,
+            "2": 0.68,
+            "3": 0.13
+          },
+          "confidence": 0.64
+        },
+        "am1": {
+          "type": "score",
+          "score": 1.47,
+          "probabilities": {
+            "0": 0.14,
+            "1": 0.3,
+            "2": 0.5,
+            "3": 0.06
+          },
+          "confidence": 0.36
+        },
+        "am2": {
+          "type": "score",
+          "score": 1.19,
+          "probabilities": {
+            "0": 0.22,
+            "1": 0.41,
+            "2": 0.32,
+            "3": 0.05
+          },
+          "confidence": 0.36
+        },
+        "am3": {
+          "type": "score",
+          "score": 1.22,
+          "probabilities": {
+            "0": 0.21,
+            "1": 0.39999999999999997,
+            "2": 0.34,
+            "3": 0.05
+          },
+          "confidence": 0.35
+        },
+        "am4": {
+          "type": "score",
+          "score": 1.33,
+          "probabilities": {
+            "0": 0.17,
+            "1": 0.39,
+            "2": 0.38,
+            "3": 0.06
+          },
+          "confidence": 0.33
+        },
+        "am5": {
+          "type": "score",
+          "score": 1.16,
+          "probabilities": {
+            "0": 0.16,
+            "1": 0.55,
+            "2": 0.27,
+            "3": 0.02
+          },
+          "confidence": 0.53
+        }
+      },
+      "model": "typesafe-ai/jev-1.14.0",
+      "providerMetadata": {
+        "typesafe": {
+          "confidence": {
+            "ep1": 0.97,
+            "ep2": 0.64,
+            "ep3": 0.74,
+            "ep4": 0.88,
+            "ep5": 0.78,
+            "en1": 0.81,
+            "en2": 0.06,
+            "en3": 0.25,
+            "en4": 0.77,
+            "en5": 0.64,
+            "am1": 0.36,
+            "am2": 0.36,
+            "am3": 0.35,
+            "am4": 0.33,
+            "am5": 0.53
+          }
+        },
+        "gateway": {
+          "routing": {
+            "originalModelId": "typesafe-ai/jev-1.14.0",
+            "resolvedProvider": "typesafe-ai",
+            "fallbacksAvailable": [],
+            "planningReasoning": "System credentials planned for: typesafe-ai. Total execution order: typesafe-ai(system)",
+            "canonicalSlug": "typesafe-ai/jev-1.14.0",
+            "finalProvider": "typesafe-ai",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "typesafe-ai/jev-1.14.0",
+                "success": true,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "typesafe-ai",
+                    "credentialType": "system",
+                    "success": true,
+                    "startTime": 1792968983550,
+                    "endTime": 1792968983641,
+                    "statusCode": 200
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1
+          },
+          "cost": "0.00008589",
+          "marketCost": "0.00008589",
+          "surchargeCost": "0",
+          "gatewayCost": "0.00008589",
+          "inferenceCost": "0.00008589",
+          "inputInferenceCost": "0.00008589",
+          "outputInferenceCost": "0",
+          "generationId": "gen_01M5TMF0YAFBR6KY8WX257JH6J"
+        }
+      },
+      "usage": {
+        "inputTokens": 2045,
+        "outputTokens": 214
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 371.2,
+    "provider_ms": 91,
+    "cost_usd": "0.00008589"
+  }
+}

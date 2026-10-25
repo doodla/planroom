@@ -1,0 +1,42 @@
+{
+  "scenario": "direct-error-bad-key",
+  "source": "live",
+  "captured_at": "2026-10-25T22:57:41+00:00",
+  "notes": "Direct API with an invalid key: 401 authentication_error.",
+  "request": {
+    "method": "POST",
+    "url": "https://api.typesafe.ai/v1/systemone",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <redacted invalid key>"
+    },
+    "body": {
+      "model": "jev-1.14.0",
+      "state": "x",
+      "questions": {
+        "q": {
+          "type": "noul",
+          "instructions": "x?"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "content-type": "application/json",
+      "x-typesafe-request-id": "req_01a17548b5c9798bad412236049d2eb4"
+    },
+    "body": {
+      "detail": {
+        "error_type": "authentication_error",
+        "message": "Cannot authenticate with the server. Please check your API key and try again."
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 384.1,
+    "provider_ms": null,
+    "cost_usd": null
+  }
+}

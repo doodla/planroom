@@ -1,0 +1,3 @@
+message = "Add OpenTelemetry traces and a jobs-processed counter"
+author = "Carol Diaz <carol@acme.test>"
+date = "2026-08-13T11:45:00Z"

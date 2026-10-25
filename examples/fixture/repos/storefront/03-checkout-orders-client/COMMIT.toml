@@ -1,0 +1,9 @@
+message = """
+Add checkout through the orders API
+
+Checkout posts the cart to POST /orders with a client generated from
+orders/api/openapi.yaml (npm run gen:orders-client). Money and order IDs
+now come from @acme/kit 1.0.0.
+"""
+author = "Alice Ng <alice@acme.test>"
+date = "2026-08-11T15:40:00Z"

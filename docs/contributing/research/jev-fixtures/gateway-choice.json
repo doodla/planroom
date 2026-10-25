@@ -1,0 +1,118 @@
+{
+  "scenario": "gateway-choice",
+  "source": "live",
+  "captured_at": "2026-10-25T22:54:54+00:00",
+  "notes": "Single choice question with 6 options. Answer has choice, probabilities, confidence; confidence is mirrored in providerMetadata.typesafe.confidence.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev-1.14.0",
+      "state": {
+        "path": "crates/planroom-decide/src/jev.rs",
+        "imports": [
+          "reqwest",
+          "serde_json",
+          "crate::policy::Threshold"
+        ]
+      },
+      "questions": {
+        "q": {
+          "type": "choice",
+          "instructions": "Which component does the file at `path` belong to? Use the path first, then the imports.",
+          "criteria": {
+            "planroom-store": "SQLite store: schema, migrations, WAL, event log, decision cache (crates/planroom-store)",
+            "planroom-extract": "Extractors that parse source files into graph nodes and edges (crates/planroom-extract-*)",
+            "planroom-decide": "Jev and Claude adapters and decision policy (crates/planroom-decide)",
+            "planroom-server": "Local HTTP server and websocket push to the canvas (crates/planroom-server)",
+            "planroom-cli": "The `planroom` command-line entry point and its subcommands (crates/planroom-cli)",
+            "canvas": "TypeScript React canvas web app (web/canvas)"
+          }
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/v1/evaluate",
+      "x-vercel-id": "iad1::iad1::4wp9t-1792968894213-837518ade63e"
+    },
+    "body": {
+      "answers": {
+        "q": {
+          "type": "choice",
+          "choice": "planroom-decide",
+          "probabilities": {
+            "planroom-store": 0,
+            "planroom-extract": 0,
+            "planroom-decide": 1,
+            "planroom-server": 0,
+            "planroom-cli": 0,
+            "canvas": 0
+          },
+          "confidence": 1
+        }
+      },
+      "model": "typesafe-ai/jev-1.14.0",
+      "providerMetadata": {
+        "typesafe": {
+          "confidence": {
+            "q": 1
+          }
+        },
+        "gateway": {
+          "routing": {
+            "originalModelId": "typesafe-ai/jev-1.14.0",
+            "resolvedProvider": "typesafe-ai",
+            "fallbacksAvailable": [],
+            "planningReasoning": "System credentials planned for: typesafe-ai. Total execution order: typesafe-ai(system)",
+            "canonicalSlug": "typesafe-ai/jev-1.14.0",
+            "finalProvider": "typesafe-ai",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "typesafe-ai/jev-1.14.0",
+                "success": true,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "typesafe-ai",
+                    "credentialType": "system",
+                    "success": true,
+                    "startTime": 1792968894222,
+                    "endTime": 1792968894277,
+                    "statusCode": 200
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1
+          },
+          "cost": "0.000022806",
+          "marketCost": "0.000022806",
+          "surchargeCost": "0",
+          "gatewayCost": "0.000022806",
+          "inferenceCost": "0.000022806",
+          "inputInferenceCost": "0.000022806",
+          "outputInferenceCost": "0",
+          "generationId": "gen_01M5TMC9QYXZSK7KB6P0VMJMJ5"
+        }
+      },
+      "usage": {
+        "inputTokens": 543,
+        "outputTokens": 81
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 245.8,
+    "provider_ms": 55,
+    "cost_usd": "0.000022806"
+  }
+}

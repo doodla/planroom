@@ -1,0 +1,8 @@
+message = """
+Pop fulfil jobs from order-jobs
+
+A first worker loop: BRPOP from the order-jobs list that the orders service
+LPUSHes onto, and book a shipment for each paid order.
+"""
+author = "Carol Diaz <carol@acme.test>"
+date = "2026-08-02T09:30:00Z"

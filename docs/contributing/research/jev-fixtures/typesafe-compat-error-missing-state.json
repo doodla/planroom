@@ -1,0 +1,57 @@
+{
+  "scenario": "typesafe-compat-error-missing-state",
+  "source": "live",
+  "captured_at": "2026-10-25T22:57:07+00:00",
+  "notes": "TypeSafe error shape.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/typesafe/v1/systemone",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev-1.14.0",
+      "questions": {
+        "concrete": {
+          "type": "noul",
+          "instructions": "Does `plan_item` name a change, a place, and a done-test?"
+        },
+        "component": {
+          "type": "choice",
+          "instructions": "Which component does `plan_item` change?",
+          "criteria": {
+            "planroom-cli": "command-line entry point",
+            "planroom-store": "SQLite store"
+          }
+        },
+        "vague": {
+          "type": "score",
+          "instructions": "How vague is `plan_item`?",
+          "criteria": [
+            "precise",
+            "somewhat vague",
+            "very vague"
+          ]
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/typesafe/v1/systemone",
+      "x-vercel-id": "iad1::iad1::2h4qh-1792969027696-84572ec236da"
+    },
+    "body": {
+      "message": "state: Invalid input",
+      "error_type": "invalid_request"
+    }
+  },
+  "measured": {
+    "wall_ms": 182.5,
+    "provider_ms": null,
+    "cost_usd": null
+  }
+}

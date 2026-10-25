@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "acme-worker"
+version = "0.7.0"
+description = "Acme Shop fulfilment worker: pops order-jobs from Redis and ships orders."
+requires-python = ">=3.12"
+dependencies = [
+    "redis==5.0.8",
+    "psycopg[binary]==3.2.2",
+    "opentelemetry-sdk==1.27.0",
+    "opentelemetry-exporter-otlp-proto-grpc==1.27.0",
+    "prometheus-client==0.21.0",
+]
+
+[project.scripts]
+acme-worker = "worker.main:main"
+
+[tool.setuptools]
+packages = ["worker"]

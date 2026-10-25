@@ -1,0 +1,98 @@
+{
+  "name": "error-messages-bad-tool-name-only-anthropic",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/messages",
+    "headers": {
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json"
+    },
+    "body": {
+      "model": "anthropic/claude-haiku-5.5",
+      "max_tokens": 20,
+      "tools": [
+        {
+          "name": "bad name!",
+          "description": "x",
+          "input_schema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": "hi"
+        }
+      ],
+      "providerOptions": {
+        "gateway": {
+          "only": [
+            "anthropic"
+          ]
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {},
+    "body": {
+      "error": {
+        "message": "tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'",
+        "type": "AI_APICallError",
+        "param": {
+          "error": "tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'",
+          "statusCode": 400,
+          "name": "AI_APICallError",
+          "message": "tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'",
+          "isRetryable": false,
+          "type": "AI_APICallError"
+        }
+      },
+      "providerMetadata": {
+        "gateway": {
+          "routing": {
+            "originalModelId": "anthropic/claude-haiku-5.5",
+            "resolvedProvider": "anthropic",
+            "fallbacksAvailable": [],
+            "canonicalSlug": "anthropic/claude-haiku-5.5",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "anthropic/claude-haiku-5.5",
+                "success": false,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "anthropic",
+                    "credentialType": "system",
+                    "success": false,
+                    "error": "tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'",
+                    "startTime": 1792969139758,
+                    "endTime": 1792969139916,
+                    "providerRequestId": "req_011CgPnTD4gLerKFt95h2mMv",
+                    "statusCode": 400
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1,
+            "affinity": {
+              "outcome": "skipped_below_min_prefix"
+            },
+            "clientSessionId": "fab2a796910b81bc05289dfd52273acc",
+            "clientSessionIdSource": "fingerprint"
+          },
+          "generationId": "gen_01M5TMKSFET65Z1JAVFR7Y18BD"
+        }
+      }
+    }
+  },
+  "measured": {
+    "ttfb_s": 0.468579,
+    "total_s": 0.482883,
+    "at": "2026-10-25T22:58:59Z"
+  }
+}

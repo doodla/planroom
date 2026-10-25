@@ -1,0 +1,4 @@
+message = "Write audit rows straight to orders-db"
+author = "Carol Diaz <carol@acme.test>"
+date = "2026-10-15T11:10:00Z"
+branch = "teammates"

@@ -1,0 +1,3 @@
+message = "Alert when the orders 5xx ratio is above 5%"
+author = "Bob Okafor <bob@acme.test>"
+date = "2026-09-05T16:10:00Z"

@@ -1,0 +1,140 @@
+{
+  "scenario": "typesafe-compat-jev-latest",
+  "source": "live",
+  "captured_at": "2026-10-25T22:57:07+00:00",
+  "notes": "jev-latest maps to the unpinned typesafe-ai/jev (routing shows fallbacksAvailable ['digitalocean']); response model echoes 'jev-latest', so no version is reported.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/typesafe/v1/systemone",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "jev-latest",
+      "state": {
+        "plan_item": "Add a `--json` flag to `planroom scan`; done when the scan_json snapshot test passes."
+      },
+      "questions": {
+        "concrete": {
+          "type": "noul",
+          "instructions": "Does `plan_item` name a change, a place, and a done-test?"
+        },
+        "component": {
+          "type": "choice",
+          "instructions": "Which component does `plan_item` change?",
+          "criteria": {
+            "planroom-cli": "command-line entry point",
+            "planroom-store": "SQLite store"
+          }
+        },
+        "vague": {
+          "type": "score",
+          "instructions": "How vague is `plan_item`?",
+          "criteria": [
+            "precise",
+            "somewhat vague",
+            "very vague"
+          ]
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/typesafe/v1/systemone",
+      "x-vercel-id": "iad1::iad1::tnlgp-1792969027190-07afcf1a9d0d"
+    },
+    "body": {
+      "model": "jev-latest",
+      "answers": {
+        "concrete": {
+          "type": "noul",
+          "noul": 0.87
+        },
+        "component": {
+          "type": "choice",
+          "choice": "planroom-cli",
+          "confidence": 1,
+          "probabilities": {
+            "planroom-cli": 1,
+            "planroom-store": 0
+          }
+        },
+        "vague": {
+          "type": "score",
+          "score": 0.33,
+          "confidence": 0.5,
+          "legend": {
+            "0": "precise",
+            "1": "somewhat vague",
+            "2": "very vague"
+          },
+          "probabilities": {
+            "0": 0.67,
+            "1": 0.33,
+            "2": 0
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 417,
+        "output_tokens": 72
+      },
+      "provider_metadata": {
+        "typesafe": {
+          "confidence": {
+            "component": 1,
+            "vague": 0.5
+          }
+        },
+        "gateway": {
+          "routing": {
+            "originalModelId": "typesafe-ai/jev",
+            "resolvedProvider": "typesafe-ai",
+            "fallbacksAvailable": [
+              "digitalocean"
+            ],
+            "planningReasoning": "System credentials planned for: typesafe-ai, digitalocean. Total execution order: typesafe-ai(system) \u2192 digitalocean(system)",
+            "canonicalSlug": "typesafe-ai/jev",
+            "finalProvider": "typesafe-ai",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "typesafe-ai/jev",
+                "success": true,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "typesafe-ai",
+                    "credentialType": "system",
+                    "success": true,
+                    "startTime": 1792969027257,
+                    "endTime": 1792969027313,
+                    "statusCode": 200
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1
+          },
+          "cost": "0.000017514",
+          "marketCost": "0.000017514",
+          "surchargeCost": "0",
+          "gatewayCost": "0.000017514",
+          "inferenceCost": "0.000017514",
+          "inputInferenceCost": "0.000017514",
+          "outputInferenceCost": "0",
+          "generationId": "gen_01M5TMGBMQCJ25WTKBWXP73Q5V"
+        }
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 276.7,
+    "provider_ms": 56,
+    "cost_usd": "0.000017514"
+  }
+}

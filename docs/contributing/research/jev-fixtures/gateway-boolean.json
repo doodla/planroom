@@ -1,0 +1,98 @@
+{
+  "scenario": "gateway-boolean",
+  "source": "live",
+  "captured_at": "2026-10-25T22:54:43+00:00",
+  "notes": "Single boolean question on /v1/evaluate. Answer is { type, probability }; providerMetadata.typesafe.confidence is {} for booleans.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev-1.14.0",
+      "state": {
+        "next_action": "Add a `decision_cache` table to planroom-store; done when `cargo test -p planroom-store cache_roundtrip` passes."
+      },
+      "questions": {
+        "q": {
+          "type": "boolean",
+          "instructions": "Is `next_action` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+          "criteria": {
+            "true": "All three are present: verb, named target, and done-test.",
+            "false": "At least one of the three is missing or only implied."
+          }
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/v1/evaluate",
+      "x-vercel-id": "iad1::iad1::g8mck-1792968883584-2be6f6ec1da3"
+    },
+    "body": {
+      "answers": {
+        "q": {
+          "type": "boolean",
+          "probability": 0.97
+        }
+      },
+      "model": "typesafe-ai/jev-1.14.0",
+      "providerMetadata": {
+        "typesafe": {
+          "confidence": {}
+        },
+        "gateway": {
+          "routing": {
+            "originalModelId": "typesafe-ai/jev-1.14.0",
+            "resolvedProvider": "typesafe-ai",
+            "fallbacksAvailable": [],
+            "planningReasoning": "System credentials planned for: typesafe-ai. Total execution order: typesafe-ai(system)",
+            "canonicalSlug": "typesafe-ai/jev-1.14.0",
+            "finalProvider": "typesafe-ai",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "typesafe-ai/jev-1.14.0",
+                "success": true,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "typesafe-ai",
+                    "credentialType": "system",
+                    "success": true,
+                    "startTime": 1792968883691,
+                    "endTime": 1792968883747,
+                    "statusCode": 200
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1
+          },
+          "cost": "0.000016422",
+          "marketCost": "0.000016422",
+          "surchargeCost": "0",
+          "gatewayCost": "0.000016422",
+          "inferenceCost": "0.000016422",
+          "inputInferenceCost": "0.000016422",
+          "outputInferenceCost": "0",
+          "generationId": "gen_01M5TMBZCKWWAH9Q5YS2GCNYMX"
+        }
+      },
+      "usage": {
+        "inputTokens": 391,
+        "outputTokens": 20
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 333.7,
+    "provider_ms": 56,
+    "cost_usd": "0.000016422"
+  }
+}

@@ -1,0 +1,9 @@
+message = """
+Accept a cancellation reason
+
+The cancel event takes an optional free-text reason, which is stored in the
+order's event log.
+"""
+author = "Bob Okafor <bob@acme.test>"
+date = "2026-09-12T11:30:00Z"
+branch = "feature/cancel-reasons"

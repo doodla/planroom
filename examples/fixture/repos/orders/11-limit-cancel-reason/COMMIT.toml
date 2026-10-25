@@ -1,0 +1,8 @@
+message = """
+Limit cancellation reason length to 200 characters
+
+Addresses review thread T1: longer reasons are rejected with 422.
+"""
+author = "Bob Okafor <bob@acme.test>"
+date = "2026-09-15T09:40:00Z"
+branch = "feature/cancel-reasons"

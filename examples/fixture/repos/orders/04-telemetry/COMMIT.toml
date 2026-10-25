@@ -1,0 +1,8 @@
+message = """
+Add OpenTelemetry traces and Prometheus metrics
+
+Traces go over OTLP to the collector; request count and latency are served
+on :9464 for Prometheus.
+"""
+author = "Bob Okafor <bob@acme.test>"
+date = "2026-08-18T16:40:00Z"

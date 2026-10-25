@@ -1,0 +1,7 @@
+message = """
+Queue paid orders for the worker
+
+Paid orders are pushed onto the order-jobs Redis list as fulfil jobs.
+"""
+author = "Bob Okafor <bob@acme.test>"
+date = "2026-08-07T14:30:00Z"

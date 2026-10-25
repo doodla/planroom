@@ -1,0 +1,8 @@
+# Feature flags for the storefront, read by src/app/flags.ts.
+flags:
+  gift_wrap:
+    enabled: false
+    description: Offer gift wrapping at checkout.
+  new_checkout:
+    enabled: true
+    description: One-page checkout that charges before creating the order.

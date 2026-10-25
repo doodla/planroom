@@ -1,0 +1,8 @@
+message = """
+Add feature flags and put one-page checkout behind new_checkout
+
+Flags live in flags.yaml. new_checkout is on; gift_wrap is off and unused
+for now.
+"""
+author = "Alice Ng <alice@acme.test>"
+date = "2026-09-01T10:45:00Z"

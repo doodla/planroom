@@ -1,0 +1,160 @@
+{
+  "scenario": "gateway-batched-5q",
+  "source": "live",
+  "captured_at": "2026-10-25T22:52:59+00:00",
+  "notes": "Five questions (3 boolean, 1 choice, 1 score) about one state. 550 input tokens versus 384 for one question: about 41 tokens per extra question.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev-1.14.0",
+      "state": {
+        "plan_item": {
+          "id": "P-12",
+          "title": "Cache Jev answers by state hash",
+          "next_action": "Add a decision_cache table to planroom-store; done when `cargo test -p planroom-store cache_hit` passes."
+        },
+        "components": [
+          "planroom-store",
+          "planroom-decide",
+          "planroom-cli"
+        ]
+      },
+      "questions": {
+        "concrete": {
+          "type": "boolean",
+          "instructions": "Does `plan_item.next_action` name a verb, a target component, and a test that shows it is done?"
+        },
+        "touches_store": {
+          "type": "boolean",
+          "instructions": "Does the next action change planroom-store?"
+        },
+        "component": {
+          "type": "choice",
+          "instructions": "Which component does the next action change?",
+          "criteria": {
+            "planroom-store": "the planroom-store crate",
+            "planroom-decide": "the planroom-decide crate",
+            "planroom-cli": "the planroom-cli crate"
+          }
+        },
+        "vague": {
+          "type": "score",
+          "instructions": "How vague is `plan_item.next_action`?",
+          "criteria": [
+            "precise",
+            "somewhat vague",
+            "very vague"
+          ]
+        },
+        "mentions_test": {
+          "type": "boolean",
+          "instructions": "Does the next action name a test command?"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/v1/evaluate",
+      "x-vercel-id": "iad1::iad1::rzwzv-1792968779244-f1a6dbcad0cd"
+    },
+    "body": {
+      "answers": {
+        "concrete": {
+          "type": "boolean",
+          "probability": 0.96
+        },
+        "touches_store": {
+          "type": "boolean",
+          "probability": 0.97
+        },
+        "component": {
+          "type": "choice",
+          "choice": "planroom-store",
+          "probabilities": {
+            "planroom-store": 1,
+            "planroom-decide": 0,
+            "planroom-cli": 0
+          },
+          "confidence": 1
+        },
+        "vague": {
+          "type": "score",
+          "score": 0.35,
+          "probabilities": {
+            "0": 0.66,
+            "1": 0.33,
+            "2": 0.01
+          },
+          "confidence": 0.47
+        },
+        "mentions_test": {
+          "type": "boolean",
+          "probability": 0.98
+        }
+      },
+      "model": "typesafe-ai/jev-1.14.0",
+      "providerMetadata": {
+        "typesafe": {
+          "confidence": {
+            "component": 1,
+            "vague": 0.47
+          }
+        },
+        "gateway": {
+          "routing": {
+            "originalModelId": "typesafe-ai/jev-1.14.0",
+            "resolvedProvider": "typesafe-ai",
+            "fallbacksAvailable": [],
+            "planningReasoning": "System credentials planned for: typesafe-ai. Total execution order: typesafe-ai(system)",
+            "canonicalSlug": "typesafe-ai/jev-1.14.0",
+            "finalProvider": "typesafe-ai",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "typesafe-ai/jev-1.14.0",
+                "success": true,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "typesafe-ai",
+                    "credentialType": "system",
+                    "success": true,
+                    "startTime": 1792968779259,
+                    "endTime": 1792968779328,
+                    "statusCode": 200
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1
+          },
+          "cost": "0.0000231",
+          "marketCost": "0.0000231",
+          "surchargeCost": "0",
+          "gatewayCost": "0.0000231",
+          "inferenceCost": "0.0000231",
+          "inputInferenceCost": "0.0000231",
+          "outputInferenceCost": "0",
+          "generationId": "gen_01M5TM8SFAT8SKPQFS7CTWRVJ9"
+        }
+      },
+      "usage": {
+        "inputTokens": 550,
+        "outputTokens": 119
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 282.2,
+    "provider_ms": 69,
+    "cost_usd": "0.0000231"
+  }
+}

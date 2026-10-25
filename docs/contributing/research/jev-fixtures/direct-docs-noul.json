@@ -1,0 +1,42 @@
+{
+  "scenario": "direct-docs-noul",
+  "source": "docs: https://api.typesafe.ai/openapi.json (examples), fetched 2026-10-25",
+  "notes": "Built from the OpenAPI examples; not a live capture (TYPESAFE_API_KEY not set). Docs examples use jev-latest; per docs the live response 'model' is the versioned id that answered.",
+  "request": {
+    "method": "POST",
+    "url": "https://api.typesafe.ai/v1/systemone",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer <TYPESAFE_API_KEY>"
+    },
+    "body": {
+      "model": "jev-latest",
+      "state": "I was charged twice for my subscription this month. Please refund the extra charge.",
+      "questions": {
+        "billing": {
+          "type": "noul",
+          "instructions": "Is this message about billing?"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "model": "jev-latest",
+      "answers": {
+        "billing": {
+          "type": "noul",
+          "noul": 0.98
+        }
+      },
+      "usage": {
+        "input_tokens": 120,
+        "output_tokens": 12
+      }
+    }
+  }
+}

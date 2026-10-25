@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""Build the Planroom test fixture: fresh git repos from fixture/repos/.
+
+Usage: build-fixture [--fixture DIR] <out-dir>
+
+Each fixture/repos/<repo>/ holds ordered commit overlays named NN-slug/, each
+with a COMMIT.toml and an optional tree/ of files to add or overwrite (see
+examples/README.md, "History format"). The script makes <out-dir>/<repo>/ for
+every repo, applies the steps in name order, and prints a JSON map of each
+repo's branch heads: {"repo": {"branch": "sha"}}.
+
+The output is deterministic: author and committer identities and dates come
+from COMMIT.toml, TZ is UTC, signing and hooks are off, every file is written
+with mode 0644 under umask 022, core.autocrlf is false, files are added in
+sorted order, and tags are annotated with the tagger pinned to the commit's
+author and date. The same fixture always gives the same commit IDs.
+
+Standard library only; needs Python 3.11+ (tomllib) and git.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
+
+if sys.version_info < (3, 11):
+    sys.exit("build-fixture: needs Python 3.11 or newer (for tomllib)")
+
+import tomllib  # after the version check on purpose
+
+PEOPLE = {
+    "Alice Ng <alice@acme.test>",
+    "Bob Okafor <bob@acme.test>",
+    "Carol Diaz <carol@acme.test>",
+    "Dev Patel <dev@acme.test>",
+}
+STEP_NAME = re.compile(r"^[0-9]{2}-[a-z0-9][a-z0-9.-]*$")
+REF_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+PERSON = re.compile(r"^(?P<name>[^<>]+?) <(?P<email>[^<>\s]+)>$")
+ALLOWED_KEYS = {"message", "author", "date", "tag", "branch", "delete"}
+FILE_MODE = 0o644
+MAIN = "main"
+
+
+class FixtureError(Exception):
+    """A malformed fixture step. The message names the step and the problem."""
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    here = Path(__file__).resolve().parent
+    p = argparse.ArgumentParser(
+        prog="build-fixture",
+        description="Build the fixture's git repos deterministically and print "
+        'their branch heads as JSON ({"repo": {"branch": "sha"}}).',
+    )
+    p.add_argument("out_dir", type=Path, help="directory to create the repos in (must be empty or absent)")
+    p.add_argument(
+        "--fixture",
+        type=Path,
+        default=here / "fixture" / "repos",
+        help="directory of repo histories (default: fixture/repos next to this script)",
+    )
+    return p.parse_args(argv)
+
+
+def load_step(step_dir: Path) -> dict:
+    where = f"{step_dir.parent.name}/{step_dir.name}"
+    if not STEP_NAME.match(step_dir.name):
+        raise FixtureError(f"{where}: step directory must be named NN-slug (lowercase)")
+    toml_path = step_dir / "COMMIT.toml"
+    if not toml_path.is_file():
+        raise FixtureError(f"{where}: missing COMMIT.toml")
+    try:
+        meta = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as e:
+        raise FixtureError(f"{where}/COMMIT.toml: invalid TOML: {e}") from None
+    unknown = set(meta) - ALLOWED_KEYS
+    if unknown:
+        raise FixtureError(f"{where}/COMMIT.toml: unknown keys {sorted(unknown)}; allowed: {sorted(ALLOWED_KEYS)}")
+
+    message = meta.get("message")
+    if not isinstance(message, str) or not message.strip():
+        raise FixtureError(f"{where}/COMMIT.toml: 'message' must be a non-empty string")
+    author = meta.get("author")
+    if author not in PEOPLE:
+        raise FixtureError(f"{where}/COMMIT.toml: 'author' must be one of {sorted(PEOPLE)}, got {author!r}")
+    date = meta.get("date")
+    if not isinstance(date, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", date):
+        raise FixtureError(f"{where}/COMMIT.toml: 'date' must be an RFC 3339 UTC string like 2026-08-01T09:00:00Z")
+    try:
+        when = datetime.strptime(date, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError as e:
+        raise FixtureError(f"{where}/COMMIT.toml: bad 'date': {e}") from None
+    tag = meta.get("tag")
+    if tag is not None and (not isinstance(tag, str) or not REF_NAME.match(tag)):
+        raise FixtureError(f"{where}/COMMIT.toml: 'tag' must be a valid ref name")
+    branch = meta.get("branch", MAIN)
+    if not isinstance(branch, str) or not REF_NAME.match(branch) or branch.endswith("/") or ".." in branch:
+        raise FixtureError(f"{where}/COMMIT.toml: 'branch' must be a valid branch name")
+    delete = meta.get("delete", [])
+    if not isinstance(delete, list) or not all(isinstance(d, str) for d in delete):
+        raise FixtureError(f"{where}/COMMIT.toml: 'delete' must be a list of repo-relative paths")
+    for d in delete:
+        check_rel(d, where)
+
+    tree = step_dir / "tree"
+    files: list[str] = []
+    if tree.exists():
+        if not tree.is_dir():
+            raise FixtureError(f"{where}: 'tree' must be a directory")
+        for f in sorted(tree.rglob("*")):
+            if f.is_symlink():
+                raise FixtureError(f"{where}: symlinks are not allowed ({f.relative_to(tree)})")
+            if f.is_file():
+                rel = f.relative_to(tree).as_posix()
+                check_rel(rel, where)
+                files.append(rel)
+    extra = sorted(p.name for p in step_dir.iterdir() if p.name not in {"COMMIT.toml", "tree"})
+    if extra:
+        raise FixtureError(f"{where}: unexpected entries {extra}; only COMMIT.toml and tree/ are allowed")
+    if not files and not delete:
+        raise FixtureError(f"{where}: step changes nothing (no tree/ files and no 'delete')")
+    overlap = set(files) & set(delete)
+    if overlap:
+        raise FixtureError(f"{where}: paths both added and deleted: {sorted(overlap)}")
+
+    m = PERSON.match(author)
+    assert m
+    return {
+        "where": where,
+        "dir": step_dir,
+        "message": message.strip() + "\n",
+        "name": m["name"],
+        "email": m["email"],
+        "date": when.strftime("%Y-%m-%dT%H:%M:%S+0000"),
+        "tag": tag,
+        "branch": branch,
+        "delete": sorted(delete),
+        "files": files,
+    }
+
+
+def check_rel(rel: str, where: str) -> None:
+    p = PurePosixPath(rel)
+    if p.is_absolute() or ".." in p.parts or not p.parts or p.parts[0] == ".git":
+        raise FixtureError(f"{where}: path {rel!r} must be repo-relative and stay inside the repo")
+
+
+class Repo:
+    def __init__(self, path: Path):
+        self.path = path
+        self.env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": str(path),  # no user config leaks in
+            "TZ": "UTC",
+            "LC_ALL": "C",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_TERMINAL_PROMPT": "0",
+        }
+
+    def git(self, *args: str, env: dict | None = None) -> str:
+        cmd = [
+            "git",
+            "-c", "commit.gpgsign=false",
+            "-c", "tag.gpgsign=false",
+            "-c", "core.hooksPath=" + os.devnull,
+            "-c", "core.autocrlf=false",
+            "-c", "core.fileMode=true",
+            "-c", "init.defaultBranch=" + MAIN,
+            *args,
+        ]
+        full_env = dict(self.env)
+        if env:
+            full_env.update(env)
+        r = subprocess.run(cmd, cwd=self.path, env=full_env, capture_output=True, text=True, check=False)
+        if r.returncode != 0:
+            raise FixtureError(f"git {' '.join(args)} failed in {self.path.name}: {r.stderr.strip() or r.stdout.strip()}")
+        return r.stdout.strip()
+
+    def branch_exists(self, name: str) -> bool:
+        r = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{name}"],
+            cwd=self.path, env=self.env, capture_output=True, text=True, check=False,
+        )
+        return r.returncode == 0
+
+
+def build_repo(name: str, src: Path, out: Path) -> dict[str, str]:
+    steps_dirs = sorted(p for p in src.iterdir() if p.is_dir())
+    if not steps_dirs:
+        raise FixtureError(f"{name}: no steps")
+    steps = [load_step(d) for d in steps_dirs]
+    numbers = [d.name[:2] for d in steps_dirs]
+    if len(set(numbers)) != len(numbers):
+        raise FixtureError(f"{name}: two steps share a number: {numbers}")
+
+    path = out / name
+    path.mkdir(parents=True)
+    repo = Repo(path)
+    repo.git("init", "-q", "-b", MAIN)
+    repo.git("config", "core.autocrlf", "false")
+    repo.git("config", "commit.gpgsign", "false")
+    repo.git("config", "core.hooksPath", os.devnull)
+
+    current = MAIN
+    has_main = False
+    seen_tags: set[str] = set()
+    for st in steps:
+        target = st["branch"]
+        if target == MAIN:
+            if current != MAIN:
+                repo.git("checkout", "-q", MAIN)
+        else:
+            if not has_main:
+                raise FixtureError(f"{st['where']}: branch {target!r} needs a main commit to start from")
+            if repo.branch_exists(target):
+                if current != target:
+                    repo.git("checkout", "-q", target)
+            else:
+                if current != MAIN:
+                    repo.git("checkout", "-q", MAIN)
+                repo.git("checkout", "-q", "-b", target)
+        current = target
+
+        for rel in st["delete"]:
+            if not (path / rel).exists():
+                raise FixtureError(f"{st['where']}: cannot delete {rel!r}: not in the tree")
+            repo.git("rm", "-q", "-r", "--", rel)
+        for rel in st["files"]:
+            dst = path / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if dst.is_dir():
+                raise FixtureError(f"{st['where']}: {rel!r} is a directory in the repo")
+            data = (st["dir"] / "tree" / rel).read_bytes()
+            dst.write_bytes(data)
+            os.chmod(dst, FILE_MODE)
+        if st["files"]:
+            repo.git("add", "--", *st["files"])
+        if not repo.git("status", "--porcelain"):
+            raise FixtureError(f"{st['where']}: step changes nothing relative to {target}")
+
+        who = {
+            "GIT_AUTHOR_NAME": st["name"],
+            "GIT_AUTHOR_EMAIL": st["email"],
+            "GIT_AUTHOR_DATE": st["date"],
+            "GIT_COMMITTER_NAME": st["name"],
+            "GIT_COMMITTER_EMAIL": st["email"],
+            "GIT_COMMITTER_DATE": st["date"],
+        }
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as fh:
+            fh.write(st["message"])
+            msg_file = fh.name
+        try:
+            repo.git("commit", "-q", "--no-verify", "--cleanup=verbatim", "-F", msg_file, env=who)
+        finally:
+            os.unlink(msg_file)
+        if target == MAIN:
+            has_main = True
+        if st["tag"]:
+            if st["tag"] in seen_tags:
+                raise FixtureError(f"{st['where']}: tag {st['tag']!r} already exists")
+            seen_tags.add(st["tag"])
+            repo.git("tag", "-a", st["tag"], "-m", f"{name} {st['tag']}", env=who)
+
+    if current != MAIN:
+        repo.git("checkout", "-q", MAIN)
+    heads = repo.git("for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads")
+    return dict(sorted(line.split(" ", 1) for line in heads.splitlines()))
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    os.umask(0o022)
+    fixture: Path = args.fixture
+    out: Path = args.out_dir
+    if not fixture.is_dir():
+        print(f"build-fixture: fixture directory not found: {fixture}", file=sys.stderr)
+        return 2
+    if shutil.which("git") is None:
+        print("build-fixture: git is not on PATH", file=sys.stderr)
+        return 2
+    if out.exists() and any(out.iterdir()):
+        print(f"build-fixture: output directory is not empty: {out}", file=sys.stderr)
+        return 2
+    out.mkdir(parents=True, exist_ok=True)
+
+    result: dict[str, dict[str, str]] = {}
+    repo_dirs = sorted(p for p in fixture.iterdir() if p.is_dir())
+    try:
+        # Validate every step first, so a malformed step fails before any repo is written.
+        for repo_dir in repo_dirs:
+            for step_dir in sorted(p for p in repo_dir.iterdir() if p.is_dir()):
+                load_step(step_dir)
+        for repo_dir in repo_dirs:
+            result[repo_dir.name] = build_repo(repo_dir.name, repo_dir, out)
+    except FixtureError as e:
+        print(f"build-fixture: {e}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

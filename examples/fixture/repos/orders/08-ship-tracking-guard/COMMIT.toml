@@ -1,0 +1,8 @@
+message = """
+Require a tracking number to ship, and document the lifecycle
+
+ship is now guarded by hasTrackingNumber, and the events endpoint accepts
+tracking_number. docs/order-lifecycle.md describes the state machine.
+"""
+author = "Bob Okafor <bob@acme.test>"
+date = "2026-09-05T13:20:00Z"

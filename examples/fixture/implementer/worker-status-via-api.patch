@@ -1,0 +1,286 @@
+diff --git a/README.md b/README.md
+index 1968ea7..7326306 100644
+--- a/README.md
++++ b/README.md
+@@ -2,15 +2,15 @@
+ 
+ The Acme Shop fulfilment worker. It pops `fulfil` jobs that the orders
+ service pushes onto the `order-jobs` Redis list, books a shipment, and moves
+-the order `paid -> fulfilling -> shipped`. It writes those state changes
+-straight into the orders database.
++the order `paid -> fulfilling -> shipped`. It reports each step to the
++orders API (`POST /orders/{id}/events`) and never writes the orders database.
+ 
+ ## Configuration
+ 
+ | Variable | Default | Meaning |
+ |---|---|---|
+ | `REDIS_URL` | (required) | Redis holding the `order-jobs` list. |
+-| `DATABASE_URL` | (required) | The orders Postgres database. |
++| `ORDERS_URL` | (required) | Base URL of the orders API, e.g. `http://orders:8080`. |
+ | `METRICS_PORT` | `9464` | Prometheus `/metrics` port (`worker_jobs_processed_total`). |
+ | `POP_TIMEOUT_SECONDS` | `5` | How long one `BRPOP` waits. |
+ | `OTEL_EXPORTER_OTLP_ENDPOINT` | | Where traces go. |
+diff --git a/pyproject.toml b/pyproject.toml
+index fb805fa..07c4cf9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -9,7 +9,6 @@ description = "Acme Shop fulfilment worker: pops order-jobs from Redis and ships
+ requires-python = ">=3.12"
+ dependencies = [
+     "redis==5.0.8",
+-    "psycopg[binary]==3.2.2",
+     "opentelemetry-sdk==1.27.0",
+     "opentelemetry-exporter-otlp-proto-grpc==1.27.0",
+     "prometheus-client==0.21.0",
+diff --git a/tests/test_jobs.py b/tests/test_jobs.py
+index 64569b4..7c2f797 100644
+--- a/tests/test_jobs.py
++++ b/tests/test_jobs.py
+@@ -4,23 +4,42 @@ from worker import jobs
+ from worker.config import Settings
+ from worker.consumer import Job
+ 
+-SETTINGS = Settings(redis_url="redis://unused", database_url="postgresql://unused")
++SETTINGS = Settings(redis_url="redis://unused", orders_url="http://orders.test")
+ JOB = Job(kind="fulfil", order_id="ord_1f2e3d4c5b6a7980")
+ 
+ 
+-def test_fulfil_moves_a_paid_order_to_shipped(monkeypatch):
+-    moves = []
+-    monkeypatch.setattr(jobs.db, "get_order_state", lambda url, oid: "paid")
+-    monkeypatch.setattr(jobs.db, "set_order_state", lambda url, oid, frm, to, **kw: moves.append((frm, to)))
++class FakeOrders:
++    """Stands in for OrdersClient and records the events the worker reports."""
++
++    def __init__(self, state: str) -> None:
++        self.state = state
++        self.events: list[tuple[str, dict[str, str]]] = []
++
++    def __call__(self, base_url: str) -> "FakeOrders":
++        assert base_url == SETTINGS.orders_url
++        return self
++
++    def get_order(self, order_id: str) -> dict[str, str]:
++        return {"id": order_id, "state": self.state}
++
++    def apply_event(self, order_id: str, event: str, **fields: str) -> dict[str, str]:
++        self.events.append((event, fields))
++        return {"id": order_id}
++
++
++def test_fulfil_reports_fulfil_then_ship(monkeypatch):
++    orders = FakeOrders("paid")
++    monkeypatch.setattr(jobs, "OrdersClient", orders)
+     monkeypatch.setattr(jobs, "book_shipment", lambda order_id: "1ZTEST")
+     assert jobs.handle(JOB, SETTINGS) == "shipped"
+-    assert moves == [("paid", "fulfilling"), ("fulfilling", "shipped")]
++    assert orders.events == [("fulfil", {}), ("ship", {"tracking_number": "1ZTEST"})]
+ 
+ 
+ def test_fulfil_skips_orders_that_are_no_longer_paid(monkeypatch):
+-    monkeypatch.setattr(jobs.db, "get_order_state", lambda url, oid: "cancelled")
+-    monkeypatch.setattr(jobs.db, "set_order_state", lambda *a, **kw: pytest.fail("must not write"))
++    orders = FakeOrders("cancelled")
++    monkeypatch.setattr(jobs, "OrdersClient", orders)
+     assert jobs.handle(JOB, SETTINGS) == "skipped"
++    assert orders.events == []
+ 
+ 
+ def test_unknown_kind_raises():
+diff --git a/worker/config.py b/worker/config.py
+index f157c92..73bcd52 100644
+--- a/worker/config.py
++++ b/worker/config.py
+@@ -9,20 +9,20 @@ from dataclasses import dataclass
+ @dataclass(frozen=True)
+ class Settings:
+     redis_url: str
+-    database_url: str
++    orders_url: str
+     metrics_port: int = 9464
+     pop_timeout_seconds: int = 5
+ 
+ 
+ def load(env: dict[str, str] | None = None) -> Settings:
+-    """Read settings. REDIS_URL and DATABASE_URL are required."""
++    """Read settings. REDIS_URL and ORDERS_URL are required."""
+     env = dict(os.environ if env is None else env)
+-    missing = [k for k in ("REDIS_URL", "DATABASE_URL") if not env.get(k)]
++    missing = [k for k in ("REDIS_URL", "ORDERS_URL") if not env.get(k)]
+     if missing:
+         raise RuntimeError(f"missing required environment variables: {', '.join(missing)}")
+     return Settings(
+         redis_url=env["REDIS_URL"],
+-        database_url=env["DATABASE_URL"],
++        orders_url=env["ORDERS_URL"],
+         metrics_port=int(env.get("METRICS_PORT", "9464")),
+         pop_timeout_seconds=int(env.get("POP_TIMEOUT_SECONDS", "5")),
+     )
+diff --git a/worker/db.py b/worker/db.py
+deleted file mode 100644
+index 047b80c..0000000
+--- a/worker/db.py
++++ /dev/null
+@@ -1,56 +0,0 @@
+-"""Order state, read and written straight in the orders database (orders-db).
+-
+-The orders service owns this schema (orders/migrations); the worker writes to
+-it directly to record fulfilment progress.
+-"""
+-
+-from __future__ import annotations
+-
+-import psycopg
+-
+-
+-class StaleOrderError(Exception):
+-    """The order was not in the state we expected, so nothing was written."""
+-
+-
+-_conn: psycopg.Connection | None = None
+-
+-
+-def connect(database_url: str) -> psycopg.Connection:
+-    global _conn
+-    if _conn is None or _conn.closed:
+-        _conn = psycopg.connect(database_url)
+-    return _conn
+-
+-
+-def get_order_state(database_url: str, order_id: str) -> str | None:
+-    with connect(database_url).cursor() as cur:
+-        cur.execute("SELECT state FROM orders WHERE id = %s", (order_id,))
+-        row = cur.fetchone()
+-    return row[0] if row else None
+-
+-
+-def set_order_state(
+-    database_url: str,
+-    order_id: str,
+-    from_state: str,
+-    to_state: str,
+-    *,
+-    tracking_number: str | None = None,
+-    detail: str = "",
+-) -> None:
+-    """Move an order from from_state to to_state and log it in order_events."""
+-    conn = connect(database_url)
+-    with conn.transaction(), conn.cursor() as cur:
+-        cur.execute(
+-            "UPDATE orders SET state = %s, tracking_number = COALESCE(%s, tracking_number), "
+-            "updated_at = now() WHERE id = %s AND state = %s",
+-            (to_state, tracking_number, order_id, from_state),
+-        )
+-        if cur.rowcount != 1:
+-            raise StaleOrderError(f"order {order_id} is not {from_state}")
+-        cur.execute(
+-            "INSERT INTO order_events (order_id, from_state, to_state, detail, at) "
+-            "VALUES (%s, %s, %s, %s, now())",
+-            (order_id, from_state, to_state, detail),
+-        )
+diff --git a/worker/jobs.py b/worker/jobs.py
+index 7b4f1f9..fa984b6 100644
+--- a/worker/jobs.py
++++ b/worker/jobs.py
+@@ -5,9 +5,9 @@ from __future__ import annotations
+ import logging
+ import secrets
+ 
+-from worker import db
+ from worker.config import Settings
+ from worker.consumer import Job
++from worker.orders_client import OrdersClient
+ 
+ log = logging.getLogger(__name__)
+ 
+@@ -23,21 +23,15 @@ def book_shipment(order_id: str) -> str:
+ 
+ 
+ def fulfil(job: Job, settings: Settings) -> str:
+-    """Pick, pack and ship a paid order: paid -> fulfilling -> shipped."""
+-    state = db.get_order_state(settings.database_url, job.order_id)
++    """Pick, pack and ship a paid order, reporting each step to the orders API."""
++    orders = OrdersClient(settings.orders_url)
++    state = orders.get_order(job.order_id).get("state")
+     if state != "paid":
+         log.info("skipping fulfil for %s: order is %s", job.order_id, state)
+         return "skipped"
+-    db.set_order_state(settings.database_url, job.order_id, "paid", "fulfilling")
++    orders.apply_event(job.order_id, "fulfil")
+     tracking = book_shipment(job.order_id)
+-    db.set_order_state(
+-        settings.database_url,
+-        job.order_id,
+-        "fulfilling",
+-        "shipped",
+-        tracking_number=tracking,
+-        detail=tracking,
+-    )
++    orders.apply_event(job.order_id, "ship", tracking_number=tracking)
+     return "shipped"
+ 
+ 
+diff --git a/worker/orders_client.py b/worker/orders_client.py
+new file mode 100644
+index 0000000..2ab9ecc
+--- /dev/null
++++ b/worker/orders_client.py
+@@ -0,0 +1,57 @@
++"""Client for the orders API, which the worker reports fulfilment through.
++
++The worker does not touch orders-db. State changes go through
++POST /orders/{id}/events (see orders/api/openapi.yaml), so the orders
++service enforces the lifecycle and its guards.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import urllib.error
++import urllib.parse
++import urllib.request
++from typing import Any
++
++DEFAULT_TIMEOUT_SECONDS = 5.0
++
++
++class OrdersApiError(Exception):
++    """The orders API answered with an error status."""
++
++    def __init__(self, status: int, detail: str) -> None:
++        super().__init__(f"orders API returned {status}: {detail}")
++        self.status = status
++        self.detail = detail
++
++
++class OrdersClient:
++    def __init__(self, base_url: str | None = None, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> None:
++        base_url = base_url or os.environ.get("ORDERS_URL")
++        if not base_url:
++            raise RuntimeError("ORDERS_URL is not set")
++        self._base = base_url.rstrip("/")
++        self._timeout = timeout
++
++    def get_order(self, order_id: str) -> dict[str, Any]:
++        """GET /orders/{id}"""
++        return self._request("GET", f"/orders/{urllib.parse.quote(order_id)}")
++
++    def apply_event(self, order_id: str, event: str, **fields: str) -> dict[str, Any]:
++        """POST /orders/{id}/events and return the order after the event."""
++        body = {"event": event, **fields}
++        return self._request("POST", f"/orders/{urllib.parse.quote(order_id)}/events", body)
++
++    def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
++        headers = {"Accept": "application/json"}
++        data = None
++        if body is not None:
++            data = json.dumps(body).encode("utf-8")
++            headers["Content-Type"] = "application/json"
++        req = urllib.request.Request(self._base + path, data=data, method=method, headers=headers)
++        try:
++            with urllib.request.urlopen(req, timeout=self._timeout) as res:
++                return json.load(res)
++        except urllib.error.HTTPError as e:
++            raise OrdersApiError(e.code, e.read().decode("utf-8", "replace")) from None

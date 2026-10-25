@@ -1,0 +1,128 @@
+{
+  "name": "error-messages-bad-image",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/messages",
+    "headers": {
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json"
+    },
+    "body": {
+      "model": "anthropic/claude-haiku-5.5",
+      "max_tokens": 20,
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "bm90YW5pbWFnZQ=="
+              }
+            },
+            {
+              "type": "text",
+              "text": "what is this"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {},
+    "body": {
+      "error": {
+        "message": "Could not process image",
+        "type": "AI_APICallError",
+        "param": {
+          "error": "Could not process image",
+          "statusCode": 400,
+          "name": "AI_APICallError",
+          "message": "Could not process image",
+          "isRetryable": false,
+          "type": "AI_APICallError"
+        }
+      },
+      "providerMetadata": {
+        "gateway": {
+          "routing": {
+            "originalModelId": "anthropic/claude-haiku-5.5",
+            "resolvedProvider": "anthropic",
+            "fallbacksAvailable": [
+              "bedrock",
+              "vertexAnthropic",
+              "claudeaws"
+            ],
+            "canonicalSlug": "anthropic/claude-haiku-5.5",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "anthropic/claude-haiku-5.5",
+                "success": false,
+                "providerAttemptCount": 4,
+                "providerAttempts": [
+                  {
+                    "provider": "anthropic",
+                    "credentialType": "system",
+                    "success": false,
+                    "error": "Could not process image",
+                    "startTime": 1792969127128,
+                    "endTime": 1792969127301,
+                    "providerRequestId": "req_011CgPnSH4FvBdjFFtVbeJHN",
+                    "statusCode": 400
+                  },
+                  {
+                    "provider": "bedrock",
+                    "credentialType": "system",
+                    "success": false,
+                    "error": "Could not process image",
+                    "startTime": 1792969127311,
+                    "endTime": 1792969127543,
+                    "providerRequestId": "d6e7d0d7-a3ae-45b5-9d8b-7f4e121bcb73",
+                    "statusCode": 400
+                  },
+                  {
+                    "provider": "vertexAnthropic",
+                    "credentialType": "system",
+                    "success": false,
+                    "error": "Could not process image",
+                    "startTime": 1792969127550,
+                    "endTime": 1792969127750,
+                    "providerRequestId": "req_vrtx_011CgPnSKFy1TQaFRH95K6q9",
+                    "statusCode": 400
+                  },
+                  {
+                    "provider": "claudeaws",
+                    "credentialType": "system",
+                    "success": false,
+                    "error": "Could not process image",
+                    "startTime": 1792969127756,
+                    "endTime": 1792969128018,
+                    "providerRequestId": "req_011CgPnSKsgNPsWwxTNUtUYp",
+                    "statusCode": 400
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 4,
+            "affinity": {
+              "outcome": "no_pin"
+            },
+            "clientSessionId": "3d3b1b72c240b6027a9dbc9c4bcb3a34",
+            "clientSessionIdSource": "fingerprint"
+          },
+          "generationId": "gen_01M5TMKD4Z3E35H0CDNBP0ZBM2"
+        }
+      }
+    }
+  },
+  "measured": {
+    "ttfb_s": 1.118315,
+    "total_s": 1.119405,
+    "at": "2026-10-25T22:58:48Z"
+  }
+}

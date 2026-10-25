@@ -1,0 +1,3 @@
+message = "Add a Dockerfile for the worker image"
+author = "Dev Patel <dev@acme.test>"
+date = "2026-08-08T10:15:00Z"

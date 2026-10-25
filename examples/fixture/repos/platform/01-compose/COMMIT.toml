@@ -1,0 +1,8 @@
+message = """
+Run Acme Shop with docker compose
+
+storefront 2.2.0, orders 1.4.0 and worker 0.8.0, with Redis and the orders
+Postgres database.
+"""
+author = "Dev Patel <dev@acme.test>"
+date = "2026-08-26T09:00:00Z"

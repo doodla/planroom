@@ -1,0 +1,175 @@
+{
+  "name": "structured-chatcompletions-haiku",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/chat/completions",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "model": "anthropic/claude-haiku-5.5",
+      "max_tokens": 200,
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "name": "grouping",
+          "strict": true,
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "group": {
+                "type": "string"
+              },
+              "members": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "confidence": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "group",
+              "members",
+              "confidence"
+            ]
+          }
+        }
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Group these modules into one named container: auth.rs, session.rs, token.rs."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "id": "gen_01M5TMHCER1RXZ5N2G0RA85CGN",
+      "object": "chat.completion",
+      "created": 1792969061,
+      "model": "anthropic/claude-haiku-5.5",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\"group\": \"auth\", \"members\": [\"auth.rs\", \"session.rs\", \"token.rs\"], \"confidence\": 0.8}",
+            "provider_metadata": {
+              "anthropic": {
+                "usage": {
+                  "input_tokens": 284,
+                  "output_tokens": 44,
+                  "output_tokens_details": {
+                    "thinking_tokens": 0
+                  },
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 0,
+                  "cache_creation": {
+                    "ephemeral_5m_input_tokens": 0,
+                    "ephemeral_1h_input_tokens": 0
+                  },
+                  "service_tier": "standard",
+                  "inference_geo": "global",
+                  "speed": "standard"
+                },
+                "cacheCreationInputTokens": 0,
+                "stopSequence": null,
+                "iterations": null,
+                "container": null,
+                "contextManagement": null
+              },
+              "gateway": {
+                "routing": {
+                  "originalModelId": "anthropic/claude-haiku-5.5",
+                  "resolvedProvider": "anthropic",
+                  "fallbacksAvailable": [
+                    "bedrock",
+                    "vertexAnthropic",
+                    "claudeaws"
+                  ],
+                  "planningReasoning": "System credentials planned for: anthropic, bedrock, vertexAnthropic, claudeaws. Total execution order: anthropic(system) \u2192 bedrock(system) \u2192 vertexAnthropic(system) \u2192 claudeaws(system)",
+                  "canonicalSlug": "anthropic/claude-haiku-5.5",
+                  "finalProvider": "anthropic",
+                  "modelAttemptCount": 1,
+                  "modelAttempts": [
+                    {
+                      "canonicalSlug": "anthropic/claude-haiku-5.5",
+                      "success": true,
+                      "providerAttemptCount": 1,
+                      "providerAttempts": [
+                        {
+                          "provider": "anthropic",
+                          "credentialType": "system",
+                          "success": true,
+                          "startTime": 1792969060847,
+                          "endTime": 1792969061748,
+                          "providerRequestId": "req_011CgPnMPeW9H4732jbe9wwr",
+                          "statusCode": 200,
+                          "providerResponseId": "msg_011CgPnMPxMJ9t3JVrdxtUm6"
+                        }
+                      ]
+                    }
+                  ],
+                  "totalProviderAttemptCount": 1,
+                  "affinity": {
+                    "outcome": "skipped_below_min_prefix"
+                  },
+                  "clientSessionId": "32fe3aee5ad8178f5d2f606a876c252c",
+                  "clientSessionIdSource": "fingerprint"
+                },
+                "cost": "0.0000504",
+                "marketCost": "0.0000504",
+                "surchargeCost": "0",
+                "gatewayCost": "0.0000504",
+                "inferenceCost": "0.0000504",
+                "inputInferenceCost": "0.0000284",
+                "outputInferenceCost": "0.000022",
+                "generationId": "gen_01M5TMHCER1RXZ5N2G0RA85CGN"
+              }
+            }
+          },
+          "logprobs": null,
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 284,
+        "completion_tokens": 44,
+        "total_tokens": 328,
+        "cost": 5.04e-05,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": null,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "market_cost": 5.04e-05,
+        "gateway_cost": 5.04e-05
+      },
+      "system_fingerprint": "fp_0xhf7u4dk3",
+      "generationId": "gen_01M5TMHCER1RXZ5N2G0RA85CGN"
+    }
+  },
+  "measured": {
+    "ttfb_s": 1.041193,
+    "total_s": 1.053512,
+    "at": "2026-10-25T22:57:41Z"
+  }
+}

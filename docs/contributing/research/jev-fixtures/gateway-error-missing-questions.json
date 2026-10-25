@@ -1,0 +1,38 @@
+{
+  "scenario": "gateway-error-missing-questions",
+  "source": "live",
+  "captured_at": "2026-10-25T22:56:46+00:00",
+  "notes": "400 invalid_request_error. Not billed.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev-1.14.0",
+      "state": "I was charged twice."
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/v1/evaluate",
+      "x-vercel-id": "iad1::iad1::2bgq6-1792969006125-ebc2f3489357"
+    },
+    "body": {
+      "error": {
+        "message": "questions: Invalid input: expected record, received undefined",
+        "param": null,
+        "type": "invalid_request_error"
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 180.0,
+    "provider_ms": null,
+    "cost_usd": null
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "format": "planroom.review-threads/v1",
+  "repo": "orders",
+  "pr": {
+    "number": 42,
+    "title": "Add cancellation reasons",
+    "author": "bob",
+    "base": "main",
+    "head": "feature/cancel-reasons",
+    "state": "open",
+    "body": "Lets customers and operators say why an order was cancelled.\n\n- `POST /orders/{id}/events` accepts an optional `reason` with the `cancel` event.\n- `order.CancelWithReason` cancels and records the reason on the order.\n- The reason is stored as the `detail` of the cancel row in `order_events`.\n\nNo migration needed."
+  },
+  "threads": [
+    {
+      "id": "T1",
+      "path": "internal/http/handlers.go",
+      "line": 99,
+      "commit_subject": "Accept a cancellation reason",
+      "resolved": false,
+      "comments": [
+        {
+          "author": "carol",
+          "at": "2026-09-14T10:02:00Z",
+          "body": "Can we cap the length of `reason`? Right now a client can send a megabyte of text and we'll write all of it into order_events. Something like 200 characters, rejected with a 422, would be plenty."
+        }
+      ]
+    },
+    {
+      "id": "T2",
+      "path": "api/openapi.yaml",
+      "line": 142,
+      "commit_subject": "Accept a cancellation reason",
+      "resolved": false,
+      "comments": [
+        {
+          "author": "alice",
+          "at": "2026-09-14T10:15:00Z",
+          "body": "Should `reason` be an enum (customer_request, out_of_stock, fraud, ...) instead of free text? The storefront could show a picker, and reporting would be much easier."
+        },
+        {
+          "author": "bob",
+          "at": "2026-09-14T16:40:00Z",
+          "body": "Good question, I'm not sure ops has a fixed list yet. Let's discuss."
+        }
+      ]
+    },
+    {
+      "id": "T3",
+      "path": "internal/order/lifecycle.go",
+      "line": 81,
+      "commit_subject": "Accept a cancellation reason",
+      "resolved": false,
+      "comments": [
+        {
+          "author": "carol",
+          "at": "2026-09-14T10:20:00Z",
+          "body": "If this cancels a paid order, does the customer get refunded automatically, or does someone have to do that by hand? I can't see anything here that triggers a refund."
+        }
+      ]
+    }
+  ]
+}

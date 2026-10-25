@@ -1,0 +1,3047 @@
+{
+  "name": "models-list-anthropic-subset",
+  "request": {
+    "method": "GET",
+    "url": "https://ai-gateway.vercel.sh/v1/models",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "object": "list",
+      "data": [
+        {
+          "id": "anthropic/claude-fable-5",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1782864000,
+          "owned_by": "anthropic",
+          "name": "Claude Fable 5",
+          "description": "Claude Fable 5 is a Mythos-class model with robust safeguards. It can handle long-running, complex, and asynchronous tasks where previous models would have needed more frequent check-ins.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "explicit-caching",
+            "file-input",
+            "vision",
+            "structured-output"
+          ],
+          "regions": [
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "knowledge": "2026-01-31",
+          "pricing": {
+            "input": "0.00001",
+            "output": "0.00005",
+            "input_cache_read": "0.000001",
+            "input_cache_write": "0.0000125",
+            "web_search": "10",
+            "regional": {
+              "us": {
+                "input": "0.000011",
+                "output": "0.000055",
+                "input_cache_read": "0.0000011",
+                "input_cache_write": "0.00001375"
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-fable-5-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1782864000,
+          "owned_by": "anthropic",
+          "name": "Claude Fable 5 (Batch)",
+          "description": "Claude Fable 5 is a Mythos-class model with robust safeguards. It can handle long-running, complex, and asynchronous tasks where previous models would have needed more frequent check-ins.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "explicit-caching",
+            "file-input",
+            "vision",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "knowledge": "2026-01-31",
+          "pricing": {
+            "input": "0.000005",
+            "output": "0.000025",
+            "input_cache_read": "0.0000005",
+            "input_cache_write": "0.00000625"
+          }
+        },
+        {
+          "id": "anthropic/claude-fable-5.1",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1788134400,
+          "owned_by": "anthropic",
+          "name": "Claude Fable 5.1",
+          "description": "Claude Fable 5.1 improves on Fable 5 across long-running agentic coding, knowledge work, and research, following instructions precisely over sessions that run unattended for hours.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "explicit-caching",
+            "file-input",
+            "vision",
+            "structured-output"
+          ],
+          "regions": [
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "knowledge": "2026-06",
+          "pricing": {
+            "input": "0.00001",
+            "output": "0.00005",
+            "input_cache_read": "0.00000025",
+            "input_cache_write": "0.0000125",
+            "web_search": "10",
+            "regional": {
+              "us": {
+                "input": "0.000011",
+                "output": "0.000055",
+                "input_cache_read": "0.000000275",
+                "input_cache_write": "0.00001375"
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-fable-5.1-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1788134400,
+          "owned_by": "anthropic",
+          "name": "Claude Fable 5.1 (Batch)",
+          "description": "Claude Fable 5.1 improves on Fable 5 across long-running agentic coding, knowledge work, and research, following instructions precisely over sessions that run unattended for hours.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "explicit-caching",
+            "file-input",
+            "vision",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "knowledge": "2026-06",
+          "pricing": {
+            "input": "0.000005",
+            "output": "0.000025",
+            "input_cache_read": "0.000000125",
+            "input_cache_write": "0.00000625"
+          }
+        },
+        {
+          "id": "anthropic/claude-haiku-4.5",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1760486400,
+          "owned_by": "anthropic",
+          "name": "Claude Haiku 4.5",
+          "description": "Claude Haiku 4.5 matches Sonnet 4's performance on coding, computer use, and agent tasks at substantially lower cost and faster speeds. It delivers near-frontier performance and Claude\u2019s unique character at a price point that works for scaled sub-agent deployments, free tier products, and intelligence-sensitive applications with budget constraints.",
+          "context_window": 200000,
+          "max_tokens": 64000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "explicit-caching",
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "web-search",
+            "structured-output"
+          ],
+          "regions": [
+            "eu",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "budget_tokens",
+              "min": 1024
+            }
+          ],
+          "knowledge": "2025-02-28",
+          "interleaved": true,
+          "pricing": {
+            "input": "0.000001",
+            "output": "0.000005",
+            "input_cache_read": "0.0000001",
+            "input_cache_write": "0.00000125",
+            "web_search": "10",
+            "regional": {
+              "eu": {
+                "input": "0.0000011",
+                "output": "0.0000055",
+                "input_cache_read": "0.00000011",
+                "input_cache_write": "0.000001375"
+              },
+              "us": {
+                "input": "0.0000011",
+                "output": "0.0000055",
+                "input_cache_read": "0.00000011",
+                "input_cache_write": "0.000001375"
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-haiku-4.5-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1760486400,
+          "owned_by": "anthropic",
+          "name": "Claude Haiku 4.5 (Batch)",
+          "description": "Claude Haiku 4.5 matches Sonnet 4's performance on coding, computer use, and agent tasks at substantially lower cost and faster speeds. It delivers near-frontier performance and Claude\u2019s unique character at a price point that works for scaled sub-agent deployments, free tier products, and intelligence-sensitive applications with budget constraints.",
+          "context_window": 200000,
+          "max_tokens": 64000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "explicit-caching",
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "budget_tokens",
+              "min": 1024
+            }
+          ],
+          "knowledge": "2025-02-28",
+          "interleaved": true,
+          "pricing": {
+            "input": "0.0000005",
+            "output": "0.0000025",
+            "input_cache_read": "0.00000005",
+            "input_cache_write": "0.000000625"
+          }
+        },
+        {
+          "id": "anthropic/claude-haiku-5.5",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1791331200,
+          "owned_by": "anthropic",
+          "name": "Claude Haiku 5.5",
+          "description": "Claude Haiku 5.5 brings adaptive reasoning to Anthropic\u2019s low-cost Haiku family for everyday tasks, tool use, and scaled sub-agent deployments. It is the first Haiku with adjustable effort levels, letting developers balance reasoning depth and token usage for each task, with the option to turn thinking off for simpler requests.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "explicit-caching",
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "web-search",
+            "structured-output"
+          ],
+          "regions": [
+            "au",
+            "eu",
+            "jp",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "pricing": {
+            "input": "0.0000001",
+            "input_tiers": [
+              {
+                "cost": "0.0000001",
+                "min": 0,
+                "max": 100001
+              },
+              {
+                "cost": "0.0000005",
+                "min": 100001
+              }
+            ],
+            "output": "0.0000005",
+            "output_tiers": [
+              {
+                "cost": "0.0000005",
+                "min": 0,
+                "max": 100001
+              },
+              {
+                "cost": "0.0000025",
+                "min": 100001
+              }
+            ],
+            "input_cache_read": "0.00000001",
+            "input_cache_read_tiers": [
+              {
+                "cost": "0.00000001",
+                "min": 0,
+                "max": 100001
+              },
+              {
+                "cost": "0.00000005",
+                "min": 100001
+              }
+            ],
+            "input_cache_write": "0.000000125",
+            "input_cache_write_tiers": [
+              {
+                "cost": "0.000000125",
+                "min": 0,
+                "max": 100001
+              },
+              {
+                "cost": "0.000000625",
+                "min": 100001
+              }
+            ],
+            "web_search": "10",
+            "regional": {
+              "au": {
+                "input": "0.00000011",
+                "input_tiers": [
+                  {
+                    "cost": "0.00000011",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.00000055",
+                    "min": 100001
+                  }
+                ],
+                "output": "0.00000055",
+                "output_tiers": [
+                  {
+                    "cost": "0.00000055",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.00000275",
+                    "min": 100001
+                  }
+                ],
+                "input_cache_read": "0.000000011",
+                "input_cache_read_tiers": [
+                  {
+                    "cost": "0.000000011",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.000000055",
+                    "min": 100001
+                  }
+                ],
+                "input_cache_write": "0.0000001375",
+                "input_cache_write_tiers": [
+                  {
+                    "cost": "0.0000001375",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.0000006875",
+                    "min": 100001
+                  }
+                ]
+              },
+              "eu": {
+                "input": "0.00000011",
+                "input_tiers": [
+                  {
+                    "cost": "0.00000011",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.00000055",
+                    "min": 100001
+                  }
+                ],
+                "output": "0.00000055",
+                "output_tiers": [
+                  {
+                    "cost": "0.00000055",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.00000275",
+                    "min": 100001
+                  }
+                ],
+                "input_cache_read": "0.000000011",
+                "input_cache_read_tiers": [
+                  {
+                    "cost": "0.000000011",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.000000055",
+                    "min": 100001
+                  }
+                ],
+                "input_cache_write": "0.0000001375",
+                "input_cache_write_tiers": [
+                  {
+                    "cost": "0.0000001375",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.0000006875",
+                    "min": 100001
+                  }
+                ]
+              },
+              "jp": {
+                "input": "0.00000011",
+                "input_tiers": [
+                  {
+                    "cost": "0.00000011",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.00000055",
+                    "min": 100001
+                  }
+                ],
+                "output": "0.00000055",
+                "output_tiers": [
+                  {
+                    "cost": "0.00000055",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.00000275",
+                    "min": 100001
+                  }
+                ],
+                "input_cache_read": "0.000000011",
+                "input_cache_read_tiers": [
+                  {
+                    "cost": "0.000000011",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.000000055",
+                    "min": 100001
+                  }
+                ],
+                "input_cache_write": "0.0000001375",
+                "input_cache_write_tiers": [
+                  {
+                    "cost": "0.0000001375",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.0000006875",
+                    "min": 100001
+                  }
+                ]
+              },
+              "us": {
+                "input": "0.00000011",
+                "input_tiers": [
+                  {
+                    "cost": "0.00000011",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.00000055",
+                    "min": 100001
+                  }
+                ],
+                "output": "0.00000055",
+                "output_tiers": [
+                  {
+                    "cost": "0.00000055",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.00000275",
+                    "min": 100001
+                  }
+                ],
+                "input_cache_read": "0.000000011",
+                "input_cache_read_tiers": [
+                  {
+                    "cost": "0.000000011",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.000000055",
+                    "min": 100001
+                  }
+                ],
+                "input_cache_write": "0.0000001375",
+                "input_cache_write_tiers": [
+                  {
+                    "cost": "0.0000001375",
+                    "min": 0,
+                    "max": 100001
+                  },
+                  {
+                    "cost": "0.0000006875",
+                    "min": 100001
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-haiku-5.5-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1791331200,
+          "owned_by": "anthropic",
+          "name": "Claude Haiku 5.5 (Batch)",
+          "description": "Claude Haiku 5.5 brings adaptive reasoning to Anthropic\u2019s low-cost Haiku family for everyday tasks, tool use, and scaled sub-agent deployments. It is the first Haiku with adjustable effort levels, letting developers balance reasoning depth and token usage for each task, with the option to turn thinking off for simpler requests.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "explicit-caching",
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "pricing": {
+            "input": "0.00000005",
+            "input_tiers": [
+              {
+                "cost": "0.00000005",
+                "min": 0,
+                "max": 100001
+              },
+              {
+                "cost": "0.00000025",
+                "min": 100001
+              }
+            ],
+            "output": "0.00000025",
+            "output_tiers": [
+              {
+                "cost": "0.00000025",
+                "min": 0,
+                "max": 100001
+              },
+              {
+                "cost": "0.00000125",
+                "min": 100001
+              }
+            ],
+            "input_cache_read": "0.000000005",
+            "input_cache_read_tiers": [
+              {
+                "cost": "0.000000005",
+                "min": 0,
+                "max": 100001
+              },
+              {
+                "cost": "0.000000025",
+                "min": 100001
+              }
+            ],
+            "input_cache_write": "0.0000000625",
+            "input_cache_write_tiers": [
+              {
+                "cost": "0.0000000625",
+                "min": 0,
+                "max": 100001
+              },
+              {
+                "cost": "0.0000003125",
+                "min": 100001
+              }
+            ]
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-4.5",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1763942400,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 4.5",
+          "description": "Claude Opus 4.5 is Anthropic\u2019s latest model in the Opus series, meant for demanding reasoning tasks and complex problem solving. This model has improvements in general intelligence and vision compared to previous iterations. In addition, it is suited for difficult coding tasks and agentic workflows, especially those with computer use and tool use, and can effectively handle context usage and external memory files.",
+          "context_window": 200000,
+          "max_tokens": 64000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "explicit-caching",
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "web-search",
+            "structured-output"
+          ],
+          "regions": [
+            "eu",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2025-05",
+          "interleaved": true,
+          "pricing": {
+            "input": "0.000005",
+            "output": "0.000025",
+            "input_cache_read": "0.0000005",
+            "input_cache_write": "0.00000625",
+            "web_search": "10",
+            "regional": {
+              "eu": {
+                "input": "0.0000055",
+                "output": "0.0000275",
+                "input_cache_read": "0.00000055",
+                "input_cache_write": "0.000006875"
+              },
+              "us": {
+                "input": "0.0000055",
+                "output": "0.0000275",
+                "input_cache_read": "0.00000055",
+                "input_cache_write": "0.000006875"
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-4.5-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1763942400,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 4.5 (Batch)",
+          "description": "Claude Opus 4.5 is Anthropic\u2019s latest model in the Opus series, meant for demanding reasoning tasks and complex problem solving. This model has improvements in general intelligence and vision compared to previous iterations. In addition, it is suited for difficult coding tasks and agentic workflows, especially those with computer use and tool use, and can effectively handle context usage and external memory files.",
+          "context_window": 200000,
+          "max_tokens": 64000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "explicit-caching",
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2025-05",
+          "interleaved": true,
+          "pricing": {
+            "input": "0.0000025",
+            "output": "0.0000125",
+            "input_cache_read": "0.00000025",
+            "input_cache_write": "0.000003125"
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-4.6",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1770249600,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 4.6",
+          "description": "Opus 4.6 is the world\u2019s best model for coding and professional work, built to power agents that take on whole categories of real-world work. It excels across the entire SDLC, breaking through on hard problems, identifying complex bugs, and demonstrating deeper codebase understanding. It also delivers a step-change in knowledge work, with near-production-ready documents, presentations, and spreadsheets on the first pass.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "tool-use",
+            "reasoning",
+            "vision",
+            "file-input",
+            "explicit-caching",
+            "web-search",
+            "structured-output"
+          ],
+          "regions": [
+            "eu",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2025-05-31",
+          "interleaved": true,
+          "pricing": {
+            "input": "0.000005",
+            "output": "0.000025",
+            "input_cache_read": "0.0000005",
+            "input_cache_write": "0.00000625",
+            "web_search": "10",
+            "regional": {
+              "eu": {
+                "input": "0.0000055",
+                "output": "0.0000275",
+                "input_cache_read": "0.00000055",
+                "input_cache_write": "0.000006875"
+              },
+              "us": {
+                "input": "0.0000055",
+                "output": "0.0000275",
+                "input_cache_read": "0.00000055",
+                "input_cache_write": "0.000006875",
+                "fast": {
+                  "input": "0.000033",
+                  "output": "0.000165",
+                  "input_cache_read": "0.0000033",
+                  "input_cache_write": "0.00004125"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-4.6-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1770249600,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 4.6 (Batch)",
+          "description": "Opus 4.6 is the world\u2019s best model for coding and professional work, built to power agents that take on whole categories of real-world work. It excels across the entire SDLC, breaking through on hard problems, identifying complex bugs, and demonstrating deeper codebase understanding. It also delivers a step-change in knowledge work, with near-production-ready documents, presentations, and spreadsheets on the first pass.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "tool-use",
+            "reasoning",
+            "vision",
+            "file-input",
+            "explicit-caching",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2025-05-31",
+          "interleaved": true,
+          "pricing": {
+            "input": "0.0000025",
+            "output": "0.0000125",
+            "input_cache_read": "0.00000025",
+            "input_cache_write": "0.000003125"
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-4.7",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1776297600,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 4.7",
+          "description": "Opus 4.7 builds on the coding and agentic strengths of Opus 4.6 with stronger performance on complex, multi-step tasks and more reliable agentic execution. It also brings improved performance on knowledge work, from drafting documents to building presentations and analyzing data.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "tool-use",
+            "reasoning",
+            "vision",
+            "file-input",
+            "explicit-caching",
+            "web-search",
+            "structured-output"
+          ],
+          "regions": [
+            "eu",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2026-01-31",
+          "pricing": {
+            "input": "0.000005",
+            "output": "0.000025",
+            "input_cache_read": "0.0000005",
+            "input_cache_write": "0.00000625",
+            "web_search": "10",
+            "regional": {
+              "eu": {
+                "input": "0.0000055",
+                "output": "0.0000275",
+                "input_cache_read": "0.00000055",
+                "input_cache_write": "0.000006875"
+              },
+              "us": {
+                "input": "0.0000055",
+                "output": "0.0000275",
+                "input_cache_read": "0.00000055",
+                "input_cache_write": "0.000006875",
+                "fast": {
+                  "input": "0.000033",
+                  "output": "0.000165",
+                  "input_cache_read": "0.0000033",
+                  "input_cache_write": "0.00004125"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-4.7-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1776297600,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 4.7 (Batch)",
+          "description": "Opus 4.7 builds on the coding and agentic strengths of Opus 4.6 with stronger performance on complex, multi-step tasks and more reliable agentic execution. It also brings improved performance on knowledge work, from drafting documents to building presentations and analyzing data.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "tool-use",
+            "reasoning",
+            "vision",
+            "file-input",
+            "explicit-caching",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2026-01-31",
+          "pricing": {
+            "input": "0.0000025",
+            "output": "0.0000125",
+            "input_cache_read": "0.00000025",
+            "input_cache_write": "0.000003125"
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-4.8",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1779926400,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 4.8",
+          "description": "Opus 4.8 is a focused upgrade to Opus 4.7 and is Anthropic's best generally available model for coding, agentic tasks, and enterprise workflows. It builds on the strengths of previous Opus models with stronger performance on complex, multi-step coding tasks. Anthropic recommends using it on long-horizon coding and agentic tasks. It is also stronger on professional work, including document drafting, data analysis, and presentations.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "tool-use",
+            "reasoning",
+            "vision",
+            "file-input",
+            "explicit-caching",
+            "web-search",
+            "fast",
+            "structured-output"
+          ],
+          "regions": [
+            "eu",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2026-01",
+          "pricing": {
+            "input": "0.000005",
+            "output": "0.000025",
+            "input_cache_read": "0.0000005",
+            "input_cache_write": "0.00000625",
+            "web_search": "10",
+            "fast": {
+              "input": "0.00001",
+              "output": "0.00005",
+              "input_cache_read": "0.000001",
+              "input_cache_write": "0.0000125"
+            },
+            "regional": {
+              "eu": {
+                "input": "0.0000055",
+                "output": "0.0000275",
+                "input_cache_read": "0.00000055",
+                "input_cache_write": "0.000006875"
+              },
+              "us": {
+                "input": "0.0000055",
+                "output": "0.0000275",
+                "input_cache_read": "0.00000055",
+                "input_cache_write": "0.000006875",
+                "fast": {
+                  "input": "0.000011",
+                  "output": "0.000055",
+                  "input_cache_read": "0.0000011",
+                  "input_cache_write": "0.00001375"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-4.8-fast",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1779926400,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 4.8 (Fast)",
+          "description": "Opus 4.8 is a focused upgrade to Opus 4.7 and is Anthropic's best generally available model for coding, agentic tasks, and enterprise workflows. It builds on the strengths of previous Opus models with stronger performance on complex, multi-step coding tasks. Anthropic recommends using it on long-horizon coding and agentic tasks. It is also stronger on professional work, including document drafting, data analysis, and presentations.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "tool-use",
+            "reasoning",
+            "vision",
+            "file-input",
+            "explicit-caching",
+            "web-search",
+            "fast",
+            "structured-output"
+          ],
+          "regions": [
+            "eu",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2026-01",
+          "pricing": {
+            "input": "0.00001",
+            "output": "0.00005",
+            "input_cache_read": "0.000001",
+            "input_cache_write": "0.0000125",
+            "web_search": "10",
+            "regional": {
+              "us": {
+                "input": "0.000011",
+                "output": "0.000055",
+                "input_cache_read": "0.0000011",
+                "input_cache_write": "0.00001375"
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-4.8-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1779926400,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 4.8 (Batch)",
+          "description": "Opus 4.8 is a focused upgrade to Opus 4.7 and is Anthropic's best generally available model for coding, agentic tasks, and enterprise workflows. It builds on the strengths of previous Opus models with stronger performance on complex, multi-step coding tasks. Anthropic recommends using it on long-horizon coding and agentic tasks. It is also stronger on professional work, including document drafting, data analysis, and presentations.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "tool-use",
+            "reasoning",
+            "vision",
+            "file-input",
+            "explicit-caching",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2026-01",
+          "pricing": {
+            "input": "0.0000025",
+            "output": "0.0000125",
+            "input_cache_read": "0.00000025",
+            "input_cache_write": "0.000003125"
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-5",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1784851200,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 5",
+          "description": "Claude Opus 5 is the latest model in Anthropic's Opus family and a step-change improvement over Opus 4.8. It delivers major gains over Opus 4.8 in agentic coding, professional knowledge work, and long-horizon reasoning, and it is stronger per token across effort levels.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "tool-use",
+            "reasoning",
+            "vision",
+            "file-input",
+            "explicit-caching",
+            "web-search",
+            "fast",
+            "structured-output"
+          ],
+          "regions": [
+            "au",
+            "eu",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2026-05",
+          "pricing": {
+            "input": "0.000005",
+            "output": "0.000025",
+            "input_cache_read": "0.0000005",
+            "input_cache_write": "0.00000625",
+            "web_search": "10",
+            "fast": {
+              "input": "0.00001",
+              "output": "0.00005",
+              "input_cache_read": "0.000001",
+              "input_cache_write": "0.0000125"
+            },
+            "regional": {
+              "au": {
+                "input": "0.0000055",
+                "output": "0.0000275",
+                "input_cache_read": "0.00000055",
+                "input_cache_write": "0.000006875"
+              },
+              "eu": {
+                "input": "0.0000055",
+                "output": "0.0000275",
+                "input_cache_read": "0.00000055",
+                "input_cache_write": "0.000006875"
+              },
+              "us": {
+                "input": "0.0000055",
+                "output": "0.0000275",
+                "input_cache_read": "0.00000055",
+                "input_cache_write": "0.000006875",
+                "fast": {
+                  "input": "0.000011",
+                  "output": "0.000055",
+                  "input_cache_read": "0.0000011",
+                  "input_cache_write": "0.00001375"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-5-fast",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1784851200,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 5 (Fast)",
+          "description": "Claude Opus 5 is the latest model in Anthropic's Opus family and a step-change improvement over Opus 4.8. It delivers major gains over Opus 4.8 in agentic coding, professional knowledge work, and long-horizon reasoning, and it is stronger per token across effort levels.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "tool-use",
+            "reasoning",
+            "vision",
+            "file-input",
+            "explicit-caching",
+            "web-search",
+            "fast",
+            "structured-output"
+          ],
+          "regions": [
+            "au",
+            "eu",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2026-05",
+          "pricing": {
+            "input": "0.00001",
+            "output": "0.00005",
+            "input_cache_read": "0.000001",
+            "input_cache_write": "0.0000125",
+            "web_search": "10",
+            "regional": {
+              "us": {
+                "input": "0.000011",
+                "output": "0.000055",
+                "input_cache_read": "0.0000011",
+                "input_cache_write": "0.00001375"
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-5-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1784851200,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 5 (Batch)",
+          "description": "Claude Opus 5 is the latest model in Anthropic's Opus family and a step-change improvement over Opus 4.8. It delivers major gains over Opus 4.8 in agentic coding, professional knowledge work, and long-horizon reasoning, and it is stronger per token across effort levels.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "tool-use",
+            "reasoning",
+            "vision",
+            "file-input",
+            "explicit-caching",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2026-05",
+          "pricing": {
+            "input": "0.0000025",
+            "output": "0.0000125",
+            "input_cache_read": "0.00000025",
+            "input_cache_write": "0.000003125"
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-5.5",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1790035200,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 5.5",
+          "description": "Claude Opus 5.5 is a step-change improvement over Opus 5 for agentic coding, long-running agentic tasks, knowledge work, communication, and vision. It is more token-efficient per completed task and reports progress, findings, and next steps in clear language.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "explicit-caching",
+            "fast",
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "web-search",
+            "structured-output"
+          ],
+          "regions": [
+            "au",
+            "eu",
+            "jp",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "knowledge": "2026-06",
+          "pricing": {
+            "input": "0.000004",
+            "output": "0.00002",
+            "input_cache_read": "0.0000002",
+            "input_cache_write": "0.000005",
+            "web_search": "10",
+            "fast": {
+              "input": "0.000008",
+              "output": "0.00004",
+              "input_cache_read": "0.0000004",
+              "input_cache_write": "0.00001"
+            },
+            "regional": {
+              "au": {
+                "input": "0.0000044",
+                "output": "0.000022",
+                "input_cache_read": "0.00000022",
+                "input_cache_write": "0.0000055"
+              },
+              "eu": {
+                "input": "0.0000044",
+                "output": "0.000022",
+                "input_cache_read": "0.00000022",
+                "input_cache_write": "0.0000055"
+              },
+              "jp": {
+                "input": "0.0000044",
+                "output": "0.000022",
+                "input_cache_read": "0.00000022",
+                "input_cache_write": "0.0000055"
+              },
+              "us": {
+                "input": "0.0000044",
+                "output": "0.000022",
+                "input_cache_read": "0.00000022",
+                "input_cache_write": "0.0000055",
+                "fast": {
+                  "input": "0.0000088",
+                  "output": "0.000044",
+                  "input_cache_read": "0.00000044",
+                  "input_cache_write": "0.000011"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-5.5-fast",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1790035200,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 5.5 (Fast)",
+          "description": "Claude Opus 5.5 is a step-change improvement over Opus 5 for agentic coding, long-running agentic tasks, knowledge work, communication, and vision. It is more token-efficient per completed task and reports progress, findings, and next steps in clear language.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "explicit-caching",
+            "fast",
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "web-search",
+            "structured-output"
+          ],
+          "regions": [
+            "au",
+            "eu",
+            "jp",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "knowledge": "2026-06",
+          "pricing": {
+            "input": "0.000008",
+            "output": "0.00004",
+            "input_cache_read": "0.0000004",
+            "input_cache_write": "0.00001",
+            "web_search": "10",
+            "regional": {
+              "us": {
+                "input": "0.0000088",
+                "output": "0.000044",
+                "input_cache_read": "0.00000044",
+                "input_cache_write": "0.000011"
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-5.5-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1790035200,
+          "owned_by": "anthropic",
+          "name": "Claude Opus 5.5 (Batch)",
+          "description": "Claude Opus 5.5 is a step-change improvement over Opus 5 for agentic coding, long-running agentic tasks, knowledge work, communication, and vision. It is more token-efficient per completed task and reports progress, findings, and next steps in clear language.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "explicit-caching",
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "knowledge": "2026-06",
+          "pricing": {
+            "input": "0.000002",
+            "output": "0.00001",
+            "input_cache_read": "0.0000001",
+            "input_cache_write": "0.0000025"
+          }
+        },
+        {
+          "id": "anthropic/claude-sonnet-4.5",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1759104000,
+          "owned_by": "anthropic",
+          "name": "Claude Sonnet 4.5",
+          "description": "Claude Sonnet 4.5 is the newest model in the Sonnet series, offering improvements and updates over Sonnet 4.",
+          "context_window": 1000000,
+          "max_tokens": 64000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "explicit-caching",
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "web-search",
+            "structured-output"
+          ],
+          "regions": [
+            "eu",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "budget_tokens",
+              "min": 1024
+            }
+          ],
+          "knowledge": "2025-07-31",
+          "pricing": {
+            "input": "0.000003",
+            "input_tiers": [
+              {
+                "cost": "0.000003",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.000006",
+                "min": 200001
+              }
+            ],
+            "output": "0.000015",
+            "output_tiers": [
+              {
+                "cost": "0.000015",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.0000225",
+                "min": 200001
+              }
+            ],
+            "input_cache_read": "0.0000003",
+            "input_cache_read_tiers": [
+              {
+                "cost": "0.0000003",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.0000006",
+                "min": 200001
+              }
+            ],
+            "input_cache_write": "0.00000375",
+            "input_cache_write_tiers": [
+              {
+                "cost": "0.00000375",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.0000075",
+                "min": 200001
+              }
+            ],
+            "web_search": "10",
+            "regional": {
+              "eu": {
+                "input": "0.0000033",
+                "input_tiers": [
+                  {
+                    "cost": "0.0000033",
+                    "min": 0,
+                    "max": 200001
+                  },
+                  {
+                    "cost": "0.0000066",
+                    "min": 200001
+                  }
+                ],
+                "output": "0.0000165",
+                "output_tiers": [
+                  {
+                    "cost": "0.0000165",
+                    "min": 0,
+                    "max": 200001
+                  },
+                  {
+                    "cost": "0.00002475",
+                    "min": 200001
+                  }
+                ],
+                "input_cache_read": "0.00000033",
+                "input_cache_read_tiers": [
+                  {
+                    "cost": "0.00000033",
+                    "min": 0,
+                    "max": 200001
+                  },
+                  {
+                    "cost": "0.00000066",
+                    "min": 200001
+                  }
+                ],
+                "input_cache_write": "0.000004125",
+                "input_cache_write_tiers": [
+                  {
+                    "cost": "0.000004125",
+                    "min": 0,
+                    "max": 200001
+                  },
+                  {
+                    "cost": "0.00000825",
+                    "min": 200001
+                  }
+                ]
+              },
+              "us": {
+                "input": "0.0000033",
+                "input_tiers": [
+                  {
+                    "cost": "0.0000033",
+                    "min": 0,
+                    "max": 200001
+                  },
+                  {
+                    "cost": "0.0000066",
+                    "min": 200001
+                  }
+                ],
+                "output": "0.0000165",
+                "output_tiers": [
+                  {
+                    "cost": "0.0000165",
+                    "min": 0,
+                    "max": 200001
+                  },
+                  {
+                    "cost": "0.00002475",
+                    "min": 200001
+                  }
+                ],
+                "input_cache_read": "0.00000033",
+                "input_cache_read_tiers": [
+                  {
+                    "cost": "0.00000033",
+                    "min": 0,
+                    "max": 200001
+                  },
+                  {
+                    "cost": "0.00000066",
+                    "min": 200001
+                  }
+                ],
+                "input_cache_write": "0.000004125",
+                "input_cache_write_tiers": [
+                  {
+                    "cost": "0.000004125",
+                    "min": 0,
+                    "max": 200001
+                  },
+                  {
+                    "cost": "0.00000825",
+                    "min": 200001
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-sonnet-4.5-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1759104000,
+          "owned_by": "anthropic",
+          "name": "Claude Sonnet 4.5 (Batch)",
+          "description": "Claude Sonnet 4.5 is the newest model in the Sonnet series, offering improvements and updates over Sonnet 4.",
+          "context_window": 1000000,
+          "max_tokens": 64000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "explicit-caching",
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "budget_tokens",
+              "min": 1024
+            }
+          ],
+          "knowledge": "2025-07-31",
+          "pricing": {
+            "input": "0.0000015",
+            "input_tiers": [
+              {
+                "cost": "0.0000015",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.000003",
+                "min": 200001
+              }
+            ],
+            "output": "0.0000075",
+            "output_tiers": [
+              {
+                "cost": "0.0000075",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.00001125",
+                "min": 200001
+              }
+            ],
+            "input_cache_read": "0.00000015",
+            "input_cache_read_tiers": [
+              {
+                "cost": "0.00000015",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.0000003",
+                "min": 200001
+              }
+            ],
+            "input_cache_write": "0.000001875",
+            "input_cache_write_tiers": [
+              {
+                "cost": "0.000001875",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.00000375",
+                "min": 200001
+              }
+            ]
+          }
+        },
+        {
+          "id": "anthropic/claude-sonnet-4.6",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1771286400,
+          "owned_by": "anthropic",
+          "name": "Claude Sonnet 4.6",
+          "description": "Claude Sonnet 4.6 is the most capable Sonnet-class model yet, with frontier performance across coding, agents, and professional work. It excels at iterative development, complex codebase navigation, end-to-end project management with memory, polished document creation, and confident computer use for web QA and workflow automation.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "explicit-caching",
+            "web-search",
+            "structured-output"
+          ],
+          "regions": [
+            "eu",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2025-08-31",
+          "interleaved": true,
+          "pricing": {
+            "input": "0.000003",
+            "output": "0.000015",
+            "input_cache_read": "0.0000003",
+            "input_cache_write": "0.00000375",
+            "web_search": "10",
+            "regional": {
+              "eu": {
+                "input": "0.0000033",
+                "output": "0.0000165",
+                "input_cache_read": "0.00000033",
+                "input_cache_write": "0.000004125"
+              },
+              "us": {
+                "input": "0.0000033",
+                "output": "0.0000165",
+                "input_cache_read": "0.00000033",
+                "input_cache_write": "0.000004125"
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-sonnet-4.6-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1771286400,
+          "owned_by": "anthropic",
+          "name": "Claude Sonnet 4.6 (Batch)",
+          "description": "Claude Sonnet 4.6 is the most capable Sonnet-class model yet, with frontier performance across coding, agents, and professional work. It excels at iterative development, complex codebase navigation, end-to-end project management with memory, polished document creation, and confident computer use for web QA and workflow automation.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "explicit-caching",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "temperature",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2025-08-31",
+          "interleaved": true,
+          "pricing": {
+            "input": "0.0000015",
+            "output": "0.0000075",
+            "input_cache_read": "0.00000015",
+            "input_cache_write": "0.000001875"
+          }
+        },
+        {
+          "id": "anthropic/claude-sonnet-5",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1782691200,
+          "owned_by": "anthropic",
+          "name": "Claude Sonnet 5",
+          "description": "Sonnet 5 is an upgrade to Sonnet 4.6, with gains across agentic coding and professional work. It builds on the strengths of previous Sonnet models, bringing top-tier intelligence at Sonnet pricing for coding, agents, and everyday professional work at scale.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "explicit-caching",
+            "file-input",
+            "vision",
+            "web-search",
+            "structured-output"
+          ],
+          "regions": [
+            "au",
+            "eu",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2026-01-31",
+          "pricing": {
+            "input": "0.000002",
+            "output": "0.00001",
+            "input_cache_read": "0.0000002",
+            "input_cache_write": "0.0000025",
+            "web_search": "10",
+            "regional": {
+              "au": {
+                "input": "0.0000022",
+                "output": "0.000011",
+                "input_cache_read": "0.00000022",
+                "input_cache_write": "0.00000275"
+              },
+              "eu": {
+                "input": "0.0000022",
+                "output": "0.000011",
+                "input_cache_read": "0.00000022",
+                "input_cache_write": "0.00000275"
+              },
+              "us": {
+                "input": "0.0000022",
+                "output": "0.000011",
+                "input_cache_read": "0.00000022",
+                "input_cache_write": "0.00000275"
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-sonnet-5-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1782691200,
+          "owned_by": "anthropic",
+          "name": "Claude Sonnet 5 (Batch)",
+          "description": "Sonnet 5 is an upgrade to Sonnet 4.6, with gains across agentic coding and professional work. It builds on the strengths of previous Sonnet models, bringing top-tier intelligence at Sonnet pricing for coding, agents, and everyday professional work at scale.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "explicit-caching",
+            "file-input",
+            "vision",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            },
+            {
+              "type": "budget_tokens"
+            }
+          ],
+          "knowledge": "2026-01-31",
+          "pricing": {
+            "input": "0.000001",
+            "output": "0.000005",
+            "input_cache_read": "0.0000001",
+            "input_cache_write": "0.00000125"
+          }
+        },
+        {
+          "id": "anthropic/claude-sonnet-5.5",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1790553600,
+          "owned_by": "anthropic",
+          "name": "Claude Sonnet 5.5",
+          "description": "Claude Sonnet 5.5 is a step-change improvement over Sonnet 5 for well-scoped everyday work like building features, fixing bugs, and creating polished documents, slides, and spreadsheets. It also writes more clearly than Sonnet 5.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "all",
+          "no_training": "all",
+          "tags": [
+            "explicit-caching",
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "web-search",
+            "structured-output"
+          ],
+          "regions": [
+            "au",
+            "eu",
+            "us"
+          ],
+          "supported_specifications": [
+            "v2",
+            "v3",
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "knowledge": "2026-06",
+          "pricing": {
+            "input": "0.000002",
+            "output": "0.00001",
+            "input_cache_read": "0.0000001",
+            "input_cache_write": "0.0000025",
+            "web_search": "10",
+            "regional": {
+              "au": {
+                "input": "0.0000022",
+                "output": "0.000011",
+                "input_cache_read": "0.00000011",
+                "input_cache_write": "0.00000275"
+              },
+              "eu": {
+                "input": "0.0000022",
+                "output": "0.000011",
+                "input_cache_read": "0.00000011",
+                "input_cache_write": "0.00000275"
+              },
+              "us": {
+                "input": "0.0000022",
+                "output": "0.000011",
+                "input_cache_read": "0.00000011",
+                "input_cache_write": "0.00000275"
+              }
+            }
+          }
+        },
+        {
+          "id": "anthropic/claude-sonnet-5.5-batch",
+          "object": "model",
+          "created": 1755815280,
+          "released": 1790553600,
+          "owned_by": "anthropic",
+          "name": "Claude Sonnet 5.5 (Batch)",
+          "description": "Claude Sonnet 5.5 is a step-change improvement over Sonnet 5 for well-scoped everyday work like building features, fixing bugs, and creating polished documents, slides, and spreadsheets. It also writes more clearly than Sonnet 5.",
+          "context_window": 1000000,
+          "max_tokens": 128000,
+          "type": "language",
+          "zdr": "none",
+          "no_training": "all",
+          "tags": [
+            "explicit-caching",
+            "file-input",
+            "reasoning",
+            "tool-use",
+            "vision",
+            "structured-output"
+          ],
+          "supported_specifications": [
+            "v4"
+          ],
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "supported_parameters": [
+            "max_tokens",
+            "stop",
+            "tools",
+            "tool_choice",
+            "reasoning",
+            "include_reasoning",
+            "response_format",
+            "structured_outputs"
+          ],
+          "temperature": false,
+          "reasoning_options": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "knowledge": "2026-06",
+          "pricing": {
+            "input": "0.000001",
+            "output": "0.000005",
+            "input_cache_read": "0.00000005",
+            "input_cache_write": "0.00000125"
+          }
+        }
+      ]
+    }
+  },
+  "measured": {
+    "note": "full list had 480 models; filtered to anthropic/* (31)"
+  }
+}

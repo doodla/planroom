@@ -1,0 +1,178 @@
+{
+  "name": "tool-messages-haiku",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/messages",
+    "headers": {
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json"
+    },
+    "body": {
+      "model": "anthropic/claude-haiku-5.5",
+      "max_tokens": 200,
+      "output_config": {
+        "effort": "low"
+      },
+      "tools": [
+        {
+          "name": "propose_group",
+          "description": "Propose a container grouping for modules.",
+          "strict": true,
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "group": {
+                "type": "string"
+              },
+              "members": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "confidence": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "group",
+              "members",
+              "confidence"
+            ]
+          }
+        }
+      ],
+      "tool_choice": {
+        "type": "auto"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Group these modules into one named container: auth.rs, session.rs, token.rs. Use the propose_group tool."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "id": "gen_01M5TMHDH1V7SZ03M1D88CJ3H0",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01ENaW23tApuvZ157GFPyRjM",
+          "name": "propose_group",
+          "input": {
+            "group": "auth",
+            "members": [
+              "auth.rs",
+              "session.rs",
+              "token.rs"
+            ],
+            "confidence": 0.9
+          }
+        }
+      ],
+      "model": "anthropic/claude-haiku-5.5",
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 460,
+        "output_tokens": 114,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "speed": "standard",
+        "service_tier": "standard",
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        }
+      },
+      "provider_metadata": {
+        "anthropic": {
+          "usage": {
+            "input_tokens": 460,
+            "output_tokens": 114,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            },
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "speed": "standard"
+          },
+          "cacheCreationInputTokens": 0,
+          "stopSequence": null,
+          "iterations": null,
+          "container": null,
+          "contextManagement": null
+        },
+        "gateway": {
+          "routing": {
+            "originalModelId": "anthropic/claude-haiku-5.5",
+            "resolvedProvider": "anthropic",
+            "fallbacksAvailable": [
+              "bedrock",
+              "vertexAnthropic",
+              "claudeaws"
+            ],
+            "planningReasoning": "System credentials planned for: anthropic, bedrock, vertexAnthropic, claudeaws. Total execution order: anthropic(system) \u2192 bedrock(system) \u2192 vertexAnthropic(system) \u2192 claudeaws(system)",
+            "canonicalSlug": "anthropic/claude-haiku-5.5",
+            "finalProvider": "anthropic",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "anthropic/claude-haiku-5.5",
+                "success": true,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "anthropic",
+                    "credentialType": "system",
+                    "success": true,
+                    "startTime": 1792969061951,
+                    "endTime": 1792969062686,
+                    "providerRequestId": "req_011CgPnMUPVtnk7dcovY8cqi",
+                    "statusCode": 200,
+                    "providerResponseId": "msg_011CgPnMUibuomuwk2oy2hKy"
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1,
+            "affinity": {
+              "outcome": "skipped_below_min_prefix"
+            },
+            "clientSessionId": "7c6a37ece4c81e2ae0f9587a09226a84",
+            "clientSessionIdSource": "fingerprint"
+          },
+          "cost": "0.000103",
+          "marketCost": "0.000103",
+          "surchargeCost": "0",
+          "gatewayCost": "0.000103",
+          "inferenceCost": "0.000103",
+          "inputInferenceCost": "0.000046",
+          "outputInferenceCost": "0.000057",
+          "generationId": "gen_01M5TMHDH1V7SZ03M1D88CJ3H0"
+        }
+      }
+    }
+  },
+  "measured": {
+    "ttfb_s": 0.880985,
+    "total_s": 0.88984,
+    "at": "2026-10-25T22:57:42Z"
+  }
+}

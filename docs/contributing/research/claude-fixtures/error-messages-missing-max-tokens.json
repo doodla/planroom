@@ -1,0 +1,36 @@
+{
+  "name": "error-messages-missing-max-tokens",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/messages",
+    "headers": {
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json"
+    },
+    "body": {
+      "model": "anthropic/claude-haiku-5.5",
+      "messages": [
+        {
+          "role": "user",
+          "content": "hi"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {},
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "invalid_request_error",
+        "message": "max_tokens: Invalid input: expected number, received undefined"
+      }
+    }
+  },
+  "measured": {
+    "ttfb_s": 0.112275,
+    "total_s": 0.113078,
+    "at": "2026-10-25T22:58:06Z"
+  }
+}

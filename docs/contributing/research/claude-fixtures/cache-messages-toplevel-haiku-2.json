@@ -1,0 +1,137 @@
+{
+  "name": "cache-messages-toplevel-haiku-2",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/messages",
+    "headers": {
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json"
+    },
+    "body": {
+      "model": "anthropic/claude-haiku-5.5",
+      "max_tokens": 60,
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "system": "[F] You are Planroom's grouping assistant. Reference catalogue follows.\nRule 001: Component svc-1 depends on store-1 via the grpc edge; it is owned by team-1 and reviewed weekly.\nRule 002: Component svc-2 depends on store-2 via the queue edge; it is owned by team-2 and reviewed weekly.\nRule 003: Component svc-3 depends on store-3 via the sqlite edge; it is owned by team-3 and reviewed weekly.\nRule 004: Component svc-4 depends on store-4 via the http edge; it is owned by team-4 and reviewed weekly.\nRule 005: Component svc-5 depends on store-5 via the grpc edge; it is owned by team-0 and reviewed weekly.\nRule 006: Component svc-6 depends on store-6 via the queue edge; it is owned by team-1 and reviewed weekly.\nRule 007: Component svc-7 depends on store-0 via the sqlite edge; it is owned by team-2 and reviewed weekly.\nRule 008: Component svc-8 depends on store-1 via the http edge; it is owned by team-3 and reviewed weekly.\nRule 009: Component svc-9 depends on store-2 via the grpc edge; it is owned by team-4 and reviewed weekly.\nRule 010: Component svc-10 depends on store-3 via the queue edge; it is owned by team-0 and reviewed weekly.\nRule 011: Component svc-11 depends on store-4 via the sqlite edge; it is owned by team-1 and reviewed weekly.\nRule 012: Component svc-12 depends on store-5 via the http edge; it is owned by team-2 and reviewed weekly.\nRule 013: Component svc-13 depends on store-6 via the grpc edge; it is owned by team-3 and reviewed weekly.\nRule 014: Component svc-14 depends on store-0 via the queue edge; it is owned by team-4 and reviewed weekly.\nRule 015: Component svc-15 depends on store-1 via the sqlite edge; it is owned by team-0 and reviewed weekly.\nRule 016: Component svc-16 depends on store-2 via the http edge; it is owned by team-1 and reviewed weekly.\nRule 017: Component svc-0 depends on store-3 via the grpc edge; it is owned by team-2 and reviewed weekly.\nRule 018: Component svc-1 depends on store-4 via the queue edge; it is owned by team-3 and reviewed weekly.\nRule 019: Component svc-2 depends on store-5 via the sqlite edge; it is owned by team-4 and reviewed weekly.\nRule 020: Component svc-3 depends on store-6 via the http edge; it is owned by team-0 and reviewed weekly.\nRule 021: Component svc-4 depends on store-0 via the grpc edge; it is owned by team-1 and reviewed weekly.\nRule 022: Component svc-5 depends on store-1 via the queue edge; it is owned by team-2 and reviewed weekly.\nRule 023: Component svc-6 depends on store-2 via the sqlite edge; it is owned by team-3 and reviewed weekly.\nRule 024: Component svc-7 depends on store-3 via the http edge; it is owned by team-4 and reviewed weekly.\nRule 025: Component svc-8 depends on store-4 via the grpc edge; it is owned by team-0 and reviewed weekly.\nRule 026: Component svc-9 depends on store-5 via the queue edge; it is owned by team-1 and reviewed weekly.\nRule 027: Component svc-10 depends on store-6 via the sqlite edge; it is owned by team-2 and reviewed weekly.\nRule 028: Component svc-11 depends on store-0 via the http edge; it is owned by team-3 and reviewed weekly.\nRule 029: Component svc-12 depends on store-1 via the grpc edge; it is owned by team-4 and reviewed weekly.\nRule 030: Component svc-13 depends on store-2 via the queue edge; it is owned by team-0 and reviewed weekly.\nRule 031: Component svc-14 depends on store-3 via the sqlite edge; it is owned by team-1 and reviewed weekly.\nRule 032: Component svc-15 depends on store-4 via the http edge; it is owned by team-2 and reviewed weekly.\nRule 033: Component svc-16 depends on store-5 via the grpc edge; it is owned by team-3 and reviewed weekly.\nRule 034: Component svc-0 depends on store-6 via the queue edge; it is owned by team-4 and reviewed weekly.\nRule 035: Component svc-1 depends on store-0 via the sqlite edge; it is owned by team-0 and reviewed weekly.\nRule 036: Component svc-2 depends on store-1 via the http edge; it is owned by team-1 and reviewed weekly.\nRule 037: Component svc-3 depends on store-2 via the grpc edge; it is owned by team-2 and reviewed weekly.\nRule 038: Component svc-4 depends on store-3 via the queue edge; it is owned by team-3 and reviewed weekly.\nRule 039: Component svc-5 depends on store-4 via the sqlite edge; it is owned by team-4 and reviewed weekly.\nRule 040: Component svc-6 depends on store-5 via the http edge; it is owned by team-0 and reviewed weekly.\nRule 041: Component svc-7 depends on store-6 via the grpc edge; it is owned by team-1 and reviewed weekly.\nRule 042: Component svc-8 depends on store-0 via the queue edge; it is owned by team-2 and reviewed weekly.\nRule 043: Component svc-9 depends on store-1 via the sqlite edge; it is owned by team-3 and reviewed weekly.\nRule 044: Component svc-10 depends on store-2 via the http edge; it is owned by team-4 and reviewed weekly.\nRule 045: Component svc-11 depends on store-3 via the grpc edge; it is owned by team-0 and reviewed weekly.\nRule 046: Component svc-12 depends on store-4 via the queue edge; it is owned by team-1 and reviewed weekly.\nRule 047: Component svc-13 depends on store-5 via the sqlite edge; it is owned by team-2 and reviewed weekly.\nRule 048: Component svc-14 depends on store-6 via the http edge; it is owned by team-3 and reviewed weekly.\nRule 049: Component svc-15 depends on store-0 via the grpc edge; it is owned by team-4 and reviewed weekly.\nRule 050: Component svc-16 depends on store-1 via the queue edge; it is owned by team-0 and reviewed weekly.\nRule 051: Component svc-0 depends on store-2 via the sqlite edge; it is owned by team-1 and reviewed weekly.\nRule 052: Component svc-1 depends on store-3 via the http edge; it is owned by team-2 and reviewed weekly.\nRule 053: Component svc-2 depends on store-4 via the grpc edge; it is owned by team-3 and reviewed weekly.\nRule 054: Component svc-3 depends on store-5 via the queue edge; it is owned by team-4 and reviewed weekly.\nRule 055: Component svc-4 depends on store-6 via the sqlite edge; it is owned by team-0 and reviewed weekly.\nRule 056: Component svc-5 depends on store-0 via the http edge; it is owned by team-1 and reviewed weekly.\nRule 057: Component svc-6 depends on store-1 via the grpc edge; it is owned by team-2 and reviewed weekly.\nRule 058: Component svc-7 depends on store-2 via the queue edge; it is owned by team-3 and reviewed weekly.\nRule 059: Component svc-8 depends on store-3 via the sqlite edge; it is owned by team-4 and reviewed weekly.\nRule 060: Component svc-9 depends on store-4 via the http edge; it is owned by team-0 and reviewed weekly.\nRule 061: Component svc-10 depends on store-5 via the grpc edge; it is owned by team-1 and reviewed weekly.\nRule 062: Component svc-11 depends on store-6 via the queue edge; it is owned by team-2 and reviewed weekly.\nRule 063: Component svc-12 depends on store-0 via the sqlite edge; it is owned by team-3 and reviewed weekly.\nRule 064: Component svc-13 depends on store-1 via the http edge; it is owned by team-4 and reviewed weekly.\nRule 065: Component svc-14 depends on store-2 via the grpc edge; it is owned by team-0 and reviewed weekly.\nRule 066: Component svc-15 depends on store-3 via the queue edge; it is owned by team-1 and reviewed weekly.\nRule 067: Component svc-16 depends on store-4 via the sqlite edge; it is owned by team-2 and reviewed weekly.\nRule 068: Component svc-0 depends on store-5 via the http edge; it is owned by team-3 and reviewed weekly.\nRule 069: Component svc-1 depends on store-6 via the grpc edge; it is owned by team-4 and reviewed weekly.\nRule 070: Component svc-2 depends on store-0 via the queue edge; it is owned by team-0 and reviewed weekly.\nRule 071: Component svc-3 depends on store-1 via the sqlite edge; it is owned by team-1 and reviewed weekly.\nRule 072: Component svc-4 depends on store-2 via the http edge; it is owned by team-2 and reviewed weekly.\nRule 073: Component svc-5 depends on store-3 via the grpc edge; it is owned by team-3 and reviewed weekly.\nRule 074: Component svc-6 depends on store-4 via the queue edge; it is owned by team-4 and reviewed weekly.\nRule 075: Component svc-7 depends on store-5 via the sqlite edge; it is owned by team-0 and reviewed weekly.\nRule 076: Component svc-8 depends on store-6 via the http edge; it is owned by team-1 and reviewed weekly.\nRule 077: Component svc-9 depends on store-0 via the grpc edge; it is owned by team-2 and reviewed weekly.\nRule 078: Component svc-10 depends on store-1 via the queue edge; it is owned by team-3 and reviewed weekly.\nRule 079: Component svc-11 depends on store-2 via the sqlite edge; it is owned by team-4 and reviewed weekly.\nRule 080: Component svc-12 depends on store-3 via the http edge; it is owned by team-0 and reviewed weekly.\nRule 081: Component svc-13 depends on store-4 via the grpc edge; it is owned by team-1 and reviewed weekly.\nRule 082: Component svc-14 depends on store-5 via the queue edge; it is owned by team-2 and reviewed weekly.\nRule 083: Component svc-15 depends on store-6 via the sqlite edge; it is owned by team-3 and reviewed weekly.\nRule 084: Component svc-16 depends on store-0 via the http edge; it is owned by team-4 and reviewed weekly.\nRule 085: Component svc-0 depends on store-1 via the grpc edge; it is owned by team-0 and reviewed weekly.\nRule 086: Component svc-1 depends on store-2 via the queue edge; it is owned by team-1 and reviewed weekly.\nRule 087: Component svc-2 depends on store-3 via the sqlite edge; it is owned by team-2 and reviewed weekly.\nRule 088: Component svc-3 depends on store-4 via the http edge; it is owned by team-3 and reviewed weekly.\nRule 089: Component svc-4 depends on store-5 via the grpc edge; it is owned by team-4 and reviewed weekly.\nRule 090: Component svc-5 depends on store-6 via the queue edge; it is owned by team-0 and reviewed weekly.\nRule 091: Component svc-6 depends on store-0 via the sqlite edge; it is owned by team-1 and reviewed weekly.\nRule 092: Component svc-7 depends on store-1 via the http edge; it is owned by team-2 and reviewed weekly.\nRule 093: Component svc-8 depends on store-2 via the grpc edge; it is owned by team-3 and reviewed weekly.\nRule 094: Component svc-9 depends on store-3 via the queue edge; it is owned by team-4 and reviewed weekly.\nRule 095: Component svc-10 depends on store-4 via the sqlite edge; it is owned by team-0 and reviewed weekly.\nRule 096: Component svc-11 depends on store-5 via the http edge; it is owned by team-1 and reviewed weekly.\nRule 097: Component svc-12 depends on store-6 via the grpc edge; it is owned by team-2 and reviewed weekly.\nRule 098: Component svc-13 depends on store-0 via the queue edge; it is owned by team-3 and reviewed weekly.\nRule 099: Component svc-14 depends on store-1 via the sqlite edge; it is owned by team-4 and reviewed weekly.\nRule 100: Component svc-15 depends on store-2 via the http edge; it is owned by team-0 and reviewed weekly.\nRule 101: Component svc-16 depends on store-3 via the grpc edge; it is owned by team-1 and reviewed weekly.\nRule 102: Component svc-0 depends on store-4 via the queue edge; it is owned by team-2 and reviewed weekly.\nRule 103: Component svc-1 depends on store-5 via the sqlite edge; it is owned by team-3 and reviewed weekly.\nRule 104: Component svc-2 depends on store-6 via the http edge; it is owned by team-4 and reviewed weekly.\nRule 105: Component svc-3 depends on store-0 via the grpc edge; it is owned by team-0 and reviewed weekly.\nRule 106: Component svc-4 depends on store-1 via the queue edge; it is owned by team-1 and reviewed weekly.\nRule 107: Component svc-5 depends on store-2 via the sqlite edge; it is owned by team-2 and reviewed weekly.\nRule 108: Component svc-6 depends on store-3 via the http edge; it is owned by team-3 and reviewed weekly.\nRule 109: Component svc-7 depends on store-4 via the grpc edge; it is owned by team-4 and reviewed weekly.\nRule 110: Component svc-8 depends on store-5 via the queue edge; it is owned by team-0 and reviewed weekly.",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Which store does svc-3 use in Rule 003? One word."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "id": "gen_01M5TMFM3H7S89MVGJQJP3QNH7",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "store-3"
+        }
+      ],
+      "model": "anthropic/claude-haiku-5.5",
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 4,
+        "output_tokens": 5,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5167,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "speed": "standard",
+        "service_tier": "standard",
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        }
+      },
+      "provider_metadata": {
+        "anthropic": {
+          "usage": {
+            "input_tokens": 4,
+            "output_tokens": 5,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 5167,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            },
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "speed": "standard"
+          },
+          "cacheCreationInputTokens": 0,
+          "stopSequence": null,
+          "iterations": null,
+          "container": null,
+          "contextManagement": null
+        },
+        "gateway": {
+          "routing": {
+            "originalModelId": "anthropic/claude-haiku-5.5",
+            "resolvedProvider": "anthropic",
+            "fallbacksAvailable": [
+              "bedrock",
+              "vertexAnthropic",
+              "claudeaws"
+            ],
+            "planningReasoning": "System credentials planned for: anthropic, bedrock, vertexAnthropic, claudeaws. Total execution order: anthropic(system) \u2192 bedrock(system) \u2192 vertexAnthropic(system) \u2192 claudeaws(system)",
+            "canonicalSlug": "anthropic/claude-haiku-5.5",
+            "finalProvider": "anthropic",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "anthropic/claude-haiku-5.5",
+                "success": true,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "anthropic",
+                    "credentialType": "system",
+                    "success": true,
+                    "startTime": 1792969003159,
+                    "endTime": 1792969003643,
+                    "providerRequestId": "req_011CgPnH92KTJvhabxNUvJi7",
+                    "statusCode": 200,
+                    "providerResponseId": "msg_011CgPnH9MQn18dewtEkBSyK"
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1,
+            "affinity": {
+              "outcome": "confirmed",
+              "pinnedProvider": "anthropic"
+            },
+            "clientSessionId": "9a71551f4e0eb51c87d1d013aecdec7d",
+            "clientSessionIdSource": "fingerprint"
+          },
+          "cost": "0.00005457",
+          "marketCost": "0.00005457",
+          "surchargeCost": "0",
+          "gatewayCost": "0.00005457",
+          "inferenceCost": "0.00005457",
+          "inputInferenceCost": "0.00005207",
+          "outputInferenceCost": "0.0000025",
+          "generationId": "gen_01M5TMFM3H7S89MVGJQJP3QNH7"
+        }
+      }
+    }
+  },
+  "measured": {
+    "ttfb_s": 0.639936,
+    "total_s": 0.649498,
+    "at": "2026-10-25T22:56:43Z"
+  }
+}

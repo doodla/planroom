@@ -1,0 +1,81 @@
+{
+  "scenario": "gateway-error-oversize-state",
+  "source": "live",
+  "captured_at": "2026-10-25T22:56:48+00:00",
+  "notes": "State over the 32k per-question context. The provider's 400 max_tokens_exceeded is wrapped as AI_APICallError with isRetryable false; no cost field, so not billed. State text omitted from the fixture.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev-1.14.0",
+      "state": "<omitted: 36000 space-separated words, 239,9xx chars, about 36k+ tokens>",
+      "questions": {
+        "q": {
+          "type": "boolean",
+          "instructions": "Is this about billing?"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "content-type": "application/json",
+      "x-matched-path": "/v1/evaluate",
+      "x-vercel-id": "iad1::iad1::7jdg4-1792969008040-d42873d1ada1"
+    },
+    "body": {
+      "error": {
+        "message": "{\"error_type\":\"max_tokens_exceeded\"}",
+        "type": "AI_APICallError",
+        "param": {
+          "error": "{\"error_type\":\"max_tokens_exceeded\"}",
+          "statusCode": 400,
+          "name": "AI_APICallError",
+          "message": "{\"error_type\":\"max_tokens_exceeded\"}",
+          "isRetryable": false,
+          "type": "AI_APICallError"
+        }
+      },
+      "providerMetadata": {
+        "gateway": {
+          "routing": {
+            "originalModelId": "typesafe-ai/jev-1.14.0",
+            "resolvedProvider": "typesafe-ai",
+            "fallbacksAvailable": [],
+            "canonicalSlug": "typesafe-ai/jev-1.14.0",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "typesafe-ai/jev-1.14.0",
+                "success": false,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "typesafe-ai",
+                    "credentialType": "system",
+                    "success": false,
+                    "error": "{\"error_type\":\"max_tokens_exceeded\"}",
+                    "startTime": 1792969008198,
+                    "endTime": 1792969008227,
+                    "statusCode": 400
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1
+          },
+          "generationId": "gen_01M5TMFS1HSM3X2RD9NB1AZVSR"
+        }
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 351.1,
+    "provider_ms": 29,
+    "cost_usd": null
+  }
+}

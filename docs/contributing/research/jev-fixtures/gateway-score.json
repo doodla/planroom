@@ -1,0 +1,109 @@
+{
+  "scenario": "gateway-score",
+  "source": "live",
+  "captured_at": "2026-10-25T22:55:14+00:00",
+  "notes": "Single score question, 4 levels. Answer has score (expected level), probabilities keyed '0'..'3', confidence. No legend on /v1/evaluate (the TypeSafe-compatible path adds one).",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev-1.14.0",
+      "state": {
+        "plan_item": "Speed up the canvas so it loads in under a second."
+      },
+      "questions": {
+        "q": {
+          "type": "score",
+          "instructions": "How vague is `plan_item`?",
+          "criteria": [
+            "precise: names the change, where it goes, and how to check it is done",
+            "mostly precise: one of change, place, or check is missing",
+            "vague: states a goal but not where or how to check it",
+            "very vague: a wish with no target and no check"
+          ]
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/v1/evaluate",
+      "x-vercel-id": "iad1::iad1::fp5t7-1792968914001-7d2bfb76d88d"
+    },
+    "body": {
+      "answers": {
+        "q": {
+          "type": "score",
+          "score": 1.21,
+          "probabilities": {
+            "0": 0.13,
+            "1": 0.54,
+            "2": 0.33,
+            "3": 0
+          },
+          "confidence": 0.54
+        }
+      },
+      "model": "typesafe-ai/jev-1.14.0",
+      "providerMetadata": {
+        "typesafe": {
+          "confidence": {
+            "q": 0.54
+          }
+        },
+        "gateway": {
+          "routing": {
+            "originalModelId": "typesafe-ai/jev-1.14.0",
+            "resolvedProvider": "typesafe-ai",
+            "fallbacksAvailable": [],
+            "planningReasoning": "System credentials planned for: typesafe-ai. Total execution order: typesafe-ai(system)",
+            "canonicalSlug": "typesafe-ai/jev-1.14.0",
+            "finalProvider": "typesafe-ai",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "typesafe-ai/jev-1.14.0",
+                "success": true,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "typesafe-ai",
+                    "credentialType": "system",
+                    "success": true,
+                    "startTime": 1792968914053,
+                    "endTime": 1792968914106,
+                    "statusCode": 200
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1
+          },
+          "cost": "0.00001575",
+          "marketCost": "0.00001575",
+          "surchargeCost": "0",
+          "gatewayCost": "0.00001575",
+          "inferenceCost": "0.00001575",
+          "inputInferenceCost": "0.00001575",
+          "outputInferenceCost": "0",
+          "generationId": "gen_01M5TMCX2WH1GXYRZDKVF9W312"
+        }
+      },
+      "usage": {
+        "inputTokens": 375,
+        "outputTokens": 17
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 275.7,
+    "provider_ms": 53,
+    "cost_usd": "0.00001575"
+  }
+}

@@ -1,0 +1,183 @@
+openapi: 3.0.3
+info:
+  title: Acme Orders API
+  version: "1"
+  description: Create orders and move them through their lifecycle.
+servers:
+  - url: http://orders:8080
+paths:
+  /orders:
+    post:
+      operationId: createOrder
+      summary: Create an order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: The new order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /orders/{id}:
+    get:
+      operationId: getOrder
+      summary: Get an order
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: The order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /orders/{id}/events:
+    post:
+      operationId: applyOrderEvent
+      summary: Apply a lifecycle event to an order
+      description: >-
+        Moves the order through one event of its lifecycle. Events the order's
+        current state does not allow, or whose guard fails, return 409.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderEvent'
+      responses:
+        '200':
+          description: The order after the event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+  /healthz:
+    get:
+      operationId: healthz
+      summary: Liveness and database check
+      responses:
+        '200':
+          description: The service and its database are up.
+        '503':
+          $ref: '#/components/responses/Problem'
+components:
+  parameters:
+    OrderId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^ord_[0-9a-f]{16}$'
+  responses:
+    Problem:
+      description: An error, as RFC 9457 problem details.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    CreateOrderRequest:
+      type: object
+      required: [customer_id, items]
+      properties:
+        customer_id:
+          type: string
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          default: USD
+        payment_ref:
+          type: string
+          description: Set when checkout has already charged the customer.
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Item'
+    Item:
+      type: object
+      required: [sku, quantity, price_cents]
+      properties:
+        sku:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        price_cents:
+          type: integer
+          format: int64
+    OrderState:
+      type: string
+      enum: [created, paid, payment_failed, fulfilling, shipped, delivered, cancelled, on_hold]
+    OrderEvent:
+      type: object
+      required: [event]
+      properties:
+        event:
+          type: string
+          enum: [pay, payment_fail, cancel, fulfil, ship, deliver, release]
+        tracking_number:
+          type: string
+          description: Required by ship.
+        reason:
+          type: string
+          description: Why the order is being cancelled. Free text, used by cancel.
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+        customer_id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Item'
+        total_cents:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        state:
+          $ref: '#/components/schemas/OrderState'
+        tracking_number:
+          type: string
+        cancel_reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Problem:
+      type: object
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string

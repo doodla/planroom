@@ -1,0 +1,189 @@
+{
+  "name": "tool-chatcompletions-haiku",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/chat/completions",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "model": "anthropic/claude-haiku-5.5",
+      "max_tokens": 200,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "propose_group",
+            "description": "Propose a container grouping for modules.",
+            "strict": true,
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "group": {
+                  "type": "string"
+                },
+                "members": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "confidence": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "group",
+                "members",
+                "confidence"
+              ]
+            }
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Group these modules into one named container: auth.rs, session.rs, token.rs. Use the propose_group tool."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "id": "gen_01M5TMHGK6DQ5HQGYEJ3P08RSX",
+      "object": "chat.completion",
+      "created": 1792969065,
+      "model": "anthropic/claude-haiku-5.5",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "toolu_01MVsiLbSNVw6CwrdzspgHHF",
+                "type": "function",
+                "function": {
+                  "name": "propose_group",
+                  "arguments": "{\"group\":\"auth\",\"members\":[\"auth.rs\",\"session.rs\",\"token.rs\"],\"confidence\":0.9}"
+                }
+              }
+            ],
+            "provider_metadata": {
+              "anthropic": {
+                "usage": {
+                  "input_tokens": 460,
+                  "output_tokens": 114,
+                  "output_tokens_details": {
+                    "thinking_tokens": 0
+                  },
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 0,
+                  "cache_creation": {
+                    "ephemeral_5m_input_tokens": 0,
+                    "ephemeral_1h_input_tokens": 0
+                  },
+                  "service_tier": "standard",
+                  "inference_geo": "global",
+                  "speed": "standard"
+                },
+                "cacheCreationInputTokens": 0,
+                "stopSequence": null,
+                "iterations": null,
+                "container": null,
+                "contextManagement": null
+              },
+              "gateway": {
+                "routing": {
+                  "originalModelId": "anthropic/claude-haiku-5.5",
+                  "resolvedProvider": "anthropic",
+                  "fallbacksAvailable": [
+                    "bedrock",
+                    "vertexAnthropic",
+                    "claudeaws"
+                  ],
+                  "planningReasoning": "System credentials planned for: anthropic, bedrock, vertexAnthropic, claudeaws. Total execution order: anthropic(system) \u2192 bedrock(system) \u2192 vertexAnthropic(system) \u2192 claudeaws(system)",
+                  "canonicalSlug": "anthropic/claude-haiku-5.5",
+                  "finalProvider": "anthropic",
+                  "modelAttemptCount": 1,
+                  "modelAttempts": [
+                    {
+                      "canonicalSlug": "anthropic/claude-haiku-5.5",
+                      "success": true,
+                      "providerAttemptCount": 1,
+                      "providerAttempts": [
+                        {
+                          "provider": "anthropic",
+                          "credentialType": "system",
+                          "success": true,
+                          "startTime": 1792969065086,
+                          "endTime": 1792969065817,
+                          "providerRequestId": "req_011CgPnMhptacCJ79Dpya5Kg",
+                          "statusCode": 200,
+                          "providerResponseId": "msg_011CgPnMi9yZZM35aQQSbdG8"
+                        }
+                      ]
+                    }
+                  ],
+                  "totalProviderAttemptCount": 1,
+                  "affinity": {
+                    "outcome": "skipped_below_min_prefix"
+                  },
+                  "clientSessionId": "7c6a37ece4c81e2ae0f9587a09226a84",
+                  "clientSessionIdSource": "fingerprint"
+                },
+                "cost": "0.000103",
+                "marketCost": "0.000103",
+                "surchargeCost": "0",
+                "gatewayCost": "0.000103",
+                "inferenceCost": "0.000103",
+                "inputInferenceCost": "0.000046",
+                "outputInferenceCost": "0.000057",
+                "generationId": "gen_01M5TMHGK6DQ5HQGYEJ3P08RSX"
+              }
+            }
+          },
+          "logprobs": null,
+          "finish_reason": "tool_calls"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 460,
+        "completion_tokens": 114,
+        "total_tokens": 574,
+        "cost": 0.000103,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": null,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "market_cost": 0.000103,
+        "gateway_cost": 0.000103
+      },
+      "system_fingerprint": "fp_mkr1d8581d",
+      "generationId": "gen_01M5TMHGK6DQ5HQGYEJ3P08RSX"
+    }
+  },
+  "measured": {
+    "ttfb_s": 0.874786,
+    "total_s": 0.884328,
+    "at": "2026-10-25T22:57:45Z"
+  }
+}

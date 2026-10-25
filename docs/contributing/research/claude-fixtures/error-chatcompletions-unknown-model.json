@@ -1,0 +1,38 @@
+{
+  "name": "error-chatcompletions-unknown-model",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/chat/completions",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "model": "anthropic/claude-nonexistent-9",
+      "max_tokens": 20,
+      "messages": [
+        {
+          "role": "user",
+          "content": "hi"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 404,
+    "headers": {},
+    "body": {
+      "error": {
+        "message": "Model 'anthropic/claude-nonexistent-9' not found",
+        "type": "model_not_found",
+        "param": {
+          "modelId": "anthropic/claude-nonexistent-9"
+        }
+      }
+    }
+  },
+  "measured": {
+    "ttfb_s": 0.125943,
+    "total_s": 0.126321,
+    "at": "2026-10-25T22:58:08Z"
+  }
+}

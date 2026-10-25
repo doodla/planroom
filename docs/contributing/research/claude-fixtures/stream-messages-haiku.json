@@ -1,0 +1,32 @@
+{
+  "name": "stream-messages-haiku",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/messages",
+    "headers": {
+      "content-type": "application/json",
+      "anthropic-version": "2023-06-01"
+    },
+    "body": {
+      "model": "anthropic/claude-haiku-5.5",
+      "max_tokens": 30,
+      "stream": true,
+      "output_config": {
+        "effort": "low"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count 1 to 5."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "text/event-stream"
+    },
+    "sse": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"gen_01M5TMK35D1G126N27PXKSQ4ND\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"anthropic/claude-haiku-5.5\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"1, 2, 3,\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" 4, 5\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":17,\"output_tokens\":15,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"speed\":\"standard\"},\"provider_metadata\":{\"anthropic\":{\"usage\":{\"input_tokens\":17,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":15,\"service_tier\":\"standard\",\"inference_geo\":\"global\",\"speed\":\"standard\",\"output_tokens_details\":{\"thinking_tokens\":0}},\"cacheCreationInputTokens\":0,\"stopSequence\":null,\"iterations\":null,\"container\":null,\"contextManagement\":null},\"gateway\":{\"routing\":{\"originalModelId\":\"anthropic/claude-haiku-5.5\",\"resolvedProvider\":\"anthropic\",\"fallbacksAvailable\":[\"bedrock\",\"vertexAnthropic\",\"claudeaws\"],\"planningReasoning\":\"System credentials planned for: anthropic, bedrock, vertexAnthropic, claudeaws. Total execution order: anthropic(system) \u2192 bedrock(system) \u2192 vertexAnthropic(system) \u2192 claudeaws(system)\",\"canonicalSlug\":\"anthropic/claude-haiku-5.5\",\"finalProvider\":\"anthropic\",\"modelAttemptCount\":1,\"modelAttempts\":[{\"canonicalSlug\":\"anthropic/claude-haiku-5.5\",\"success\":true,\"providerAttemptCount\":1,\"providerAttempts\":[{\"provider\":\"anthropic\",\"credentialType\":\"system\",\"success\":true,\"startTime\":1792969116893,\"endTime\":1792969117491,\"providerRequestId\":\"req_011CgPnRXHEpWPmaEfp7aKMK\",\"statusCode\":200,\"providerResponseId\":\"msg_011CgPnRXcafwcDkpWBEsb35\"}]}],\"totalProviderAttemptCount\":1,\"affinity\":{\"outcome\":\"skipped_below_min_prefix\"},\"clientSessionId\":\"53bab3c0c8e226f855215ee6a72cc90d\",\"clientSessionIdSource\":\"fingerprint\"},\"cost\":\"0.0000092\",\"marketCost\":\"0.0000092\",\"surchargeCost\":\"0\",\"gatewayCost\":\"0.0000092\",\"inferenceCost\":\"0.0000092\",\"inputInferenceCost\":\"0.0000017\",\"outputInferenceCost\":\"0.0000075\",\"generationId\":\"gen_01M5TMK35D1G126N27PXKSQ4ND\"}}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+  }
+}

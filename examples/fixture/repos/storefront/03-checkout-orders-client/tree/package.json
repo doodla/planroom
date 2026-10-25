@@ -1,0 +1,30 @@
+{
+  "name": "@acme/storefront",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "lint": "eslint src test",
+    "gen:orders-client": "openapi-typescript ../orders/api/openapi.yaml -o src/api/orders.schema.ts"
+  },
+  "dependencies": {
+    "@acme/kit": "1.0.0",
+    "express": "4.21.0"
+  },
+  "devDependencies": {
+    "@types/express": "4.17.21",
+    "@types/node": "22.5.5",
+    "eslint": "9.11.0",
+    "openapi-typescript": "7.4.1",
+    "tsx": "4.19.1",
+    "typescript": "5.6.2",
+    "vitest": "2.1.1"
+  }
+}

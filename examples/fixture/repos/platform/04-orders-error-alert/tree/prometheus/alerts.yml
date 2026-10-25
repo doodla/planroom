@@ -1,0 +1,16 @@
+groups:
+  - name: orders
+    rules:
+      - alert: OrdersHighErrorRate
+        expr: |
+          sum(rate(orders_http_requests_total{job="orders", code=~"5.."}[5m]))
+            /
+          sum(rate(orders_http_requests_total{job="orders"}[5m]))
+            > 0.05
+        for: 10m
+        labels:
+          severity: page
+          service: orders
+        annotations:
+          summary: More than 5% of orders API requests are failing.
+          description: The orders 5xx ratio has been {{ $value | humanizePercentage }} for 10 minutes.

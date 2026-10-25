@@ -1,0 +1,8 @@
+message = """
+Record fulfilment progress in the orders database
+
+Write paid -> fulfilling -> shipped straight into orders and order_events,
+so we don't wait on an orders API change.
+"""
+author = "Carol Diaz <carol@acme.test>"
+date = "2026-08-06T15:00:00Z"

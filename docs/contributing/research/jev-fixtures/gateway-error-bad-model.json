@@ -1,0 +1,45 @@
+{
+  "scenario": "gateway-error-bad-model",
+  "source": "live",
+  "captured_at": "2026-10-25T22:56:45+00:00",
+  "notes": "Unknown model id: 404 model_not_found, gateway error envelope. Not billed.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev-9.9.9",
+      "state": "I was charged twice.",
+      "questions": {
+        "q": {
+          "type": "boolean",
+          "instructions": "Is this about billing?"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "content-type": "application/json",
+      "x-matched-path": "/v1/evaluate",
+      "x-vercel-id": "iad1::iad1::2bgq6-1792969005718-cd2c4d85f6f7"
+    },
+    "body": {
+      "error": {
+        "message": "Model 'typesafe-ai/jev-9.9.9' not found",
+        "type": "model_not_found",
+        "param": {
+          "modelId": "typesafe-ai/jev-9.9.9"
+        }
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 326.6,
+    "provider_ms": null,
+    "cost_usd": null
+  }
+}

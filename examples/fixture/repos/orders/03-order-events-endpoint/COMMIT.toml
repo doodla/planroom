@@ -1,0 +1,3 @@
+message = "Add POST /orders/{id}/events to apply lifecycle events"
+author = "Bob Okafor <bob@acme.test>"
+date = "2026-08-12T10:05:00Z"

@@ -1,0 +1,179 @@
+{
+  "name": "tool-forced-messages-sonnet55",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/messages",
+    "headers": {
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json"
+    },
+    "body": {
+      "model": "anthropic/claude-sonnet-5.5",
+      "max_tokens": 200,
+      "output_config": {
+        "effort": "low"
+      },
+      "tools": [
+        {
+          "name": "propose_group",
+          "description": "Propose a container grouping for modules.",
+          "strict": true,
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "group": {
+                "type": "string"
+              },
+              "members": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "confidence": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "group",
+              "members",
+              "confidence"
+            ]
+          }
+        }
+      ],
+      "tool_choice": {
+        "type": "tool",
+        "name": "propose_group"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Group these modules into one named container: auth.rs, session.rs, token.rs."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "id": "gen_01M5TMHFDGFR24X3WX59F4B8MH",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01LiUuoYrcxPzFr9jdswo1Vz",
+          "name": "propose_group",
+          "input": {
+            "group": "auth",
+            "members": [
+              "auth.rs",
+              "session.rs",
+              "token.rs"
+            ],
+            "confidence": 0.9
+          }
+        }
+      ],
+      "model": "anthropic/claude-sonnet-5.5",
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 450,
+        "output_tokens": 114,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "speed": "standard",
+        "service_tier": "standard",
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        }
+      },
+      "provider_metadata": {
+        "anthropic": {
+          "usage": {
+            "input_tokens": 450,
+            "output_tokens": 114,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            },
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "speed": "standard"
+          },
+          "cacheCreationInputTokens": 0,
+          "stopSequence": null,
+          "iterations": null,
+          "container": null,
+          "contextManagement": null
+        },
+        "gateway": {
+          "routing": {
+            "originalModelId": "anthropic/claude-sonnet-5.5",
+            "resolvedProvider": "anthropic",
+            "fallbacksAvailable": [
+              "bedrock",
+              "vertexAnthropic",
+              "claudeaws"
+            ],
+            "planningReasoning": "System credentials planned for: anthropic, bedrock, vertexAnthropic, claudeaws. Total execution order: anthropic(system) \u2192 bedrock(system) \u2192 vertexAnthropic(system) \u2192 claudeaws(system)",
+            "canonicalSlug": "anthropic/claude-sonnet-5.5",
+            "finalProvider": "anthropic",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "anthropic/claude-sonnet-5.5",
+                "success": true,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "anthropic",
+                    "credentialType": "system",
+                    "success": true,
+                    "startTime": 1792969063888,
+                    "endTime": 1792969064883,
+                    "providerRequestId": "req_011CgPnMcfL7nZbXRZvMmg81",
+                    "statusCode": 200,
+                    "providerResponseId": "msg_011CgPnMcxC4Jd1QwVHuLsyF"
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1,
+            "affinity": {
+              "outcome": "skipped_below_min_prefix"
+            },
+            "clientSessionId": "c1864609633215250a4b8826766bf52a",
+            "clientSessionIdSource": "fingerprint"
+          },
+          "cost": "0.00204",
+          "marketCost": "0.00204",
+          "surchargeCost": "0",
+          "gatewayCost": "0.00204",
+          "inferenceCost": "0.00204",
+          "inputInferenceCost": "0.0009",
+          "outputInferenceCost": "0.00114",
+          "generationId": "gen_01M5TMHFDGFR24X3WX59F4B8MH"
+        }
+      }
+    }
+  },
+  "measured": {
+    "ttfb_s": 1.148843,
+    "total_s": 1.158845,
+    "at": "2026-10-25T22:57:44Z"
+  }
+}

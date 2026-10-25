@@ -1,0 +1,2527 @@
+{
+  "format": "planroom.truth/v1",
+  "about": "Frozen expected answers for the Acme Shop fixture. Paths are '<repo>/<repo-relative path>' unless they start with 'examples/'. Evidence 'contains' is an exact substring of one line of that file on main, or on 'branch' when given. Lists of containers, components and relations are what must exist; a scan may find more.",
+  "repos": {
+    "storefront": {
+      "language": "typescript",
+      "languages": [
+        "typescript"
+      ],
+      "tags": [
+        "v2.2.0",
+        "v2.3.0"
+      ],
+      "latest_tag": "v2.3.0",
+      "version": "2.3.0",
+      "version_evidence": [
+        {
+          "path": "storefront/package.json",
+          "contains": "\"version\": \"2.3.0\""
+        },
+        {
+          "path": "storefront/CHANGELOG.md",
+          "contains": "## [2.3.0] - 2026-09-20"
+        }
+      ],
+      "tag_commits": {
+        "v2.2.0": "Release v2.2.0",
+        "v2.3.0": "Release v2.3.0"
+      },
+      "branches": [
+        "main",
+        "routine",
+        "teammates"
+      ],
+      "commit_count": {
+        "main": 9,
+        "all": 11
+      }
+    },
+    "orders": {
+      "language": "go",
+      "languages": [
+        "go"
+      ],
+      "tags": [
+        "v1.4.0",
+        "v1.5.0"
+      ],
+      "latest_tag": "v1.5.0",
+      "version": "1.5.0",
+      "version_evidence": [
+        {
+          "path": "orders/CHANGELOG.md",
+          "contains": "## [1.5.0] - 2026-09-22"
+        }
+      ],
+      "tag_commits": {
+        "v1.4.0": "Release v1.4.0",
+        "v1.5.0": "Release v1.5.0"
+      },
+      "branches": [
+        "feature/cancel-reasons",
+        "main"
+      ],
+      "commit_count": {
+        "main": 10,
+        "all": 12
+      }
+    },
+    "worker": {
+      "language": "python",
+      "languages": [
+        "python"
+      ],
+      "tags": [
+        "v0.8.0",
+        "v0.9.0"
+      ],
+      "latest_tag": "v0.9.0",
+      "version": "0.9.0",
+      "version_evidence": [
+        {
+          "path": "worker/pyproject.toml",
+          "contains": "version = \"0.9.0\""
+        },
+        {
+          "path": "worker/CHANGELOG.md",
+          "contains": "## [0.9.0] - 2026-09-16"
+        }
+      ],
+      "tag_commits": {
+        "v0.8.0": "Release v0.8.0",
+        "v0.9.0": "Release v0.9.0"
+      },
+      "branches": [
+        "main",
+        "teammates"
+      ],
+      "commit_count": {
+        "main": 9,
+        "all": 10
+      }
+    },
+    "kit": {
+      "language": "typescript",
+      "languages": [
+        "typescript"
+      ],
+      "tags": [
+        "v1.0.0",
+        "v1.1.0",
+        "v1.2.0"
+      ],
+      "latest_tag": "v1.2.0",
+      "version": "1.2.0",
+      "version_evidence": [
+        {
+          "path": "kit/package.json",
+          "contains": "\"version\": \"1.2.0\""
+        },
+        {
+          "path": "kit/CHANGELOG.md",
+          "contains": "## [1.2.0] - 2026-10-01"
+        }
+      ],
+      "tag_commits": {
+        "v1.0.0": "Release v1.0.0",
+        "v1.1.0": "Release v1.1.0",
+        "v1.2.0": "Release v1.2.0"
+      },
+      "branches": [
+        "main"
+      ],
+      "commit_count": {
+        "main": 8,
+        "all": 8
+      }
+    },
+    "platform": {
+      "language": "yaml",
+      "languages": [
+        "yaml",
+        "json",
+        "ruby"
+      ],
+      "tags": [
+        "2026.10.0"
+      ],
+      "latest_tag": "2026.10.0",
+      "version": "2026.10.0",
+      "version_evidence": [
+        {
+          "path": "platform/CHANGELOG.md",
+          "contains": "## [2026.10.0] - 2026-10-02"
+        }
+      ],
+      "tag_commits": {
+        "2026.10.0": "Release 2026.10.0"
+      },
+      "branches": [
+        "main"
+      ],
+      "commit_count": {
+        "main": 9,
+        "all": 9
+      }
+    }
+  },
+  "containers": [
+    {
+      "name": "storefront",
+      "repo": "storefront",
+      "kind": "service",
+      "declared_in": "platform/docker-compose.yml",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: acme/storefront:2.3.0"
+        },
+        {
+          "path": "storefront/package.json",
+          "contains": "\"name\": \"@acme/storefront\""
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "repo": "orders",
+      "kind": "service",
+      "declared_in": "platform/docker-compose.yml",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: acme/orders:1.4.0"
+        },
+        {
+          "path": "orders/go.mod",
+          "contains": "module github.com/acme-shop/orders"
+        }
+      ]
+    },
+    {
+      "name": "worker",
+      "repo": "worker",
+      "kind": "service",
+      "declared_in": "platform/docker-compose.yml",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: acme/worker:0.9.0"
+        },
+        {
+          "path": "worker/pyproject.toml",
+          "contains": "name = \"acme-worker\""
+        }
+      ]
+    },
+    {
+      "name": "kit",
+      "repo": "kit",
+      "kind": "library",
+      "declared_in": "kit/package.json",
+      "evidence": [
+        {
+          "path": "kit/package.json",
+          "contains": "\"name\": \"@acme/kit\""
+        }
+      ]
+    },
+    {
+      "name": "redis",
+      "repo": null,
+      "kind": "queue",
+      "declared_in": "platform/docker-compose.yml",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: redis:7.4"
+        }
+      ]
+    },
+    {
+      "name": "orders-db",
+      "repo": null,
+      "kind": "datastore",
+      "declared_in": "platform/docker-compose.yml",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: postgres:16.4"
+        }
+      ]
+    },
+    {
+      "name": "otel-collector",
+      "repo": null,
+      "kind": "observability",
+      "declared_in": "platform/docker-compose.yml",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: otel/opentelemetry-collector-contrib:0.111.0"
+        },
+        {
+          "path": "platform/otel/collector.yaml",
+          "contains": "receivers:"
+        }
+      ]
+    },
+    {
+      "name": "prometheus",
+      "repo": null,
+      "kind": "observability",
+      "declared_in": "platform/docker-compose.yml",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: prom/prometheus:v2.54.1"
+        },
+        {
+          "path": "platform/prometheus/prometheus.yml",
+          "contains": "scrape_configs:"
+        }
+      ]
+    },
+    {
+      "name": "grafana",
+      "repo": null,
+      "kind": "observability",
+      "declared_in": "platform/docker-compose.yml",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: grafana/grafana:11.2.2"
+        }
+      ]
+    },
+    {
+      "name": "platform",
+      "repo": "platform",
+      "kind": "tooling",
+      "declared_in": "platform/docker-compose.yml",
+      "note": "The deployment definition itself: the compose file that pins every service's image.",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "name: acme-shop"
+        }
+      ]
+    },
+    {
+      "name": "healthcheck",
+      "repo": "platform",
+      "kind": "tooling",
+      "declared_in": "platform/tools/healthcheck.rb",
+      "evidence": [
+        {
+          "path": "platform/tools/healthcheck.rb",
+          "contains": "require 'net/http'"
+        }
+      ]
+    }
+  ],
+  "components": [
+    {
+      "path": "orders/cmd/orders",
+      "container": "orders",
+      "language": "go",
+      "kind": "package"
+    },
+    {
+      "path": "orders/internal/config",
+      "container": "orders",
+      "language": "go",
+      "kind": "package"
+    },
+    {
+      "path": "orders/internal/http",
+      "container": "orders",
+      "language": "go",
+      "kind": "package"
+    },
+    {
+      "path": "orders/internal/order",
+      "container": "orders",
+      "language": "go",
+      "kind": "package"
+    },
+    {
+      "path": "orders/internal/queue",
+      "container": "orders",
+      "language": "go",
+      "kind": "package"
+    },
+    {
+      "path": "orders/internal/store",
+      "container": "orders",
+      "language": "go",
+      "kind": "package"
+    },
+    {
+      "path": "orders/internal/telemetry",
+      "container": "orders",
+      "language": "go",
+      "kind": "package"
+    },
+    {
+      "path": "orders/api",
+      "container": "orders",
+      "language": "yaml",
+      "kind": "api_spec",
+      "note": "Holds api/openapi.yaml; listed so PR 42's touched spec has a component."
+    },
+    {
+      "path": "storefront/src/api",
+      "container": "storefront",
+      "language": "typescript",
+      "kind": "directory"
+    },
+    {
+      "path": "storefront/src/app",
+      "container": "storefront",
+      "language": "typescript",
+      "kind": "directory"
+    },
+    {
+      "path": "storefront/src/cart",
+      "container": "storefront",
+      "language": "typescript",
+      "kind": "directory"
+    },
+    {
+      "path": "storefront/src/catalog",
+      "container": "storefront",
+      "language": "typescript",
+      "kind": "directory"
+    },
+    {
+      "path": "storefront/src/checkout",
+      "container": "storefront",
+      "language": "typescript",
+      "kind": "directory"
+    },
+    {
+      "path": "worker/worker/config.py",
+      "container": "worker",
+      "language": "python",
+      "kind": "module"
+    },
+    {
+      "path": "worker/worker/consumer.py",
+      "container": "worker",
+      "language": "python",
+      "kind": "module"
+    },
+    {
+      "path": "worker/worker/db.py",
+      "container": "worker",
+      "language": "python",
+      "kind": "module"
+    },
+    {
+      "path": "worker/worker/jobs.py",
+      "container": "worker",
+      "language": "python",
+      "kind": "module"
+    },
+    {
+      "path": "worker/worker/main.py",
+      "container": "worker",
+      "language": "python",
+      "kind": "module"
+    },
+    {
+      "path": "worker/worker/telemetry.py",
+      "container": "worker",
+      "language": "python",
+      "kind": "module"
+    },
+    {
+      "path": "kit/src/index.ts",
+      "container": "kit",
+      "language": "typescript",
+      "kind": "file"
+    },
+    {
+      "path": "kit/src/money.ts",
+      "container": "kit",
+      "language": "typescript",
+      "kind": "file"
+    },
+    {
+      "path": "kit/src/orderId.ts",
+      "container": "kit",
+      "language": "typescript",
+      "kind": "file"
+    },
+    {
+      "path": "platform/tools/healthcheck.rb",
+      "container": "healthcheck",
+      "language": "ruby",
+      "kind": "file"
+    }
+  ],
+  "relations": [
+    {
+      "from": "storefront",
+      "to": "orders",
+      "kind": "http",
+      "via": "POST /orders",
+      "evidence": [
+        {
+          "path": "storefront/src/api/orders.ts",
+          "contains": "fetch(`${this.baseUrl}/orders`, {"
+        },
+        {
+          "path": "orders/api/openapi.yaml",
+          "contains": "  /orders:"
+        },
+        {
+          "path": "orders/internal/http/handlers.go",
+          "contains": "mux.HandleFunc(\"POST /orders\", h.createOrder)"
+        },
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "ORDERS_URL=http://orders:8080"
+        }
+      ]
+    },
+    {
+      "from": "orders",
+      "to": "redis",
+      "kind": "queue_publish",
+      "via": "order-jobs",
+      "evidence": [
+        {
+          "path": "orders/internal/queue/publisher.go",
+          "contains": "p.rdb.LPush(ctx, JobsKey, body)"
+        },
+        {
+          "path": "orders/internal/queue/publisher.go",
+          "contains": "const JobsKey = \"order-jobs\""
+        },
+        {
+          "path": "orders/internal/http/handlers.go",
+          "contains": "h.enqueueFulfil(r.Context(), o)"
+        },
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "REDIS_URL=redis://redis:6379/0"
+        }
+      ]
+    },
+    {
+      "from": "worker",
+      "to": "redis",
+      "kind": "queue_consume",
+      "via": "order-jobs",
+      "evidence": [
+        {
+          "path": "worker/worker/consumer.py",
+          "contains": "self._redis.brpop([JOBS_KEY], timeout=self._timeout)"
+        },
+        {
+          "path": "worker/worker/consumer.py",
+          "contains": "JOBS_KEY = \"order-jobs\""
+        },
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "REDIS_URL=redis://redis:6379/0"
+        }
+      ]
+    },
+    {
+      "from": "orders",
+      "to": "orders-db",
+      "kind": "db",
+      "evidence": [
+        {
+          "path": "orders/internal/store/postgres.go",
+          "contains": "pool, err := pgxpool.New(ctx, url)"
+        },
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "DATABASE_URL=postgres://orders:orders@orders-db:5432/orders?sslmode=disable"
+        }
+      ]
+    },
+    {
+      "from": "worker",
+      "to": "orders-db",
+      "kind": "db",
+      "note": "The S4 smell: the worker writes order state straight into the orders database.",
+      "evidence": [
+        {
+          "path": "worker/worker/db.py",
+          "contains": "_conn = psycopg.connect(database_url)"
+        },
+        {
+          "path": "worker/worker/db.py",
+          "contains": "\"UPDATE orders SET state = %s, tracking_number = COALESCE(%s, tracking_number), \""
+        },
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "DATABASE_URL=postgresql://orders:orders@orders-db:5432/orders"
+        }
+      ]
+    },
+    {
+      "from": "storefront",
+      "to": "kit",
+      "kind": "depends_on_package",
+      "via": "@acme/kit@1.1.0",
+      "evidence": [
+        {
+          "path": "storefront/package.json",
+          "contains": "\"@acme/kit\": \"1.1.0\""
+        },
+        {
+          "path": "kit/package.json",
+          "contains": "\"name\": \"@acme/kit\""
+        },
+        {
+          "path": "storefront/src/cart/cart.ts",
+          "contains": "import { formatMoney } from '@acme/kit';"
+        }
+      ]
+    },
+    {
+      "from": "platform",
+      "to": "storefront",
+      "kind": "deploys",
+      "via": "acme/storefront:2.3.0",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: acme/storefront:2.3.0"
+        }
+      ]
+    },
+    {
+      "from": "platform",
+      "to": "orders",
+      "kind": "deploys",
+      "via": "acme/orders:1.4.0",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: acme/orders:1.4.0"
+        }
+      ]
+    },
+    {
+      "from": "platform",
+      "to": "worker",
+      "kind": "deploys",
+      "via": "acme/worker:0.9.0",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: acme/worker:0.9.0"
+        }
+      ]
+    },
+    {
+      "from": "platform",
+      "to": "redis",
+      "kind": "deploys",
+      "via": "redis:7.4",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: redis:7.4"
+        }
+      ]
+    },
+    {
+      "from": "platform",
+      "to": "orders-db",
+      "kind": "deploys",
+      "via": "postgres:16.4",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: postgres:16.4"
+        }
+      ]
+    },
+    {
+      "from": "platform",
+      "to": "otel-collector",
+      "kind": "deploys",
+      "via": "otel/opentelemetry-collector-contrib:0.111.0",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: otel/opentelemetry-collector-contrib:0.111.0"
+        }
+      ]
+    },
+    {
+      "from": "platform",
+      "to": "prometheus",
+      "kind": "deploys",
+      "via": "prom/prometheus:v2.54.1",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: prom/prometheus:v2.54.1"
+        }
+      ]
+    },
+    {
+      "from": "platform",
+      "to": "grafana",
+      "kind": "deploys",
+      "via": "grafana/grafana:11.2.2",
+      "evidence": [
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: grafana/grafana:11.2.2"
+        }
+      ]
+    },
+    {
+      "from": "prometheus",
+      "to": "orders",
+      "kind": "scrapes",
+      "via": "orders:9464",
+      "evidence": [
+        {
+          "path": "platform/prometheus/prometheus.yml",
+          "contains": "- targets: [\"orders:9464\"]"
+        },
+        {
+          "path": "orders/internal/config/config.go",
+          "contains": "getenv(\"METRICS_ADDR\", \":9464\")"
+        }
+      ]
+    },
+    {
+      "from": "prometheus",
+      "to": "worker",
+      "kind": "scrapes",
+      "via": "worker:9464",
+      "evidence": [
+        {
+          "path": "platform/prometheus/prometheus.yml",
+          "contains": "- targets: [\"worker:9464\"]"
+        },
+        {
+          "path": "worker/worker/config.py",
+          "contains": "metrics_port=int(env.get(\"METRICS_PORT\", \"9464\"))"
+        }
+      ]
+    },
+    {
+      "from": "prometheus",
+      "to": "otel-collector",
+      "kind": "scrapes",
+      "via": "otel-collector:8889",
+      "evidence": [
+        {
+          "path": "platform/prometheus/prometheus.yml",
+          "contains": "- targets: [\"otel-collector:8889\"]"
+        },
+        {
+          "path": "platform/otel/collector.yaml",
+          "contains": "endpoint: 0.0.0.0:8889"
+        }
+      ]
+    },
+    {
+      "from": "storefront",
+      "to": "otel-collector",
+      "kind": "exports_telemetry",
+      "via": "OTLP/HTTP traces",
+      "evidence": [
+        {
+          "path": "storefront/src/app/telemetry.ts",
+          "contains": "traceExporter: new OTLPTraceExporter(),"
+        },
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318"
+        }
+      ]
+    },
+    {
+      "from": "orders",
+      "to": "otel-collector",
+      "kind": "exports_telemetry",
+      "via": "OTLP/gRPC traces",
+      "evidence": [
+        {
+          "path": "orders/internal/telemetry/otel.go",
+          "contains": "traceExp, err := otlptracegrpc.New(ctx)"
+        },
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317"
+        }
+      ]
+    },
+    {
+      "from": "worker",
+      "to": "otel-collector",
+      "kind": "exports_telemetry",
+      "via": "OTLP/gRPC traces",
+      "evidence": [
+        {
+          "path": "worker/worker/telemetry.py",
+          "contains": "provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))"
+        },
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317"
+        }
+      ]
+    },
+    {
+      "from": "grafana",
+      "to": "prometheus",
+      "kind": "queries",
+      "via": "provisioned data source",
+      "evidence": [
+        {
+          "path": "platform/grafana/provisioning/datasources/prometheus.yml",
+          "contains": "url: http://prometheus:9090"
+        }
+      ]
+    },
+    {
+      "from": "healthcheck",
+      "to": "orders",
+      "kind": "http",
+      "via": "GET /healthz",
+      "evidence": [
+        {
+          "path": "platform/tools/healthcheck.rb",
+          "contains": "'orders' => 'http://orders:8080/healthz',"
+        }
+      ]
+    },
+    {
+      "from": "healthcheck",
+      "to": "storefront",
+      "kind": "http",
+      "via": "GET /healthz",
+      "evidence": [
+        {
+          "path": "platform/tools/healthcheck.rb",
+          "contains": "'storefront' => 'http://storefront:3000/healthz'"
+        },
+        {
+          "path": "storefront/src/server.ts",
+          "contains": "app.get('/healthz', (_req, res) => {"
+        }
+      ]
+    }
+  ],
+  "questions": {
+    "observability": {
+      "signals": {
+        "storefront": {
+          "traces": true,
+          "metrics": false,
+          "evidence": [
+            {
+              "path": "storefront/src/app/telemetry.ts",
+              "contains": "traceExporter: new OTLPTraceExporter(),"
+            }
+          ]
+        },
+        "orders": {
+          "traces": true,
+          "metrics": true,
+          "metrics_endpoint": "orders:9464",
+          "metric_names": [
+            "orders_http_requests_total",
+            "orders_http_request_duration_seconds"
+          ],
+          "evidence": [
+            {
+              "path": "orders/internal/telemetry/otel.go",
+              "contains": "traceExp, err := otlptracegrpc.New(ctx)"
+            },
+            {
+              "path": "orders/internal/telemetry/otel.go",
+              "contains": "mux.Handle(\"/metrics\", promhttp.Handler())"
+            },
+            {
+              "path": "orders/internal/http/middleware.go",
+              "contains": "requests, _ := meter.Int64Counter(\"orders_http_requests\","
+            }
+          ]
+        },
+        "worker": {
+          "traces": true,
+          "metrics": true,
+          "metrics_endpoint": "worker:9464",
+          "metric_names": [
+            "worker_jobs_processed_total"
+          ],
+          "evidence": [
+            {
+              "path": "worker/worker/telemetry.py",
+              "contains": "provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))"
+            },
+            {
+              "path": "worker/worker/telemetry.py",
+              "contains": "\"worker_jobs_processed_total\","
+            },
+            {
+              "path": "worker/worker/telemetry.py",
+              "contains": "start_http_server(metrics_port)"
+            }
+          ]
+        },
+        "redis": {
+          "traces": false,
+          "metrics": false
+        },
+        "orders-db": {
+          "traces": false,
+          "metrics": false
+        }
+      },
+      "pipeline": [
+        {
+          "from": "storefront",
+          "to": "otel-collector",
+          "signal": "traces",
+          "protocol": "otlp",
+          "evidence": [
+            {
+              "path": "platform/docker-compose.yml",
+              "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318"
+            }
+          ]
+        },
+        {
+          "from": "orders",
+          "to": "otel-collector",
+          "signal": "traces",
+          "protocol": "otlp",
+          "evidence": [
+            {
+              "path": "platform/docker-compose.yml",
+              "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317"
+            }
+          ]
+        },
+        {
+          "from": "worker",
+          "to": "otel-collector",
+          "signal": "traces",
+          "protocol": "otlp",
+          "evidence": [
+            {
+              "path": "platform/docker-compose.yml",
+              "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317"
+            }
+          ]
+        },
+        {
+          "from": "otel-collector",
+          "to": "prometheus",
+          "signal": "metrics",
+          "protocol": "prometheus exporter on :8889, scraped",
+          "evidence": [
+            {
+              "path": "platform/otel/collector.yaml",
+              "contains": "endpoint: 0.0.0.0:8889"
+            },
+            {
+              "path": "platform/prometheus/prometheus.yml",
+              "contains": "- targets: [\"otel-collector:8889\"]"
+            }
+          ]
+        },
+        {
+          "from": "orders",
+          "to": "prometheus",
+          "signal": "metrics",
+          "protocol": "scrape orders:9464",
+          "evidence": [
+            {
+              "path": "platform/prometheus/prometheus.yml",
+              "contains": "- targets: [\"orders:9464\"]"
+            }
+          ]
+        },
+        {
+          "from": "worker",
+          "to": "prometheus",
+          "signal": "metrics",
+          "protocol": "scrape worker:9464",
+          "evidence": [
+            {
+              "path": "platform/prometheus/prometheus.yml",
+              "contains": "- targets: [\"worker:9464\"]"
+            }
+          ]
+        },
+        {
+          "from": "prometheus",
+          "to": "grafana",
+          "signal": "metrics",
+          "protocol": "data source query",
+          "evidence": [
+            {
+              "path": "platform/grafana/provisioning/datasources/prometheus.yml",
+              "contains": "url: http://prometheus:9090"
+            }
+          ]
+        }
+      ],
+      "collector": {
+        "path": "platform/otel/collector.yaml",
+        "receivers": [
+          "otlp"
+        ],
+        "pipelines": {
+          "traces": {
+            "exporters": [
+              "debug"
+            ]
+          },
+          "metrics": {
+            "exporters": [
+              "prometheus"
+            ]
+          }
+        },
+        "note": "No trace backend: the traces pipeline ends in the debug exporter.",
+        "evidence": [
+          {
+            "path": "platform/otel/collector.yaml",
+            "contains": "exporters: [debug]"
+          },
+          {
+            "path": "platform/otel/collector.yaml",
+            "contains": "exporters: [prometheus]"
+          }
+        ]
+      },
+      "alerts": [
+        {
+          "name": "OrdersHighErrorRate",
+          "container": "orders",
+          "path": "platform/prometheus/alerts.yml",
+          "metric": "orders_http_requests_total",
+          "condition": "orders 5xx ratio > 0.05 for 10m",
+          "evidence": [
+            {
+              "path": "platform/prometheus/alerts.yml",
+              "contains": "- alert: OrdersHighErrorRate"
+            },
+            {
+              "path": "platform/prometheus/alerts.yml",
+              "contains": "sum(rate(orders_http_requests_total{job=\"orders\", code=~\"5..\"}[5m]))"
+            },
+            {
+              "path": "orders/internal/http/middleware.go",
+              "contains": "// Prometheus exporter publishes them as orders_http_requests_total and"
+            }
+          ]
+        }
+      ],
+      "dashboards": [
+        {
+          "uid": "orders-overview",
+          "path": "platform/grafana/dashboards/orders-overview.json",
+          "containers": [
+            "orders",
+            "worker"
+          ],
+          "panels": [
+            "Orders request rate",
+            "Orders error ratio",
+            "Orders p95 latency",
+            "Worker jobs processed"
+          ],
+          "evidence": [
+            {
+              "path": "platform/grafana/dashboards/orders-overview.json",
+              "contains": "\"uid\": \"orders-overview\""
+            },
+            {
+              "path": "platform/grafana/dashboards/orders-overview.json",
+              "contains": "\"title\": \"Worker jobs processed\""
+            }
+          ]
+        }
+      ]
+    },
+    "unmonitored": {
+      "rule": "A runtime container is monitored when at least one alert rule covers it (something fires if it breaks).",
+      "answer": [
+        "storefront",
+        "worker",
+        "redis",
+        "orders-db"
+      ],
+      "monitored": [
+        "orders"
+      ],
+      "out_of_scope": {
+        "observability_infrastructure": [
+          "otel-collector",
+          "prometheus",
+          "grafana"
+        ],
+        "not_runtime": [
+          "kit",
+          "platform",
+          "healthcheck"
+        ]
+      },
+      "coverage": {
+        "storefront": {
+          "traces": true,
+          "metrics": false,
+          "scraped": false,
+          "alerts": [],
+          "dashboards": []
+        },
+        "orders": {
+          "traces": true,
+          "metrics": true,
+          "scraped": true,
+          "alerts": [
+            "OrdersHighErrorRate"
+          ],
+          "dashboards": [
+            "orders-overview"
+          ]
+        },
+        "worker": {
+          "traces": true,
+          "metrics": true,
+          "scraped": true,
+          "alerts": [],
+          "dashboards": [
+            "orders-overview"
+          ]
+        },
+        "redis": {
+          "traces": false,
+          "metrics": false,
+          "scraped": false,
+          "alerts": [],
+          "dashboards": []
+        },
+        "orders-db": {
+          "traces": false,
+          "metrics": false,
+          "scraped": false,
+          "alerts": [],
+          "dashboards": []
+        }
+      }
+    },
+    "release_order": {
+      "change_to": "kit",
+      "order": [
+        "kit",
+        "storefront",
+        "platform"
+      ],
+      "steps": [
+        {
+          "repo": "kit",
+          "action": "release kit (tag v<next>; the release workflow publishes @acme/kit to npm)",
+          "evidence": [
+            {
+              "path": "kit/.github/workflows/release.yml",
+              "contains": "tags: ['v*']"
+            },
+            {
+              "path": "kit/.github/workflows/release.yml",
+              "contains": "run: npm publish --provenance --access public"
+            }
+          ]
+        },
+        {
+          "repo": "storefront",
+          "action": "bump @acme/kit in package.json and release storefront",
+          "evidence": [
+            {
+              "path": "storefront/package.json",
+              "contains": "\"@acme/kit\": \"1.1.0\""
+            }
+          ]
+        },
+        {
+          "repo": "platform",
+          "action": "bump the storefront image in docker-compose.yml",
+          "evidence": [
+            {
+              "path": "platform/docker-compose.yml",
+              "contains": "image: acme/storefront:2.3.0"
+            }
+          ]
+        }
+      ],
+      "not_affected": [
+        "orders",
+        "worker"
+      ]
+    },
+    "stale_versions": {
+      "stale": [
+        {
+          "consumer": "storefront",
+          "dependency": "@acme/kit",
+          "dependency_repo": "kit",
+          "uses": "1.1.0",
+          "latest": "1.2.0",
+          "evidence": [
+            {
+              "path": "storefront/package.json",
+              "contains": "\"@acme/kit\": \"1.1.0\""
+            },
+            {
+              "path": "kit/package.json",
+              "contains": "\"version\": \"1.2.0\""
+            }
+          ]
+        },
+        {
+          "consumer": "platform",
+          "dependency": "acme/orders",
+          "dependency_repo": "orders",
+          "uses": "1.4.0",
+          "latest": "1.5.0",
+          "evidence": [
+            {
+              "path": "platform/docker-compose.yml",
+              "contains": "image: acme/orders:1.4.0"
+            },
+            {
+              "path": "orders/CHANGELOG.md",
+              "contains": "## [1.5.0] - 2026-09-22"
+            }
+          ]
+        }
+      ],
+      "current": [
+        {
+          "consumer": "platform",
+          "dependency": "acme/storefront",
+          "dependency_repo": "storefront",
+          "uses": "2.3.0",
+          "latest": "2.3.0"
+        },
+        {
+          "consumer": "platform",
+          "dependency": "acme/worker",
+          "dependency_repo": "worker",
+          "uses": "0.9.0",
+          "latest": "0.9.0"
+        }
+      ]
+    },
+    "path_storefront_to_worker": {
+      "from": "storefront",
+      "to": "worker",
+      "containers": [
+        "storefront",
+        "orders",
+        "redis",
+        "worker"
+      ],
+      "hops": [
+        {
+          "from": "storefront",
+          "to": "orders",
+          "kind": "http",
+          "via": "POST /orders",
+          "evidence": [
+            {
+              "path": "storefront/src/api/orders.ts",
+              "contains": "fetch(`${this.baseUrl}/orders`, {"
+            },
+            {
+              "path": "orders/api/openapi.yaml",
+              "contains": "  /orders:"
+            },
+            {
+              "path": "orders/internal/http/handlers.go",
+              "contains": "mux.HandleFunc(\"POST /orders\", h.createOrder)"
+            },
+            {
+              "path": "platform/docker-compose.yml",
+              "contains": "ORDERS_URL=http://orders:8080"
+            }
+          ]
+        },
+        {
+          "from": "orders",
+          "to": "redis",
+          "kind": "queue_publish",
+          "via": "order-jobs",
+          "evidence": [
+            {
+              "path": "orders/internal/queue/publisher.go",
+              "contains": "p.rdb.LPush(ctx, JobsKey, body)"
+            },
+            {
+              "path": "orders/internal/queue/publisher.go",
+              "contains": "const JobsKey = \"order-jobs\""
+            },
+            {
+              "path": "orders/internal/http/handlers.go",
+              "contains": "h.enqueueFulfil(r.Context(), o)"
+            },
+            {
+              "path": "platform/docker-compose.yml",
+              "contains": "REDIS_URL=redis://redis:6379/0"
+            }
+          ]
+        },
+        {
+          "from": "redis",
+          "to": "worker",
+          "kind": "queue_consume",
+          "via": "order-jobs",
+          "evidence": [
+            {
+              "path": "worker/worker/consumer.py",
+              "contains": "self._redis.brpop([JOBS_KEY], timeout=self._timeout)"
+            },
+            {
+              "path": "worker/worker/consumer.py",
+              "contains": "JOBS_KEY = \"order-jobs\""
+            },
+            {
+              "path": "platform/docker-compose.yml",
+              "contains": "REDIS_URL=redis://redis:6379/0"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "state_machines": {
+    "order-lifecycle": {
+      "code": {
+        "path": "orders/internal/order/lifecycle.go",
+        "states": [
+          "created",
+          "paid",
+          "payment_failed",
+          "fulfilling",
+          "shipped",
+          "delivered",
+          "cancelled",
+          "on_hold"
+        ],
+        "initial": "created",
+        "terminal": [
+          "delivered",
+          "cancelled"
+        ],
+        "initial_evidence": {
+          "path": "orders/internal/order/order.go",
+          "contains": "State:      StateCreated,"
+        },
+        "terminal_evidence": {
+          "path": "orders/internal/order/lifecycle.go",
+          "contains": "return s == StateDelivered || s == StateCancelled"
+        },
+        "guards": [
+          {
+            "name": "hasTrackingNumber",
+            "evidence": {
+              "path": "orders/internal/order/lifecycle.go",
+              "contains": "func hasTrackingNumber(o *Order) bool {"
+            }
+          }
+        ],
+        "transitions": [
+          {
+            "from": "created",
+            "event": "pay",
+            "to": "paid",
+            "guard": null,
+            "evidence": {
+              "path": "orders/internal/order/lifecycle.go",
+              "contains": "{From: StateCreated, Event: EventPay, To: StatePaid}"
+            }
+          },
+          {
+            "from": "created",
+            "event": "payment_fail",
+            "to": "payment_failed",
+            "guard": null,
+            "evidence": {
+              "path": "orders/internal/order/lifecycle.go",
+              "contains": "{From: StateCreated, Event: EventPaymentFail, To: StatePaymentFailed}"
+            }
+          },
+          {
+            "from": "created",
+            "event": "cancel",
+            "to": "cancelled",
+            "guard": null,
+            "evidence": {
+              "path": "orders/internal/order/lifecycle.go",
+              "contains": "{From: StateCreated, Event: EventCancel, To: StateCancelled}"
+            }
+          },
+          {
+            "from": "paid",
+            "event": "fulfil",
+            "to": "fulfilling",
+            "guard": null,
+            "evidence": {
+              "path": "orders/internal/order/lifecycle.go",
+              "contains": "{From: StatePaid, Event: EventFulfil, To: StateFulfilling}"
+            }
+          },
+          {
+            "from": "paid",
+            "event": "cancel",
+            "to": "cancelled",
+            "guard": null,
+            "evidence": {
+              "path": "orders/internal/order/lifecycle.go",
+              "contains": "{From: StatePaid, Event: EventCancel, To: StateCancelled}"
+            }
+          },
+          {
+            "from": "fulfilling",
+            "event": "ship",
+            "to": "shipped",
+            "guard": "hasTrackingNumber",
+            "evidence": {
+              "path": "orders/internal/order/lifecycle.go",
+              "contains": "{From: StateFulfilling, Event: EventShip, To: StateShipped, Guard: hasTrackingNumber}"
+            }
+          },
+          {
+            "from": "shipped",
+            "event": "deliver",
+            "to": "delivered",
+            "guard": null,
+            "evidence": {
+              "path": "orders/internal/order/lifecycle.go",
+              "contains": "{From: StateShipped, Event: EventDeliver, To: StateDelivered}"
+            }
+          },
+          {
+            "from": "on_hold",
+            "event": "release",
+            "to": "paid",
+            "guard": null,
+            "evidence": {
+              "path": "orders/internal/order/lifecycle.go",
+              "contains": "{From: StateOnHold, Event: EventRelease, To: StatePaid}"
+            }
+          }
+        ]
+      },
+      "doc": {
+        "path": "orders/docs/order-lifecycle.md",
+        "format": "mermaid stateDiagram-v2 plus prose",
+        "states": [
+          "created",
+          "paid",
+          "payment_failed",
+          "fulfilling",
+          "shipped",
+          "delivered",
+          "cancelled",
+          "on_hold"
+        ],
+        "initial": "created",
+        "terminal": [
+          "delivered",
+          "cancelled"
+        ],
+        "initial_evidence": {
+          "path": "orders/docs/order-lifecycle.md",
+          "contains": "    [*] --> created"
+        },
+        "terminal_evidence": [
+          {
+            "path": "orders/docs/order-lifecycle.md",
+            "contains": "    delivered --> [*]"
+          },
+          {
+            "path": "orders/docs/order-lifecycle.md",
+            "contains": "    cancelled --> [*]"
+          }
+        ],
+        "transitions": [
+          {
+            "from": "created",
+            "event": "pay",
+            "to": "paid",
+            "guard": null,
+            "evidence": {
+              "path": "orders/docs/order-lifecycle.md",
+              "contains": "    created --> paid: pay"
+            }
+          },
+          {
+            "from": "created",
+            "event": "payment_fail",
+            "to": "payment_failed",
+            "guard": null,
+            "evidence": {
+              "path": "orders/docs/order-lifecycle.md",
+              "contains": "    created --> payment_failed: payment_fail"
+            }
+          },
+          {
+            "from": "created",
+            "event": "cancel",
+            "to": "cancelled",
+            "guard": null,
+            "evidence": {
+              "path": "orders/docs/order-lifecycle.md",
+              "contains": "    created --> cancelled: cancel"
+            }
+          },
+          {
+            "from": "paid",
+            "event": "fulfil",
+            "to": "fulfilling",
+            "guard": null,
+            "evidence": {
+              "path": "orders/docs/order-lifecycle.md",
+              "contains": "    paid --> fulfilling: fulfil"
+            }
+          },
+          {
+            "from": "paid",
+            "event": "cancel",
+            "to": "cancelled",
+            "guard": null,
+            "evidence": {
+              "path": "orders/docs/order-lifecycle.md",
+              "contains": "    paid --> cancelled: cancel"
+            }
+          },
+          {
+            "from": "fulfilling",
+            "event": "ship",
+            "to": "shipped",
+            "guard": "hasTrackingNumber",
+            "evidence": {
+              "path": "orders/docs/order-lifecycle.md",
+              "contains": "    fulfilling --> shipped: ship [hasTrackingNumber]"
+            }
+          },
+          {
+            "from": "fulfilling",
+            "event": "cancel",
+            "to": "cancelled",
+            "guard": null,
+            "evidence": {
+              "path": "orders/docs/order-lifecycle.md",
+              "contains": "    fulfilling --> cancelled: cancel"
+            }
+          },
+          {
+            "from": "shipped",
+            "event": "deliver",
+            "to": "delivered",
+            "guard": null,
+            "evidence": {
+              "path": "orders/docs/order-lifecycle.md",
+              "contains": "    shipped --> delivered: deliver"
+            }
+          },
+          {
+            "from": "on_hold",
+            "event": "release",
+            "to": "paid",
+            "guard": null,
+            "evidence": {
+              "path": "orders/docs/order-lifecycle.md",
+              "contains": "    on_hold --> paid: release"
+            }
+          }
+        ]
+      },
+      "drift": [
+        {
+          "name": "fulfilling-cancel",
+          "kind": "doc_only_transition",
+          "transition": {
+            "from": "fulfilling",
+            "event": "cancel",
+            "to": "cancelled"
+          },
+          "in_doc": true,
+          "in_code": false,
+          "evidence": [
+            {
+              "path": "orders/docs/order-lifecycle.md",
+              "contains": "    fulfilling --> cancelled: cancel"
+            },
+            {
+              "path": "orders/docs/order-lifecycle.md",
+              "contains": "- `cancel` cancels an order that is created, paid or fulfilling. Once the"
+            }
+          ]
+        }
+      ],
+      "checks": {
+        "unreachable": [
+          "on_hold"
+        ],
+        "dead_ends": [
+          "payment_failed"
+        ],
+        "note": "Checks run on the code machine. The doc machine has the same two findings."
+      }
+    }
+  },
+  "prompt_snapshot": {
+    "path": "examples/kickoff-snapshot.md",
+    "parts": [
+      {
+        "name": "preamble",
+        "kind": "preamble",
+        "start_line": 1,
+        "end_line": 5,
+        "evidence": {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "# Planroom kickoff prompt"
+        }
+      },
+      {
+        "name": "context",
+        "kind": "section",
+        "start_line": 7,
+        "end_line": 13,
+        "evidence": {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "<context>"
+        }
+      },
+      {
+        "name": "stance",
+        "kind": "section",
+        "start_line": 15,
+        "end_line": 31,
+        "evidence": {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "<stance>"
+        }
+      },
+      {
+        "name": "principles",
+        "kind": "section",
+        "start_line": 33,
+        "end_line": 51,
+        "evidence": {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "<principles>"
+        }
+      },
+      {
+        "name": "requirements",
+        "kind": "section",
+        "start_line": 53,
+        "end_line": 120,
+        "evidence": {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "<requirements>"
+        }
+      },
+      {
+        "name": "acceptance_scenarios",
+        "kind": "section",
+        "start_line": 122,
+        "end_line": 204,
+        "evidence": {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "<acceptance_scenarios>"
+        }
+      },
+      {
+        "name": "fixture",
+        "kind": "section",
+        "start_line": 206,
+        "end_line": 224,
+        "evidence": {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "<fixture>"
+        }
+      },
+      {
+        "name": "definition_of_done",
+        "kind": "section",
+        "start_line": 226,
+        "end_line": 231,
+        "evidence": {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "<definition_of_done>"
+        }
+      },
+      {
+        "name": "constraints",
+        "kind": "section",
+        "start_line": 233,
+        "end_line": 275,
+        "evidence": {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "<constraints>"
+        }
+      },
+      {
+        "name": "verified_facts",
+        "kind": "section",
+        "start_line": 277,
+        "end_line": 311,
+        "evidence": {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "<verified_facts>"
+        }
+      },
+      {
+        "name": "process",
+        "kind": "section",
+        "start_line": 313,
+        "end_line": 372,
+        "evidence": {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "<process>"
+        }
+      },
+      {
+        "name": "design_starting_points",
+        "kind": "section",
+        "start_line": 374,
+        "end_line": 455,
+        "evidence": {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "<design_starting_points>"
+        }
+      },
+      {
+        "name": "autonomy",
+        "kind": "section",
+        "start_line": 457,
+        "end_line": 461,
+        "evidence": {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "<autonomy>"
+        }
+      }
+    ],
+    "part_names": [
+      "preamble",
+      "context",
+      "stance",
+      "principles",
+      "requirements",
+      "acceptance_scenarios",
+      "fixture",
+      "definition_of_done",
+      "constraints",
+      "verified_facts",
+      "process",
+      "design_starting_points",
+      "autonomy"
+    ],
+    "process_machine": {
+      "name": "process-phases",
+      "section": "process",
+      "states": [
+        "understand",
+        "architecture",
+        "architecture_review",
+        "walking_skeleton",
+        "milestones",
+        "release",
+        "done"
+      ],
+      "initial": "understand",
+      "terminal": [
+        "done"
+      ],
+      "shape": "linear",
+      "transitions": [
+        {
+          "from": "understand",
+          "event": "complete",
+          "to": "architecture",
+          "guard": null
+        },
+        {
+          "from": "architecture",
+          "event": "complete",
+          "to": "architecture_review",
+          "guard": null
+        },
+        {
+          "from": "architecture_review",
+          "event": "complete",
+          "to": "walking_skeleton",
+          "guard": null
+        },
+        {
+          "from": "walking_skeleton",
+          "event": "complete",
+          "to": "milestones",
+          "guard": null
+        },
+        {
+          "from": "milestones",
+          "event": "complete",
+          "to": "release",
+          "guard": null
+        },
+        {
+          "from": "release",
+          "event": "complete",
+          "to": "done",
+          "guard": null
+        }
+      ],
+      "evidence": [
+        {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "1. **Understand.**"
+        },
+        {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "2. **Architecture, top down.**"
+        },
+        {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "3. **Architecture review.**"
+        },
+        {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "4. **Walking skeleton.**"
+        },
+        {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "5. **Milestones,**"
+        },
+        {
+          "path": "examples/kickoff-snapshot.md",
+          "contains": "6. **Release.**"
+        }
+      ],
+      "sub_machines": [
+        {
+          "name": "review-loop",
+          "applies_to": [
+            "architecture_review",
+            "milestones",
+            "release"
+          ],
+          "states": [
+            "round",
+            "fix",
+            "clean",
+            "accepted_risk"
+          ],
+          "initial": "round",
+          "terminal": [
+            "clean",
+            "accepted_risk"
+          ],
+          "transitions": [
+            {
+              "from": "round",
+              "event": "material_findings",
+              "to": "fix",
+              "guard": null
+            },
+            {
+              "from": "round",
+              "event": "nothing_material",
+              "to": "clean",
+              "guard": null
+            },
+            {
+              "from": "fix",
+              "event": "next_round",
+              "to": "round",
+              "guard": "rounds < 3"
+            },
+            {
+              "from": "fix",
+              "event": "rounds_exhausted",
+              "to": "accepted_risk",
+              "guard": "rounds == 3",
+              "note": "What is left after round 3 is recorded as accepted risk."
+            }
+          ],
+          "max_rounds": 3,
+          "evidence": [
+            {
+              "path": "examples/kickoff-snapshot.md",
+              "contains": "- Repeat until a round has nothing material, at most 3 rounds per review. Record anything left as accepted risk with a one-line reason."
+            },
+            {
+              "path": "examples/kickoff-snapshot.md",
+              "contains": "- Fix every unrefuted finding that's **material**"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "pr_42": {
+    "repo": "orders",
+    "number": 42,
+    "title": "Add cancellation reasons",
+    "head": "feature/cancel-reasons",
+    "base": "main",
+    "review_file": "examples/fixture/reviews/orders-pr-42.json",
+    "commits": [
+      "Accept a cancellation reason",
+      "Limit cancellation reason length to 200 characters"
+    ],
+    "threads": {
+      "addressed": [
+        {
+          "id": "T1",
+          "commit_subject": "Limit cancellation reason length to 200 characters",
+          "evidence": [
+            {
+              "path": "orders/internal/http/handlers.go",
+              "contains": "const maxCancelReasonLen = 200",
+              "branch": "feature/cancel-reasons"
+            }
+          ]
+        }
+      ],
+      "open": [
+        "T2",
+        "T3"
+      ]
+    },
+    "touched": [
+      {
+        "path": "orders/api/openapi.yaml",
+        "component": "orders/api"
+      },
+      {
+        "path": "orders/internal/http/handlers.go",
+        "component": "orders/internal/http"
+      },
+      {
+        "path": "orders/internal/order/lifecycle.go",
+        "component": "orders/internal/order"
+      },
+      {
+        "path": "orders/internal/order/order.go",
+        "component": "orders/internal/order"
+      }
+    ],
+    "touched_components": [
+      "orders/api",
+      "orders/internal/http",
+      "orders/internal/order"
+    ],
+    "thread_anchors": [
+      {
+        "id": "T1",
+        "path": "orders/internal/http/handlers.go",
+        "line": 99,
+        "commit_subject": "Accept a cancellation reason",
+        "evidence": {
+          "path": "orders/internal/http/handlers.go",
+          "contains": "Reason         string      `json:\"reason,omitempty\"`",
+          "branch": "feature/cancel-reasons"
+        }
+      },
+      {
+        "id": "T2",
+        "path": "orders/api/openapi.yaml",
+        "line": 142,
+        "commit_subject": "Accept a cancellation reason",
+        "evidence": {
+          "path": "orders/api/openapi.yaml",
+          "contains": "        reason:",
+          "branch": "feature/cancel-reasons"
+        }
+      },
+      {
+        "id": "T3",
+        "path": "orders/internal/order/lifecycle.go",
+        "line": 81,
+        "commit_subject": "Accept a cancellation reason",
+        "evidence": {
+          "path": "orders/internal/order/lifecycle.go",
+          "contains": "func CancelWithReason(o *Order, reason string) (State, error) {",
+          "branch": "feature/cancel-reasons"
+        }
+      }
+    ]
+  },
+  "breakdowns": {
+    "skill": {
+      "path": "worker/.claude/skills/run-worker-tests/SKILL.md",
+      "kind": "skill",
+      "name": "run-worker-tests",
+      "title": "Run the worker tests",
+      "parts": [
+        {
+          "name": "frontmatter",
+          "kind": "frontmatter",
+          "keys": [
+            "name",
+            "description"
+          ]
+        },
+        {
+          "name": "When to use",
+          "kind": "section"
+        },
+        {
+          "name": "Steps",
+          "kind": "section",
+          "items": 5
+        },
+        {
+          "name": "Checks",
+          "kind": "section",
+          "items": 3
+        }
+      ],
+      "part_names": [
+        "frontmatter",
+        "When to use",
+        "Steps",
+        "Checks"
+      ],
+      "evidence": [
+        {
+          "path": "worker/.claude/skills/run-worker-tests/SKILL.md",
+          "contains": "name: run-worker-tests"
+        },
+        {
+          "path": "worker/.claude/skills/run-worker-tests/SKILL.md",
+          "contains": "## When to use"
+        },
+        {
+          "path": "worker/.claude/skills/run-worker-tests/SKILL.md",
+          "contains": "## Steps"
+        },
+        {
+          "path": "worker/.claude/skills/run-worker-tests/SKILL.md",
+          "contains": "## Checks"
+        }
+      ]
+    },
+    "ci_workflow": {
+      "path": "orders/.github/workflows/ci.yml",
+      "kind": "ci_workflow",
+      "name": "ci",
+      "triggers": [
+        "push",
+        "pull_request"
+      ],
+      "parts": [
+        {
+          "name": "lint",
+          "kind": "job",
+          "needs": [],
+          "steps": [
+            "Check out",
+            "Set up Go",
+            "golangci-lint",
+            "Lint OpenAPI spec"
+          ]
+        },
+        {
+          "name": "test",
+          "kind": "job",
+          "needs": [],
+          "services": [
+            "postgres"
+          ],
+          "steps": [
+            "Check out",
+            "Set up Go",
+            "Apply migrations",
+            "Test"
+          ]
+        },
+        {
+          "name": "build",
+          "kind": "job",
+          "needs": [
+            "lint",
+            "test"
+          ],
+          "steps": [
+            "Check out",
+            "Set up Go",
+            "Build binary",
+            "Build image"
+          ]
+        }
+      ],
+      "part_names": [
+        "lint",
+        "test",
+        "build"
+      ],
+      "evidence": [
+        {
+          "path": "orders/.github/workflows/ci.yml",
+          "contains": "  lint:"
+        },
+        {
+          "path": "orders/.github/workflows/ci.yml",
+          "contains": "  test:"
+        },
+        {
+          "path": "orders/.github/workflows/ci.yml",
+          "contains": "  build:"
+        },
+        {
+          "path": "orders/.github/workflows/ci.yml",
+          "contains": "    needs: [lint, test]"
+        },
+        {
+          "path": "orders/.github/workflows/ci.yml",
+          "contains": "run: go test -race -count=1 ./..."
+        }
+      ]
+    }
+  },
+  "planted": [
+    {
+      "name": "on_hold",
+      "kind": "unreachable_state",
+      "machine": "order-lifecycle",
+      "source": "code",
+      "evidence": [
+        {
+          "path": "orders/internal/order/order.go",
+          "contains": "StateOnHold        State = \"on_hold\""
+        },
+        {
+          "path": "orders/internal/order/lifecycle.go",
+          "contains": "{From: StateOnHold, Event: EventRelease, To: StatePaid}"
+        }
+      ],
+      "why": "No transition has on_hold as its target."
+    },
+    {
+      "name": "payment_failed",
+      "kind": "dead_end",
+      "machine": "order-lifecycle",
+      "source": "code",
+      "evidence": [
+        {
+          "path": "orders/internal/order/lifecycle.go",
+          "contains": "{From: StateCreated, Event: EventPaymentFail, To: StatePaymentFailed}"
+        },
+        {
+          "path": "orders/internal/order/lifecycle.go",
+          "contains": "return s == StateDelivered || s == StateCancelled"
+        }
+      ],
+      "why": "Not terminal, and no transition leaves it."
+    },
+    {
+      "name": "fulfilling-cancel",
+      "kind": "doc_code_drift",
+      "machine": "order-lifecycle",
+      "evidence": [
+        {
+          "path": "orders/docs/order-lifecycle.md",
+          "contains": "    fulfilling --> cancelled: cancel"
+        }
+      ],
+      "why": "The doc allows fulfilling --cancel--> cancelled; the transitions table in lifecycle.go has no such row."
+    },
+    {
+      "name": "storefront-gift-wrap",
+      "kind": "unplanned_change",
+      "repo": "storefront",
+      "branch": "teammates",
+      "commit_subject": "Add gift wrap option to checkout",
+      "touched": [
+        "storefront/src/checkout/checkout.ts",
+        "storefront/src/checkout/routes.ts"
+      ],
+      "evidence": [
+        {
+          "path": "storefront/src/checkout/routes.ts",
+          "contains": "const giftWrap = isEnabled('gift_wrap') && req.body.giftWrap === true;",
+          "branch": "teammates"
+        },
+        {
+          "path": "storefront/src/checkout/checkout.ts",
+          "contains": "export const GIFT_WRAP = { sku: 'gift-wrap', name: 'Gift wrap', priceCents: 500 } as const;",
+          "branch": "teammates"
+        }
+      ]
+    },
+    {
+      "name": "worker-audit-db-write",
+      "kind": "regression",
+      "repo": "worker",
+      "branch": "teammates",
+      "commit_subject": "Write audit rows straight to orders-db",
+      "touched": [
+        "worker/worker/audit.py",
+        "worker/worker/main.py"
+      ],
+      "breaks": {
+        "from": "worker",
+        "to": "orders-db",
+        "kind": "db",
+        "intended": "absent"
+      },
+      "evidence": [
+        {
+          "path": "worker/worker/audit.py",
+          "contains": "with psycopg.connect(os.environ[\"DATABASE_URL\"], autocommit=True) as conn:",
+          "branch": "teammates"
+        },
+        {
+          "path": "worker/worker/main.py",
+          "contains": "        audit.record(job, outcome)",
+          "branch": "teammates"
+        }
+      ]
+    }
+  ],
+  "scenarios": {
+    "S3": {
+      "intent": "Add retries to the worker",
+      "attach_targets": [
+        "worker/worker/consumer.py",
+        "platform/docker-compose.yml",
+        "platform/prometheus/alerts.yml"
+      ],
+      "evidence": [
+        {
+          "path": "worker/worker/consumer.py",
+          "contains": "def pop(self) -> Job | None:"
+        },
+        {
+          "path": "platform/docker-compose.yml",
+          "contains": "image: acme/worker:0.9.0"
+        },
+        {
+          "path": "platform/prometheus/alerts.yml",
+          "contains": "- alert: OrdersHighErrorRate"
+        }
+      ]
+    },
+    "S4": {
+      "regroup": {
+        "name": "purchase",
+        "members": [
+          "storefront/src/cart",
+          "storefront/src/checkout"
+        ]
+      },
+      "intended_change": {
+        "spec_key": "worker-status-via-api",
+        "summary": "worker reports order status through the orders API and must not depend on orders-db",
+        "relations_added": [
+          {
+            "from": "worker",
+            "to": "orders",
+            "kind": "http",
+            "via": "POST /orders/{id}/events",
+            "evidence": [
+              {
+                "path": "orders/api/openapi.yaml",
+                "contains": "  /orders/{id}/events:"
+              },
+              {
+                "path": "orders/internal/http/handlers.go",
+                "contains": "mux.HandleFunc(\"POST /orders/{id}/events\", h.applyEvent)"
+              }
+            ]
+          }
+        ],
+        "relations_removed": [
+          {
+            "from": "worker",
+            "to": "orders-db",
+            "kind": "db"
+          }
+        ]
+      },
+      "impact_radius": {
+        "containers": [
+          "worker",
+          "orders",
+          "orders-db"
+        ],
+        "components": [
+          "worker/worker/config.py",
+          "worker/worker/db.py",
+          "worker/worker/jobs.py",
+          "orders/internal/http"
+        ]
+      },
+      "implementer_patch": {
+        "path": "examples/fixture/implementer/worker-status-via-api.patch",
+        "repo": "worker",
+        "applies_to": "main",
+        "touches": [
+          "worker/README.md",
+          "worker/pyproject.toml",
+          "worker/tests/test_jobs.py",
+          "worker/worker/config.py",
+          "worker/worker/db.py",
+          "worker/worker/jobs.py",
+          "worker/worker/orders_client.py"
+        ],
+        "adds": [
+          "worker/worker/orders_client.py"
+        ],
+        "deletes": [
+          "worker/worker/db.py"
+        ]
+      },
+      "reconciliation_after_merges": [
+        {
+          "item": "worker-status-via-api",
+          "class": "done"
+        },
+        {
+          "item": "storefront-gift-wrap",
+          "class": "unplanned"
+        },
+        {
+          "item": "worker-audit-db-write",
+          "class": "regression"
+        }
+      ],
+      "rescan_keeps_group": "purchase"
+    },
+    "S7": {
+      "repo": "storefront",
+      "branch": "routine",
+      "commit_subject": "Show 24 products per catalog page",
+      "touched": [
+        "storefront/src/catalog/catalog.ts"
+      ],
+      "evidence": [
+        {
+          "path": "storefront/src/catalog/catalog.ts",
+          "contains": "export const PAGE_SIZE = 24;",
+          "branch": "routine"
+        }
+      ],
+      "max_claude_calls": 0,
+      "max_cards": 1
+    },
+    "S10": {
+      "ruby": {
+        "path": "platform/tools/healthcheck.rb",
+        "language": "ruby",
+        "container": "healthcheck",
+        "requires": [
+          "net/http",
+          "json",
+          "optparse",
+          "uri"
+        ],
+        "calls": [
+          {
+            "url": "http://orders:8080/healthz",
+            "container": "orders",
+            "evidence": {
+              "path": "platform/tools/healthcheck.rb",
+              "contains": "'orders' => 'http://orders:8080/healthz',"
+            }
+          },
+          {
+            "url": "http://storefront:3000/healthz",
+            "container": "storefront",
+            "evidence": {
+              "path": "platform/tools/healthcheck.rb",
+              "contains": "'storefront' => 'http://storefront:3000/healthz'"
+            }
+          }
+        ],
+        "evidence": [
+          {
+            "path": "platform/tools/healthcheck.rb",
+            "contains": "require 'net/http'"
+          }
+        ]
+      },
+      "flags": {
+        "path": "storefront/flags.yaml",
+        "flags": [
+          {
+            "name": "gift_wrap",
+            "enabled": false,
+            "referenced_from_main": [],
+            "referenced_from_teammates": [
+              {
+                "path": "storefront/src/checkout/routes.ts",
+                "contains": "isEnabled('gift_wrap')",
+                "branch": "teammates"
+              }
+            ],
+            "evidence": {
+              "path": "storefront/flags.yaml",
+              "contains": "  gift_wrap:"
+            }
+          },
+          {
+            "name": "new_checkout",
+            "enabled": true,
+            "referenced_from_main": [
+              {
+                "path": "storefront/src/checkout/routes.ts",
+                "contains": "isEnabled('new_checkout')"
+              }
+            ],
+            "evidence": {
+              "path": "storefront/flags.yaml",
+              "contains": "  new_checkout:"
+            }
+          }
+        ],
+        "reader": {
+          "path": "storefront/src/app/flags.ts",
+          "contains": "export function isEnabled(name: string): boolean {"
+        }
+      }
+    },
+    "S12": {
+      "runs_file": "examples/fixture/implementer-runs.jsonl",
+      "baseline": {
+        "must_not_contain": [
+          {
+            "path": "worker/CLAUDE.md",
+            "text": "REDIS_URL"
+          },
+          {
+            "path": "worker/CLAUDE.md",
+            "text": "gen:orders-client"
+          }
+        ],
+        "absent_paths": [
+          "storefront/CLAUDE.md",
+          "storefront/.claude"
+        ]
+      },
+      "expected_proposals": [
+        {
+          "kind": "claude_md_diff",
+          "target": "worker/CLAUDE.md",
+          "lesson": "worker tests need REDIS_URL",
+          "must_mention": [
+            "REDIS_URL"
+          ],
+          "error": "redis.exceptions.ConnectionError",
+          "supporting_runs": [
+            "run-0001",
+            "run-0003",
+            "run-0006",
+            "run-0008"
+          ]
+        },
+        {
+          "kind": "skill",
+          "repo": "storefront",
+          "suggested_name": "regenerate-orders-client",
+          "suggested_path": "storefront/.claude/skills/regenerate-orders-client/SKILL.md",
+          "lesson": "after orders/api/openapi.yaml changes, regenerate the storefront orders client, then run the tests",
+          "must_mention": [
+            "npm run gen:orders-client",
+            "npm test"
+          ],
+          "supporting_runs": [
+            "run-0002",
+            "run-0005",
+            "run-0007"
+          ],
+          "evidence": [
+            {
+              "path": "storefront/package.json",
+              "contains": "\"gen:orders-client\": \"openapi-typescript ../orders/api/openapi.yaml -o src/api/orders.schema.ts\""
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "history": {
+    "co_change": {
+      "orders": {
+        "top_pair": [
+          "orders/api/openapi.yaml",
+          "orders/internal/http/handlers.go"
+        ],
+        "commits_together": {
+          "main": 5,
+          "all_branches": 6
+        },
+        "next_best": {
+          "main": 3,
+          "all_branches": 3
+        },
+        "note": "Counts include the initial commit."
+      }
+    },
+    "owners": {
+      "storefront": "alice",
+      "orders": "bob",
+      "worker": "carol",
+      "kit": "alice",
+      "platform": "dev"
+    },
+    "people": {
+      "alice": {
+        "name": "Alice Ng",
+        "email": "alice@acme.test"
+      },
+      "bob": {
+        "name": "Bob Okafor",
+        "email": "bob@acme.test"
+      },
+      "carol": {
+        "name": "Carol Diaz",
+        "email": "carol@acme.test"
+      },
+      "dev": {
+        "name": "Dev Patel",
+        "email": "dev@acme.test"
+      }
+    },
+    "authors": {
+      "storefront": {
+        "alice": 10,
+        "dev": 1
+      },
+      "orders": {
+        "bob": 11,
+        "dev": 1
+      },
+      "worker": {
+        "carol": 9,
+        "dev": 1
+      },
+      "kit": {
+        "alice": 7,
+        "dev": 1
+      },
+      "platform": {
+        "dev": 8,
+        "bob": 1
+      }
+    },
+    "authors_scope": "all branches"
+  }
+}

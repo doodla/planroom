@@ -1,0 +1,3 @@
+message = "Add the OpenTelemetry Collector and point the services at it"
+author = "Dev Patel <dev@acme.test>"
+date = "2026-08-29T10:30:00Z"

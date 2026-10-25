@@ -1,0 +1,44 @@
+{
+  "scenario": "gateway-error-noul-type",
+  "source": "live",
+  "captured_at": "2026-10-25T22:56:46+00:00",
+  "notes": "'noul' is only accepted on the TypeSafe-compatible path; /v1/evaluate wants 'boolean'.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev-1.14.0",
+      "state": "I was charged twice.",
+      "questions": {
+        "q": {
+          "type": "noul",
+          "instructions": "Is this about billing?"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/v1/evaluate",
+      "x-vercel-id": "iad1::iad1::plhhg-1792969006516-14ebd9f38fa4"
+    },
+    "body": {
+      "error": {
+        "message": "questions.q.type: Invalid discriminator value. Expected 'boolean' | 'box' | 'choice' | 'score'",
+        "param": null,
+        "type": "invalid_request_error"
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 195.1,
+    "provider_ms": null,
+    "cost_usd": null
+  }
+}

@@ -7,7 +7,7 @@ This directory holds the test fixture that every acceptance scenario runs on, th
 | `fixture/repos/<repo>/<NN-slug>/` | Each repo's history as ordered commit overlays (see [History format](#history-format)). |
 | `fixture/reviews/orders-pr-42.json` | Review threads for the fixture PR, in `planroom.review-threads/v1` (see [Review threads](#review-threads)). |
 | `fixture/implementer-runs.jsonl` | Seeded history of implementer runs, in `planroom.implementer-run/v1` (see [Implementer runs](#implementer-runs)). |
-| `fixture/implementer/<spec-key>.patch` | Canned output of the fixture implementer, the deterministic stand-in for the implementer agent. |
+| `fixture/implementer/<spec-key>/<repo>.patch` | Canned output of the fixture implementer, the deterministic stand-in for the implementer agent: one patch per repo the change spec touches. |
 | `build-fixture` | Builds fresh git repos from `fixture/` into a directory (Python 3.11+, standard library only). Deterministic: the same input gives the same commit IDs. |
 | `TRUTH.json` | The frozen expected answers. Changed only through a decision record. |
 | `kickoff-snapshot.md` | A copy of `KICKOFF.md` taken at kickoff. S5 and S6 run on it. Never apply diffs to the root `KICKOFF.md`. |
@@ -33,11 +33,11 @@ Five small repos, one polyglot system:
 | `worker` | `acme/worker:0.9.0` | `redis`, `orders-db` | `REDIS_URL`, `DATABASE_URL` (points at `orders-db`) |
 | `redis` | `redis:7.4` | | |
 | `orders-db` | `postgres:16.4` | | |
-| `otel-collector` | `otel/opentelemetry-collector-contrib:0.111.0` | `prometheus` | OTLP in, Prometheus exporter out |
+| `otel-collector` | `otel/opentelemetry-collector-contrib:0.111.0` | | OTLP in, Prometheus exporter out (scraped by `prometheus`) |
 | `prometheus` | `prom/prometheus:v2.54.1` | scrapes `orders`, `worker`, `otel-collector` | `prometheus/prometheus.yml` |
 | `grafana` | `grafana/grafana:11.2.2` | `prometheus` | provisioned dashboard |
 
-**How the web app reaches the worker:** `storefront` POSTs `/orders` to `orders` (client in `storefront/src/api/orders.ts`, path in `orders/api/openapi.yaml`, URL from compose). `orders` pushes an `order-jobs` message onto `redis` (`orders/internal/queue/publisher.go`). `worker` pops `order-jobs` (`worker/worker/consumer.py`).
+**How the web app reaches the worker** (following request and message edges only, not reads of a shared datastore): `storefront` POSTs `/orders` to `orders` (client in `storefront/src/api/orders.ts`, path in `orders/api/openapi.yaml`, URL from compose). `orders` pushes an `order-jobs` message onto `redis` (`orders/internal/queue/publisher.go`). `worker` pops `order-jobs` (`worker/worker/consumer.py`).
 
 ### Observability
 
@@ -45,7 +45,7 @@ Five small repos, one polyglot system:
 - **Pipeline.** SDKs export OTLP to `otel-collector` (`platform/otel/collector.yaml`), which exposes a Prometheus exporter. Prometheus scrapes `orders:9464`, `worker:9464` and `otel-collector:8889`.
 - **Alerts.** One rule, `OrdersHighErrorRate`, on the orders 5xx ratio (`platform/prometheus/alerts.yml`).
 - **Dashboards.** `orders-overview` (`platform/grafana/dashboards/orders-overview.json`): orders request rate, error ratio, p95 latency, and worker jobs processed.
-- **So, unmonitored** (nothing fires if it breaks): `storefront`, `worker`, `redis`, `orders-db`. Observability infrastructure (`otel-collector`, `prometheus`, `grafana`) is out of scope for coverage.
+- **So, unmonitored** (no alert rule watches it directly): `storefront`, `worker`, `redis`, `orders-db`. An alert watches a container directly when its expression selects a metric that the container emits or that is scraped from it (its `job` label). `orders-db` is covered only indirectly, because `OrdersHighErrorRate` fires when orders can't reach it; the truth records that as a note, not as coverage. `platform/tools/healthcheck.rb` is run by hand and doesn't count. Observability infrastructure (`otel-collector`, `prometheus`, `grafana`) is out of scope for coverage.
 
 ### Releases and versions
 
@@ -85,11 +85,11 @@ Each has an exact name that tests and `TRUTH.json` use.
 ## Scenario hooks
 
 - **S3** plans "Add retries to the worker". Next actions attach to `worker/worker/consumer.py`, `platform/docker-compose.yml` and `platform/prometheus/alerts.yml`.
-- **S4** regroups `storefront/src/cart` and `storefront/src/checkout` into a group named `purchase`, then changes the intended architecture: `worker` reports status through the orders API (`POST /orders/{id}/events`, which `orders` already serves) and must not depend on `orders-db`. The fixture implementer answers that change spec with `fixture/implementer/worker-status-via-api.patch`, which touches only `worker`. After the merge, the test merges each repo's `teammates` branch, which lands both planted changes.
+- **S4** regroups `storefront/src/cart` and `storefront/src/checkout` into a group named `purchase`, then changes the intended architecture: `worker` reports status through the orders API (`POST /orders/{id}/events`, which `orders` already serves) and must not depend on `orders-db`. The fixture implementer answers that change spec with one patch per touched repo, `fixture/implementer/worker-status-via-api/{worker,platform}.patch`: the worker gets an orders API client and loses its direct writes, and compose gives it `ORDERS_URL` instead of `DATABASE_URL`. After the merge, the test merges the `teammates` branch of `storefront` and `worker` (the only repos that have one), which lands both planted changes. Reconciliation then reports the change `done`, `storefront-gift-wrap` `unplanned` and `worker-audit-db-write` `regression`. A change that breaks a met intent is a regression even though no plan covers it, so regression takes precedence over unplanned, and the resolved item stays `done` with the regression reported against it. The impact radius is every component that holds evidence of an added or removed relation, at either end, plus their containers.
 - **S5** breaks down `orders` PR 42 ("Add cancellation reasons", branch `feature/cancel-reasons`): thread `T1` is addressed by a later commit, `T2` and `T3` stay open. It touches `orders/internal/http`, `orders/internal/order` and `orders/api/openapi.yaml`. S5 also breaks down the skill `worker/.claude/skills/run-worker-tests/SKILL.md` and the workflow `orders/.github/workflows/ci.yml`.
 - **S10** uses `platform/tools/healthcheck.rb` (Ruby has no built-in extractor) and `storefront/flags.yaml` (read by the toy pack).
 - **S7** uses branch `routine` in `storefront`: one small commit, "Show 24 products per catalog page", that a commit-triggered rescan should absorb with no Claude call and at most one card.
-- **S12** seeds 8 implementer runs against `worker/CLAUDE.md` and `storefront`, which don't yet mention either lesson. 4 hit the same gotcha (worker tests need `REDIS_URL`, and fail with `redis.exceptions.ConnectionError` without it). 3 repeat the same procedure (regenerate the storefront orders client after `orders/api/openapi.yaml` changes: `npm run gen:orders-client`, then `npm test`).
+- **S12** seeds 8 implementer runs, mostly in `worker` and `storefront`. Neither `worker/CLAUDE.md` nor `storefront` mentions either lesson yet. 4 hit the same gotcha (worker tests need `REDIS_URL`, and fail with `redis.exceptions.ConnectionError` without it). 3 repeat the same procedure (regenerate the storefront orders client after `orders/api/openapi.yaml` changes: `npm run gen:orders-client`, then `npm test`).
 
 ## History format
 

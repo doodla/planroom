@@ -1,0 +1,1119 @@
+{
+  "note": "Spike cases for Planroom decision kinds. Labels are the spike author's, written before any call. They are development cases, NOT the independent held-out set S7 requires. Model: typesafe-ai/jev-1.14.0 via /v1/evaluate, one question named 'q' per request.",
+  "buckets": {
+    "ep": "easy positive (for choice kinds: easy, clear answer)",
+    "en": "easy negative (for choice kinds: easy, clear answer)",
+    "am": "ambiguous"
+  },
+  "kinds": {
+    "next_action_concrete": {
+      "type": "boolean",
+      "question": {
+        "type": "boolean",
+        "instructions": "Is `next_action` concrete? Concrete means it has all three: an action verb, a named target component or file, and a done-test (a command, check, or observable result that shows it is finished).",
+        "criteria": {
+          "true": "All three are present: verb, named target, and done-test.",
+          "false": "At least one of the three is missing or only implied."
+        }
+      },
+      "cases": [
+        {
+          "id": "ep1",
+          "label": true,
+          "state": {
+            "next_action": "Add a `decision_cache` table to planroom-store; done when `cargo test -p planroom-store cache_roundtrip` passes."
+          }
+        },
+        {
+          "id": "ep2",
+          "label": true,
+          "state": {
+            "next_action": "Rename `Edge::kind` to `Edge::relation` in crates/planroom-kernel/src/edge.rs; done when `cargo check --workspace` is clean."
+          }
+        },
+        {
+          "id": "ep3",
+          "label": true,
+          "state": {
+            "next_action": "Write a Playwright test in web/canvas/e2e/zoom.spec.ts that pinches to zoom at 390x844; done when it passes in CI."
+          }
+        },
+        {
+          "id": "ep4",
+          "label": true,
+          "state": {
+            "next_action": "Make `planroom scan --json` emit a `stats.files` count; done when the snapshot test `scan_json_stats` matches the new output."
+          }
+        },
+        {
+          "id": "ep5",
+          "label": true,
+          "state": {
+            "next_action": "Delete the unused `legacy_layout` module from planroom-server; done when `cargo clippy -- -D warnings` passes with no dead-code warnings."
+          }
+        },
+        {
+          "id": "en1",
+          "label": false,
+          "state": {
+            "next_action": "Think about performance."
+          }
+        },
+        {
+          "id": "en2",
+          "label": false,
+          "state": {
+            "next_action": "Make the app better."
+          }
+        },
+        {
+          "id": "en3",
+          "label": false,
+          "state": {
+            "next_action": "Look into the flaky stuff people mentioned."
+          }
+        },
+        {
+          "id": "en4",
+          "label": false,
+          "state": {
+            "next_action": "Improve things where needed."
+          }
+        },
+        {
+          "id": "en5",
+          "label": false,
+          "state": {
+            "next_action": "Keep going on the plan."
+          }
+        },
+        {
+          "id": "am1",
+          "label": false,
+          "state": {
+            "next_action": "Refactor the store module to use prepared statements."
+          }
+        },
+        {
+          "id": "am2",
+          "label": false,
+          "state": {
+            "next_action": "Make sure all the tests pass before Friday."
+          }
+        },
+        {
+          "id": "am3",
+          "label": true,
+          "state": {
+            "next_action": "Add caching to planroom-decide so rescans get faster; check the rescan benchmark afterwards."
+          }
+        },
+        {
+          "id": "am4",
+          "label": false,
+          "state": {
+            "next_action": "Fix the bug in the canvas that Sam reported."
+          }
+        },
+        {
+          "id": "am5",
+          "label": true,
+          "state": {
+            "next_action": "Port the Go extractor to tree-sitter; it is done when the Go fixture graph matches TRUTH.json."
+          }
+        }
+      ]
+    },
+    "file_component": {
+      "type": "choice",
+      "question": {
+        "type": "choice",
+        "instructions": "Which component does the file at `path` belong to? Use the path first, then the imports.",
+        "criteria": {
+          "planroom-store": "SQLite store: schema, migrations, WAL, event log, decision cache (crates/planroom-store)",
+          "planroom-extract": "Extractors that parse source files into graph nodes and edges (crates/planroom-extract-*)",
+          "planroom-decide": "Jev and Claude adapters and decision policy (crates/planroom-decide)",
+          "planroom-server": "Local HTTP server and websocket push to the canvas (crates/planroom-server)",
+          "planroom-cli": "The `planroom` command-line entry point and its subcommands (crates/planroom-cli)",
+          "canvas": "TypeScript React canvas web app (web/canvas)"
+        }
+      },
+      "cases": [
+        {
+          "id": "ep1",
+          "label": "planroom-store",
+          "state": {
+            "path": "crates/planroom-store/src/migrations/0003_decisions.sql",
+            "imports": []
+          }
+        },
+        {
+          "id": "ep2",
+          "label": "planroom-decide",
+          "state": {
+            "path": "crates/planroom-decide/src/jev.rs",
+            "imports": [
+              "reqwest",
+              "serde_json",
+              "crate::policy::Threshold"
+            ]
+          }
+        },
+        {
+          "id": "ep3",
+          "label": "canvas",
+          "state": {
+            "path": "web/canvas/src/components/ZoomRail.tsx",
+            "imports": [
+              "react",
+              "@xyflow/react",
+              "./Breadcrumb"
+            ]
+          }
+        },
+        {
+          "id": "ep4",
+          "label": "planroom-cli",
+          "state": {
+            "path": "crates/planroom-cli/src/main.rs",
+            "imports": [
+              "clap::Parser",
+              "planroom_server::serve",
+              "planroom_store::Store"
+            ]
+          }
+        },
+        {
+          "id": "ep5",
+          "label": "planroom-server",
+          "state": {
+            "path": "crates/planroom-server/src/routes/ws.rs",
+            "imports": [
+              "axum::extract::ws",
+              "tokio::sync::broadcast"
+            ]
+          }
+        },
+        {
+          "id": "en1",
+          "label": "planroom-extract",
+          "state": {
+            "path": "crates/planroom-extract-rust/src/lib.rs",
+            "imports": [
+              "tree_sitter",
+              "tree_sitter_rust",
+              "planroom_schema::Node"
+            ]
+          }
+        },
+        {
+          "id": "en2",
+          "label": "planroom-store",
+          "state": {
+            "path": "crates/planroom-store/src/wal.rs",
+            "imports": [
+              "rusqlite::Connection",
+              "rusqlite::OpenFlags"
+            ]
+          }
+        },
+        {
+          "id": "en3",
+          "label": "canvas",
+          "state": {
+            "path": "web/canvas/src/lenses/dependencyLens.ts",
+            "imports": [
+              "../graph/types",
+              "elkjs"
+            ]
+          }
+        },
+        {
+          "id": "en4",
+          "label": "planroom-decide",
+          "state": {
+            "path": "crates/planroom-decide/src/claude.rs",
+            "imports": [
+              "reqwest",
+              "crate::Escalation"
+            ]
+          }
+        },
+        {
+          "id": "en5",
+          "label": "planroom-server",
+          "state": {
+            "path": "crates/planroom-server/src/static_assets.rs",
+            "imports": [
+              "axum::routing::get",
+              "rust_embed::RustEmbed"
+            ]
+          }
+        },
+        {
+          "id": "am1",
+          "label": "planroom-store",
+          "state": {
+            "path": "crates/planroom-server/src/db_pool.rs",
+            "imports": [
+              "rusqlite::Connection",
+              "r2d2_sqlite::SqliteConnectionManager"
+            ]
+          }
+        },
+        {
+          "id": "am2",
+          "label": "planroom-cli",
+          "state": {
+            "path": "crates/planroom-cli/src/commands/serve.rs",
+            "imports": [
+              "planroom_server::Server",
+              "tokio::signal"
+            ]
+          }
+        },
+        {
+          "id": "am3",
+          "label": "planroom-decide",
+          "state": {
+            "path": "tests/contract/jev_fixtures.rs",
+            "imports": [
+              "planroom_decide::jev",
+              "insta"
+            ]
+          }
+        },
+        {
+          "id": "am4",
+          "label": "canvas",
+          "state": {
+            "path": "web/shared/graph-types.ts",
+            "imports": []
+          }
+        },
+        {
+          "id": "am5",
+          "label": "planroom-extract",
+          "state": {
+            "path": "build.rs",
+            "imports": [
+              "tree_sitter_go",
+              "cc::Build"
+            ]
+          }
+        }
+      ]
+    },
+    "dependency_real": {
+      "type": "boolean",
+      "question": {
+        "type": "boolean",
+        "instructions": "Does the evidence show that component `edge.from` really depends on component `edge.to` at build time or run time?",
+        "criteria": {
+          "true": "The evidence shows `from` imports, calls, links to, or sends requests to `to`.",
+          "false": "The evidence is only a name match, a comment, documentation, or test-only use, or it shows the reverse direction."
+        }
+      },
+      "cases": [
+        {
+          "id": "ep1",
+          "label": true,
+          "state": {
+            "edge": {
+              "from": "planroom-cli",
+              "to": "planroom-store"
+            },
+            "evidence": [
+              "crates/planroom-cli/Cargo.toml: planroom-store = { path = \"../planroom-store\" }",
+              "crates/planroom-cli/src/main.rs:14: let store = planroom_store::Store::open(&path)?;"
+            ]
+          }
+        },
+        {
+          "id": "ep2",
+          "label": true,
+          "state": {
+            "edge": {
+              "from": "canvas",
+              "to": "planroom-server"
+            },
+            "evidence": [
+              "web/canvas/src/api.ts:8: const ws = new WebSocket(`${origin}/api/ws`)",
+              "crates/planroom-server/src/routes/ws.rs:3: Router::new().route(\"/api/ws\", get(ws_handler))"
+            ]
+          }
+        },
+        {
+          "id": "ep3",
+          "label": true,
+          "state": {
+            "edge": {
+              "from": "planroom-decide",
+              "to": "jev-gateway"
+            },
+            "evidence": [
+              "crates/planroom-decide/src/jev.rs:40: client.post(\"https://ai-gateway.vercel.sh/v1/evaluate\")"
+            ]
+          }
+        },
+        {
+          "id": "ep4",
+          "label": true,
+          "state": {
+            "edge": {
+              "from": "planroom-server",
+              "to": "planroom-kernel"
+            },
+            "evidence": [
+              "crates/planroom-server/src/query.rs:2: use planroom_kernel::{Graph, Query};",
+              "crates/planroom-server/src/query.rs:51: graph.neighbourhood(id, depth)"
+            ]
+          }
+        },
+        {
+          "id": "ep5",
+          "label": true,
+          "state": {
+            "edge": {
+              "from": "billing-svc",
+              "to": "orders-db"
+            },
+            "evidence": [
+              "services/billing/config.yaml: database_url: postgres://orders-db:5432/orders",
+              "services/billing/src/repo.py:12: cur.execute(\"SELECT * FROM orders WHERE id=%s\", (oid,))"
+            ]
+          }
+        },
+        {
+          "id": "en1",
+          "label": false,
+          "state": {
+            "edge": {
+              "from": "planroom-store",
+              "to": "canvas"
+            },
+            "evidence": [
+              "crates/planroom-store/README.md: The canvas reads snapshots that the store produces."
+            ]
+          }
+        },
+        {
+          "id": "en2",
+          "label": false,
+          "state": {
+            "edge": {
+              "from": "billing-svc",
+              "to": "billing-docs"
+            },
+            "evidence": [
+              "Both names start with `billing`."
+            ]
+          }
+        },
+        {
+          "id": "en3",
+          "label": false,
+          "state": {
+            "edge": {
+              "from": "planroom-kernel",
+              "to": "planroom-cli"
+            },
+            "evidence": [
+              "crates/planroom-cli/src/main.rs:3: use planroom_kernel::Graph;"
+            ]
+          }
+        },
+        {
+          "id": "en4",
+          "label": false,
+          "state": {
+            "edge": {
+              "from": "planroom-server",
+              "to": "planroom-decide"
+            },
+            "evidence": [
+              "crates/planroom-server/src/lib.rs:88: // TODO: maybe call planroom-decide here later"
+            ]
+          }
+        },
+        {
+          "id": "en5",
+          "label": false,
+          "state": {
+            "edge": {
+              "from": "orders-svc",
+              "to": "legacy-ftp"
+            },
+            "evidence": [
+              "docs/history.md: In 2019 orders were uploaded to the legacy FTP server; this was removed in 2021."
+            ]
+          }
+        },
+        {
+          "id": "am1",
+          "label": true,
+          "state": {
+            "edge": {
+              "from": "orders-svc",
+              "to": "payments-svc"
+            },
+            "evidence": [
+              "services/orders/.env.example: PAYMENTS_URL=http://payments-svc:8080",
+              "services/orders/src/client.ts:5: const base = process.env.PAYMENTS_URL"
+            ]
+          }
+        },
+        {
+          "id": "am2",
+          "label": false,
+          "state": {
+            "edge": {
+              "from": "planroom-cli",
+              "to": "insta"
+            },
+            "evidence": [
+              "crates/planroom-cli/Cargo.toml [dev-dependencies]: insta = \"1.43\""
+            ]
+          }
+        },
+        {
+          "id": "am3",
+          "label": true,
+          "state": {
+            "edge": {
+              "from": "planroom-extract",
+              "to": "planroom-packs"
+            },
+            "evidence": [
+              "crates/planroom-extract-rust/src/lib.rs:9: let pack = registry.get(\"rust\")?; // registry is passed in by the caller"
+            ]
+          }
+        },
+        {
+          "id": "am4",
+          "label": false,
+          "state": {
+            "edge": {
+              "from": "worker",
+              "to": "redis"
+            },
+            "evidence": [
+              "deploy/docker-compose.yml: worker: depends_on: [redis]",
+              "services/worker/src/main.go: no redis import found"
+            ]
+          }
+        },
+        {
+          "id": "am5",
+          "label": true,
+          "state": {
+            "edge": {
+              "from": "canvas",
+              "to": "planroom-schema"
+            },
+            "evidence": [
+              "web/canvas/src/graph/types.ts: // generated from planroom-schema by `pnpm gen:schema`",
+              "web/canvas/package.json scripts.gen:schema: cargo run -p planroom-schema --bin export-ts"
+            ]
+          }
+        }
+      ]
+    },
+    "mismatch_class": {
+      "type": "choice",
+      "question": {
+        "type": "choice",
+        "instructions": "Classify this difference between the plan (`intent`) and the code (`actual`).",
+        "criteria": {
+          "expected": "The plan item is scheduled but not started, and nothing in reality has moved toward it yet. Nothing is wrong.",
+          "in_progress": "Work toward the plan item has started (commits, branch, partial code) but it is not finished.",
+          "done": "Reality now satisfies the plan item and its done-test; the item can be closed.",
+          "unplanned": "Reality contains a change that no plan item asked for.",
+          "regression": "Something that used to satisfy a plan item no longer does."
+        }
+      },
+      "cases": [
+        {
+          "id": "ep1",
+          "label": "done",
+          "state": {
+            "intent": {
+              "id": "P-3",
+              "says": "Add `planroom scan --json`",
+              "done_test": "scan_json snapshot test passes",
+              "status": "in progress"
+            },
+            "actual": {
+              "before": "no --json flag",
+              "now": "--json flag exists; scan_json snapshot test passes in CI"
+            }
+          }
+        },
+        {
+          "id": "ep2",
+          "label": "regression",
+          "state": {
+            "intent": {
+              "id": "P-1",
+              "says": "Canvas loads in under 1 s",
+              "status": "done"
+            },
+            "actual": {
+              "before": "load 0.6 s, test green",
+              "now": "load 2.4 s after commit 9f2c; perf test red"
+            }
+          }
+        },
+        {
+          "id": "ep3",
+          "label": "unplanned",
+          "state": {
+            "intent": null,
+            "actual": {
+              "before": "no telemetry",
+              "now": "new crate planroom-telemetry added in commit 77ab; no plan item mentions telemetry"
+            }
+          }
+        },
+        {
+          "id": "ep4",
+          "label": "expected",
+          "state": {
+            "intent": {
+              "id": "P-9",
+              "says": "Add pack loader (milestone 3)",
+              "status": "not started",
+              "scheduled": "after milestone 2"
+            },
+            "actual": {
+              "before": "no pack loader",
+              "now": "no pack loader; milestone 2 still open"
+            }
+          }
+        },
+        {
+          "id": "ep5",
+          "label": "in_progress",
+          "state": {
+            "intent": {
+              "id": "P-5",
+              "says": "Add Go extractor",
+              "done_test": "Go fixture matches TRUTH.json",
+              "status": "not started"
+            },
+            "actual": {
+              "before": "nothing",
+              "now": "branch go-extractor has 4 commits; crates/planroom-extract-go exists; fixture test fails on 6 of 20 nodes"
+            }
+          }
+        },
+        {
+          "id": "en1",
+          "label": "done",
+          "state": {
+            "intent": {
+              "id": "P-7",
+              "says": "Delete legacy_layout module",
+              "status": "in progress"
+            },
+            "actual": {
+              "before": "legacy_layout.rs present",
+              "now": "legacy_layout.rs removed in commit c1d0; build green"
+            }
+          }
+        },
+        {
+          "id": "en2",
+          "label": "regression",
+          "state": {
+            "intent": {
+              "id": "P-2",
+              "says": "Tap targets at least 44 px",
+              "status": "done"
+            },
+            "actual": {
+              "before": "all buttons 48 px",
+              "now": "commit e5f1 shrank decision card buttons to 32 px"
+            }
+          }
+        },
+        {
+          "id": "en3",
+          "label": "unplanned",
+          "state": {
+            "intent": null,
+            "actual": {
+              "before": "no dark mode",
+              "now": "a dark-mode toggle was added to the canvas toolbar; no plan item asks for it"
+            }
+          }
+        },
+        {
+          "id": "en4",
+          "label": "expected",
+          "state": {
+            "intent": {
+              "id": "P-11",
+              "says": "Publish the Artifact (final milestone)",
+              "status": "not started"
+            },
+            "actual": {
+              "before": "not published",
+              "now": "not published; earlier milestones still in progress"
+            }
+          }
+        },
+        {
+          "id": "en5",
+          "label": "in_progress",
+          "state": {
+            "intent": {
+              "id": "P-6",
+              "says": "Add rescan on commit",
+              "status": "not started"
+            },
+            "actual": {
+              "before": "nothing",
+              "now": "git hook script added but not wired to the server; 1 of 3 acceptance tests pass"
+            }
+          }
+        },
+        {
+          "id": "am1",
+          "label": "done",
+          "state": {
+            "intent": {
+              "id": "P-4",
+              "says": "Cache Jev answers",
+              "done_test": "rescan makes 0 new Jev calls on unchanged input",
+              "status": "in progress"
+            },
+            "actual": {
+              "before": "no cache",
+              "now": "cache table exists and is used; done-test was never run"
+            }
+          }
+        },
+        {
+          "id": "am2",
+          "label": "unplanned",
+          "state": {
+            "intent": {
+              "id": "P-8",
+              "says": "Add Go extractor",
+              "status": "in progress"
+            },
+            "actual": {
+              "before": "no Python support",
+              "now": "while adding the Go extractor, a Python extractor was also added in the same PR"
+            }
+          }
+        },
+        {
+          "id": "am3",
+          "label": "regression",
+          "state": {
+            "intent": {
+              "id": "P-10",
+              "says": "CLI startup under 100 ms",
+              "status": "done"
+            },
+            "actual": {
+              "before": "80 ms",
+              "now": "105 ms on a cold cache, 85 ms warm"
+            }
+          }
+        },
+        {
+          "id": "am4",
+          "label": "in_progress",
+          "state": {
+            "intent": {
+              "id": "P-12",
+              "says": "Mod band shows next best action",
+              "status": "done"
+            },
+            "actual": {
+              "before": "band shipped",
+              "now": "band was reverted in commit 3ab9 to fix a crash; a new branch re-adds it"
+            }
+          }
+        },
+        {
+          "id": "am5",
+          "label": "expected",
+          "state": {
+            "intent": {
+              "id": "P-13",
+              "says": "Edge bundling in canvas",
+              "status": "not started",
+              "scheduled": "milestone 4"
+            },
+            "actual": {
+              "before": "none",
+              "now": "a spike file web/canvas/src/experiments/bundling.ts exists, not imported anywhere"
+            }
+          }
+        }
+      ]
+    },
+    "commit_addresses_thread": {
+      "type": "boolean",
+      "question": {
+        "type": "boolean",
+        "instructions": "Does `commit` address the concern raised in `thread`?",
+        "criteria": {
+          "true": "The commit changes the code the thread is about in the way the reviewer asked, or fixes the problem they raised.",
+          "false": "The commit touches other code, or touches the same file without fixing the raised concern."
+        }
+      },
+      "cases": [
+        {
+          "id": "ep1",
+          "label": true,
+          "state": {
+            "thread": {
+              "file": "crates/planroom-decide/src/jev.rs",
+              "line": 52,
+              "comment": "This unwrap() will panic on a 429. Please return an error instead."
+            },
+            "commit": {
+              "message": "decide: return JevError::RateLimited on 429 instead of panicking",
+              "diff": "jev.rs: -let body = resp.json().unwrap(); +if resp.status() == 429 { return Err(JevError::RateLimited { retry_after }) }"
+            }
+          }
+        },
+        {
+          "id": "ep2",
+          "label": true,
+          "state": {
+            "thread": {
+              "file": "web/canvas/src/DecisionCard.tsx",
+              "line": 30,
+              "comment": "Buttons are 32px; tap targets must be at least 44px."
+            },
+            "commit": {
+              "message": "canvas: make decision card buttons 48px",
+              "diff": "DecisionCard.tsx: -height: 32px +height: 48px"
+            }
+          }
+        },
+        {
+          "id": "ep3",
+          "label": true,
+          "state": {
+            "thread": {
+              "file": "crates/planroom-store/src/lib.rs",
+              "line": 10,
+              "comment": "Please enable WAL mode when opening the database."
+            },
+            "commit": {
+              "message": "store: open SQLite in WAL mode",
+              "diff": "lib.rs: +conn.pragma_update(None, \"journal_mode\", \"WAL\")?;"
+            }
+          }
+        },
+        {
+          "id": "ep4",
+          "label": true,
+          "state": {
+            "thread": {
+              "file": "README.md",
+              "line": 3,
+              "comment": "Typo: 'Planrom' should be 'Planroom'."
+            },
+            "commit": {
+              "message": "docs: fix product name typo",
+              "diff": "README.md: -Planrom +Planroom"
+            }
+          }
+        },
+        {
+          "id": "ep5",
+          "label": true,
+          "state": {
+            "thread": {
+              "file": "crates/planroom-cli/src/main.rs",
+              "line": 77,
+              "comment": "Missing test for the --json flag on `scan`."
+            },
+            "commit": {
+              "message": "cli: add snapshot test for scan --json",
+              "diff": "tests/scan_json.rs: new file, 40 lines, insta::assert_json_snapshot!(out)"
+            }
+          }
+        },
+        {
+          "id": "en1",
+          "label": false,
+          "state": {
+            "thread": {
+              "file": "crates/planroom-decide/src/jev.rs",
+              "line": 52,
+              "comment": "This unwrap() will panic on a 429."
+            },
+            "commit": {
+              "message": "canvas: tweak zoom rail colours",
+              "diff": "web/canvas/src/ZoomRail.tsx: colour changes"
+            }
+          }
+        },
+        {
+          "id": "en2",
+          "label": false,
+          "state": {
+            "thread": {
+              "file": "web/canvas/src/DecisionCard.tsx",
+              "line": 30,
+              "comment": "Tap targets must be at least 44px."
+            },
+            "commit": {
+              "message": "server: add /healthz route",
+              "diff": "crates/planroom-server/src/routes.rs: +.route(\"/healthz\", get(ok))"
+            }
+          }
+        },
+        {
+          "id": "en3",
+          "label": false,
+          "state": {
+            "thread": {
+              "file": "crates/planroom-store/src/lib.rs",
+              "line": 10,
+              "comment": "Please enable WAL mode."
+            },
+            "commit": {
+              "message": "store: rename open() to connect()",
+              "diff": "lib.rs: -pub fn open +pub fn connect (journal mode unchanged)"
+            }
+          }
+        },
+        {
+          "id": "en4",
+          "label": false,
+          "state": {
+            "thread": {
+              "file": "README.md",
+              "line": 3,
+              "comment": "Typo: 'Planrom'."
+            },
+            "commit": {
+              "message": "ci: bump actions/checkout",
+              "diff": ".github/workflows/ci.yml: checkout@v4 -> checkout@v5"
+            }
+          }
+        },
+        {
+          "id": "en5",
+          "label": false,
+          "state": {
+            "thread": {
+              "file": "crates/planroom-cli/src/main.rs",
+              "line": 77,
+              "comment": "Missing test for the --json flag."
+            },
+            "commit": {
+              "message": "cli: reformat with rustfmt",
+              "diff": "main.rs: whitespace only"
+            }
+          }
+        },
+        {
+          "id": "am1",
+          "label": true,
+          "state": {
+            "thread": {
+              "file": "crates/planroom-decide/src/jev.rs",
+              "line": 52,
+              "comment": "This unwrap() will panic on a 429."
+            },
+            "commit": {
+              "message": "decide: wrap the HTTP client in a retry layer",
+              "diff": "jev.rs: client now uses tower::retry with backoff on 429/529; the unwrap on line 52 is still there but is only reached after a success status"
+            }
+          }
+        },
+        {
+          "id": "am2",
+          "label": false,
+          "state": {
+            "thread": {
+              "file": "web/canvas/src/DecisionCard.tsx",
+              "line": 30,
+              "comment": "Tap targets must be at least 44px."
+            },
+            "commit": {
+              "message": "canvas: increase card padding",
+              "diff": "DecisionCard.tsx: padding 8px -> 12px (button height unchanged at 32px)"
+            }
+          }
+        },
+        {
+          "id": "am3",
+          "label": true,
+          "state": {
+            "thread": {
+              "file": "crates/planroom-store/src/lib.rs",
+              "line": 10,
+              "comment": "Please enable WAL mode."
+            },
+            "commit": {
+              "message": "store: move connection setup into pool.rs",
+              "diff": "lib.rs: setup removed; pool.rs: new file, on_acquire sets journal_mode=WAL"
+            }
+          }
+        },
+        {
+          "id": "am4",
+          "label": false,
+          "state": {
+            "thread": {
+              "file": "crates/planroom-cli/src/main.rs",
+              "line": 77,
+              "comment": "Missing test for the --json flag."
+            },
+            "commit": {
+              "message": "cli: add tests",
+              "diff": "tests/scan.rs: test for plain `scan` text output"
+            }
+          }
+        },
+        {
+          "id": "am5",
+          "label": true,
+          "state": {
+            "thread": {
+              "file": "README.md",
+              "line": 3,
+              "comment": "The install section is out of date."
+            },
+            "commit": {
+              "message": "docs: rewrite README",
+              "diff": "README.md: 120 lines changed across all sections, including install"
+            }
+          }
+        }
+      ]
+    },
+    "plan_vagueness": {
+      "type": "score",
+      "question": {
+        "type": "score",
+        "instructions": "How vague is `plan_item`?",
+        "criteria": [
+          "precise: names the change, where it goes, and how to check it is done",
+          "mostly precise: one of change, place, or check is missing",
+          "vague: states a goal but not where or how to check it",
+          "very vague: a wish with no target and no check"
+        ]
+      },
+      "cases": [
+        {
+          "id": "ep1",
+          "label": 3,
+          "state": {
+            "plan_item": "Make it nicer."
+          }
+        },
+        {
+          "id": "ep2",
+          "label": 3,
+          "state": {
+            "plan_item": "Improve quality overall."
+          }
+        },
+        {
+          "id": "ep3",
+          "label": 3,
+          "state": {
+            "plan_item": "Be more scalable someday."
+          }
+        },
+        {
+          "id": "ep4",
+          "label": 3,
+          "state": {
+            "plan_item": "Fix things."
+          }
+        },
+        {
+          "id": "ep5",
+          "label": 3,
+          "state": {
+            "plan_item": "General cleanup as needed."
+          }
+        },
+        {
+          "id": "en1",
+          "label": 0,
+          "state": {
+            "plan_item": "Add a `--json` flag to `planroom scan` in crates/planroom-cli; done when the scan_json snapshot test passes."
+          }
+        },
+        {
+          "id": "en2",
+          "label": 0,
+          "state": {
+            "plan_item": "Set SQLite journal_mode=WAL in planroom-store's Store::open; done when `cargo test -p planroom-store wal_mode` passes."
+          }
+        },
+        {
+          "id": "en3",
+          "label": 0,
+          "state": {
+            "plan_item": "Raise DecisionCard button height to 48px in web/canvas/src/DecisionCard.tsx; done when the 390x844 Playwright tap-target check passes."
+          }
+        },
+        {
+          "id": "en4",
+          "label": 0,
+          "state": {
+            "plan_item": "Return JevError::RateLimited on HTTP 429 in crates/planroom-decide/src/jev.rs; done when the jev_429 contract test passes."
+          }
+        },
+        {
+          "id": "en5",
+          "label": 0,
+          "state": {
+            "plan_item": "Remove legacy_layout.rs from planroom-server; done when clippy passes with -D warnings."
+          }
+        },
+        {
+          "id": "am1",
+          "label": 1,
+          "state": {
+            "plan_item": "Add a decision cache to planroom-store keyed by state hash."
+          }
+        },
+        {
+          "id": "am2",
+          "label": 2,
+          "state": {
+            "plan_item": "Make rescans cheaper."
+          }
+        },
+        {
+          "id": "am3",
+          "label": 1,
+          "state": {
+            "plan_item": "Speed up the canvas so it loads in under a second."
+          }
+        },
+        {
+          "id": "am4",
+          "label": 2,
+          "state": {
+            "plan_item": "Improve the Go extractor's accuracy."
+          }
+        },
+        {
+          "id": "am5",
+          "label": 1,
+          "state": {
+            "plan_item": "Write docs for the CLI; done when a new user can follow them."
+          }
+        }
+      ]
+    }
+  }
+}

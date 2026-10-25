@@ -1,0 +1,27 @@
+# Changelog
+
+All notable changes to `@acme/kit`. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
+[Semantic Versioning](https://semver.org/).
+
+## [1.2.0] - 2026-10-01
+
+### Added
+
+- `minorUnits(currency)`. `formatMoney` and `parseMoney` now take amounts in
+  each currency's minor units, so JPY (0 decimals) and KWD (3) work.
+
+## [1.1.0] - 2026-09-03
+
+### Added
+
+- `parseMoney(text, currency)` turns `'12.50'` or `'$12.50'` into cents.
+
+## [1.0.0] - 2026-08-08
+
+### Added
+
+- `formatMoney(amountCents, currency)`.
+- `isOrderId` and `formatOrderId` for orders-service IDs (`ord_` plus 16 hex
+  digits).
+- Published to npm as `@acme/kit` from a tag, by `.github/workflows/release.yml`.

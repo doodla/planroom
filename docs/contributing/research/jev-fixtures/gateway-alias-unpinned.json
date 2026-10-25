@@ -1,0 +1,96 @@
+{
+  "scenario": "gateway-alias-unpinned",
+  "source": "live",
+  "captured_at": "2026-10-25T22:57:08+00:00",
+  "notes": "Unpinned alias typesafe-ai/jev. Response model echoes the alias, not a version; routing lists fallbacksAvailable ['digitalocean']. Planroom pins typesafe-ai/jev-1.14.0 instead.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev",
+      "state": {
+        "plan_item": "Add a `--json` flag to `planroom scan`; done when the scan_json snapshot test passes."
+      },
+      "questions": {
+        "concrete": {
+          "type": "boolean",
+          "instructions": "Does `plan_item` name a change, a place, and a done-test?"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/v1/evaluate",
+      "x-vercel-id": "iad1::iad1::mjddf-1792969028358-b78f21909053"
+    },
+    "body": {
+      "answers": {
+        "concrete": {
+          "type": "boolean",
+          "probability": 0.87
+        }
+      },
+      "model": "typesafe-ai/jev",
+      "providerMetadata": {
+        "typesafe": {
+          "confidence": {}
+        },
+        "gateway": {
+          "routing": {
+            "originalModelId": "typesafe-ai/jev",
+            "resolvedProvider": "typesafe-ai",
+            "fallbacksAvailable": [
+              "digitalocean"
+            ],
+            "planningReasoning": "System credentials planned for: typesafe-ai, digitalocean. Total execution order: typesafe-ai(system) \u2192 digitalocean(system)",
+            "canonicalSlug": "typesafe-ai/jev",
+            "finalProvider": "typesafe-ai",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "typesafe-ai/jev",
+                "success": true,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "typesafe-ai",
+                    "credentialType": "system",
+                    "success": true,
+                    "startTime": 1792969028405,
+                    "endTime": 1792969028450,
+                    "statusCode": 200
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1
+          },
+          "cost": "0.000013146",
+          "marketCost": "0.000013146",
+          "surchargeCost": "0",
+          "gatewayCost": "0.000013146",
+          "inferenceCost": "0.000013146",
+          "inputInferenceCost": "0.000013146",
+          "outputInferenceCost": "0",
+          "generationId": "gen_01M5TMGCRTKD2GE0CYX4M8N3EM"
+        }
+      },
+      "usage": {
+        "inputTokens": 313,
+        "outputTokens": 21
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 245.1,
+    "provider_ms": 45,
+    "cost_usd": "0.000013146"
+  }
+}

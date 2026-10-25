@@ -1,0 +1,45 @@
+{
+  "scenario": "gateway-error-choice-empty-criteria",
+  "source": "live",
+  "captured_at": "2026-10-25T22:56:46+00:00",
+  "notes": "400. Not billed.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev-1.14.0",
+      "state": "I was charged twice.",
+      "questions": {
+        "q": {
+          "type": "choice",
+          "instructions": "Which team?",
+          "criteria": {}
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/v1/evaluate",
+      "x-vercel-id": "iad1::iad1::dh5cs-1792969006739-57809a418a4c"
+    },
+    "body": {
+      "error": {
+        "message": "questions.q.criteria: Choice questions require at least one criterion",
+        "param": null,
+        "type": "invalid_request_error"
+      }
+    }
+  },
+  "measured": {
+    "wall_ms": 208.0,
+    "provider_ms": null,
+    "cost_usd": null
+  }
+}

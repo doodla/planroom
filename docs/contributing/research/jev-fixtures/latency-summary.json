@@ -1,0 +1,46 @@
+{
+  "model": "typesafe-ai/jev-1.14.0",
+  "endpoint": "https://ai-gateway.vercel.sh/v1/evaluate",
+  "client": "python requests Session via the agent proxy, from a container in iad1",
+  "wall_ms is client round trip incl. proxy; provider_ms is gateway routing providerAttempts endTime-startTime": true,
+  "single": {
+    "n": 30,
+    "wall_p50": 298.1,
+    "wall_p95": 518.0,
+    "wall_min": 251.7,
+    "wall_max": 667.0,
+    "provider_p50": 64.5,
+    "provider_p95": 110.3,
+    "provider_max": 156,
+    "input_tokens": [
+      384
+    ],
+    "output_tokens": [
+      21
+    ],
+    "cost_each": [
+      "0.000016128"
+    ],
+    "answers_stable": false
+  },
+  "batch5": {
+    "n": 10,
+    "wall_p50": 294.1,
+    "wall_p95": 328.7,
+    "wall_min": 269.9,
+    "wall_max": 342.3,
+    "provider_p50": 65.0,
+    "provider_p95": 90.3,
+    "provider_max": 93,
+    "input_tokens": [
+      550
+    ],
+    "output_tokens": [
+      119
+    ],
+    "cost_each": [
+      "0.0000231"
+    ],
+    "answers_stable": false
+  }
+}

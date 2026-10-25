@@ -1,0 +1,43 @@
+{
+  "scenario": "typesafe-compat-error-boolean-type",
+  "source": "live",
+  "captured_at": "2026-10-25T22:57:07+00:00",
+  "notes": "TypeSafe error shape { message, error_type } with no envelope.",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/typesafe/v1/systemone",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "model": "typesafe-ai/jev-1.14.0",
+      "state": {
+        "plan_item": "Add a `--json` flag to `planroom scan`; done when the scan_json snapshot test passes."
+      },
+      "questions": {
+        "q": {
+          "type": "boolean",
+          "instructions": "Is it concrete?"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/typesafe/v1/systemone",
+      "x-vercel-id": "iad1::iad1::7szh6-1792969027498-194212890711"
+    },
+    "body": {
+      "message": "questions.q.type: expected one of 'noul', 'choice', 'score', 'box'",
+      "error_type": "invalid_request"
+    }
+  },
+  "measured": {
+    "wall_ms": 188.0,
+    "provider_ms": null,
+    "cost_usd": null
+  }
+}

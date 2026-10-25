@@ -1,0 +1,102 @@
+{
+  "scenario": "typesafe-compat-models",
+  "source": "live",
+  "captured_at": "2026-10-25T22:57:08+00:00",
+  "notes": "GET /typesafe/v1/models lists every gateway decision model with bare names (jev, jev-1.13.0, jev-1.14.0, ...).",
+  "request": {
+    "method": "GET",
+    "url": "https://ai-gateway.vercel.sh/typesafe/v1/models",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-expose-headers": "retry-after, x-ai-gateway-token-count, x-should-retry",
+      "content-type": "application/json",
+      "x-matched-path": "/typesafe/v1/models",
+      "x-vercel-id": "iad1::iad1::6lhk7-1792969028057-873a3a6a39e5"
+    },
+    "body": {
+      "models": [
+        {
+          "name": "baseten/elephant-1",
+          "description": "Elephant-1 is a 9B decision model from Baseten's Base Labs for classification, routing, and scoring. It evaluates structured context against choice, yes/no, and ordered scoring questions and returns answer probabilities and confidence in a single forward pass, without generating free-form text. Applications can use these probabilities to select answers or set confidence thresholds.",
+          "release_date": "2026-10-21"
+        },
+        {
+          "name": "baseten/mammoth-1",
+          "description": "Mammoth-1 is a 27B decision model from Baseten's Base Labs, fine-tuned from Qwen3.5-27B for classification, routing, and scoring. It answers multiple-choice, yes/no, and ordered scoring questions with probabilities over predefined options rather than generated text. Shared-prefix caching reuses context across questions, while per-option probabilities support confidence thresholds and escalation decisions.",
+          "release_date": "2026-10-21"
+        },
+        {
+          "name": "convaiinnovations/laya",
+          "description": "Laya is Convai Innovations\u2019 System One evaluation model for fast, structured decisions. It evaluates shared state against choice, score, and yes/no questions and returns typed answers with probabilities in a single forward pass. It supports classification, routing, guardrail checks, and rubric-based assessment without generating free-form text.",
+          "release_date": "2026-10-01"
+        },
+        {
+          "name": "convaiinnovations/laya-free",
+          "description": "Laya is Convai Innovations\u2019 System One evaluation model for fast, structured decisions. It evaluates shared state against choice, score, and yes/no questions and returns typed answers with probabilities in a single forward pass. It supports classification, routing, guardrail checks, and rubric-based assessment without generating free-form text.",
+          "release_date": "2026-10-01"
+        },
+        {
+          "name": "liquid/d1",
+          "description": "Liquid d1 is a decision model for classification, routing, and scoring. It evaluates shared state against typed Choice, Score, and yes/no questions and returns structured answers with calibrated probabilities through the TypeSafe-compatible System One API.",
+          "release_date": "2026-09-29"
+        },
+        {
+          "name": "liquid/d1-ultra",
+          "description": "Liquid d1-ultra is a multimodal decision model for classification, routing, and scoring across text and images, with a 32,768-token context window. It returns calibrated probabilities for yes/no, multiple-choice, and scale-based questions in a single forward pass without generating output tokens. It is designed for demanding real-world tasks such as visual defect inspection and evaluating damage claims against customer photos.",
+          "release_date": "2026-10-15"
+        },
+        {
+          "name": "microsoft/microsoft-decision-1",
+          "description": "Microsoft Decision-1 is a text decision model from Microsoft AI for classification, routing, and evaluation. It answers yes/no questions, selects among predefined options, and scores inputs against custom criteria, returning calibrated probabilities and confidence values. With support for multiple questions per request and a 32,768-token context window, it helps developers triage support requests, guide automated workflows, and evaluate AI responses against a rubric.",
+          "release_date": "2026-10-09"
+        },
+        {
+          "name": "openai/gpt-6-luna-decisions",
+          "description": "GPT-6 Luna Decisions evaluates classification and scoring questions against shared text and image input using OpenAI's Decisions API. It supports predicate, choice, and score questions with probabilities and confidence values.",
+          "release_date": "2026-10-06"
+        },
+        {
+          "name": "perplexity/pplx-decider-flash-v1.2",
+          "description": "Perplexity Decider Flash V1.2 is a 4B multimodal decision model for high-volume classification, routing, labeling, and filtering. It evaluates text, structured JSON, and images against yes/no questions, custom choices, and ordered rubrics, returning typed answers with probabilities. It supports a 256K context window.",
+          "release_date": "2026-10-16"
+        },
+        {
+          "name": "perplexity/pplx-decider-v1.2",
+          "description": "Perplexity Decider V1.2 is a 27B multimodal decision model for classification, routing, and scoring. It evaluates text, structured JSON, and images against yes/no questions, custom choices, and ordered rubrics, returning typed answers with probabilities. It supports multiple questions over shared content and a 256K context window.",
+          "release_date": "2026-10-16"
+        },
+        {
+          "name": "scaledown/scaledown-classify-1",
+          "description": "ScaleDown Classify-1 is a task-specific small language model for text classification. It assigns text to custom labels and returns probability scores, supporting intent detection, content categorization, and routing workflows. Its deterministic, encoder-only approach produces consistent classification results without sampling variability.",
+          "release_date": "2026-10-13"
+        },
+        {
+          "name": "jev",
+          "description": "TypeSafe AI System One decision model. Accepts shared state and typed questions, returning choices, scores, and boolean probabilities. Limits: 64,000 tokens total per request; 32,000 tokens for the state plus the longest question. No streaming or output-token limit.",
+          "release_date": "2026-09-15"
+        },
+        {
+          "name": "jev-1.13.0",
+          "description": "Jev 1.13.0 is TypeSafe AI\u2019s System One evaluation model for fast, structured decisions in software. It evaluates shared state against typed questions and returns choices, scores, and boolean probabilities, supporting classification, routing, rubric-based assessment, and automated verification. Multiple questions can be evaluated in parallel within a single request.",
+          "release_date": "2026-09-15"
+        },
+        {
+          "name": "jev-1.14.0",
+          "description": "Jev 1.14.0 is TypeSafe AI\u2019s System One evaluation model for fast, structured decisions in software. It evaluates shared state against typed questions and returns choices, scores, and boolean probabilities, supporting classification, routing, rubric-based assessment, and automated verification. Multiple questions can be evaluated in parallel within a single request.",
+          "release_date": "2026-10-15"
+        }
+      ]
+    }
+  },
+  "measured": {
+    "wall_ms": 274.1,
+    "provider_ms": null,
+    "cost_usd": null
+  }
+}

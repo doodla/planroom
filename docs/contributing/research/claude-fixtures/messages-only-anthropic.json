@@ -1,0 +1,135 @@
+{
+  "name": "messages-only-anthropic",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/messages",
+    "headers": {
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json"
+    },
+    "body": {
+      "model": "anthropic/claude-haiku-5.5",
+      "max_tokens": 100,
+      "messages": [
+        {
+          "role": "user",
+          "content": "Reply with exactly: pong"
+        }
+      ],
+      "providerOptions": {
+        "gateway": {
+          "only": [
+            "anthropic"
+          ]
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "id": "gen_01M5TMKSWH4VNN6EXCDHJENYQC",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "pong"
+        }
+      ],
+      "model": "anthropic/claude-haiku-5.5",
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 18,
+        "output_tokens": 4,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "speed": "standard",
+        "service_tier": "standard",
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        }
+      },
+      "provider_metadata": {
+        "anthropic": {
+          "usage": {
+            "input_tokens": 18,
+            "output_tokens": 4,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            },
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "speed": "standard"
+          },
+          "cacheCreationInputTokens": 0,
+          "stopSequence": null,
+          "iterations": null,
+          "container": null,
+          "contextManagement": null
+        },
+        "gateway": {
+          "routing": {
+            "originalModelId": "anthropic/claude-haiku-5.5",
+            "resolvedProvider": "anthropic",
+            "fallbacksAvailable": [],
+            "planningReasoning": "Provider set restricted to: anthropic. System credentials planned for: anthropic. Total execution order: anthropic(system)",
+            "canonicalSlug": "anthropic/claude-haiku-5.5",
+            "finalProvider": "anthropic",
+            "modelAttemptCount": 1,
+            "modelAttempts": [
+              {
+                "canonicalSlug": "anthropic/claude-haiku-5.5",
+                "success": true,
+                "providerAttemptCount": 1,
+                "providerAttempts": [
+                  {
+                    "provider": "anthropic",
+                    "credentialType": "system",
+                    "success": true,
+                    "startTime": 1792969140146,
+                    "endTime": 1792969140718,
+                    "providerRequestId": "req_011CgPnTEieAFKYb1p315CJP",
+                    "statusCode": 200,
+                    "providerResponseId": "msg_011CgPnTF5jCwmw7FVpP2SpP"
+                  }
+                ]
+              }
+            ],
+            "totalProviderAttemptCount": 1,
+            "affinity": {
+              "outcome": "skipped_below_min_prefix"
+            },
+            "clientSessionId": "ccce7e6530092fe13a73b5abd6859fe0",
+            "clientSessionIdSource": "fingerprint"
+          },
+          "cost": "0.0000038",
+          "marketCost": "0.0000038",
+          "surchargeCost": "0",
+          "gatewayCost": "0.0000038",
+          "inferenceCost": "0.0000038",
+          "inputInferenceCost": "0.0000018",
+          "outputInferenceCost": "0.000002",
+          "generationId": "gen_01M5TMKSWH4VNN6EXCDHJENYQC"
+        }
+      }
+    }
+  },
+  "measured": {
+    "ttfb_s": 0.738856,
+    "total_s": 0.741887,
+    "at": "2026-10-25T22:59:00Z"
+  }
+}

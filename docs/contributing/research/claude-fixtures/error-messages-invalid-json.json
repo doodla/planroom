@@ -1,0 +1,22 @@
+{
+  "name": "error-messages-invalid-json",
+  "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/messages",
+    "headers": {
+      "content-type": "application/json",
+      "anthropic-version": "2023-06-01"
+    },
+    "body_raw": "{not json"
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "invalid_request_error",
+        "message": "Invalid JSON in request body"
+      }
+    }
+  }
+}
