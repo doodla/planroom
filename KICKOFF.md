@@ -7,12 +7,19 @@ Paste everything below the line into a fresh Claude Code session on this repo. P
 <context>
 I'm the only user of what you're about to build, and I want it built right: a complete, releasable open-source project on GitHub, not a demo. You have full autonomy. Make every product, design and technical call yourself, build it end to end, and ship it. Don't stop to ask me questions.
 
-This prompt has six kinds of content. Treat each differently:
-- **`<requirements>` and `<acceptance_scenarios>`** say *what* Planroom must do and *why*. They are binding. The scenarios are the real specification.
-- **`<constraints>`** are binding too: choices I've made, and limits you must stay within.
-- **`<verified_facts>`** are things I checked in this environment. Rely on them instead of rediscovering them.
-- **`<design_starting_points>`** are my current best guesses at *how*. They are not binding. Override any of them when you find something better, and record why in a decision record.
-- **`<process>`** says how to plan, review and build.
+Here is how to treat each section of this prompt:
+
+| Section | Status |
+|---|---|
+| `<principles>` | Binding. Each rule has a test hook (see S15). |
+| `<requirements>` | Binding: *what* and *why*, never *how*. |
+| `<acceptance_scenarios>` | Binding. They are the real specification, ranked into tiers. |
+| `<constraints>` | Binding: choices I've made, and limits. |
+| `<verified_facts>` | Checked in this environment. Rely on them instead of rediscovering them. |
+| `<design_starting_points>` | Not binding: my best guesses at *how*. Override any of them when you find something better, and record why in a decision record. |
+| `<process>` | How to plan, review, build and integrate. Follow it. |
+| `<definition_of_done>` | Binding: when to stop. |
+| `<autonomy>` | Binding: how turns end. |
 
 Environment: a cloud Claude Code container with this repo (`planroom`, MIT, owner Sridhar Vadlamani) checked out. Read `CLAUDE.md` first: it sets rules for subagents, and a hook enforces them. Commit and push to the branch you were assigned.
 </context>
@@ -42,7 +49,7 @@ Two ideas shape every decision. When a requirement is unclear, resolve it in the
 <requirements>
 Each requirement must be traceable to a design element and to a test.
 
-**R1. Point it at work, get understanding.** Point Planroom at a repo, or a workspace of several repos, and it builds a map of the system that someone can understand at a glance. They can then move up and down levels of abstraction, from intent down through systems, deployables and components to code, and every higher level is a faithful roll-up of the levels below it. It works on any language. Precision may vary by language, but no repo gets nothing, and adding a language never requires changing the core.
+**R1. Point it at work, get understanding.** Point Planroom at a repo, or a workspace of several repos, and it builds a map of the system that someone can understand at a glance. They can then move up and down several levels of abstraction, from intent at the top to code at the bottom, and every higher level is a faithful roll-up of the levels below it. It works on any language. Precision may vary by language, but no repo gets nothing, and adding a language never requires changing the core.
 
 **R2. Understand relationships.** People can see and question how things relate: dependencies, dependents, data flow, deployment, co-change, ownership, and the plan's own links. They can ask "how does A reach B?", "what does this touch?" and "why do you think A depends on B?". Every inferred fact shows its evidence and confidence, and a person can confirm or reject it.
 
@@ -80,31 +87,52 @@ Every decision kind has a declared policy and an eval behind its threshold. Ever
 - artifacts (R3);
 - workflows and state machines (R4).
 
-**R12. Context curation and skills.** Planroom keeps the agent context of the repos it's pointed at accurate and lean, so repeat agent work gets simpler and cheaper. It proposes updates to `CLAUDE.md` and `AGENTS.md`, and new or updated project skills for procedures agents keep repeating. It spots those from the history of implementer runs. Proposals arrive as diffs for approval.
+**R12. Context curation and skills.** Planroom keeps the agent context of the repos it's pointed at accurate and lean, so repeat agent work gets simpler and cheaper. It proposes updates to `CLAUDE.md` and `AGENTS.md`, and new or updated project skills for procedures agents keep repeating. It spots those from the history of implementer runs. It runs periodically (on a trigger such as every N implementer runs, or after a merge) and on demand. Proposals arrive as diffs for approval.
 
 **R13. Surfaces.** There are three, sharing one model:
 - **A Claude Code mod that guides.** It lives beside the chat. Max out its UX: the current focus, the one open decision with pre-answered choices, progress, pending diffs, drift, and who's working on what. It also has a band above the prompt with the next best action, slash commands, tools the model calls, and a mini-map where the surface can draw one. It is keyboard-first.
 - **A canvas web app** for understanding and tweaking. It's beautiful and fast on desktop and on a phone. It runs locally, and is also published as a Claude Artifact for when localhost isn't reachable, for example from a cloud session.
 - **A CLI and local server, the engine**, which agents use directly.
 
-**R14. A tiny surface to learn.** The whole mental model a person needs is five ideas: **Levels** (where I am), **Lenses** (which relationships I see), **Intent** (what I want, grouped into projects), **Diffs** (what's different) and **Decisions** (what needs me). There is one CLI entry point and one slash-command family. Everything else stays internal. Before adding any concept, flag or setting, check whether a better default would remove the need for it.
+**R14. A tiny surface to learn.** The whole mental model a person needs is five ideas: **Levels** (where I am), **Lenses** (which relationships I see), **Intent** (what I want, grouped into projects), **Diffs** (what's different) and **Decisions** (what needs me). There is one CLI entry point and one slash-command family (`/room …`; `plan` is already a Claude Code permission-mode name, so avoid `/plan`). Everything else stays internal. Before adding any concept, flag or setting, check whether a better default would remove the need for it.
 
 **R15. Releasable.** The repo is ready for a public v0.1 release, at the standard of `doodla/iris` (see `<constraints>`).
 </requirements>
 
 <acceptance_scenarios>
-These define done. Each becomes a `must` entry in `feature_list.json` and an automated test where automation is possible. For the rest, record evidence (screenshots, logs). Build the fixture they run on first.
+These define done. Each scenario is ranked into a tier:
 
-**The fixture.** `examples/` is a small polyglot workspace of two or three repos:
+| Tier | Scenarios | Rule |
+|---|---|---|
+| **A**, the core loop | S1, S2, S3, S4, S7, S8, S14, S15 | Must pass. |
+| **B** | S5, S6, S9, S10, S11, S12, S13 | Must pass, or ship as a documented gap with evidence of how far it got. |
+| **C** | Anything you add yourself | Nice to have. |
+
+Each scenario becomes an entry in `feature_list.json` with its tier, and has **two declared paths**:
+1. **A deterministic CI path**: named CLI `--json` queries compared against the truth file, the fixture implementer, and recorded or replayed responses for every Claude and Jev call. It needs no secrets and no live model.
+2. **An evidence path**: run live once, with the output recorded under `docs/evidence/`.
+
+**If a scenario turns out to be infeasible as written**, don't weaken it quietly. Write a decision record with the evidence, propose the closest testable variant, and have an independent reviewer approve the substitution. Never delete or weaken a scenario, test or `feature_list.json` entry in any other way.
+
+**When a milestone has used much more effort than planned**, finish its tier A items, record what's left, and move on. Return to the rest only if time remains at the end.
+
+**The fixture.** Nested git repos don't survive a commit (only a gitlink is stored), so commit these instead:
+- plain source trees;
+- a JSON file of review threads, in a format you document;
+- a seeded history of implementer runs;
+- a deterministic `examples/build-fixture` script that turns them into fresh git repos (commits, tags, branches) in a temp directory for each test run.
+
+All merges in the scenarios happen in that copy, so the fixture is the same on every run. Together, the repos form a small polyglot workspace of two or three repos:
 - a TS web app, a Python worker and a Go service, wired by docker-compose and an OpenAPI spec;
 - a shared library that one repo publishes and another consumes at a stale version;
 - OpenTelemetry instrumentation, a Prometheus alert rule and a dashboard JSON;
 - an order or job lifecycle in code, plus a doc that describes it slightly differently;
-- tags and changelogs, and a PR (local branches are enough) with review threads, one of which a later commit addresses.
+- tags and changelogs, and a PR (branches plus the review-threads file) with review threads, one of which a later commit addresses;
+- planted known positives, each with its exact expected name: an unreachable state, a dead end, the doc-vs-code lifecycle drift, one unplanned change and one regression.
 
-Write the fixture's known truth down, so the answers can be checked against it.
+**Freeze the truth first.** Write the fixture's known truth in `examples/TRUTH.json` before any extractor exists. Have an independent agent review it against the fixture. After that, change it only through a decision record.
 
-**S1. First look.** Run `planroom` on the fixture. Within seconds, someone sees a map at the system level with a sensible default lens and one suggested next action. Zooming to code and back shows faithful roll-ups. Search jumps to any entity.
+**S1. First look.** Run `planroom` on the fixture. A cold scan finishes in under 5 s. Someone then sees a map at the top system level, with a sensible default lens and one suggested next action. Zooming to code and back shows faithful roll-ups. Search jumps to any entity.
 
 **S2. Questions.** Answer, correctly against the fixture's truth:
 - "How does observability work here?"
@@ -113,13 +141,13 @@ Write the fixture's known truth down, so the answers can be checked against it.
 - "Who's on a stale version?"
 - "How does the web app reach the worker?" (each hop with its evidence)
 
-**S3. Top-down plan.** "Add retries to the worker" is taken from intent through all planning stages to next actions attached to real components. AI proposals stay ghosts until accepted. Lint flags a vague action and a missing done-test.
+**S3. Top-down plan.** "Add retries to the worker" is taken from intent through all planning stages to next actions attached to real components. AI proposals stay ghosts until accepted. Lint flags a vague action and a missing done-test. The accepted plan becomes version 2, and the diff from version 1 renders in the same diff view as S4.
 
 **S4. Tweak and hand off.**
 1. Regroup two components, and change the intended architecture.
 2. The intended-vs-actual diff appears, with its impact radius.
 3. Approve it. A change spec goes to the implementer, the code diff comes back for review, and you merge it.
-4. Reconciliation shows the item resolved.
+4. Reconciliation shows the item resolved, and classifies the planted unplanned change and regression correctly.
 5. A rescan keeps the regrouping.
 
 **S5. Artifact anatomy.**
@@ -128,42 +156,57 @@ Write the fixture's known truth down, so the answers can be checked against it.
 - Break down one skill and one CI workflow.
 - Edit a breakdown, and see the result come back as a text diff to the source.
 
-**S6. State machines.** Extract the fixture lifecycle from code and from the doc, and flag the drift between them. Extract the machines in this prompt (phases, autonomy). Planroom's own escalation and hand-off loops are modelled, and match its code. The checks and the step-through work.
+**S6. State machines.** Extract the fixture lifecycle from code and from the doc, and flag the drift between them. Extract the process-phase machine from this prompt, checked against a truth that you write and freeze in `TRUTH.json` before extraction. Planroom's own escalation and hand-off loops are modelled, and match its code. The checks find the planted unreachable state and dead end, by name, and the step-through works.
 
-**S7. Cheap decisions.** Every decision kind has a policy and an eval set: at least 25 labelled cases, with a rationale for each label. Automatic action is enabled only for kinds at 0.95 precision or above; the rest fall back to one-tap cards. Report the table at the end. Decisions can be inspected and overridden.
+**S7. Cheap decisions.**
+- Every decision kind has a policy and an eval set. An independent labeller, who has not seen Jev's outputs, writes the labels, with a rationale for each. The cases are held out from threshold tuning.
+- Automatic action is enabled only for kinds that reach observed precision ≥ 0.95 on at least 60 cases. The rest fall back to one-tap cards.
+- Both Jev adapters (gateway and direct) pass the same contract tests, against fixtures built from the docs.
+- A commit-triggered rescan of the fixture makes 0 Claude calls on the routine path, spends under $0.001 on Jev, and raises at most one decision card.
+- Report the table at the end. Decisions can be inspected and overridden.
 
 **S8. Concurrency.** Two agents and a canvas tab write at the same time to two projects in one workspace. Check that:
-- no events are lost;
+- no writes are lost;
 - retries are idempotent;
 - live updates arrive within one second;
 - claims and presence are visible;
 - a stale write becomes a diff, not a merge.
 
-**S9. Mod.** In a live session, every main flow can be driven from the mod: pane, band, commands and tools. Every action is reachable in two keys or fewer. The implementer hand-off runs once for real, and the output is recorded.
+**S9. Mod.** In a live session, every main flow can be driven from the mod: pane, band, commands and tools. Every action is reachable in two keystrokes or fewer from pane focus (a slash command counts as one entry point). The implementer hand-off runs once for real, and the output is recorded.
 
 **S10. Extensibility.** A toy domain pack, loaded from outside the source tree, adds new kinds, a lens and a decision kind without any core change. A new language works through the extractor contract alone.
 
-**S11. Remote.** The canvas is published as an Artifact and kept in sync with the workspace. An edit made there comes back as a user event.
+**S11. Remote.** The canvas is published as an Artifact and kept in sync with the workspace. An edit made there comes back to the workspace as an attributed user edit.
 
 **S12. Context curation.** On the fixture, Planroom proposes at least one `CLAUDE.md` diff and one skill, based on the history of implementer runs.
 
 **S13. Quality bars.**
 - The canvas is interactive in under 1 s on the fixture.
-- Pan and zoom stay smooth (about 60 fps) at 200 nodes.
-- Nothing overflows at 390 px.
+- At 200 nodes, the p95 frame time stays under 20 ms. Measure it locally with a Playwright trace; it's evidence, not a CI gate.
+- At 390×844 with touch emulation, nothing overflows, tap targets are at least 44 px, pinch-zoom works, tap-to-focus works, and decision cards take one tap.
+- Three named motion moments (accepting a ghost, a diff resolving, a level zoom) each have a short recorded capture, and a `prefers-reduced-motion` test.
 - Light and dark themes are both designed.
 - There are no console errors.
 - Every edit type has an undo test.
 
 **S14. Release.**
 - CI is green on the pushed branch.
-- A fresh clone of the fixture works with the packed CLI (`npm pack`, then `npx ./planroom-*.tgz`).
+- A fresh clone of planroom builds the fixture and runs the packed CLI on it (`npm pack`, then `npx ./planroom-*.tgz`).
 - The docs, art, changelog and release notes are complete per `<constraints>`.
+
+**S15. Tiny surface and principles.**
+- `planroom --help` and the mod's command list are generated and snapshot-tested: one binary and one command family.
+- The UI exposes no top-level concepts beyond the five in R14.
+- An empty-state screenshot audit finds no blank states.
+- The error-code schema has a drift test.
+- Every edit type has an undo test.
 </acceptance_scenarios>
 
 <constraints>
 - **Surfaces**: a Claude Code mod, a canvas web app also published as a Claude Artifact, and a CLI with a local server. The implementer is a separate agent.
-- **Jev** (TypeSafe AI) is the cheap-decision model. Support both the Vercel AI Gateway and direct TypeSafe connections behind one adapter, with a pinned model version. Ignore thejevai.com: it isn't affiliated with TypeSafe.
+- **Jev** (TypeSafe AI) is the cheap-decision model. Support both the Vercel AI Gateway and direct TypeSafe connections behind one adapter.
+  - Pin `typesafe-ai/jev-1.14.0` on the gateway.
+  - On the direct API, pin a versioned ID if the docs list one. Otherwise send `jev-latest`, record the version the response reports, and fail the evals if it changes. Ignore thejevai.com: it isn't affiliated with TypeSafe.
 - **Iris** (my CLI, `doodla/iris`) makes all images: logo, README hero, a 1280×640 social preview, and empty-state art. Total spend must stay under $5. Commit the prompts next to the images.
 - **Look and feel**:
   - Bold and playful, with craft. The image is a tactile, toy-like planning table for engineers, not a corporate PM tool. Commit to one concept and carry it through the canvas, the mod and the art.
@@ -180,8 +223,14 @@ Write the fixture's known truth down, so the answers can be checked against it.
   - CI covering lint, format, typecheck, unit tests, end-to-end tests, mod validation and tests, and schema drift;
   - a release workflow;
   - a `marketplace.json` so the mod is installable.
-- **Spend**: live Jev, gateway and `sample` calls during the build stay under $3 in total. Gate every live test behind an env flag.
-- **Code**: TypeScript throughout, so contracts are shared by every surface. Keep it minimal: no speculative abstractions, no defensive code for impossible cases, and no hard-coding to pass tests. Never delete or weaken a test or a `must` entry to get green.
+- **How Claude is reached**: through the mod (the chat model, `$.model.complete`), the Artifact (`sample`), or Claude models on the Vercel AI Gateway for the engine. Pick a model from the gateway's `/v1/models` list and pin it in config.
+  - `OPENAI_API_KEY` and `GEMINI_API_KEY` are for Iris only. Never use them for inference.
+  - When no model is reachable, every surface falls back to the deterministic extractor tiers, so no repo gets nothing.
+- **Deterministic CI**: CI needs no secrets and no live model. Every agent and model boundary has a deterministic stand-in: the fixture implementer, and recorded or replayed responses.
+- **Spend**:
+  - Live Jev, gateway (including Claude) and `sample` calls made by the product and its tests during the build stay under $3 in total. Gate every live test behind an env flag.
+  - There's no hard cap on the build's own agent tokens, but keep it proportionate: at most 3 candidate architectures, at most 7 review lenses, at most 3 review rounds. Log a rough spend per phase in `progress.md`.
+- **Code**: TypeScript throughout, so contracts are shared by every surface. Keep it minimal: no speculative abstractions, no defensive code for impossible cases, and no hard-coding to pass tests.
 - **Don't, without me**: publish to npm, push tags, create GitHub releases, or change repo settings. Prepare all of these, and list exactly what I need to click.
 </constraints>
 
@@ -192,7 +241,8 @@ I checked these in this container. Rely on them.
   - Chromium and Playwright are pre-installed. `require('playwright')` works and `chromium.launch()` needs no options. Don't reinstall them.
   - Claude Code is version 2.1.310.
   - `*.vercel.sh` calls get credentials injected by the proxy.
-  - `OPENAI_API_KEY` and `GEMINI_API_KEY` are set. `TYPESAFE_API_KEY` is not set.
+  - `OPENAI_API_KEY` and `GEMINI_API_KEY` are set, for Iris only. `TYPESAFE_API_KEY` is not set.
+  - The gateway also serves Claude models. A live chat-completions call from here worked.
 - **Jev through the gateway**:
   - The endpoint is `POST https://ai-gateway.vercel.sh/v1/evaluate` with body `{ model: "typesafe-ai/jev", state, questions }`. `state` can be a string, an object or an array.
   - Question types:
@@ -255,7 +305,7 @@ These are not binding. Each is a reasonable first guess. Validate it during arch
   - A registry tracks sessions and agents, with heartbeats and claims (time-limited leases that warn rather than block).
   - Every event carries the workspace, the project, the actor, what caused it, and an idempotency key.
   - Queries go through a typed builder plus named queries (neighbourhood, paths, roll-ups, diffs). No custom query language.
-- **Remote mode**: the workspace is the source of truth. The session pushes snapshots into the Artifact `db`. Artifact edits are written as events to a `db` collection, and the session imports them on `/plan open`, at turn start and on edit notices. The Artifact shows cached decisions and queues new ones.
+- **Remote mode** (largely forced, because Artifact pages can't reach the local server or Jev): the workspace is the source of truth. The session pushes snapshots into the Artifact `db`. Artifact edits are written as events to a `db` collection, and the session imports them on `/room open`, at turn start and on edit notices. The Artifact shows cached decisions and queues new ones.
 - **Implementer**: an interface with two implementations, the real mod-registered agent (worktree isolation) and a deterministic fixture implementer for tests and CI.
 - **Jev policy**:
   - Each decision kind declares its question, its thresholds and its escalation path.
@@ -280,7 +330,12 @@ These are not binding. Each is a reasonable first guess. Validate it during arch
 <process>
 Plan from the top down, review independently, build in thin vertical slices.
 
-**If `ultracode` is on**, run each phase below as its own workflow, and read the results before you start the next one. Follow `CLAUDE.md`: set `model` and `effort` on every agent, and never use a checker weaker than what it checks. Otherwise, use subagents where the same shapes apply.
+**If `ultracode` is on**, use workflows like this. If it's off, use subagents in the same shapes.
+- Run one workflow per phase, and **one workflow per milestone and per review round**. Read each result before you start the next.
+- `CLAUDE.md` is enforced by a hook:
+  - write `model:` and `effort:` inline in every `agent({...})` call, and don't spread a shared options object (the hook can't check variables, and it blocks the call);
+  - never use a checker weaker than what it checks.
+- Keep Artifact publishing, consent-dependent steps and git pushes in the main session.
 
 1. **Understand.**
    - Read the verified docs, the mod and Artifact skills, and Iris's repo.
@@ -295,11 +350,12 @@ Plan from the top down, review independently, build in thin vertical slices.
      - decision records in `docs/contributing/decisions.md`, each naming the design starting point it kept or replaced, and why;
      - the schemas and the public contracts;
      - a traceability table (each requirement and scenario → the design element → the planned test);
-     - `feature_list.json`, where every scenario is a `must` entry and you add `should` and `could` entries.
+     - `feature_list.json`, where every scenario is an entry with its tier (A or B) and its two paths, plus any tier C entries you add.
 3. **Independent architecture review.**
    - Give the design documents, not your reasoning, to reviewers at your own model level or above. Give each a distinct lens: correctness and concurrency, extensibility and core simplicity, the principles (attention and agent-native), user surface and UX, security and privacy (secrets, the repos being scanned, prompt injection from scanned content), operability and release, and cost.
-   - Each reviewer tries to refute the design. Fix every finding that survives a majority. Answer the rest in the decision records.
-   - Repeat until a round finds nothing material.
+   - Each reviewer reports findings within their own lens. A separate independent verifier then tries to refute each finding, and every finding the verifier fails to refute gets fixed. Don't vote across lenses: a security finding must not need the UX reviewer's agreement.
+   - A finding is **material** when it would make a tier A or B scenario fail, violates a principle or constraint, or is a security or data-loss risk.
+   - Repeat until a round finds nothing material, up to 3 rounds. Record anything left after round 3 in the decision records as accepted risk, with a one-line reason.
 4. **Walking skeleton.** Build one thin slice through every surface before deepening any of them: scan the fixture, then a node in the store, then the mod pane showing it, then the canvas showing it, then the Artifact publishing it. This raises the mod and Artifact consent prompts early, while I'm likely still around. Update the architecture with anything the skeleton teaches you.
 5. **Milestones.** Order them so each one ends shippable and green:
    1. kernel, store, code and plan packs, mod and canvas basics;
@@ -308,15 +364,15 @@ Plan from the top down, review independently, build in thin vertical slices.
    4. artifacts, state machines and anatomy;
    5. context curation, polish and release.
 
-   Build independent tracks in parallel, each in its own worktree. Every milestone ends with:
-   - an adversarial review of its diff, by distinct lenses;
+   Build independent tracks in parallel, each in its own worktree and one feature at a time. The orchestrator merges the tracks into the branch one at a time, runs the full suite after each merge, then pushes. Every milestone ends with:
+   - a review of its diff by distinct lenses, with the same per-finding verification, definition of material and 3-round cap as the architecture review;
    - a check of the code against the architecture, where you fix drift or update the decision records;
    - a context review.
-6. **Release.** Docs, Iris art, CI, the release workflow, the changelog and `v0.1.0` notes. Then a final independent review of the whole repo against this prompt, with a completeness critic asking what's missing, unverified or untested. Fix what it finds.
+6. **Release.** Docs, Iris art, CI, the release workflow, the changelog and `v0.1.0` notes. Then a final independent review of the whole repo against this prompt, with a completeness critic asking what's missing, unverified or untested. It uses the same definition of material and the same 3-round cap. Fix what it finds.
 
 **Context review and skill acquisition**, at the end of every phase and whenever you repeat a procedure:
 - Correct or cut stale agent context (`AGENTS.md`, `CLAUDE.md`, contributing docs, `progress.md`), and add the invariants you've learned.
-- Distill any procedure you've done twice into a project skill in `.claude/skills/`, written and tested with `skill-creator`.
+- Distill a procedure into a project skill in `.claude/skills/` once you've done it twice and expect it at least 3 more times. Write and test it with `skill-creator`, with at most 2 skill evals per phase.
 - Log what each review changed and what it will save.
 
 **Working rules:**
@@ -326,8 +382,10 @@ Plan from the top down, review independently, build in thin vertical slices.
 </process>
 
 <definition_of_done>
-- Every acceptance scenario passes, as an automated test or with recorded evidence. Every other `must` entry passes. List the failing `should` and `could` entries as known gaps.
-- The final independent review finds nothing material.
+- Every tier A scenario passes on its CI path, with its evidence recorded.
+- Every tier B scenario passes, or is documented as a gap with evidence. Any substitution has an approved decision record.
+- List any tier C entries that don't pass as known gaps.
+- The final review finds nothing material, or what's left after 3 rounds is recorded as accepted risk.
 - Everything is committed and pushed, and CI is green.
 - Screenshots are committed under `docs/screenshots/`. The Iris art and its prompts are committed.
 - The final message leads with the Artifact link and what works. It shows the evidence: test and CI output, the S7 decision-eval table, screenshot paths, Iris and Jev spend, and the review outcomes. Then it lists known gaps honestly, and the exact clicks I owe (npm name and token, tag, release, repo settings).
