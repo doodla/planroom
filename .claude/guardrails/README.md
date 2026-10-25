@@ -12,6 +12,7 @@ It never returns `allow` (that could skip auto mode's own permission checks) or
 | Rule | Does |
 |---|---|
 | `subagent_model_effort` | Agent/Task calls and workflow `agent(...)` calls must set `model` and `effort`, either inline or through an agent definition in `.claude/agents/`. Forks are exempt. |
+| `context_restore` | After startup, resume or compaction, replays `.claude/carry.md`: the notes the agent chose to keep across compactions, capped at 4,000 characters. |
 
 ## Operating
 
@@ -27,4 +28,4 @@ It never returns `allow` (that could skip auto mode's own permission checks) or
 3. Make sure `.claude/settings.json` routes that event and those tools to the runner. A test checks the PreToolUse matcher.
 4. Add tests and run `python3 .claude/guardrails/tests/test_guardrails.py`.
 
-Only PreToolUse output is implemented in `runner.render`. Add the output shape for other events (such as Stop) when the first rule for them arrives.
+`runner.render` implements output for PreToolUse (deny or context) and SessionStart (context only). Add the output shape for other events (such as Stop) when the first rule for them arrives.

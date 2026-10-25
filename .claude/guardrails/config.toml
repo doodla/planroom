@@ -6,3 +6,9 @@
 [rules.subagent_model_effort]
 mode = "enforce"
 on_error = "closed"
+
+[rules.context_restore]
+mode = "warn"
+on_error = "open"            # a crash here must never get in the way of a session
+carry = ".claude/carry.md"   # agent-owned notes replayed after every compaction or resume
+carry_limit = 4000           # characters; anything past this is cut, with a note to trim

@@ -80,8 +80,14 @@ def evaluate(hook, config):
 
 def render(event, denials, warnings):
     """Build the hook's stdout JSON, or None to stay silent."""
+    if event == "SessionStart":
+        # Context only: a session start can't be denied. Strip the rule tags.
+        texts = [m.split("] ", 1)[-1] for m in denials + warnings]
+        if not texts:
+            return None
+        return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": "\n\n".join(texts)}}
     if event != "PreToolUse":
-        # Only PreToolUse rules exist so far; add other events' output shapes here.
+        # Add other events' output shapes here when the first rule for them arrives.
         return None
     out = {"hookEventName": event}
     if denials:
