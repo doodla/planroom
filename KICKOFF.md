@@ -43,12 +43,16 @@ There are three surfaces over one shared model:
 Design this first, as a versioned contract (in the style of Iris; see `<release>`).
 
 - **System model.** Components, interfaces and dependencies, mapped to code (file globs, symbols). It comes in two layers:
-  - **actual**: derived from scanning the repo (imports, packages, entry points, git history). Support levels for v0.1:
-    - TS/JS: a full import graph.
-    - Python: if time allows.
-    - Every other language: a package- and directory-level map built from manifests and folder structure, flagged as low-confidence.
-    - Document these limits in the reference docs.
+  - **actual**: derived from scanning the repo with the language-agnostic extractor pipeline in `<language_agnostic_mapping>`;
   - **intended**: what I and Claude say it should be.
+- **Abstraction levels.** Every system node lives on one level, and zoom moves between them:
+  - **Intent**: goals and outcomes;
+  - **System**: the repo and its external actors;
+  - **Containers**: deployables, packages, services, apps;
+  - **Components**: modules and features;
+  - **Code**: files and symbols.
+
+  This is the C4 model with intent on top. Each node has one parent on the level above. Edges carry a `kind` (imports, calls, data, deploys, co-change, owns), the `evidence` behind them (which extractor, file and line), and a `confidence`. When you zoom out, edges aggregate up the hierarchy, with counts and weights, so a higher level is always a faithful summary of the level below and never a separate drawing that can drift.
 - **Intent graph.** Each plan node has a type (goal, outcome, deliverable, action, risk, decision), status, `doneWhen`, estimate, priority, provenance (user, Claude, scan or Jev) and an `accepted` flag. Nodes link to the system components they touch. Proposals from the AI stay ghosts until I accept them.
 - **History.** An append-only event log with snapshots. Every change is an event with provenance, so any two versions can be diffed and any change undone.
 - **Three diffs, one diff engine and one visual language:**
@@ -58,8 +62,50 @@ Design this first, as a versioned contract (in the style of Iris; see `<release>
 - **Reconciler.** It re-scans, rebuilds *actual*, compares it to *intended* and to the plan, and produces drift items. Each item is classified as expected, in progress, done, unplanned or regression. It can run on demand, on git events, and when an agent finishes.
 - **Hand-off.** When I approve a tweak that needs code, Planroom writes a self-contained change spec (intent, affected components, acceptance criteria, the diff of intended vs actual) and hands it to a **separate implementer agent**, behind an `Implementer` interface with two implementations:
   - the real one: an agent type the mod registers, with `isolation: 'worktree'`;
-  - a deterministic fixture implementer that applies canned patches to `examples/`, for tests and CI. Its result comes back as a proposed code diff for me to review. After merging, the reconciler closes the loop. Claude in the main chat stays the planning partner and never silently implements.
+  - a deterministic fixture implementer that applies canned patches to `examples/`, for tests and CI.
+
+  Either way, the result comes back as a proposed code diff for me to review. After merging, the reconciler closes the loop. Claude in the main chat stays the planning partner and never silently implements.
+- **Context curator (a product feature).** Planroom does for the repo it's pointed at what you do for this one (see `<working_method>`). Using the system model and the history of implementer runs, it periodically proposes:
+  - updates to the target repo's `CLAUDE.md` / `AGENTS.md`: stale facts, missing invariants, the component map in brief;
+  - new or updated project skills for procedures agents keep repeating there. It spots these from repeated tool sequences in implementer runs and from the change specs.
+
+  Proposals arrive as diffs for me to approve, like everything else. Jev decides cheaply whether a context entry is stale and whether a repeated pattern deserves a skill. This makes every future agent run on that repo cheaper, the implementer's included, which feeds back into keeping the canvas cheap to maintain.
 </core_model>
+
+<language_agnostic_mapping>
+Planroom must work on any repo. The core never knows a language. Extractors emit facts into one normalized graph (nodes, edges, evidence, confidence), and a builder assembles the levels from those facts. Extractors stack in tiers, each optional, and each makes the map more precise:
+
+1. **Universal**, for every repo:
+   - the file and directory tree;
+   - git history: co-change coupling (files that change together are related, in any language), ownership, churn;
+   - manifests and lockfiles (package.json, Cargo.toml, go.mod, pyproject, pom/gradle, and so on) for packages and external dependencies.
+2. **Syntactic**: tree-sitter grammars with per-language query files for definitions, references and imports (the same `tags.scm` style GitHub code navigation uses).
+   - Adding a language means adding a query file and a small import-path resolver, not core code.
+   - Ship TS/JS, Python, Go and Rust in v0.1.
+3. **Precise, when available**: SCIP/LSIF indexes or a language server, when the repo has them, for exact cross-references.
+4. **System and config**: Dockerfiles, compose files, k8s manifests, Terraform, CI workflows, OpenAPI, protobuf and GraphQL schemas. These reveal containers, services and data edges that code imports can't.
+5. **Inference**:
+   - Claude proposes component groupings, names and one-line purposes.
+   - Jev makes the cheap calls at scale, for example "Is this directory a component boundary?", "Which level is this?" and "Is this co-change edge meaningful?".
+   - Inferred facts are marked as inferred, with their confidence.
+
+Each extractor declares what it emits and how confident it is. The UI shows evidence on demand ("why do you think A depends on B?"). The reference docs list per-language support. A repo in an unsupported language still gets a useful map from tiers 1, 4 and 5.
+</language_agnostic_mapping>
+
+<user_surface>
+Keep the set of things I have to know about tiny, and hold it there as the product grows. Write it down in `docs/concepts/` as the entire mental model, and treat it as a public contract:
+- **Levels**: where I am on the zoom.
+- **Lenses**: which relationships I'm looking at.
+- **Intent**: what I want.
+- **Diffs**: what's different.
+- **Decisions**: what needs me.
+
+That's the whole vocabulary. One CLI entry point (`planroom`) and one slash command family (`/plan …`) with good defaults. Extractors, scanners, the event log, Jev thresholds and caches stay internal.
+
+My corrections to the map, such as regrouping components, renaming, hiding noise or pinning a layout, are stored as overrides in `.planroom/`. They survive every rescan. I make them by direct manipulation on the canvas or by asking Claude, never by editing config. A rescan that contradicts an override becomes a diff, not an overwrite.
+
+Before you add a concept, a flag or a setting, check whether a better default would remove the need for it.
+</user_surface>
 
 <cheap_decisions_with_jev>
 Planroom has to stay cheap to maintain, or it rots. Its big lever is Jev, TypeSafe AI's decision model. Jev answers typed questions (boolean, choice, score) about a piece of state, with calibrated probabilities. It costs about $0.04 per million input tokens and answers in milliseconds.
@@ -153,6 +199,17 @@ Bold and playful, with craft: a tactile, toy-like planning table for engineers, 
 - **Don't use**: a cream or off-white background, purple-on-white gradients, italic accent words in headlines, numbered "01/02/03" section labels, monospace labels as decoration, pill-shaped buttons everywhere, or a generic three-card hero layout.
 - **Mobile first**: a bottom-sheet guide, pinch-zoom and pan, thumb-reachable controls, large touch targets, and no horizontal page scroll.
 - **The mod**: within its element set it should feel as considered as the canvas, with tight layout, clear hierarchy, and the next action always one key away.
+- **Components for understanding relationships.** Design these as a coherent kit, the heart of the canvas, each as considered as a Figma or Linear primitive:
+  - **Abstraction zoom**: a level control (a slider or rail with a stop per level, and a breadcrumb such as `System › api › auth › session.ts`). It's driven by pinch, scroll or keys. Zooming is semantic, not just scale: children fold into their parent with a motion that shows where they went, and edges bundle into weighted aggregates with counts. "Expand here" opens one node a level deeper in place.
+  - **Lens switcher**: imports, calls, data, deploy, co-change, ownership, plan. Lenses combine, each has a legend, and a sensible default is always on.
+  - **Focus / ego view**: select a node to dim everything outside its N-hop neighbourhood, with dependencies on one side and dependents on the other.
+  - **Path finder**: "How does A reach B?" Highlight the shortest paths, with evidence on each hop.
+  - **Impact radius**: show what a tweak or diff touches, transitively, with a heat ramp by distance. It's used by the diff and hand-off views.
+  - **Dependency matrix (DSM)**: an alternate view for dense graphs, with cycles and layering violations highlighted. It stays in sync with the selection on the graph.
+  - **Evidence popover**: on any edge or inferred node, show why it exists (extractor, file and line, confidence), and let me confirm or reject it.
+  - **Minimap and search**: fuzzy search across every level that jumps and zooms to the result.
+
+  Lay out with a hierarchical, stable algorithm (for example ELK layered or compound layout), so nodes don't jump around between scans or zoom levels. Positions I pin are stored as overrides.
 - **Measurable bars:**
   - every mod action is reachable in 2 keys or fewer;
   - the canvas is interactive in under 1 s on the fixture;
@@ -199,6 +256,11 @@ Build it right, in phases. Commit and push after each meaningful step.
    - Write `docs/contributing/architecture.md` and short ADRs in `docs/contributing/decisions.md`: stack, store format, diff engine, reconciler, Jev decision policy, mod ↔ server ↔ canvas protocol, and local vs Artifact modes.
    - Define the schemas, plus `feature_list.json` with one entry per user-visible feature, each with `passes: false` and a `tier` (`must`, `should` or `could`), and `progress.md` for decisions, assumptions and what's next.
    - The `must` tier includes at least everything in the Playwright flow under `<verification>`, plus:
+     - abstraction zoom across all five levels, with edge aggregation;
+     - lenses, focus view, path finder, impact radius and evidence popovers;
+     - extractor tiers 1, 2 (TS/JS at least) and 4, working on the fixture;
+     - overrides that survive a rescan;
+     - the context curator proposing at least one `CLAUDE.md` diff and one skill on the fixture;
      - mod pane, band, commands and tools;
      - Jev decisions with escalation;
      - the three diff views;
@@ -215,6 +277,13 @@ Build it right, in phases. Commit and push after each meaningful step.
 5. **Integration.** Local live mode end to end, then Artifact publish and `db` sync.
 6. **Release.** Docs, Iris art, CI, release workflow, changelog, `v0.1.0` tag notes. Then a final independent review of the whole repo against this prompt, as with the design review, and fix what it finds.
 
+- **Context review and skill acquisition, for your own work.** Do this at the end of every phase, and whenever you notice yourself repeating a multi-step procedure:
+  - Review the repo's agent context (`AGENTS.md`, `CLAUDE.md`, `docs/contributing/`, `progress.md`). Correct anything stale, cut anything that no longer earns its tokens, and add the invariants you've learned.
+  - Distill any procedure you've done twice into a project skill under `.claude/skills/<name>/SKILL.md`, with any scripts it needs. Examples: run the end-to-end tests and review screenshots, add a decision kind with its eval cases, add a language extractor, regenerate the schemas, make Iris art.
+  - Use the `skill-creator` skill to write and test the skills.
+  - Log each review in `progress.md`: what changed, which skills were added, and what they'll save next time.
+
+  The goal is that repeat agent work on this repo gets simpler and cheaper over time, for you and for every later session.
 - Work one feature at a time: verify it, flip its flag, commit. Never delete or weaken a test to make it pass.
 - Use parallel tool calls for independent work. Use subagents for large independent chunks, following `CLAUDE.md`, and verify what they report before you rely on it.
 - Context compacts automatically, so don't wind down early to save tokens. Keep `progress.md` current so any later session can resume.
@@ -223,7 +292,7 @@ Build it right, in phases. Commit and push after each meaningful step.
 <verification>
 - Unit tests cover the schema, diff engine, reconciler classification, decision policy (with a mocked `decide()`), lint and interview state machine. A small live Jev smoke test is gated behind an env flag.
 - The real implementer hand-off is covered by `claude plugin test`. Also run it once live in this session, and record the output as evidence.
-- Run Planroom on the `examples/` fixture and on Planroom's own repo. In the fixture, introduce a real code change and confirm the reconciler reports the correct drift.
+- Make the `examples/` fixture polyglot (for example a TS web app, a Python worker and a Go service, wired by docker-compose and an OpenAPI spec), so the language-agnostic pipeline is actually exercised. Run Planroom on it and on Planroom's own repo. In the fixture, introduce a real code change and confirm the reconciler reports the correct drift.
 - Drive the canvas with Playwright as a person would. Do one full flow: open repo → map appears → set intent → break down → tweak the intended architecture → see the intended-vs-actual diff → hand off to the implementer → review its code diff → merge → reconcile shows the result as resolved.
 - Screenshot every main view at 1440×900 and 390×844, in light and dark mode. Look at them, critique them against the design direction and the planning philosophy (is the next action obvious? is any decision costlier than it needs to be?), fix, and re-shoot. There should be no console errors.
 - For the mod: `claude plugin validate`, a type-check, and `claude plugin test` covering the commands, tools, pane and band renders, and the hand-off.
