@@ -106,6 +106,8 @@ All three ship as **one Claude Code plugin**. Installing it gives an agent or a 
 
 **R14. A tiny surface to learn.** The whole mental model a person needs is five ideas: **Levels** (where I am), **Lenses** (which relationships I see), **Intent** (what I want, grouped into projects), **Diffs** (what's different) and **Decisions** (what needs me). There is one CLI entry point and one slash-command family (`/room …`; `plan` is already a Claude Code permission-mode name, so avoid `/plan`). Everything else stays internal. Before adding any concept, flag or setting, check whether a better default would remove the need for it.
 
+**R15. Releasable.** The repo is ready for a public v0.1 release, at the standard of `doodla/iris` (see `<constraints>`).
+
 **R16. A deliberately designed repo.** This is one long build in a box, so the main agent owns the repo's design and keeps it coherent, while subagents and parallel tracks follow it. The structure is designed on purpose for a Rust and TypeScript codebase that agents write and run:
 - **One obvious place for everything.** Every directory has a stated purpose. Each top-level area has a short `AGENTS.md` or README giving its contract: what it owns, what it may depend on, how to test it.
 - **Boundaries enforced by tooling, not convention:**
@@ -119,8 +121,6 @@ All three ship as **one Claude Code plugin**. Installing it gives an agent or a 
 - **Pinned toolchains and reproducible builds:** pinned toolchain versions, committed lockfiles, and one Cargo workspace plus one JS workspace.
 - **Shared conventions, written down once in `AGENTS.md`:** naming, error codes, logging, configuration, and where new code goes.
 - **Structure changes are deliberate.** Changing the layout, a boundary or a convention needs a decision record, written by the main agent, before the change lands.
-
-**R15. Releasable.** The repo is ready for a public v0.1 release, at the standard of `doodla/iris` (see `<constraints>`).
 </requirements>
 
 <acceptance_scenarios>
