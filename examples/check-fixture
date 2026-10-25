@@ -1,0 +1,405 @@
+#!/usr/bin/env python3
+"""Check the fixture against TRUTH.json: determinism, the S4 patches and merges, every evidence line, tags and versions.
+
+Usage: examples/check-fixture [--keep DIR]. Builds into a temporary directory and exits non-zero on any failure.
+"""
+import itertools
+import collections
+import json
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+EX = Path(__file__).resolve().parent
+import tempfile
+if "--keep" in sys.argv:
+    SCR = Path(sys.argv[sys.argv.index("--keep") + 1])
+    SCR.mkdir(parents=True, exist_ok=True)
+else:
+    SCR = Path(tempfile.mkdtemp(prefix="planroom-fixture-check-"))
+fails = []
+
+
+def ok(cond, msg):
+    print(("PASS " if cond else "FAIL ") + msg)
+    if not cond:
+        fails.append(msg)
+
+
+def git(repo, *args, check=True):
+    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    if check and r.returncode:
+        raise RuntimeError(f"git {args} in {repo}: {r.stderr}")
+    return r
+
+
+def build(name):
+    out = SCR / name
+    if out.exists():
+        shutil.rmtree(out)
+    r = subprocess.run([str(EX / "build-fixture"), str(out)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return out, json.loads(r.stdout)
+
+
+# 1. determinism
+a, heads_a = build("check-a")
+b, heads_b = build("check-b")
+ok(heads_a == heads_b, f"two builds give identical heads ({sum(len(v) for v in heads_a.values())} branches)")
+tags_a = {r: git(a / r, "for-each-ref", "--format=%(refname) %(objectname)", "refs/tags").stdout for r in heads_a}
+tags_b = {r: git(b / r, "for-each-ref", "--format=%(refname) %(objectname)", "refs/tags").stdout for r in heads_b}
+ok(tags_a == tags_b, "two builds give identical tag objects")
+print(json.dumps(heads_a))
+
+truth = json.loads((EX / "TRUTH.json").read_text())
+S4 = truth["scenarios"]["S4"]
+env = ["-c", "user.name=Check", "-c", "user.email=check@acme.test", "-c", "commit.gpgsign=false"]
+
+
+def compose_service_at(lines, idx):
+    in_services, svc = False, None
+    for l in lines[: idx + 1]:
+        if re.match(r"^\S", l):
+            in_services, svc = l.startswith("services:"), None
+        elif in_services and re.match(r"^  ([a-z][a-z0-9-]*):\s*$", l):
+            svc = re.match(r"^  ([a-z][a-z0-9-]*):", l).group(1)
+    return svc if in_services else None
+
+
+def service_lines(text, svc):
+    lines = text.split("\n")
+    return [l for i, l in enumerate(lines) if compose_service_at(lines, i) == svc]
+
+
+# 2. both hand-off patches apply on a fresh build, then the teammates merges are conflict-free
+H = SCR / "check-post_handoff"
+M = SCR / "check-post_merges"
+for d in (H, M):
+    if d.exists():
+        shutil.rmtree(d)
+    d.mkdir()
+for repo in heads_a:
+    git(SCR, "clone", "-q", str(a / repo), str(H / repo))
+patches = S4["implementer_patches"]
+ok(sorted(p["repo"] for p in patches) == ["platform", "worker"], f"S4 hand-off is multi-repo: {[p['path'] for p in patches]}")
+ok(sorted(x.name for x in (EX / "fixture/implementer").iterdir()) == ["worker-status-via-api"]
+   and sorted(x.name for x in (EX / "fixture/implementer/worker-status-via-api").iterdir()) == ["platform.patch", "worker.patch"],
+   "fixture/implementer holds exactly worker-status-via-api/{platform,worker}.patch")
+for p in patches:
+    w = H / p["repo"]
+    pf = EX.parent / p["path"]
+    r = git(w, "apply", "--check", str(pf), check=False)
+    ok(r.returncode == 0, f"{p['path']} applies cleanly (git apply --check) on fresh {p['repo']} main {r.stderr.strip()}")
+    git(w, "apply", "--index", str(pf))
+    changed = sorted(git(w, "diff", "--cached", "--name-only").stdout.split())
+    want = sorted(x.split("/", 1)[1] for x in p["touches"])
+    added = sorted(git(w, "diff", "--cached", "--name-only", "--diff-filter=A").stdout.split())
+    deleted = sorted(git(w, "diff", "--cached", "--name-only", "--diff-filter=D").stdout.split())
+    ok(changed == want and added == sorted(x.split("/", 1)[1] for x in p["adds"]) and deleted == sorted(x.split("/", 1)[1] for x in p["deletes"]),
+       f"{p['repo']} patch touches exactly {changed}, adds {added}, deletes {deleted}")
+    git(w, *env, "commit", "-q", "-m", f"Hand-off ({p['repo']})")
+for repo in heads_a:
+    git(SCR, "clone", "-q", str(H / repo), str(M / repo))
+for repo in ["storefront", "worker"]:
+    git(M / repo, "fetch", "-q", str(a / repo), "teammates")
+    r = git(M / repo, *env, "merge", "--no-edit", "FETCH_HEAD", check=False)
+    ok(r.returncode == 0 and not git(M / repo, "diff", "--name-only", "--diff-filter=U").stdout,
+       f"merging {repo}@teammates after the hand-off is conflict-free")
+mw = M / "worker"
+ok(not (mw / "worker/db.py").exists() and (mw / "worker/audit.py").exists() and (mw / "worker/orders_client.py").exists(),
+   "after merges: db.py gone, audit.py and orders_client.py present")
+ok("audit.record(job, outcome)" in (mw / "worker/main.py").read_text(), "after merges: main.py calls audit.record")
+audit = (mw / "worker/audit.py").read_text()
+ok(re.search(r'^DEFAULT_AUDIT_DSN = "postgresql://[^"]*@orders-db:5432/[^"]*"$', audit, re.M) is not None
+   and 'os.environ.get("AUDIT_DSN", DEFAULT_AUDIT_DSN)' in audit and "DATABASE_URL" not in audit,
+   "after merges: audit.py has its own DSN (AUDIT_DSN, default literal orders-db DSN), not DATABASE_URL")
+for name, d in [("post_handoff", H), ("post_merges", M)]:
+    wl = service_lines((d / "platform/docker-compose.yml").read_text(), "worker")
+    deps = wl[wl.index("    depends_on:") + 1:]
+    ok(not any("DATABASE_URL" in l or "orders-db" in l for l in wl) and "      - ORDERS_URL=http://orders:8080" in wl and "      - orders" in deps,
+       f"{name}: compose worker has ORDERS_URL and depends on orders; no DATABASE_URL, no orders-db")
+
+
+# 3. evidence: every item's substring is on exactly its "line"
+def walk(x, where="$", svc=None):
+    if isinstance(x, dict):
+        if "from" in x and "to" in x:
+            svc = x["to"] if x.get("kind") == "deploys" else x["from"]
+        elif isinstance(x.get("name"), str) and "declared_in" in x:
+            svc = x["name"]
+        if "path" in x and "contains" in x:
+            yield where, x, svc
+        for k, v in x.items():
+            yield from walk(v, f"{where}.{k}", svc)
+    elif isinstance(x, list):
+        for i, v in enumerate(x):
+            yield from walk(v, f"{where}[{i}]", svc)
+
+
+STATE_DIRS = {"post_handoff": H, "post_merges": M}
+
+
+def file_text(e, head=False):
+    path = e["path"]
+    if path.startswith("examples/"):
+        return (EX.parent / path).read_text()
+    repo, rel = path.split("/", 1)
+    if e.get("at"):
+        f = STATE_DIRS[e["at"]] / repo / rel
+        return f.read_text() if f.exists() else None
+    ref = e.get("branch") or "main"
+    if e.get("commit_subject") and not head:
+        shas = git(a / repo, "log", ref, "--format=%H", "-F", f"--grep={e['commit_subject']}").stdout.split()
+        if len(shas) != 1:
+            return None
+        ref = shas[0]
+    r = git(a / repo, "show", f"{ref}:{rel}", check=False)
+    return None if r.returncode else r.stdout
+
+
+n = 0
+bad, multi, svc_bad = [], 0, []
+for where, e, svc in walk(truth):
+    n += 1
+    t = file_text(e)
+    lines = t.split("\n") if t is not None else []
+    ln = e.get("line")
+    if not isinstance(ln, int) or not (1 <= ln <= len(lines)) or e["contains"] not in lines[ln - 1]:
+        bad.append(f"{where}: {e['path']}@{e.get('at') or e.get('commit_subject') or e.get('branch', 'main')}:{ln} lacks {e['contains']!r}")
+        continue
+    if sum(e["contains"] in l for l in lines) > 1:
+        multi += 1
+    if "head_line" in e:
+        hl = file_text(e, head=True).split("\n")
+        if e["contains"] not in hl[e["head_line"] - 1]:
+            bad.append(f"{where}: head_line {e['head_line']} lacks {e['contains']!r}")
+    if e["path"].endswith("docker-compose.yml") and svc in {"storefront", "orders", "worker"} and "image:" not in e["contains"]:
+        if compose_service_at(lines, ln - 1) != svc:
+            svc_bad.append(f"{where}: compose line {ln} is in service {compose_service_at(lines, ln - 1)}, expected {svc}")
+ok(not bad, f"{n} evidence items: substring is on exactly its 'line' ({multi} of them recur elsewhere in their file)"
+   + "".join("\n     " + x for x in bad))
+ok(not svc_bad, "every compose wiring line sits in the service its relation starts from" + "".join("\n     " + x for x in svc_bad))
+for anc, th in zip(truth["pr_42"]["thread_anchors"], json.loads((EX / "fixture/reviews/orders-pr-42.json").read_text())["threads"]):
+    ok(anc["line"] == anc["evidence"]["line"] == th["line"] and anc["head_line"] == anc["evidence"]["head_line"],
+       f"{anc['id']} anchor line {anc['line']} at '{anc['commit_subject']}', head_line {anc['head_line']}")
+
+ok(all(pt["evidence"]["line"] == pt["start_line"] for pt in truth["prompt_snapshot"]["parts"]),
+   f"{len(truth['prompt_snapshot']['parts'])} prompt parts: evidence line is the part's start_line")
+
+# 3b. S4 relation sets, absence, and the impact radius recomputed from its rule
+key = lambda r: (r["from"], r["to"], r["kind"])
+main_rel = {key(r) for r in truth["relations"]}
+ph, pm = S4["post_handoff"], S4["post_merges"]
+added = {key(r) for r in ph["relations_added"]}
+removed = {key(r) for r in ph["relations_removed"]}
+ok({key(r) for r in ph["relations"]} == (main_rel - removed) | added and added == {("worker", "orders", "http")} and removed == {("worker", "orders-db", "db")},
+   "post_handoff relations = main - {worker->orders-db} + {worker->orders http}")
+ok({key(r) for r in pm["relations"]} == {key(r) for r in ph["relations"]} | {key(r) for r in pm["relations_added_back"]}
+   and {key(r) for r in pm["relations_added_back"]} == {("worker", "orders-db", "db")},
+   "post_merges relations = post_handoff + {worker->orders-db}")
+sides = {e["path"].split("/")[0] for r in ph["relations_added"] for e in r["evidence"]}
+ok({"worker", "platform", "orders"} <= sides and any("ORDERS_URL" in e["contains"] for r in ph["relations_added"] for e in r["evidence"]),
+   f"worker -> orders evidence covers worker code, compose ORDERS_URL and orders: {sorted(sides)}")
+ok({e["path"] for r in pm["relations_added_back"] for e in r["evidence"]} == {"worker/worker/audit.py", "worker/worker/main.py"},
+   "worker -> orders-db (post_merges) is evidenced by audit.py and its call in main.py alone")
+abs_bad = []
+for r in ph["relations_removed"]:
+    for c in r["absence"]:
+        repo, rel = c["path"].split("/", 1)
+        f = H / repo / rel
+        if c.get("exists") is False:
+            if f.exists():
+                abs_bad.append(f"{c['path']} exists")
+            continue
+        if c.get("kind") == "directory":
+            texts = [x.read_text() for x in sorted(f.rglob("*.py"))]
+        elif c.get("service"):
+            texts = ["\n".join(service_lines(f.read_text(), c["service"]))]
+        else:
+            texts = [f.read_text()]
+        for s in c["must_not_contain"]:
+            if any(s in x for x in texts):
+                abs_bad.append(f"{c['path']} contains {s}")
+ok(not abs_bad, f"post_handoff: worker -/-> orders-db absence checks hold {abs_bad}")
+
+comps = {c["path"]: c["container"] for c in truth["components"] + ph["components_added"]}
+
+
+def comp_of(path):
+    m = [c for c in comps if path == c or path.startswith(c + "/")]
+    return max(m, key=len) if m else None
+
+
+evs = [e for r in ph["relations_added"] for e in r["evidence"]] + [e for r in ph["relations_removed"] for e in r["evidence_before"]]
+held = {comp_of(e["path"]) for e in evs}
+rad = S4["impact_radius"]
+RULE = ("every component, in any container, that holds evidence (code or compose wiring) of an added or removed relation, "
+        "plus the containers of those components")
+ok(rad["rule"] == RULE, "impact_radius.rule matches the README sentence")
+ok(None not in held and sorted(held) == rad["must_include"]["components"] and sorted({comps[c] for c in held}) == rad["must_include"]["containers"],
+   f"impact radius = rule applied to the truth's own evidence: {sorted({comps[c] for c in held})} / {sorted(held)}")
+excl_c = set(rad["must_exclude"]["containers"])
+ok(excl_c == {"storefront", "kit"} and set(rad["must_exclude"]["components"]) == {c for c, k in comps.items() if k in excl_c}
+   and not (excl_c & set(rad["must_include"]["containers"])), "must_exclude is storefront and kit and all their components")
+readme = (EX / "README.md").read_text()
+ok(RULE in readme and "regression takes precedence over unplanned" in readme, "README states the radius and precedence rules verbatim")
+ok({r["name"] for r in S4["reconciliation_rules"]} == {"regression-over-unplanned", "resolved-stays-done"}
+   and [x["class"] for x in S4["reconciliation_after_merges"]] == ["done", "unplanned", "regression"]
+   and S4["reconciliation_after_merges"][2]["against"] == "worker-status-via-api", "reconciliation rules and classes")
+
+# 3c. question rules, process machine, scrape direction, stale note
+q = truth["questions"]
+ok("job label" in q["unmonitored"]["rule"]
+   and {n.get("container") or n.get("path") for n in q["unmonitored"]["notes"]} == {"orders-db", "platform/tools/healthcheck.rb"}
+   and "orders-db" in q["unmonitored"]["answer"], "unmonitored: direct-coverage rule; notes for orders-db (indirect) and healthcheck.rb (manual)")
+ps = q["path_storefront_to_worker"]
+ok(ps["edge_kinds"] == ["http", "queue_publish", "queue_consume"] and all(h["kind"] in ps["edge_kinds"] for h in ps["hops"])
+   and ps["excluded_paths"][0]["route"] == "orders -> orders-db -> worker", "path rule: request/message edges only; datastore route excluded")
+pmach = truth["prompt_snapshot"]["process_machine"]
+rl = pmach["sub_machines"][0]
+ok(rl["variables"] == {"rounds": {"type": "int", "initial": 1}} and rl["instance_count"] == len(rl["instances"]) == 7
+   and [i["review"] for i in rl["instances"]] == ["architecture_review"] + [f"milestone_{k}_review" for k in range(1, 6)] + ["final_review"]
+   and all("context" not in s for s in pmach["states"]) and pmach["per_phase_activities"][0]["is_state"] is False,
+   "process machine: rounds int=1; review loop x7 (arch, 5 milestones, final); context review is a per-phase activity")
+sc = [r for r in truth["relations"] if r["kind"] == "scrapes" and "otel-collector" in (r["from"], r["to"])]
+ok(len(sc) == 1 and (sc[0]["from"], sc[0]["to"]) == ("prometheus", "otel-collector"), "prometheus scrapes otel-collector (direction kept)")
+st = [s for s in q["stale_versions"]["stale"] if s["dependency"] == "acme/orders"][0]
+o14 = git(a / "orders", "ls-tree", "-r", "--name-only", "v1.4.0", "migrations").stdout.split()
+o15 = git(a / "orders", "ls-tree", "-r", "--name-only", "v1.5.0", "migrations").stdout.split()
+w09 = git(a / "worker", "show", "v0.9.0:worker/db.py").stdout
+ok("migration 002" in st["note"] and "migrations/002_add_tracking_number.sql" not in o14 and "migrations/002_add_tracking_number.sql" in o15
+   and "tracking_number" in w09, "stale note: orders v1.4.0 lacks migration 002, v1.5.0 has it, worker v0.9.0 writes tracking_number")
+
+# 4. tags, versions, branches, counts
+for repo, info in truth["repos"].items():
+    p = a / repo
+    tags = sorted(git(p, "tag", "-l").stdout.split())
+    ok(tags == sorted(info["tags"]), f"{repo} tags {tags}")
+    latest = git(p, "describe", "--tags", "--abbrev=0", "main").stdout.strip()
+    ok(latest == info["latest_tag"], f"{repo} latest tag on main is {latest}")
+    branches = sorted(git(p, "for-each-ref", "--format=%(refname:short)", "refs/heads").stdout.split())
+    ok(branches == sorted(info["branches"]), f"{repo} branches {branches}")
+    cm = int(git(p, "rev-list", "--count", "main").stdout)
+    ca = int(git(p, "rev-list", "--count", "--all").stdout)
+    ok({"main": cm, "all": ca} == info["commit_count"], f"{repo} commit counts main={cm} all={ca}")
+    for tag, subject in info["tag_commits"].items():
+        s = git(p, "log", "-1", "--format=%s", tag).stdout.strip()
+        ver = tag.lstrip("v")
+        here = git(p, "show", f"{tag}:CHANGELOG.md").stdout
+        before = git(p, "show", f"{tag}^:CHANGELOG.md", check=False)
+        gains = f"## [{ver}]" in here and (before.returncode or f"## [{ver}]" not in before.stdout)
+        ttype = git(p, "cat-file", "-t", tag).stdout.strip()
+        ok(s == subject and gains and ttype == "tag", f"{repo} {tag}: annotated, on '{s}', where CHANGELOG gains [{ver}]")
+    for b in info["branches"]:
+        dates = git(p, "log", b, "--format=%aI").stdout.split()
+        ok(all("2026-08-01" <= d[:10] <= "2026-10-20" for d in dates), f"{repo}@{b} dates within 2026-08-01..2026-10-20")
+    authors = collections.Counter(git(p, "log", "--all", "--format=%ae").stdout.split())
+    want_a = {truth["history"]["people"][k]["email"]: v for k, v in truth["history"]["authors"][repo].items()}
+    ok(dict(authors) == want_a, f"{repo} authors {dict(authors)}")
+
+# versions declared vs tags, and stale facts
+sf_pkg = json.loads(git(a / "storefront", "show", "main:package.json").stdout)
+kit_pkg = json.loads(git(a / "kit", "show", "main:package.json").stdout)
+ok(sf_pkg["version"] == "2.3.0" and sf_pkg["dependencies"]["@acme/kit"] == "1.1.0", "storefront 2.3.0 pins @acme/kit 1.1.0")
+ok(kit_pkg["version"] == "1.2.0" and kit_pkg["name"] == "@acme/kit", "kit package is @acme/kit 1.2.0")
+for t in ["v1.0.0", "v1.1.0", "v1.2.0"]:
+    v = json.loads(git(a / "kit", "show", f"{t}:package.json").stdout)["version"]
+    ok("v" + v == t, f"kit package.json at {t} says {v}")
+for t in ["v2.2.0", "v2.3.0"]:
+    v = json.loads(git(a / "storefront", "show", f"{t}:package.json").stdout)["version"]
+    ok("v" + v == t, f"storefront package.json at {t} says {v}")
+for t in ["v0.8.0", "v0.9.0"]:
+    v = re.search(r'^version = "(.+)"', git(a / "worker", "show", f"{t}:pyproject.toml").stdout, re.M).group(1)
+    ok("v" + v == t, f"worker pyproject.toml at {t} says {v}")
+compose = git(a / "platform", "show", "main:docker-compose.yml").stdout
+images = dict(re.findall(r"image: acme/(\w+):([\d.]+)", compose))
+ok(images == {"storefront": "2.3.0", "orders": "1.4.0", "worker": "0.9.0"}, f"compose app images {images}")
+
+# co-change
+for scope, key in [("main", "main"), ("--all", "all_branches")]:
+    log = git(a / "orders", "log", scope, "--name-only", "--format=format:@@").stdout
+    c = collections.Counter()
+    for blk in log.split("@@"):
+        fs = sorted(set(blk.split()))
+        c.update(itertools.combinations(fs, 2))
+    (top, n1), (_, n2) = c.most_common(2)
+    h = truth["history"]["co_change"]["orders"]
+    ok(["orders/" + x for x in top] == h["top_pair"] and n1 == h["commits_together"][key] and n2 == h["next_best"][key],
+       f"orders co-change ({key}): {top} x{n1}, next x{n2}")
+
+# review thread anchors
+rv = json.loads((EX / "fixture/reviews/orders-pr-42.json").read_text())
+for th, anchor in zip(rv["threads"], truth["pr_42"]["thread_anchors"]):
+    sha = git(a / "orders", "log", "feature/cancel-reasons", "--format=%H", f"--grep=^{th['commit_subject']}$").stdout.split()
+    text = git(a / "orders", "show", f"{sha[0]}:{th['path']}").stdout.split("\n")
+    ok(len(sha) == 1 and anchor["evidence"]["contains"] in text[th["line"] - 1] and th["line"] == anchor["line"],
+       f"{th['id']} {th['path']}:{th['line']} -> {text[th['line'] - 1].strip()!r}")
+later = git(a / "orders", "log", "-1", "--format=%s", "feature/cancel-reasons").stdout.strip()
+ok(later == truth["pr_42"]["threads"]["addressed"][0]["commit_subject"], f"addressing commit is the PR head: {later!r}")
+touched = sorted(git(a / "orders", "diff", "--name-only", "main...feature/cancel-reasons").stdout.split())
+ok(["orders/" + t for t in touched] == sorted(x["path"] for x in truth["pr_42"]["touched"]), f"PR touches {touched}")
+
+# branch shapes
+for repo, br, files in [("storefront", "teammates", ["src/checkout/checkout.ts", "src/checkout/routes.ts"]),
+                        ("storefront", "routine", ["src/catalog/catalog.ts"]),
+                        ("worker", "teammates", ["worker/audit.py", "worker/main.py"])]:
+    n = int(git(a / repo, "rev-list", "--count", f"main..{br}").stdout)
+    f = sorted(git(a / repo, "diff", "--name-only", f"main...{br}").stdout.split())
+    base_is_main = git(a / repo, "merge-base", "main", br).stdout.strip() == git(a / repo, "rev-parse", "main").stdout.strip()
+    ok(n == 1 and f == files and base_is_main, f"{repo}@{br}: 1 commit off main head, touches {f}")
+
+# S12 baseline and runs
+cm = git(a / "worker", "show", "main:CLAUDE.md").stdout
+ok("REDIS_URL" not in cm and "gen:orders-client" not in cm, "worker/CLAUDE.md mentions neither lesson")
+ok(git(a / "storefront", "ls-tree", "main", ".claude", "CLAUDE.md").stdout == "", "storefront has no CLAUDE.md or .claude/")
+runs = [json.loads(l) for l in (EX / "fixture/implementer-runs.jsonl").read_text().splitlines()]
+err = "redis.exceptions.ConnectionError"
+g = [r["run_id"] for r in runs if any(err in s.get("output_excerpt", "") for s in r["steps"])]
+proc = [r["run_id"] for r in runs
+        if [s.get("command") for s in r["steps"] if s.get("command") in ("npm run gen:orders-client", "npm test")][-2:] == ["npm run gen:orders-client", "npm test"]]
+props = truth["scenarios"]["S12"]["expected_proposals"]
+ok(len(runs) == 8 and all(r["format"] == "planroom.implementer-run/v1" for r in runs), "8 runs in planroom.implementer-run/v1")
+ok(g == props[0]["supporting_runs"] and proc == props[1]["supporting_runs"], f"gotcha runs {g}; procedure runs {proc}")
+ok(all(r["outcome"] in {"merged", "rejected", "abandoned"} and all(s["kind"] in {"command", "edit", "note"} for s in r["steps"]) for r in runs),
+   "run outcomes and step kinds are in the enum")
+
+# worker run test counts vs the tests that existed when the run started
+def tests_at(when):
+    sha = git(a / "worker", "rev-list", "-1", f"--before={when}", "main").stdout.strip()
+    files = [f for f in git(a / "worker", "ls-tree", "-r", "--name-only", sha, "tests").stdout.split() if f.endswith(".py")]
+    return sum(len(re.findall(r"^def test_", git(a / "worker", "show", f"{sha}:{f}").stdout, re.M)) for f in files)
+
+
+for run in runs:
+    if run["repo"] != "worker":
+        continue
+    base = tests_at(run["started_at"])
+    edits_tests = any(s["kind"] == "edit" and s["path"].startswith("tests/") for s in run["steps"])
+    totals = []
+    for s in run["steps"]:
+        if s.get("command", "").endswith("pytest -q"):
+            m = re.search(r"(\d+) passed(?:, (\d+) errors)?", s["output_excerpt"])
+            totals.append(int(m.group(1)) + int(m.group(2) or 0))
+    if edits_tests:
+        msg = f"{run['run_id']}: {base} tests at start, run adds tests; pytest totals {totals}"
+        if len(set(totals)) == 1 and totals[0] > base:
+            ok(True, msg)
+        else:
+            print("WARN " + msg + " (not consistent; outside this revision's decisions)")
+    else:
+        ok(set(totals) == {base}, f"{run['run_id']}: {base} tests existed at {run['started_at']}; pytest totals {totals}")
+
+# components exist on main
+missing = []
+for c in truth["components"]:
+    repo, rel = c["path"].split("/", 1)
+    if git(a / repo, "cat-file", "-e", f"main:{rel}", check=False).returncode:
+        missing.append(c["path"])
+ok(not missing, f"{len(truth['components'])} components exist on main {missing}")
+
+print(f"\n{len(fails)} failures")
+if "--keep" not in sys.argv:
+    shutil.rmtree(SCR, ignore_errors=True)
+sys.exit(1 if fails else 0)

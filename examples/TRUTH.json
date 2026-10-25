@@ -1,6 +1,9 @@
 {
   "format": "planroom.truth/v1",
-  "about": "Frozen expected answers for the Acme Shop fixture. Paths are '<repo>/<repo-relative path>' unless they start with 'examples/'. Evidence 'contains' is an exact substring of line 'line' (1-based) of that file: on main, or on 'branch' when given, or in the commit named by 'commit_subject' (on 'branch') when given, or in the S4 state named by 'at' ('post_handoff', 'post_merges'; see scenarios.S4). PR thread anchors also give 'head_line', the same text's line at the PR head. Compose wiring and code both count as evidence for a relation. Lists of containers, components and relations are what must exist; a scan may find more.",
+  "about": [
+    "Frozen expected answers for the Acme Shop fixture. Paths are '<repo>/<repo-relative path>' unless they start with 'examples/'. Evidence 'contains' is an exact substring of line 'line' (1-based) of that file: on main, or on 'branch' when given, or in the commit named by 'commit_subject' (on 'branch') when given, or in the S4 state named by 'at' ('post_handoff', 'post_merges'; see scenarios.S4). PR thread anchors also give 'head_line', the same text's line at the PR head. Compose wiring and code both count as evidence for a relation. Lists of containers, components and relations are what must exist; a scan may find more.",
+    "repos.<repo>.languages are the languages of that repo's components, including config languages such as yaml and json."
+  ],
   "repos": {
     "storefront": {
       "language": "typescript",
@@ -42,7 +45,8 @@
     "orders": {
       "language": "go",
       "languages": [
-        "go"
+        "go",
+        "yaml"
       ],
       "tags": [
         "v1.4.0",
@@ -146,9 +150,8 @@
     "platform": {
       "language": "yaml",
       "languages": [
-        "yaml",
-        "json",
-        "ruby"
+        "ruby",
+        "yaml"
       ],
       "tags": [
         "2026.10.0"
@@ -1150,6 +1153,10 @@
             }
           ]
         }
+      ],
+      "notes": [
+        "platform/prometheus/prometheus.yml has no alerting block, so OrdersHighErrorRate is evaluated but notifies nobody.",
+        "No service sends OTLP metrics, so the collector's :8889 Prometheus exporter carries no application metrics; orders and worker metrics come from their own :9464 endpoints."
       ]
     },
     "unmonitored": {
@@ -1371,12 +1378,16 @@
           "uses": "0.9.0",
           "latest": "0.9.0"
         }
+      ],
+      "rule": "A consumer is stale when a pinned package version or deployed image tag is older than the dependency's latest release tag.",
+      "notes": [
+        "storefront/src/api/orders.schema.ts is a generated client that predates later orders spec changes. It is not a pinned version, so it does not count as stale; S12's runs rely on it being out of date."
       ]
     },
     "path_storefront_to_worker": {
       "from": "storefront",
       "to": "worker",
-      "rule": "Follow request and message edges only (relation kinds http, queue_publish, queue_consume). Reads and writes of a shared datastore are not edges of the path.",
+      "rule": "Follow request and message edges only (relation kinds http, queue_publish, queue_consume), each in the direction requests and messages flow: http from caller to callee, queue_publish from publisher to queue, queue_consume from queue to consumer (the reverse of the relation's from and to). Reads and writes of a shared datastore are not edges of the path, and tooling (the manual healthcheck script) is not a request path.",
       "edge_kinds": [
         "http",
         "queue_publish",
@@ -1466,7 +1477,13 @@
               "contains": "REDIS_URL=redis://redis:6379/0",
               "line": 30
             }
-          ]
+          ],
+          "relation": {
+            "from": "worker",
+            "to": "redis",
+            "kind": "queue_consume"
+          },
+          "traversed": "reverse"
         }
       ],
       "excluded_paths": [
@@ -2191,6 +2208,10 @@
               "contains": "- Fix every unrefuted finding that's **material**",
               "line": 322
             }
+          ],
+          "notes": [
+            "Context reviews (kickoff-snapshot.md:359 and :362) are curation activities, not reviews under the protocol: they have no reviewers, lenses or verifier. Only reviews of work count, so there are 7 instances.",
+            "accepted_risk may be empty: when the round-3 fixes leave nothing material, the record of accepted risk is empty."
           ]
         }
       ]
@@ -2888,7 +2909,10 @@
         "components_removed": [
           "worker/worker/db.py"
         ],
-        "note": "Every other relation in the top-level relations list holds unchanged."
+        "note": "Every other relation in the top-level relations list holds unchanged.",
+        "notes": [
+          "worker/worker/orders_client.py line 3 mentions orders-db in a docstring. Prose in a comment or docstring is not evidence of a relation. worker/worker/config.py reads DATABASE_URL on main; after the hand-off the worker has no DATABASE_URL."
+        ]
       },
       "post_merges": {
         "state": "post_handoff, then the teammates branch of storefront and of worker merged (both conflict-free)",
@@ -3086,10 +3110,13 @@
             "DATABASE_URL",
             "orders-db"
           ]
-        }
+        },
+        "notes": [
+          "After the merges worker/audit.py imports psycopg, which the worker patch removed from pyproject.toml, so the worker would fail at import. Reconciliation must find the regression from the code (audit.py's orders-db DSN), not from declared dependencies."
+        ]
       },
       "impact_radius": {
-        "rule": "every component that holds evidence of an added or removed relation, at either end, plus their containers",
+        "rule": "every component, in any container, that holds evidence (code or compose wiring) of an added or removed relation, plus the containers of those components",
         "derived_from": [
           "scenarios.S4.post_handoff.relations_added[].evidence",
           "scenarios.S4.post_handoff.relations_removed[].evidence_before"

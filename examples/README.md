@@ -37,7 +37,7 @@ Five small repos, one polyglot system:
 | `prometheus` | `prom/prometheus:v2.54.1` | scrapes `orders`, `worker`, `otel-collector` | `prometheus/prometheus.yml` |
 | `grafana` | `grafana/grafana:11.2.2` | `prometheus` | provisioned dashboard |
 
-**How the web app reaches the worker** (following request and message edges only, not reads of a shared datastore): `storefront` POSTs `/orders` to `orders` (client in `storefront/src/api/orders.ts`, path in `orders/api/openapi.yaml`, URL from compose). `orders` pushes an `order-jobs` message onto `redis` (`orders/internal/queue/publisher.go`). `worker` pops `order-jobs` (`worker/worker/consumer.py`).
+**How the web app reaches the worker** (following request and message edges in the direction they flow, not reads of a shared datastore): `storefront` POSTs `/orders` to `orders` (client in `storefront/src/api/orders.ts`, path in `orders/api/openapi.yaml`, URL from compose). `orders` pushes an `order-jobs` message onto `redis` (`orders/internal/queue/publisher.go`). `worker` pops `order-jobs` (`worker/worker/consumer.py`).
 
 ### Observability
 
@@ -85,11 +85,11 @@ Each has an exact name that tests and `TRUTH.json` use.
 ## Scenario hooks
 
 - **S3** plans "Add retries to the worker". Next actions attach to `worker/worker/consumer.py`, `platform/docker-compose.yml` and `platform/prometheus/alerts.yml`.
-- **S4** regroups `storefront/src/cart` and `storefront/src/checkout` into a group named `purchase`, then changes the intended architecture: `worker` reports status through the orders API (`POST /orders/{id}/events`, which `orders` already serves) and must not depend on `orders-db`. The fixture implementer answers that change spec with one patch per touched repo, `fixture/implementer/worker-status-via-api/{worker,platform}.patch`: the worker gets an orders API client and loses its direct writes, and compose gives it `ORDERS_URL` instead of `DATABASE_URL`. After the merge, the test merges the `teammates` branch of `storefront` and `worker` (the only repos that have one), which lands both planted changes. Reconciliation then reports the change `done`, `storefront-gift-wrap` `unplanned` and `worker-audit-db-write` `regression`. A change that breaks a met intent is a regression even though no plan covers it, so regression takes precedence over unplanned, and the resolved item stays `done` with the regression reported against it. The impact radius is every component that holds evidence of an added or removed relation, at either end, plus their containers.
+- **S4** regroups `storefront/src/cart` and `storefront/src/checkout` into a group named `purchase`, then changes the intended architecture: `worker` reports status through the orders API (`POST /orders/{id}/events`, which `orders` already serves) and must not depend on `orders-db`. The fixture implementer answers that change spec with one patch per touched repo, `fixture/implementer/worker-status-via-api/{worker,platform}.patch`: the worker gets an orders API client and loses its direct writes, and compose gives it `ORDERS_URL` instead of `DATABASE_URL`. After the merge, the test merges the `teammates` branch of `storefront` and `worker` (the only repos that have one), which lands both planted changes. Reconciliation then reports the change `done`, `storefront-gift-wrap` `unplanned` and `worker-audit-db-write` `regression`. A change that breaks a met intent is a regression even though no plan covers it, so regression takes precedence over unplanned, and the resolved item stays `done` with the regression reported against it. The impact radius is every component, in any container, that holds evidence (code or compose wiring) of an added or removed relation, plus the containers of those components.
 - **S5** breaks down `orders` PR 42 ("Add cancellation reasons", branch `feature/cancel-reasons`): thread `T1` is addressed by a later commit, `T2` and `T3` stay open. It touches `orders/internal/http`, `orders/internal/order` and `orders/api/openapi.yaml`. S5 also breaks down the skill `worker/.claude/skills/run-worker-tests/SKILL.md` and the workflow `orders/.github/workflows/ci.yml`.
 - **S10** uses `platform/tools/healthcheck.rb` (Ruby has no built-in extractor) and `storefront/flags.yaml` (read by the toy pack).
 - **S7** uses branch `routine` in `storefront`: one small commit, "Show 24 products per catalog page", that a commit-triggered rescan should absorb with no Claude call and at most one card.
-- **S12** seeds 8 implementer runs, mostly in `worker` and `storefront`. Neither `worker/CLAUDE.md` nor `storefront` mentions either lesson yet. 4 hit the same gotcha (worker tests need `REDIS_URL`, and fail with `redis.exceptions.ConnectionError` without it). 3 repeat the same procedure (regenerate the storefront orders client after `orders/api/openapi.yaml` changes: `npm run gen:orders-client`, then `npm test`).
+- **S12** seeds 8 implementer runs, mostly in `worker` and `storefront`. No agent context in the fixture (`worker/CLAUDE.md`, or any storefront `CLAUDE.md` or `.claude/`) records either lesson yet. The runs are synthetic: their other details need not match the repo history. 4 hit the same gotcha (worker tests need `REDIS_URL`, and fail with `redis.exceptions.ConnectionError` without it). 3 repeat the same procedure (regenerate the storefront orders client after `orders/api/openapi.yaml` changes: `npm run gen:orders-client`, then `npm test`).
 
 ## History format
 
@@ -115,7 +115,7 @@ People: `Alice Ng <alice@acme.test>` (storefront, kit), `Bob Okafor <bob@acme.te
     {
       "id": "T1",
       "path": "internal/http/handlers.go",
-      "line": 57,
+      "line": 99,
       "commit_subject": "Accept a cancellation reason",
       "resolved": false,
       "comments": [{ "author": "carol", "at": "2026-09-14T10:02:00Z", "body": "…" }]
