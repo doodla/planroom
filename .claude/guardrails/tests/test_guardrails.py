@@ -76,7 +76,7 @@ class AgentToolTests(IsolatedEnv):
 
     def test_missing_effort(self):
         reason = self.assertDenied(pre("Agent", {"prompt": "x", "model": "sonnet"}), "must set effort")
-        self.assertNotIn("model and", reason)
+        self.assertNotIn("set model and", reason)
 
     def test_both_set(self):
         self.assertSilent(pre("Agent", {"prompt": "x", "model": "sonnet", "effort": "low"}))

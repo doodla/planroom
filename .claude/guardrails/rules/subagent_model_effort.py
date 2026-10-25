@@ -19,7 +19,7 @@ TOOLS = {"Agent", "Task", "Workflow"}
 FIELDS = ("model", "effort")
 AGENT_CALL = re.compile(r"(?<![\w$.])agent\s*\(")
 AGENT_TYPE = re.compile(r"""(["']?)\bagentType\1\s*:\s*(["'`])([^"'`]+)\2""")
-HINT = "Pick a model (e.g. sonnet, opus, haiku) and an effort (low|medium|high|xhigh|max) that fit the task."
+HINT = "See 'Subagents: model and effort' in CLAUDE.md for how to choose."
 
 
 def check(hook, opts):
