@@ -267,9 +267,9 @@ README, `docs/`, `CONTRIBUTING.md` and `SECURITY.md`.
 
 ### Word list
 
-response (not answer, for a provider's reply); job ID, model ID; job record; state directory; dry
-run (noun) and `--dry-run` (flag); "for example" and "such as" (not e.g.); "that is" (not i.e.);
-"and so on" or a complete list (not etc.); Ctrl+C; provider (not vendor). Product names as their
+`response` (not `answer`, for a provider's reply); job ID, model ID; job record; state directory; dry
+run (noun) and `--dry-run` (flag); "for example" and "such as" (not `e.g.`); "that is" (not `i.e.`);
+"and so on" or a complete list (not `etc.`); Ctrl+C; provider (not vendor). Product names as their
 owners write them. Commands in code format.
 
 ### Headings
@@ -315,7 +315,7 @@ version or date. Refer to releases by version.
 
 - `tests/docs.rs`: every relative link and anchor resolves; archived files link outside the
   archive only with absolute URLs (`tests/docs.rs:161-221`); prose outside code has no `e.g.`,
-  `i.e.`, `etc.`, no spaced em dash, and no "answer" in any form (`tests/docs.rs:250-276`). Exempt:
+  `i.e.`, `etc.`, no spaced em dash, and no `answer` in any form (`tests/docs.rs:250-276`). Exempt:
   the style guide, the generated CLI reference, `AGENTS.md`, `CLAUDE.md` (`tests/docs.rs:15-16`).
   Markdown files come from `git ls-files --cached --others --exclude-standard`, so ignored files
   and nested worktrees aren't checked. A self-test (`the_checks_catch_problems`) proves the checks
