@@ -41,6 +41,12 @@ Two ideas shape every decision. When a requirement is unclear, resolve it in the
 2. **Agent-native.** Planroom's code is written by agents, for agents, and run mostly by agents. People steer through the mod and the canvas, while agents read, extract, reconcile and implement.
    - Every capability is reachable through stable, typed, documented interfaces, with stable error codes and one versioned schema behind them all: CLI commands with `--json`, the local API, tools agents can call (the mod's tools, and an MCP server if the architecture calls for one), and skills that teach agents when to use each.
    - Output is designed for agents first: structured, compact, paginated, with stable IDs and pointers to evidence rather than prose. The human surfaces render the same output.
+   - **Token-efficient by design.** Tokens are what agents pay, so treat them as a budget:
+     - every agent-facing output has a size budget;
+     - answers come summary-first, with handles to drill down;
+     - never return a raw file when a pointer or slice will do;
+     - cheap decisions go to Jev, not Claude;
+     - Claude calls keep a stable, cached prefix.
    - The repo is easy for agents to work in: `AGENTS.md` invariants, small modules with clear contracts, deterministic commands, fast tests, project skills, and context that is kept current. Planroom does the same for the repos it's pointed at.
 </principles>
 
@@ -159,6 +165,7 @@ These define done.
 - Auto-action is enabled only for kinds with observed precision ≥ 0.95 on at least 60 cases. The rest use one-tap cards.
 - Evals and thresholds run on the pinned gateway model. Both adapters pass the same contract tests against fixtures built from the docs.
 - A commit-triggered rescan of the fixture makes 0 Claude calls on the routine path, spends under $0.001 on Jev, and raises at most one card.
+- **Token budgets.** For each S2 question and the S3 plan, record the tokens of tool output an agent consumes, and the Claude tokens with their cache-hit rate. Commit those as budgets. A regression test fails if any of them grows by more than 20%.
 - Report the eval table at the end.
 
 **S8. Concurrency.** Two agents and a canvas tab write at once to two projects in one workspace. Check that no writes are lost, retries are idempotent, live updates arrive within 1 s, claims and presence are visible, and a stale write becomes a diff rather than a merge.
@@ -257,7 +264,12 @@ Also copy this prompt to `examples/kickoff-snapshot.md` at kickoff. S5 and S6 ru
   - a release workflow.
 - **Spend.**
   - Live Jev, gateway and `sample` calls by the product and its tests stay under $3 in total during the build. Gate every live test behind an env flag.
-  - The build's own agent tokens have no hard cap, but stay proportionate: see the review protocol in `<process>`. Log rough spend per phase.
+  - The build's own agent tokens have no hard cap, but spend them where they buy quality (see the review protocol in `<process>`), and log rough spend per phase:
+    - give mechanical work to cheaper models, per `CLAUDE.md`;
+    - read targeted ranges rather than whole files;
+    - delegate broad reads to subagents that return conclusions, not dumps;
+    - resume workflows instead of rerunning them;
+    - don't re-derive what `progress.md` or the carry file already records.
 - **Code.** Minimal: no speculative abstractions, no defensive code for impossible cases, no hard-coding to pass tests.
 - **Don't, without me:** publish packages (crates.io or npm), push tags, create GitHub releases, or change repo settings. Prepare them, and list exactly what I need to click.
 </constraints>
@@ -283,6 +295,7 @@ Also copy this prompt to `examples/kickoff-snapshot.md` at kickoff. S5 and S6 ru
   - `--dry-run --json` shows the cost first, and `--max-cost` caps it. Generate at a supported size, then crop.
 - **Mods and plugins:**
   - Load the `plugin-authoring` skill before writing mod code. Its types are the reference.
+  - `$.model.complete` accepts prompt blocks marked `cache: true`, and reports cache reads and writes in `usage`.
   - The API includes `$.http.fetch`, `$.process.spawn`, `$.fs`, `$.store`/`$.state`, `$.tool.register`, `$.agent.register`/`$.agent.spawn` (with `isolation: 'worktree'`), `$.model.complete`, `$.command.register` and `$.ui.*` (Pane, AbovePrompt, status, toast).
   - Panes draw from a fixed element set (Box, Text, Button, Markdown, and Svg off the terminal), not a DOM.
   - The first mod file you write triggers a one-time "turn on mods" question, which I'll answer.
