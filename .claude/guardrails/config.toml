@@ -1,0 +1,8 @@
+# Guardrail rules, keyed by module name in rules/.
+#   mode     = "enforce" | "warn" | "off"   (start new rules in "warn", check logs, then enforce)
+#   on_error = "closed" | "open"            (what happens if the rule itself crashes)
+# A rule's tools must also be in the PreToolUse matcher in .claude/settings.json.
+
+[rules.subagent_model_effort]
+mode = "enforce"
+on_error = "closed"
