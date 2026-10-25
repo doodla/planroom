@@ -13,7 +13,6 @@ Config: config.toml next to this file. Per rule:
   on_error = "closed" (a crash is reported at the rule's mode: denied in
              enforce, a warning in warn) | "open" (the crash is only logged)
 Escape hatch: GUARDRAILS_OFF=rule_a,rule_b disables rules for one session.
-A problem wrapped in honesty.soft() only warns, even from an enforce rule.
 """
 import datetime
 import importlib
@@ -25,8 +24,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-
-from honesty import Soft  # noqa: E402
 
 LOG_PATH = Path(os.environ.get("GUARDRAILS_LOG") or HERE / "logs" / "decisions.jsonl")
 
@@ -67,14 +64,16 @@ def evaluate(hook, config):
             if opts.get("on_error", "closed") == "open":
                 records.append({"rule": name, "action": "error_open", "problems": problems})
                 continue
-        hard = [p for p in problems if not isinstance(p, Soft)] if mode == "enforce" else []
-        soft = [p for p in problems if p not in hard]
-        if hard:
-            denials.append(f"[{name}] " + "\n".join(hard))
-            records.append({"rule": name, "action": "deny", "problems": hard})
-        if soft:
-            warnings.append(f"[{name}] " + "\n".join(soft))
-            records.append({"rule": name, "action": "warn", "problems": soft})
+        if not problems:
+            continue
+        message = f"[{name}] " + "\n".join(problems)
+        if mode == "enforce":
+            denials.append(message)
+            action = "deny"
+        else:
+            warnings.append(message)
+            action = "warn"
+        records.append({"rule": name, "action": action, "problems": problems})
 
     return denials, warnings, records
 
@@ -83,15 +82,12 @@ def render(event, denials, warnings):
     """Build the hook's stdout JSON, or None to stay silent."""
     if event == "SessionStart":
         # Context only: a session start can't be denied. Strip the rule tags.
-        texts = [w.split("] ", 1)[-1] for w in denials + warnings]
+        texts = [m.split("] ", 1)[-1] for m in denials + warnings]
         if not texts:
             return None
         return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": "\n\n".join(texts)}}
-    if event == "Stop":
-        if not denials:
-            return None  # a warn-mode stop rule is only logged
-        return {"decision": "block", "reason": "Not done yet:\n" + "\n".join(denials)}
     if event != "PreToolUse":
+        # Add other events' output shapes here when the first rule for them arrives.
         return None
     out = {"hookEventName": event}
     if denials:

@@ -2,52 +2,13 @@
 #   mode     = "enforce" | "warn" | "off"   (start new rules in "warn", check logs, then enforce)
 #   on_error = "closed" | "open"            (what happens if the rule itself crashes)
 # A rule's tools must also be in the PreToolUse matcher in .claude/settings.json.
-# This file is human-owned: protected_paths and commit_gate keep agents from changing it.
 
 [rules.subagent_model_effort]
 mode = "enforce"
 on_error = "closed"
 
-# The honesty rules below ship in enforce mode because they guard an unattended
-# build from day one; each is covered by tests/test_honesty.py. If one misfires,
-# a person switches it to "warn" here.
-
-[rules.protected_paths]
-mode = "enforce"
-on_error = "closed"
-locked = [".claude/guardrails/*", ".claude/settings.json", "KICKOFF.md"]
-write_once = ["examples/TRUTH.json"]
-
-[rules.commit_gate]
-mode = "enforce"
-on_error = "closed"
-locked = [".claude/guardrails/*", ".claude/settings.json", "KICKOFF.md"]
-write_once = ["examples/TRUTH.json"]
-
-[rules.test_integrity]
-mode = "enforce"
-on_error = "closed"
-
-[rules.release_actions]
-mode = "enforce"
-on_error = "closed"
-
-[rules.honest_stop]
-mode = "enforce"
-on_error = "open"   # a crash here must never trap a session
-feature_list = "feature_list.json"
-progress = "progress.md"
-
 [rules.context_restore]
 mode = "warn"
-on_error = "open"
-feature_list = "feature_list.json"
-progress = "progress.md"
-card = [
-  "KICKOFF.md is the contract. Its section table says what binds: principles, requirements, acceptance scenarios (tiers A/B/C), constraints, definition of done, autonomy. Design starting points don't bind.",
-  "Re-read the KICKOFF.md sections for the work you're on now before continuing; don't work from memory of them.",
-  "Never weaken, skip or delete a test, scenario or feature_list entry. An infeasible scenario gets a decision record, a proposed variant and an independent reviewer's approval.",
-  "A feature passes only with its evidence on disk. examples/TRUTH.json is frozen. Guardrails, settings and KICKOFF.md are human-owned: propose changes under '## Proposals for the human' in progress.md.",
-  "Reviews: per-finding verification, 'material' as defined in KICKOFF.md, at most 3 rounds. Workflow agent() calls need inline model: and effort:.",
-  "Keep progress.md current: '## Now' (what you're doing and next), '## Blocked' (only what a human must unblock), '## Proposals for the human'.",
-]
+on_error = "open"            # a crash here must never get in the way of a session
+carry = ".claude/carry.md"   # agent-owned notes replayed after every compaction or resume
+carry_limit = 4000           # characters; anything past this is cut, with a note to trim

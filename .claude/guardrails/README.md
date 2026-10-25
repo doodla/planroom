@@ -12,20 +12,7 @@ It never returns `allow` (that could skip auto mode's own permission checks) or
 | Rule | Does |
 |---|---|
 | `subagent_model_effort` | Agent/Task calls and workflow `agent(...)` calls must set `model` and `effort`, either inline or through an agent definition in `.claude/agents/`. Forks are exempt. |
-| `protected_paths` | Agents can't edit `locked` files (these guardrails, `.claude/settings.json`, `KICKOFF.md`), and can't change `write_once` files (`examples/TRUTH.json`) once they exist. Shell writes are caught where they're visible. |
-| `test_integrity` | No new skip/only/todo markers in test files; dropped assertions warn. `feature_list.json` entries can't be removed or have their tier lowered, and a tier A/B entry can't flip to passing unless its `evidence` paths exist. |
-| `release_actions` | No publishing, release edits, tag pushes or deletes, force pushes, repo-setting changes or `--no-verify`. Only real invocations count, not text in an echo or heredoc. |
-| `commit_gate` | At `git commit`, re-runs the protected-path, test and feature-list checks on the actual diff, catching writes that bypassed the edit tools. |
-| `honest_stop` | While a build is running (`feature_list.json` exists): a stop is blocked if work is uncommitted or unpushed, or if tier A entries fail with no `## Blocked` section in `progress.md`. At most once per stop. |
-| `context_restore` | While a build is running: after startup, resume or compaction, injects the contract card from `config.toml`, tier status, failing tier A entries, the `## Now` section of `progress.md`, and git state. |
-
-### What these hooks are, and aren't
-
-They're tripwires for drift and honest mistakes in a long unattended run, not a sandbox. They see tool calls and shell commands, not what a script does once it runs, so a determined agent could write a file from Python or call git from a subprocess. `commit_gate` narrows that gap by checking the real diff at commit time. Treat any attempt to get around a guardrail as a bug in the agent's behaviour, and look at `logs/decisions.jsonl` when reviewing a run.
-
-### Human-owned files
-
-These guardrails, `.claude/settings.json` and `KICKOFF.md` are locked against agents, so a long autonomous run can't loosen its own rules. To change them, a person starts a session with `GUARDRAILS_OFF=protected_paths,commit_gate` (locally, in the shell that launches `claude`; in a cloud environment, as an environment variable), makes the change, and starts a normal session again.
+| `context_restore` | After startup, resume or compaction, replays `.claude/carry.md`: the notes the agent chose to keep across compactions, capped at 4,000 characters. |
 
 ## Operating
 
@@ -41,4 +28,4 @@ These guardrails, `.claude/settings.json` and `KICKOFF.md` are locked against ag
 3. Make sure `.claude/settings.json` routes that event and those tools to the runner. A test checks the PreToolUse matcher.
 4. Add tests and run `python3 .claude/guardrails/tests/test_guardrails.py`.
 
-`runner.render` implements output for PreToolUse (deny or context), SessionStart (context only) and Stop (block with a reason). A rule can mark a problem with `honesty.soft()` so it only warns, even in enforce mode.
+`runner.render` implements output for PreToolUse (deny or context) and SessionStart (context only). Add the output shape for other events (such as Stop) when the first rule for them arrives.

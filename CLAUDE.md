@@ -1,5 +1,9 @@
 # Planroom
 
+## Keeping track across compactions
+
+Context can be compacted at any time. If something must survive it (an in-flight decision, a gotcha you just found, where you are in a multi-step task), write it to `.claude/carry.md`. A hook replays that file after every compaction or resume. Keep it to current, load-bearing notes, under 4,000 characters, and delete what no longer matters.
+
 ## Subagents: model and effort
 
 Always set `model` and `effort` on Agent calls and workflow `agent()` calls (a hook enforces it; forks are exempt).

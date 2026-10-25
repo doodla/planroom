@@ -23,14 +23,7 @@ Here is how to treat each section of this prompt:
 
 Environment: a cloud Claude Code container with this repo (`planroom`, MIT, owner Sridhar Vadlamani) checked out. Read `CLAUDE.md` first: it sets rules for subagents, and a hook enforces them. Commit and push to the branch you were assigned.
 
-**Guardrail hooks keep this run honest** (`.claude/guardrails/`, see its README). They're human-owned: you can't change them, `.claude/settings.json` or this file. If one blocks something legitimate, record what and why under `## Proposals for the human` in `progress.md`, then work around it honestly or treat the item as blocked. They:
-- restore this contract after every compaction or resume;
-- freeze `examples/TRUTH.json` once it exists;
-- block new skip/only markers in tests;
-- block a `feature_list.json` entry from being removed, lowered in tier, or marked passing without evidence on disk;
-- block publishing, tags, releases, force pushes and `--no-verify`;
-- re-check all of this at every commit;
-- block ending a turn while work is uncommitted, unpushed, or failing tier A with no recorded blocker.
+Context will be compacted many times on a run this long. Write anything you need to survive a compaction to `.claude/carry.md`: where you are in the process, the current milestone and review round, in-flight decisions, gotchas. A hook replays it after every compaction or resume. Keep it under 4,000 characters, and keep `progress.md` as the full record.
 </context>
 
 <principles>
@@ -239,9 +232,6 @@ All merges in the scenarios happen in that copy, so the fixture is the same on e
 - **Spend**:
   - Live Jev, gateway (including Claude) and `sample` calls made by the product and its tests during the build stay under $3 in total. Gate every live test behind an env flag.
   - There's no hard cap on the build's own agent tokens, but keep it proportionate: at most 3 candidate architectures, at most 7 review lenses, at most 3 review rounds. Log a rough spend per phase in `progress.md`.
-- **Files the hooks read** (keep these shapes):
-  - `feature_list.json` at the repo root: `{"features": [{"id", "tier": "A"|"B"|"C", "passes": bool, "evidence": [paths], ...}]}`. `evidence` lists the test file and any recorded output under `docs/evidence/`.
-  - `progress.md` at the repo root, with the sections `## Now` (what you're doing and what's next, kept current, because it's what you see after a compaction), `## Blocked` (only what a human must unblock), and `## Proposals for the human`.
 - **Code**: TypeScript throughout, so contracts are shared by every surface. Keep it minimal: no speculative abstractions, no defensive code for impossible cases, and no hard-coding to pass tests.
 - **Don't, without me**: publish to npm, push tags, create GitHub releases, or change repo settings. Prepare all of these, and list exactly what I need to click.
 </constraints>
