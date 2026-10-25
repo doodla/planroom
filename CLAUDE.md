@@ -14,3 +14,4 @@ Always set `model` and `effort` on Agent calls and workflow `agent()` calls (a h
 - Treat subagent output as a claim. Verify what you act on or report (rerun the test, read the cited lines).
 - For anything costly to get wrong, use an independent checker: give it the work, not your conclusion. Checkers are never weaker than what they check.
 - As a subagent, separate what you verified from what you assumed, and cite the evidence (command output, `file:line`).
+- Explore and Plan agents don't see this file. Put that last ask in their prompt.
