@@ -74,7 +74,7 @@ Each requirement must be traceable to a design element and to a test.
 - **intended vs actual**, where what people say the system should be and what the code is disagree;
 - **proposed changes**, code or text, mapped onto the map.
 
-A reconciler compares intent with reality on demand and on change, and classifies each mismatch as expected, in progress, done, unplanned or regression.
+The intended architecture can declare boundary rules (what may depend on what), and violations show up as intended-vs-actual drift. A reconciler compares intent with reality on demand and on change, and classifies each mismatch as expected, in progress, done, unplanned or regression.
 
 **R8. Hand-off.** An approved change that needs code or text edits becomes a self-contained change spec, handed to a **separate implementer agent** that works in isolation. Its result comes back as a diff for review, and reconciliation closes the loop after merge. The planning partner in the chat never silently implements.
 
@@ -105,6 +105,20 @@ Every decision kind has a declared policy and an eval behind its threshold. Ever
 All three ship as **one Claude Code plugin**. Installing it gives an agent or a person everything: the mod, Planroom's skills and agent types (the implementer and the curator), and the engine. Within the plugin's limits, the engine binary is resolved on first use.
 
 **R14. A tiny surface to learn.** The whole mental model a person needs is five ideas: **Levels** (where I am), **Lenses** (which relationships I see), **Intent** (what I want, grouped into projects), **Diffs** (what's different) and **Decisions** (what needs me). There is one CLI entry point and one slash-command family (`/room …`; `plan` is already a Claude Code permission-mode name, so avoid `/plan`). Everything else stays internal. Before adding any concept, flag or setting, check whether a better default would remove the need for it.
+
+**R16. A deliberately designed repo.** This is one long build in a box, so the main agent owns the repo's design and keeps it coherent, while subagents and parallel tracks follow it. The structure is designed on purpose for a Rust and TypeScript codebase that agents write and run:
+- **One obvious place for everything.** Every directory has a stated purpose. Each top-level area has a short `AGENTS.md` or README giving its contract: what it owns, what it may depend on, how to test it.
+- **Boundaries enforced by tooling, not convention:**
+  - the core kernel depends on no domain;
+  - packs and adapters depend inward, never sideways;
+  - surfaces talk to the engine only through the published contracts;
+  - generated code lives in marked directories and is never hand-edited.
+
+  A check fails CI when a dependency crosses a boundary, in both Rust and TypeScript.
+- **One set of commands.** A single task entry point runs the same commands locally and in CI: check, test, end-to-end, generate, release dry run. Agents use only those commands.
+- **Pinned toolchains and reproducible builds:** pinned toolchain versions, committed lockfiles, and one Cargo workspace plus one JS workspace.
+- **Shared conventions, written down once in `AGENTS.md`:** naming, error codes, logging, configuration, and where new code goes.
+- **Structure changes are deliberate.** Changing the layout, a boundary or a convention needs a decision record, written by the main agent, before the change lands.
 
 **R15. Releasable.** The repo is ready for a public v0.1 release, at the standard of `doodla/iris` (see `<constraints>`).
 </requirements>
@@ -213,6 +227,7 @@ All merges in the scenarios happen in that copy, so the fixture is the same on e
 - The UI exposes no top-level concepts beyond the five in R14.
 - An empty-state screenshot audit finds no blank states.
 - The error-code schema has a drift test.
+- The boundary checks fail on a deliberately planted bad import, in both Rust and TypeScript. The test plants the import in a temporary copy.
 - Every edit type has an undo test.
 </acceptance_scenarios>
 
@@ -321,6 +336,17 @@ These are not binding. Each is a reasonable first guess. Validate it during arch
   - IDs are stable and namespaced, for example `<repo>:<kind>:<key>`.
 - **Domain packs**: declarative files that add entity and relation kinds, which level each kind sits on, aggregation rules, extractors, lenses, decision kinds and a default view. Six ship in v0.1: code, plan, observability, release, artifacts, workflow.
 - **Levels**: the C4 model (System, Container, Component, Code) with Intent on top. Each node has one parent on the level above, and edges aggregate upward with counts.
+- **Repo layout sketch** (not binding; redesign it freely):
+  ```
+  Cargo.toml / pnpm-workspace.yaml / justfile (or cargo xtask) / rust-toolchain.toml / .node-version
+  crates/    planroom-schema (contract source) · planroom-kernel · planroom-store · planroom-extract-* ·
+             planroom-packs · planroom-decide (Jev + Claude adapters) · planroom-server · planroom-cli
+  packages/  schema (generated TS, never edited) · canvas · mod · ui (component kit)
+  plugin/    .claude-plugin/ · skills/ · agents/ · hooks/ (the built mod) · engine bootstrap
+  examples/  fixture sources · build-fixture · TRUTH.json
+  docs/      guides · concepts · reference · contributing (architecture, decisions, repo-layout)
+  ```
+  For boundaries, a crate-graph test or `cargo-deny` bans on the Rust side, and `dependency-cruiser` or `eslint-plugin-boundaries` on the TypeScript side.
 - **Libraries to evaluate first** (these are suggestions; pick on maintenance, fit and licence, and record the choice):
   - Rust:
     - `tree-sitter` with its language grammars;
@@ -404,10 +430,11 @@ Plan from the top down, review independently, build in thin vertical slices.
      - `docs/contributing/architecture.md`, with C4 diagrams;
      - decision records in `docs/contributing/decisions.md`, each naming the design starting point it kept or replaced, and why;
      - the schemas and the public contracts;
+     - `docs/contributing/repo-layout.md`: the repo's design per R16, covering the directory map, boundaries and how they're enforced, the task commands, toolchain pinning, codegen flow and conventions. Lay out the skeleton directories and tooling before any feature work;
      - a traceability table (each requirement and scenario → the design element → the planned test);
      - `feature_list.json`, where every scenario is an entry with its tier (A or B) and its two paths, plus any tier C entries you add.
 3. **Independent architecture review.**
-   - Give the design documents, not your reasoning, to reviewers at your own model level or above. Give each a distinct lens: correctness and concurrency, extensibility and core simplicity, the principles (attention and agent-native), user surface and UX, security and privacy (secrets, the repos being scanned, prompt injection from scanned content), operability and release, and cost.
+   - Give the design documents, not your reasoning, to reviewers at your own model level or above. Give each a distinct lens: correctness and concurrency, extensibility and core simplicity, repo design (R16: boundaries, tooling, commands, and how easy it is for an agent to find its way around), the principles (attention and agent-native), user surface and UX, security and privacy (secrets, the repos being scanned, prompt injection from scanned content), operability and release, and cost.
    - Each reviewer reports findings within their own lens. A separate independent verifier then tries to refute each finding, and every finding the verifier fails to refute gets fixed. Don't vote across lenses: a security finding must not need the UX reviewer's agreement.
    - A finding is **material** when it would make a tier A or B scenario fail, violates a principle or constraint, or is a security or data-loss risk.
    - Repeat until a round finds nothing material, up to 3 rounds. Record anything left after round 3 in the decision records as accepted risk, with a one-line reason.
@@ -419,7 +446,7 @@ Plan from the top down, review independently, build in thin vertical slices.
    4. artifacts, state machines and anatomy;
    5. context curation, polish and release.
 
-   Build independent tracks in parallel, each in its own worktree and one feature at a time. The orchestrator merges the tracks into the branch one at a time, runs the full suite after each merge, then pushes. Every milestone ends with:
+   Build independent tracks in parallel, each in its own worktree and one feature at a time. Give every track `repo-layout.md` and `AGENTS.md` as its working rules. Before merging a track, check it against R16, and send structural deviations back to the track rather than accepting them. The orchestrator merges the tracks into the branch one at a time, runs the full suite after each merge, then pushes. Every milestone ends with:
    - a review of its diff by distinct lenses, with the same per-finding verification, definition of material and 3-round cap as the architecture review;
    - a check of the code against the architecture, where you fix drift or update the decision records;
    - a context review.
