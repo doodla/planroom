@@ -2,13 +2,36 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Agent|Task|Workflow",
+        "matcher": "Agent|Task|Workflow|Edit|Write|MultiEdit|NotebookEdit|Bash",
         "hooks": [
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/guardrails/runner.py",
             "timeout": 10,
             "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/guardrails/runner.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/guardrails/runner.py",
+            "timeout": 15
           }
         ]
       }
