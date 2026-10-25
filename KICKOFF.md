@@ -29,10 +29,10 @@ There are three surfaces over one shared model:
    - an **SVG mini-map** on surfaces that support `Svg`, and a clean text outline on the terminal;
    - **keyboard-first** controls everywhere the surface allows.
 2. **The canvas web app is the surface for understanding and tweaking.** Zoom from the whole system down to modules and files. Overlay the plan on the architecture. Edit both directly: drag, re-parent, rename, re-scope, re-wire dependencies, mark the intended state. Everything is tweakable and undoable. It should be beautiful and fast on desktop and on my phone.
-3. **The CLI / local server is the engine.** `npx planroom` (or the installed binary) in any repo: it scans the repo, owns the `.planroom/` store, serves the canvas locally with live updates, and exposes the API that the mod and the canvas both use.
+3. **The CLI / local server is the engine.** `npx planroom` (or the installed binary), pointed at one repo or a workspace of several: it scans, owns the state store (see `<state_store>`), serves the canvas locally with live updates, and exposes the API that every mod instance, agent and canvas tab uses at once.
 
    Cloud sessions can't reach localhost, so also publish the canvas as a **Claude Artifact** for remote viewing and editing. The local and remote modes share one codebase. Sync works like this:
-   - `.planroom/` is the source of truth.
+   - The workspace store is the source of truth.
    - The Claude session pushes snapshots into the Artifact `db` with the ArtifactData tool.
    - Edits made in the Artifact are written as events to a `db` collection. The session imports them as user-provenance events, and any conflict becomes a diff item.
    - Sync runs on `/plan open`, at the start of each turn, and when an Artifact edit notice arrives.
@@ -41,6 +41,26 @@ There are three surfaces over one shared model:
 
 <core_model>
 Design this first, as a versioned contract (in the style of Iris; see `<release>`).
+
+**The kernel is tiny and domain-free.** Everything Planroom knows is one typed property graph built from four primitives:
+- **Entity**: `{ id, kind, level, parent?, props, layer, provenance }`.
+- **Relation**: `{ id, kind, from, to, props, evidence[], confidence, layer, provenance }`.
+- **Event**: an append-only change to entities or relations. Every other state is a projection of events.
+- **View**: a saved query plus layout and overrides. A lens, a plan's canvas and a diff are all views.
+
+`layer` separates **actual** (observed by extractors) from **intended** (what I and Claude say), so one graph holds both, and drift is a diff between layers. IDs are stable and namespaced (`<repo>:<kind>:<path-or-key>`), so the same entity is recognized across scans, repos and sessions.
+
+**Domains are packs, not core code.** A pack is a small declarative file that adds entity kinds, relation kinds, the level each kind sits on, aggregation rules, extractors, lenses, Jev decision kinds and a default view. The core treats every pack the same.
+- **`code`**: the repo, packages, services, modules, files and symbols; imports, calls, co-change.
+- **`plan`**: the intent graph: goals, outcomes, deliverables, actions, risks, decisions; `breaks_down`, `touches`, `blocks`.
+- **`observability`**: signals (metric, log, trace span), instrumentation points, dashboards, alerts and SLOs. Relations: `emits` (code → signal), `monitors` (dashboard or alert → signal), `guards` (SLO → service), `pages` (alert → owner). Extractors read the OpenTelemetry and logging calls in code, collector configs, Prometheus rules, and dashboard JSON. The pack answers questions like "how does observability work here?", "what's unmonitored?" and "what fires if this breaks?"
+- **`release`**, across repos: repos, packages, versions, releases, environments and pipelines. Relations: `depends_on` (with version range and resolved version), `publishes`, `deploys_to`, `promotes`. Extractors read manifests, lockfiles, tags, changelogs and CI and CD workflows. The pack answers questions like "what must release, in what order, for this change to ship?", "who's on a stale version?" and "what breaks if I bump X?"
+
+These four ship in v0.1 and prove the extension model. Writing a pack must not require touching the core, so add a guide, "Write a pack", plus a test that loads a toy pack from outside the source tree.
+
+**Workspaces span repos.** A workspace is a set of repos, local paths or git URLs. When a manifest or lockfile in one repo names a package that another repo in the workspace publishes, the extractor resolves it to a cross-repo relation, so release and dependency views cross repo boundaries.
+
+The sections below are the `code` and `plan` packs on this kernel.
 
 - **System model.** Components, interfaces and dependencies, mapped to code (file globs, symbols). It comes in two layers:
   - **actual**: derived from scanning the repo with the language-agnostic extractor pipeline in `<language_agnostic_mapping>`;
@@ -54,7 +74,7 @@ Design this first, as a versioned contract (in the style of Iris; see `<release>
 
   This is the C4 model with intent on top. Each node has one parent on the level above. Edges carry a `kind` (imports, calls, data, deploys, co-change, owns), the `evidence` behind them (which extractor, file and line), and a `confidence`. When you zoom out, edges aggregate up the hierarchy, with counts and weights, so a higher level is always a faithful summary of the level below and never a separate drawing that can drift.
 - **Intent graph.** Each plan node has a type (goal, outcome, deliverable, action, risk, decision), status, `doneWhen`, estimate, priority, provenance (user, Claude, scan or Jev) and an `accepted` flag. Nodes link to the system components they touch. Proposals from the AI stay ghosts until I accept them.
-- **History.** An append-only event log with snapshots. Every change is an event with provenance, so any two versions can be diffed and any change undone.
+- **History.** The kernel's event log, with snapshots. Every change is an event with provenance, so any two versions can be diffed and any change undone.
 - **Three diffs, one diff engine and one visual language:**
   - *plan versions*: what changed in the plan or model since version N, like git for the plan;
   - *intended vs actual*: where the intended architecture and the real code disagree;
@@ -71,6 +91,27 @@ Design this first, as a versioned contract (in the style of Iris; see `<release>
 
   Proposals arrive as diffs for me to approve, like everything else. Jev decides cheaply whether a context entry is stale and whether a repeated pattern deserves a skill. This makes every future agent run on that repo cheaper, the implementer's included, which feeds back into keeping the canvas cheap to maintain.
 </core_model>
+
+<state_store>
+The store serves many writers at once from day one: several Claude sessions, the mod in each, implementer and curator agents, Jev-driven automation, and canvas tabs on my laptop and phone. Many projects can be open in one workspace.
+
+- **Scopes.**
+  - A **workspace** holds repos and one shared graph.
+  - **Projects** (plans) are named scopes inside it. Each has its own intent graph, views, decisions and history, and points at shared entities rather than copying them. Two plans touching the same service see the same service.
+  - Every event carries `workspace`, `project?`, `actor` (user, a session id or an agent id, plus its kind), a `causedBy` chain and an idempotency key.
+- **One writer, many clients.** The local server is the single serialization point for appends. Clients talk to it over HTTP for commands and queries, and over a live stream (SSE or WebSocket) for subscriptions filtered by scope, so every surface updates live.
+  - If the server isn't running, the CLI and the mod start it on demand. A lock keeps it to one per workspace.
+  - Writes use optimistic concurrency: a command names the entity versions it read, and a stale write is rejected with the current state, never silently merged.
+- **Storage.** An embedded, transactional store, for example SQLite in WAL mode: events, projections and a decision cache, under a workspace directory.
+  - Each repo also keeps a deterministic, git-friendly export in `<repo>/.planroom/`: intended layer, overrides, plans and views, as sorted JSON. That makes the parts I care about reviewable in pull requests. On startup and on pull, the server imports changes to those files as events.
+  - Record this split in an ADR.
+- **Agents and sessions are first-class.**
+  - A registry of active sessions and agents, with heartbeats, what each is doing, and their **claims**: time-limited leases on the entities or plan nodes they're working on.
+  - A claim doesn't block anyone. It warns, and the canvas and mod show presence: who's on what, with avatars or agent glyphs.
+  - Implementer and curator runs record their tool sequences and outcomes as events. That history is what the context curator mines.
+- **Conflicts are diffs.** Concurrent edits to the same field, or an edit that contradicts an override or a claim, become a diff item for me, or for the owning agent, to resolve. Nothing is last-writer-wins on user-authored state.
+- **Queries.** A small, typed query API over the graph: traverse by kind and level, neighbourhood, paths, aggregates up the hierarchy, and diff between two versions or layers. Every view, lens, mod pane and Jev state slice uses it. Don't invent a query language. A typed builder plus a handful of named queries is enough.
+</state_store>
 
 <language_agnostic_mapping>
 Planroom must work on any repo. The core never knows a language. Extractors emit facts into one normalized graph (nodes, edges, evidence, confidence), and a builder assembles the levels from those facts. Extractors stack in tiers, each optional, and each makes the map more precise:
@@ -96,13 +137,13 @@ Each extractor declares what it emits and how confident it is. The UI shows evid
 Keep the set of things I have to know about tiny, and hold it there as the product grows. Write it down in `docs/concepts/` as the entire mental model, and treat it as a public contract:
 - **Levels**: where I am on the zoom.
 - **Lenses**: which relationships I'm looking at.
-- **Intent**: what I want.
+- **Intent**: what I want, grouped into projects inside a workspace.
 - **Diffs**: what's different.
 - **Decisions**: what needs me.
 
 That's the whole vocabulary. One CLI entry point (`planroom`) and one slash command family (`/plan …`) with good defaults. Extractors, scanners, the event log, Jev thresholds and caches stay internal.
 
-My corrections to the map, such as regrouping components, renaming, hiding noise or pinning a layout, are stored as overrides in `.planroom/`. They survive every rescan. I make them by direct manipulation on the canvas or by asking Claude, never by editing config. A rescan that contradicts an override becomes a diff, not an overwrite.
+My corrections to the map, such as regrouping components, renaming, hiding noise or pinning a layout, are stored as overrides (events in the store, exported to `.planroom/` for review). They survive every rescan. I make them by direct manipulation on the canvas or by asking Claude, never by editing config. A rescan that contradicts an override becomes a diff, not an overwrite.
 
 Before you add a concept, a flag or a setting, check whether a better default would remove the need for it.
 </user_surface>
@@ -229,7 +270,7 @@ Bold and playful, with craft: a tactile, toy-like planning table for engineers, 
 
 <release>
 Ship it the way `doodla/iris` is shipped. Clone it with `GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/doodla/iris` and read its `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, `docs/` and `.github/`. Match its bar and its documentation style guide (`docs/contributing/style-guide.md`):
-- Public contracts are versioned, with a JSON schema committed and enforced by a test: the `.planroom/` store format, the CLI, `--json` output, the mod's tool schemas and the local API.
+- Public contracts are versioned, with a JSON schema committed and enforced by a test: the event and entity schemas, the pack format, the `.planroom/` export format, the local API, the CLI, `--json` output, the mod's tool schemas and the local API.
 - The README is a landing page: what Planroom is, a hero image, install, a first result in under 2 minutes, and links to the rest.
 - Docs are split into guides, concepts, reference and contributing. Each fact has one home.
 - `AGENTS.md` (with `CLAUDE.md` importing it) holds the invariants.
@@ -256,6 +297,9 @@ Build it right, in phases. Commit and push after each meaningful step.
    - Write `docs/contributing/architecture.md` and short ADRs in `docs/contributing/decisions.md`: stack, store format, diff engine, reconciler, Jev decision policy, mod ↔ server ↔ canvas protocol, and local vs Artifact modes.
    - Define the schemas, plus `feature_list.json` with one entry per user-visible feature, each with `passes: false` and a `tier` (`must`, `should` or `could`), and `progress.md` for decisions, assumptions and what's next.
    - The `must` tier includes at least everything in the Playwright flow under `<verification>`, plus:
+     - the kernel plus the four packs (code, plan, observability, release), and a toy pack loaded from outside the source tree;
+     - a multi-repo workspace with cross-repo dependency and release views;
+     - multiple concurrent writers: two sessions or agents plus a canvas tab on two projects, with live updates, claims and presence, and a stale write turned into a diff;
      - abstraction zoom across all five levels, with edge aggregation;
      - lenses, focus view, path finder, impact radius and evidence popovers;
      - extractor tiers 1, 2 (TS/JS at least) and 4, working on the fixture;
@@ -291,8 +335,20 @@ Build it right, in phases. Commit and push after each meaningful step.
 
 <verification>
 - Unit tests cover the schema, diff engine, reconciler classification, decision policy (with a mocked `decide()`), lint and interview state machine. A small live Jev smoke test is gated behind an env flag.
+- **Concurrency test.** Run two agents and a Playwright canvas tab against one workspace and two projects, writing at the same time. Assert:
+  - no lost events;
+  - idempotent retries;
+  - live updates within a second;
+  - claims and presence are visible;
+  - a stale write becomes a diff.
 - The real implementer hand-off is covered by `claude plugin test`. Also run it once live in this session, and record the output as evidence.
-- Make the `examples/` fixture polyglot (for example a TS web app, a Python worker and a Go service, wired by docker-compose and an OpenAPI spec), so the language-agnostic pipeline is actually exercised. Run Planroom on it and on Planroom's own repo. In the fixture, introduce a real code change and confirm the reconciler reports the correct drift.
+- Make `examples/` a small polyglot **workspace of two or three repos**, so the language-agnostic pipeline and the packs are actually exercised:
+  - a TS web app, a Python worker and a Go service, wired by docker-compose and an OpenAPI spec;
+  - a shared library one repo publishes and another consumes at a stale version;
+  - OpenTelemetry instrumentation, a Prometheus alert rule and a dashboard JSON;
+  - tags and changelogs.
+
+  Ask the "how does observability work here?" and "what must release, in what order, to ship this change?" questions, and check the answers against the fixture's known truth. Run Planroom on it and on Planroom's own repo. In the fixture, introduce a real code change and confirm the reconciler reports the correct drift.
 - Drive the canvas with Playwright as a person would. Do one full flow: open repo → map appears → set intent → break down → tweak the intended architecture → see the intended-vs-actual diff → hand off to the implementer → review its code diff → merge → reconcile shows the result as resolved.
 - Screenshot every main view at 1440×900 and 390×844, in light and dark mode. Look at them, critique them against the design direction and the planning philosophy (is the next action obvious? is any decision costlier than it needs to be?), fix, and re-shoot. There should be no console errors.
 - For the mod: `claude plugin validate`, a type-check, and `claude plugin test` covering the commands, tools, pane and band renders, and the hand-off.
