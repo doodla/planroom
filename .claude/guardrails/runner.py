@@ -10,7 +10,8 @@ checks) or "ask" (nobody is there to answer).
 
 Config: config.toml next to this file. Per rule:
   mode     = "enforce" | "warn" | "off"
-  on_error = "closed" (a crashing rule denies) | "open" (it is skipped)
+  on_error = "closed" (a crash is reported at the rule's mode: denied in
+             enforce, a warning in warn) | "open" (the crash is only logged)
 Escape hatch: GUARDRAILS_OFF=rule_a,rule_b disables rules for one session.
 """
 import datetime
@@ -53,10 +54,10 @@ def evaluate(hook, config):
         mode = opts.get("mode", "warn")
         if mode == "off" or name in off:
             continue
-        rule = importlib.import_module(f"rules.{name}")
-        if not applies(rule, event, tool):
-            continue
         try:
+            rule = importlib.import_module(f"rules.{name}")
+            if not applies(rule, event, tool):
+                continue
             problems = rule.check(hook, opts)
         except Exception as e:  # noqa: BLE001 - a rule bug must not take down the runner
             problems = [f"guardrail rule {name} crashed: {type(e).__name__}: {e}"]

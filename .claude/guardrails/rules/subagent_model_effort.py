@@ -8,6 +8,7 @@
   Options passed via a variable can't be checked, so they must be inline.
   Saved workflows run by `name` aren't checked (no script in the call).
 """
+import os
 import re
 
 from agent_defs import pinned
@@ -17,7 +18,7 @@ TOOLS = {"Agent", "Task", "Workflow"}
 
 FIELDS = ("model", "effort")
 AGENT_CALL = re.compile(r"(?<![\w$.])agent\s*\(")
-AGENT_TYPE = re.compile(r"""\bagentType\s*:\s*(["'`])([^"'`]+)\1""")
+AGENT_TYPE = re.compile(r"""(["']?)\bagentType\1\s*:\s*(["'`])([^"'`]+)\2""")
 HINT = "Pick a model (e.g. sonnet, opus, haiku) and an effort (low|medium|high|xhigh|max) that fit the task."
 
 
@@ -46,6 +47,8 @@ def check_workflow(tool_input, hook):
     script = tool_input.get("script")
     path = tool_input.get("scriptPath")
     if path:
+        if not os.path.isabs(path) and hook.get("cwd"):
+            path = os.path.join(hook["cwd"], path)
         try:
             with open(path) as f:
                 script = f.read()
@@ -55,17 +58,31 @@ def check_workflow(tool_input, hook):
         return []
 
     code = mask(script)
-    problems = []
+    calls = []  # (where "agent" starts, where its "(" is, end of the call)
     for m in AGENT_CALL.finditer(code):
         start = m.end() - 1
-        call = call_text(code, start)
-        original = script[start : start + len(call)]
-        agent_type = AGENT_TYPE.search(original)
-        covered = pinned(agent_type.group(2), hook) if agent_type else set()
+        calls.append((m.start(), start, start + len(call_text(code, start))))
+
+    problems = []
+    pins = {}
+    for name_at, start, end in calls:
+        # Blank out nested agent(...) calls so their options can't satisfy this one.
+        chars = list(code[start:end])
+        for inner_at, _, inner_end in calls:
+            if start < inner_at and inner_end <= end:
+                for j in range(inner_at - start, inner_end - start):
+                    if chars[j] != "\n":
+                        chars[j] = " "
+        call = "".join(chars)
+        original = script[start:end]
+        agent_type = inline_agent_type(original, call)
+        if agent_type and agent_type not in pins:
+            pins[agent_type] = pinned(agent_type, hook)
+        covered = pins.get(agent_type, set())
         missing = [k for k in FIELDS if k not in covered and not re.search(rf"\b{k}\s*:", call)]
         if missing:
-            line = script.count("\n", 0, m.start()) + 1
-            snippet = " ".join(script[m.start() : start + len(call)].split())[:80]
+            line = script.count("\n", 0, name_at) + 1
+            snippet = " ".join(script[name_at:end].split())[:80]
             problems.append(f"line {line}: missing {', '.join(missing)} in {snippet}")
     if not problems:
         return []
@@ -74,6 +91,14 @@ def check_workflow(tool_input, hook):
         "options (e.g. {model: 'sonnet', effort: 'low'}).",
         *problems,
     ]
+
+
+def inline_agent_type(original, masked):
+    """Return the agentType option written as code in this call, ignoring prompt text."""
+    for m in AGENT_TYPE.finditer(original):
+        if not masked[m.start()].isspace():  # key is code, not text inside a string
+            return m.group(3)
+    return None
 
 
 def mask(src):

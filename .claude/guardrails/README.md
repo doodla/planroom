@@ -16,7 +16,7 @@ It never returns `allow` (that could skip auto mode's own permission checks) or
 ## Operating
 
 - **Modes** (`config.toml`): `enforce` denies, `warn` tells the agent but lets the call through, `off` skips the rule. Start new rules in `warn`.
-- **Rule crashes**: `on_error = "closed"` denies the call; `"open"` skips the rule. If the runner itself crashes or times out, `onFailure: "block"` in `settings.json` blocks the call.
+- **Rule crashes**: with `on_error = "closed"`, a crash is reported at the rule's mode: an `enforce` rule denies the call, a `warn` rule only warns, so an unproven rule can't block everything. With `"open"`, the crash is only logged. If the runner itself crashes or times out, `onFailure: "block"` in `settings.json` blocks the call.
 - **Escape hatch**: `GUARDRAILS_OFF=rule_a,rule_b` disables rules for a session.
 - **Decision log**: every warn and deny is appended to `logs/decisions.jsonl` (gitignored), or to `$GUARDRAILS_LOG` if set.
 

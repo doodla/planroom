@@ -150,12 +150,41 @@ class WorkflowTests(IsolatedEnv):
             await parallel(xs.map(x => () => agent(`v ${x}`, {schema: V})))
         """), "line 2")
 
+    def test_nested_call_options_do_not_satisfy_outer_call(self):
+        reason = self.assertDenied(workflow("""
+            await agent(build(agent('x', {model: 'a', effort: 'b'})))
+        """), "line 2: missing model, effort in agent(build(")
+        self.assertEqual(reason.count("line 2"), 1)
+
+    def test_nested_agent_type_does_not_satisfy_outer_call(self):
+        self.define_agent("scout", model="haiku", effort="low")
+        self.assertDenied(workflow("""
+            await agent(build(agent('x', {agentType: 'scout'})))
+        """), "missing model, effort in agent(build(")
+
+    def test_outer_options_after_nested_call_still_count(self):
+        self.assertSilent(workflow("""
+            await agent(build(agent('x', {model: 'a', effort: 'b'})), {model: 'c', effort: 'd'})
+        """))
+
     def test_variable_opts_rejected(self):
         self.assertDenied(workflow("await agent(p, opts)"), "line 1")
 
     def test_agent_type_definition_counts(self):
         self.define_agent("scout", model="haiku", effort="low")
         self.assertSilent(workflow("await agent('a', {agentType: 'scout'})"))
+
+    def test_agent_type_inside_prompt_text_does_not_count(self):
+        self.define_agent("scout", model="haiku", effort="low")
+        self.assertDenied(workflow("await agent(\"say agentType: 'scout'\", {schema: S})"), "line 1")
+
+    def test_quoted_agent_type_key(self):
+        self.define_agent("scout", model="haiku", effort="low")
+        self.assertSilent(workflow('await agent("a", {"agentType": "scout"})'))
+
+    def test_relative_script_path_uses_hook_cwd(self):
+        (self.project / "wf.js").write_text("await agent('a')")
+        self.assertDenied(pre("Workflow", {"scriptPath": "wf.js"}, cwd=str(self.project)), "line 1")
 
     def test_agent_type_partial_definition(self):
         self.define_agent("scout", model="haiku")
@@ -195,16 +224,25 @@ class RunnerTests(IsolatedEnv):
             decision = out.get("hookSpecificOutput", {}).get("permissionDecision")
             self.assertIn(decision, (None, "deny"))
 
-    def crash(self, on_error):
-        cfg = {"rules": {"subagent_model_effort": {"mode": "enforce", "on_error": on_error}}}
+    def crash(self, on_error, mode="enforce"):
+        cfg = {"rules": {"subagent_model_effort": {"mode": mode, "on_error": on_error}}}
         with mock.patch.object(sme, "check", side_effect=RuntimeError("boom")):
             return self.decide(self.HOOK, cfg)
 
     def test_crash_fails_closed(self):
         self.assertIn("crashed", self.crash("closed")["hookSpecificOutput"]["permissionDecisionReason"])
 
+    def test_crash_in_warn_mode_only_warns(self):
+        hso = self.crash("closed", mode="warn")["hookSpecificOutput"]
+        self.assertNotIn("permissionDecision", hso)
+        self.assertIn("crashed", hso["additionalContext"])
+
     def test_crash_fails_open(self):
         self.assertIsNone(self.crash("open"))
+
+    def test_unknown_rule_fails_closed_without_crashing(self):
+        out = self.decide(self.HOOK, {"rules": {"no_such_rule": {"mode": "enforce"}}})
+        self.assertIn("no_such_rule crashed", out["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_logs_decisions(self):
         denials, warnings, records = runner.evaluate({**self.HOOK, "session_id": "s1"}, ENFORCE)
