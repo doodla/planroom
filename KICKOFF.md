@@ -5,113 +5,199 @@ Paste everything below the line into a fresh Claude Code session on this repo.
 ---
 
 <context>
-I'm the only user of what you're about to build. I start a lot of fuzzy tasks ("launch a side project", "move apartments", "refactor the billing service") and I want a tool that turns a vague intent into a plan I believe in. It should go from the high level down to concrete next actions, and it should do this *with* me rather than for me. You have full autonomy: make every product, design and technical call yourself, build it end to end, and ship it. Don't stop to ask me questions.
+I'm the only user of what you're about to build, and I want it built right: a complete, releasable open-source project on GitHub, not a demo. You have full autonomy. Make every product, design and technical call yourself, build it end to end, and ship it. Don't stop to ask me questions.
 
-Environment: a cloud Claude Code container with this repo (`planroom`) checked out. Chromium and Playwright are pre-installed: `require('playwright')` works and `chromium.launch()` needs no options. Don't reinstall them. Read `CLAUDE.md` first. It has a rule about setting `model` and `effort` on subagents, and a hook enforces it. Commit and push to the branch you were assigned.
+Environment: a cloud Claude Code container with this repo (`planroom`, MIT, owner Sridhar Vadlamani) checked out.
+- Chromium and Playwright are pre-installed: `require('playwright')` works and `chromium.launch()` needs no options. Don't reinstall them.
+- Read `CLAUDE.md` first. It sets rules for subagents (always set `model` and `effort`, and verify their output), and a hook enforces them.
+- Outbound calls to `*.vercel.sh` (Vercel AI Gateway) have credentials injected by the proxy.
+- `OPENAI_API_KEY` and `GEMINI_API_KEY` are set, for Iris (see below).
+- Commit and push to the branch you were assigned.
 </context>
 
 <product_vision>
-Planroom is two surfaces over one shared plan.
+**Planroom turns a repo into a living, malleable plan.** Point it at a repo and you get a canvas where you can understand the system (its architecture, components, flows and dependencies), say what you intend to change, and shape that intent with Claude until it's a plan you believe in. Planroom then keeps the plan honest against the code as both evolve.
 
-1. **The canvas (web app).** This is the main event: a big, beautiful, zoomable canvas where my plan grows as a tree or map, from intent down to next actions. The AI interviews me in a side or bottom panel. As I answer, nodes appear on the canvas. AI proposals show up as ghost (dashed) nodes that I accept, edit, drag or delete. Nothing the AI invents counts as real until I accept it. I can also add, rename, re-parent and reorder nodes by hand, at any time.
-2. **The Claude Code mod.** This is a companion that lives beside the chat in Claude Code, so I can plan inside a coding session:
-   - a **pane** showing the current plan's outline, its progress, the current stage, and the open question;
-   - a `/plan <task>` **slash command** that starts or resumes a plan;
-   - **tools the model can call** (for example `plan_get`, `plan_propose`, `plan_update`), so the Claude in the chat runs the interview and edits the plan;
-   - an **SVG mini-map** of the tree on surfaces that support `Svg` (desktop, mobile). On the terminal, a clean text outline.
+There are three surfaces over one shared model:
 
-   Load the `plugin-authoring` skill before you write any of it. It tells you the folder layout, where the types are, how to validate and test a mod, and that I will be asked once to turn mods on.
+1. **The Claude Code mod is the guide.** It lives beside the chat and walks me through the work. Claude does the hard part, clarifying my intent: it checks, curates and extends the plan with me. The mod makes every step obvious and cheap. Max out this UX. It should have:
+   - a **pane**: the current stage, the one open question with pre-answered choices, plan outline and progress, pending diffs, and reconcile status (drift since last check);
+   - a **band above the prompt** with the single most useful next action;
+   - status-line and toast feedback;
+   - **slash commands**, such as `/plan`, `/plan map`, `/plan diff`, `/plan reconcile`, `/plan open`;
+   - **tools the model calls** to read and change the model, so Claude in the chat drives the interview;
+   - an **SVG mini-map** on surfaces that support `Svg`, and a clean text outline on the terminal;
+   - **keyboard-first** controls everywhere the surface allows.
+2. **The canvas web app is the surface for understanding and tweaking.** Zoom from the whole system down to modules and files. Overlay the plan on the architecture. Edit both directly: drag, re-parent, rename, re-scope, re-wire dependencies, mark the intended state. Everything is tweakable and undoable. It should be beautiful and fast on desktop and on my phone.
+3. **The CLI / local server is the engine.** `npx planroom` (or the installed binary) in any repo: it scans the repo, owns the `.planroom/` store, serves the canvas locally with live updates, and exposes the API that the mod and the canvas both use.
 
-Both surfaces read and write the **same plan JSON schema**, defined once in the repo, and can move a plan between them. At minimum that means export and import of a `.planroom.json` file. If a cleaner bridge fits the runtimes, use it. For example: the mod writes `.planroom/plan.json` in the working directory, and the Claude session syncs it into the published canvas's `db` with the ArtifactData tool.
-
-Go well beyond the basics. I want delightful motion (springy drag and drop, nodes that bloom into place, a satisfying moment when a branch is completed). I want smart suggestions that anticipate the next thing I'd add. And it should feel native and beautiful on my phone, not just survive at 375px.
+   Cloud sessions can't reach localhost, so also publish the canvas as a **Claude Artifact** for remote viewing and editing. Its state lives in the Artifact `db`, and the Claude session syncs it with the ArtifactData tool. The local and remote modes share one codebase.
 </product_vision>
 
-<planning_method>
-The AI should use established methods to pull out my real intent and break the work down. It must never just dump a to-do list. Walk me through these stages, and let me jump back to any earlier one at any time (it works like the Double Diamond: not strictly linear).
+<core_model>
+Design this first, as a versioned contract (in the style of Iris; see `<release>`).
 
-1. **Intent** (Jobs-to-be-Done, Socratic questioning, laddering). Ask what's happening that makes me want this, and what being done will let me do. Ladder up with "why does that matter?" until my answer stabilizes, usually after 2–3 steps. Don't force five Whys. Output: a root card that reads "When … I want … so I can …", which I edit and confirm.
-2. **Outcome** (SMART / OKR, the Define step of the Double Diamond). Ask: how will I know it worked, by when, and what is out of scope? Output: success-measure chips (metric, target, deadline) and an explicit "Not doing" list.
-3. **Breakdown** (issue tree / MECE, WBS 100% rule; or an Impact Map or a User Story Map, depending on the kind of task). Propose 3–7 children per node, all as ghosts. Pick the splitting lens that fits the task (phases or deliverables for building something, activities for a user flow, hypotheses for a decision) and say which lens you used.
-4. **Next actions** (GTD, HTN). Keep decomposing until each leaf is a physical, visible action that starts with a verb, has a "done when …" line, and an estimate under about a day. Flag vague verbs such as "think about", "figure out" and "handle".
-5. **Prioritize and slice** (MoSCoW, optional RICE, story-map release line). Let me tag nodes Must/Should/Could/Won't and drag an "MVP line" across the plan. Propose the thin walking-skeleton slice.
-6. **Pre-mortem** (Klein). Ask: "It's three months from now and this failed. Why?" Each answer becomes a risk node on the branch it affects, and each high-severity risk gets a mitigation action placed back in the tree.
-7. **Review (plan lint).** Show these as gentle suggestions on the canvas, not as pass/fail:
-   - the children of each parent cover 100% of its scope, with no gaps or overlaps;
-   - siblings are MECE and share one splitting criterion, with no catch-all "Other";
+- **System model.** Components, interfaces and dependencies, mapped to code (file globs, symbols). It comes in two layers:
+  - **actual**: derived from scanning the repo (imports, packages, entry points, git history);
+  - **intended**: what I and Claude say it should be.
+- **Intent graph.** Each plan node has a type (goal, outcome, deliverable, action, risk, decision), status, `doneWhen`, estimate, priority, provenance (user, Claude, scan or Jev) and an `accepted` flag. Nodes link to the system components they touch. Proposals from the AI stay ghosts until I accept them.
+- **History.** An append-only event log with snapshots. Every change is an event with provenance, so any two versions can be diffed and any change undone.
+- **Three diffs, one diff engine and one visual language:**
+  - *plan versions*: what changed in the plan or model since version N, like git for the plan;
+  - *intended vs actual*: where the intended architecture and the real code disagree;
+  - *proposed code change*: the code diff an implementation would make, mapped onto canvas nodes.
+- **Reconciler.** It re-scans, rebuilds *actual*, compares it to *intended* and to the plan, and produces drift items. Each item is classified as expected, in progress, done, unplanned or regression. It can run on demand, on git events, and when an agent finishes.
+- **Hand-off.** When I approve a tweak that needs code, Planroom writes a self-contained change spec (intent, affected components, acceptance criteria, the diff of intended vs actual) and hands it to a **separate implementer agent**: an agent type the mod registers, working on its own branch or worktree. Its result comes back as a proposed code diff for me to review. After merging, the reconciler closes the loop. Claude in the main chat stays the planning partner and never silently implements.
+</core_model>
+
+<cheap_decisions_with_jev>
+Planroom has to stay cheap to maintain, or it rots. Its big lever is Jev, TypeSafe AI's decision model. Jev answers typed questions (boolean, choice, score) about a piece of state, with calibrated probabilities. It costs about $0.04 per million input tokens and answers in milliseconds.
+
+**What Jev decides.** Route every small, frequent decision through Jev:
+- Is this drift item expected?
+- Does this node still match the code?
+- Is this leaf actionable?
+- Which stage or question should come next?
+- Does this tweak need code, or is it plan-only?
+- How should these suggestions rank?
+- Is this auto-accept safe?
+- The plan-lint checks.
+
+**When to escalate.** Use the answer's probability and confidence:
+- Above a threshold (configurable per decision kind), act or pre-fill.
+- In the uncertain band, show it to me as a one-tap card with Jev's pick pre-selected.
+- Only when that isn't enough, escalate to Claude.
+
+Make this explicit in code, so every decision kind declares its question, its thresholds and its escalation path.
+
+**How to call it:**
+- One `decide()` adapter supporting both of these:
+  - **Vercel AI Gateway.** `POST https://ai-gateway.vercel.sh/v1/evaluate`, with body `{ model: "typesafe-ai/jev", state, questions }`. The question types are `boolean`, `choice` (`criteria`: a record of option names to descriptions) and `score` (`criteria`: an array ordered lowest to highest). Auth is `AI_GATEWAY_API_KEY` locally; in this container the proxy injects it. The AI SDK equivalent is `experimental_decide`. The gateway also serves a TypeSafe-compatible API at `https://ai-gateway.vercel.sh/typesafe`. Docs: https://vercel.com/docs/ai-gateway/modalities/decision
+  - **Direct TypeSafe.** `POST https://api.typesafe.ai/v1/systemone`, with `Authorization: Bearer $TYPESAFE_API_KEY` and `model: "jev-latest"`. The boolean type is named `noul` there, its answer is `{ noul: <p> }`, and usage is snake_case. Docs: https://docs.typesafe.ai/llms.txt
+- Normalize both into one result type and pin a model version in config. Before you code against the direct API, read the official docs. Ignore thejevai.com: it is unaffiliated.
+- Limits: 32k tokens for state plus the longest question, and 64k per request. So send scoped slices of the model, never the whole repo, and batch several questions per call against the same state.
+- Cache answers by hash of state and question.
+- Record every decision (inputs hash, answer, probability, what was done) in the history, so I can see and override why something happened.
+- Build a small eval set of real cases with agreed outcomes, and test each decision kind's thresholds against it before enabling automatic action.
+
+I verified this live call from this container. It returned a choice with probabilities and a confidence, in about 50 ms, for about $0.000016:
+
+```sh
+curl -sS https://ai-gateway.vercel.sh/v1/evaluate -H "Content-Type: application/json" -d '{"model":"typesafe-ai/jev","state":{"node":{"title":"Figure out auth","type":"action","doneWhen":""}},"questions":{"actionable":{"type":"boolean","instructions":"Is this leaf a concrete physical next action starting with a specific verb?"},"lens":{"type":"choice","instructions":"Which edit is most needed?","criteria":{"rewrite_verb":"title uses a vague verb","add_done":"missing done-when test","ok":"no change needed"}}}}'
+```
+
+Heavier reasoning goes to Claude:
+- the interview and decomposition;
+- writing change specs;
+- explaining architecture.
+
+How Claude is reached depends on the surface: in the mod, through the chat model and the mod's model APIs; in the Artifact, through `sample`; locally, through the gateway.
+</cheap_decisions_with_jev>
+
+<planning_philosophy>
+Usability is the product. Every surface follows one rule: **always help me advance my intent with the least effort.**
+
+- **Never a blank state.** Every view opens with a sensible default already made: a first map of the repo, a drafted goal, a proposed next step.
+- **Decisions arrive pre-decided.** A card shows the recommended answer, why, and how confident Planroom is. Confirming takes one tap or key, and overriding takes one more. Ask open-ended questions only when no reasonable default exists.
+- **One obvious next action** at a time, always visible. Everything else is a step away (progressive disclosure).
+- **Everything is reversible** (undo, history, diff), which is what makes bold defaults safe.
+- **Make reasonable choices on my behalf** when the cost of being wrong is low, and say what you chose. Escalate only when it matters.
+- **Respect my edits.** A user edit is never silently overwritten by a scan or an AI. A conflict becomes a diff for me to resolve.
+
+The interview uses established methods in stages I can jump between at any time:
+1. **Intent**: Jobs-to-be-Done, Socratic questioning, laddering until my answer stabilizes (2–3 rounds of "why", not a forced five).
+2. **Outcome**: SMART measures, plus non-goals.
+3. **Breakdown**: issue tree / MECE, the WBS 100% rule, or an Impact Map or Story Map, whichever lens fits the task. Name the lens you used.
+4. **Next actions**: GTD and HTN. Each leaf is a verb-first physical action with a `doneWhen`, sized at a day or less.
+5. **Prioritize**: MoSCoW plus a walking-skeleton MVP line.
+6. **Pre-mortem**: Klein's method. Each risk becomes a node with a mitigation.
+7. **Lint**: as cheap Jev checks:
+   - children cover 100% of their parent's scope;
+   - siblings are MECE;
    - each parent has 2–7 children;
-   - every leaf is actionable, has a done-test, and is neither over-split (under about 15 minutes) nor under-split;
-   - every leaf traces up to the outcome, so there are no orphans or gold-plating;
-   - the goal is SMART and has at least one non-goal;
+   - every leaf is actionable and has a done-test;
+   - every leaf traces up to the outcome;
+   - the goal is SMART;
    - there are no dependency cycles;
-   - every Must branch has at least one risk;
-   - siblings are at a similar depth and granularity;
-   - inferred nodes I haven't confirmed are flagged.
+   - every Must branch has a risk;
+   - siblings are at a similar granularity;
+   - unconfirmed inferences are flagged.
 
-Each node carries the fields its stage produces. Examples: a job statement; goal measures and non-goals; `type` (goal, phase, deliverable, action, risk); `doneWhen`; `estimate`; `moscow`; `status`; `source` (ai-proposed or user); `accepted`; dependencies. Design the schema so that a plan made on either surface opens on the other.
-</planning_method>
-
-<runtime_and_constraints>
-- **Publish the canvas as a Claude Artifact** (a single self-contained HTML page) and also commit its source to this repo. A build step that inlines everything into one HTML file is fine, and so are CDN scripts from the hosts the Artifact tool allows.
-  - AI inside the page comes from the Artifact `sample` capability, which asks Claude. Persistence comes from the `db` capability, with a localStorage cache.
-  - Load the `artifact-design` and `artifact-capabilities` skills before you write the page. Their contracts (allowed hosts, theming tokens, dark mode, how capabilities degrade when unavailable) are binding.
-  - The page must work without AI (fully manual planning) and light up when `sample` is available.
-- Keep AI prompts in one module, with structured JSON outputs per stage. That way the interview logic is testable with a mock, and the mod can reuse the same stage definitions and prompts where its runtime allows.
-- Commit the mod's source to `mod/` in the repo. Also place it in this session's mods folder (the skill gives the exact path) so it hot-loads here. Add a `.claude-plugin/marketplace.json` and README install line so I can install it in other sessions.
-- Make the product ambitious and the code minimal: no speculative abstractions, no defensive code for impossible cases, and no hard-coding to pass tests.
-</runtime_and_constraints>
+For a repo, the system model grounds every stage. Breakdown nodes attach to real components, and next actions name the files they touch.
+</planning_philosophy>
 
 <design_direction>
-Bold and playful, with personality. Think of a toy-like, tactile planning table, not a corporate PM tool. Commit to one strong concept and carry it through color, type, motion and sound-free micro-feedback.
-- Choose distinctive typefaces (from Google Fonts). Don't use Inter, Roboto, Arial, system-ui or Space Grotesk.
-- Build a cohesive palette as CSS variables: dominant colors with sharp accents, and a dark mode that is designed, not inverted.
-- Put the motion budget into a few high-impact moments: nodes blooming in, a ghost being accepted, a branch completing, stage transitions. Respect `prefers-reduced-motion`.
-- Give the canvas atmosphere: a subtle texture, grid or layered gradient, not a flat white void.
-- Don't use: a cream or off-white background, purple-on-white gradients, italic accent words in headlines, numbered "01/02/03" section labels, monospace labels as decoration, pill-shaped buttons everywhere, or a generic three-card hero layout.
-- Design for mobile first:
-  - thumb-reachable controls;
-  - a bottom-sheet interview panel;
-  - pinch-zoom and pan on the canvas;
-  - large touch targets;
-  - no horizontal page scroll.
+Bold and playful, with craft: a tactile, toy-like planning table for engineers, not a corporate PM tool. Commit to one strong concept and carry it through the canvas, the mod and the README art.
+- **Typefaces**: distinctive ones from Google Fonts. Don't use Inter, Roboto, Arial, system-ui or Space Grotesk.
+- **Palette**: a cohesive palette as CSS variables, and a dark mode that is designed, not inverted.
+- **Motion**: put the budget into a few moments: nodes blooming in, a ghost being accepted, a diff animating between versions, a branch completing, drift resolving. Respect `prefers-reduced-motion`.
+- **Don't use**: a cream or off-white background, purple-on-white gradients, italic accent words in headlines, numbered "01/02/03" section labels, monospace labels as decoration, pill-shaped buttons everywhere, or a generic three-card hero layout.
+- **Mobile first**: a bottom-sheet guide, pinch-zoom and pan, thumb-reachable controls, large touch targets, and no horizontal page scroll.
+- **The mod**: within its element set it should feel as considered as the canvas, with tight layout, clear hierarchy, and the next action always one key away.
 </design_direction>
 
+<runtime_notes>
+- **Mod.** Load the `plugin-authoring` skill before you write any mod code. It defines the folder layout, the types (grep them; they are the reference), validation and tests, and the one-time "turn on mods" question that I'll answer.
+  - The mod API includes `$.http.fetch` (Jev and the local server), `$.process.spawn` (git, the CLI), `$.fs`, `$.store` / `$.state`, `$.tool.register`, `$.agent.register` / `$.agent.spawn` (the implementer agent), `$.command.register` and `$.ui.*`.
+  - Panes use a fixed set of elements (Box, Text, Button, Svg on non-terminal surfaces, Markdown, and so on), not a DOM. The full canvas is the web app's job, and the mod links to it.
+  - Commit the mod's source under `mod/`, and also install it into this session's mods folder so it hot-loads here.
+- **Artifact.** Load `artifact-design` and `artifact-capabilities` before you write the published page, and follow their contracts: allowed CDN hosts, theme tokens, `db`, `sample`, and graceful degradation when a capability is absent. Its pages can't call arbitrary hosts, so Jev runs on the mod and server side.
+- **Stack.** Your call. Choose boring, well-supported tools, and use TypeScript end to end so the schema is shared by the CLI, web and mod. Keep the code minimal: no speculative abstractions, no defensive code for impossible cases, and no hard-coding to pass tests.
+</runtime_notes>
+
+<release>
+Ship it the way `doodla/iris` is shipped. Clone it with `GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/doodla/iris` and read its `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, `docs/` and `.github/`. Match its bar and its documentation style guide (`docs/contributing/style-guide.md`):
+- Public contracts are versioned, with a JSON schema committed and enforced by a test: the `.planroom/` store format, the CLI, `--json` output, the mod's tool schemas and the local API.
+- The README is a landing page: what Planroom is, a hero image, install, a first result in under 2 minutes, and links to the rest.
+- Docs are split into guides, concepts, reference and contributing. Each fact has one home.
+- `AGENTS.md` (with `CLAUDE.md` importing it) holds the invariants.
+- Include `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, a `CHANGELOG.md` in Keep a Changelog format, issue and PR templates, and Dependabot.
+- CI runs lint, format check, typecheck, unit tests, Playwright end-to-end tests, `claude plugin validate` and the mod's tests, and a schema-drift check. A release workflow (tag → GitHub release, plus npm publishing as a dry run until I add a token) produces versioned artifacts.
+- The mod is installable from the repo: `.claude-plugin/marketplace.json` and a README line `/plugin install planroom --marketplace doodla/planroom`.
+- Add a demo fixture repo under `examples/` that the end-to-end tests and screenshots use.
+- **Images come from Iris**, my CLI: logo, README hero, GitHub social preview (1280×640), and empty-state illustrations.
+  - Install it with `curl -fsSL https://raw.githubusercontent.com/doodla/iris/main/install.sh | sh` (it goes into `~/.local/bin`), then run `iris doctor`.
+  - Always `--dry-run --json` first to see the cost, and pass `--max-cost`.
+  - Draft at low quality, then finalize the chosen ones.
+  - Keep total image spend under $5. Commit the prompts next to the images, so they can be regenerated.
+</release>
+
 <working_method>
-- First write `feature_list.json`, one entry per user-visible feature, each with a `passes: false` flag. Also write `progress.md` (decisions, assumptions, what's next) and a script that builds and runs the tests. Keep all three current as you go. Never delete or weaken a test to make it pass.
-- Build one feature at a time, verify it, flip its flag, and commit with a descriptive message. Push regularly.
-- Suggested order:
-  1. plan schema and store;
-  2. canvas rendering and manual editing;
-  3. interview stages with a mock AI;
-  4. real `sample` integration;
-  5. lint pass;
-  6. polish and motion;
-  7. mobile;
-  8. Artifact publish;
-  9. mod pane, command and tools;
-  10. bridge between the surfaces;
-  11. final polish.
-- Use parallel tool calls for independent work. Use subagents only for large independent chunks, following `CLAUDE.md`.
-- Context compacts automatically, so don't wind down early to save tokens. Save state to `progress.md` before big steps.
+Build it right, in phases. Commit and push after each meaningful step.
+1. **Design.**
+   - Write `docs/contributing/architecture.md` and short ADRs in `docs/contributing/decisions.md`: stack, store format, diff engine, reconciler, Jev decision policy, mod ↔ server ↔ canvas protocol, and local vs Artifact modes.
+   - Define the schemas, plus `feature_list.json` with one entry per user-visible feature, each with `passes: false`, and `progress.md` for decisions, assumptions and what's next.
+   - Before building, get an independent review of the design from a subagent at your own model level. Give it the documents, not your conclusions, and address its findings.
+2. **Engine.** Schema, store, event log, diff engine, scanner, reconciler, the Jev adapter and its eval set, and the CLI. Use test-driven development where it pays.
+3. **Canvas.** Map, plan overlay, direct editing, the three diff views, reconcile view, the guided interview, then polish and mobile.
+4. **Mod.** Pane, band, commands, tools, and the implementer agent hand-off loop.
+5. **Integration.** Local live mode end to end, then Artifact publish and `db` sync.
+6. **Release.** Docs, Iris art, CI, release workflow, changelog, `v0.1.0` tag notes. Then a final independent review of the whole repo against this prompt, as with the design review, and fix what it finds.
+
+- Work one feature at a time: verify it, flip its flag, commit. Never delete or weaken a test to make it pass.
+- Use parallel tool calls for independent work. Use subagents for large independent chunks, following `CLAUDE.md`, and verify what they report before you rely on it.
+- Context compacts automatically, so don't wind down early to save tokens. Keep `progress.md` current so any later session can resume.
 </working_method>
 
 <verification>
-- Unit-test the schema, the lint checks and the interview state machine, using the mock AI.
-- Drive the real app with Playwright, the way a person would. Run one full plan from "plan my move to Lisbon" through all seven stages. Accept and reject ghosts, drag nodes, set the MVP line, run the pre-mortem.
-- Screenshot every main view at 1440×900 and 390×844, in light and dark mode. Look at the screenshots, critique them against the design direction (coherence, originality, craft, function), fix what's weak, and re-shoot. There should be no console errors.
-- For the mod: run `claude plugin validate`, type-check it, and run `claude plugin test` with a test that exercises the slash command, the tools and the pane render.
+- Unit tests cover the schema, diff engine, reconciler classification, decision policy (with a mocked `decide()`), lint and interview state machine. A small live Jev smoke test is gated behind an env flag.
+- Run Planroom on the `examples/` fixture and on Planroom's own repo. In the fixture, introduce a real code change and confirm the reconciler reports the correct drift.
+- Drive the canvas with Playwright as a person would. Do one full flow: open repo → map appears → set intent → break down → tweak the intended architecture → see the intended-vs-actual diff → hand off to the implementer → review its code diff → merge → reconcile shows the result as resolved.
+- Screenshot every main view at 1440×900 and 390×844, in light and dark mode. Look at them, critique them against the design direction and the planning philosophy (is the next action obvious? is any decision costlier than it needs to be?), fix, and re-shoot. There should be no console errors.
+- For the mod: `claude plugin validate`, a type-check, and `claude plugin test` covering the commands, tools, pane and band renders, and the hand-off.
 </verification>
 
 <definition_of_done>
-- Every entry in `feature_list.json` passes. Tests are green, and the latest screenshots are reviewed and committed under `docs/screenshots/`.
-- The canvas is published as an Artifact and I have the link. The mod validates, passes its tests, and is installed in this session.
-- The README explains what Planroom is, how to run the web app locally, how to install the mod, and how to move a plan between the two.
+- Every entry in `feature_list.json` passes. CI is green on the pushed branch.
+- `npx planroom` (or the built CLI) works on a fresh clone of the fixture.
+- The canvas is published as an Artifact and I have its link. The mod validates, passes its tests, and is loaded in this session.
+- The repo is release-ready per `<release>`. Screenshots are committed under `docs/screenshots/`, and the Iris art and its prompts are committed.
 - Everything is committed and pushed.
-- The final message leads with the Artifact link and what works, shows the evidence (test output, screenshot paths), then lists known gaps honestly.
+- The final message leads with the Artifact link and what works, shows the evidence (test and CI output, screenshot paths, Iris spend, Jev decision eval results), then lists known gaps honestly.
 </definition_of_done>
 
 <autonomy>
 A standing instruction from the user, the person you are working for. It is about how your turns end. A message with no tool call in it ends your turn, and the work stops there until you are asked to continue. The user has seen you end turns in four ways while work they asked for was still owed, and does not want any of them. One: a long summary of what was done that closes by announcing the next step and has no tool call, so the next thing never starts. Two: an offer to carry on with something unless the user would prefer otherwise, which stops to wait for an answer the user was not going to give. Three: a list of decisions for the user when, by your own account, none of them blocks the rest of the work. Four: deciding that this is a good place to report, because the turn has been long or a milestone is done. Status notes are welcome, and so are your recommendations on open decisions, but put them in the same message as your next tool call and carry on with whatever does not depend on the user's answer. If you notice yourself inviting the user to redirect you or offering to wait, delete it and do the next thing. The stops the user does want are the ones where nothing can move without them, or where the thing blocking you is deliberately protected from you. This does not override the need for confirmation on risky or destructive actions.
 
-Make reasonable assumptions and record them in `progress.md` instead of asking. The two prompts only I can answer are the Artifact consent dialogs and the "turn on mods" question. I'll handle those when they appear, so keep working on whatever doesn't depend on them.
+Make reasonable assumptions and record them in `progress.md` instead of asking. The only prompts that need me are the Artifact consent dialogs and the "turn on mods" question. I'll answer them when they appear, so keep working on whatever doesn't depend on them. Don't publish to npm, create GitHub releases, or change repo settings. Prepare them, and list in your final message exactly what I need to click.
 </autonomy>
