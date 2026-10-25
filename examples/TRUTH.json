@@ -1,6 +1,6 @@
 {
   "format": "planroom.truth/v1",
-  "about": "Frozen expected answers for the Acme Shop fixture. Paths are '<repo>/<repo-relative path>' unless they start with 'examples/'. Evidence 'contains' is an exact substring of one line of that file on main, or on 'branch' when given. Lists of containers, components and relations are what must exist; a scan may find more.",
+  "about": "Frozen expected answers for the Acme Shop fixture. Paths are '<repo>/<repo-relative path>' unless they start with 'examples/'. Evidence 'contains' is an exact substring of line 'line' (1-based) of that file: on main, or on 'branch' when given, or in the commit named by 'commit_subject' (on 'branch') when given, or in the S4 state named by 'at' ('post_handoff', 'post_merges'; see scenarios.S4). PR thread anchors also give 'head_line', the same text's line at the PR head. Compose wiring and code both count as evidence for a relation. Lists of containers, components and relations are what must exist; a scan may find more.",
   "repos": {
     "storefront": {
       "language": "typescript",
@@ -16,11 +16,13 @@
       "version_evidence": [
         {
           "path": "storefront/package.json",
-          "contains": "\"version\": \"2.3.0\""
+          "contains": "\"version\": \"2.3.0\"",
+          "line": 3
         },
         {
           "path": "storefront/CHANGELOG.md",
-          "contains": "## [2.3.0] - 2026-09-20"
+          "contains": "## [2.3.0] - 2026-09-20",
+          "line": 6
         }
       ],
       "tag_commits": {
@@ -51,7 +53,8 @@
       "version_evidence": [
         {
           "path": "orders/CHANGELOG.md",
-          "contains": "## [1.5.0] - 2026-09-22"
+          "contains": "## [1.5.0] - 2026-09-22",
+          "line": 7
         }
       ],
       "tag_commits": {
@@ -81,11 +84,13 @@
       "version_evidence": [
         {
           "path": "worker/pyproject.toml",
-          "contains": "version = \"0.9.0\""
+          "contains": "version = \"0.9.0\"",
+          "line": 7
         },
         {
           "path": "worker/CHANGELOG.md",
-          "contains": "## [0.9.0] - 2026-09-16"
+          "contains": "## [0.9.0] - 2026-09-16",
+          "line": 6
         }
       ],
       "tag_commits": {
@@ -116,11 +121,13 @@
       "version_evidence": [
         {
           "path": "kit/package.json",
-          "contains": "\"version\": \"1.2.0\""
+          "contains": "\"version\": \"1.2.0\"",
+          "line": 3
         },
         {
           "path": "kit/CHANGELOG.md",
-          "contains": "## [1.2.0] - 2026-10-01"
+          "contains": "## [1.2.0] - 2026-10-01",
+          "line": 7
         }
       ],
       "tag_commits": {
@@ -151,7 +158,8 @@
       "version_evidence": [
         {
           "path": "platform/CHANGELOG.md",
-          "contains": "## [2026.10.0] - 2026-10-02"
+          "contains": "## [2026.10.0] - 2026-10-02",
+          "line": 5
         }
       ],
       "tag_commits": {
@@ -175,11 +183,13 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: acme/storefront:2.3.0"
+          "contains": "image: acme/storefront:2.3.0",
+          "line": 6
         },
         {
           "path": "storefront/package.json",
-          "contains": "\"name\": \"@acme/storefront\""
+          "contains": "\"name\": \"@acme/storefront\"",
+          "line": 2
         }
       ]
     },
@@ -191,11 +201,13 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: acme/orders:1.4.0"
+          "contains": "image: acme/orders:1.4.0",
+          "line": 16
         },
         {
           "path": "orders/go.mod",
-          "contains": "module github.com/acme-shop/orders"
+          "contains": "module github.com/acme-shop/orders",
+          "line": 1
         }
       ]
     },
@@ -207,11 +219,13 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: acme/worker:0.9.0"
+          "contains": "image: acme/worker:0.9.0",
+          "line": 28
         },
         {
           "path": "worker/pyproject.toml",
-          "contains": "name = \"acme-worker\""
+          "contains": "name = \"acme-worker\"",
+          "line": 6
         }
       ]
     },
@@ -223,7 +237,8 @@
       "evidence": [
         {
           "path": "kit/package.json",
-          "contains": "\"name\": \"@acme/kit\""
+          "contains": "\"name\": \"@acme/kit\"",
+          "line": 2
         }
       ]
     },
@@ -235,7 +250,8 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: redis:7.4"
+          "contains": "image: redis:7.4",
+          "line": 38
         }
       ]
     },
@@ -247,7 +263,8 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: postgres:16.4"
+          "contains": "image: postgres:16.4",
+          "line": 41
         }
       ]
     },
@@ -259,11 +276,13 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: otel/opentelemetry-collector-contrib:0.111.0"
+          "contains": "image: otel/opentelemetry-collector-contrib:0.111.0",
+          "line": 50
         },
         {
           "path": "platform/otel/collector.yaml",
-          "contains": "receivers:"
+          "contains": "receivers:",
+          "line": 2
         }
       ]
     },
@@ -275,11 +294,13 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: prom/prometheus:v2.54.1"
+          "contains": "image: prom/prometheus:v2.54.1",
+          "line": 59
         },
         {
           "path": "platform/prometheus/prometheus.yml",
-          "contains": "scrape_configs:"
+          "contains": "scrape_configs:",
+          "line": 8
         }
       ]
     },
@@ -291,7 +312,8 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: grafana/grafana:11.2.2"
+          "contains": "image: grafana/grafana:11.2.2",
+          "line": 68
         }
       ]
     },
@@ -304,7 +326,8 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "name: acme-shop"
+          "contains": "name: acme-shop",
+          "line": 2
         }
       ]
     },
@@ -316,7 +339,8 @@
       "evidence": [
         {
           "path": "platform/tools/healthcheck.rb",
-          "contains": "require 'net/http'"
+          "contains": "require 'net/http'",
+          "line": 9
         }
       ]
     }
@@ -460,6 +484,13 @@
       "container": "healthcheck",
       "language": "ruby",
       "kind": "file"
+    },
+    {
+      "path": "platform/docker-compose.yml",
+      "container": "platform",
+      "language": "yaml",
+      "kind": "file",
+      "note": "The compose wiring: its environment and depends_on entries are evidence for runtime relations."
     }
   ],
   "relations": [
@@ -471,19 +502,23 @@
       "evidence": [
         {
           "path": "storefront/src/api/orders.ts",
-          "contains": "fetch(`${this.baseUrl}/orders`, {"
+          "contains": "fetch(`${this.baseUrl}/orders`, {",
+          "line": 26
         },
         {
           "path": "orders/api/openapi.yaml",
-          "contains": "  /orders:"
+          "contains": "  /orders:",
+          "line": 9
         },
         {
           "path": "orders/internal/http/handlers.go",
-          "contains": "mux.HandleFunc(\"POST /orders\", h.createOrder)"
+          "contains": "mux.HandleFunc(\"POST /orders\", h.createOrder)",
+          "line": 37
         },
         {
           "path": "platform/docker-compose.yml",
-          "contains": "ORDERS_URL=http://orders:8080"
+          "contains": "ORDERS_URL=http://orders:8080",
+          "line": 10
         }
       ]
     },
@@ -495,19 +530,23 @@
       "evidence": [
         {
           "path": "orders/internal/queue/publisher.go",
-          "contains": "p.rdb.LPush(ctx, JobsKey, body)"
+          "contains": "p.rdb.LPush(ctx, JobsKey, body)",
+          "line": 49
         },
         {
           "path": "orders/internal/queue/publisher.go",
-          "contains": "const JobsKey = \"order-jobs\""
+          "contains": "const JobsKey = \"order-jobs\"",
+          "line": 14
         },
         {
           "path": "orders/internal/http/handlers.go",
-          "contains": "h.enqueueFulfil(r.Context(), o)"
+          "contains": "h.enqueueFulfil(r.Context(), o)",
+          "line": 125
         },
         {
           "path": "platform/docker-compose.yml",
-          "contains": "REDIS_URL=redis://redis:6379/0"
+          "contains": "REDIS_URL=redis://redis:6379/0",
+          "line": 21
         }
       ]
     },
@@ -519,15 +558,18 @@
       "evidence": [
         {
           "path": "worker/worker/consumer.py",
-          "contains": "self._redis.brpop([JOBS_KEY], timeout=self._timeout)"
+          "contains": "self._redis.brpop([JOBS_KEY], timeout=self._timeout)",
+          "line": 41
         },
         {
           "path": "worker/worker/consumer.py",
-          "contains": "JOBS_KEY = \"order-jobs\""
+          "contains": "JOBS_KEY = \"order-jobs\"",
+          "line": 15
         },
         {
           "path": "platform/docker-compose.yml",
-          "contains": "REDIS_URL=redis://redis:6379/0"
+          "contains": "REDIS_URL=redis://redis:6379/0",
+          "line": 30
         }
       ]
     },
@@ -538,11 +580,13 @@
       "evidence": [
         {
           "path": "orders/internal/store/postgres.go",
-          "contains": "pool, err := pgxpool.New(ctx, url)"
+          "contains": "pool, err := pgxpool.New(ctx, url)",
+          "line": 26
         },
         {
           "path": "platform/docker-compose.yml",
-          "contains": "DATABASE_URL=postgres://orders:orders@orders-db:5432/orders?sslmode=disable"
+          "contains": "DATABASE_URL=postgres://orders:orders@orders-db:5432/orders?sslmode=disable",
+          "line": 20
         }
       ]
     },
@@ -554,15 +598,18 @@
       "evidence": [
         {
           "path": "worker/worker/db.py",
-          "contains": "_conn = psycopg.connect(database_url)"
+          "contains": "_conn = psycopg.connect(database_url)",
+          "line": 22
         },
         {
           "path": "worker/worker/db.py",
-          "contains": "\"UPDATE orders SET state = %s, tracking_number = COALESCE(%s, tracking_number), \""
+          "contains": "\"UPDATE orders SET state = %s, tracking_number = COALESCE(%s, tracking_number), \"",
+          "line": 46
         },
         {
           "path": "platform/docker-compose.yml",
-          "contains": "DATABASE_URL=postgresql://orders:orders@orders-db:5432/orders"
+          "contains": "DATABASE_URL=postgresql://orders:orders@orders-db:5432/orders",
+          "line": 31
         }
       ]
     },
@@ -574,15 +621,18 @@
       "evidence": [
         {
           "path": "storefront/package.json",
-          "contains": "\"@acme/kit\": \"1.1.0\""
+          "contains": "\"@acme/kit\": \"1.1.0\"",
+          "line": 18
         },
         {
           "path": "kit/package.json",
-          "contains": "\"name\": \"@acme/kit\""
+          "contains": "\"name\": \"@acme/kit\"",
+          "line": 2
         },
         {
           "path": "storefront/src/cart/cart.ts",
-          "contains": "import { formatMoney } from '@acme/kit';"
+          "contains": "import { formatMoney } from '@acme/kit';",
+          "line": 1
         }
       ]
     },
@@ -594,7 +644,8 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: acme/storefront:2.3.0"
+          "contains": "image: acme/storefront:2.3.0",
+          "line": 6
         }
       ]
     },
@@ -606,7 +657,8 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: acme/orders:1.4.0"
+          "contains": "image: acme/orders:1.4.0",
+          "line": 16
         }
       ]
     },
@@ -618,7 +670,8 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: acme/worker:0.9.0"
+          "contains": "image: acme/worker:0.9.0",
+          "line": 28
         }
       ]
     },
@@ -630,7 +683,8 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: redis:7.4"
+          "contains": "image: redis:7.4",
+          "line": 38
         }
       ]
     },
@@ -642,7 +696,8 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: postgres:16.4"
+          "contains": "image: postgres:16.4",
+          "line": 41
         }
       ]
     },
@@ -654,7 +709,8 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: otel/opentelemetry-collector-contrib:0.111.0"
+          "contains": "image: otel/opentelemetry-collector-contrib:0.111.0",
+          "line": 50
         }
       ]
     },
@@ -666,7 +722,8 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: prom/prometheus:v2.54.1"
+          "contains": "image: prom/prometheus:v2.54.1",
+          "line": 59
         }
       ]
     },
@@ -678,7 +735,8 @@
       "evidence": [
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: grafana/grafana:11.2.2"
+          "contains": "image: grafana/grafana:11.2.2",
+          "line": 68
         }
       ]
     },
@@ -690,11 +748,13 @@
       "evidence": [
         {
           "path": "platform/prometheus/prometheus.yml",
-          "contains": "- targets: [\"orders:9464\"]"
+          "contains": "- targets: [\"orders:9464\"]",
+          "line": 11
         },
         {
           "path": "orders/internal/config/config.go",
-          "contains": "getenv(\"METRICS_ADDR\", \":9464\")"
+          "contains": "getenv(\"METRICS_ADDR\", \":9464\")",
+          "line": 24
         }
       ]
     },
@@ -706,11 +766,13 @@
       "evidence": [
         {
           "path": "platform/prometheus/prometheus.yml",
-          "contains": "- targets: [\"worker:9464\"]"
+          "contains": "- targets: [\"worker:9464\"]",
+          "line": 14
         },
         {
           "path": "worker/worker/config.py",
-          "contains": "metrics_port=int(env.get(\"METRICS_PORT\", \"9464\"))"
+          "contains": "metrics_port=int(env.get(\"METRICS_PORT\", \"9464\"))",
+          "line": 26
         }
       ]
     },
@@ -719,14 +781,17 @@
       "to": "otel-collector",
       "kind": "scrapes",
       "via": "otel-collector:8889",
+      "note": "Direction is who initiates: prometheus pulls from the collector's Prometheus exporter. Metrics flow the other way (see questions.observability.pipeline).",
       "evidence": [
         {
           "path": "platform/prometheus/prometheus.yml",
-          "contains": "- targets: [\"otel-collector:8889\"]"
+          "contains": "- targets: [\"otel-collector:8889\"]",
+          "line": 17
         },
         {
           "path": "platform/otel/collector.yaml",
-          "contains": "endpoint: 0.0.0.0:8889"
+          "contains": "endpoint: 0.0.0.0:8889",
+          "line": 16
         }
       ]
     },
@@ -738,11 +803,13 @@
       "evidence": [
         {
           "path": "storefront/src/app/telemetry.ts",
-          "contains": "traceExporter: new OTLPTraceExporter(),"
+          "contains": "traceExporter: new OTLPTraceExporter(),",
+          "line": 9
         },
         {
           "path": "platform/docker-compose.yml",
-          "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318"
+          "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318",
+          "line": 11
         }
       ]
     },
@@ -754,11 +821,13 @@
       "evidence": [
         {
           "path": "orders/internal/telemetry/otel.go",
-          "contains": "traceExp, err := otlptracegrpc.New(ctx)"
+          "contains": "traceExp, err := otlptracegrpc.New(ctx)",
+          "line": 32
         },
         {
           "path": "platform/docker-compose.yml",
-          "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317"
+          "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317",
+          "line": 22
         }
       ]
     },
@@ -770,11 +839,13 @@
       "evidence": [
         {
           "path": "worker/worker/telemetry.py",
-          "contains": "provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))"
+          "contains": "provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))",
+          "line": 22
         },
         {
           "path": "platform/docker-compose.yml",
-          "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317"
+          "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317",
+          "line": 32
         }
       ]
     },
@@ -786,7 +857,8 @@
       "evidence": [
         {
           "path": "platform/grafana/provisioning/datasources/prometheus.yml",
-          "contains": "url: http://prometheus:9090"
+          "contains": "url: http://prometheus:9090",
+          "line": 8
         }
       ]
     },
@@ -798,7 +870,8 @@
       "evidence": [
         {
           "path": "platform/tools/healthcheck.rb",
-          "contains": "'orders' => 'http://orders:8080/healthz',"
+          "contains": "'orders' => 'http://orders:8080/healthz',",
+          "line": 15
         }
       ]
     },
@@ -810,11 +883,13 @@
       "evidence": [
         {
           "path": "platform/tools/healthcheck.rb",
-          "contains": "'storefront' => 'http://storefront:3000/healthz'"
+          "contains": "'storefront' => 'http://storefront:3000/healthz'",
+          "line": 16
         },
         {
           "path": "storefront/src/server.ts",
-          "contains": "app.get('/healthz', (_req, res) => {"
+          "contains": "app.get('/healthz', (_req, res) => {",
+          "line": 17
         }
       ]
     }
@@ -828,7 +903,8 @@
           "evidence": [
             {
               "path": "storefront/src/app/telemetry.ts",
-              "contains": "traceExporter: new OTLPTraceExporter(),"
+              "contains": "traceExporter: new OTLPTraceExporter(),",
+              "line": 9
             }
           ]
         },
@@ -843,15 +919,18 @@
           "evidence": [
             {
               "path": "orders/internal/telemetry/otel.go",
-              "contains": "traceExp, err := otlptracegrpc.New(ctx)"
+              "contains": "traceExp, err := otlptracegrpc.New(ctx)",
+              "line": 32
             },
             {
               "path": "orders/internal/telemetry/otel.go",
-              "contains": "mux.Handle(\"/metrics\", promhttp.Handler())"
+              "contains": "mux.Handle(\"/metrics\", promhttp.Handler())",
+              "line": 47
             },
             {
               "path": "orders/internal/http/middleware.go",
-              "contains": "requests, _ := meter.Int64Counter(\"orders_http_requests\","
+              "contains": "requests, _ := meter.Int64Counter(\"orders_http_requests\",",
+              "line": 30
             }
           ]
         },
@@ -865,15 +944,18 @@
           "evidence": [
             {
               "path": "worker/worker/telemetry.py",
-              "contains": "provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))"
+              "contains": "provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))",
+              "line": 22
             },
             {
               "path": "worker/worker/telemetry.py",
-              "contains": "\"worker_jobs_processed_total\","
+              "contains": "\"worker_jobs_processed_total\",",
+              "line": 13
             },
             {
               "path": "worker/worker/telemetry.py",
-              "contains": "start_http_server(metrics_port)"
+              "contains": "start_http_server(metrics_port)",
+              "line": 24
             }
           ]
         },
@@ -895,7 +977,8 @@
           "evidence": [
             {
               "path": "platform/docker-compose.yml",
-              "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318"
+              "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318",
+              "line": 11
             }
           ]
         },
@@ -907,7 +990,8 @@
           "evidence": [
             {
               "path": "platform/docker-compose.yml",
-              "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317"
+              "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317",
+              "line": 22
             }
           ]
         },
@@ -919,7 +1003,8 @@
           "evidence": [
             {
               "path": "platform/docker-compose.yml",
-              "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317"
+              "contains": "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317",
+              "line": 32
             }
           ]
         },
@@ -931,11 +1016,13 @@
           "evidence": [
             {
               "path": "platform/otel/collector.yaml",
-              "contains": "endpoint: 0.0.0.0:8889"
+              "contains": "endpoint: 0.0.0.0:8889",
+              "line": 16
             },
             {
               "path": "platform/prometheus/prometheus.yml",
-              "contains": "- targets: [\"otel-collector:8889\"]"
+              "contains": "- targets: [\"otel-collector:8889\"]",
+              "line": 17
             }
           ]
         },
@@ -947,7 +1034,8 @@
           "evidence": [
             {
               "path": "platform/prometheus/prometheus.yml",
-              "contains": "- targets: [\"orders:9464\"]"
+              "contains": "- targets: [\"orders:9464\"]",
+              "line": 11
             }
           ]
         },
@@ -959,7 +1047,8 @@
           "evidence": [
             {
               "path": "platform/prometheus/prometheus.yml",
-              "contains": "- targets: [\"worker:9464\"]"
+              "contains": "- targets: [\"worker:9464\"]",
+              "line": 14
             }
           ]
         },
@@ -971,7 +1060,8 @@
           "evidence": [
             {
               "path": "platform/grafana/provisioning/datasources/prometheus.yml",
-              "contains": "url: http://prometheus:9090"
+              "contains": "url: http://prometheus:9090",
+              "line": 8
             }
           ]
         }
@@ -997,11 +1087,13 @@
         "evidence": [
           {
             "path": "platform/otel/collector.yaml",
-            "contains": "exporters: [debug]"
+            "contains": "exporters: [debug]",
+            "line": 27
           },
           {
             "path": "platform/otel/collector.yaml",
-            "contains": "exporters: [prometheus]"
+            "contains": "exporters: [prometheus]",
+            "line": 31
           }
         ]
       },
@@ -1015,15 +1107,18 @@
           "evidence": [
             {
               "path": "platform/prometheus/alerts.yml",
-              "contains": "- alert: OrdersHighErrorRate"
+              "contains": "- alert: OrdersHighErrorRate",
+              "line": 4
             },
             {
               "path": "platform/prometheus/alerts.yml",
-              "contains": "sum(rate(orders_http_requests_total{job=\"orders\", code=~\"5..\"}[5m]))"
+              "contains": "sum(rate(orders_http_requests_total{job=\"orders\", code=~\"5..\"}[5m]))",
+              "line": 6
             },
             {
               "path": "orders/internal/http/middleware.go",
-              "contains": "// Prometheus exporter publishes them as orders_http_requests_total and"
+              "contains": "// Prometheus exporter publishes them as orders_http_requests_total and",
+              "line": 26
             }
           ]
         }
@@ -1045,18 +1140,46 @@
           "evidence": [
             {
               "path": "platform/grafana/dashboards/orders-overview.json",
-              "contains": "\"uid\": \"orders-overview\""
+              "contains": "\"uid\": \"orders-overview\"",
+              "line": 2
             },
             {
               "path": "platform/grafana/dashboards/orders-overview.json",
-              "contains": "\"title\": \"Worker jobs processed\""
+              "contains": "\"title\": \"Worker jobs processed\"",
+              "line": 116
             }
           ]
         }
       ]
     },
     "unmonitored": {
-      "rule": "A runtime container is monitored when at least one alert rule covers it (something fires if it breaks).",
+      "rule": "A runtime container is monitored when an alert rule watches it directly: the rule's expression selects a metric that the container emits or that is scraped from it (its job label). Indirect coverage, manual scripts and observability infrastructure do not count.",
+      "notes": [
+        {
+          "container": "orders-db",
+          "kind": "indirect_coverage",
+          "text": "OrdersHighErrorRate fires when orders can't reach orders-db, so orders-db is covered only indirectly. That is a note, not coverage: orders-db stays unmonitored.",
+          "evidence": [
+            {
+              "path": "platform/prometheus/alerts.yml",
+              "contains": "sum(rate(orders_http_requests_total{job=\"orders\", code=~\"5..\"}[5m]))",
+              "line": 6
+            }
+          ]
+        },
+        {
+          "path": "platform/tools/healthcheck.rb",
+          "kind": "manual_check",
+          "text": "healthcheck.rb is run by hand and is not an alert rule, so it covers nothing: storefront stays unmonitored although the script calls its /healthz.",
+          "evidence": [
+            {
+              "path": "platform/tools/healthcheck.rb",
+              "contains": "'storefront' => 'http://storefront:3000/healthz'",
+              "line": 16
+            }
+          ]
+        }
+      ],
       "answer": [
         "storefront",
         "worker",
@@ -1136,11 +1259,13 @@
           "evidence": [
             {
               "path": "kit/.github/workflows/release.yml",
-              "contains": "tags: ['v*']"
+              "contains": "tags: ['v*']",
+              "line": 5
             },
             {
               "path": "kit/.github/workflows/release.yml",
-              "contains": "run: npm publish --provenance --access public"
+              "contains": "run: npm publish --provenance --access public",
+              "line": 31
             }
           ]
         },
@@ -1150,7 +1275,8 @@
           "evidence": [
             {
               "path": "storefront/package.json",
-              "contains": "\"@acme/kit\": \"1.1.0\""
+              "contains": "\"@acme/kit\": \"1.1.0\"",
+              "line": 18
             }
           ]
         },
@@ -1160,7 +1286,8 @@
           "evidence": [
             {
               "path": "platform/docker-compose.yml",
-              "contains": "image: acme/storefront:2.3.0"
+              "contains": "image: acme/storefront:2.3.0",
+              "line": 6
             }
           ]
         }
@@ -1181,11 +1308,13 @@
           "evidence": [
             {
               "path": "storefront/package.json",
-              "contains": "\"@acme/kit\": \"1.1.0\""
+              "contains": "\"@acme/kit\": \"1.1.0\"",
+              "line": 18
             },
             {
               "path": "kit/package.json",
-              "contains": "\"version\": \"1.2.0\""
+              "contains": "\"version\": \"1.2.0\"",
+              "line": 3
             }
           ]
         },
@@ -1198,11 +1327,31 @@
           "evidence": [
             {
               "path": "platform/docker-compose.yml",
-              "contains": "image: acme/orders:1.4.0"
+              "contains": "image: acme/orders:1.4.0",
+              "line": 16
             },
             {
               "path": "orders/CHANGELOG.md",
-              "contains": "## [1.5.0] - 2026-09-22"
+              "contains": "## [1.5.0] - 2026-09-22",
+              "line": 7
+            }
+          ],
+          "note": "The deployed orders 1.4.0 predates migration 002 (orders.tracking_number, added after v1.4.0 and released in 1.5.0), which worker 0.9.0 needs: its db.py writes tracking_number into orders-db.",
+          "note_evidence": [
+            {
+              "path": "orders/migrations/002_add_tracking_number.sql",
+              "contains": "ALTER TABLE orders ADD COLUMN tracking_number text NOT NULL DEFAULT '';",
+              "line": 2
+            },
+            {
+              "path": "orders/CHANGELOG.md",
+              "contains": "orders carry `tracking_number`. Run `migrations/002_add_tracking_number.sql`.",
+              "line": 12
+            },
+            {
+              "path": "worker/worker/db.py",
+              "contains": "\"UPDATE orders SET state = %s, tracking_number = COALESCE(%s, tracking_number), \"",
+              "line": 46
             }
           ]
         }
@@ -1227,6 +1376,12 @@
     "path_storefront_to_worker": {
       "from": "storefront",
       "to": "worker",
+      "rule": "Follow request and message edges only (relation kinds http, queue_publish, queue_consume). Reads and writes of a shared datastore are not edges of the path.",
+      "edge_kinds": [
+        "http",
+        "queue_publish",
+        "queue_consume"
+      ],
       "containers": [
         "storefront",
         "orders",
@@ -1242,19 +1397,23 @@
           "evidence": [
             {
               "path": "storefront/src/api/orders.ts",
-              "contains": "fetch(`${this.baseUrl}/orders`, {"
+              "contains": "fetch(`${this.baseUrl}/orders`, {",
+              "line": 26
             },
             {
               "path": "orders/api/openapi.yaml",
-              "contains": "  /orders:"
+              "contains": "  /orders:",
+              "line": 9
             },
             {
               "path": "orders/internal/http/handlers.go",
-              "contains": "mux.HandleFunc(\"POST /orders\", h.createOrder)"
+              "contains": "mux.HandleFunc(\"POST /orders\", h.createOrder)",
+              "line": 37
             },
             {
               "path": "platform/docker-compose.yml",
-              "contains": "ORDERS_URL=http://orders:8080"
+              "contains": "ORDERS_URL=http://orders:8080",
+              "line": 10
             }
           ]
         },
@@ -1266,19 +1425,23 @@
           "evidence": [
             {
               "path": "orders/internal/queue/publisher.go",
-              "contains": "p.rdb.LPush(ctx, JobsKey, body)"
+              "contains": "p.rdb.LPush(ctx, JobsKey, body)",
+              "line": 49
             },
             {
               "path": "orders/internal/queue/publisher.go",
-              "contains": "const JobsKey = \"order-jobs\""
+              "contains": "const JobsKey = \"order-jobs\"",
+              "line": 14
             },
             {
               "path": "orders/internal/http/handlers.go",
-              "contains": "h.enqueueFulfil(r.Context(), o)"
+              "contains": "h.enqueueFulfil(r.Context(), o)",
+              "line": 125
             },
             {
               "path": "platform/docker-compose.yml",
-              "contains": "REDIS_URL=redis://redis:6379/0"
+              "contains": "REDIS_URL=redis://redis:6379/0",
+              "line": 21
             }
           ]
         },
@@ -1290,15 +1453,42 @@
           "evidence": [
             {
               "path": "worker/worker/consumer.py",
-              "contains": "self._redis.brpop([JOBS_KEY], timeout=self._timeout)"
+              "contains": "self._redis.brpop([JOBS_KEY], timeout=self._timeout)",
+              "line": 41
             },
             {
               "path": "worker/worker/consumer.py",
-              "contains": "JOBS_KEY = \"order-jobs\""
+              "contains": "JOBS_KEY = \"order-jobs\"",
+              "line": 15
             },
             {
               "path": "platform/docker-compose.yml",
-              "contains": "REDIS_URL=redis://redis:6379/0"
+              "contains": "REDIS_URL=redis://redis:6379/0",
+              "line": 30
+            }
+          ]
+        }
+      ],
+      "excluded_paths": [
+        {
+          "containers": [
+            "storefront",
+            "orders",
+            "orders-db",
+            "worker"
+          ],
+          "route": "orders -> orders-db -> worker",
+          "why": "orders writes orders-db and worker reads it: a shared datastore, not a request or message edge.",
+          "evidence": [
+            {
+              "path": "orders/internal/store/postgres.go",
+              "contains": "pool, err := pgxpool.New(ctx, url)",
+              "line": 26
+            },
+            {
+              "path": "worker/worker/db.py",
+              "contains": "cur.execute(\"SELECT state FROM orders WHERE id = %s\", (order_id,))",
+              "line": 28
             }
           ]
         }
@@ -1326,18 +1516,21 @@
         ],
         "initial_evidence": {
           "path": "orders/internal/order/order.go",
-          "contains": "State:      StateCreated,"
+          "contains": "State:      StateCreated,",
+          "line": 57
         },
         "terminal_evidence": {
           "path": "orders/internal/order/lifecycle.go",
-          "contains": "return s == StateDelivered || s == StateCancelled"
+          "contains": "return s == StateDelivered || s == StateCancelled",
+          "line": 59
         },
         "guards": [
           {
             "name": "hasTrackingNumber",
             "evidence": {
               "path": "orders/internal/order/lifecycle.go",
-              "contains": "func hasTrackingNumber(o *Order) bool {"
+              "contains": "func hasTrackingNumber(o *Order) bool {",
+              "line": 53
             }
           }
         ],
@@ -1349,7 +1542,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/internal/order/lifecycle.go",
-              "contains": "{From: StateCreated, Event: EventPay, To: StatePaid}"
+              "contains": "{From: StateCreated, Event: EventPay, To: StatePaid}",
+              "line": 42
             }
           },
           {
@@ -1359,7 +1553,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/internal/order/lifecycle.go",
-              "contains": "{From: StateCreated, Event: EventPaymentFail, To: StatePaymentFailed}"
+              "contains": "{From: StateCreated, Event: EventPaymentFail, To: StatePaymentFailed}",
+              "line": 43
             }
           },
           {
@@ -1369,7 +1564,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/internal/order/lifecycle.go",
-              "contains": "{From: StateCreated, Event: EventCancel, To: StateCancelled}"
+              "contains": "{From: StateCreated, Event: EventCancel, To: StateCancelled}",
+              "line": 44
             }
           },
           {
@@ -1379,7 +1575,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/internal/order/lifecycle.go",
-              "contains": "{From: StatePaid, Event: EventFulfil, To: StateFulfilling}"
+              "contains": "{From: StatePaid, Event: EventFulfil, To: StateFulfilling}",
+              "line": 45
             }
           },
           {
@@ -1389,7 +1586,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/internal/order/lifecycle.go",
-              "contains": "{From: StatePaid, Event: EventCancel, To: StateCancelled}"
+              "contains": "{From: StatePaid, Event: EventCancel, To: StateCancelled}",
+              "line": 46
             }
           },
           {
@@ -1399,7 +1597,8 @@
             "guard": "hasTrackingNumber",
             "evidence": {
               "path": "orders/internal/order/lifecycle.go",
-              "contains": "{From: StateFulfilling, Event: EventShip, To: StateShipped, Guard: hasTrackingNumber}"
+              "contains": "{From: StateFulfilling, Event: EventShip, To: StateShipped, Guard: hasTrackingNumber}",
+              "line": 47
             }
           },
           {
@@ -1409,7 +1608,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/internal/order/lifecycle.go",
-              "contains": "{From: StateShipped, Event: EventDeliver, To: StateDelivered}"
+              "contains": "{From: StateShipped, Event: EventDeliver, To: StateDelivered}",
+              "line": 48
             }
           },
           {
@@ -1419,7 +1619,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/internal/order/lifecycle.go",
-              "contains": "{From: StateOnHold, Event: EventRelease, To: StatePaid}"
+              "contains": "{From: StateOnHold, Event: EventRelease, To: StatePaid}",
+              "line": 49
             }
           }
         ]
@@ -1444,16 +1645,19 @@
         ],
         "initial_evidence": {
           "path": "orders/docs/order-lifecycle.md",
-          "contains": "    [*] --> created"
+          "contains": "    [*] --> created",
+          "line": 36
         },
         "terminal_evidence": [
           {
             "path": "orders/docs/order-lifecycle.md",
-            "contains": "    delivered --> [*]"
+            "contains": "    delivered --> [*]",
+            "line": 46
           },
           {
             "path": "orders/docs/order-lifecycle.md",
-            "contains": "    cancelled --> [*]"
+            "contains": "    cancelled --> [*]",
+            "line": 47
           }
         ],
         "transitions": [
@@ -1464,7 +1668,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/docs/order-lifecycle.md",
-              "contains": "    created --> paid: pay"
+              "contains": "    created --> paid: pay",
+              "line": 37
             }
           },
           {
@@ -1474,7 +1679,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/docs/order-lifecycle.md",
-              "contains": "    created --> payment_failed: payment_fail"
+              "contains": "    created --> payment_failed: payment_fail",
+              "line": 38
             }
           },
           {
@@ -1484,7 +1690,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/docs/order-lifecycle.md",
-              "contains": "    created --> cancelled: cancel"
+              "contains": "    created --> cancelled: cancel",
+              "line": 39
             }
           },
           {
@@ -1494,7 +1701,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/docs/order-lifecycle.md",
-              "contains": "    paid --> fulfilling: fulfil"
+              "contains": "    paid --> fulfilling: fulfil",
+              "line": 40
             }
           },
           {
@@ -1504,7 +1712,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/docs/order-lifecycle.md",
-              "contains": "    paid --> cancelled: cancel"
+              "contains": "    paid --> cancelled: cancel",
+              "line": 41
             }
           },
           {
@@ -1514,7 +1723,8 @@
             "guard": "hasTrackingNumber",
             "evidence": {
               "path": "orders/docs/order-lifecycle.md",
-              "contains": "    fulfilling --> shipped: ship [hasTrackingNumber]"
+              "contains": "    fulfilling --> shipped: ship [hasTrackingNumber]",
+              "line": 42
             }
           },
           {
@@ -1524,7 +1734,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/docs/order-lifecycle.md",
-              "contains": "    fulfilling --> cancelled: cancel"
+              "contains": "    fulfilling --> cancelled: cancel",
+              "line": 43
             }
           },
           {
@@ -1534,7 +1745,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/docs/order-lifecycle.md",
-              "contains": "    shipped --> delivered: deliver"
+              "contains": "    shipped --> delivered: deliver",
+              "line": 44
             }
           },
           {
@@ -1544,7 +1756,8 @@
             "guard": null,
             "evidence": {
               "path": "orders/docs/order-lifecycle.md",
-              "contains": "    on_hold --> paid: release"
+              "contains": "    on_hold --> paid: release",
+              "line": 45
             }
           }
         ]
@@ -1563,11 +1776,13 @@
           "evidence": [
             {
               "path": "orders/docs/order-lifecycle.md",
-              "contains": "    fulfilling --> cancelled: cancel"
+              "contains": "    fulfilling --> cancelled: cancel",
+              "line": 43
             },
             {
               "path": "orders/docs/order-lifecycle.md",
-              "contains": "- `cancel` cancels an order that is created, paid or fulfilling. Once the"
+              "contains": "- `cancel` cancels an order that is created, paid or fulfilling. Once the",
+              "line": 24
             }
           ]
         }
@@ -1593,7 +1808,8 @@
         "end_line": 5,
         "evidence": {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "# Planroom kickoff prompt"
+          "contains": "# Planroom kickoff prompt",
+          "line": 1
         }
       },
       {
@@ -1603,7 +1819,8 @@
         "end_line": 13,
         "evidence": {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "<context>"
+          "contains": "<context>",
+          "line": 7
         }
       },
       {
@@ -1613,7 +1830,8 @@
         "end_line": 31,
         "evidence": {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "<stance>"
+          "contains": "<stance>",
+          "line": 15
         }
       },
       {
@@ -1623,7 +1841,8 @@
         "end_line": 51,
         "evidence": {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "<principles>"
+          "contains": "<principles>",
+          "line": 33
         }
       },
       {
@@ -1633,7 +1852,8 @@
         "end_line": 120,
         "evidence": {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "<requirements>"
+          "contains": "<requirements>",
+          "line": 53
         }
       },
       {
@@ -1643,7 +1863,8 @@
         "end_line": 204,
         "evidence": {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "<acceptance_scenarios>"
+          "contains": "<acceptance_scenarios>",
+          "line": 122
         }
       },
       {
@@ -1653,7 +1874,8 @@
         "end_line": 224,
         "evidence": {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "<fixture>"
+          "contains": "<fixture>",
+          "line": 206
         }
       },
       {
@@ -1663,7 +1885,8 @@
         "end_line": 231,
         "evidence": {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "<definition_of_done>"
+          "contains": "<definition_of_done>",
+          "line": 226
         }
       },
       {
@@ -1673,7 +1896,8 @@
         "end_line": 275,
         "evidence": {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "<constraints>"
+          "contains": "<constraints>",
+          "line": 233
         }
       },
       {
@@ -1683,7 +1907,8 @@
         "end_line": 311,
         "evidence": {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "<verified_facts>"
+          "contains": "<verified_facts>",
+          "line": 277
         }
       },
       {
@@ -1693,7 +1918,8 @@
         "end_line": 372,
         "evidence": {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "<process>"
+          "contains": "<process>",
+          "line": 313
         }
       },
       {
@@ -1703,7 +1929,8 @@
         "end_line": 455,
         "evidence": {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "<design_starting_points>"
+          "contains": "<design_starting_points>",
+          "line": 374
         }
       },
       {
@@ -1713,7 +1940,8 @@
         "end_line": 461,
         "evidence": {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "<autonomy>"
+          "contains": "<autonomy>",
+          "line": 457
         }
       }
     ],
@@ -1790,27 +2018,48 @@
       "evidence": [
         {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "1. **Understand.**"
+          "contains": "1. **Understand.**",
+          "line": 326
         },
         {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "2. **Architecture, top down.**"
+          "contains": "2. **Architecture, top down.**",
+          "line": 332
         },
         {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "3. **Architecture review.**"
+          "contains": "3. **Architecture review.**",
+          "line": 341
         },
         {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "4. **Walking skeleton.**"
+          "contains": "4. **Walking skeleton.**",
+          "line": 351
         },
         {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "5. **Milestones,**"
+          "contains": "5. **Milestones,**",
+          "line": 352
         },
         {
           "path": "examples/kickoff-snapshot.md",
-          "contains": "6. **Release.**"
+          "contains": "6. **Release.**",
+          "line": 360
+        }
+      ],
+      "per_phase_activities": [
+        {
+          "name": "context-review-and-skills",
+          "when": "end of every phase",
+          "is_state": false,
+          "note": "An activity every phase ends with, not a state of the machine and not a transition.",
+          "evidence": [
+            {
+              "path": "examples/kickoff-snapshot.md",
+              "contains": "**Context review and skills,** at the end of every phase:",
+              "line": 362
+            }
+          ]
         }
       ],
       "sub_machines": [
@@ -1821,6 +2070,76 @@
             "milestones",
             "release"
           ],
+          "runs": "once per review, each run with its own rounds counter starting at 1",
+          "instances": [
+            {
+              "review": "architecture_review",
+              "phase": "architecture_review"
+            },
+            {
+              "review": "milestone_1_review",
+              "phase": "milestones",
+              "milestone": 1
+            },
+            {
+              "review": "milestone_2_review",
+              "phase": "milestones",
+              "milestone": 2
+            },
+            {
+              "review": "milestone_3_review",
+              "phase": "milestones",
+              "milestone": 3
+            },
+            {
+              "review": "milestone_4_review",
+              "phase": "milestones",
+              "milestone": 4
+            },
+            {
+              "review": "milestone_5_review",
+              "phase": "milestones",
+              "milestone": 5
+            },
+            {
+              "review": "final_review",
+              "phase": "release"
+            }
+          ],
+          "instance_count": 7,
+          "instances_evidence": [
+            {
+              "path": "examples/kickoff-snapshot.md",
+              "contains": "**Review protocol** (every review below uses it):",
+              "line": 320
+            },
+            {
+              "path": "examples/kickoff-snapshot.md",
+              "contains": "3. **Architecture review.** Use up to 9 lenses:",
+              "line": 341
+            },
+            {
+              "path": "examples/kickoff-snapshot.md",
+              "contains": "Each milestone ends with a review of its diff",
+              "line": 359
+            },
+            {
+              "path": "examples/kickoff-snapshot.md",
+              "contains": "   5. context curation, polish, release.",
+              "line": 357
+            },
+            {
+              "path": "examples/kickoff-snapshot.md",
+              "contains": "Then a final review of the whole repo against this prompt",
+              "line": 360
+            }
+          ],
+          "variables": {
+            "rounds": {
+              "type": "int",
+              "initial": 1
+            }
+          },
           "states": [
             "round",
             "fix",
@@ -1849,7 +2168,8 @@
               "from": "fix",
               "event": "next_round",
               "to": "round",
-              "guard": "rounds < 3"
+              "guard": "rounds < 3",
+              "action": "rounds = rounds + 1"
             },
             {
               "from": "fix",
@@ -1863,11 +2183,13 @@
           "evidence": [
             {
               "path": "examples/kickoff-snapshot.md",
-              "contains": "- Repeat until a round has nothing material, at most 3 rounds per review. Record anything left as accepted risk with a one-line reason."
+              "contains": "- Repeat until a round has nothing material, at most 3 rounds per review. Record anything left as accepted risk with a one-line reason.",
+              "line": 324
             },
             {
               "path": "examples/kickoff-snapshot.md",
-              "contains": "- Fix every unrefuted finding that's **material**"
+              "contains": "- Fix every unrefuted finding that's **material**",
+              "line": 322
             }
           ]
         }
@@ -1894,7 +2216,8 @@
             {
               "path": "orders/internal/http/handlers.go",
               "contains": "const maxCancelReasonLen = 200",
-              "branch": "feature/cancel-reasons"
+              "branch": "feature/cancel-reasons",
+              "line": 99
             }
           ]
         }
@@ -1936,8 +2259,12 @@
         "evidence": {
           "path": "orders/internal/http/handlers.go",
           "contains": "Reason         string      `json:\"reason,omitempty\"`",
-          "branch": "feature/cancel-reasons"
-        }
+          "branch": "feature/cancel-reasons",
+          "commit_subject": "Accept a cancellation reason",
+          "line": 99,
+          "head_line": 104
+        },
+        "head_line": 104
       },
       {
         "id": "T2",
@@ -1947,8 +2274,12 @@
         "evidence": {
           "path": "orders/api/openapi.yaml",
           "contains": "        reason:",
-          "branch": "feature/cancel-reasons"
-        }
+          "branch": "feature/cancel-reasons",
+          "commit_subject": "Accept a cancellation reason",
+          "line": 142,
+          "head_line": 142
+        },
+        "head_line": 142
       },
       {
         "id": "T3",
@@ -1958,8 +2289,12 @@
         "evidence": {
           "path": "orders/internal/order/lifecycle.go",
           "contains": "func CancelWithReason(o *Order, reason string) (State, error) {",
-          "branch": "feature/cancel-reasons"
-        }
+          "branch": "feature/cancel-reasons",
+          "commit_subject": "Accept a cancellation reason",
+          "line": 81,
+          "head_line": 81
+        },
+        "head_line": 81
       }
     ]
   },
@@ -2002,19 +2337,23 @@
       "evidence": [
         {
           "path": "worker/.claude/skills/run-worker-tests/SKILL.md",
-          "contains": "name: run-worker-tests"
+          "contains": "name: run-worker-tests",
+          "line": 2
         },
         {
           "path": "worker/.claude/skills/run-worker-tests/SKILL.md",
-          "contains": "## When to use"
+          "contains": "## When to use",
+          "line": 8
         },
         {
           "path": "worker/.claude/skills/run-worker-tests/SKILL.md",
-          "contains": "## Steps"
+          "contains": "## Steps",
+          "line": 14
         },
         {
           "path": "worker/.claude/skills/run-worker-tests/SKILL.md",
-          "contains": "## Checks"
+          "contains": "## Checks",
+          "line": 24
         }
       ]
     },
@@ -2075,23 +2414,28 @@
       "evidence": [
         {
           "path": "orders/.github/workflows/ci.yml",
-          "contains": "  lint:"
+          "contains": "  lint:",
+          "line": 12
         },
         {
           "path": "orders/.github/workflows/ci.yml",
-          "contains": "  test:"
+          "contains": "  test:",
+          "line": 28
         },
         {
           "path": "orders/.github/workflows/ci.yml",
-          "contains": "  build:"
+          "contains": "  build:",
+          "line": 55
         },
         {
           "path": "orders/.github/workflows/ci.yml",
-          "contains": "    needs: [lint, test]"
+          "contains": "    needs: [lint, test]",
+          "line": 57
         },
         {
           "path": "orders/.github/workflows/ci.yml",
-          "contains": "run: go test -race -count=1 ./..."
+          "contains": "run: go test -race -count=1 ./...",
+          "line": 53
         }
       ]
     }
@@ -2105,11 +2449,13 @@
       "evidence": [
         {
           "path": "orders/internal/order/order.go",
-          "contains": "StateOnHold        State = \"on_hold\""
+          "contains": "StateOnHold        State = \"on_hold\"",
+          "line": 21
         },
         {
           "path": "orders/internal/order/lifecycle.go",
-          "contains": "{From: StateOnHold, Event: EventRelease, To: StatePaid}"
+          "contains": "{From: StateOnHold, Event: EventRelease, To: StatePaid}",
+          "line": 49
         }
       ],
       "why": "No transition has on_hold as its target."
@@ -2122,11 +2468,13 @@
       "evidence": [
         {
           "path": "orders/internal/order/lifecycle.go",
-          "contains": "{From: StateCreated, Event: EventPaymentFail, To: StatePaymentFailed}"
+          "contains": "{From: StateCreated, Event: EventPaymentFail, To: StatePaymentFailed}",
+          "line": 43
         },
         {
           "path": "orders/internal/order/lifecycle.go",
-          "contains": "return s == StateDelivered || s == StateCancelled"
+          "contains": "return s == StateDelivered || s == StateCancelled",
+          "line": 59
         }
       ],
       "why": "Not terminal, and no transition leaves it."
@@ -2138,7 +2486,8 @@
       "evidence": [
         {
           "path": "orders/docs/order-lifecycle.md",
-          "contains": "    fulfilling --> cancelled: cancel"
+          "contains": "    fulfilling --> cancelled: cancel",
+          "line": 43
         }
       ],
       "why": "The doc allows fulfilling --cancel--> cancelled; the transitions table in lifecycle.go has no such row."
@@ -2157,12 +2506,14 @@
         {
           "path": "storefront/src/checkout/routes.ts",
           "contains": "const giftWrap = isEnabled('gift_wrap') && req.body.giftWrap === true;",
-          "branch": "teammates"
+          "branch": "teammates",
+          "line": 15
         },
         {
           "path": "storefront/src/checkout/checkout.ts",
           "contains": "export const GIFT_WRAP = { sku: 'gift-wrap', name: 'Gift wrap', priceCents: 500 } as const;",
-          "branch": "teammates"
+          "branch": "teammates",
+          "line": 13
         }
       ]
     },
@@ -2182,16 +2533,31 @@
         "kind": "db",
         "intended": "absent"
       },
+      "why": "audit.py opens its own connection to orders-db (AUDIT_DSN, defaulting to a literal orders-db DSN), so the code alone evidences worker -> orders-db even after compose drops the worker's DATABASE_URL.",
       "evidence": [
         {
           "path": "worker/worker/audit.py",
-          "contains": "with psycopg.connect(os.environ[\"DATABASE_URL\"], autocommit=True) as conn:",
-          "branch": "teammates"
+          "contains": "DEFAULT_AUDIT_DSN = \"postgresql://orders:orders@orders-db:5432/orders\"",
+          "branch": "teammates",
+          "line": 15
+        },
+        {
+          "path": "worker/worker/audit.py",
+          "contains": "dsn = os.environ.get(\"AUDIT_DSN\", DEFAULT_AUDIT_DSN)",
+          "branch": "teammates",
+          "line": 22
+        },
+        {
+          "path": "worker/worker/audit.py",
+          "contains": "with psycopg.connect(dsn, autocommit=True) as conn:",
+          "branch": "teammates",
+          "line": 24
         },
         {
           "path": "worker/worker/main.py",
           "contains": "        audit.record(job, outcome)",
-          "branch": "teammates"
+          "branch": "teammates",
+          "line": 44
         }
       ]
     }
@@ -2207,15 +2573,18 @@
       "evidence": [
         {
           "path": "worker/worker/consumer.py",
-          "contains": "def pop(self) -> Job | None:"
+          "contains": "def pop(self) -> Job | None:",
+          "line": 39
         },
         {
           "path": "platform/docker-compose.yml",
-          "contains": "image: acme/worker:0.9.0"
+          "contains": "image: acme/worker:0.9.0",
+          "line": 28
         },
         {
           "path": "platform/prometheus/alerts.yml",
-          "contains": "- alert: OrdersHighErrorRate"
+          "contains": "- alert: OrdersHighErrorRate",
+          "line": 4
         }
       ]
     },
@@ -2227,6 +2596,7 @@
           "storefront/src/checkout"
         ]
       },
+      "evidence_rule": "Compose wiring (environment and depends_on in platform/docker-compose.yml) and code both count as evidence for a relation; either alone is enough.",
       "intended_change": {
         "spec_key": "worker-status-via-api",
         "summary": "worker reports order status through the orders API and must not depend on orders-db",
@@ -2236,14 +2606,17 @@
             "to": "orders",
             "kind": "http",
             "via": "POST /orders/{id}/events",
+            "note": "orders already serves this endpoint on main; worker-side evidence exists only after the hand-off (see post_handoff).",
             "evidence": [
               {
                 "path": "orders/api/openapi.yaml",
-                "contains": "  /orders/{id}/events:"
+                "contains": "  /orders/{id}/events:",
+                "line": 45
               },
               {
                 "path": "orders/internal/http/handlers.go",
-                "contains": "mux.HandleFunc(\"POST /orders/{id}/events\", h.applyEvent)"
+                "contains": "mux.HandleFunc(\"POST /orders/{id}/events\", h.applyEvent)",
+                "line": 39
               }
             ]
           }
@@ -2256,43 +2629,525 @@
           }
         ]
       },
-      "impact_radius": {
-        "containers": [
-          "worker",
-          "orders",
-          "orders-db"
+      "implementer_patches": [
+        {
+          "path": "examples/fixture/implementer/worker-status-via-api/worker.patch",
+          "repo": "worker",
+          "applies_to": "main",
+          "touches": [
+            "worker/README.md",
+            "worker/pyproject.toml",
+            "worker/tests/test_jobs.py",
+            "worker/worker/config.py",
+            "worker/worker/db.py",
+            "worker/worker/jobs.py",
+            "worker/worker/orders_client.py"
+          ],
+          "adds": [
+            "worker/worker/orders_client.py"
+          ],
+          "deletes": [
+            "worker/worker/db.py"
+          ]
+        },
+        {
+          "path": "examples/fixture/implementer/worker-status-via-api/platform.patch",
+          "repo": "platform",
+          "applies_to": "main",
+          "touches": [
+            "platform/docker-compose.yml"
+          ],
+          "adds": [],
+          "deletes": [],
+          "summary": "worker service: DATABASE_URL and depends_on orders-db removed; ORDERS_URL=http://orders:8080 and depends_on orders added."
+        }
+      ],
+      "post_handoff": {
+        "state": "every repo at main, with both implementer patches applied (git apply) and committed",
+        "relations": [
+          {
+            "from": "storefront",
+            "to": "orders",
+            "kind": "http"
+          },
+          {
+            "from": "orders",
+            "to": "redis",
+            "kind": "queue_publish"
+          },
+          {
+            "from": "worker",
+            "to": "redis",
+            "kind": "queue_consume"
+          },
+          {
+            "from": "orders",
+            "to": "orders-db",
+            "kind": "db"
+          },
+          {
+            "from": "storefront",
+            "to": "kit",
+            "kind": "depends_on_package"
+          },
+          {
+            "from": "platform",
+            "to": "storefront",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "orders",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "worker",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "redis",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "orders-db",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "otel-collector",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "prometheus",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "grafana",
+            "kind": "deploys"
+          },
+          {
+            "from": "prometheus",
+            "to": "orders",
+            "kind": "scrapes"
+          },
+          {
+            "from": "prometheus",
+            "to": "worker",
+            "kind": "scrapes"
+          },
+          {
+            "from": "prometheus",
+            "to": "otel-collector",
+            "kind": "scrapes"
+          },
+          {
+            "from": "storefront",
+            "to": "otel-collector",
+            "kind": "exports_telemetry"
+          },
+          {
+            "from": "orders",
+            "to": "otel-collector",
+            "kind": "exports_telemetry"
+          },
+          {
+            "from": "worker",
+            "to": "otel-collector",
+            "kind": "exports_telemetry"
+          },
+          {
+            "from": "grafana",
+            "to": "prometheus",
+            "kind": "queries"
+          },
+          {
+            "from": "healthcheck",
+            "to": "orders",
+            "kind": "http"
+          },
+          {
+            "from": "healthcheck",
+            "to": "storefront",
+            "kind": "http"
+          },
+          {
+            "from": "worker",
+            "to": "orders",
+            "kind": "http"
+          }
         ],
-        "components": [
-          "worker/worker/config.py",
-          "worker/worker/db.py",
-          "worker/worker/jobs.py",
-          "orders/internal/http"
-        ]
-      },
-      "implementer_patch": {
-        "path": "examples/fixture/implementer/worker-status-via-api.patch",
-        "repo": "worker",
-        "applies_to": "main",
-        "touches": [
-          "worker/README.md",
-          "worker/pyproject.toml",
-          "worker/tests/test_jobs.py",
-          "worker/worker/config.py",
-          "worker/worker/db.py",
-          "worker/worker/jobs.py",
-          "worker/worker/orders_client.py"
+        "relations_added": [
+          {
+            "from": "worker",
+            "to": "orders",
+            "kind": "http",
+            "via": "POST /orders/{id}/events",
+            "evidence": [
+              {
+                "path": "worker/worker/orders_client.py",
+                "contains": "return self._request(\"POST\", f\"/orders/{urllib.parse.quote(order_id)}/events\", body)",
+                "at": "post_handoff",
+                "line": 44
+              },
+              {
+                "path": "worker/worker/orders_client.py",
+                "contains": "req = urllib.request.Request(self._base + path, data=data, method=method, headers=headers)",
+                "at": "post_handoff",
+                "line": 52
+              },
+              {
+                "path": "platform/docker-compose.yml",
+                "contains": "ORDERS_URL=http://orders:8080",
+                "at": "post_handoff",
+                "line": 31
+              },
+              {
+                "path": "orders/api/openapi.yaml",
+                "contains": "  /orders/{id}/events:",
+                "at": "post_handoff",
+                "line": 45
+              },
+              {
+                "path": "orders/internal/http/handlers.go",
+                "contains": "mux.HandleFunc(\"POST /orders/{id}/events\", h.applyEvent)",
+                "at": "post_handoff",
+                "line": 39
+              }
+            ]
+          }
         ],
-        "adds": [
-          "worker/worker/orders_client.py"
+        "relations_removed": [
+          {
+            "from": "worker",
+            "to": "orders-db",
+            "kind": "db",
+            "evidence_before": [
+              {
+                "path": "worker/worker/db.py",
+                "contains": "_conn = psycopg.connect(database_url)",
+                "line": 22
+              },
+              {
+                "path": "worker/worker/db.py",
+                "contains": "\"UPDATE orders SET state = %s, tracking_number = COALESCE(%s, tracking_number), \"",
+                "line": 46
+              },
+              {
+                "path": "platform/docker-compose.yml",
+                "contains": "DATABASE_URL=postgresql://orders:orders@orders-db:5432/orders",
+                "line": 31
+              }
+            ],
+            "absence": [
+              {
+                "path": "worker/worker/db.py",
+                "at": "post_handoff",
+                "exists": false
+              },
+              {
+                "path": "worker/pyproject.toml",
+                "at": "post_handoff",
+                "must_not_contain": [
+                  "psycopg"
+                ]
+              },
+              {
+                "path": "worker/worker/",
+                "at": "post_handoff",
+                "kind": "directory",
+                "must_not_contain": [
+                  "psycopg",
+                  "DATABASE_URL"
+                ]
+              },
+              {
+                "path": "platform/docker-compose.yml",
+                "at": "post_handoff",
+                "service": "worker",
+                "must_not_contain": [
+                  "DATABASE_URL",
+                  "orders-db"
+                ]
+              }
+            ]
+          }
         ],
-        "deletes": [
+        "components_added": [
+          {
+            "path": "worker/worker/orders_client.py",
+            "container": "worker",
+            "language": "python",
+            "kind": "module"
+          }
+        ],
+        "components_removed": [
           "worker/worker/db.py"
+        ],
+        "note": "Every other relation in the top-level relations list holds unchanged."
+      },
+      "post_merges": {
+        "state": "post_handoff, then the teammates branch of storefront and of worker merged (both conflict-free)",
+        "relations": [
+          {
+            "from": "storefront",
+            "to": "orders",
+            "kind": "http"
+          },
+          {
+            "from": "orders",
+            "to": "redis",
+            "kind": "queue_publish"
+          },
+          {
+            "from": "worker",
+            "to": "redis",
+            "kind": "queue_consume"
+          },
+          {
+            "from": "orders",
+            "to": "orders-db",
+            "kind": "db"
+          },
+          {
+            "from": "storefront",
+            "to": "kit",
+            "kind": "depends_on_package"
+          },
+          {
+            "from": "platform",
+            "to": "storefront",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "orders",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "worker",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "redis",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "orders-db",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "otel-collector",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "prometheus",
+            "kind": "deploys"
+          },
+          {
+            "from": "platform",
+            "to": "grafana",
+            "kind": "deploys"
+          },
+          {
+            "from": "prometheus",
+            "to": "orders",
+            "kind": "scrapes"
+          },
+          {
+            "from": "prometheus",
+            "to": "worker",
+            "kind": "scrapes"
+          },
+          {
+            "from": "prometheus",
+            "to": "otel-collector",
+            "kind": "scrapes"
+          },
+          {
+            "from": "storefront",
+            "to": "otel-collector",
+            "kind": "exports_telemetry"
+          },
+          {
+            "from": "orders",
+            "to": "otel-collector",
+            "kind": "exports_telemetry"
+          },
+          {
+            "from": "worker",
+            "to": "otel-collector",
+            "kind": "exports_telemetry"
+          },
+          {
+            "from": "grafana",
+            "to": "prometheus",
+            "kind": "queries"
+          },
+          {
+            "from": "healthcheck",
+            "to": "orders",
+            "kind": "http"
+          },
+          {
+            "from": "healthcheck",
+            "to": "storefront",
+            "kind": "http"
+          },
+          {
+            "from": "worker",
+            "to": "orders",
+            "kind": "http"
+          },
+          {
+            "from": "worker",
+            "to": "orders-db",
+            "kind": "db"
+          }
+        ],
+        "relations_added_back": [
+          {
+            "from": "worker",
+            "to": "orders-db",
+            "kind": "db",
+            "via": "AUDIT_DSN (default literal orders-db DSN)",
+            "planted": "worker-audit-db-write",
+            "note": "Compose no longer wires the worker to orders-db; the code alone evidences the relation.",
+            "evidence": [
+              {
+                "path": "worker/worker/audit.py",
+                "contains": "DEFAULT_AUDIT_DSN = \"postgresql://orders:orders@orders-db:5432/orders\"",
+                "at": "post_merges",
+                "line": 15
+              },
+              {
+                "path": "worker/worker/audit.py",
+                "contains": "dsn = os.environ.get(\"AUDIT_DSN\", DEFAULT_AUDIT_DSN)",
+                "at": "post_merges",
+                "line": 22
+              },
+              {
+                "path": "worker/worker/audit.py",
+                "contains": "with psycopg.connect(dsn, autocommit=True) as conn:",
+                "at": "post_merges",
+                "line": 24
+              },
+              {
+                "path": "worker/worker/main.py",
+                "contains": "        audit.record(job, outcome)",
+                "at": "post_merges",
+                "line": 44
+              }
+            ]
+          }
+        ],
+        "relations_kept": [
+          {
+            "from": "worker",
+            "to": "orders",
+            "kind": "http",
+            "evidence": [
+              {
+                "path": "worker/worker/orders_client.py",
+                "contains": "return self._request(\"POST\", f\"/orders/{urllib.parse.quote(order_id)}/events\", body)",
+                "at": "post_merges",
+                "line": 44
+              },
+              {
+                "path": "platform/docker-compose.yml",
+                "contains": "ORDERS_URL=http://orders:8080",
+                "at": "post_merges",
+                "line": 31
+              }
+            ]
+          }
+        ],
+        "components_added": [
+          {
+            "path": "worker/worker/audit.py",
+            "container": "worker",
+            "language": "python",
+            "kind": "module"
+          }
+        ],
+        "compose_unchanged": {
+          "path": "platform/docker-compose.yml",
+          "service": "worker",
+          "must_not_contain": [
+            "DATABASE_URL",
+            "orders-db"
+          ]
+        }
+      },
+      "impact_radius": {
+        "rule": "every component that holds evidence of an added or removed relation, at either end, plus their containers",
+        "derived_from": [
+          "scenarios.S4.post_handoff.relations_added[].evidence",
+          "scenarios.S4.post_handoff.relations_removed[].evidence_before"
+        ],
+        "must_include": {
+          "containers": [
+            "orders",
+            "platform",
+            "worker"
+          ],
+          "components": [
+            "orders/api",
+            "orders/internal/http",
+            "platform/docker-compose.yml",
+            "worker/worker/db.py",
+            "worker/worker/orders_client.py"
+          ]
+        },
+        "must_exclude": {
+          "containers": [
+            "kit",
+            "storefront"
+          ],
+          "components": [
+            "kit/src/index.ts",
+            "kit/src/money.ts",
+            "kit/src/orderId.ts",
+            "storefront/src/api",
+            "storefront/src/app",
+            "storefront/src/cart",
+            "storefront/src/catalog",
+            "storefront/src/checkout"
+          ]
+        },
+        "notes": [
+          "must_include is exactly what the rule yields from this truth's relations and evidence.",
+          "orders-db is the far end of the removed relation but holds no evidence (it has no components), so the rule neither includes nor excludes it.",
+          "worker/worker/config.py and worker/worker/jobs.py are touched by the worker patch but hold no relation evidence; the rule neither includes nor excludes them.",
+          "storefront's own ORDERS_URL compose line evidences storefront -> orders, which the change leaves alone; that is why storefront is excluded."
         ]
       },
+      "reconciliation_rules": [
+        {
+          "name": "regression-over-unplanned",
+          "text": "A change that breaks a met intent is a regression even though no plan covers it, so regression takes precedence over unplanned."
+        },
+        {
+          "name": "resolved-stays-done",
+          "text": "A resolved item stays done, and the regression is reported against it rather than reopening it."
+        }
+      ],
       "reconciliation_after_merges": [
         {
           "item": "worker-status-via-api",
-          "class": "done"
+          "class": "done",
+          "regressions": [
+            "worker-audit-db-write"
+          ]
         },
         {
           "item": "storefront-gift-wrap",
@@ -2300,7 +3155,15 @@
         },
         {
           "item": "worker-audit-db-write",
-          "class": "regression"
+          "class": "regression",
+          "against": "worker-status-via-api",
+          "breaks": {
+            "from": "worker",
+            "to": "orders-db",
+            "kind": "db",
+            "intended": "absent"
+          },
+          "not_class": "unplanned"
         }
       ],
       "rescan_keeps_group": "purchase"
@@ -2316,7 +3179,8 @@
         {
           "path": "storefront/src/catalog/catalog.ts",
           "contains": "export const PAGE_SIZE = 24;",
-          "branch": "routine"
+          "branch": "routine",
+          "line": 17
         }
       ],
       "max_claude_calls": 0,
@@ -2339,7 +3203,8 @@
             "container": "orders",
             "evidence": {
               "path": "platform/tools/healthcheck.rb",
-              "contains": "'orders' => 'http://orders:8080/healthz',"
+              "contains": "'orders' => 'http://orders:8080/healthz',",
+              "line": 15
             }
           },
           {
@@ -2347,14 +3212,16 @@
             "container": "storefront",
             "evidence": {
               "path": "platform/tools/healthcheck.rb",
-              "contains": "'storefront' => 'http://storefront:3000/healthz'"
+              "contains": "'storefront' => 'http://storefront:3000/healthz'",
+              "line": 16
             }
           }
         ],
         "evidence": [
           {
             "path": "platform/tools/healthcheck.rb",
-            "contains": "require 'net/http'"
+            "contains": "require 'net/http'",
+            "line": 9
           }
         ]
       },
@@ -2369,12 +3236,14 @@
               {
                 "path": "storefront/src/checkout/routes.ts",
                 "contains": "isEnabled('gift_wrap')",
-                "branch": "teammates"
+                "branch": "teammates",
+                "line": 15
               }
             ],
             "evidence": {
               "path": "storefront/flags.yaml",
-              "contains": "  gift_wrap:"
+              "contains": "  gift_wrap:",
+              "line": 3
             }
           },
           {
@@ -2383,18 +3252,21 @@
             "referenced_from_main": [
               {
                 "path": "storefront/src/checkout/routes.ts",
-                "contains": "isEnabled('new_checkout')"
+                "contains": "isEnabled('new_checkout')",
+                "line": 16
               }
             ],
             "evidence": {
               "path": "storefront/flags.yaml",
-              "contains": "  new_checkout:"
+              "contains": "  new_checkout:",
+              "line": 6
             }
           }
         ],
         "reader": {
           "path": "storefront/src/app/flags.ts",
-          "contains": "export function isEnabled(name: string): boolean {"
+          "contains": "export function isEnabled(name: string): boolean {",
+          "line": 20
         }
       }
     },
@@ -2450,7 +3322,8 @@
           "evidence": [
             {
               "path": "storefront/package.json",
-              "contains": "\"gen:orders-client\": \"openapi-typescript ../orders/api/openapi.yaml -o src/api/orders.schema.ts\""
+              "contains": "\"gen:orders-client\": \"openapi-typescript ../orders/api/openapi.yaml -o src/api/orders.schema.ts\"",
+              "line": 15
             }
           ]
         }
