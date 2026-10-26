@@ -27,6 +27,10 @@ pub struct Envelope<T = Value> {
     pub ok: bool,
     /// Such as `ask` or `handoff merge`.
     pub command: CommandName,
+    /// The one-line, engine-authored summary that text mode prints first, display-sanitized: what
+    /// `/room` shows with the handles. Absent on an error, whose `message` is its line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<T>,
     #[serde(skip_serializing_if = "Option::is_none")]
