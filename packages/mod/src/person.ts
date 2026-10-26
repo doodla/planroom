@@ -41,7 +41,7 @@ export async function personEnv(
   pathWords: number,
 ): Promise<Record<string, string>> {
   const key = await personKey($);
-  const at = await $.clock.now();
+  const at = Math.floor((await $.clock.now()) / 1000);
   const token = signToken(key, { ...lineFields(argv, pathWords), at });
   return { ...(await clientEnv($)), PLANROOM_PERSON_TOKEN: token };
 }

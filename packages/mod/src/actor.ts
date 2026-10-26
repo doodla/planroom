@@ -117,11 +117,11 @@ export function canonical(value: unknown): string {
 export interface TokenFields {
   /** The catalogue command name, its path joined with spaces: `map`, `person init`. */
   command: string;
-  /** The CLI arguments after the command's path, less `--json`, `--base` and `--idem`. */
+  /** The CLI arguments after the command's path, less `--json`, as the engine's `leaf_args` reads them. */
   args: readonly string[];
   idem: string;
   base: string;
-  /** Milliseconds since the epoch; the engine refuses a token older than 30 s. */
+  /** Unix time in seconds; the engine refuses a token more than 30 s from its own clock. */
   at: number;
 }
 
@@ -174,13 +174,14 @@ export function lineFields(
   for (let i = pathWords; i < argv.length; i++) {
     const word = argv[i] ?? "";
     if (word === "--json") continue;
+    args.push(word);
     if (word === "--idem" || word === "--base") {
+      // The flag and its value stay in `args` too, as the engine signs every word but `--json`.
       const value = argv[++i] ?? "";
+      args.push(value);
       if (word === "--idem") idem = value;
       else base = value;
-      continue;
     }
-    args.push(word);
   }
   return { command, args, idem, base };
 }

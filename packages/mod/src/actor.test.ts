@@ -58,14 +58,21 @@ test("the signed message is each field and a NUL", () => {
       args: ["--level", "container"],
       idem: "",
       base: "412",
-      at: 1_800_000_000_000,
+      at: 1_800_000_000,
     }),
   );
   const NUL = String.fromCharCode(0);
   expect(message).toBe(
-    ["map", '["--level","container"]', "", "412", "1800000000000", ""].join(
-      NUL,
-    ),
+    ["map", '["--level","container"]', "", "412", "1800000000", ""].join(NUL),
+  );
+});
+
+test("the signed bytes match the engine's own example in kernel::keys", () => {
+  // crates/kernel/src/keys.rs::a_token_message_ends_each_field_with_a_nul
+  const fields = lineFields(["person", "init", "--json", "--rekey"], 2);
+  const message = tokenMessage({ ...fields, idem: "k1", at: 1_793_000_000 });
+  expect(new TextDecoder().decode(message)).toBe(
+    'person init\0["--rekey"]\0k1\0\0' + "1793000000\0",
   );
 });
 
@@ -77,8 +84,8 @@ test("a_token_works_only_for_its_action: it verifies under its key, for its fiel
     idem: "i-1",
     base: "412",
   };
-  const token = signToken(key, { ...fields, at: 1_800_000_000_000 });
-  expect(token).toMatch(/^1800000000000\.[A-Za-z0-9_-]{86}$/);
+  const token = signToken(key, { ...fields, at: 1_800_000_000 });
+  expect(token).toMatch(/^1800000000\.[A-Za-z0-9_-]{86}$/);
   expect(verifyToken(key.public, token, fields)).toBe(true);
   expect(verifyToken(key.public, token, { ...fields, command: "map" })).toBe(
     false,
@@ -100,7 +107,12 @@ test("a CLI line splits into the token's fields", () => {
       ["handoff", "merge", "K1", "--base", "9", "--idem", "x", "--json"],
       2,
     ),
-  ).toEqual({ command: "handoff merge", args: ["K1"], idem: "x", base: "9" });
+  ).toEqual({
+    command: "handoff merge",
+    args: ["K1", "--base", "9", "--idem", "x"],
+    idem: "x",
+    base: "9",
+  });
   expect(lineFields(["map", "--level", "system", "--json"], 1)).toEqual({
     command: "map",
     args: ["--level", "system"],

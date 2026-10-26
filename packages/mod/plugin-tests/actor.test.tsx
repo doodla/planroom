@@ -91,8 +91,8 @@ test("a_press_signs_a_token: the band's press runs as the person, with a token f
   expect(
     verifyToken(pub, token, { ...fields, args: ["--level", "system"] }),
   ).toBe(false);
-  // Signed now: the engine refuses one older than 30 s.
-  expect(Number(token.split(".")[0])).toBe(map?.at);
+  // Signed now, in Unix seconds: the engine refuses one more than 30 s off.
+  expect(Number(token.split(".")[0])).toBe(Math.floor((map?.at ?? 0) / 1000));
 });
 
 test("a /room the person typed carries a token; one a plugin ran doesn't", async ($, on) => {

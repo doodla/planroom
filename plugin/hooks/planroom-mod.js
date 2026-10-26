@@ -3788,13 +3788,13 @@ function lineFields(argv, pathWords2) {
   for (let i = pathWords2; i < argv.length; i++) {
     const word = argv[i] ?? "";
     if (word === "--json") continue;
+    args.push(word);
     if (word === "--idem" || word === "--base") {
       const value = argv[++i] ?? "";
+      args.push(value);
       if (word === "--idem") idem = value;
       else base = value;
-      continue;
     }
-    args.push(word);
   }
   return { command, args, idem, base };
 }
@@ -3811,7 +3811,7 @@ async function personKey($) {
 }
 async function personEnv($, argv, pathWords2) {
   const key = await personKey($);
-  const at = await $.clock.now();
+  const at = Math.floor(await $.clock.now() / 1e3);
   const token = signToken(key, { ...lineFields(argv, pathWords2), at });
   return { ...await clientEnv($), PLANROOM_PERSON_TOKEN: token };
 }
