@@ -3,10 +3,11 @@
 Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `ccr-b124f0e3-xnzjca`; push with `git push -u origin ccr-b124f0e3-xnzjca`.
 
 ## Where I am
-- Phases 1-3 DONE. Phase 4 skeleton DONE and live. Review rounds 1 and 2 DONE and merged (DR-85, DR-86; README has both rounds with fix commits). Full suite green on 492bb69; unborn repo maps nothing (11fe179). Pushed.
-- Running: DR-86 docs fold + checker (wf_a71b0977-635, branch track/docs-dr86). Then merge it, fix checker findings.
-- Next: ROUND 3 (the last): regenerate r2a/r2b scripts (scratchpad) as r3 with the new commit, "Round 3" paragraph naming both rounds; triage --round 3; fix material; then accepted-risk.md (round 3's fixes un-reviewed; what stays open), progress log, close task #10 and #11; then M1 (#12).
-- M1 plan: tracks K, X (dirty signal untracked; cross-repo join into linkers, then per-repo keys), P, A (fs check), M (map --focus), C, G (S1 path + map paging, gates incl. not-built ones). Default excludes for fixture/test-data trees.
+- Phases 1-3 DONE. Phase 4 skeleton DONE and live. Review rounds 1-2 DONE and merged (DR-85, DR-86 + folds checked and fixed; README both rounds). Suite green on 492bb69; pushed through 9cabf5f.
+- Running: ROUND 3 (last) on b007ff3: wf_7568c126-595 (A) and wf_e7a0d842-821 (B). Triage: python3 -I .claude/skills/review-round/scripts/triage.py --round 3 --out docs/contributing/research/skeleton-review <journals>.
+- After round 3: fix material (tracks), merge, suite; write accepted-risk.md (round-3 fixes not re-reviewed; checks instead: regression tests, repros, suite; list open items + sign-off); README round 3; DR-87; progress log; close tasks #10, #11.
+- Context review done this phase: xtask test -p CRATE FILTER and --ts PATH built (e447235), review-round skill updated (9cabf5f).
+- M1 next (#12): break 121 h into ~25 tracks of 4-5 h, waves of 4 (disk ~19 GB): wave 1 K-fold, K-ids, X-extract, X-link(+cross-repo join), A-actor, A-backups, G-S1(+paging), G-gates, G-serve; then P-packs, P-plan, M, C. Default excludes for fixture/test-data trees.
 - Skills: merge-track, review-round. Lesson: chain check && test && push; kill own PIDs only.
 
 ## Gotchas
