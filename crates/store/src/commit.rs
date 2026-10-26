@@ -94,6 +94,9 @@ pub struct ScanWrite {
     /// Keys the link snapshot, with its member snapshots.
     pub packs_hash: String,
     pub repos: Vec<RepoScan>,
+    /// The store's latest `seq` when this scan began reading, before any repo was read: a repo
+    /// whose active scan event is newer was moved by another scan meanwhile.
+    pub started: Seq,
 }
 
 /// What a scan commit did for one repo.
@@ -103,8 +106,10 @@ pub enum RepoOutcome {
     Unchanged { snapshot: u64 },
     /// The active snapshot moved: a new `scan` event at `seq`.
     Recorded { snapshot: u64, seq: Seq },
-    /// The repo's `HEAD` no longer names the commit this scan read, so the active snapshot,
-    /// `active`, stays: a scan that read an older head never moves a repo back (R10).
+    /// This scan's snapshot is no longer the repo's current one, so the active snapshot, `active`,
+    /// stays: `HEAD` no longer names the commit this scan read, or another scan moved the repo
+    /// after this one began and this scan's other inputs are out of date. A scan that read an
+    /// older state never moves a repo back (R10).
     Superseded { active: u64 },
 }
 
@@ -157,14 +162,17 @@ impl Store {
     /// (DR-8). When any repo moved, the same transaction builds the workspace link snapshot of
     /// the new active set, and every new scan event names it (DR-12).
     ///
-    /// `is_head` re-reads a repo's `HEAD` under the write lock: a repo with an active snapshot
-    /// moves only when `HEAD` still names the commit this scan read. Otherwise a newer scan may
-    /// have landed, or will, so the repo is [`RepoOutcome::Superseded`] and nothing moves back.
+    /// `is_current` re-reads a repo's inputs under the write lock: a repo with an active snapshot
+    /// moves only when this scan's snapshot is still the repo's current one. Its second argument
+    /// says whether another scan moved the repo after [`ScanWrite::started`], to a snapshot other
+    /// than this one; then the caller checks every input, not only `HEAD`, since that scan may
+    /// have read a newer repo set. Otherwise a newer scan has landed, or will, so the repo is
+    /// [`RepoOutcome::Superseded`] and nothing moves back.
     pub fn commit_scan(
         &mut self,
         scan: &ScanWrite,
         rules: ScanRules,
-        is_head: &mut dyn FnMut(&RepoScan) -> bool,
+        is_current: &mut dyn FnMut(&RepoScan, bool) -> bool,
     ) -> Result<ScanCommitted, StoreError> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut active = read::active_snapshots(&tx)?;
@@ -182,7 +190,8 @@ impl Store {
                 outcomes.push((repo.repo.clone(), RepoOutcome::Unchanged { snapshot }));
                 continue;
             }
-            if let Some(active) = previous.filter(|_| !is_head(repo)) {
+            let newer_scan = active.get(&repo.repo).is_some_and(|a| a.seq > scan.started);
+            if let Some(active) = previous.filter(|_| !is_current(repo, newer_scan)) {
                 outcomes.push((repo.repo.clone(), RepoOutcome::Superseded { active }));
                 continue;
             }

@@ -208,7 +208,7 @@ warning_codes! {
     RepoSkipped = "repo_skipped",
         "git couldn't read a repo, so the scan left it out and its last map stays; details name the repo, the reason (other_owner or git_failed) and the fix";
     ScanSuperseded = "scan_superseded",
-        "a repo's HEAD moved on while the scan read it, so its map stays as it was until a scan reads the new HEAD; details name the repo and the commit this scan read";
+        "a repo's HEAD moved on while the scan read it, or the workspace's repos changed and a newer scan mapped it meanwhile, so its map stays as it was and a scan never moves it back; details name the repo, the commit this scan read and the reason (head_moved or repos_changed)";
 }
 
 impl JsonSchema for WarningCode {

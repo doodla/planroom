@@ -454,9 +454,71 @@ fn a_scan_that_read_an_older_head_never_moves_the_repo_back() {
         late.warnings.iter().filter(|w| w.code == planroom_contract::WarningCode::ScanSuperseded).collect();
     assert_eq!(superseded.len(), 1, "{:?}", late.warnings);
     assert_eq!(superseded[0].details["repo"], "platform");
+    assert_eq!(superseded[0].details["reason"], "head_moved");
     assert_eq!(scan_events(&root).last().unwrap(), &(6, "platform".to_owned()), "no revert in the log");
     // The repo stays at HEAD: a rescan finds nothing to move.
     assert_eq!(scan(&root)["meta"]["seq"], 6);
+}
+
+#[test]
+fn a_scan_that_read_an_older_repo_set_never_moves_a_repo_back() {
+    // correctness-r3-1: no HEAD moves, but a repo joins the workspace while the first scan is
+    // between extraction and commit. Its name matches platform's compose image `redis:7.4`, so the
+    // newer scan joins the redis service to it; the late scan read the older repo set.
+    use planroom::app::scan as app_scan;
+    let dir = tempfile::tempdir().unwrap();
+    let root = fixture(dir.path()).root;
+    scan(&root);
+    let slow = app_scan::prepare(&planroom_contract::ScanReq::default(), &root).unwrap();
+    planroom_testkit::git_repo(&root.join("redis"), &[("README.md".into(), b"# Redis\n".to_vec())]);
+    let newer = scan(&root);
+    assert_eq!(newer["meta"]["seq"], 11, "the new repo set re-keys all six repos: {newer}");
+    let joined = the_map(&root);
+    assert!(joined.0[2].contains("redis:container:redis"), "{:?}", joined.0[2]);
+    assert!(!joined.0[2].contains("ws:container:redis"), "{:?}", joined.0[2]);
+
+    let late = app_scan::commit(slow).unwrap();
+    assert_eq!(late.seq, 11, "the late scan wrote nothing");
+    let superseded: BTreeSet<String> = late
+        .warnings
+        .iter()
+        .filter(|w| w.code == planroom_contract::WarningCode::ScanSuperseded)
+        .map(|w| w.details["repo"].as_str().unwrap().to_owned())
+        .collect();
+    let five: BTreeSet<String> =
+        ["kit", "orders", "platform", "storefront", "worker"].iter().map(|s| s.to_string()).collect();
+    assert_eq!(superseded, five, "{:?}", late.warnings);
+    for w in late.warnings.iter().filter(|w| w.code == planroom_contract::WarningCode::ScanSuperseded) {
+        assert_eq!(w.details["reason"], "repos_changed", "{w:?}");
+        assert!(w.message.starts_with("The workspace's repos changed"), "{}", w.message);
+    }
+    assert_eq!(scan_events(&root).last().unwrap().0, 11, "no revert in the log");
+    assert_eq!(the_map(&root), joined, "the map is the newer scan's");
+    let fresh = fixture(&dir.path().join("fresh")).root;
+    planroom_testkit::git_repo(&fresh.join("redis"), &[("README.md".into(), b"# Redis\n".to_vec())]);
+    scan(&fresh);
+    assert_eq!(the_map(&fresh), joined, "the same heads and repos give the same map");
+    assert_eq!(scan(&root)["meta"]["seq"], 11, "a rescan finds nothing to move");
+}
+
+#[test]
+fn a_scan_that_read_a_newer_head_still_moves_the_repo_after_a_concurrent_scan() {
+    // The late-scan rule refuses only a stale scan: one that read the newer HEAD, after another
+    // scan committed meanwhile, still moves the repo there.
+    use planroom::app::scan as app_scan;
+    let dir = tempfile::tempdir().unwrap();
+    let root = fixture(dir.path()).root;
+    scan(&root);
+    let commit = ["-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "Newer"];
+    // The other scan reads kit's old HEAD and commits; then kit moves on and this scan reads it.
+    let other = app_scan::prepare(&planroom_contract::ScanReq::default(), &root).unwrap();
+    git(&root.join("worker"), &commit);
+    let slow = app_scan::prepare(&planroom_contract::ScanReq::default(), &root).unwrap();
+    let first = app_scan::commit(other).unwrap();
+    assert_eq!(first.seq, 5, "worker's HEAD moved past the other scan: {:?}", first.warnings);
+    let late = app_scan::commit(slow).unwrap();
+    assert_eq!(late.seq, 6, "{:?}", late.warnings);
+    assert_eq!(scan_events(&root).last().unwrap(), &(6, "worker".to_owned()));
 }
 
 /// Make the repo at `dir` one git refuses: a config it can't parse stands in for any per-repo
