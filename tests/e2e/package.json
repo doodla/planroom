@@ -1,0 +1,10 @@
+{
+  "name": "@planroom/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "End-to-end specs and the browser shims.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

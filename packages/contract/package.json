@@ -1,0 +1,13 @@
+{
+  "name": "@planroom/contract",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Planroom contract as TypeScript types, generated from the Rust source.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "16.0.0"
+  }
+}

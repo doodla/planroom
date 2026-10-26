@@ -1,2 +1,6 @@
 # Agent worktrees made by Claude Code
 /.claude/worktrees/
+
+# Build outputs and installed packages
+/target/
+node_modules/

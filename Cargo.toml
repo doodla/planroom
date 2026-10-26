@@ -1,0 +1,20 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT"
+repository = "https://github.com/doodla/planroom"
+
+[workspace.dependencies]
+planroom-contract = { path = "crates/contract" }
+
+clap = { version = "=4.6.7", features = ["derive"] }
+jsonschema = { version = "=0.58.6", default-features = false }
+schemars = { version = "=1.2.2", features = ["preserve_order"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["preserve_order"] }
+toml = "=1.1.8"

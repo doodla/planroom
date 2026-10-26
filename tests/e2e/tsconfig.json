@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2023"],
+    "types": [],
+    "outDir": "../../target/tsc/e2e",
+    "tsBuildInfoFile": "../../target/tsc/e2e.tsbuildinfo"
+  },
+  "include": ["src"]
+}

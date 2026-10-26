@@ -1,0 +1,50 @@
+# cargo-deny configuration for Planroom.
+#
+# Run with: cargo deny check (CI's deny-and-audit job runs it).
+# Docs: https://embarkstudios.github.io/cargo-deny/
+#
+# Only the fields Planroom needs are set; everything else keeps cargo-deny's default.
+
+[graph]
+targets = []
+all-features = false
+no-default-features = false
+
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "deny"
+ignore = []
+# Fetch the advisory database with the system git, which uses the host's proxy and CA settings.
+git-fetch-with-cli = true
+
+[licenses]
+version = 2
+# Planroom is MIT. List only licenses the dependency tree uses (cargo-deny warns about allowed
+# licenses no dependency has), and no copyleft. DR-39 names the wider set to allow as the tree grows.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "MIT-0",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[licenses.private]
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+deny = [
+    { crate = "openssl", reason = "no OpenSSL: use rustls" },
+    { crate = "openssl-sys", reason = "no OpenSSL: use rustls" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

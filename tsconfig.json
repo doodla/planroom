@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/contract" },
+    { "path": "packages/ui" },
+    { "path": "packages/canvas" },
+    { "path": "packages/mod" },
+    { "path": "tests/e2e" }
+  ]
+}

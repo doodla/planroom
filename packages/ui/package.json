@@ -1,0 +1,10 @@
+{
+  "name": "@planroom/ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Design tokens, view-model rows, hotkeys, the braille raster and the machine stepper.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

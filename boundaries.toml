@@ -1,0 +1,31 @@
+[rust.crates]
+contract = { may_depend = [] }
+kernel   = { may_depend = ["contract"],
+             external_allow = ["serde", "serde_json", "petgraph", "similar", "nucleo-matcher", "sha2", "thiserror", "indexmap", "regex"] }
+store    = { may_depend = ["contract"] }
+extract  = { may_depend = ["contract"] }
+models   = { may_depend = ["contract"] }
+planroom = { may_depend = ["contract", "kernel", "store", "extract", "models"] }
+testkit  = { may_depend = ["contract"], dev_only = true }
+xtask    = { may_depend = ["*"], ships = false }
+
+[rust.kernel]
+domain_free = true          # no built-in pack ID followed by "." in a string literal under crates/kernel/src
+no_path_escapes = true      # no #[path = "../"] or include! leaving a crate's directory (every crate)
+
+[ts.packages]
+contract = { may_import = [] }
+ui       = { may_import = ["contract"], forbid = ["react", "react-dom", "node:*"] }
+canvas   = { may_import = ["contract", "ui"] }
+mod      = { may_import = ["contract", "ui"], forbid = ["react-dom", "node:*"] }
+e2e      = { may_import = ["contract"] }
+
+[ts.rules]
+entry_only = true           # cross-package imports only through package.json "exports"
+no_circular = true
+not_to_unresolvable = true
+generated_read_only = ["packages/contract/src/generated/**", "plugin/types/index.d.ts", "plugin/hooks/planroom-mod.js"]
+
+[packs]
+requires = [[], ["code"]]   # the only allowed values
+no_executables = true

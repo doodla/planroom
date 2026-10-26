@@ -1,0 +1,11 @@
+[package]
+name = "planroom-testkit"
+description = "Dev-only test helpers: the fixture wrapper, the truth comparator and golden helpers."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]

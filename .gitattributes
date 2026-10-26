@@ -1,0 +1,4 @@
+# Generated files: collapsed in diffs; the drift checks in cargo xtask check keep them current.
+schema/** linguist-generated=true
+packages/contract/src/generated/** linguist-generated=true
+.dependency-cruiser.cjs linguist-generated=true
