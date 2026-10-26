@@ -127,3 +127,84 @@ unasked-4 and the rest of repo-1 are schedule gaps. Their fix is a row in the mi
 | unasked-7 | Community-health files, Dependabot and the weekly audit are missing and unscheduled, while AGENTS.md describes Dependabot as running | Minor: known gap |
 | unasked-8 | map has no output ceiling, and the live mod tool exposes it: 3.5 MB at code level for a 20,000-file repo | Material: fixed by ENGINE `0297970` |
 | unasked-9 | The string catalogue has no plural forms, and the canvas builds count text by hand ("4 component · 11 code") | Minor: known gap |
+
+## Round 2
+
+Round 2 ran on commit `30898ce` with the same eight lenses, each refuted by a separate verifier. Each reviewer first checked that round 1's material fixes in its area held; they did. There were 65 findings: 16 material, covering 12 distinct defects, 48 minor known gaps, and 1 refuted. The fix tracks, merged on 2026-10-26 and recorded in [DR-86](../../decisions.md#dr-86-what-the-walking-skeletons-review-settled-in-round-2):
+
+| Track | Findings it fixes |
+| --- | --- |
+| SCAN2 | correctness-13 to -16, unasked-r2-1 and ux-a: snapshots keyed by every input, no move back, no fetch, per-repo outcomes |
+| BUDGET2 | correctness-17, unasked-r2-2 and drift-r2-1: every CLI reply within its budget, warnings included |
+| GUARD2 | security-r2-1, security-r2-2, tests-r2-2 and drift-r2-2: the guard's write rule and whole-tree reads for Bash, the cache check, the contract's types in the mod |
+| CANVAS2 | ux-b and ux-c: the phone's 44 px lid, no control that leads nowhere |
+
+tests-r2-1 was fixed in the plan: `map` paging moves into M1's S1 slice.
+
+| ID | Finding | Outcome |
+| --- | --- | --- |
+| correctness-13 | A snapshot's facts still depend on things outside its key: the compose join reads the workspace's repo set, and evidence reads the branch, so the map depends on scan history | Material: fixed by SCAN2 `22c5611` |
+| correctness-14 | A slower scan that started before a commit lands after a newer scan and moves the repo back to the old commit, recorded as a real move | Material: fixed by SCAN2 `22c5611` |
+| correctness-15 | The DR-85 commit walk triggers lazy fetches in partial clones, which run a command named in the scanned repo's local config | Material: fixed by SCAN2 `22c5611` |
+| correctness-16 | One repo with no commits (fresh `git init`) fails the whole workspace's scan, and the empty state's next action is that failing scan | Material: fixed by SCAN2 `22c5611` |
+| correctness-17 | scan's reply is still uncapped: the partial_scan warning carries every uncovered path (160 KB, about 40k tokens, for a 60k-file repo) | Material: fixed by BUDGET2 `492bb69` |
+| correctness-18 | A tag with the same name as the checked-out branch drops the repo node and all its directories; the files float to the top level, frozen for that commit | Minor: known gap |
+| correctness-19 | The DR-85 extraction change didn't change packs_hash, so stores scanned before the fix keep their working-tree facts for every unchanged commit | Minor: known gap |
+| correctness-20 | Template substitution re-expands placeholders inside values: a repo named `{commit}` prints 'Scanned 0b305cb at 0b305cb.' | Minor: known gap |
+| correctness-21 | Merging one node ID across repos picks its winner by snapshot insertion order, so a shared container's name and props depend on scan history | Minor: known gap |
+| drift-r2-1 | Agent-facing replies exceed their documented budgets: `schema --command` (the hint of every usage error) and `share`; DR-85's 'everything an agent can reach is capped' holds only for map | Material: fixed by BUDGET2 `492bb69` |
+| drift-r2-2 | drift-2's fix left the mod hand-copying contract types: the envelope as `Reply`/`ReplyError`, and the version and resolver-status replies as ad-hoc shapes | Material: fixed by GUARD2 `5501b69` |
+| drift-r2-3 | import answers the Artifact canvas's `--detail graph` read requests through the agent-capped map, and drops the truncation, so the page silently draws a partial map | Minor: known gap |
+| drift-r2-4 | Tool descriptions list leaf summaries, not the generated synopses contracts.md and architecture.md promise; catalogue.ts carries no tool specs or ROOM_COMMANDS | Minor: known gap |
+| drift-r2-5 | DR-85's map drill-down never reaches /room text, and the shipped skill tells agents to page with `meta.next`, which map doesn't set until M2 | Minor: known gap |
+| drift-r2-6 | Usage-error messages lose their content or nest a bug message: clap's first line only, and share's bad --out says 'Planroom hit a bug' | Minor: known gap |
+| drift-r2-7 | The documented uint64 schema lint isn't built and isn't among the steps `check` prints as 'not built'; the schema has unannotated uint64 in 21 $defs | Minor: known gap |
+| drift-r2-8 | architecture.md restates VersionInfo without `target`, contradicting contracts.md and DR-82 | Minor: known gap |
+| drift-r2-9 | The resolver's `--json` output isn't valid JSON when an interpolated value holds a control character | Minor: known gap |
+| drift-r2-10 | The resolver reports a data-root mkdir failure as `download_failed`, so the mod offers a source build for a permissions problem | Minor: known gap |
+| drift-r2-11 | import's summary counts a refused row as not refused | Minor: known gap |
+| security-r2-1 | The guard never applies its write rule to Bash, so an agent can overwrite the cached engine that every later session and every person press runs, and can rewrite or delete `.planroom/` | Material: fixed by GUARD2 `5501b69` |
+| security-r2-2 | Recursive reads of a guarded place's parent pass the guard: `grep -r`, `rg`, `find -exec cat`, `tar` and `cp -r`/`ln -s` on ~/.claude, ~/.config or ~/.local/share, and the Grep tool on ~/.config or ~/.local/share | Material: fixed by GUARD2 `5501b69` |
+| security-r2-3 | DR-85's `/proc/*/environ` denial misses the usual spelling, `/proc/$(pgrep planroom)/environ` | Minor: known gap |
+| security-r2-4 | Other guard misses: `xargs planroom` hides a person-only command, `VAR+=` hides a guarded variable, `~user/` paths aren't expanded, and only 32 paths are resolved | Minor: known gap |
+| security-r2-5 | The guard now denies `Glob **/*` in the project itself | Minor: known gap |
+| security-r2-6 | The sanitizing pass leaves U+2028/U+2029 and Unicode tag characters raw, in both ports | Minor: known gap |
+| tests-r2-1 | DR-85's map cap makes S1's tier-A CI path unpassable in M1: the CLI map at --detail graph is truncated on the fixture, and paging waits for M2 | Material: fixed by milestone plan (M1's S1 slice) `71bd6ff` |
+| tests-r2-2 | security-3's fix misses directory-recursive Bash reads: `grep -r`, `rg`, `cp -r`, `tar` and `zip` reach the mod's `$.store` (the person key) and `.planroom` | Material: fixed by GUARD2 `5501b69` |
+| tests-r2-3 | scan.rs's 'the dirty edit never reaches extraction' assertion can't fail: it reads a top-level `warnings` that no envelope has | Minor: known gap |
+| tests-r2-4 | The mod's ux-1 and ux-2 plugin tests run on a hand-written map reply with no `summary`, so they prove only the fallback line; the real engine sends '9 at the top: …' for the container level | Minor: known gap |
+| tests-r2-5 | empty_states.rs guards ux-3 with a substring check: it would fail spuriously at 10, 20 or 30 blocks, and it misses the real wording defect | Minor: known gap |
+| tests-r2-6 | A usage error for a command group carries `command: "person"`, not the `planroom` DR-85 specifies, and `--since -5` reports field `_5`; usage.rs tests neither | Minor: known gap |
+| tests-r2-7 | The stand-in's 'unscanned workspace' spec covers a state the real serve can't reach, and serve's refusal there contradicts map | Minor: known gap |
+| ops-r2-1 | The README's install line reads main's marketplace.json, so after a release it still installs main's -dev plugin; the design has no file for the 'published' git-subdir entry | Minor: known gap |
+| ops-r2-2 | architecture.md says a clone build whose catalogue hash isn't the plugin's keeps no binary; the resolver compares only the version | Minor: known gap |
+| ops-r2-3 | The source build hard-codes target/release, so a CARGO_TARGET_DIR or build.target-dir setting makes a successful build look like a failure or a version mismatch | Minor: known gap |
+| ops-r2-4 | ops-2's residual: an engine built without a canvas leaves no reachable way to rebuild, and a failed canvas build is never shown | Minor: known gap |
+| ops-r2-5 | The canvas step makes the attached source build longer, still under the mod's 10-minute cap, and the '4 minutes' estimate is unmeasured | Minor: known gap |
+| ops-r2-6 | The resolver's envelope meta.size.bytes counts characters under bash, so it's wrong for a non-ASCII path, as on macOS, whose /bin/sh is bash | Minor: known gap |
+| ops-r2-7 | The preflight can pass on a clean macOS, and it never checks git or the cargo that rustup just installed | Minor: known gap |
+| ops-r2-8 | The -dev version stamp was never checked against how /plugin update orders versions | Minor: known gap |
+| ops-r2-9 | plugin/README.md doesn't name the tested Claude Code version that DR-76 and R-13 rely on | Minor: known gap |
+| ops-r2-10 | schema_mismatch's hint 'update Planroom, then retry' dead-ends for a -dev install, and serve's exit on it leaves serve.json naming a dead pid | Minor: known gap |
+| repo2-1 | repo-1's fix covers `check` only: `check audit`, `test`, `e2e` and several R16 gates are still documented as running, print no `not built` line, and the M1 row still says GATES built the rest | Minor: known gap |
+| repo2-2 | `Empty` carries no line, so the ux-3 fix hand-wrote three different empty-level texts in the canvas and the mod, outside en.toml | Minor: known gap |
+| repo2-3 | A CI job turned off with `if: false` is a skipped check that neither the skip rule nor ci_runs_only_xtask can see | Refuted |
+| unasked-r2-1 | One repo git can't read (no commits yet, or owned by another user) fails the whole workspace scan, and focus's one next action is that failing scan | Material: fixed by SCAN2 `22c5611` |
+| unasked-r2-2 | unasked-8's fix doesn't hold for scan: partial_scan lists every uncovered path, so one scan reply ran to about 42,000 tokens | Material: fixed by BUDGET2 `492bb69` |
+| unasked-r2-3 | A cut scan isn't recorded anywhere, so map and focus show a partly mapped repo as whole, and the store schema has nowhere to keep coverage | Minor: known gap |
+| unasked-r2-4 | Scan cost isn't bounded by DR-47's bounds: every blob is read past the cut, and an unchanged repo is fully re-extracted before the existing snapshot is found | Minor: known gap |
+| unasked-r2-5 | Each snapshot stores a full copy of every fact, so store size grows with retained snapshots times repo size | Minor: known gap |
+| unasked-r2-6 | Files whose paths aren't UTF-8 (or contain a backslash or newline) are dropped silently | Minor: known gap |
+| unasked-r2-7 | `planroom doctor`, the diagnostics, bug-report and downgrade surface, still has no milestone slice beyond `doctor --pack` | Minor: known gap |
+| ux-a | One repo with no commits blocks the whole workspace: scan fails, and every surface keeps offering that same scan as the next action | Material: fixed by SCAN2 `22c5611` |
+| ux-b | On the phone, the ⋯ lid (the way back up) has a 34 px tap area, and the 44 px e2e check never visits a level where that lid exists | Material: fixed by CANVAS2 `bb8fd18` |
+| ux-c | The project shelf's "No project" chip opens a blank sheet; the lens switcher opens a one-entry sheet that does nothing | Material: fixed by CANVAS2 `bb8fd18` |
+| ux-d | An Empty's one label is used as both the line and the button: the intent level says the same thing twice, no_repos becomes a 104-character button the pane cuts mid-sentence, and pressing "check again" leaves a meaningless Back press | Minor: known gap |
+| ux-e | docs/screenshots predate the ENGINE merge, so they show labels and states the merged tree doesn't produce | Minor: known gap |
+| ux-f | The pane's next action is always "Open the containers", whatever the level or the map | Minor: known gap |
+| ux-g | The rail's System step and the top lid name the same place but show different maps, and the rail draws Intent nested above System | Minor: known gap |
+| ux-h | A usage error's message drops the missing argument ("…were not provided:."), and `/room share`, which /room help offers, hits it | Minor: known gap |
+| ux-i | /room hides a truncated map: the summary counts blocks the result doesn't hold, and the drill-down handle never reaches the person or the model | Minor: known gap |
+| ux-j | `/room share` returns no publish arguments to the model, so the documented publish can't follow it | Minor: known gap |
+| ux-k | During a source build, the fallback's only button ("Check again", also band key 1) flips the pane back to "Build it", and a second press starts a build that deletes the first one's clone | Minor: known gap |
+| ux-l | Some fix lines and hints can't be run from where the person is, and the no-canvas fix page is a bare white page | Minor: known gap |
