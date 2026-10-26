@@ -1,16 +1,22 @@
 //! Golden CLI outputs from real runs on the built fixture, which the mod's and the canvas's tests
-//! read (DR-6, DR-79): `tests/golden/cli/focus.json`, `tests/golden/cli/map-graph.json` and
-//! `tests/golden/cli/map-empty.json`.
+//! read (DR-6, DR-79): `tests/golden/cli/focus.json`, `tests/golden/cli/map-graph.json`,
+//! `tests/golden/cli/map-empty.json` and `tests/golden/cli/watch-frames.json`.
 //!
 //! A plain run compares the engine's output with the committed files. `cargo xtask gen --golden`
 //! runs this test with `PLANROOM_GOLDEN=write`, which writes them instead. The one value a run
 //! can't repeat, `meta.took_ms`, is left out, and `meta.size` is measured again without it.
+//! `watch-frames.json` keeps the lines `watch --json` printed as one JSON array, one frame per
+//! NDJSON line in order, so the mod's tests can import it; the commits the run makes carry a
+//! fixed author and date, as the fixture's own do, so the commit each frame names repeats.
 
 use std::collections::BTreeMap;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
 
-use planroom_contract::{MapView, PaneModel, Position};
+use planroom_contract::{MapView, PaneModel, Position, StreamFrame};
 use planroom_store::Store;
 use planroom_testkit::{fixture, repo_root};
 use serde_json::Value;
@@ -104,5 +110,85 @@ fn golden_outputs_equal_engine_output() {
     let graph = run(&root, &["map", "--detail", "graph", "--json"]);
     let placed: MapView = serde_json::from_value(graph["result"].clone()).unwrap();
     assert!(placed.nodes.iter().all(|n| n.position == positions.get(&n.id).copied()));
+    let scanned = graph["meta"]["seq"].as_u64().unwrap();
     check("map-graph.json", normalized(graph));
+
+    check("watch-frames.json", watch_frames(&root, scanned));
+}
+
+/// A commit in a fixture repo with a fixed author, committer and date, so its id repeats.
+fn fixture_commit(repo: &Path, file: &str, text: &str, subject: &str) {
+    let path = repo.join(file);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, text).unwrap();
+    for args in [&["add", "--", file][..], &["-c", "commit.gpgsign=false", "commit", "-q", "-m", subject]] {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(repo)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "Carol Diaz")
+            .env("GIT_AUTHOR_EMAIL", "carol@example.test")
+            .env("GIT_AUTHOR_DATE", "2026-09-23T09:00:00Z")
+            .env("GIT_COMMITTER_NAME", "Carol Diaz")
+            .env("GIT_COMMITTER_EMAIL", "carol@example.test")
+            .env("GIT_COMMITTER_DATE", "2026-09-23T09:00:00Z")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+}
+
+/// `watch --json --since <two before the scan's seq>`, as the mod starts it: the replay of the
+/// first scan's last two events, then the live frames of a rescan after commits in two repos.
+fn watch_frames(root: &Path, scanned: u64) -> String {
+    let since = scanned - 2;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_planroom"))
+        .args(["watch", "--json", "--since", &since.to_string(), "--session", "5e55i0n1"])
+        .current_dir(root)
+        .env("PLANROOM_DATA", root.join(".data"))
+        .env_remove("PLANROOM_CLIENT")
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("watch runs");
+    let out = child.stdout.take().unwrap();
+    let (tx, rx) = mpsc::channel::<String>();
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(out).lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    // Read until a frame reaches `until`; every line must be one frame.
+    let read_to = |until: u64, lines: &mut Vec<String>| loop {
+        let line = rx.recv_timeout(Duration::from_secs(20)).expect("watch prints a frame within 20 s");
+        let frame: StreamFrame = serde_json::from_str(&line).unwrap_or_else(|e| panic!("{line}: {e}"));
+        lines.push(line);
+        if let StreamFrame::Event { seq, .. } | StreamFrame::Reset { seq } = frame
+            && seq >= until
+        {
+            return;
+        }
+    };
+    let mut lines = Vec::new();
+    read_to(scanned, &mut lines);
+
+    fixture_commit(
+        &root.join("worker"),
+        "worker/audit.py",
+        "def record(job_id):\n    return {\"job\": job_id}\n",
+        "Add an audit record helper",
+    );
+    fixture_commit(&root.join("orders"), "README.md", "# orders\n\nThe order service.\n", "Trim the README");
+    let rescan = run(root, &["scan", "--json"]);
+    read_to(rescan["meta"]["seq"].as_u64().unwrap(), &mut lines);
+
+    child.kill().unwrap();
+    let _ = child.wait();
+    drop(rx);
+    reader.join().unwrap();
+    let frames: Vec<Value> = lines.iter().map(|l| serde_json::from_str(l).unwrap()).collect();
+    serde_json::to_string(&rooted(Value::Array(frames), root)).unwrap() + "\n"
 }

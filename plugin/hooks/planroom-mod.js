@@ -966,6 +966,14 @@ function frameSeq(frame) {
       return null;
   }
 }
+function advanceCursor(held, frames) {
+  return frames.reduce((at, f) => {
+    const seq = frameSeq(f);
+    if (seq === null) return at;
+    if (f.type === "reset") return seq;
+    return at === null ? seq : Math.max(at, seq);
+  }, held);
+}
 function frameRefreshes(frame) {
   return frame.type !== "ping";
 }
@@ -1137,12 +1145,7 @@ async function readLines($, gen, lines) {
   }
   if (frames.some((f) => frameSeq(f) !== null)) {
     await update($, lastSeqAtom, (held) => ({
-      seq: frames.reduce((at, f) => {
-        const seq = frameSeq(f);
-        if (seq === null) return at;
-        if (f.type === "reset") return seq;
-        return at === null ? seq : Math.max(at, seq);
-      }, held.seq)
+      seq: advanceCursor(held.seq, frames)
     }));
   }
   if (gen === generation && frames.some(frameRefreshes)) {

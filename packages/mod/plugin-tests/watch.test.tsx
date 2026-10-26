@@ -18,6 +18,8 @@ import {
 } from "./host";
 
 const NDJSON = frames.map((f) => JSON.stringify(f)).join("\n") + "\n";
+/** The last seq the golden frames carry, where a restarted watch picks up. */
+const LAST = Math.max(...frames.map((f) => (f as { seq?: number }).seq ?? 0));
 const SLOW = { timeoutMs: 20_000 };
 
 function event(seq: number): string {
@@ -65,13 +67,13 @@ test(
   SLOW,
   async ($, on) => {
     const scripts: Piece[][] = [
-      // The golden frames end at 415; then the child dies, as an engine restart kills it.
+      // The golden frames end at LAST; then the child dies, as an engine restart kills it.
       [
         { after: 10, text: NDJSON },
         { after: 10, end: { code: null, signal: "SIGTERM" } },
       ],
       // The restarted child reads one more event, then streams on until a reload kills it.
-      [{ after: 10, text: event(416) }],
+      [{ after: 10, text: event(LAST + 1) }],
     ];
     const h = host(on, readyEngine, { watch: (nth) => scripts[nth] ?? [] });
     await $.session.start(START);
@@ -81,14 +83,14 @@ test(
     // The loop waits 1 s after a child that streamed, then starts again from the last seq.
     await h.clock.advance(1_000);
     expect(h.children).toHaveLength(2);
-    expect(h.children[1]?.argv).toEqual(watchArgv("415"));
+    expect(h.children[1]?.argv).toEqual(watchArgv(String(LAST)));
     await h.clock.advance(10);
 
     // A reload runs session.start again, $.state kept: one new child, from the seq it kept.
     await $.session.start(START);
     await h.clock.settle();
     expect(h.children).toHaveLength(3);
-    expect(h.children[2]?.argv).toEqual(watchArgv("416"));
+    expect(h.children[2]?.argv).toEqual(watchArgv(String(LAST + 1)));
     // The replaced loop is gone: nothing starts a fourth child.
     await h.clock.advance(5_000);
     expect(h.children).toHaveLength(3);

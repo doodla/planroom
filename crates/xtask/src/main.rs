@@ -111,7 +111,12 @@ fn main() -> ExitCode {
 const GOLDEN_TESTS: &[(&str, &str, &[&str])] = &[(
     "planroom",
     "golden",
-    &["tests/golden/cli/focus.json", "tests/golden/cli/map-graph.json", "tests/golden/cli/map-empty.json"],
+    &[
+        "tests/golden/cli/focus.json",
+        "tests/golden/cli/map-graph.json",
+        "tests/golden/cli/map-empty.json",
+        "tests/golden/cli/watch-frames.json",
+    ],
 )];
 
 fn golden(root: &Path) -> Result<Vec<String>, String> {
