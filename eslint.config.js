@@ -13,6 +13,8 @@ export default defineConfig(
       "packages/mod/vendor/",
       "plugin/hooks/planroom-mod.js",
       "plugin/types/",
+      // Written by the Claude Code host when plugin/ is loaded as a dev mod; gitignored.
+      "plugin/.claude-plugin/types/",
       ".dependency-cruiser.cjs",
       "examples/",
       "docs/",
