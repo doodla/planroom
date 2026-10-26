@@ -13,6 +13,10 @@ port_in_use = "Port {port}, this workspace's canvas address, is in use by anothe
 unauthorized = "This tab needs a fresh link: press e in the pane."
 not_found = "There is no {what}."
 person_key_mismatch = "Another person key is registered for this workspace, since {registered_at}."
+# The resolver's two codes: plugin/scripts/planroom prints them before any engine runs, with its
+# own line for each reason; these are the fallbacks a surface shows when it has no such line.
+engine_fetching = "Another session is fetching the Planroom engine."
+engine_unavailable = "The Planroom engine isn't available: {reason}."
 
 [hint]
 workspace_not_found = "planroom scan DIR"
@@ -22,6 +26,12 @@ schema_mismatch = "update Planroom, then retry"
 port_in_use = "planroom serve --port N"
 person_required = "press the action's button in the Planroom pane, or type it after /room"
 person_key_mismatch = "press Use this session's key in the Planroom pane"
+engine_fetching = "try again in a few seconds"
+engine_unavailable = "scripts/planroom build"
+
+# The data root's shared files (DR-78).
+[data]
+newer_file = "{file} is {found}, newer than this engine reads ({supported}). Update Planroom, then retry."
 
 [argument]
 focus_unsupported = "--focus isn't available yet; run map without it."

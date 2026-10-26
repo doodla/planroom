@@ -62,6 +62,30 @@ impl AppError {
             .details(json!({"path": shown.to_string()}))
     }
 
+    /// `schema_mismatch` for a persisted file this engine may not read or rewrite: its `format` is
+    /// newer than this engine's, or its `min_reader_version` is above this engine's version
+    /// (contracts.md, Versioning rules; DR-78). `found` and `supported` name what the file asks
+    /// for and what this engine has.
+    pub fn newer_file(file: &std::path::Path, found: &str, supported: &str) -> AppError {
+        let shown = file.display().to_string();
+        let mut e = AppError::new(ErrorCode::SchemaMismatch, &[("found", &found), ("supported", &supported)])
+            .details(json!({"found": found, "supported": supported, "writer_version": null, "file": shown}));
+        e.0.message =
+            text::get("data.newer_file", &[("file", &shown), ("found", &found), ("supported", &supported)]);
+        e
+    }
+
+    /// A persisted document's read failure, as `newer_file` or `internal`.
+    pub fn unreadable(file: &std::path::Path, e: &planroom_contract::format::ReadError) -> AppError {
+        use planroom_contract::format::{FormatError, ReadError};
+        match e {
+            ReadError::Format(FormatError::Newer { found, supported }) => {
+                AppError::newer_file(file, found, supported)
+            }
+            other => AppError::internal(format!("{}: {other}", file.display())),
+        }
+    }
+
     pub fn internal(what: impl std::fmt::Display) -> AppError {
         AppError::new(ErrorCode::Internal, &[("what", &what)]).details(json!({"report": null}))
     }

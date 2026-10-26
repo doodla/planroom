@@ -19,9 +19,11 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use planroom_contract::{ErrorCode, ServeInfo, ServeReq};
+use planroom_contract::format::{self, Document, Extra};
+use planroom_contract::{ErrorCode, ServeInfo, ServeReq, Timestamp};
 use planroom_store::Store;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, json};
 
 use crate::app::error::AppError;
 use crate::app::{Reply, data, version, workspace};
@@ -136,10 +138,7 @@ fn bind(
     };
     let port = listener.local_addr().map_err(AppError::internal)?.port();
     if recorded != Some(port) {
-        data::record(
-            data_root,
-            data::WorkspaceEntry { root: root_key, workspace_id: workspace_id.into(), port },
-        )?;
+        data::record(data_root, data::WorkspaceEntry::new(root_key, workspace_id.into(), port))?;
     }
     Ok((listener, port))
 }
@@ -152,21 +151,48 @@ fn port_in_use(port: u16) -> AppError {
 /// Write `serve.json` for the serving process `pid`, and the reply that announces it.
 fn announce(prepared: &Prepared, pid: u32) -> Result<Reply<ServeInfo>, AppError> {
     let info = version::info();
-    let serve_json = json!({
-        "format": "planroom.serve/v1",
-        "port": prepared.port,
-        "pid": pid,
-        "version": info.version,
-        "catalogue_hash": info.catalogue_hash,
-        "control_token": prepared.control_token,
-        "started_at": clock::now(),
-    });
-    data::write_private(&serve_json_path(&prepared.root), serve_json.to_string().as_bytes())?;
+    let serve_json = ServeFile {
+        format: ServeFile::format_tag(),
+        port: prepared.port,
+        pid,
+        version: info.version,
+        catalogue_hash: info.catalogue_hash,
+        control_token: prepared.control_token.clone(),
+        started_at: clock::now(),
+        extra: Extra::new(),
+    };
+    let bytes = serde_json::to_vec(&serve_json).map_err(AppError::internal)?;
+    data::write_private(&serve_json_path(&prepared.root), &bytes)?;
     let url = format!("http://127.0.0.1:{}/", prepared.port);
     let summary = text::get("serve.summary", &[("url", &url)]);
     let login_page = prepared.page.display().to_string();
     let result = ServeInfo { summary: summary.clone(), url, port: prepared.port, pid, login_page };
     Ok(Reply { result, seq: 0, warnings: vec![], text: summary })
+}
+
+/// `serve.json` (`planroom.serve/v1`, mode 0600 in the state directory): the running server, for a
+/// later `serve` and for `open` (contracts.md, HTTP API and live stream).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServeFile {
+    pub format: String,
+    pub port: u16,
+    pub pid: u32,
+    pub version: String,
+    pub catalogue_hash: String,
+    pub control_token: String,
+    pub started_at: Timestamp,
+    /// Fields a later version added, kept and written back unchanged.
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Extra,
+}
+
+impl Document for ServeFile {
+    const NAME: &'static str = "serve";
+}
+
+/// The `serve.json` at `path`, when it holds one this engine reads.
+fn read_serve_json(path: &Path) -> Option<ServeFile> {
+    format::read_str(&fs::read_to_string(path).ok()?).ok()
 }
 
 fn serve_json_path(root: &Path) -> PathBuf {
@@ -236,7 +262,8 @@ fn serve(prepared: Prepared) -> Result<(), AppError> {
             .map_err(AppError::internal)
     });
     // Leave serve.json only when another serve has taken it over since.
-    if fs::read_to_string(&serve_json).is_ok_and(|t| t.contains(&format!("\"pid\":{pid},"))) {
+    // One a newer engine wrote isn't this server's: it's left alone.
+    if read_serve_json(&serve_json).is_some_and(|s| s.pid == pid) {
         let _ = fs::remove_file(&serve_json);
     }
     result

@@ -223,6 +223,61 @@ pub struct MiniBlock {
     pub focused: bool,
 }
 
+/// Which pane the mod draws until the engine answers: `ready` draws the `PaneModel` (DR-57, DR-60).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EngineStatus {
+    Resolving,
+    Fetching,
+    BuildOffered,
+    Building,
+    Failed,
+    UnsupportedPlatform,
+    VersionMismatch,
+    PersonKeyMismatch,
+    Ready,
+}
+
+/// The mod's `engine` atom: written by `session.start` from the resolver's reply (DR-81).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EngineState {
+    pub status: EngineStatus,
+    /// The resolver, `<plugin root>/scripts/planroom`, once the plugin root is known.
+    pub resolver: Option<String>,
+    /// The engine binary, once resolved.
+    pub path: Option<String>,
+    pub version: Option<String>,
+    pub catalogue_hash: Option<String>,
+    pub backend: Option<String>,
+    /// The one status line for this state: the resolver's message where it gave one.
+    pub line: Option<String>,
+    /// The exact command that fixes this state, when there is one.
+    pub fix: Option<String>,
+}
+
+/// The mod's `pane` atom: the last `focus --json`, its `PaneModel` or the error it returned.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PaneState {
+    pub model: Option<PaneModel>,
+    pub error: Option<String>,
+}
+
+/// The mod's `lastSeq` atom: the `seq` of the last frame the watch loop read, so the loop starts
+/// again from it after a reload (DR-6); null before the first frame (DR-82).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LastSeq {
+    pub seq: Option<Seq>,
+}
+
+/// The mod's `turnSeq` atom: the main loop's current turn and the latest `meta.seq` a tool returned
+/// to the model in it, the default `base` of the tools' writes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct TurnSeq {
+    #[serde(rename = "turnId")]
+    pub turn_id: Option<String>,
+    pub seq: Option<Seq>,
+}
+
 /// One lifted edge on the mini-map.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct MiniEdge {

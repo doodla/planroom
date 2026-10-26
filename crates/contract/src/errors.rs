@@ -117,6 +117,12 @@ error_codes! {
     PortInUse = "port_in_use", Unavailable, Never,
         "another program holds the workspace's recorded canvas port; serve never moves unasked",
         ["port", "fix"];
+    EngineFetching = "engine_fetching", Unavailable, Later,
+        "the resolver's envelope to a caller other than the mod: a prefetch held the fetch lock for 20 s",
+        ["progress"];
+    EngineUnavailable = "engine_unavailable", Unavailable, Never,
+        "the resolver's envelope when it can't hand back an engine; details.reason says why and fix names the command",
+        ["reason", "fix", "est_minutes", "canvas", "missing"];
     SchemaMismatch = "schema_mismatch", Unavailable, Never,
         "the store or a file is from a newer version, or this process is older than the store",
         ["found", "supported", "writer_version"];

@@ -1,13 +1,15 @@
 //! The event model: every change is one appended `Event`, and only an `edit` changes the graph.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::decision::DecisionRecord;
 use crate::model::{EdgeId, Layer, NodeId, Seq};
+use crate::open_set::{self, CODE_PATTERN};
 
 /// An event ID: a UUID v7.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
@@ -91,9 +93,15 @@ pub enum Status {
     Closed,
 }
 
-/// The eight event kinds.
+/// An event's body, tagged by its kind. Event kinds are an open set: a body whose `kind` this
+/// version doesn't know decodes as `Unknown`, which holds the raw object, `kind` included, and
+/// serializes it back unchanged, so an older reader neither fails nor drops it.
+//
+// The derived serde code is generated as inherent functions (`remote = "Self"`), and the trait
+// impls below wrap it, so a known kind whose body doesn't match its shape is an error rather than
+// an `Unknown`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", remote = "Self")]
 pub enum EventBody {
     /// The only event that changes the graph.
     Edit(Edit),
@@ -126,11 +134,57 @@ pub enum EventBody {
         stats: ScanStats,
     },
     Handoff(HandoffStep),
+    /// A kind a later version added: the raw body, `kind` included, kept as it was read. The fold
+    /// skips it; a read-modify-write or an export writes it back unchanged.
+    #[serde(untagged)]
+    #[schemars(schema_with = "unknown_body_schema")]
+    Unknown(Map<String, Value>),
 }
 
-/// The eight event kinds, as the `kind` tag of an `EventBody` spells them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+impl Serialize for EventBody {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        EventBody::serialize(self, s)
+    }
+}
+
+impl<'de> Deserialize<'de> for EventBody {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<EventBody, D::Error> {
+        use serde::de::Error;
+        let raw = Map::<String, Value>::deserialize(d)?;
+        let kind = match raw.get("kind") {
+            Some(Value::String(kind)) => EventKind::parse(kind),
+            _ => return Err(D::Error::missing_field("kind")),
+        };
+        if let EventKind::Unknown(_) = kind {
+            return Ok(EventBody::Unknown(raw));
+        }
+        match EventBody::deserialize(Value::Object(raw)) {
+            Ok(EventBody::Unknown(_)) | Err(_) => Err(D::Error::custom(format!(
+                "a `{}` event body doesn't have that kind's fields",
+                kind.as_str()
+            ))),
+            Ok(body) => Ok(body),
+        }
+    }
+}
+
+/// An unknown kind's body: an object whose `kind` follows the code pattern and is no known kind,
+/// so `oneOf` still matches exactly one branch.
+fn unknown_body_schema(_: &mut SchemaGenerator) -> Schema {
+    let known: Vec<&str> = EventKind::KNOWN.iter().map(EventKind::as_str).collect();
+    json_schema!({
+        "description": "A kind a later version added, kept as it was read.",
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+            "kind": { "type": "string", "pattern": CODE_PATTERN, "not": { "enum": known } },
+        },
+    })
+}
+
+/// An event's kind, as the `kind` tag of an `EventBody` spells it. Kinds are an open set: one a
+/// later version added reads as `Unknown`, with its spelling.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EventKind {
     Edit,
     Review,
@@ -140,11 +194,25 @@ pub enum EventKind {
     Claim,
     Scan,
     Handoff,
+    /// A kind this version doesn't know.
+    Unknown(String),
 }
 
 impl EventKind {
+    /// The kinds this version knows, in registry order.
+    pub const KNOWN: &'static [EventKind] = &[
+        EventKind::Edit,
+        EventKind::Review,
+        EventKind::Undo,
+        EventKind::Version,
+        EventKind::Decision,
+        EventKind::Claim,
+        EventKind::Scan,
+        EventKind::Handoff,
+    ];
+
     /// The kind as it appears on the wire and in the store.
-    pub const fn as_str(self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             EventKind::Edit => "edit",
             EventKind::Review => "review",
@@ -154,12 +222,48 @@ impl EventKind {
             EventKind::Claim => "claim",
             EventKind::Scan => "scan",
             EventKind::Handoff => "handoff",
+            EventKind::Unknown(kind) => kind,
         }
+    }
+
+    /// The kind a spelling names; one this version doesn't know is `Unknown`.
+    pub fn parse(kind: &str) -> EventKind {
+        EventKind::KNOWN
+            .iter()
+            .find(|k| k.as_str() == kind)
+            .cloned()
+            .unwrap_or_else(|| EventKind::Unknown(kind.to_owned()))
+    }
+}
+
+impl Serialize for EventKind {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for EventKind {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<EventKind, D::Error> {
+        Ok(EventKind::parse(&String::deserialize(d)?))
+    }
+}
+
+impl JsonSchema for EventKind {
+    fn schema_name() -> Cow<'static, str> {
+        "EventKind".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        open_set::schema(
+            "An event's kind, as the `kind` tag of an `EventBody` spells it; an open set.",
+            EventKind::KNOWN.iter().map(EventKind::as_str),
+            CODE_PATTERN,
+        )
     }
 }
 
 impl EventBody {
-    pub const fn kind(&self) -> EventKind {
+    pub fn kind(&self) -> EventKind {
         match self {
             EventBody::Edit(_) => EventKind::Edit,
             EventBody::Review { .. } => EventKind::Review,
@@ -169,6 +273,9 @@ impl EventBody {
             EventBody::Claim { .. } => EventKind::Claim,
             EventBody::Scan { .. } => EventKind::Scan,
             EventBody::Handoff(_) => EventKind::Handoff,
+            EventBody::Unknown(raw) => {
+                EventKind::parse(raw.get("kind").and_then(Value::as_str).unwrap_or_default())
+            }
         }
     }
 }
@@ -244,4 +351,35 @@ pub enum HandoffState {
     Merged,
     Reconciled,
     Dropped,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn an_unknown_event_kind_round_trips_its_raw_body() {
+        let raw = json!({"kind": "presence_ping", "who": "person:ann", "nested": {"a": [1, 2]}});
+        let body: EventBody = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(body.kind(), EventKind::Unknown("presence_ping".into()));
+        assert_eq!(serde_json::to_value(&body).unwrap(), raw);
+        let kind: EventKind = serde_json::from_value(json!("presence_ping")).unwrap();
+        assert_eq!(serde_json::to_value(&kind).unwrap(), json!("presence_ping"));
+    }
+
+    #[test]
+    fn a_known_kind_still_decodes_as_itself() {
+        let raw = json!({"kind": "version", "project": null, "label": "v1"});
+        let body: EventBody = serde_json::from_value(raw.clone()).unwrap();
+        assert!(matches!(body, EventBody::Version { ref label, .. } if label == "v1"));
+        assert_eq!(body.kind(), EventKind::Version);
+        assert_eq!(serde_json::to_value(&body).unwrap(), raw);
+    }
+
+    #[test]
+    fn a_malformed_known_kind_is_not_taken_for_an_unknown_one() {
+        let raw = json!({"kind": "version", "label": 7});
+        assert!(serde_json::from_value::<EventBody>(raw).is_err());
+    }
 }

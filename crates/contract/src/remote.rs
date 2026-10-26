@@ -7,10 +7,11 @@ use std::collections::BTreeMap;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::envelope::{CommandName, Empty, ErrorObject, Handle};
 use crate::event::Timestamp;
+use crate::format::{Document, Extra};
 use crate::model::Seq;
 use crate::stream::StreamFrame;
 use crate::view::{DecisionCard, MapView, PaneModel, PresenceRow};
@@ -25,6 +26,22 @@ pub const INBOX_FORMAT: &str = "planroom.inbox/v1";
 pub const ANSWER_FORMAT: &str = "planroom.answer/v1";
 /// `acks/<uid>`'s format tag.
 pub const ACK_FORMAT: &str = "planroom.ack/v1";
+impl Document for Snapshot {
+    const NAME: &'static str = "snapshot";
+}
+impl Document for LiveHead {
+    const NAME: &'static str = "live-head";
+}
+impl Document for InboxRow {
+    const NAME: &'static str = "inbox";
+}
+impl Document for Answer {
+    const NAME: &'static str = "answer";
+}
+impl Document for Ack {
+    const NAME: &'static str = "ack";
+}
+
 /// Where the snapshot is published, beside the page.
 pub const SNAPSHOT_PATH: &str = "data/snapshot.json";
 /// The snapshot's budget on the fixture.
@@ -64,6 +81,9 @@ pub struct Snapshot {
     /// The engine-authored state the page shows for a view it doesn't hold; its `next` names the
     /// read request a press writes to the inbox.
     pub unavailable: Empty,
+    /// Fields a later version added, kept and written back unchanged.
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Extra,
 }
 
 /// `planroom.answer/v1`: a read request's result, under `answers/<docId>`, or a view the snapshot
@@ -81,6 +101,9 @@ pub struct Answer {
     /// Why the read failed, when it did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorObject>,
+    /// Fields a later version added, kept and written back unchanged.
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Extra,
 }
 
 /// `planroom.live-head/v1`: the small `db` document `live/head` the session writes last in each
@@ -99,6 +122,9 @@ pub struct LiveHead {
     pub changes: Vec<StreamFrame>,
     /// Engine-authored lines for the conflicts the last import found.
     pub conflicts: Vec<String>,
+    /// Fields a later version added, kept and written back unchanged.
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Extra,
 }
 
 /// `planroom.inbox/v1`: one row a viewer's page writes to `inbox/{self}/events/{docId}`. Import
@@ -127,6 +153,10 @@ pub struct InboxRow {
     /// A paired device's HMAC-SHA256 over the docId and the row without its `sig` (DR-67).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sig: Option<String>,
+    /// Fields this version doesn't define, such as a forged `actor`: kept as data, never read as
+    /// authority, since import takes the author from the path.
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Extra,
 }
 
 /// `inbox/<uid>`: the viewer's own head, which the page bumps after each row, so the session can
@@ -173,6 +203,9 @@ pub struct Ack {
     pub imported_through: Seq,
     /// Each row's outcome, by its docId.
     pub rows: BTreeMap<String, AckStatus>,
+    /// Fields a later version added, kept and written back unchanged.
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Extra,
 }
 
 /// One line of `import -`'s stdin: an inbox row from the observed `ArtifactData list` result,
@@ -291,8 +324,95 @@ mod tests {
         let row = json!({"format": INBOX_FORMAT, "instance": "i1", "counter": 1, "command": "map",
             "request": {}, "base": 3, "at": "2026-10-26T00:00:00Z", "actor": "person:alice"});
         let parsed: InboxRow = serde_json::from_value(row).unwrap();
-        assert!(serde_json::to_value(&parsed).unwrap().get("actor").is_none());
+        // The row defines no author: a forged `actor` is only data in `extra`, never a field
+        // import reads.
+        assert_eq!(parsed.extra.get("actor"), Some(&json!("person:alice")));
         assert!(serde_json::from_value::<InboxRow>(json!({"format": INBOX_FORMAT})).is_err());
+    }
+
+    fn handle() -> Value {
+        json!({"command": "map", "args": [], "label": "Map"})
+    }
+
+    fn empty() -> Value {
+        json!({"reason": "snapshot_only", "next": handle()})
+    }
+
+    fn pane() -> Value {
+        json!({
+            "focus": {"breadcrumb": [], "level": "system", "lens": "all", "project": null, "seq": 0},
+            "decision": null, "more_decisions": 0,
+            "progress": {"stage": null, "done": 0, "total": 0, "handoffs_running": 0, "scan": "never"},
+            "diffs": [], "drift": {"summary": "", "rules_broken": 0, "machine_drift": 0}, "who": [],
+            "next": handle(), "minimap": {"level": "system", "blocks": [], "edges": []}, "empty": null
+        })
+    }
+
+    /// The oldest shape of each remote document: `format` v1 and only its required fields.
+    fn oldest() -> Vec<(&'static str, Value)> {
+        vec![
+            (
+                "snapshot",
+                json!({"format": SNAPSHOT_FORMAT, "workspace_id": "w", "seq": 1,
+                "published_at": "2026-10-26T00:00:00Z", "snippets": false, "maps": [], "cards": [],
+                "who": null, "pane": pane(), "answers": [], "capabilities": [], "unavailable": empty()}),
+            ),
+            (
+                "live-head",
+                json!({"format": LIVE_HEAD_FORMAT, "seq": 2, "snapshot_seq": 1, "cards": [],
+                "changes": [], "conflicts": []}),
+            ),
+            (
+                "inbox",
+                json!({"format": INBOX_FORMAT, "instance": "i1", "counter": 1, "command": "map",
+                "request": {}, "base": 1, "at": "2026-10-26T00:00:00Z"}),
+            ),
+            ("answer", json!({"format": ANSWER_FORMAT, "handle": handle(), "seq": 1, "result": null})),
+            ("ack", json!({"format": ACK_FORMAT, "imported_through": 2, "rows": {"d1": "imported"}})),
+        ]
+    }
+
+    /// Read `doc` as its type and write it back.
+    fn round_trip(name: &str, doc: Value) -> Result<Value, crate::format::ReadError> {
+        fn go<T: Document + Serialize>(doc: Value) -> Result<Value, crate::format::ReadError> {
+            Ok(serde_json::to_value(crate::format::read::<T>(doc)?).unwrap())
+        }
+        match name {
+            "snapshot" => go::<Snapshot>(doc),
+            "live-head" => go::<LiveHead>(doc),
+            "inbox" => go::<InboxRow>(doc),
+            "answer" => go::<Answer>(doc),
+            "ack" => go::<Ack>(doc),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn every_remote_document_loads_its_oldest_shape() {
+        for (name, doc) in oldest() {
+            let back = round_trip(name, doc.clone()).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(back["format"], doc["format"], "{name}");
+        }
+    }
+
+    #[test]
+    fn every_remote_document_keeps_an_unknown_field() {
+        for (name, mut doc) in oldest() {
+            doc["added_later"] = json!({"nested": [1, "two"]});
+            let back = round_trip(name, doc.clone()).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(back["added_later"], doc["added_later"], "{name}");
+        }
+    }
+
+    #[test]
+    fn every_remote_document_refuses_a_newer_format() {
+        for (name, mut doc) in oldest() {
+            doc["format"] = json!(format!("planroom.{name}/v{}", crate::SCHEMA_VERSION + 1));
+            match round_trip(name, doc) {
+                Err(crate::format::ReadError::Format(crate::format::FormatError::Newer { .. })) => {}
+                other => panic!("{name}: {other:?}"),
+            }
+        }
     }
 
     #[test]
