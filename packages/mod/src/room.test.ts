@@ -22,6 +22,9 @@ function ran(stdout: string): Ran {
 }
 
 const MAP = JSON.stringify(mapReply);
+/** The golden reply as an engine without the envelope's `summary` sends it: the mod's own line. */
+const { summary: GOLDEN_SUMMARY, ...withoutSummary } = mapReply;
+const BARE_MAP = JSON.stringify(withoutSummary);
 const OSC52 = "\u001b]52;c;aGVsbG8=\u0007";
 const RLO = String.fromCodePoint(0x202e);
 
@@ -47,8 +50,10 @@ test("room_text_within_budget: /room text is the summary line and handles, never
   // The golden map is 2 KB of JSON; its /room text is one line the model can read.
   expect(MAP.length).toBeGreaterThan(ROOM_TEXT_CHARS);
   const text = roomText("map", ran(MAP));
-  expect(text).toBe("10 blocks at the system level");
+  expect(text).toBe(GOLDEN_SUMMARY);
   expect(() => JSON.parse(text) as unknown).toThrow();
+  // With no summary in the envelope, the mod's own line, still never JSON.
+  expect(roomText("map", ran(BARE_MAP))).toBe("10 blocks at the system level");
   // The engine's own summary line, when the envelope carries one, and the handles to go on.
   const withSummary = JSON.stringify({
     ...mapReply,
@@ -111,7 +116,7 @@ test("a failed /room says the engine's message and hint, never the error object"
 
 test("an empty level says its empty state's next action", () => {
   const empty = JSON.stringify({
-    ...mapReply,
+    ...withoutSummary,
     result: {
       ...mapReply.result,
       level: "intent",
@@ -124,7 +129,7 @@ test("an empty level says its empty state's next action", () => {
   });
   expect(lineFor("map", "map", ran(empty))).toBe("Back to the system level");
   const bare = JSON.stringify({
-    ...mapReply,
+    ...withoutSummary,
     result: { ...mapReply.result, level: "intent", nodes: [], empty: null },
   });
   expect(lineFor("map", "map", ran(bare))).toBe(
@@ -166,7 +171,8 @@ test("security-5: an OSC 52 or RLO in a name or the summary never reaches the tr
 
 test("/room draws a map's full result: one row a block, then the handles", () => {
   const rows = roomRows("map", ran(MAP));
-  expect(rows[0]).toMatchObject({
+  expect(rows[0]).toMatchObject({ key: "summary", text: GOLDEN_SUMMARY });
+  expect(roomRows("map", ran(BARE_MAP))[0]).toMatchObject({
     key: "summary",
     text: "10 blocks at the system level",
   });
@@ -182,10 +188,7 @@ test("a pressed next action is shown until the pane's seq moves on", () => {
     label: "Open the containers",
   };
   const shown = shownFrom(handle, ran(MAP), 5);
-  expect(shown).toMatchObject({
-    level: "system",
-    line: "10 blocks at the system level",
-  });
+  expect(shown).toMatchObject({ level: "system", line: GOLDEN_SUMMARY });
   expect(shown?.blocks).toContain("kit");
   expect(shows(shown, handle, 5)).toBe(true);
   expect(shows(shown, handle, 6)).toBe(false);
