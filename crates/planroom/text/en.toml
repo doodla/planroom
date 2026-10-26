@@ -17,6 +17,7 @@ schema_mismatch = "update Planroom, then retry"
 
 [argument]
 focus_unsupported = "--focus isn't available yet; run map without it."
+unknown_leaf = "No command {leaf} in the catalogue; planroom schema --commands lists them."
 
 [warning]
 evidence_dropped = "{count} evidence items in {repo} didn't match commit {commit} and were dropped."
@@ -39,3 +40,12 @@ summary = "{count} at the top: {names}."
 scan = "Scanned {repo} at {commit}."
 version = "Tagged {label}."
 other = "A {kind} event."
+
+[version]
+summary = "planroom {version} for {target}, catalogue {hash}."
+
+[schema]
+summary = "Planroom contract schema version {version}: {id}"
+commands = "{count} commands in the catalogue."
+commands_label = "List every command"
+leaf = "{leaf} takes {request} and returns {result}."

@@ -63,5 +63,32 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "undo": "query",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "schema",
+    "idea": "setup",
+    "summary": "The contract schema's summary, or the command catalogue with --commands.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
+  },
+  {
+    "name": "version",
+    "idea": "setup",
+    "summary": "This engine's version, target, schema version and catalogue hash.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
   }
 ];
+
+/** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
+export const CATALOGUE_HASH = "01ba45f9afa2b267d1036467727e94fcd461d0258b906e5f4a41b505689016b4";

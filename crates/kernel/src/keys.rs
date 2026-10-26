@@ -14,6 +14,12 @@ pub fn sha256_hex(parts: &[&str]) -> String {
     hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// sha256 of `bytes` as lowercase hex, with nothing added: for a hash another tool recomputes,
+/// such as the catalogue hash.
+pub fn sha256_plain_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// JSON with every object's keys sorted, so equal values hash equally.
 pub fn canonical(value: &Value) -> String {
     fn sort(value: &Value) -> Value {

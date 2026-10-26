@@ -39,7 +39,7 @@ export type Band = "auto" | "card" | "escalate";
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "CommandName".
  */
-export type CommandName = ("map" | "focus" | "scan" | "watch") | string;
+export type CommandName = ("map" | "focus" | "scan" | "watch" | "schema" | "version") | string;
 /**
  * An error's category; the exit code and the HTTP status follow it.
  *
@@ -100,6 +100,14 @@ export type Command =
   | {
       command: "watch";
       args: WatchReq;
+    }
+  | {
+      command: "schema";
+      args: SchemaReq;
+    }
+  | {
+      command: "version";
+      args: VersionReq;
     };
 /**
  * The five fixed levels, from the plan down to the code.
@@ -541,6 +549,80 @@ export interface WatchReq {
   since: number | null;
 }
 /**
+ * `planroom schema [--commands]`.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "SchemaReq".
+ */
+export interface SchemaReq {
+  /**
+   * List the command catalogue instead of the schema's summary.
+   */
+  commands: boolean;
+  /**
+   * One leaf's request and result types, with the definitions they reference.
+   */
+  command: string | null;
+}
+/**
+ * `planroom version`.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "VersionReq".
+ */
+export interface VersionReq {}
+/**
+ * What `schema --commands` returns: every leaf, summary first.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "CommandList".
+ */
+export interface CommandList {
+  summary: string;
+  items: LeafListing[];
+}
+/**
+ * One leaf as `schema --commands` lists it.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "LeafListing".
+ */
+export interface LeafListing {
+  /**
+   * The command name, its path joined with spaces.
+   */
+  name: string;
+  /**
+   * `levels`, `lenses`, `intent`, `diffs`, `decisions` or `setup`.
+   */
+  idea: string;
+  /**
+   * `any` or `person_only`.
+   */
+  actor: string;
+  /**
+   * `read`, `change` or `handoff`.
+   */
+  class: string;
+  /**
+   * The default output budget; 0 for a stream.
+   */
+  budget_tokens: number;
+  /**
+   * `edit`, `compensate`, `query` or `not_undoable`.
+   */
+  undo: string;
+  schema: Handle1;
+}
+/**
+ * An exact invocation a surface can offer, such as a drill-down or the next action.
+ */
+export interface Handle1 {
+  command: CommandName;
+  args: string[];
+  label: string;
+}
+/**
  * One step of the breadcrumb.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -725,7 +807,7 @@ export interface Envelope {
   /**
    * A command name from the catalogue, its path joined with spaces.
    */
-  command: ("map" | "focus" | "scan" | "watch") | string;
+  command: ("map" | "focus" | "scan" | "watch" | "schema" | "version") | string;
   result?: unknown;
   error?: ErrorObject | null;
   meta: Meta;
@@ -1070,6 +1152,21 @@ export interface HandoffStep1 {
   note: string | null;
 }
 /**
+ * What `schema --command LEAF` returns: the leaf's request and result type names, and every
+ * definition they reference, keyed by name.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "LeafSchema".
+ */
+export interface LeafSchema {
+  summary: string;
+  request: string;
+  result: string;
+  defs: {
+    [k: string]: unknown;
+  };
+}
+/**
  * Edges lifted to the nearest ancestors at the view's level; `count == children.len()`.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -1195,7 +1292,7 @@ export interface PaneModel {
   diffs: DiffLine[];
   drift: DriftLine;
   who: PresenceRow[];
-  next: Handle1;
+  next: Handle2;
   minimap: MiniMap;
   empty: Empty | null;
 }
@@ -1228,7 +1325,7 @@ export interface PresenceRow {
 /**
  * An exact invocation a surface can offer, such as a drill-down or the next action.
  */
-export interface Handle1 {
+export interface Handle2 {
   command: CommandName;
   args: string[];
   label: string;
@@ -1242,4 +1339,41 @@ export interface Handle1 {
 export interface ScanResult {
   map: MapView;
   next: Handle;
+}
+/**
+ * What `schema` returns: the schema's ID and version, and handles to read further.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "SchemaSummary".
+ */
+export interface SchemaSummary {
+  summary: string;
+  /**
+   * The serialize view's `$id`.
+   */
+  id: string;
+  schema_version: number;
+  handles: Handle[];
+}
+/**
+ * What `version` returns; the mod and the resolver match an engine by its catalogue hash.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "VersionInfo".
+ */
+export interface VersionInfo {
+  version: string;
+  /**
+   * The commit the binary was built from, when the build recorded one.
+   */
+  git_commit: string | null;
+  /**
+   * The target triple the binary was built for.
+   */
+  target: string;
+  schema_version: number;
+  /**
+   * sha256 of the catalogue as `schema --commands` lists it.
+   */
+  catalogue_hash: string;
 }

@@ -88,6 +88,8 @@ pub enum Command {
     Focus(FocusReq),
     Scan(ScanReq),
     Watch(WatchReq),
+    Schema(SchemaReq),
+    Version(VersionReq),
 }
 
 const MAP: CommandSpec = CommandSpec {
@@ -172,9 +174,37 @@ const WATCH: CommandSpec = CommandSpec {
     room: false,
 };
 
+const SCHEMA: CommandSpec = CommandSpec {
+    path: &["schema"],
+    idea: Idea::Setup,
+    summary: "The contract schema's summary, or the command catalogue with --commands.",
+    actor: ActorRule::Any,
+    class: Class::Read,
+    budget_tokens: 1_500,
+    needs_base: false,
+    errors: &[ErrorCode::InvalidArgument, ErrorCode::Internal],
+    undo: Undo::Query,
+    tool: None,
+    room: false,
+};
+
+const VERSION: CommandSpec = CommandSpec {
+    path: &["version"],
+    idea: Idea::Setup,
+    summary: "This engine's version, target, schema version and catalogue hash.",
+    actor: ActorRule::Any,
+    class: Class::Read,
+    budget_tokens: 1_500,
+    needs_base: false,
+    errors: &[ErrorCode::Internal],
+    undo: Undo::Query,
+    tool: None,
+    room: false,
+};
+
 impl Command {
     /// Every leaf's spec, in catalogue order.
-    pub const SPECS: &'static [CommandSpec] = &[MAP, FOCUS, SCAN, WATCH];
+    pub const SPECS: &'static [CommandSpec] = &[MAP, FOCUS, SCAN, WATCH, SCHEMA, VERSION];
 
     pub const fn spec(&self) -> &'static CommandSpec {
         match self {
@@ -182,11 +212,79 @@ impl Command {
             Command::Focus(_) => &FOCUS,
             Command::Scan(_) => &SCAN,
             Command::Watch(_) => &WATCH,
+            Command::Schema(_) => &SCHEMA,
+            Command::Version(_) => &VERSION,
         }
     }
 
     pub fn name(&self) -> CommandName {
         CommandName(self.spec().name())
+    }
+
+    /// The catalogue as `schema --commands` lists it, in catalogue order. The catalogue hash is
+    /// the sha256 of this list's compact JSON.
+    pub fn listing() -> Vec<LeafListing> {
+        Command::SPECS.iter().map(LeafListing::of).collect()
+    }
+}
+
+/// One leaf as `schema --commands` lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LeafListing {
+    /// The command name, its path joined with spaces.
+    pub name: String,
+    /// `levels`, `lenses`, `intent`, `diffs`, `decisions` or `setup`.
+    pub idea: String,
+    /// `any` or `person_only`.
+    pub actor: String,
+    /// `read`, `change` or `handoff`.
+    pub class: String,
+    /// The default output budget; 0 for a stream.
+    pub budget_tokens: u32,
+    /// `edit`, `compensate`, `query` or `not_undoable`.
+    pub undo: String,
+    /// The `schema --command LEAF` handle for the leaf's types.
+    pub schema: Handle,
+}
+
+impl LeafListing {
+    fn of(spec: &CommandSpec) -> LeafListing {
+        let idea = match spec.idea {
+            Idea::Levels => "levels",
+            Idea::Lenses => "lenses",
+            Idea::Intent => "intent",
+            Idea::Diffs => "diffs",
+            Idea::Decisions => "decisions",
+            Idea::Setup => "setup",
+        };
+        let actor = match spec.actor {
+            ActorRule::Any => "any",
+            ActorRule::PersonOnly => "person_only",
+        };
+        let class = match spec.class {
+            Class::Read => "read",
+            Class::Change => "change",
+            Class::Handoff => "handoff",
+        };
+        let undo = match spec.undo {
+            Undo::Edit => "edit",
+            Undo::Compensate => "compensate",
+            Undo::Query => "query",
+            Undo::NotUndoable(_) => "not_undoable",
+        };
+        LeafListing {
+            name: spec.name(),
+            idea: idea.into(),
+            actor: actor.into(),
+            class: class.into(),
+            budget_tokens: spec.budget_tokens,
+            undo: undo.into(),
+            schema: Handle {
+                command: CommandName("schema".into()),
+                args: vec!["--command".into(), spec.name()],
+                label: spec.summary.into(),
+            },
+        }
     }
 }
 
@@ -258,6 +356,63 @@ pub struct WatchReq {
     /// Stream the events after this `seq`; the store's latest when absent.
     #[arg(long)]
     pub since: Option<Seq>,
+}
+
+/// `planroom schema [--commands]`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct SchemaReq {
+    /// List the command catalogue instead of the schema's summary.
+    #[arg(long, conflicts_with = "command")]
+    #[serde(default)]
+    pub commands: bool,
+    /// One leaf's request and result types, with the definitions they reference.
+    #[arg(long, value_name = "LEAF")]
+    #[serde(default)]
+    pub command: Option<String>,
+}
+
+/// `planroom version`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct VersionReq {}
+
+/// What `version` returns; the mod and the resolver match an engine by its catalogue hash.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct VersionInfo {
+    pub version: String,
+    /// The commit the binary was built from, when the build recorded one.
+    pub git_commit: Option<String>,
+    /// The target triple the binary was built for.
+    pub target: String,
+    pub schema_version: u32,
+    /// sha256 of the catalogue as `schema --commands` lists it.
+    pub catalogue_hash: String,
+}
+
+/// What `schema` returns: the schema's ID and version, and handles to read further.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SchemaSummary {
+    pub summary: String,
+    /// The serialize view's `$id`.
+    pub id: String,
+    pub schema_version: u32,
+    pub handles: Vec<Handle>,
+}
+
+/// What `schema --command LEAF` returns: the leaf's request and result type names, and every
+/// definition they reference, keyed by name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct LeafSchema {
+    pub summary: String,
+    pub request: String,
+    pub result: String,
+    pub defs: serde_json::Map<String, serde_json::Value>,
+}
+
+/// What `schema --commands` returns: every leaf, summary first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CommandList {
+    pub summary: String,
+    pub items: Vec<LeafListing>,
 }
 
 /// What `scan` returns: the map at the top level with the default lens, and the next action.

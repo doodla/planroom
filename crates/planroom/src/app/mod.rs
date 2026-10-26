@@ -4,6 +4,7 @@
 pub mod error;
 pub mod map;
 pub mod scan;
+pub mod version;
 pub mod workspace;
 
 use planroom_contract::{EventId, Level, MapView, Seq, Warning};

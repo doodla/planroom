@@ -19,10 +19,12 @@ self="$here/planroom"
 data="${PLANROOM_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/planroom}"
 
 version=''
+catalogue=''
 repo=''
 while IFS='=' read -r key value; do
   case $key in
     PLANROOM_ENGINE_VERSION) version=$value ;;
+    PLANROOM_CATALOGUE_HASH) catalogue=$value ;;
     PLANROOM_REPO) repo=$value ;;
   esac
 done <"$here/engine.env"
@@ -90,6 +92,11 @@ say() {
 # The version an engine reports, from `planroom --version` ("planroom 0.1.0").
 engine_version() {
   "$1" --version 2>/dev/null | awk 'NR == 1 { print $2 }' || true
+}
+
+# The catalogue hash an engine reports, from `planroom version --json`; empty when it reports none.
+engine_catalogue() {
+  "$1" version --json 2>/dev/null | sed -n 's/.*"catalogue_hash":"\([^"]*\)".*/\1/p' | head -n 1 || true
 }
 
 sha256_of() {
@@ -402,7 +409,7 @@ resolve() {
     stale=''
     for candidate in "$checkout/target/release/planroom" "$checkout/target/debug/planroom"; do
       [ -f "$candidate" ] && [ -x "$candidate" ] || continue
-      if [ "$(engine_version "$candidate")" = "$version" ]; then
+      if [ -n "$catalogue" ] && [ "$(engine_catalogue "$candidate")" = "$catalogue" ]; then
         if [ -z "$best" ] || newer_than "$candidate" "$best"; then
           best=$candidate
         fi
@@ -416,7 +423,7 @@ resolve() {
       return 0
     fi
     if [ -n "$stale" ]; then
-      unavailable stale_build "The engine built in $checkout isn't version $version, this plugin's." \
+      unavailable stale_build "The engine built in $checkout doesn't serve this plugin's command catalogue." \
         "cd $checkout && cargo build -p planroom"
     fi
   fi

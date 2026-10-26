@@ -109,12 +109,23 @@ export interface CatalogueLeaf {{
 
 /** Every leaf, in catalogue order. */
 export const CATALOGUE: readonly CatalogueLeaf[] = {body};
-"
+
+/** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
+export const CATALOGUE_HASH = \"{hash}\";
+",
+        hash = catalogue_hash()?
     );
     Ok(Group {
         name: "packages/contract/src/generated/catalogue.ts",
         files: vec![Generated { path: "packages/contract/src/generated/catalogue.ts".into(), contents }],
     })
+}
+
+/// sha256 of the compact JSON of `Command::listing()`, as the engine's `version --json` reports it.
+pub fn catalogue_hash() -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let listing = serde_json::to_string(&Command::listing()).map_err(|e| e.to_string())?;
+    Ok(Sha256::digest(listing.as_bytes()).iter().map(|b| format!("{b:02x}")).collect())
 }
 
 fn leaf_json(spec: &CommandSpec) -> serde_json::Value {
@@ -167,11 +178,15 @@ fn dependency_cruiser(root: &Path) -> Result<Group, String> {
     })
 }
 
-/// `plugin/scripts/engine.env`: the engine version the resolver fetches and the repo it comes from.
+/// `plugin/scripts/engine.env`: the engine version the resolver fetches, the catalogue hash a checkout
+/// build must report, and the repo it comes from.
 fn engine_env(root: &Path) -> Result<Group, String> {
     let version = plugin::workspace_version(root)?;
     let repo = plugin::workspace_repo(root)?;
-    let contents = format!("# {GENERATED_HEADER}\nPLANROOM_ENGINE_VERSION={version}\nPLANROOM_REPO={repo}\n");
+    let hash = catalogue_hash()?;
+    let contents = format!(
+        "# {GENERATED_HEADER}\nPLANROOM_ENGINE_VERSION={version}\nPLANROOM_CATALOGUE_HASH={hash}\nPLANROOM_REPO={repo}\n"
+    );
     Ok(Group {
         name: "plugin/scripts/engine.env",
         files: vec![Generated { path: "plugin/scripts/engine.env".into(), contents }],

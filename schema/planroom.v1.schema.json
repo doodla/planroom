@@ -282,9 +282,60 @@
             "command",
             "args"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "schema"
+            },
+            "args": {
+              "$ref": "#/$defs/SchemaReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "version"
+            },
+            "args": {
+              "$ref": "#/$defs/VersionReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
         }
       ],
       "description": "One variant per catalogue leaf; the request travels as `args`."
+    },
+    "CommandList": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LeafListing"
+          }
+        }
+      },
+      "required": [
+        "summary",
+        "items"
+      ],
+      "description": "What `schema --commands` returns: every leaf, summary first."
     },
     "CommandName": {
       "description": "A command name from the catalogue, its path joined with spaces.",
@@ -295,7 +346,9 @@
             "map",
             "focus",
             "scan",
-            "watch"
+            "watch",
+            "schema",
+            "version"
           ]
         },
         {
@@ -1357,6 +1410,76 @@
       ],
       "description": "Which layer a fact or edit belongs to."
     },
+    "LeafListing": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The command name, its path joined with spaces."
+        },
+        "idea": {
+          "type": "string",
+          "description": "`levels`, `lenses`, `intent`, `diffs`, `decisions` or `setup`."
+        },
+        "actor": {
+          "type": "string",
+          "description": "`any` or `person_only`."
+        },
+        "class": {
+          "type": "string",
+          "description": "`read`, `change` or `handoff`."
+        },
+        "budget_tokens": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The default output budget; 0 for a stream."
+        },
+        "undo": {
+          "type": "string",
+          "description": "`edit`, `compensate`, `query` or `not_undoable`."
+        },
+        "schema": {
+          "$ref": "#/$defs/Handle",
+          "description": "The `schema --command LEAF` handle for the leaf's types."
+        }
+      },
+      "required": [
+        "name",
+        "idea",
+        "actor",
+        "class",
+        "budget_tokens",
+        "undo",
+        "schema"
+      ],
+      "description": "One leaf as `schema --commands` lists it."
+    },
+    "LeafSchema": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "request": {
+          "type": "string"
+        },
+        "result": {
+          "type": "string"
+        },
+        "defs": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "summary",
+        "request",
+        "result",
+        "defs"
+      ],
+      "description": "What `schema --command LEAF` returns: the leaf's request and result type names, and every\ndefinition they reference, keyed by name."
+    },
     "Level": {
       "type": "string",
       "enum": [
@@ -2295,6 +2418,59 @@
       ],
       "description": "What one repo's scan found."
     },
+    "SchemaReq": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "type": "boolean",
+          "description": "List the command catalogue instead of the schema's summary.",
+          "default": false
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "One leaf's request and result types, with the definitions they reference.",
+          "default": null
+        }
+      },
+      "required": [
+        "commands",
+        "command"
+      ],
+      "description": "`planroom schema [--commands]`."
+    },
+    "SchemaSummary": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string",
+          "description": "The serialize view's `$id`."
+        },
+        "schema_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "handles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Handle"
+          }
+        }
+      },
+      "required": [
+        "summary",
+        "id",
+        "schema_version",
+        "handles"
+      ],
+      "description": "What `schema` returns: the schema's ID and version, and handles to read further."
+    },
     "Size": {
       "type": "object",
       "properties": {
@@ -2525,6 +2701,46 @@
         "reject"
       ],
       "description": "A review's outcome."
+    },
+    "VersionInfo": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "git_commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The commit the binary was built from, when the build recorded one."
+        },
+        "target": {
+          "type": "string",
+          "description": "The target triple the binary was built for."
+        },
+        "schema_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "catalogue_hash": {
+          "type": "string",
+          "description": "sha256 of the catalogue as `schema --commands` lists it."
+        }
+      },
+      "required": [
+        "version",
+        "git_commit",
+        "target",
+        "schema_version",
+        "catalogue_hash"
+      ],
+      "description": "What `version` returns; the mod and the resolver match an engine by its catalogue hash."
+    },
+    "VersionReq": {
+      "type": "object",
+      "description": "`planroom version`."
     },
     "Warning": {
       "type": "object",

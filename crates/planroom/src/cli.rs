@@ -10,8 +10,8 @@ use std::time::Instant;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
-    Command, CommandName, Envelope, MapReq, Meta, SCHEMA_VERSION, ScanReq, Seq, Size, StreamFrame, Warning,
-    WatchReq,
+    Command, CommandName, Envelope, MapReq, Meta, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, Size, StreamFrame,
+    VersionReq, Warning, WatchReq,
 };
 use planroom_store::Tail;
 use serde::Serialize;
@@ -39,6 +39,10 @@ enum Cmd {
     Map(MapReq),
     /// Stream the workspace's committed events as NDJSON frames.
     Watch(WatchReq),
+    /// The contract schema's summary, or the command catalogue with --commands.
+    Schema(SchemaReq),
+    /// This engine's version, target, schema version and catalogue hash.
+    Version(VersionReq),
 }
 
 pub fn main() -> ExitCode {
@@ -62,6 +66,14 @@ pub fn main() -> ExitCode {
             finish(cli.json, &name.0, app::map::run(&req, &cwd), started)
         }
         Cmd::Watch(req) => watch(cli.json, &req, &cwd),
+        Cmd::Schema(req) => {
+            let name = Command::Schema(req.clone()).name();
+            finish(cli.json, &name.0, app::version::schema(&req), started)
+        }
+        Cmd::Version(req) => {
+            let name = Command::Version(req).name();
+            finish(cli.json, &name.0, app::version::version(), started)
+        }
     }
 }
 

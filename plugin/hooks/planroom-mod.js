@@ -52,6 +52,30 @@ var CATALOGUE = [
     "undo": "query",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "schema",
+    "idea": "setup",
+    "summary": "The contract schema's summary, or the command catalogue with --commands.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
+  },
+  {
+    "name": "version",
+    "idea": "setup",
+    "summary": "This engine's version, target, schema version and catalogue hash.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
   }
 ];
 
