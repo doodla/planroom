@@ -14,6 +14,13 @@ Planroom is a tabletop where your system is laid out as toy blocks. You look dow
 | Diffs | Ghost blocks (translucent, proposed) and strips of tape (green added, red removed, amber changed). | Ghosts render translucent until accepted; tape marks on changed edges. | `Code format="diff"` previews; ghosts listed with a dim style. |
 | Decisions | A card dealt to you, with the pick already face up. | A card with the pre-selected choice and one-tap buttons. | The decision card in the pane, choices on hotkeys. |
 
+Everything else lives inside those five, so nothing adds a sixth [DR-77]:
+
+- **Pairing** is a Decisions card. On an Artifact device the owner hasn't paired, or whose key the browser dropped, the face-up card is "Pair this device", with the code field on it. On the local canvas, while remote mode is on, the card stack holds a remote card, "Shared as an Artifact", whose choice "Pair a phone" shows the code. In the pane it is an entry of the remote picker.
+- **Ask Claude** is a choice on a block's evidence sheet, under Levels, or on a card, under Decisions.
+- **Signing in** has no control. A tab that needs a fresh link shows a full-page empty state with its one next action.
+- **Pickers** in the pane are cards dealt face up, and each belongs to the idea it picks from: lenses to Lenses, projects and stages to Intent, hand-offs to Diffs, and the remote actions, which act on cards and edits, to Decisions.
+
 ## Palette
 
 Colors are CSS variables in `packages/ui`, with a designed dark mode, not an inverted one. The table is felt, not paper: never a cream or off-white background. Panels stay in the felt family too, because the bottom sheet at half height covers half a phone screen.
@@ -29,11 +36,12 @@ Colors are CSS variables in `packages/ui`, with a designed dark mode, not an inv
 | `--block-library` | `#2f5bd3` cobalt | `#7f9dff` | Libraries |
 | `--block-store` | `#f2b632` sunflower | `#f5c95c` | Datastores and queues |
 | `--block-infra` | `#6b8f71` sage | `#8fb596` | Tooling and observability |
+| `--block-service-border`, `--block-library-border`, `--block-store-border`, `--block-infra-border` | `#bc2f14`, `#1f43a8`, `#835c08`, `#4f6953` | `#ffa48e`, `#aabdff`, `#f8dc96`, `#b4cfb8` | Block borders: a darker shade in light mode and a lighter one in dark mode, at least 4.5:1 on the felt [DR-77] |
 | `--pass`, `--fail`, `--wait` | `#1a6b43`, `#b3261e`, `#6b5c0c` | `#5fd39a`, `#ff8a80`, `#e6cf6a` | Semantic states and diff tape, separate from block colors |
 
 Block colors encode a Container-level kind's `tone`, which its pack declares as `service`, `library`, `store` or `infra`, one per block token above. A kind with no tone draws as `--card` with its label. Surfaces read the tone from the view model and never switch on a kind ID [DR-46]. Block colors are never the only signal: each block also carries its kind as a label or icon. Tape isn't told by color alone either: added tape carries `+`, removed tape `−` and changed tape `~`.
 
-Every token meets a contrast bar against `--table` and `--card` in both themes: 4.5:1 for text, and 3:1 for marks such as chalk outlines, tape and edges. A block's fill leans on its darker border and its label, so the border is the mark that counts. `packages/ui/src/tokens.test.ts::contrast_meets_the_bar` checks every pair. White chalk on the light felt measured 1.24:1, which is why light mode draws dark chalk.
+Every token meets a contrast bar against `--table` and `--card` in both themes: 4.5:1 for text, and 3:1 for marks such as chalk outlines, tape and edges. A block's fill leans on its border and its label, so the border is the mark that counts. The bar checks the border tokens for blocks, since the fills alone measure as low as 1.39:1 on the light felt. `packages/ui/src/tokens.test.ts::contrast_meets_the_bar` checks every pair [DR-77]. White chalk on the light felt measured 1.24:1, which is why light mode draws dark chalk.
 
 ## Type
 
@@ -47,7 +55,7 @@ All three are OFL-1.1. The canvas self-hosts them from `@fontsource` packages. T
 
 ## Shape and depth
 
-- Blocks are chunky: 12 px radius, a 2 px border in a darker shade of the block color, and a 3 px offset shadow below, like a toy brick.
+- Blocks are chunky: 12 px radius, a 2 px border in the tone's `--block-*-border` token, and a 3 px offset shadow below, like a toy brick.
 - Panels use the same border and shadow. Buttons are rectangles with an 8 px radius, not pills.
 - Depth means level: a block that holds others shows a lid edge.
 

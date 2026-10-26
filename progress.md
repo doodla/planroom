@@ -11,8 +11,8 @@ The full record of the build that `KICKOFF.md` describes. A later session should
 |---|---|
 | 1. Understand | research done; mod and Artifact spikes in main session |
 | 2. Architecture | done: 3 candidates, 3 judges, synthesis; main agent decided DR-43 |
-| 3. Architecture review | rounds 1 and 2 fixed; round 3 (last) next |
-| 4. Walking skeleton | not started |
+| 3. Architecture review | done: 3 rounds (49, 43, 29 material findings), all applied or accepted as risk |
+| 4. Walking skeleton | WS1 to WS4 merged; WS5 to WS8 next |
 | 5. Milestones M1–M5 | not started |
 | 6. Release | not started |
 
@@ -76,13 +76,13 @@ From the synthesized architecture, in agent-hours of one focused build agent. Pe
 
 | Milestone | Estimate | Twice | Actual |
 |---|---|---|---|
-| Walking skeleton | 26 h | 52 h | |
-| M1 kernel, store, code and plan packs, mod and canvas basics | 93 h | 186 h | |
-| M2 diffs, reconciliation, hand-off, Jev decisions | 82 h | 164 h | |
+| Walking skeleton | 28 h | 56 h | |
+| M1 kernel, store, code and plan packs, mod and canvas basics | 115 h | 230 h | |
+| M2 diffs, reconciliation, hand-off, Jev decisions | 92 h | 184 h | |
 | M3 multi-repo, observability, release | 30 h | 60 h | |
 | M4 artifacts, state machines, anatomy | 35 h | 70 h | |
-| M5 context curation, polish, release | 67 h | 134 h | |
-| Total | 333 h (280 h before the architecture review) | | |
+| M5 context curation, polish, release | 76 h | 152 h | |
+| Total | 376 h (280 h before the review, 333 h after round 2) | | |
 
 ## Spend log
 
@@ -111,3 +111,4 @@ From the synthesized architecture, in agent-hours of one focused build agent. Pe
 - 2026-10-26: Architecture review round 2: fewer, deeper findings (data_version misses a connection's own commits; derived idempotency keys replay legitimate repeats; per-repo scan leases race on the link snapshot; the pack set was per-process). Owner decisions E1 to E17, fixes as DR-61 to DR-71, owner follow-ups as DR-72 (ECDSA person tokens so the store holds no signing key; Git LFS filters allowed; S7 fast-forwards). The estimate grew to 333 agent-hours as the design closed real gaps (M1 93 h, M2 82 h, M5 67 h).
 - 2026-10-26: ENGINE track merged (WS3 and WS4). Bet 1 holds: 3 writers x 500 commits at about 1,650 commits/s, 0 `SQLITE_BUSY`, commit p99 about 2 ms (a 632 ms busy-back-off tail), `watch` commit-to-frame p99 about 195 ms, own commits under 4 ms through the commit hook, kill-after-commit retries replay. Details in `docs/contributing/research/ws4-concurrency.md`. Implementation notes to fold into the docs after the round 3 fix pass: pins at least 14 days old (rusqlite 0.40.2, sha2 0.11.0, uuid 1.28.0, saphyr-parser 0.1.0); `events.reply` column for DR-8's stored reply; scan keys get `#after:<seq>` so A->B->A->B moves don't repeat a key; the walk reads the working tree but evidence is checked against HEAD (dirty lines dropped); directories, repos and empty files carry `Evidence::Ref`; a `code.depends_on` hint for compose `depends_on`; repo node ID `<repo>:repo:<repo>`; `serde_json` in store and `uuid`, `toml` in planroom beyond the area allow-lists. Not built yet: `blob_facts`, `fact_rev`, pre-migration `VACUUM INTO`, the WAL-unsafe filesystem check, `packs_mismatch`, field-level compare-and-set, link and reconcile steps.
 - 2026-10-26: PLUGIN track merged after resolving the xtask command table and updating its golden envelope to the engine's `Meta`; `cargo xtask check` (22 steps, including `claude plugin validate --strict` on `.` and `plugin/`) and `cargo xtask test` (cargo, vitest 35, `claude plugin test target/mod-test` 4 of 4) pass; installer suite 15 of 15 under dash (ShellCheck and BusyBox not installable here; CI runs them). Notes to fold in: the host loads a hooks module only when `register` is exported on its own declaration, so xtask rewrites esbuild's export list; plain `gen` and `gen --mod` both build the bundle; the mod's fallback strings are hand-written until `en.toml` exists; the contract marks `scan` NotUndoable and `CommandSpec` lacks `spends`; the engine atom type lives in xtask; generated depcruise rules let only the mod import `claude-code` and only the mod's tests read golden JSON (a boundary change to ratify in a DR); `no-misused-promises` is off for `register.tsx` and the plugin tests (eslint took 11 minutes on the mod API types; tsc still checks them); the plugin carries `AGENTS.md`, not `CLAUDE.md` (validate `--strict` warns on it); resolver reasons `override_missing` and `no_build`; the 2.1.310 `claude-code.d.ts` is vendored in `packages/mod/vendor/`. Next engine work: `version --json`, `focus`, `schema --commands`, the string catalog.
+- 2026-10-26: **Phase 3 closed.** Three review rounds (9 lenses each, an independent refuter per lens): 102, 95 and 75 findings, of which 49, 43 and 29 were material and upheld; round 3's fixes added DR-73 to DR-80. Accepted risks, signed off by the main agent with their reasons in `docs/contributing/research/arch-review/round-3/accepted-risk.md`: unasked-4 (a single-repo store travels with a copied `.git`), security-1 (approved checks run implementer-written code inside its sandboxed clone), security-2 (a model-republished page can read the pairing key; forged rows are attributed, undoable edits at worst), security-4 (re-keying by a press stays a guardrail between processes of one OS user), plus the partly applied ux-4 and cost-1. Known gaps per round are in each round's `known-gaps.md`.
