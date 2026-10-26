@@ -2,7 +2,9 @@
   "format": "planroom.truth/v1",
   "about": [
     "Frozen expected answers for the Acme Shop fixture. Paths are '<repo>/<repo-relative path>' unless they start with 'examples/'. Evidence 'contains' is an exact substring of line 'line' (1-based) of that file: on main, or on 'branch' when given, or in the commit named by 'commit_subject' (on 'branch') when given, or in the S4 state named by 'at' ('post_handoff', 'post_merges'; see scenarios.S4). PR thread anchors also give 'head_line', the same text's line at the PR head. Compose wiring and code both count as evidence for a relation. Lists of containers, components and relations are what must exist; a scan may find more.",
-    "repos.<repo>.languages are the languages of that repo's components, including config languages such as yaml and json."
+    "repos.<repo>.languages are the languages of that repo's components, including config languages such as yaml and json.",
+    "repos.<repo>.languages is a minimum: an implementation must report at least these languages and may report more (for example json or sql).",
+    "Components are listed at a mixed granularity on purpose: Go package directories, storefront src subdirectories, kit source files, worker modules, the orders API spec and platform config files. A listed component passes if an entity with that repo-relative path exists at some level of the component hierarchy."
   ],
   "repos": {
     "storefront": {
@@ -1379,7 +1381,7 @@
           "latest": "0.9.0"
         }
       ],
-      "rule": "A consumer is stale when a pinned package version or deployed image tag is older than the dependency's latest release tag.",
+      "rule": "A consumer is stale when a pinned package version or deployed image tag of a dependency built from a workspace repo is older than that repo's latest release tag. Third-party pins such as redis:7.4 don't count.",
       "notes": [
         "storefront/src/api/orders.schema.ts is a generated client that predates later orders spec changes. It is not a pinned version, so it does not count as stale; S12's runs rely on it being out of date."
       ]
@@ -1986,12 +1988,11 @@
         "architecture_review",
         "walking_skeleton",
         "milestones",
-        "release",
-        "done"
+        "release"
       ],
       "initial": "understand",
       "terminal": [
-        "done"
+        "release"
       ],
       "shape": "linear",
       "transitions": [
@@ -2023,12 +2024,6 @@
           "from": "milestones",
           "event": "complete",
           "to": "release",
-          "guard": null
-        },
-        {
-          "from": "release",
-          "event": "complete",
-          "to": "done",
           "guard": null
         }
       ],
@@ -2211,9 +2206,13 @@
           ],
           "notes": [
             "Context reviews (kickoff-snapshot.md:359 and :362) are curation activities, not reviews under the protocol: they have no reviewers, lenses or verifier. Only reviews of work count, so there are 7 instances.",
-            "accepted_risk may be empty: when the round-3 fixes leave nothing material, the record of accepted risk is empty."
+            "accepted_risk may be empty: when the round-3 fixes leave nothing material, the record of accepted risk is empty.",
+            "Reading of kickoff-snapshot.md:322-324 used here: round 3 still fixes what it found, then whatever is left is recorded as accepted risk."
           ]
         }
+      ],
+      "notes": [
+        "<process> names six phases and no events. release is terminal. The event name complete is a placeholder; comparison ignores event names and compares states and the from-to order."
       ]
     }
   },
@@ -2627,7 +2626,7 @@
             "to": "orders",
             "kind": "http",
             "via": "POST /orders/{id}/events",
-            "note": "orders already serves this endpoint on main; worker-side evidence exists only after the hand-off (see post_handoff).",
+            "note": "orders already serves this endpoint on main; worker-side evidence exists only after the hand-off (see post_handoff). via names the intended endpoint; matching is by from, to and kind. After the hand-off the worker also calls GET /orders/{id}.",
             "evidence": [
               {
                 "path": "orders/api/openapi.yaml",
@@ -3116,10 +3115,10 @@
         ]
       },
       "impact_radius": {
-        "rule": "every component, in any container, that holds evidence (code or compose wiring) of an added or removed relation, plus the containers of those components",
+        "rule": "At S4 step 2, on the main state: every component, in any container, that holds evidence (code, an API spec, or compose wiring) of a relation the intended change adds or removes, plus the containers of those components. An http relation's evidence includes the callee's route handler and the spec path that declares it.",
         "derived_from": [
-          "scenarios.S4.post_handoff.relations_added[].evidence",
-          "scenarios.S4.post_handoff.relations_removed[].evidence_before"
+          "scenarios.S4.intended_change.relations_added[].evidence",
+          "relations[worker -> orders-db].evidence"
         ],
         "must_include": {
           "containers": [
@@ -3131,8 +3130,7 @@
             "orders/api",
             "orders/internal/http",
             "platform/docker-compose.yml",
-            "worker/worker/db.py",
-            "worker/worker/orders_client.py"
+            "worker/worker/db.py"
           ]
         },
         "must_exclude": {
@@ -3152,11 +3150,13 @@
           ]
         },
         "notes": [
-          "must_include is exactly what the rule yields from this truth's relations and evidence.",
-          "orders-db is the far end of the removed relation but holds no evidence (it has no components), so the rule neither includes nor excludes it.",
-          "worker/worker/config.py and worker/worker/jobs.py are touched by the worker patch but hold no relation evidence; the rule neither includes nor excludes them.",
-          "storefront's own ORDERS_URL compose line evidences storefront -> orders, which the change leaves alone; that is why storefront is excluded."
-        ]
+          "must_include is the minimum the rule yields from this truth's evidence. An implementation may also include other components of the same containers (for example worker/worker/config.py, which reads DATABASE_URL); it must include none of must_exclude.",
+          "orders-db is the far end of the removed relation but has no components, so it holds no evidence; the rule neither includes nor excludes it.",
+          "storefront's own ORDERS_URL compose line evidences storefront -> orders, which the change leaves alone; that is why storefront is excluded.",
+          "Regrouping storefront/src/cart and storefront/src/checkout (S4 step 1) adds or removes no relation, so the regrouped components are outside the radius.",
+          "After the hand-off the change also adds worker/worker/orders_client.py (post_handoff.components_added); the radius at step 2 cannot name it because it does not exist yet."
+        ],
+        "at": "S4 step 2 (intended-vs-actual diff), main state, before the hand-off"
       },
       "reconciliation_rules": [
         {
@@ -3294,7 +3294,10 @@
           "path": "storefront/src/app/flags.ts",
           "contains": "export function isEnabled(name: string): boolean {",
           "line": 20
-        }
+        },
+        "notes": [
+          "referenced_from_teammates is listed only for flags with no reference on main."
+        ]
       }
     },
     "S12": {

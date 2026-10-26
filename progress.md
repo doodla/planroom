@@ -62,10 +62,12 @@ Recorded per milestone at the end of Phase 2.
 
 | Phase | Agent tokens (rough) | Live model spend |
 |---|---|---|
-| 1. Understand (research + fixture) | about 2.3M subagent tokens | Jev $0.005, Claude gateway $0.022 |
+| 1. Understand (research + fixture) | about 3.1M subagent tokens | Jev $0.005, Claude gateway $0.022, Iris $0.27 |
 
 ## Log
 
 - 2026-10-25: Read `KICKOFF.md`, `CLAUDE.md`, `.claude/guardrails/`. Snapshot copied. Phase 1 research workflow started.
 - 2026-10-25: Fixture built from the `examples/README.md` contract (5 repos, 9 branches, deterministic heads, 191 evidence items). Truth review round 1: 0 blockers, 4 material, 6 minor. The material ones were unstated rules (direct vs indirect alert coverage, which edges a path follows, the impact-radius rule, and S4 compose evidence surviving a worker-only patch). Resolution: the contract now states each rule, and the S4 hand-off is multi-repo (one patch per touched repo), which also makes the implementer contract general. Round 2 is running.
 - 2026-10-25: Spikes. Mod: dock is 49x34 at 120x40 and 87x46 at 200x50; a bare digit at the empty prompt presses the band's Button; `/room` then one hotkey drives the pane (`docs/contributing/research/mod-spike.md`). Artifact: multi-file publish with a module script and data file accepted; access rules hold under `as_level` (`docs/contributing/research/artifact-spike.md`). Page-side numbers arrive when the probe is first opened. Design language set: a planning table with toy blocks, chalk intent outlines, yarn lenses, ghost blocks, decision cards (`docs/contributing/design-language.md`).
+- 2026-10-26: Truth review round 3 (the last allowed): 4 material (the S4 radius mixed before and after states; the radius rule omitted API specs; the process machine added a `done` state; language and component granularity unstated). All fixed by the main agent and verified by `examples/check-fixture` (0 failures). Accepted risk: the round-3 fixes were not re-reviewed by an independent agent, because the review protocol caps rounds at 3; `check-fixture` re-derives the radius, evidence lines and patch behavior mechanically. **TRUTH.json is frozen from this commit; later changes need a decision record.**
+- 2026-10-26: Art made with Iris (logo, hero, social base, three empty states), about $0.27, prompts beside the images in `docs/art/`.

@@ -232,19 +232,18 @@ def comp_of(path):
     return max(m, key=len) if m else None
 
 
-evs = [e for r in ph["relations_added"] for e in r["evidence"]] + [e for r in ph["relations_removed"] for e in r["evidence_before"]]
+# The radius is taken at S4 step 2, on main: evidence of the relations the intended change adds or removes.
+removed = [r for r in truth["relations"] if r["from"] == "worker" and r["to"] == "orders-db"]
+evs = [e for r in S4["intended_change"]["relations_added"] for e in r["evidence"]] + [e for r in removed for e in r["evidence"]]
 held = {comp_of(e["path"]) for e in evs}
 rad = S4["impact_radius"]
-RULE = ("every component, in any container, that holds evidence (code or compose wiring) of an added or removed relation, "
-        "plus the containers of those components")
-ok(rad["rule"] == RULE, "impact_radius.rule matches the README sentence")
 ok(None not in held and sorted(held) == rad["must_include"]["components"] and sorted({comps[c] for c in held}) == rad["must_include"]["containers"],
-   f"impact radius = rule applied to the truth's own evidence: {sorted({comps[c] for c in held})} / {sorted(held)}")
+   f"impact radius = rule applied to the truth's main-state evidence: {sorted({comps[c] for c in held})} / {sorted(held)}")
 excl_c = set(rad["must_exclude"]["containers"])
 ok(excl_c == {"storefront", "kit"} and set(rad["must_exclude"]["components"]) == {c for c, k in comps.items() if k in excl_c}
    and not (excl_c & set(rad["must_include"]["containers"])), "must_exclude is storefront and kit and all their components")
 readme = (EX / "README.md").read_text()
-ok(RULE in readme and "regression takes precedence over unplanned" in readme, "README states the radius and precedence rules verbatim")
+ok("shown at step 2 on the main state" in readme and "regression takes precedence over unplanned" in readme, "README states the radius and precedence rules")
 ok({r["name"] for r in S4["reconciliation_rules"]} == {"regression-over-unplanned", "resolved-stays-done"}
    and [x["class"] for x in S4["reconciliation_after_merges"]] == ["done", "unplanned", "regression"]
    and S4["reconciliation_after_merges"][2]["against"] == "worker-status-via-api", "reconciliation rules and classes")
