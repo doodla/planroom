@@ -63,12 +63,15 @@ Headless haiku sessions in this repository, with and without `--settings` carryi
 
 So both guards hold, and the `examples/` area contract's rule stays as the second line.
 
+## `/plugin update` at an unchanged version [A-23] [V]
+
+A-23 fails. After later pushes to the branch the `git-subdir` install named, `claude plugin marketplace update planroom` then `claude plugin update planroom@planroom` answered "planroom is already at the latest version (0.1.0)", and `installed_plugins.json` kept `gitCommitSha` `071909da…`: the update compares versions, not commits. So the fallback applies: plain `gen` stamps a `-dev` version with a hash, so a new `main` commit installs as a new version. The catalogue hash the fallback names misses a change to a skill, an agent, the resolver or the mod alone. The skeleton's record should stamp the hash of `plugin/`'s own files instead (every file but `plugin.json`), and the resolver should compare the engine against the version without that suffix.
+
 ## Still open in WS8
 
 - A-15: where the mod's `$.store` lands on disk. The spike mod now has a `store` probe, which runs once the mod reloads.
 - A-14: the mod's plugin root and its children's environment, through the spike's `env` probe.
 - A-21: the git adapter's tests on git 2.34.1, in a CI job with that git.
-- A-23: `/plugin update` at an unchanged `-dev` version, against a later push to the branch the `git-subdir` test installed from.
 - The live-mod spikes: `tool.check` seeing a spawned agent's `agentId`, `$.tool.call` on `ArtifactData` from a press, and `comments.sendToClaude` waking the session's watch.
 
 ## Spend logs seeded [DR-65]
