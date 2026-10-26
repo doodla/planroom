@@ -55,7 +55,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 40 | TypeScript library choices | Libraries to evaluate first (TypeScript) | kept mostly | research |
 | 41 | Jev adapter and pins | Jev policy | kept | research |
 | 42 | Levels, IDs and fact merging | Kernel: levels, IDs | kept, refined | S |
-| 43 | How S13's 1 s bar is measured in CI | none | added | needs confirmation |
+| 43 | How S13's 1 s bar is measured in CI | none | added | confirmed by the main agent: strict |
 
 ## Judge disagreements and how they were resolved
 
@@ -680,10 +680,10 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-43: How S13's 1 s bar is measured in CI
 
-- **Status:** needs confirmation by the main agent.
+- **Status:** accepted (decided by the main agent, 2026-10-26).
 - **Starting point:** none; implements S13 "The canvas is interactive in under 1 s on the fixture."
-- **Context:** shared CI runners vary. C proposed asserting 1.5 s in CI, which J1 found a weakening without the KICKOFF process.
-- **Decision:** CI asserts the median of 5 cold loads is under 1 s, records every value in the test output, and fails on any console error. The bar stays 1 s; the median is the measurement method.
-- **Alternatives rejected:** a 1.5 s CI bar (a weakening); a single load (flaky on shared runners).
-- **Open:** if the main agent reads a median as a weakening, the alternative is every one of 3 loads under 1 s, with retries only on runner errors.
+- **Context:** shared CI runners vary. C proposed asserting 1.5 s in CI, which J1 found a weakening without the KICKOFF process. The synthesis proposed the median of 5 cold loads.
+- **Decision:** CI asserts that every one of 5 cold loads is interactive in under 1 s, records every value in the test output, and fails on any console error. A load is retried only when the runner itself fails (the browser or server didn't start), never because it was slow. A median would let two slow loads pass, which reads as a weakening of "interactive in under 1 s".
+- **Alternatives rejected:** a 1.5 s CI bar (a weakening); the median of 5 (lets slow loads pass); a single load (one sample says little about the bar).
+- **Consequences:** the canvas must stay well under the bar, not just near it: persisted layouts, folded first views and a small first-paint bundle (about 215 KB gzip measured) are requirements, not optimizations. If shared runners make the gate flaky, the fix is in the canvas or the harness, never the threshold.
 - **Sources (checked 2026-10-25):** [ts-stack §3.4] (0.31 to 0.45 s at 200 nodes, 1.4 to 1.6 s at 4× throttling); judge J1 fatal flaw on C.

@@ -1061,7 +1061,7 @@ The mod (`packages/mod`, bundled by esbuild to `plugin/hooks/planroom-mod.js`) s
 2. Register `/room`, the three tools and the two agent types (from `plugin/agents/*.md`, so validation sees them). Await them, so tools are listed from turn one [mod-api §4].
 3. Resend the outbox.
 4. Start the watch loop: `$.process.spawn([bin, "watch", "--json", "--since", lastSeq, "--session", sessionId])`. Each frame updates `lastSeq`; a debounced `planroom focus --json` writes `planroom.pane`. A `model_request` frame or a `meta.model_requests` entry starts the session broker.
-5. Open the pane, docked, when the viewport is fullscreen and at least 110 columns (placed unasked at 120×40 and 200×50 in the spike [mod-spike]).
+5. Open the pane, docked, when the viewport is fullscreen and at least 110 columns (placed unasked at 120×40 and 200×50 in the spike [mod-spike]). A cloud session can start with no surface attached, so the mod also opens the pane on `session.attach` [A-11].
 
 #### Pane
 
@@ -1175,7 +1175,7 @@ The canvas build is published as an Artifact when localhost isn't reachable, suc
 | Cold scan of the fixture | under 5 s | CI gate | `s01_first_look.rs` |
 | Fold | under 50 ms at 20,000 facts and 5,000 events | CI gate through `budgets.json` | `cargo bench fold` |
 | Commit to stream | p99 under 1 s (target p95 under 250 ms) | CI gate | `s08_concurrency.rs` |
-| Canvas interactive | under 1 s on the fixture | CI gate: the median of 5 cold loads, every value recorded | `tests/e2e/quality.spec.ts` |
+| Canvas interactive | under 1 s on the fixture | CI gate: every one of 5 cold loads under 1 s, every value recorded [DR-43] | `tests/e2e/quality.spec.ts` |
 | Frame time at 200 nodes | p95 under 20 ms | evidence only, as KICKOFF says | `docs/evidence/s13/trace.json` |
 | Envelope sizes | per-command budgets | CI gate | the envelope encoder, `budgets.rs` |
 | Always-on tools and skills | at most 1,500 projected tokens | CI gate | `tests/plugin/surface_tokens.sh` |
@@ -1330,9 +1330,11 @@ Each is spiked in the walking skeleton (WS8 unless noted), and the result update
 | A-1 | Skill frontmatter `user-invocable: false` hides a plugin skill from the slash menu while the model can still use it | one skill named `room` [DR-30] |
 | A-2 | `tool.check` can return "ask" with a reason for built-in tools | deny with the reason and `/room handoff cancel KEY` [DR-26] |
 | A-3 | The Bash tool runs commands without a TTY | the person key becomes the only person path for non-interactive calls; TTY detection is dropped [DR-4] |
-| A-4 | A plugin tool's `result` reaches the model as compact JSON or text | the handler returns a string rendering of the envelope |
+| A-4 | Settled by the live spike [mod-spike]: a tool's `result` must be a string or an array of content blocks; a plain object is refused | every tool handler returns `JSON.stringify` of the envelope's `result` and `meta.next` as one string |
 | A-5 | `$.tool.call` can run `ArtifactData` from a key press | sync stays model-driven through `/room sync` |
 | A-6 | Multi-process SQLite meets S8 with `synchronous = FULL` (WS4) | writes route through `serve` when it runs [DR-1] |
 | A-7 | `saphyr` keeps line markers for YAML values (WS3) | `extract::evidence::locate` finds lines by text |
 | A-8 | The tool call ID is available to the `tool.call` handler for `idem` | derived `idem` |
 | A-9 | `$.model.complete` with `cache: true` on `prompt` blocks caches through the session's provider | the session backend runs uncached, and the budget test records it |
+| A-10 | `$.process.run` and `$.process.spawn` are available to the mod in a terminal session and in a cloud session like the build container's (WS5) | `$.http.fetch` over `serve`'s socket with the same catalogue [bet 3] |
+| A-11 | A cloud session can start with no surface: the live spike saw `session.start` with `surface: null` and `ui.open` resolving `isPlaced: false, reason: "no-surface"` [mod-spike] | settled: the mod opens its pane in `session.start` when a surface is present and again on `session.attach`; nothing depends on the pane being drawn |
