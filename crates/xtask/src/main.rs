@@ -5,6 +5,8 @@
 
 mod boundaries;
 mod generate;
+mod golden;
+mod modgen;
 mod plugin;
 mod rustlex;
 mod util;
@@ -20,7 +22,8 @@ usage: cargo xtask <command>
                               the boundary rules alone, or with the planted crossings
   test [-p CRATE]             the Rust tests (nextest when installed) and vitest
   test --installer            ShellCheck and BusyBox sh when installed, then tests/installer/run.sh
-  gen                         write every generated file";
+  gen                         write every generated file
+  gen --mod                   write only the mod bundle, plugin/hooks/planroom-mod.js";
 
 fn main() -> ExitCode {
     let root = repo_root();
@@ -34,16 +37,18 @@ fn main() -> ExitCode {
         ["test"] => test(&root, &mut report, None),
         ["test", "-p", krate] => test(&root, &mut report, Some(krate)),
         ["test", "--installer"] => installer(&root, &mut report),
-        ["gen"] => match generate::write_all(&root) {
-            Ok(written) => {
-                written.iter().for_each(|p| println!("wrote {p}"));
-                return ExitCode::SUCCESS;
+        ["gen"] | ["gen", "--mod"] => {
+            match if args.len() == 1 { generate::write_all(&root) } else { generate::write_mod(&root) } {
+                Ok(written) => {
+                    written.iter().for_each(|p| println!("wrote {p}"));
+                    return ExitCode::SUCCESS;
+                }
+                Err(e) => {
+                    eprintln!("cargo xtask gen failed: {e}");
+                    return ExitCode::FAILURE;
+                }
             }
-            Err(e) => {
-                eprintln!("cargo xtask gen failed: {e}");
-                return ExitCode::FAILURE;
-            }
-        },
+        }
         ["help" | "--help" | "-h"] => {
             println!("{USAGE}");
             return ExitCode::SUCCESS;
@@ -261,6 +266,32 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>) {
             r.tool(root, "vitest run", "pnpm", &["exec", "vitest", "run"], "fix the failing tests above")
         }
         None => r.failed("vitest run", "node_modules is missing", PNPM_FIX),
+    }
+    match krate {
+        Some(k) => r.skipped("claude plugin test target/mod-test", &format!("only {k} was asked for")),
+        None => mod_tests(root, r),
+    }
+}
+
+/// Build the `target/mod-test/` harness and run `claude plugin test` on it (DR-59).
+fn mod_tests(root: &Path, r: &mut Report) {
+    let name = "claude plugin test target/mod-test";
+    let harness = match modgen::harness(root) {
+        Ok(dir) => dir,
+        Err(e) => return r.failed(name, &e, "fix the mod build above"),
+    };
+    match plugin::claude(root) {
+        Ok(claude) => {
+            let dir = harness.display().to_string();
+            let (ok, out) = plugin::run_claude(root, &claude, &["plugin", "test", &dir]);
+            if ok {
+                println!("{}", out.trim_end());
+                r.ok(name)
+            } else {
+                r.failed(name, &out, "fix the failing mod tests above")
+            }
+        }
+        Err(e) => r.failed(name, &e, &format!("install Claude Code {}", plugin::CLAUDE_CODE_VERSION)),
     }
 }
 

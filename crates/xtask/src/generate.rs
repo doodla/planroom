@@ -5,8 +5,12 @@ use std::path::Path;
 
 pub use planroom_contract::schema::GENERATED_HEADER;
 use planroom_contract::schema::{self, View};
+use planroom_contract::{Command, CommandSpec, Tool, Undo};
+use serde_json::json;
 
 use crate::boundaries;
+use crate::golden;
+use crate::modgen;
 use crate::plugin;
 use crate::util;
 
@@ -22,9 +26,23 @@ pub struct Group {
     pub files: Vec<Generated>,
 }
 
+type Generator = fn(&Path) -> Result<Group, String>;
+
+/// Every generator, in the order `gen` writes them: the mod bundle last, since esbuild reads the
+/// generated TypeScript from disk.
+const GENERATORS: &[Generator] = &[
+    |_| schemas(),
+    typescript,
+    |_| catalogue(),
+    dependency_cruiser,
+    engine_env,
+    |_| goldens(),
+    modgen::bundle,
+];
+
 /// Every generated file, grouped by drift check.
 pub fn all(root: &Path) -> Vec<Result<Group, String>> {
-    vec![schemas(), typescript(root), dependency_cruiser(root), engine_env(root)]
+    GENERATORS.iter().map(|g| g(root)).collect()
 }
 
 fn schemas() -> Result<Group, String> {
@@ -59,9 +77,86 @@ fn typescript(root: &Path) -> Result<Group, String> {
             Some(&schema::render(view)),
         )
         .map_err(|e| format!("{e}\n(install the JavaScript tools with: pnpm install --frozen-lockfile)"))?;
+        if view == View::Output {
+            files.push(modgen::state_types(&ts));
+        }
         files.push(Generated { path: format!("packages/contract/src/generated/{name}"), contents: ts });
     }
-    Ok(Group { name: "packages/contract/src/generated/", files })
+    Ok(Group { name: "packages/contract/src/generated/ and plugin/types/", files })
+}
+
+/// `packages/contract/src/generated/catalogue.ts`: every catalogue leaf, for the mod's tools, `/room`
+/// and its typeahead.
+fn catalogue() -> Result<Group, String> {
+    let leaves: Vec<_> = Command::SPECS.iter().map(leaf_json).collect();
+    let body = serde_json::to_string_pretty(&leaves).map_err(|e| e.to_string())?;
+    let contents = format!(
+        "// {GENERATED_HEADER}
+
+/** One catalogue leaf: what the mod's tools, `/room` and its typeahead need to know. */
+export interface CatalogueLeaf {{
+  readonly name: string;
+  readonly idea: \"levels\" | \"lenses\" | \"intent\" | \"diffs\" | \"decisions\" | \"setup\";
+  readonly summary: string;
+  readonly actor: \"any\" | \"person_only\";
+  readonly class: \"read\" | \"change\" | \"handoff\";
+  readonly budget_tokens: number;
+  readonly needs_base: boolean;
+  readonly undo: \"edit\" | \"compensate\" | \"query\" | \"not_undoable\";
+  readonly tool: \"room_query\" | \"room_change\" | \"room_handoff\" | null;
+  readonly room: boolean;
+}}
+
+/** Every leaf, in catalogue order. */
+export const CATALOGUE: readonly CatalogueLeaf[] = {body};
+"
+    );
+    Ok(Group {
+        name: "packages/contract/src/generated/catalogue.ts",
+        files: vec![Generated { path: "packages/contract/src/generated/catalogue.ts".into(), contents }],
+    })
+}
+
+fn leaf_json(spec: &CommandSpec) -> serde_json::Value {
+    let tool = spec.tool.map(|t| match t {
+        Tool::RoomQuery => "room_query",
+        Tool::RoomChange => "room_change",
+        Tool::RoomHandoff => "room_handoff",
+    });
+    let undo = match spec.undo {
+        Undo::Edit => "edit",
+        Undo::Compensate => "compensate",
+        Undo::Query => "query",
+        Undo::NotUndoable(_) => "not_undoable",
+    };
+    json!({
+        "name": spec.name(),
+        "idea": snake(&format!("{:?}", spec.idea)),
+        "summary": spec.summary,
+        "actor": snake(&format!("{:?}", spec.actor)),
+        "class": snake(&format!("{:?}", spec.class)),
+        "budget_tokens": spec.budget_tokens,
+        "needs_base": spec.needs_base,
+        "undo": undo,
+        "tool": tool,
+        "room": spec.room,
+    })
+}
+
+/// `PersonOnly` as `person_only`.
+fn snake(name: &str) -> String {
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_ascii_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 fn dependency_cruiser(root: &Path) -> Result<Group, String> {
@@ -83,11 +178,29 @@ fn engine_env(root: &Path) -> Result<Group, String> {
     })
 }
 
+/// `tests/golden/cli/`: the CLI outputs the mod's tests read.
+fn goldens() -> Result<Group, String> {
+    Ok(Group {
+        name: "tests/golden/cli/",
+        files: vec![Generated { path: "tests/golden/cli/focus.json".into(), contents: golden::focus()? }],
+    })
+}
+
 /// Write every generated file.
 pub fn write_all(root: &Path) -> Result<Vec<String>, String> {
+    write_groups(root, GENERATORS)
+}
+
+/// Write only the mod bundle (`cargo xtask gen --mod`).
+pub fn write_mod(root: &Path) -> Result<Vec<String>, String> {
+    write_groups(root, &[modgen::bundle])
+}
+
+/// Generate and write each group in turn, so a later generator reads what an earlier one wrote.
+fn write_groups(root: &Path, generators: &[Generator]) -> Result<Vec<String>, String> {
     let mut written = Vec::new();
-    for group in all(root) {
-        for file in group?.files {
+    for generate in generators {
+        for file in generate(root)?.files {
             let path = root.join(&file.path);
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;

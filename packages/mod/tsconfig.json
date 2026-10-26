@@ -3,8 +3,20 @@
   "compilerOptions": {
     "lib": ["es2023"],
     "types": [],
+    "jsx": "react",
+    "jsxFactory": "h",
+    "jsxFragmentFactory": "Fragment",
+    "resolveJsonModule": true,
     "outDir": "../../target/tsc/mod",
     "tsBuildInfoFile": "../../target/tsc/mod.tsbuildinfo"
   },
-  "include": ["src"]
+  // The mod API's declarations (vendor/, written by Claude Code 2.1.310) and the generated $.state
+  // contract type the hooks module and the claude plugin test files.
+  "include": [
+    "src",
+    "plugin-tests",
+    "vendor",
+    "../../plugin/types/index.d.ts",
+    "../../tests/golden/cli/*.json"
+  ]
 }

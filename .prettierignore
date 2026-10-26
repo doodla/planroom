@@ -2,6 +2,10 @@
 schema/
 packages/contract/src/generated/
 .dependency-cruiser.cjs
+tests/golden/
+plugin/hooks/planroom-mod.js
+plugin/types/index.d.ts
+packages/mod/vendor/
 pnpm-lock.yaml
 target/
 

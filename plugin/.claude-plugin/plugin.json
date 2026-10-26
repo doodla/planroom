@@ -6,5 +6,6 @@
   "license": "MIT",
   "homepage": "https://github.com/doodla/planroom",
   "repository": "https://github.com/doodla/planroom",
-  "keywords": ["architecture", "planning", "map", "agents", "mod"]
+  "keywords": ["architecture", "planning", "map", "agents", "mod"],
+  "types": "./types/index.d.ts"
 }

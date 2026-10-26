@@ -309,8 +309,16 @@ pub fn dependency_cruiser_config(root: &Path) -> Result<String, String> {
 
     let mut forbidden = Vec::new();
     if rules.ts.rules.not_to_unresolvable {
-        forbidden.push(json!({"name": "not-to-unresolvable", "severity": "error", "from": {}, "to": {"couldNotResolve": true}}));
+        // The host's module resolves only inside Claude Code, so it never resolves here.
+        forbidden.push(json!({"name": "not-to-unresolvable", "severity": "error", "from": {}, "to": {"couldNotResolve": true, "pathNot": HOST_MODULE}}));
     }
+    forbidden.push(json!({
+        "name": "host-module-only-in-mod",
+        "comment": "only the mod imports claude-code, the mod API's types, which the bundle keeps external",
+        "severity": "error",
+        "from": {"pathNot": "^packages/mod/"},
+        "to": {"path": HOST_MODULE},
+    }));
     if rules.ts.rules.no_circular {
         forbidden
             .push(json!({"name": "no-circular", "severity": "error", "from": {}, "to": {"circular": true}}));
@@ -344,6 +352,8 @@ pub fn dependency_cruiser_config(root: &Path) -> Result<String, String> {
         json!({"comment": "inside one package", "from": {"path": "^((packages|tests)/[^/]+)/"}, "to": {"path": "^$1/"}}),
         json!({"comment": "third-party packages", "from": {}, "to": {"path": "(^|/)node_modules/"}}),
         json!({"comment": "Node built-ins (the forbidden rules narrow this)", "from": {}, "to": {"dependencyTypes": ["core"]}}),
+        json!({"comment": "mod -> the claude-code mod API (repo-layout.md, the mod's area contract)", "from": {"path": "^packages/mod/"}, "to": {"path": HOST_MODULE}}),
+        json!({"comment": "mod tests -> the golden CLI outputs (DR-6)", "from": {"path": "^packages/mod/(plugin-tests/|src/.*\\.test\\.ts$)"}, "to": {"path": "^tests/golden/.*\\.json$"}}),
     ];
     for (name, rule) in &rules.ts.packages {
         if rule.may_import.is_empty() {
@@ -388,6 +398,9 @@ pub fn dependency_cruiser_config(root: &Path) -> Result<String, String> {
         crate::generate::GENERATED_HEADER
     ))
 }
+
+/// The Claude Code mod API, `claude-code` and its test kit: resolved by the host at load time.
+const HOST_MODULE: &str = "^claude-code(/testing)?$";
 
 fn regex_escape(s: &str) -> String {
     let mut out = String::new();

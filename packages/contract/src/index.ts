@@ -4,3 +4,5 @@
 export type * from "./generated/output";
 /** What Planroom accepts (the deserialize view). */
 export type * as Input from "./generated/input";
+/** The command catalogue: every leaf with its idea, class, undo, tool and `/room` reach. */
+export { CATALOGUE, type CatalogueLeaf } from "./generated/catalogue";

@@ -8,7 +8,19 @@ module.exports = {
       "severity": "error",
       "from": {},
       "to": {
-        "couldNotResolve": true
+        "couldNotResolve": true,
+        "pathNot": "^claude-code(/testing)?$"
+      }
+    },
+    {
+      "name": "host-module-only-in-mod",
+      "comment": "only the mod imports claude-code, the mod API's types, which the bundle keeps external",
+      "severity": "error",
+      "from": {
+        "pathNot": "^packages/mod/"
+      },
+      "to": {
+        "path": "^claude-code(/testing)?$"
       }
     },
     {
@@ -92,6 +104,24 @@ module.exports = {
         "dependencyTypes": [
           "core"
         ]
+      }
+    },
+    {
+      "comment": "mod -> the claude-code mod API (repo-layout.md, the mod's area contract)",
+      "from": {
+        "path": "^packages/mod/"
+      },
+      "to": {
+        "path": "^claude-code(/testing)?$"
+      }
+    },
+    {
+      "comment": "mod tests -> the golden CLI outputs (DR-6)",
+      "from": {
+        "path": "^packages/mod/(plugin-tests/|src/.*\\.test\\.ts$)"
+      },
+      "to": {
+        "path": "^tests/golden/.*\\.json$"
       }
     },
     {

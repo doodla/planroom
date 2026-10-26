@@ -6,5 +6,12 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@planroom/contract": "workspace:*",
+    "@planroom/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }
