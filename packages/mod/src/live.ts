@@ -17,11 +17,11 @@ import type {
   ProcessSpawnResult,
   Timer,
 } from "claude-code";
-import type { PaneModel, StreamFrame } from "@planroom/contract";
+import type { Envelope, PaneModel, StreamFrame } from "@planroom/contract";
 import { sanitize } from "@planroom/ui";
 
 import { engineAtom, lastSeqAtom, paneAtom } from "./atoms";
-import { parseReply, type Reply, type RunResult } from "./engine";
+import { parseReply, type RunResult } from "./engine";
 import type { EngineState, PaneState } from "./state-types";
 import {
   advanceCursor,
@@ -167,7 +167,7 @@ async function watchLoop($: $, gen: number): Promise<void> {
     child = stream;
     const reader = new LineReader();
     let streamed = false;
-    let refusal: Reply | null = null;
+    let refusal: Envelope | null = null;
     try {
       for (;;) {
         const piece = await stream.next();
@@ -206,9 +206,9 @@ async function readLines(
   $: $,
   gen: number,
   lines: string[],
-): Promise<{ frames: number; refusal: Reply | null }> {
+): Promise<{ frames: number; refusal: Envelope | null }> {
   const frames: StreamFrame[] = [];
-  let refusal: Reply | null = null;
+  let refusal: Envelope | null = null;
   for (const line of lines) {
     const parsed = parseLine(line);
     if (parsed.kind === "frame") frames.push(parsed.frame);

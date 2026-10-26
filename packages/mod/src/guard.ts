@@ -8,11 +8,19 @@
  * Pure: register.tsx resolves each path (relative, `..`, symlinks) and passes every spelling. A
  * Bash line is read the way a shell would spell it out: quotes taken out, `$HOME` and the line's
  * own assignments put in, each path word from every directory a `cd` on the line may move to, and
- * a glob by every guarded place its literal prefix and segments may reach (security-3).
+ * a glob by every guarded place its literal prefix and segments may reach (security-3). Bash is
+ * held to the Write tool's rule: a redirection's file and what `cp`, `mv`, `rm`, `tee`, `ln`,
+ * `install`, `curl -o`, `sed -i` and the like write or delete are checked as writes, and a word in
+ * the engine cache is denied whatever the command (security-r2-1). A command that reads, archives,
+ * copies or links a whole tree (`grep -r`, `rg -uu`, `find -exec`, `tar`, `cp -r`, `rsync`,
+ * `ln -s`) may not name a folder above a secret place, nor a state directory (security-r2-2).
  *
  * It is a guardrail for "AI proposes, person disposes", not a boundary between processes of one
  * user: a script the agent runs by path, or writes and then runs, isn't read, nor is a variable set
- * in an earlier call or a glob that only `dotglob` lets reach a hidden folder.
+ * in an earlier call or a glob that only `dotglob` lets reach a hidden folder. Nor is a program
+ * that writes or walks files through its own arguments (`python -c`, `node -e`, a build tool), a
+ * tree read rooted above a workspace's `.planroom/` (`grep -r x .` reaches `serve.json`), or a
+ * recursive copy of a crafted tree into a folder above the data root.
  */
 
 import { CATALOGUE } from "@planroom/contract";
@@ -130,15 +138,125 @@ export function readDenied(path: string, places: GuardPlaces): string | null {
   return null;
 }
 
+const STATE_WRITE =
+  "Planroom's state directory changes only through the planroom CLI.";
+const DATA_WRITE =
+  "The Planroom data root changes only through the planroom CLI.";
+
 /** Why an agent may not write this path (absolute and normal), or null. */
 export function writeDenied(path: string, places: GuardPlaces): string | null {
-  if (inStateDir(path)) {
-    return "Planroom's state directory changes only through the planroom CLI.";
-  }
-  if (within(path, places.dataRoot)) {
-    return "The Planroom data root changes only through the planroom CLI.";
-  }
+  if (inStateDir(path)) return STATE_WRITE;
+  if (within(path, places.dataRoot)) return DATA_WRITE;
   return readDenied(path, places);
+}
+
+/**
+ * The files an agent never reads, by any tool, nor reaches through a folder above them: the mod's
+ * `$.store` folder (the person key), the user-level config (the gateway key), and the data root's
+ * stores, backups, login pages and ledger (security-r2-2).
+ */
+function secretPlaces(places: GuardPlaces): string[] {
+  const data = places.dataRoot;
+  return [
+    modStoreDir(places),
+    places.userConfig,
+    ...["stores", "backups", "open", "ledger.db"].map((s) => `${data}/${s}`),
+  ];
+}
+
+/** The engine cache: every later session and every person press runs the binary in it. */
+function engineDir(places: GuardPlaces): string {
+  return `${places.dataRoot}/engine`;
+}
+
+function segmentsOf(path: string): string[] {
+  return path.split("/").filter((s) => s !== "");
+}
+
+/** Whether one segment of a path, glob or not, may be the name `name`. */
+function segmentMay(segment: string, name: string): boolean {
+  return GLOB.test(segment) ? segmentMatches(segment, name) : segment === name;
+}
+
+/**
+ * Whether `path` (absolute and normal, maybe a glob) may name `target` or something inside it
+ * ("within"), or `target` or a folder above it ("above"). A `**` may reach anything.
+ */
+function mayName(
+  path: string,
+  target: string,
+  mode: "within" | "above",
+): boolean {
+  const p = segmentsOf(path);
+  const t = segmentsOf(target);
+  for (let i = 0; i < Math.min(p.length, t.length); i++) {
+    const segment = p[i] ?? "";
+    if (segment === "**") return true;
+    if (!segmentMay(segment, t[i] ?? "")) return false;
+  }
+  return mode === "within" ? p.length >= t.length : p.length <= t.length;
+}
+
+/** Whether a path, maybe a glob, may lie in a state directory: `.planroom/` or `.git/planroom/`. */
+function mayBeInStateDir(path: string): boolean {
+  const p = segmentsOf(path);
+  return p.some(
+    (s, i) =>
+      segmentMay(s, ".planroom") ||
+      (segmentMay(s, ".git") &&
+        i + 1 < p.length &&
+        segmentMay(p[i + 1] ?? "", "planroom")),
+  );
+}
+
+/** Why an agent may not write, create or change what this path names, maybe a glob, or null. */
+function writeTargetDenied(path: string, places: GuardPlaces): string | null {
+  if (!GLOB.test(path)) return writeDenied(path, places);
+  if (mayBeInStateDir(path)) return STATE_WRITE;
+  if (mayName(path, places.dataRoot, "within")) return DATA_WRITE;
+  return globDenied(path, places);
+}
+
+/** Why an agent may not delete or move away this folder with all that's inside it, or null. */
+function removeDenied(path: string, places: GuardPlaces): string | null {
+  const held = [
+    places.dataRoot,
+    `${places.cwd}/.planroom`,
+    `${places.cwd}/.git/planroom`,
+    modStoreDir(places),
+    places.userConfig,
+  ];
+  return held.some((h) => mayName(path, h, "above"))
+    ? "This deletes a folder that holds Planroom's state, its data root, the person key or the gateway key."
+    : null;
+}
+
+/**
+ * Why an agent may not read, archive, copy or link this folder as a whole tree, or null: it holds
+ * one of the secret places, or it's a state directory or the `.git` that may hold one. A tree read
+ * that skips hidden names (`rg`, `fd`) reaches a secret place only along a path with none.
+ */
+function treeDenied(
+  path: string,
+  hidden: boolean,
+  places: GuardPlaces,
+): string | null {
+  const reaches = (secret: string): boolean =>
+    mayName(path, secret, "above") &&
+    (hidden ||
+      path.includes("**") ||
+      !segmentsOf(secret)
+        .slice(segmentsOf(path).length)
+        .some((s) => s.startsWith(".")));
+  const p = segmentsOf(path);
+  const last = p.at(-1) ?? "";
+  const state =
+    segmentMay(last, ".planroom") ||
+    segmentMay(last, ".git") ||
+    (segmentMay(p.at(-2) ?? "", ".git") && segmentMay(last, "planroom"));
+  return state || secretPlaces(places).some(reaches)
+    ? "This reads, copies or links a whole folder that holds Planroom's private files: the person key, the gateway key, the stores, login pages or serve's token. Name a folder inside it that holds none of them."
+    : null;
 }
 
 /**
@@ -318,55 +436,405 @@ function expand(word: string, vars: ReadonlyMap<string, string>): string {
     .replace(/\$[^/]*|`[^/]*/g, "*");
 }
 
+/** One simple command of a Bash line: its words, and the files its redirections name. */
+interface SimpleCommand {
+  words: string[];
+  /** Files a `>`, `>>`, `>|`, `&>`, `>&FILE` or `<>` writes. */
+  writes: string[];
+  /** Files a `<` reads. */
+  reads: string[];
+}
+
+/**
+ * The simple commands of a Bash line, quotes taken out: operators, parentheses and backticks split
+ * it, and each redirection's file is kept apart from the command's words. A here-document's
+ * delimiter, a here-string and a duplicated descriptor (`2>&1`) name no file.
+ */
+function shellCommands(command: string): SimpleCommand[] {
+  const text = unquote(command);
+  const out: SimpleCommand[] = [];
+  let cmd: SimpleCommand = { words: [], writes: [], reads: [] };
+  let cur = "";
+  let into: "word" | "write" | "read" | "skip" | "dup" = "word";
+  const flush = (): void => {
+    if (cur === "") return;
+    if (into === "word") cmd.words.push(cur);
+    else if (into === "write") cmd.writes.push(cur);
+    else if (into === "read") cmd.reads.push(cur);
+    else if (into === "dup" && !/^(\d+-?|-)$/.test(cur)) cmd.writes.push(cur);
+    cur = "";
+    into = "word";
+  };
+  const end = (): void => {
+    flush();
+    into = "word";
+    if (cmd.words.length + cmd.writes.length + cmd.reads.length > 0) {
+      out.push(cmd);
+    }
+    cmd = { words: [], writes: [], reads: [] };
+  };
+  // A redirection's operator: a descriptor number just before it belongs to it, not to the words.
+  const operator = (): void => {
+    if (/^\d+$/.test(cur)) cur = "";
+    else flush();
+  };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charAt(i);
+    const next = text.charAt(i + 1);
+    if (";|()`\n".includes(ch)) {
+      end();
+    } else if (/\s/.test(ch)) {
+      flush();
+    } else if (ch === "&" && next === ">") {
+      flush();
+      i += text.charAt(i + 2) === ">" ? 2 : 1;
+      into = "write";
+    } else if (ch === "&") {
+      end();
+    } else if (ch === ">") {
+      operator();
+      if (next === ">" || next === "|") i++;
+      if (text.charAt(i + 1) === "&") {
+        i++;
+        into = "dup";
+      } else into = "write";
+    } else if (ch === "<") {
+      operator();
+      if (next === "<") {
+        while (text.charAt(i + 1) === "<" || text.charAt(i + 1) === "-") i++;
+        into = "skip";
+      } else if (next === ">") {
+        i++;
+        into = "write";
+      } else if (next === "&") {
+        i++;
+        into = "skip";
+      } else into = "read";
+    } else cur += ch;
+  }
+  end();
+  return out;
+}
+
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+/** Commands that run the command after them, with each one's options that take a value. */
+const WRAPPERS = new Map<string, readonly string[]>([
+  ["sudo", ["-u", "-g", "-C", "-h", "-p", "-U", "-D", "-r", "-t"]],
+  ["doas", ["-u", "-C"]],
+  ["env", ["-u", "-C", "-S"]],
+  ["xargs", ["-I", "-n", "-P", "-L", "-s", "-E", "-d", "-a"]],
+  ["timeout", ["-s", "-k"]],
+  ["nice", ["-n"]],
+  ["command", []],
+  ["builtin", []],
+  ["exec", ["-a"]],
+  ["nohup", []],
+  ["time", []],
+  ["stdbuf", []],
+]);
+
+/** Shell words that come before a command without being one. */
+const KEYWORDS = new Set([
+  "!",
+  "{",
+  "}",
+  "if",
+  "then",
+  "else",
+  "elif",
+  "do",
+  "while",
+  "until",
+]);
+
+const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
+
+/** Where the command itself starts in a simple command's words: after assignments and wrappers. */
+function commandStart(words: readonly string[]): number {
+  let i = 0;
+  while (i < words.length) {
+    const word = words[i] ?? "";
+    const name = basename(word);
+    const valued = WRAPPERS.get(name);
+    if (ASSIGNMENT.test(word) || KEYWORDS.has(word)) {
+      i++;
+    } else if (valued !== undefined) {
+      i++;
+      for (; i < words.length; i++) {
+        const w = words[i] ?? "";
+        if (valued.includes(w)) i++;
+        else if (!w.startsWith("-") && !ASSIGNMENT.test(w)) break;
+      }
+      // timeout's duration
+      if (name === "timeout" && /^\d/.test(words[i] ?? "")) i++;
+    } else if (
+      SHELLS.has(name) &&
+      /^-[a-z]*c[a-z]*$/.test(words[i + 1] ?? "")
+    ) {
+      // `sh -c '...'`: its quotes are gone, so the words after `-c` are the command.
+      i += 2;
+    } else {
+      return i;
+    }
+  }
+  return i;
+}
+
+/** A tree a command reads, copies or links as a whole, and whether it reaches hidden names in it. */
+export interface Tree {
+  word: string;
+  /** False for `rg`, `ag` and `fd` without a flag that includes hidden files: they skip dot names. */
+  hidden: boolean;
+}
+
+/** What a Bash line's commands do to the paths they name, beyond reading them (security-r2-1, -2). */
+export interface BashEffects {
+  /** Files and folders a command may write, create, change or delete, redirections included. */
+  writes: string[];
+  /** Folders a command deletes or moves away whole, with all that's inside. */
+  removes: string[];
+  /** Folders a command reads, archives, copies or links as a whole tree. */
+  trees: Tree[];
+  /** Why the line is denied outright, whatever its paths, or null. */
+  refusal: string | null;
+}
+
+const REMOVERS = new Set([
+  "rm",
+  "rmdir",
+  "unlink",
+  "shred",
+  "trash",
+  "trash-put",
+]);
+/** Commands whose every operand is a file they write or change. */
+const WRITERS = new Set([
+  "tee",
+  "touch",
+  "mkdir",
+  "truncate",
+  "chmod",
+  "chown",
+  "chgrp",
+  "chattr",
+  "setfacl",
+  "mkfifo",
+  "mknod",
+  "tar",
+]);
+/** Commands that write their last operand, or the folder `-t` names. */
+const COPIERS = new Set(["cp", "install", "ln", "rsync", "scp"]);
+const IN_PLACE = new Set(["sed", "perl", "ruby"]);
+const SEARCHERS = new Set(["grep", "egrep", "fgrep", "zgrep", "rgrep", "ack"]);
+/** Searchers that skip hidden names unless a flag says otherwise. */
+const SKIPPERS = new Set(["rg", "ag", "fd", "fdfind"]);
+const FIND_ACTIONS = new Set(["-exec", "-execdir", "-ok", "-okdir"]);
+
+/** What one simple command does to the paths it names, its words expanded. */
+function commandEffects(all: readonly string[], piped: boolean): BashEffects {
+  const effects: BashEffects = {
+    writes: [],
+    removes: [],
+    trees: [],
+    refusal: null,
+  };
+  const start = commandStart(all);
+  const name = basename(all[start] ?? "");
+  const args = all.slice(start + 1);
+  const ops = args.filter((a) => !a.startsWith("-"));
+  /** Whether a short-option cluster (`-rn`) holds one of these letters. */
+  const short = (letters: string): boolean =>
+    args.some(
+      (a) =>
+        /^-[^-]/.test(a) && [...a.slice(1)].some((c) => letters.includes(c)),
+    );
+  const long = (...names: string[]): boolean =>
+    args.some((a) => names.some((n) => a === n || a.startsWith(`${n}=`)));
+  /** The values of an option: `-o X`, `-oX`, `-sSo X`, `--output X` and `--output=X`. */
+  const values = (letters: string, longs: readonly string[]): string[] => {
+    const out: string[] = [];
+    args.forEach((a, i) => {
+      const after = args[i + 1];
+      for (const n of longs) {
+        if (a === n && after !== undefined) out.push(after);
+        else if (a.startsWith(`${n}=`)) out.push(a.slice(n.length + 1));
+      }
+      if (!/^-[A-Za-z]/.test(a)) return;
+      const at = [...a.slice(1)].findIndex((c) => letters.includes(c));
+      if (at < 0) return;
+      const rest = a.slice(at + 2);
+      if (rest !== "") out.push(rest);
+      else if (after !== undefined) out.push(after);
+    });
+    return out;
+  };
+  const trees = (words: readonly string[], hidden = true): void => {
+    effects.trees.push(...words.map((word) => ({ word, hidden })));
+  };
+  /** A search's roots: its operands after the pattern, or `.` when it names none. */
+  const roots = (): string[] => {
+    const given =
+      values("ef", ["--regexp", "--file"]).length > 0 || long("--files");
+    const named = given ? ops : ops.slice(1);
+    return named.length > 0 ? named : ["."];
+  };
+  const target = values("t", ["--target-directory"]);
+  if (REMOVERS.has(name)) {
+    effects.writes.push(...ops);
+    effects.removes.push(...ops);
+  } else if (name === "mv") {
+    effects.writes.push(...ops);
+    effects.removes.push(
+      ...(target.length > 0
+        ? ops.filter((o) => !target.includes(o))
+        : ops.slice(0, -1)),
+    );
+  } else if (WRITERS.has(name)) {
+    effects.writes.push(...ops);
+    if (name === "tar") trees(ops);
+  } else if (COPIERS.has(name)) {
+    const last = ops.length >= 2 ? ops.slice(-1) : [];
+    effects.writes.push(
+      ...target,
+      ...(name === "install" && short("d") ? ops : last),
+    );
+    if (
+      name === "rsync" ||
+      (name === "cp" && (short("rRa") || long("--recursive", "--archive"))) ||
+      (name === "scp" && short("r")) ||
+      (name === "ln" && (short("s") || long("--symbolic")))
+    ) {
+      trees(ops);
+    }
+  } else if (IN_PLACE.has(name)) {
+    if (short("i") || long("--in-place")) effects.writes.push(...ops);
+  } else if (name === "dd") {
+    effects.writes.push(
+      ...args.filter((a) => a.startsWith("of=")).map((a) => a.slice(3)),
+    );
+  } else if (name === "curl") {
+    effects.writes.push(...values("o", ["--output", "--output-dir"]));
+  } else if (name === "wget") {
+    effects.writes.push(
+      ...values("OP", ["--output-document", "--directory-prefix"]),
+    );
+  } else if (name === "unzip") {
+    effects.writes.push(...values("d", []));
+  } else if (name === "zip") {
+    effects.writes.push(...ops.slice(0, 1));
+    if (short("rR") || long("--recurse-paths")) trees(ops);
+  } else if (name === "find") {
+    const expression = args.findIndex((a) => a.startsWith("-") || a === "!");
+    const paths = expression < 0 ? args : args.slice(0, expression);
+    const from = paths.length > 0 ? paths : ["."];
+    if (piped || args.some((a) => FIND_ACTIONS.has(a))) trees(from);
+    if (args.includes("-delete")) effects.writes.push(...from);
+  } else if (SEARCHERS.has(name)) {
+    const recursive =
+      name === "rgrep" ||
+      name === "ack" ||
+      short("rR") ||
+      long("--recursive", "--dereference-recursive") ||
+      args.includes("--directories=recurse") ||
+      args.some((a, i) => a === "-d" && args[i + 1] === "recurse");
+    if (recursive) trees(roots());
+  } else if (SKIPPERS.has(name)) {
+    const fd = name === "fd" || name === "fdfind";
+    const hidden =
+      long("--hidden", "--unrestricted") ||
+      args.some((a) => a.startsWith("--no-ignore")) ||
+      short(fd ? "uHI" : "u.");
+    trees(roots(), hidden);
+  } else if (name === "git" && ops.includes("clean")) {
+    // `.planroom/` ignores itself, so `git clean -x` deletes it, the store with it, unless `-e`
+    // keeps it; `-X` deletes only ignored files, `-e` patterns among them.
+    const kept =
+      !short("X") &&
+      values("e", ["--exclude"]).some((e) => /^\/?\.planroom\/?$/.test(e));
+    if (short("d") && short("xX") && !kept) {
+      effects.refusal =
+        "git clean -x deletes the ignored .planroom/, Planroom's store with it: leave out -x, or add -e .planroom.";
+    }
+  }
+  return effects;
+}
+
 /** The words of a Bash line that may name a file, its variables put in, and every directory it runs from. */
 export interface BashPaths {
   words: string[];
   /** The session's directory, then each place a `cd` or `pushd` on the line may have moved to. */
   bases: string[];
+  effects: BashEffects;
 }
 
-/** Where a Bash line's words may land: each word that may name a file, and every `cd` target. */
+/**
+ * Where a Bash line's words may land: each word that may name a file, every `cd` target, and what
+ * its commands write, delete and read as whole trees. Every word an effect names is also a word,
+ * so the caller resolves it.
+ */
 export function bashPaths(command: string, places: GuardPlaces): BashPaths {
   const vars = knownVariables(places);
-  const tokens = unquote(command)
-    .split(/[\s;&|()<>`]+/)
-    .filter((w) => w !== "");
+  const commands = shellCommands(command);
+  const piped = commands.some((c) =>
+    c.words.some((w) => basename(w) === "xargs"),
+  );
   const candidates: string[] = [];
+  const effects: BashEffects = {
+    writes: [],
+    removes: [],
+    trees: [],
+    refusal: null,
+  };
   let bases = [places.cwd];
   let moved = false;
-  for (const [i, raw] of tokens.entries()) {
-    // `NAME=value` and `--flag=value`: the value may be a path, and a name the line sets is known.
-    const eq = raw.indexOf("=");
-    const assigned =
-      eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(raw.slice(0, eq));
-    const value = eq >= 0 ? expand(raw.slice(eq + 1), vars) : null;
-    if (assigned && value !== null) vars.set(raw.slice(0, eq), value);
-    const word = expand(raw, vars);
-    if (value !== null && value !== "") candidates.push(value);
-    if (!assigned && !word.startsWith("-")) candidates.push(word);
-    if (raw === "cd" || raw === "pushd") {
-      const next = tokens[i + 1];
-      const target =
-        next === undefined || next.startsWith("-") || /^[;&|]/.test(next)
-          ? "~"
-          : expand(next, vars);
-      const moves = bases.map((b) => normalize(target, b, places.home));
-      bases = [...new Set([...bases, ...moves])].slice(0, 8);
-      moved = true;
+  for (const simple of commands) {
+    const words: string[] = [];
+    for (const [i, raw] of simple.words.entries()) {
+      // `NAME=value` and `--flag=value`: the value may be a path, and a name the line sets is known.
+      const eq = raw.indexOf("=");
+      const assigned =
+        eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(raw.slice(0, eq));
+      const value = eq >= 0 ? expand(raw.slice(eq + 1), vars) : null;
+      if (assigned && value !== null) vars.set(raw.slice(0, eq), value);
+      const word = expand(raw, vars);
+      words.push(word);
+      if (value !== null && value !== "") candidates.push(value);
+      if (!assigned && !word.startsWith("-")) candidates.push(word);
+      if (raw === "cd" || raw === "pushd") {
+        const next = simple.words[i + 1];
+        const target =
+          next === undefined || next.startsWith("-") ? "~" : expand(next, vars);
+        const moves = bases.map((b) => normalize(target, b, places.home));
+        bases = [...new Set([...bases, ...moves])].slice(0, 8);
+        moved = true;
+      }
     }
+    const writes = simple.writes.map((w) => expand(w, vars));
+    candidates.push(...writes, ...simple.reads.map((w) => expand(w, vars)));
+    const own = commandEffects(words, piped);
+    effects.writes.push(...writes, ...own.writes);
+    effects.removes.push(...own.removes);
+    effects.trees.push(...own.trees);
+    effects.refusal ??= own.refusal;
   }
-  const words = candidates.filter(
+  const named = candidates.filter(
     (w) =>
-      w !== "" &&
-      (moved ||
-        w.includes("/") ||
-        w.startsWith("~") ||
-        GLOB.test(w) ||
-        STORE_FILE.test(w) ||
-        w === "store.pointer" ||
-        w === "serve.json"),
+      moved ||
+      w.includes("/") ||
+      w.startsWith("~") ||
+      GLOB.test(w) ||
+      STORE_FILE.test(w) ||
+      w === "store.pointer" ||
+      w === "serve.json",
   );
-  return { words: [...new Set(words)], bases };
+  const operands = [
+    ...effects.writes,
+    ...effects.removes,
+    ...effects.trees.map((t) => t.word),
+  ];
+  const words = [...named, ...operands].filter((w) => w !== "");
+  return { words: [...new Set(words)], bases, effects };
 }
 
 /** A glob segment as a regular expression: `*` and `?` never match a leading dot, as in Bash. */
@@ -553,12 +1021,12 @@ export function guardCall(
         : readDenied(s, places);
       if (reason !== null) return deny(reason);
       // A search rooted at a state directory, the data root, or a folder that holds the mod's
-      // store reaches what's inside it.
+      // store, the user-level config or the data root's private files reaches what's inside it.
       if (
         (tool === "Grep" || tool === "Glob") &&
         (inStateDir(s) ||
           within(s, places.dataRoot) ||
-          within(modStoreDir(places), s))
+          secretPlaces(places).some((secret) => within(secret, s)))
       ) {
         return deny(
           "Planroom's state is read through the planroom CLI, never directly.",
@@ -581,19 +1049,41 @@ export function guardCall(
     const reason = bashDenied(bash);
     if (reason !== null) return deny(reason);
     // Each word from every directory the line may run it in; a glob by what it may expand to.
-    const { words, bases } = bashPaths(bash, places);
-    for (const p of words) {
-      const spellings = [
-        ...bases.map((b) => normalize(p, b, places.home)),
-        ...resolved(p),
-      ];
-      for (const s of spellings) {
-        const why = GLOB.test(s)
-          ? globDenied(s, places)
-          : readDenied(s, places);
-        if (why !== null) return deny(why);
+    const { words, bases, effects } = bashPaths(bash, places);
+    if (effects.refusal !== null) return deny(effects.refusal);
+    const spellings = (p: string): string[] => [
+      ...bases.map((b) => normalize(p, b, places.home)),
+      ...resolved(p),
+    ];
+    const first = (
+      paths: readonly string[],
+      why: (s: string) => string | null,
+    ): string | null => {
+      for (const p of paths) {
+        for (const s of spellings(p)) {
+          const reason = why(s);
+          if (reason !== null) return reason;
+        }
       }
-    }
+      return null;
+    };
+    const why =
+      first(words, (s) =>
+        mayName(s, engineDir(places), "within")
+          ? "Planroom's engine cache runs with the person's authority: only the resolver writes it, and an agent's command never names it."
+          : GLOB.test(s)
+            ? globDenied(s, places)
+            : readDenied(s, places),
+      ) ??
+      // security-r2-1: what the Write tool may not write, no command or redirection writes either.
+      first(effects.writes, (s) => writeTargetDenied(s, places)) ??
+      first(effects.removes, (s) => removeDenied(s, places)) ??
+      // security-r2-2: a whole-tree read reaches whatever its folder holds.
+      effects.trees
+        .map((t) => first([t.word], (s) => treeDenied(s, t.hidden, places)))
+        .find((r) => r !== null) ??
+      null;
+    if (why !== null) return deny(why);
   }
   return null;
 }

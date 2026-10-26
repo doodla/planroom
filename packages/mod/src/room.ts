@@ -6,11 +6,11 @@
  * repo- or engine-derived, so each passes the display-sanitizing pass before it's shown (DR-64).
  */
 
-import type { Handle } from "@planroom/contract";
+import type { Envelope, Handle } from "@planroom/contract";
 import { sanitize, truncate } from "@planroom/ui";
 
 import { leaf } from "./catalogue";
-import type { Reply, ToolResult } from "./engine";
+import type { ToolResult } from "./engine";
 
 /** One command's reply, as the mod keeps it: the tool result and the engine's summary line. */
 export interface Ran {
@@ -23,7 +23,7 @@ export interface Ran {
  * The engine's one-line summary of a `--json` reply: the envelope's optional `summary` (the
  * leaf's text-mode line), or null when it has none.
  */
-export function replySummary(reply: Reply | null): string | null {
+export function replySummary(reply: Envelope | null): string | null {
   const summary = reply?.summary;
   return typeof summary === "string" && summary.trim() !== "" ? summary : null;
 }

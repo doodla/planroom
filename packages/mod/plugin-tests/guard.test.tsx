@@ -98,6 +98,53 @@ test("no agent writes under the workspace's Planroom state or the data root", as
     input: { file_path: "src/app.ts", content: "" },
   });
   expect(src.decision).toBe("allow");
+  // security-r2-1: Bash writes none of it either, by a command, a redirection or a link.
+  for (const command of [
+    "cp target/release/planroom ~/.local/share/planroom/engine/0.1.0/planroom",
+    "echo '[models]' > .planroom/config.toml",
+    "rm -rf .planroom",
+    "sed -i s/a/b/ cfg.toml",
+    "git clean -fdx",
+  ]) {
+    const v = await $.tool.check({ tool: "Bash", input: { command } });
+    expect(v.decision, command).toBe("deny");
+  }
+  const build = await $.tool.check({
+    tool: "Bash",
+    input: { command: "cargo build > /tmp/build.log 2>&1" },
+  });
+  expect(build.decision).toBe("allow");
+});
+
+test("security-r2-2: recursive reads of a guarded place's parent are denied; plain rg passes", async ($, on) => {
+  const h = host(on);
+  allowBeneath(on);
+  await $.session.start(START);
+  await h.clock.settle();
+
+  for (const command of [
+    "grep -rn api_key ~/.config",
+    "rg token ~/.claude",
+    "find ~ -path '*plugins/store*' | xargs cat",
+    "tar czf /tmp/c.tgz ~/.claude",
+    "cp -r .planroom /tmp/p",
+  ]) {
+    const v = await $.tool.check({ tool: "Bash", input: { command } });
+    expect(v.decision, command).toBe("deny");
+  }
+  const grep = await $.tool.check({
+    tool: "Grep",
+    input: { pattern: "api_key", path: "/home/u/.config" },
+  });
+  expect(grep.decision).toBe("deny");
+  for (const command of [
+    "rg foo",
+    "grep -rn foo src/",
+    "find . -name '*.ts'",
+  ]) {
+    const v = await $.tool.check({ tool: "Bash", input: { command } });
+    expect(v.decision, command).toBe("allow");
+  }
 });
 
 test("Planroom's own reads and ghost-making writes need no prompt; scan goes to the session's rules", async ($, on) => {

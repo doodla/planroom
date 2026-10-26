@@ -146,6 +146,15 @@ touch_last_used() {
   : >"$cache_dir/last_used"
 }
 
+# Whether the cache holds the engine it installed: a regular executable file whose sha256 is the one
+# `.ok` recorded then. Anything else, such as a binary another process swapped in, counts as no
+# cache, so the next run fetches the release again.
+cache_ok() {
+  [ -f "$cache_dir/planroom" ] && [ ! -h "$cache_dir/planroom" ] && [ -x "$cache_dir/planroom" ] \
+    && [ -s "$cache_dir/.ok" ] || return 1
+  [ "$(sha256_of "$cache_dir/planroom")" = "$(head -n 1 "$cache_dir/.ok")" ]
+}
+
 # Remove cached versions nobody used for 7 days; a session on an older plugin keeps its binary.
 prune() {
   for dir in "$data"/engine/*/; do
@@ -256,7 +265,7 @@ download() {
   fi
   take_lock
   # Another process may have installed it while this one waited.
-  if [ -x "$cache_dir/planroom" ] && [ -s "$cache_dir/.ok" ]; then
+  if cache_ok; then
     drop_lock
     return 0
   fi
@@ -461,7 +470,7 @@ resolve() {
     offer_build "$contract_reason_no_build" "No engine is built in this checkout."
   fi
 
-  if [ -x "$cache_dir/planroom" ] && [ -s "$cache_dir/.ok" ]; then
+  if cache_ok; then
     engine="$cache_dir/planroom"
     step=$contract_step_cache
     touch_last_used

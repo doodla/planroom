@@ -7,9 +7,8 @@
  */
 
 import { expect, inject, test } from "vitest";
-import type { StreamFrame } from "@planroom/contract";
+import type { Envelope, StreamFrame } from "@planroom/contract";
 
-import type { Reply } from "./engine";
 import {
   advanceCursor,
   frameRefreshes,
@@ -48,7 +47,7 @@ test.skipIf(run.skipped !== null)(
   () => {
     const reader = new LineReader();
     const frames: StreamFrame[] = [];
-    const replies: Reply[] = [];
+    const replies: Envelope[] = [];
     const others: string[] = [];
     let cursor: number | null = run.since;
     let schedule: Debounce = IDLE;
@@ -107,7 +106,7 @@ test.skipIf(run.skipped !== null)(
 
     // The migration ends the stream with one schema_mismatch envelope, which stops the loop.
     expect(replies).toHaveLength(1);
-    const reply = replies[0] as Reply;
+    const reply = replies[0] as Envelope;
     expect(reply.ok).toBe(false);
     expect(reply.command).toBe("watch");
     expect(reply.error?.code).toBe("schema_mismatch");
