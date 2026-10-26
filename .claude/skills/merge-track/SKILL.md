@@ -58,6 +58,8 @@ CI catches what this container can't: cargo-deny, a BusyBox that prefers its own
 
 Nothing wakes the session when CI finishes. Schedule a check-in with `send_later` if you won't otherwise come back.
 
+Don't push again until the merge's run has finished. A newer push cancels the older run, so a stream of carry and docs pushes after a merge can leave every merge commit without a finished run, and CI red for hours with nobody seeing it. Read the newest completed run, not the newest run, and treat `cancelled` as not yet checked.
+
 ## Record it
 
 - Add a dated entry to `progress.md` with the commits, what you verified, the seam bugs found, and the decisions made.
