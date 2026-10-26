@@ -49,7 +49,8 @@ e2e      = { may_import = ["contract"], third_party = ["@playwright/test", "@axe
 entry_only = true           # cross-package imports only through package.json "exports"
 no_circular = true
 not_to_unresolvable = true
-generated_read_only = ["packages/contract/src/generated/**", "plugin/types/index.d.ts", "plugin/hooks/planroom-mod.js"]
+generated_read_only = ["packages/contract/src/generated/**", "plugin/types/index.d.ts", "plugin/hooks/planroom-mod.js",
+                       "plugin/scripts/contract.sh"]
 golden_readers = ["packages/mod/plugin-tests/**", "packages/mod/src/**/*.test.ts"]   # only these read tests/golden/*.json [DR-81]
 domain_free = ["ui", "canvas", "mod"]   # no string literal equals a built-in kind or lens ID; surfaces style from MapNode.tone [DR-45, DR-46]
 test_tooling = { files = ["**/*.test.ts", "**/*.test.tsx", "packages/canvas/vite.config.js", "tests/e2e/playwright.config.ts"],

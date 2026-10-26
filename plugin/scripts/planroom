@@ -16,6 +16,9 @@ set -eu
 
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
 self="$here/planroom"
+# The codes, exit codes and output templates, generated from the contract (DR-69).
+# shellcheck source=contract.sh
+. "$here/contract.sh"
 data="${PLANROOM_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/planroom}"
 
 version=''
@@ -47,17 +50,17 @@ json_string() {
   printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
 }
 
-# One --json envelope for a failure: code, category, retry, message, hint, details (JSON), exit.
+# One --json envelope from a contract.sh template: the template, then its arguments as JSON up to
+# the size, which this fills in. The size counts the whole document, its own digits included.
 envelope_error() {
-  body="{\"schema_version\":1,\"ok\":false,\"command\":$(json_string "$command_name"),\"error\":{\"code\":\"$1\",\"category\":\"$2\",\"retry\":\"$3\""
-  if [ -n "${retry_after_ms:-}" ]; then
-    body="$body,\"retry_after_ms\":$retry_after_ms"
-  fi
-  body="$body,\"message\":$(json_string "$4"),\"hint\":$(json_string "$5"),\"details\":$6},\"meta\":{\"seq\":0,\"took_ms\":0,\"size\":{\"bytes\":"
-  # The size counts the whole document, its own digits included.
+  template=$1
+  shift
+  # The length only grows with the digits it holds, so this reaches the fixed point in a few rounds.
   bytes=0
-  for _ in 1 2 3; do
-    doc="$body$bytes,\"tokens_est\":$(((bytes + 3) / 4))}}}"
+  while :; do
+    # shellcheck disable=SC2059 # the format is the generated template
+    doc=$(printf "$template" "$@" "$bytes" "$(((bytes + 3) / 4))")
+    [ "${#doc}" -ne "$bytes" ] || break
     bytes=${#doc}
   done
   printf '%s\n' "$doc"
@@ -67,20 +70,22 @@ envelope_error() {
 unavailable() {
   details="{\"reason\":\"$1\",\"fix\":$(json_string "$3")${4:+,$4}}"
   if [ "$json" = yes ]; then
-    envelope_error engine_unavailable unavailable never "$2" "$3" "$details"
+    envelope_error "$contract_engine_unavailable_template" "$(json_string "$command_name")" \
+      "$(json_string "$2")" "$(json_string "$3")" "$details"
   else
     printf 'planroom: %s\n  fix: %s\n' "$2" "$3" >&2
   fi
-  exit 7
+  exit "$contract_engine_unavailable_exit"
 }
 
 usage_error() {
   if [ "$json" = yes ]; then
-    envelope_error invalid_argument usage never "$1" "$2" "{\"field\":\"PLANROOM_RESOLVE\"}"
+    envelope_error "$contract_invalid_argument_template" "$(json_string "$command_name")" \
+      "$(json_string "$1")" "$(json_string "$2")" '{"field":"PLANROOM_RESOLVE"}'
   else
     printf 'planroom: %s\n  fix: %s\n' "$1" "$2" >&2
   fi
-  exit 2
+  exit "$contract_invalid_argument_exit"
 }
 
 say() {
@@ -172,7 +177,7 @@ lock_is_stale() {
 
 take_lock() {
   if ! mkdir -p "$data/engine"; then
-    unavailable download_failed "Couldn't make $data/engine." "check the permissions of $data"
+    unavailable "$contract_reason_download_failed" "Couldn't make $data/engine." "check the permissions of $data"
   fi
   waited=0
   while ! mkdir "$lock" 2>/dev/null; do
@@ -181,15 +186,15 @@ take_lock() {
       continue
     fi
     if [ "$waited" -ge 20 ]; then
-      retry_after_ms=5000
       message="Another session is fetching the Planroom engine."
       if [ "$json" = yes ]; then
-        envelope_error engine_fetching unavailable later "$message" "try again in a few seconds" \
+        envelope_error "$contract_engine_fetching_template" "$(json_string "$command_name")" 5000 \
+          "$(json_string "$message")" "$(json_string "try again in a few seconds")" \
           '{"progress":"another process holds the fetch lock"}'
       else
         say "$message Try again in a few seconds."
       fi
-      exit 7
+      exit "$contract_engine_fetching_exit"
     fi
     sleep 1
     waited=$((waited + 1))
@@ -241,7 +246,7 @@ fetch() {
 # Download, verify and install the release into the cache. Returns non-zero with $why set.
 download() {
   if ! release_base; then
-    unavailable download_failed \
+    unavailable "$contract_reason_download_failed" \
       "PLANROOM_RELEASE_BASE_URL must use https, or plain http only to 127.0.0.1, localhost or ::1." \
       "unset PLANROOM_RELEASE_BASE_URL"
   fi
@@ -347,7 +352,7 @@ offer_build() {
     unavailable "$1" "$2 Build it from source, about 4 minutes: $self build" "$self build" \
       "\"est_minutes\":4,\"canvas\":$canvas"
   fi
-  unavailable no_toolchain "$2 Building it from source needs $missing. $fix" "$fix" \
+  unavailable "$contract_reason_no_toolchain" "$2 Building it from source needs $missing. $fix" "$fix" \
     "\"missing\":\"$missing\""
 }
 
@@ -373,7 +378,7 @@ build() {
   built="$src/target/release/planroom"
   if [ "$(engine_version "$built")" != "$version" ]; then
     say "This plugin is older than main. Update it: /plugin marketplace update planroom"
-    exit 7
+    exit "$contract_engine_unavailable_exit"
   fi
   mkdir -p "$cache_dir"
   cp "$built" "$cache_dir/planroom.new"
@@ -391,10 +396,10 @@ resolve() {
   if [ -n "${PLANROOM_ENGINE:-}" ]; then
     if [ -f "$PLANROOM_ENGINE" ] && [ -x "$PLANROOM_ENGINE" ]; then
       engine=$PLANROOM_ENGINE
-      step=override
+      step=$contract_step_override
       return 0
     fi
-    unavailable override_missing "PLANROOM_ENGINE names $PLANROOM_ENGINE, which isn't an executable file." \
+    unavailable "$contract_reason_override_missing" "PLANROOM_ENGINE names $PLANROOM_ENGINE, which isn't an executable file." \
       "unset PLANROOM_ENGINE"
   fi
 
@@ -420,55 +425,57 @@ resolve() {
     done
     if [ -n "$best" ]; then
       engine=$best
-      step=checkout
+      step=$contract_step_checkout
       return 0
     fi
     if [ -n "$stale" ]; then
-      unavailable stale_build "The engine built in $checkout doesn't serve this plugin's command catalogue." \
+      unavailable "$contract_reason_stale_build" "The engine built in $checkout doesn't serve this plugin's command catalogue." \
         "cd $checkout && cargo build -p planroom"
     fi
   fi
 
   if [ "$mode" = checkout ]; then
-    offer_build no_build "No engine is built in this checkout."
+    offer_build "$contract_reason_no_build" "No engine is built in this checkout."
   fi
 
   if [ -x "$cache_dir/planroom" ] && [ -s "$cache_dir/.ok" ]; then
     engine="$cache_dir/planroom"
-    step=cache
+    step=$contract_step_cache
     touch_last_used
     return 0
   fi
 
   if is_dev && [ -z "${PLANROOM_RELEASE_BASE_URL:-}" ]; then
-    offer_build no_release "Planroom $version is a development version, so it has no engine release."
+    offer_build "$contract_reason_no_release" "Planroom $version is a development version, so it has no engine release."
   fi
   if [ "$1" = no ]; then
-    step=download
+    step=$contract_step_download
     return 1
   fi
   why=''
   if download; then
     engine="$cache_dir/planroom"
-    step=download
+    step=$contract_step_download
     return 0
   fi
-  offer_build download_failed "$why"
+  offer_build "$contract_reason_download_failed" "$why"
 }
 
 case ${1:-} in
   status)
     if ! resolve no; then
       if [ "$json" = yes ]; then
-        printf '{"ok":false,"step":"download","version":%s}\n' "$(json_string "$version")"
+        # shellcheck disable=SC2059 # the format is the generated template
+        printf "$contract_status_unresolved_template\n" "$(json_string "$step")" "$(json_string "$version")"
       else
-        printf 'download %s\n' "$version"
+        printf '%s %s\n' "$step" "$version"
       fi
       exit 1
     fi
     if [ "$json" = yes ]; then
-      printf '{"ok":true,"step":"%s","path":%s,"version":%s}\n' \
-        "$step" "$(json_string "$engine")" "$(json_string "$version")"
+      # shellcheck disable=SC2059 # the format is the generated template
+      printf "$contract_status_resolved_template\n" \
+        "$(json_string "$step")" "$(json_string "$engine")" "$(json_string "$version")"
     else
       printf '%s %s\n' "$step" "$engine"
     fi
