@@ -7,6 +7,7 @@
  */
 
 import type { MapView } from "@planroom/contract";
+import type { Locator, Page } from "@playwright/test";
 
 import type { Engine } from "./engine";
 import { CONCEPTS, DESKTOP, PHONE, expect, openMap, test } from "./fixtures";
@@ -14,6 +15,100 @@ import { CONCEPTS, DESKTOP, PHONE, expect, openMap, test } from "./fixtures";
 /** The engine's own map of the workspace, as the canvas asks for it. */
 function engineMap(engine: Engine): MapView {
   return engine.cli(["map", "--detail", "graph"]).result as MapView;
+}
+
+/**
+ * How much of `target` a press reaches, in CSS px: `document.elementFromPoint` sampled once a
+ * pixel across its middle row, then down the middle of what that row hit. A neighbour that paints
+ * over part of a target takes those hits, which its bounding box never shows (ux-b).
+ */
+async function hitSize(
+  target: Locator,
+): Promise<{ width: number; height: number }> {
+  return target.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const owns = (x: number, y: number) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit !== null && el.contains(hit);
+    };
+    // Whole pixels: Chromium rounds a fractional point before it hit-tests.
+    const y = Math.round(r.top + r.height / 2);
+    const xs: number[] = [];
+    for (let x = Math.ceil(r.left); x < r.right; x++) {
+      if (owns(x, y)) {
+        xs.push(x);
+      }
+    }
+    if (xs.length === 0) {
+      return { width: 0, height: 0 };
+    }
+    const x = xs[Math.floor(xs.length / 2)]!;
+    let height = 0;
+    for (let yy = Math.ceil(r.top); yy < r.bottom; yy++) {
+      if (owns(x, yy)) {
+        height++;
+      }
+    }
+    return { width: xs.length, height };
+  });
+}
+
+/**
+ * The phone's top row (design-language.md, "Touch"): four targets at most, the part of each a
+ * press reaches at least 44 px both ways, every visible target's box too, and no overflow.
+ */
+async function topRowHolds(page: Page): Promise<void> {
+  const row = page.locator(".top-row");
+  expect(await row.locator("button, input").count()).toBeLessThanOrEqual(4);
+  const rowBox = (await row.boundingBox())!;
+  expect(rowBox.height).toBeLessThan(70);
+  for (const target of await row
+    .locator("button:visible, input:visible")
+    .all()) {
+    const hit = await hitSize(target);
+    const what = await target.evaluate((e) => e.outerHTML.slice(0, 80));
+    expect(hit.width, `reachable width of ${what}`).toBeGreaterThanOrEqual(44);
+    expect(hit.height, `reachable height of ${what}`).toBeGreaterThanOrEqual(
+      44,
+    );
+  }
+  for (const target of await page
+    .locator("button:visible, input:visible")
+    .all()) {
+    const box = (await target.boundingBox())!;
+    const what = await target.evaluate((e) => e.outerHTML.slice(0, 80));
+    expect(box.width, what).toBeGreaterThanOrEqual(44);
+    expect(box.height, what).toBeGreaterThanOrEqual(44);
+  }
+  const widths = await page.evaluate(() => [
+    document.documentElement.scrollWidth,
+    document.body.scrollWidth,
+  ]);
+  expect(Math.max(...widths)).toBeLessThanOrEqual(390);
+}
+
+/**
+ * The fixture has one lens and no project, so neither picker has anything to pick: each shows what
+ * it holds, isn't a button, and a press opens no sheet (ux-c).
+ */
+async function offersOnlyWhatWorks(page: Page, phone: boolean) {
+  const lens = page.locator(".top-row [data-concept=lenses]");
+  const shelf = page.locator(".top-row [data-concept=intent]");
+  await expect(lens.locator(".yarn")).toBeVisible();
+  // The lens's name; on the phone it's for a screen reader, beside the swatch.
+  await expect(lens).toContainText("all");
+  await expect(shelf).toContainText("No project");
+  await expect(lens.getByRole("button")).toHaveCount(0);
+  await expect(shelf.getByRole("button")).toHaveCount(0);
+  for (const control of [lens, shelf]) {
+    if (phone) {
+      await control.tap();
+    } else {
+      await control.click();
+    }
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.locator(".picker-sheet")).toHaveCount(0);
+  }
 }
 
 test.describe("at 1440x900", () => {
@@ -265,6 +360,14 @@ test.describe("at 1440x900", () => {
     await expect(page.locator(".map[data-ready]")).toBeVisible();
   });
 
+  test("the_lens_switcher_and_the_project_shelf_offer_only_what_works", async ({
+    page,
+    engine,
+  }) => {
+    await openMap(page, await engine.loginUrl());
+    await offersOnlyWhatWorks(page, false);
+  });
+
   test("an_empty_tray_shows_its_art_and_the_next_action", async ({
     page,
     engine,
@@ -382,24 +485,26 @@ test.describe("at 390x844 with touch", () => {
     engine,
   }) => {
     await openMap(page, await engine.loginUrl());
-    const row = page.locator(".top-row");
-    const targets = row.locator("button, input");
-    expect(await targets.count()).toBeLessThanOrEqual(4);
-    const rowBox = (await row.boundingBox())!;
-    expect(rowBox.height).toBeLessThan(70);
-    for (const target of await page
-      .locator("button:visible, input:visible")
-      .all()) {
-      const box = (await target.boundingBox())!;
-      const what = await target.evaluate((e) => e.outerHTML.slice(0, 80));
-      expect(box.width, what).toBeGreaterThanOrEqual(44);
-      expect(box.height, what).toBeGreaterThanOrEqual(44);
-    }
-    const widths = await page.evaluate(() => [
-      document.documentElement.scrollWidth,
-      document.body.scrollWidth,
-    ]);
-    expect(Math.max(...widths)).toBeLessThanOrEqual(390);
+    await topRowHolds(page);
+    // Below the top the `⋯` lid joins the row, and the current lid overlaps it (ux-b).
+    await page
+      .locator(".sheet")
+      .getByRole("button", { name: "Open the containers" })
+      .first()
+      .tap();
+    await expect(page.locator(".breadcrumb .lid-name")).toHaveText("container");
+    await expect(
+      page.getByRole("button", { name: "Levels above" }),
+    ).toBeVisible();
+    await topRowHolds(page);
+  });
+
+  test("the_lens_switcher_and_the_project_shelf_offer_only_what_works_on_the_phone", async ({
+    page,
+    engine,
+  }) => {
+    await openMap(page, await engine.loginUrl());
+    await offersOnlyWhatWorks(page, true);
   });
 
   test("the_sheet_peeks_with_the_next_action_and_opens_to_half_with_the_tray", async ({
