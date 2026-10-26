@@ -86,11 +86,11 @@ The top row never wraps or shrinks a target. On the phone it holds four targets 
 - the lens switcher as one swatch of the current lens, which opens a sheet of the lenses;
 - the project shelf as one chip, which opens a sheet of the projects.
 
-The swatch and the chip open a sheet only once there is something to pick. A picker with nothing to pick, such as a switcher with one lens or a shelf with no project to change to, isn't a button: it shows what it holds, flat on the felt, and an empty project shelf is a dashed chalk outline. Until M1 brings more lenses and `intent new`, both show what they hold [DR-86].
+The swatch and the chip open a sheet only once there is something to pick. A picker with nothing to pick, such as a switcher with one lens or a shelf with no project to change to, isn't a button. It shows what it holds, flat on the felt. A project shelf with nothing to pick is a dashed chalk outline, whether or not it holds a project. Until M1 brings more lenses and `intent new`, both show what they hold [DR-86].
 
 The current lid stacks over the last 10 px of the lid before it. So each ancestor lid, the `⋯` lid among them, is that much wider than a target, and the part a press reaches stays at least 44 px [DR-86].
 
-`tests/e2e/surface.spec.ts::the_top_row_holds_four_targets_at_most_every_target_is_44px_and_nothing_overflows` checks the row at the top and one level down. It measures what a press reaches with `elementFromPoint`, since a box can't show what a neighbor paints over. `the_lens_switcher_and_the_project_shelf_offer_only_what_works` checks the pickers at both sizes. `tests/e2e/quality.spec.ts::top_row_fits_at_the_deepest_level`, planned for M1, will check the row at code level with several projects and every lens.
+`tests/e2e/surface.spec.ts::the_top_row_holds_four_targets_at_most_every_target_is_44px_and_nothing_overflows` checks the row at the top and one level down. It measures what a press reaches with `elementFromPoint`, since a box can't show what a neighbor paints over. `the_lens_switcher_and_the_project_shelf_offer_only_what_works` and `the_lens_switcher_and_the_project_shelf_offer_only_what_works_on_the_phone` check the pickers at both sizes. `tests/e2e/quality.spec.ts::top_row_fits_at_the_deepest_level`, planned for M1, will check the row at code level with several projects and every lens.
 
 | Gesture | Does |
 |---|---|
