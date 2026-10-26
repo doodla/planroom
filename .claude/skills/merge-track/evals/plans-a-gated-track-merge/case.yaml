@@ -1,0 +1,9 @@
+schema_version: "1.1"
+name: plans-a-gated-track-merge
+expected_outcome: |
+  merge-plan.md gives an ordered merge procedure for track/packs: it regenerates the conflicting
+  generated files (the mod bundle and catalogue.ts) with cargo xtask gen instead of merging them by
+  hand, unions the usage lines in main.rs, writes a decision record for the gated changes and the
+  tone conflict and runs cargo xtask gen --layout-lock with it in the merge commit, runs the full
+  suite itself (check, test with the plugin harness), pushes only to the working branch, cleans the
+  worktree, and reads CI through the GitHub tools afterwards.
