@@ -1600,7 +1600,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: `Outcome::Superseded`; the client a flush sends; the request hash's fields; `Meta.seq` from one read transaction; `stale_page` for a pruned page; a restored `scan` event with snapshot 0.
   - Tests: `kernel/tests/policy.rs::a_prefill_never_overwrites_a_person_field`, `a_kind_version_bump_keeps_person_overrides`, `an_infer_rerun_keeps_hand_edited_parts`; `tests/e2e/surface.spec.ts::a_flush_by_another_tab_keeps_the_original_writer`, `a_flush_of_a_committed_edit_replays`; `backup.rs::a_replayed_edit_conflicts_with_a_post_restore_edit`, `a_restore_keeps_done_classes`; `store/tests/migrations.rs::an_older_writer_refuses_after_a_concurrent_migration`; `store/tests/interleavings.rs::meta_seq_never_exceeds_the_folded_view`; `duties.rs::concurrent_decide_runs_ask_each_subject_once`.
   - Users: a correction a person made stays made, whatever a model decides later.
-  - Milestones: M1's fold and backup slices and M2's decision runner grow by 4 h in all.
+  - Milestones: M1's fold and backup slices and M2's decision runner grow by 3 h in all.
   - It amends DR-5, DR-8, DR-24, DR-50 and DR-53.
 - **Sources (checked 2026-10-26):** KICKOFF R6, R10 and principle 1; review round 3 correctness-1, correctness-3, correctness-4, correctness-7 to correctness-9 and owner decisions F1, F3 and F4.
 
@@ -1619,7 +1619,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - `id_stability.rs` compares the fixture's IDs with the list the last release committed, and a release that changes one needs a record saying how overrides carry over.
   - The state directory of a single-repo workspace is `planroom/` inside the repo's git directory, as `git rev-parse --absolute-git-dir` names it. A directory of repos keeps `.planroom/` at its root. Discovery finds either, and the guard covers both.
 - **Alternatives rejected:**
-  - The shortest unique path suffix as the namespace: a third repo with the same name can change an existing namespace.
+  - The shortest unique path suffix as the namespace, such as `me-planroom`: it depends on which other repos exist, so one repo gets other IDs in another workspace.
   - A namespace keyed by the first commit or remote URL: two clones of one repo share both.
   - Every store under the data root: on a temporary host the data root goes with the container, and a store beside its repo keeps the workspace self-contained.
   - Retargeting renames by a card: git already knows the answer.
