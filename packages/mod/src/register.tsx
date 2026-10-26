@@ -44,7 +44,14 @@ import {
   type Action,
   type Row,
 } from "./layout";
-import { binary, clientEnv, refreshPane, runProcess, watchStop } from "./live";
+import {
+  binary,
+  clientEnv,
+  ENGINE_UNPICKED,
+  refreshPane,
+  runProcess,
+  watchStop,
+} from "./live";
 import { personEnv, personKey, registerKey } from "./person";
 import {
   lineFor,
@@ -414,6 +421,7 @@ async function handleTool(
   }
   const session = await $.session.id();
   const env: Record<string, string> = {
+    ...ENGINE_UNPICKED,
     PLANROOM_ACTOR: `agent:${session.slice(0, 8)}:chat`,
     PLANROOM_CLIENT: `mod:${session}`,
   };

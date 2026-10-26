@@ -174,6 +174,37 @@ test("a /room the person typed carries a token; one a plugin ran doesn't", async
   expect(ran?.env["PLANROOM_PERSON_TOKEN"]).toBeUndefined();
 });
 
+test("no run the mod starts takes its engine from the environment it inherited", async ($, on) => {
+  const h = host(on);
+  await $.session.start(START);
+  await h.clock.settle();
+  // A press, a typed /room, and an agent's tool call, beside the start-up's resolver runs.
+  const band = await $.ui.mount({ ...BAND, surface: "terminal" });
+  await band.press({ key: "band-primary" });
+  await band.unmount();
+  await $.command.run({
+    command: "room",
+    args: "map --level system",
+    origin: { kind: "composer" },
+    presentation: { isFullscreen: true, columns: 120 },
+  });
+  await $.tool.call({
+    tool: "mcp__planroom__room_query",
+    command: "map",
+    args: ["--level", "system"],
+  });
+  await h.clock.settle();
+
+  const started = [...h.runs, ...h.children];
+  expect(started.some((r) => r.argv[1] === "version")).toBe(true);
+  expect(started.filter((r) => r.argv[1] === "map").length).toBeGreaterThan(2);
+  for (const run of started) {
+    // The resolver reads an empty value as unset, so it picks the engine itself.
+    expect(run.env["PLANROOM_ENGINE"], run.argv.join(" ")).toBe("");
+    expect(run.env["PLANROOM_RELEASE_BASE_URL"], run.argv.join(" ")).toBe("");
+  }
+});
+
 test("a workspace that knows another key shows the rekey pane, and its press re-registers", async ($, on) => {
   let known = false;
   const h = host(on, (argv): Answer => {

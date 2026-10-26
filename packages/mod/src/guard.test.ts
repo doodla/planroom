@@ -1076,3 +1076,726 @@ test("the forms closed after round 3 leave everyday commands passing", () => {
     }),
   ).toBeNull();
 });
+
+// A usability review ran 249 ordinary calls through the guard. These are the ones it should pass,
+// the 18 it refused among them: a dry-run git clean, `**` globs, sed and perl scripts, a find with
+// -empty, an app's own store.db, and Glob's `**`.
+
+/** A workspace under the home folder, as the review placed it. */
+const APP = "/home/u/code/app";
+
+function inApp(cwd = APP, workspace = APP) {
+  const at = guardPlaces(
+    cwd,
+    { HOME: "/home/u" },
+    { workspace, plugin: [PLUGIN] },
+  );
+  return (tool: string, input: unknown) => guardCall(tool, input, () => [], at);
+}
+
+const EVERYDAY_BASH = [
+  // git
+  "git status",
+  "git status --short",
+  "git diff",
+  "git diff --stat HEAD~3..HEAD",
+  "git diff --cached -- src/",
+  "git diff HEAD~1 -- '*.ts'",
+  "git log --oneline -n 20",
+  "git log --format='%h %an %s' --since='2 weeks ago'",
+  "git log -p -- src/lib.rs | head -100",
+  "git show HEAD:src/main.rs",
+  "git blame -L 10,40 src/parser.rs",
+  "git add -A && git commit -m 'Fix parser off-by-one'",
+  'git add src/ tests/ && git commit -m "feat: add (x) | y support"',
+  "git commit --amend --no-edit",
+  "git commit -F- <<'EOF'\nRefactor config loading\n\nMove defaults into config.py.\nEOF",
+  "git rebase main",
+  "git rebase --continue",
+  "git rebase --onto main feature~3 feature",
+  "git stash",
+  "git stash push -m wip -- src/",
+  "git stash -u",
+  "git stash list",
+  "git stash show -p stash@{0}",
+  "git stash pop",
+  "git clean -n",
+  "git clean -nd",
+  "git clean -ndx",
+  "git clean -n -d -X",
+  "git clean --dry-run -dx",
+  "git clean -fd",
+  "git checkout -b feature/parser",
+  "git switch main && git pull --rebase",
+  "git fetch --all --prune",
+  "git push -u origin feature/parser",
+  "git reset --hard origin/main",
+  "git restore --staged src/a.ts",
+  "git worktree add ../app-wt main",
+  "git grep -n TODO -- '*.rs'",
+  "git ls-files | wc -l",
+  "rm -f .git/index.lock",
+  // cargo
+  "cargo build",
+  "cargo build --release 2>&1 | tail -20",
+  "cargo test",
+  "cargo test -p app-core -- --nocapture",
+  "cargo test --workspace -q 2>&1 | grep -E 'test result|FAILED'",
+  "cargo clippy --all-targets -- -D warnings",
+  "cargo fmt --all -- --check",
+  "cargo run --bin app -- --help",
+  "cargo check --message-format=short",
+  "cargo add serde --features derive",
+  "cargo tree -i tokio",
+  "cargo clean",
+  "cargo doc --no-deps",
+  // pnpm and npm
+  "pnpm install",
+  "pnpm install --frozen-lockfile",
+  "pnpm add -D vitest@1.6.0",
+  "pnpm -r test",
+  "pnpm --filter @app/web dev",
+  "pnpm exec vitest run src/parser.test.ts",
+  "pnpm exec tsc --noEmit",
+  "pnpm lint --fix",
+  "npm ci",
+  "npm run build",
+  "npm test -- --watch=false",
+  "npx tsc -p tsconfig.json --noEmit",
+  "npx eslint 'src/**/*.ts'",
+  "npx prettier --write 'src/**/*.{ts,tsx,json}'",
+  "npx prettier --check '**/*.json'",
+  "npm ls react",
+  // python
+  "python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt",
+  ". .venv/bin/activate && pytest -q",
+  "pytest",
+  "pytest -q tests/",
+  "pytest -k 'test_parse and not slow' -x",
+  "pytest --cov=src --cov-report=term-missing",
+  "python -m pytest tests/test_config.py::test_defaults -vv",
+  "python -c 'import sys; print(sys.version)'",
+  "python3 scripts/gen_fixtures.py --out tests/fixtures",
+  "pip install -e '.[dev]'",
+  "uv sync && uv run pytest",
+  "ruff check . --fix",
+  "black --check src tests",
+  "mypy src",
+  "python manage.py migrate",
+  "python - <<'EOF'\nimport json\nprint(json.load(open('package.json'))['name'])\nEOF",
+  // make
+  "make",
+  "make -j8",
+  "make test",
+  "make clean && make",
+  "make -C build install DESTDIR=/tmp/stage",
+  // search
+  "rg -n 'fn parse' src/",
+  "rg -n 'TODO|FIXME' src/",
+  "rg --files | head -50",
+  "rg -l unsafe -g '*.rs'",
+  "rg -g '!target' foo",
+  "rg --hidden -n foo",
+  "rg -uu foo src",
+  "grep -rn parse_config src/",
+  "grep -rn 'def main' src/ tests/",
+  "grep -rln --include='*.py' import src/",
+  "grep -rn foo .",
+  "grep -n TODO src/main.rs",
+  "grep -c '' src/*.py",
+  // ls and find
+  "ls",
+  "ls -la",
+  "ls -la src/",
+  "ls src/**/*.ts",
+  "ls -d */",
+  "ls -la .git",
+  "ls .planroom",
+  "tree -L 2 src",
+  "find . -name '*.rs' | head",
+  "find . -type f -name '*.py' -not -path './.venv/*'",
+  "find src -name '*.ts' -newer package.json",
+  "find . -name '*.py' | xargs grep -l 'import os'",
+  "find . -type f | xargs wc -l | sort -n | tail",
+  "find src -name '*.ts' -exec sed -i 's/oldName/newName/g' {} +",
+  "find . -name '__pycache__' -type d -exec rm -rf {} +",
+  "find . -name '*.pyc' -delete",
+  "find . -name '*.log' -delete",
+  "find . -empty -type d -delete",
+  "find target -name '*.d' -delete",
+  "du -sh * | sort -h",
+  "wc -l src/*.rs",
+  // cat and head
+  "cat src/main.rs",
+  "cat -n src/lib.rs | sed -n '40,80p'",
+  "head -50 src/parser.ts",
+  "tail -n 30 logs/app.log",
+  "cat package.json | jq .scripts",
+  "cat Cargo.toml pyproject.toml",
+  "cat .gitignore",
+  "cat .env.example",
+  "less README.md",
+  "cat ~/.gitconfig",
+  "cat ~/.cargo/config.toml",
+  "cat docs/*.md",
+  // sed -i
+  "sed -i 's/foo/bar/g' src/main.rs",
+  "sed -i 's/foo.*bar/baz/' src/a.rs",
+  "sed -i -E 's/(foo|bar)_id/\\1Id/g' src/models.py",
+  "sed -i.bak 's/^version = .*/version = \"0.2.0\"/' Cargo.toml",
+  "sed -i '' -e 's/a/b/' src/x.ts",
+  "sed -i 's/[0-9]*\\.db/x/' src/config.py",
+  "perl -pi -e 's/\\bfoo\\b/bar/g' src/*.c",
+  // archives
+  "curl -L -o /tmp/dl/protoc.zip https://example.com/protoc.zip && unzip -o /tmp/dl/protoc.zip -d third_party/protoc",
+  "unzip -q ~/Downloads/assets.zip -d assets/",
+  "unzip fixtures.zip",
+  "tar -xzf ~/Downloads/sdk.tar.gz -C vendor/",
+  "tar xzf deps.tgz",
+  "tar xf data.tar --strip-components=1 -C tests/data",
+  "wget -q https://example.com/x.tgz -O /tmp/x.tgz && tar -xzf /tmp/x.tgz -C .",
+  "tar czf /tmp/src.tgz src tests",
+  "tar czf ../app.tgz --exclude=.git .",
+  // mv and rm of build output
+  "rm -rf target",
+  "rm -rf dist build *.egg-info",
+  "rm -rf node_modules && pnpm install",
+  "rm -rf __pycache__ .pytest_cache .mypy_cache .ruff_cache",
+  "rm -rf **/__pycache__",
+  "rm -f src/**/*.pyc",
+  "rm -rf coverage/ .nyc_output/",
+  "rm -f build/*.o",
+  "rm -rf ./*",
+  "mv dist/app.js public/",
+  "mv target/release/app ./bin/app",
+  "mv build build.old",
+  "mv src/old_name.py src/new_name.py",
+  "mkdir -p out && mv *.whl out/",
+  "cp .env.example .env",
+  "cp -r templates/ src/templates/",
+  "ln -sf ../shared lib/shared",
+  "chmod +x scripts/*.sh",
+  "touch src/new_module.py",
+  "mkdir -p src/utils tests/unit",
+  // cd into subfolders and back
+  "cd src && ls",
+  "cd packages/web && pnpm test && cd ../..",
+  "cd crates/core && cargo test && cd -",
+  "pushd frontend && npm run build && popd",
+  "cd tests; pytest -q; cd ..",
+  "cd .. && ls",
+  "cd ~ && ls",
+  "cd /tmp && mkdir scratch && cd scratch && git init",
+  'cd "$(git rev-parse --show-toplevel)" && git status',
+  "cd $OLDPWD",
+  // misc
+  "echo $PATH",
+  "which python3 node cargo",
+  "env | grep -i proxy",
+  "export RUST_BACKTRACE=1 && cargo test",
+  "docker build -t app . && docker run --rm -v $PWD:/app app pytest",
+  "kill $(lsof -t -i:3000)",
+  "jq . **/*.json",
+  "cat tsconfig.json src/**/*.json",
+  "diff -ru expected/ actual/",
+  "sqlite3 store.db '.schema'",
+  "grep -rn 'store.db' src/",
+  "echo 'DATABASE=ledger.db' >> .env",
+];
+
+const EVERYDAY_TOOLS: [string, unknown][] = [
+  ["Read", { file_path: `${APP}/src/main.rs` }],
+  ["Read", { file_path: "src/lib.rs", offset: 10, limit: 50 }],
+  ["Read", { file_path: `${APP}/README.md` }],
+  ["Read", { file_path: `${APP}/docs/architecture.md` }],
+  [
+    "Read",
+    {
+      file_path:
+        "/home/u/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.200/src/lib.rs",
+    },
+  ],
+  ["Read", { file_path: `${APP}/node_modules/react/README.md` }],
+  ["Read", { file_path: `${APP}/.planroom/config.toml` }],
+  ["Read", { file_path: `${APP}/data/store.db` }],
+  [
+    "Edit",
+    { file_path: `${APP}/src/main.rs`, old_string: "a", new_string: "b" },
+  ],
+  [
+    "Edit",
+    { file_path: `${APP}/.gitignore`, old_string: "a", new_string: "b" },
+  ],
+  ["Write", { file_path: `${APP}/src/new.ts`, content: "export {}\n" }],
+  [
+    "Write",
+    { file_path: `${APP}/tests/test_new.py`, content: "def test(): pass\n" },
+  ],
+  [
+    "Write",
+    { file_path: `${APP}/.github/workflows/ci.yml`, content: "on: push\n" },
+  ],
+  ["Write", { file_path: "/tmp/notes.md", content: "x" }],
+  ["MultiEdit", { file_path: `${APP}/src/a.py`, edits: [] }],
+  [
+    "NotebookEdit",
+    { notebook_path: `${APP}/notebooks/explore.ipynb`, new_source: "x" },
+  ],
+  ["Grep", { pattern: "fn parse", path: "src" }],
+  ["Grep", { pattern: "TODO", glob: "*.rs" }],
+  ["Grep", { pattern: "import", path: APP, type: "py" }],
+  ["Grep", { pattern: "x" }],
+  ["Glob", { pattern: "**/*.rs" }],
+  ["Glob", { pattern: "**/*.json" }],
+  ["Glob", { pattern: "src/**/*" }],
+  ["Glob", { pattern: "**/*.{ts,tsx}" }],
+  ["Glob", { pattern: "**/package.json" }],
+  ["Glob", { pattern: "**/*.db" }],
+  ["Glob", { pattern: "*.md", path: "docs" }],
+  ["LS", { path: APP }],
+  [
+    "WebFetch",
+    {
+      url: "https://docs.rs/serde/latest/serde/",
+      prompt: "Summarize the derive attributes",
+    },
+  ],
+  ["WebSearch", { query: "tokio select cancellation safety" }],
+  [
+    "TodoWrite",
+    {
+      todos: [
+        {
+          content: "Fix parser",
+          status: "in_progress",
+          activeForm: "Fixing parser",
+        },
+        {
+          content: "Run tests",
+          status: "pending",
+          activeForm: "Running tests",
+        },
+      ],
+    },
+  ],
+  [
+    "Task",
+    {
+      description: "Explore config",
+      prompt: "Find where config is loaded",
+      subagent_type: "Explore",
+    },
+  ],
+  ["Skill", { skill: "code-review" }],
+  ["Monitor", { command: "tail -f logs/app.log" }],
+  [
+    "mcp__github__create_pull_request",
+    {
+      owner: "acme",
+      repo: "app",
+      title: "Fix parser",
+      head: "feature/parser",
+      base: "main",
+      body: "Fixes #12.\n\nDetails.",
+    },
+  ],
+  [
+    "mcp__github__get_file_contents",
+    { owner: "acme", repo: "app", path: "src/main.rs" },
+  ],
+];
+
+/** After an earlier call's `cd packages/web`: the shell sits in a subfolder of the workspace. */
+const EVERYDAY_IN_SUBDIR: [string, unknown][] = [
+  ...[
+    "pnpm test",
+    "ls -la",
+    "cat package.json",
+    "cat config.toml",
+    "rg -n useState src",
+    "rm -rf dist .next",
+    "cd ../.. && git status",
+    "npx vitest run src/app.test.tsx",
+    "tar xzf ../../fixtures.tgz",
+    "git add . && git commit -m 'web: fix layout'",
+  ].map((command): [string, unknown] => ["Bash", { command }]),
+  ["Read", { file_path: "src/app.tsx" }],
+  ["Glob", { pattern: "src/**/*.tsx" }],
+];
+
+test("everyday calls from a usability sweep pass the guard", () => {
+  const atRoot = inApp();
+  for (const command of EVERYDAY_BASH) {
+    expect(atRoot("Bash", { command }), command).toBeNull();
+  }
+  for (const [tool, input] of EVERYDAY_TOOLS) {
+    expect(atRoot(tool, input), `${tool} ${JSON.stringify(input)}`).toBeNull();
+  }
+  const inWeb = inApp(`${APP}/packages/web`);
+  for (const [tool, input] of EVERYDAY_IN_SUBDIR) {
+    expect(inWeb(tool, input), `${tool} ${JSON.stringify(input)}`).toBeNull();
+  }
+  // A workspace right under HOME, where `cd ..` lands in HOME.
+  const underHome = inApp("/home/u/app", "/home/u/app");
+  for (const command of [
+    "cd .. && ls",
+    "cd .. && git clone https://github.com/acme/lib.git",
+    "cd .. && rg -n foo app/src",
+    "cd .. && mv app/build ~/old-build",
+  ]) {
+    expect(underHome("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("a dry-run git clean deletes nothing, so -x passes with -n or --dry-run", () => {
+  for (const command of [
+    "git clean -ndx",
+    "git clean -n -d -X",
+    "git clean --dry-run -dx",
+    "git clean -fdxn",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+  // An -e pattern that reads like -n, or an -n after `--`, is no dry run.
+  for (const command of [
+    "git clean -fdx",
+    "git clean -fdx -e -n",
+    "git clean -fdxe n",
+    "git clean -fdx -- -n",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+});
+
+test("a ** glob reaches no hidden folder unless the line turns dotglob on", () => {
+  for (const command of [
+    "rm -rf **/__pycache__",
+    "rm -f src/**/*.pyc",
+    "jq . **/*.json",
+    "ls **/*.json",
+    "npx prettier --write 'src/**/*.{ts,tsx,json}'",
+    "cat **/serve.json",
+    "cat ~/**/config.toml",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+  for (const command of [
+    // `dir/**` names `dir/` itself, and all below it.
+    "rm -rf ./**",
+    "rm -rf ~/**",
+    "grep -r key ~/**",
+    // Once dotglob is on, `**` reaches hidden folders too.
+    "shopt -s dotglob; rm -rf **/x",
+    "shopt -s globstar dotglob; cat **/serve.json",
+    // A hidden name spelled out, or a `**` below one.
+    "rm -rf **/.planroom",
+    "cat .git/**/serve.json",
+    "cat ~/.config/**/config.toml",
+    "cat /home/u/.local/share/planroom/**/x",
+    "cat ~/.claude/plugins/**/planroom_x.json",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const pattern of ["**/*.json", "src/**/*", "**/*.db"]) {
+    expect(verdict("Glob", { pattern }), pattern).toBeNull();
+  }
+  for (const pattern of [
+    "**/store.db",
+    "/home/u/.config/planroom/*",
+    "~/.claude/plugins/**/planroom_*",
+  ]) {
+    expect(verdict("Glob", { pattern })?.decision, pattern).toBe("deny");
+  }
+  expect(verdict("Glob", { pattern: "**/*", path: "/home/u" })?.decision).toBe(
+    "deny",
+  );
+});
+
+test("an in-place editor's script is no file it writes", () => {
+  for (const command of [
+    "sed -i.bak 's/^version = .*/version = \"0.2.0\"/' Cargo.toml",
+    "sed -i -e 's/a .* b/.x/' -e 's/c/d/' src/x.ts",
+    "sed -i --expression='s/ .*//' src/x.ts",
+    "perl -pi -e 's/^v = .*/v = 1/' Cargo.toml",
+    "perl -i -pe 's/ .*//' src/x.ts",
+    "ruby -pi -e 'gsub(/ .*/, %q())' src/x.rb",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+  // Every file it edits is still a write, whatever the options' order or spelling.
+  for (const command of [
+    "sed -i 's/a/b/' .planroom/config.toml",
+    "sed -i -e 's/a b/c/' .planroom/config.toml",
+    "sed -ie 's/a/b/' .planroom/config.toml",
+    "sed -i 's/x/y/' -- .planroom/config.toml",
+    "sed s/a/b/ -i .planroom/config.toml",
+    "sed -i 's/a b/c d/' 'x y' .planroom/config.toml",
+    "sed -i -f fix.sed .planroom/config.toml",
+    "sed -i -n -e p .planroom/config.toml",
+    // An option the guard doesn't know leaves every operand a file it writes.
+    "sed -i --expr=s/a/b/ .planroom/config.toml",
+    "perl -pi -e 's/a b/c/' .planroom/config.toml",
+    "perl -i -pe 's/a/b/' .planroom/config.toml",
+    "perl -MFoo -pi -e 's/a/b/' .planroom/config.toml",
+    "ruby -pi -e 'x' .planroom/config.toml",
+    `perl -pi -e 's/a/b/' ${PLUGIN}/hooks/planroom-mod.js`,
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+});
+
+test("a deleting find that selects only empty files and folders passes", () => {
+  for (const command of [
+    "find . -empty -type d -delete",
+    "find . -empty -delete",
+    "find . -type f -size 0 -delete",
+    "find . -size -1k -delete",
+    "find . -empty -o -name '*.orig' -delete",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+  for (const command of [
+    "find . -mtime +7 -delete",
+    "find . ! -empty -delete",
+    "find . -not -empty -type d -delete",
+    "find . -size +0 -delete",
+    "find . -size 10k -delete",
+    "find . -empty -o -mtime +1 -delete",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+});
+
+test("store.db and ledger.db are Planroom's only in a state directory or the data root", () => {
+  for (const [tool, input] of [
+    ["Bash", { command: "sqlite3 store.db '.schema'" }],
+    ["Bash", { command: "grep -rn 'store.db' src/" }],
+    ["Bash", { command: "echo 'DATABASE=ledger.db' >> .env" }],
+    ["Bash", { command: "cp data/store.db /tmp/" }],
+    ["Read", { file_path: "data/store.db" }],
+    ["Read", { file_path: "/work/ledger.db" }],
+    ["Grep", { pattern: "x", path: "data/store.db" }],
+  ] as const) {
+    expect(verdict(tool, input), `${tool} ${JSON.stringify(input)}`).toBeNull();
+  }
+  for (const [tool, input] of [
+    ["Read", { file_path: ".planroom/store.db" }],
+    ["Read", { file_path: "repo/.git/planroom/store.db-wal" }],
+    ["Read", { file_path: "/home/u/.local/share/planroom/ledger.db" }],
+    [
+      "Read",
+      { file_path: "/home/u/.local/share/planroom/stores/ws1/store.db" },
+    ],
+    // An expansion or a glob in front of the name may stand for a state directory.
+    ["Bash", { command: "sqlite3 $X/store.db .dump" }],
+    ["Bash", { command: "sqlite3 */store.db .dump" }],
+    ["Bash", { command: "cat $(echo .planroom)/store.db" }],
+    ["Grep", { pattern: "x", glob: "store.db" }],
+  ] as const) {
+    expect(
+      verdict(tool, input)?.decision,
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBe("deny");
+  }
+  // From inside a state directory, a bare name is the store.
+  expect(
+    from("/work/.planroom")("Read", { file_path: "store.db" })?.decision,
+  ).toBe("deny");
+});
+
+test("a call on another attached machine, or outside the sandbox, is the person's to decide", () => {
+  for (const tool of ["Bash", "Read", "Edit", "Write", "Grep", "Glob"]) {
+    const input =
+      tool === "Bash"
+        ? { command: "ls", _host: "laptop" }
+        : {
+            file_path: "src/a.ts",
+            path: "src",
+            pattern: "x",
+            _host: "laptop",
+          };
+    const v = verdict(tool, input);
+    expect(v?.decision, tool).toBe("ask");
+    expect(v?.reason, tool).toContain("another attached machine");
+  }
+  const outside = verdict("Bash", {
+    command: "ls",
+    dangerouslyDisableSandbox: true,
+  });
+  expect(outside?.decision).toBe("ask");
+  expect(outside?.reason).toContain("outside the sandbox");
+  expect(
+    verdict("Bash", { command: "ls", dangerouslyDisableSandbox: false }),
+  ).toBeNull();
+  // What the guard denies here it denies there too.
+  expect(
+    verdict("Read", { file_path: ".planroom/store.db", _host: "laptop" })
+      ?.decision,
+  ).toBe("deny");
+  expect(
+    verdict("Bash", {
+      command: "planroom person init",
+      dangerouslyDisableSandbox: true,
+    })?.decision,
+  ).toBe("deny");
+});
+
+test("no start-up or settings file sets a variable an agent never sets", () => {
+  const denied: [string, unknown][] = [
+    [
+      "Write",
+      {
+        file_path: "/home/u/.bashrc",
+        content: "export PLANROOM_ENGINE=/tmp/x\n",
+      },
+    ],
+    ["Write", { file_path: "~/.bash_profile", content: "PLANROOM_RAW=1" }],
+    [
+      "Edit",
+      {
+        file_path: "~/.zshrc",
+        old_string: "a",
+        new_string: "export PLANROOM_PERSON_TOKEN=x",
+      },
+    ],
+    [
+      "Edit",
+      {
+        file_path: "~/.zprofile",
+        old_string: "a",
+        new_string: 'export PLANROOM_"ENGINE"=x',
+      },
+    ],
+    [
+      "MultiEdit",
+      {
+        file_path: "~/.profile",
+        edits: [
+          { old_string: "a", new_string: "b" },
+          {
+            old_string: "c",
+            new_string: "export PLANROOM_RELEASE_BASE_URL=http://127.0.0.1:1",
+          },
+        ],
+      },
+    ],
+    [
+      "Write",
+      {
+        file_path: "/home/u/.config/fish/config.fish",
+        content: "set -gx PLANROOM_ENGINE /x",
+      },
+    ],
+    [
+      "Write",
+      {
+        file_path: ".claude/settings.json",
+        content: '{"env":{"PLANROOM_ENGINE":"/x"}}',
+      },
+    ],
+    [
+      "Write",
+      {
+        file_path: ".claude/settings.local.json",
+        content: '{"env":{"PLANROOM_\\u0045NGINE":"/x"}}',
+      },
+    ],
+    [
+      "Edit",
+      {
+        file_path: "/home/u/.claude/settings.json",
+        old_string: "{",
+        new_string: '{"env":{"PLANROOM_RAW":"1"},',
+      },
+    ],
+    [
+      "Write",
+      {
+        file_path: "/etc/claude-code/managed-settings.json",
+        content: '{"env":{"PLANROOM_ENGINE":"/x"}}',
+      },
+    ],
+    [
+      "Bash",
+      {
+        command: `echo '{"env":{"PLANROOM_ENGINE":"/x"}}' > ~/.claude/settings.json`,
+      },
+    ],
+    [
+      "Bash",
+      {
+        command: "echo 'set -gx PLANROOM_RAW 1' >> ~/.config/fish/config.fish",
+      },
+    ],
+  ];
+  for (const [tool, input] of denied) {
+    expect(
+      verdict(tool, input)?.decision,
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBe("deny");
+  }
+  // A settings file may set other variables, and other files may name these.
+  for (const [tool, input] of [
+    [
+      "Write",
+      { file_path: "/home/u/.bashrc", content: "export PATH=$PATH:~/bin\n" },
+    ],
+    [
+      "Write",
+      {
+        file_path: ".claude/settings.json",
+        content: '{"env":{"RUST_LOG":"info"}}',
+      },
+    ],
+    [
+      "Write",
+      { file_path: "src/env.ts", content: "const PLANROOM_ENGINE = 1;" },
+    ],
+    [
+      "Write",
+      {
+        file_path: "/home/u/.bashrc",
+        content: "export MY_PLANROOM_ENGINE_X=1",
+      },
+    ],
+  ] as const) {
+    expect(verdict(tool, input), `${tool} ${JSON.stringify(input)}`).toBeNull();
+  }
+  // Also where CLAUDE_CONFIG_DIR and XDG_CONFIG_HOME move them.
+  const moved = guardPlaces(
+    "/work",
+    {
+      HOME: "/home/u",
+      CLAUDE_CONFIG_DIR: "/cfg/claude",
+      XDG_CONFIG_HOME: "/cfg",
+    },
+    { plugin: [PLUGIN] },
+  );
+  for (const file_path of [
+    "/cfg/claude/settings.json",
+    "/cfg/fish/conf.d/env.fish",
+  ]) {
+    expect(
+      guardCall(
+        "Write",
+        { file_path, content: "PLANROOM_ENGINE=/x" },
+        () => [],
+        moved,
+      )?.decision,
+      file_path,
+    ).toBe("deny");
+  }
+});
+
+test("a backslash-newline joins a word, as the shell joins it", () => {
+  for (const command of [
+    "export PLANROOM_EN\\\nGINE=/tmp/x",
+    "planroom per\\\nson init",
+    "cat .plan\\\nroom/serve.json",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  expect(
+    verdict("Bash", { command: "cargo build \\\n  --release" }),
+  ).toBeNull();
+});

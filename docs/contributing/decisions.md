@@ -103,6 +103,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 87 | What the walking skeleton's review settled in round 3 | Extractors read the repo; Actors: agents never act as a person; Surfaces read one contract; Remote mode | extended | walking skeleton review round 3 (engine and guard fixes) |
 | 88 | The guard's residual risks, decided | Actors: agents never act as a person | extended | walking skeleton review round 3's residual risks |
 | 89 | What M1 builds, compares and leaves to later milestones | none (Milestones; S1, S3, S15 and the feature list's gate) | added | milestone planning (M1's scope, read against the tree) |
+| 90 | The guard lets everyday work through, and closes three more doors | Actors: agents never act as a person | extended | a usability review of the guard after DR-88 |
 
 ## Where the design reviews disagreed
 
@@ -2207,7 +2208,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-88: The guard's residual risks, decided
 
-- **Status:** accepted (decided at round 3's close, 2026-10-26).
+- **Status:** accepted (decided at round 3's close, 2026-10-26). Amended by DR-90.
 - **Starting point:** extended "Actors: agents never act as a person".
 - **Origin:** the walking skeleton review's round 3: the guard's residual risks DR-85 to DR-87 left, and the minor security findings of rounds 2 and 3, each checked against the code before it was decided ([accepted risk](research/skeleton-review/accepted-risk.md#the-guards-residual-risks-decided)). The owner delegated these risk decisions on 2026-10-26.
 - **Context:** Round 3 closed with a list of what the guard didn't cover. Checking each against the code confirmed them and found more: a deleting `find` (`find . -name '*.db' -delete`) removed the workspace's store, a quoted `'>'` turned a secret's parent into a redirect target and let a tree read pass, a tool the guard didn't know could write anywhere, and `cd $(...)` hid a guarded folder. With `HOME` unset the guard failed open, and the engine put its data root under the current directory.
@@ -2235,6 +2236,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `packages/mod/src/guard.test.ts` (the unknown-tool test, the shell forms left after round 3, the protected-folder shell, security-r2-4 and security-r3-4 cases, tests-3-1, and the everyday list beside them); `packages/mod/plugin-tests/guard.test.tsx` and `actor.test.tsx`; `packages/mod/src/engine.test.ts`; `crates/planroom/tests/workspaces.rs::a_serve_with_no_home_writes_nothing_into_the_workspace`; `tests/installer/run.sh::a_data_root_with_no_absolute_place_is_refused`.
   - Milestones: the three M1 checks above join the actor, mod and serve slices, and the actor slice also pins the registered person key's fingerprint.
   - It amends DR-58 (an absolute data root), DR-75 (when the mod registers its key) and DR-87 (the guard's rule for tools it doesn't know).
+- **Amended by DR-90:** the guard reads `**` as Bash does, takes a `sed` or `perl -i` script as no file it writes, lets a dry-run `git clean` and a `find -empty` delete pass, counts a bare `store.db` only in a state directory, asks on `_host` and `dangerouslyDisableSandbox`, and refuses a guarded variable in a start-up or settings file; the mod's runs set the engine variables empty.
 - **Sources (checked 2026-10-26):** `packages/mod/src/guard.ts`, `register.tsx` and `person.ts`; `crates/planroom/src/app/data.rs`; `crates/planroom/src/server/routes.rs` (what the control token unlocks); `plugin/scripts/planroom`; [accepted risk](research/skeleton-review/accepted-risk.md).
 
 ## DR-89: What M1 builds, compares and leaves to later milestones
@@ -2350,3 +2352,23 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - **Tests:** the new and written-under-their-name tests above, among them `s01_first_look.rs::every_truth_item_the_loaded_packs_declare_matches_with_evidence` and `truth_recall_never_drops`; `trust.rs::accepting_the_trust_card_loads_the_config`; `packs.rs::accepting_the_changed_source_card_updates_the_copy`; `backup.rs::a_lost_state_directory_then_scan_offers_one_restore_card`; `cards.rs` (a dealt card listed face up, a second pick `already_resolved`, an agent's pick `person_required`, no second open card, the Apply card resolved by its last ghost); `config.rs::fixture_and_test_data_trees_are_excluded_by_default`; `live_gate.rs` (the cap, its margin, a relative path, a live flag with no spend log, `intent next` without a record flag); `gates.rs::a_new_budgets_key_is_not_a_raise`, `feature_list_is_complete`.
   - It amends DR-3 (a ninth event kind, `card`), DR-12 (full evidence recall is verified in M3, with a stated subset in M1), DR-59 (what `feature_list_is_complete` checks, and what a raise is) and DR-83 (the form of the `#[redact]` marks), and extends DR-65 (in M1, `intent next` answers from replay).
 - **Sources (checked 2026-10-26):** `architecture.md` ([Milestones](architecture.md#milestones), trust in [Where the workspace lives](architecture.md#where-the-workspace-lives), [Ruby through the extractor contract](architecture.md#ruby-through-the-extractor-contract), `budgets.json` in [Token budgets](architecture.md#token-budgets-s7), [Spend guards](architecture.md#spend-guards), `intent next` in [Planning](architecture.md#planning-stages-ghosts-and-lint-r5), the server's exposure in [Security and privacy](architecture.md#security-and-privacy), the fold benchmark in [Performance budgets](architecture.md#performance-budgets), [Found by dogfooding](architecture.md#found-by-dogfooding)); `contracts.md` (open sets in [Versioning rules](contracts.md#versioning-rules), the Feature list row in [Every public contract](contracts.md#every-public-contract), `review` in [Command catalogue](contracts.md#command-catalogue), [Event model](contracts.md#event-model)); `feature_list.json` (S1, S3, C15); `examples/TRUTH.json` (`containers`, `relations`); `crates/contract/src/event.rs`; `crates/store/migrations/0001_init.sql`; `crates/planroom/tests/server_auth.rs`; `crates/planroom/src/server/auth.rs` (`CODE_LIFE`).
+
+## DR-90: The guard lets everyday work through, and closes three more doors
+
+- **Status:** accepted (decided 2026-10-26).
+- **Starting point:** extended "Actors: agents never act as a person".
+- **Origin:** a usability review of the guard after DR-88: 249 ordinary calls a coding agent makes, run through the guard, and a reading of DR-88's reasons against the code.
+- **Context:** The guard refused 21 of 249 everyday calls, 15 of them unintended: a dry-run `git clean`, `**` globs, `sed -i` and `perl -pi` scripts, a deleting `find -empty`, the names `store.db` and `ledger.db` in an app's own files, and Glob patterns. The review also found that a call run on another attached machine (`_host`) or outside the sandbox passed unchecked, and that a Write or Edit could put `PLANROOM_ENGINE` in a shell start-up or Claude Code settings file, where a later press would inherit it.
+- **Decision:**
+  - **Everyday calls pass.** A `**` matches no hidden folder unless the line turns `dotglob` on, as in Bash. A `sed` or `perl -i` script is not a file it writes. `-empty` and `-size 0` select nothing protected in a deleting `find`. A dry-run `git clean` passes. A bare `store.db` or `ledger.db` counts only in a state directory, or behind a glob or expansion that may stand for one.
+  - **Three more doors close.** A call the guard would let through is asked when it sets `_host` or `dangerouslyDisableSandbox`. No Write, Edit, MultiEdit or Bash write may put a guarded variable in a shell start-up file or a Claude Code settings file. Every engine and resolver run the mod starts sets `PLANROOM_ENGINE` and `PLANROOM_RELEASE_BASE_URL` empty, which the resolver reads as unset.
+  - **A backslash-newline joins a word,** as the shell joins it, so a guarded name split across a line break is still read.
+  - **Accepted:** system-wide start-up files (`/etc/profile` and the like), an Edit that assembles a guarded name from text already in a file, and copying a prepared file into place. The mod's empty engine variables still keep any of these from picking what a press runs.
+  - **A side effect a person may notice:** exporting `PLANROOM_ENGINE` to try a local engine no longer reaches the mod's runs. Running the resolver by hand, and the dev checkout's own build, still use it.
+- **Alternatives rejected:**
+  - Refusing every write to a settings file: it would block an agent's legitimate project settings.
+  - Holding the Glob tool to a separate rule: one `**` rule for Bash, Grep and Glob is simpler, and a Glob lists names, never contents.
+- **Consequences:**
+  - Tests: `packages/mod/src/guard.test.ts` ("everyday calls from a usability sweep pass the guard", the `**`, in-place script, `find -empty`, dry-run `git clean`, `store.db`, `_host` and sandbox, start-up and settings file, and backslash-newline cases); `packages/mod/plugin-tests/guard.test.tsx`; `actor.test.tsx` ("no run the mod starts takes its engine from the environment it inherited"); `tests/installer/run.sh::empty_overrides_count_as_unset`.
+  - It amends DR-88 (the guard's Bash reading and its read rule for store names).
+- **Sources (checked 2026-10-26):** `packages/mod/src/guard.ts`, `live.ts` and `register.tsx`; `plugin/scripts/planroom` (an empty override is unset); [accepted risk](research/skeleton-review/accepted-risk.md#the-guards-residual-risks-decided).

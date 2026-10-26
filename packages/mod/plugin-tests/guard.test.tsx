@@ -423,3 +423,56 @@ test("security-r3-3: the plugin's own files are never written, by the Write tool
   });
   expect(read.decision).toBe("allow");
 });
+
+test("a call on another attached machine or outside the sandbox is asked, and a start-up file never sets the engine", async ($, on) => {
+  const h = host(on);
+  allowBeneath(on);
+  await $.session.start(START);
+  await h.clock.settle();
+
+  for (const [tool, input] of [
+    ["Bash", { command: "ls", _host: "laptop" }],
+    ["Read", { file_path: "README.md", _host: "laptop" }],
+    ["Bash", { command: "ls", dangerouslyDisableSandbox: true }],
+  ] as const) {
+    const v = await $.tool.check({ tool, input });
+    expect(v.decision, `${tool} ${JSON.stringify(input)}`).toBe("ask");
+  }
+  for (const [tool, input] of [
+    [
+      "Write",
+      {
+        file_path: "/home/u/.bashrc",
+        content: "export PLANROOM_ENGINE=/tmp/x\n",
+      },
+    ],
+    [
+      "Edit",
+      {
+        file_path: ".claude/settings.json",
+        old_string: "{",
+        new_string:
+          '{"env":{"PLANROOM_RELEASE_BASE_URL":"http://127.0.0.1:1"},',
+      },
+    ],
+  ] as const) {
+    const v = await $.tool.check({ tool, input });
+    expect(v.decision, tool).toBe("deny");
+  }
+  // The everyday forms the usability review found refused now pass.
+  for (const command of [
+    "git clean -ndx",
+    "rm -rf **/__pycache__",
+    "sed -i.bak 's/^version = .*/version = \"0.2.0\"/' Cargo.toml",
+    "find . -empty -type d -delete",
+    "sqlite3 store.db '.schema'",
+  ]) {
+    const v = await $.tool.check({ tool: "Bash", input: { command } });
+    expect(v.decision, command).toBe("allow");
+  }
+  const glob = await $.tool.check({
+    tool: "Glob",
+    input: { pattern: "**/*.json" },
+  });
+  expect(glob.decision).toBe("allow");
+});

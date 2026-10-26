@@ -465,6 +465,30 @@ print(doc["error"]["code"])'
 # A binary swapped into the cache after the install doesn't match the sha256 its `.ok` recorded, so
 # the resolver treats the cache as empty: status names the download, and the next run fetches the
 # release again instead of running the swapped binary (security-r2-1).
+# The mod sets PLANROOM_ENGINE and PLANROOM_RELEASE_BASE_URL empty on every run it starts, so an
+# inherited value never picks the engine a press runs: the resolver reads an empty one as unset.
+empty_overrides_count_as_unset() {
+  d="$work/empty-overrides"
+  make_plugin "$d" 3.0.0 checkout
+  fake_engine "$d/target/debug/planroom" 3.0.0 debug
+  PLANROOM_DATA="$d/data" PLANROOM_ENGINE='' PLANROOM_RELEASE_BASE_URL='' \
+    run "$d/plugin/scripts/planroom" focus --json
+  expect_eq "$code" 0 "$(cat "$work/stderr")"
+  expect_eq "$out" "debug: focus --json"
+  PLANROOM_DATA="$d/data" PLANROOM_ENGINE='' run "$d/plugin/scripts/planroom" status --json
+  expect_contains "$out" '"step":"checkout"'
+  # An empty base is the default one: a -dev version still has no release to fetch.
+  d="$work/empty-base-dev"
+  make_plugin "$d" 3.1.0-dev
+  path=$(sandbox_path "$d")
+  fake_tool "$d" cargo
+  fake_tool "$d" cc
+  PATH=$path PLANROOM_DATA="$d/data" PLANROOM_RELEASE_BASE_URL='' \
+    run "$d/plugin/scripts/planroom" focus --json
+  expect_eq "$code" 7
+  expect_contains "$out" '"reason":"no_release"'
+}
+
 a_swapped_cached_engine_is_refused() {
   d="$work/swapped"
   make_plugin "$d" 2.1.0
@@ -527,7 +551,8 @@ for t in override_runs_the_named_binary a_missing_override_is_engine_unavailable
   a_checkout_build_builds_the_canvas_first a_build_without_node_has_no_canvas \
   a_clone_build_is_cached_and_its_clone_removed the_repo_checkout_resolves_its_own_build \
   the_resolver_spells_no_code_or_reason_itself resolver_outputs_are_one_document_with_their_size \
-  a_swapped_cached_engine_is_refused a_data_root_with_no_absolute_place_is_refused; do
+  a_swapped_cached_engine_is_refused a_data_root_with_no_absolute_place_is_refused \
+  empty_overrides_count_as_unset; do
   case $t in *"$filter"*) ;; *) continue ;; esac
   # Not an `if` condition: there `set -e` would be off, and a failed assertion would go on.
   set +e

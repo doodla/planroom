@@ -64,9 +64,20 @@ export async function runProcess(
   }
 }
 
+/**
+ * The variables that pick the engine binary, set empty on every run the mod starts, the resolver's
+ * and the engine's alike: the resolver reads an empty one as unset, so a value the session
+ * inherited, such as one a shell's start-up file or a settings file set, never picks what a
+ * person's press runs (DR-64, DR-69).
+ */
+export const ENGINE_UNPICKED: Readonly<Record<string, string>> = {
+  PLANROOM_ENGINE: "",
+  PLANROOM_RELEASE_BASE_URL: "",
+};
+
 /** The writer instance every engine run names: this mod session (DR-60). */
 export async function clientEnv($: $): Promise<Record<string, string>> {
-  return { PLANROOM_CLIENT: `mod:${await $.session.id()}` };
+  return { ...ENGINE_UNPICKED, PLANROOM_CLIENT: `mod:${await $.session.id()}` };
 }
 
 /**
