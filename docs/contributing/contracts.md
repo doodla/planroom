@@ -173,6 +173,7 @@ No level or view is blank: an empty one carries an `Empty`, whose `next` runs to
 |---|---|---|
 | `not_scanned` | `focus` or `map` in a directory with repos and no store (DR-57) | `scan DIR`, "Map these N repos? About 2 s" |
 | `no_repos` | `focus` or `map` in a directory with no repos and no store; `map` returns it `ok`, not `workspace_not_found` | `focus`, "check again": no `scan` there could succeed (DR-85) |
+| `repos_unreadable` | `focus` or `map` with no map yet, where git can read none of the workspace's repos; the line names them | `focus`, "check again" after `git status` in each: a `scan` there would map nothing (DR-86) |
 | `no_intent` | `map --level intent` before any plan | `map`, the top of the map (DR-85) |
 | `empty_level` | `map --level L` where the workspace has nothing at `L` | `map`, the top of the map (DR-85) |
 | `nothing_mapped` | the top of the map after a scan found nothing to map | `scan ROOT` (DR-85) |
@@ -213,7 +214,7 @@ Redaction is by field [DR-64]. A field marked `#[redact]` in `crates/contract/sr
 | `packs_mismatch` | unavailable | 7 | never | this process resolved another pack set than the one the store records; a write is refused. Packs load from their copies in the state directory, so only engine version skew causes it (DR-62) | `recorded`, `resolved`; `hint` names a restart for an older engine, or the update for a newer store |
 | `replay_missing` | unavailable | 7 | never | strict replay found no record (CI and tests) | `key`, `path` |
 | `pack_invalid` | failed | 8 | never | a pack failed validation | `file`, `line`, `reference` |
-| `git_failed` | failed | 8 | never | git exited non-zero; stderr redacted | `argv`, `stderr` |
+| `git_failed` | failed | 8 | never | git exited non-zero; stderr redacted. A scan returns it only when git can't list a root repo's submodules, which leaves the repo set unknown; it skips any repo git refuses, with `repo_skipped` (DR-86) | `argv`, `stderr`; `hint` is `git -C PATH status`, which shows why (DR-86) |
 | `internal` | internal | 70 | never | a bug | `report` (a path to a redacted report) |
 
 A code that only a person can clear has retry `never` and names the card or command a person can use, in `details` or `hint`; `the_documented_error_table_is_the_error_codes` enforces it (DR-66). Older readers map an unknown code to its category and exit code. A job or event recorded with a code this binary doesn't know reads as `internal` with `details.recorded_code`.
@@ -223,11 +224,11 @@ A code that only a person can clear has retry `never` and names the card or comm
 | Code | Meaning |
 |---|---|
 | `claimed` | the target is claimed by someone else; `details {by, until}` |
-| `truncated` | the result hit its budget; the summary and first page are kept. For `map`, `details {kept, total, budget_tokens, next}`, where `next` is the drill-down handle in [Token budgets](architecture.md#token-budgets-s7) (DR-85) |
+| `truncated` | the result hit its budget; the summary and first page are kept. For `map`, `details {kept, total, budget_tokens, next}`, where `next` is the drill-down handle in [Token budgets](architecture.md#token-budgets-s7) (DR-85). From the CLI's check of a whole reply against its leaf's budget, `details {budget_tokens, left_out, codes}`: `left_out` counts the warnings it left out after those it kept in order, and `codes` counts them by code. `left_out` 0 means the result alone passes the budget (DR-86) |
 | `unresolved_ref` | an alias or a linker join had zero or several candidates; no edge was made |
 | `evidence_dropped` | an evidence item failed verification at ingest |
-| `partial_parse` | a file parsed with error nodes; its facts are weak |
-| `partial_scan` | an extractor reached its file or byte bound; `details {extractor, repo, uncovered}`, the uncovered paths in sorted order |
+| `partial_parse` | files parsed with error nodes, so their facts are weak; `details {repo, count, paths}`, where `paths` is a sample: the first 10 in sorted order (DR-86) |
+| `partial_scan` | an extractor reached its file or byte bound, or a partial clone lacks blobs, which a scan never fetches; `details {extractor, repo, count, uncovered}`, where `count` counts every uncovered file and `uncovered` is a sample: the first 10 in sorted order (DR-86) |
 | `deterministic_fallback` | no model was reachable, allowed or within budget; deterministic tiers, `low` kinds keep their default and cards pre-select it |
 | `workspace_untrusted` | the workspace's `.planroom/` is untrusted, so its config wasn't loaded; `details {card}` |
 | `config_key_ignored` | a user-level key in a workspace's config, or `api_key` in a user-level config that isn't mode 0600; `details {file, key}` |
@@ -243,6 +244,9 @@ A code that only a person can clear has retry `never` and names the card or comm
 | `temporary_host` | this host loses its files with its container, so a redacted copy of the backup is also kept at a local ref; `details {repo, ref}`, and no push command, so no envelope suggests a push; the mod shows its own copy-out line once (DR-53, DR-75) |
 | `reconcile_paused` | a repo's `HEAD` moved other than forward along its tracked branch, so the map follows it and the reconciler skipped it; `details {repo, head, tracked_branch, reason}`, `reason` `off_branch` or `rewritten` (DR-71) |
 | `workspace_nested` | another workspace's `.planroom/` sits inside this one, or this one inside it; `details {other_root}` (DR-71) |
+| `repo_unborn` | a repo has no commit yet, so it maps nothing until its first commit; the rest of the workspace maps. `details {repo, branch}` (DR-86) |
+| `repo_skipped` | git refused a repo, so the scan left it out and its last map stays; the rest of the workspace maps. `details {repo, reason, fix}`, where `reason` is `other_owner` or `git_failed` and `fix` is one line with an exact command (DR-86) |
+| `scan_superseded` | a repo's `HEAD` moved on while the scan read it, so its map stays where a newer scan left it; `details {repo, commit}`, the commit this scan read (DR-86) |
 | `duty_failed` | a background duty failed and hasn't succeeded since; `details {duty, at, log}`, the log under the data root (DR-58) |
 
 ## Command catalogue
@@ -323,7 +327,7 @@ pub struct WriteCommon {                     // flattened into every write reque
 | `doctor` | Setup | mixed: `--restore` needs a person | read, change | none |
 | `serve`, `watch`, `export`, `schema`, `version` | Setup | any | read | none |
 
-`planroom schema --commands` prints the catalogue as JSON, paged under 1,500 tokens: each leaf's path, idea, actor rule, budget, undo class and its `schema --command LEAF` handle. `schema --command LEAF` returns that leaf's request and result types with the closure of their `$defs`, summary first, and `schema --def NAME` one type the same way, each under 1,500 tokens. `schema` alone returns a summary with the schema's `$id`, version and those handles, and `schema --out DIR` writes both views to files. `catalogue.rs::every_leaf_has_a_budget_or_streams` checks the budgets (DR-21).
+`planroom schema --commands` prints the catalogue as JSON, paged under 1,500 tokens: each leaf's path, idea, actor rule, budget, undo class and its `schema --command LEAF` handle. `schema --command LEAF` returns that leaf's request and result types with the closure of their `$defs`, summary first, and `schema --def NAME` one type the same way, each under 1,500 tokens. To fit, `schema --command` drops descriptions, first from the result's types, then from the request's, and keeps every shape whole; its summary says which it dropped (DR-86). `schema` alone returns a summary with the schema's `$id`, version and those handles, and `schema --out DIR` writes both views to files. `catalogue.rs::every_leaf_has_a_budget_or_streams` checks the budgets (DR-21).
 
 `PaneModel.next`, every band Button and every pack `[[suggestions]]` action name only a leaf whose undo class isn't `NotUndoable`, whose class isn't `Handoff`, and whose `spends` is false; the pack loader refuses any other with `pack_invalid` (DR-54, DR-66).
 
@@ -435,12 +439,14 @@ pub enum Evidence {
         #[serde(skip_serializing_if = "Option::is_none")] #[redact]
         contains: Option<String>,            // the exact line, cut to 200 chars; omitted in a default Artifact snapshot
         commit: Option<String>,
-        branch: Option<String>,
+        branch: Option<String>,              // None from a head scan: evidence names the commit, and the branch is on the scan
+                                             // event, since a branch can move or be deleted while the commit stays (DR-86)
     },
     Ref {                                    // a git-derived fact (tag, commit, co-change, ownership); also a directory,
                                              // a repo, and an empty or non-UTF-8 file, read at that commit (DR-81)
         commit: String,                      // verified with git cat-file -e
-        #[serde(rename = "ref")] ref_name: Option<String>,   // "refs/tags/v1.5.0"; verified with git for-each-ref
+        #[serde(rename = "ref")] ref_name: Option<String>,   // "refs/tags/v1.5.0"; verified with git for-each-ref; None for a
+                                             // directory, a repo or a file from a head scan, which names no branch (DR-86)
     },
 }
 
@@ -520,7 +526,8 @@ pub enum EventBody {
     Version { project: Option<NodeId>, label: String },     // a tag on seq
     Decision(DecisionRecord),
     Claim { target: Target, until: Timestamp, release: bool },
-    Scan { repo: String, commit: String, branch: String,
+    Scan { repo: String, commit: String,
+           branch: String,                                  // the branch HEAD named; the snapshot and its evidence name none (DR-86)
            snapshot: u64,                                   // 0 only in the outcome-holding event a restore writes (DR-73)
            link: u64,                                       // the workspace link snapshot of the active set this scan committed
            renames: Vec<Rename>,                            // { from: NodeId, to: NodeId }: git's renames since the last
@@ -727,7 +734,12 @@ pub trait Linker {                           // pure: the workspace's hints and 
     fn name(&self) -> &'static str;
     fn link(&self, ws: &WorkspaceFacts, opts: &Value) -> Result<FactBatch, ExtractError>;
 }
-pub struct RepoView { pub name: String, pub root: PathBuf, pub commit: String, pub branch: String }
+pub struct RepoView {                        // no branch: it's no input of the facts (DR-86)
+    pub name: String,
+    pub root: PathBuf,                       // where git runs; an extractor never reads a file from here (DR-85)
+    pub commit: String,
+    pub blobs: Blobs,                        // the commit's files the walk took; read them with RepoView::read
+}
 ```
 
 Rules checked by `extract/tests/contract.rs`: deterministic and sorted output; tolerant of error nodes; only the commit's tree read, never the working tree (DR-85); files over 1 MiB, binaries and paths a committed `.gitignore` ignores skipped; at most 50,000 files and 256 MiB per repo, in sorted path order, from one walk every extractor reads, with `partial_scan` on a cut; unchanged blobs reuse cached facts; every fact has evidence, a `Line` whose `contains` verifies against the blob or a `Ref` that verifies against git; nodes, edges and joinable hints come from syntax nodes, never comments or docstrings, and only `metric_mentions` reads comments, for evidence; emit props coerce to the prop schema; cross-file targets go out as aliases or hints; nothing from the repo runs.
@@ -1013,6 +1025,22 @@ Until Ask Claude and Send to Claude land, `share`'s publish arguments declare on
 
 ```rust
 // crates/contract/src/remote.rs
+pub struct ShareResult {                     // what `share` returns
+    pub summary: String,                     // what will be shared, from the snapshot's sections; the first publish shows it
+    pub publish: PublishArgs,
+    pub db: Vec<DbBatch>,                    // the writes to make after the publish, live/head last
+    pub files: Vec<SharedFile>,              // { path, bytes }: only what share built from this workspace, that is the page, the
+                                             // snapshot and the first live/head; the canvas build's assets are only in publish (DR-86)
+    pub holds: Vec<String>,                  // as Snapshot.capabilities names it
+}
+pub struct PublishArgs {                     // the exact arguments of the session's Artifact publish
+    pub file_path: String,                   // the page fragment, an absolute path
+    pub root: String,                        // share's --out, absolute; every files source is relative to it, so the
+                                             // arguments keep to share's budget (DR-86)
+    pub files: BTreeMap<String, String>,     // each published path and its source, relative to root
+    pub capabilities: Value, pub title: String, pub description: String,
+    pub icon: String,                        // on the first publish
+}
 pub struct Snapshot {
     pub format: String,                      // "planroom.snapshot/v1"
     pub workspace_id: String, pub seq: Seq, pub published_at: Timestamp,

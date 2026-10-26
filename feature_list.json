@@ -75,7 +75,12 @@
         "crates/planroom/tests/scan.rs::a_file_removed_from_the_working_tree_but_in_head_stays_mapped",
         "crates/extract/tests/contract.rs::the_working_tree_never_reaches_the_facts",
         "tests/e2e/surface.spec.ts::the_breadcrumb_names_the_level_and_each_ancestor_goes_back_up",
-        "tests/e2e/surface.spec.ts::once_its_level_shows_the_next_action_turns_into_the_way_back"
+        "tests/e2e/surface.spec.ts::once_its_level_shows_the_next_action_turns_into_the_way_back",
+        "crates/planroom/tests/scan.rs::moving_a_repo_out_and_back_gives_the_map_a_fresh_store_gives",
+        "crates/planroom/tests/scan.rs::deleting_the_branch_a_snapshot_was_read_on_leaves_no_evidence_naming_it",
+        "crates/planroom/tests/scan.rs::an_unborn_and_an_unreadable_repo_leave_the_rest_of_the_workspace_mapped",
+        "crates/planroom/tests/scan.rs::a_workspace_git_can_read_none_of_offers_no_scan",
+        "crates/store/tests/commit.rs::one_commit_under_other_inputs_is_another_snapshot"
       ]
     },
     {
@@ -531,7 +536,10 @@
         "tests/e2e/surface.spec.ts::a_flush_by_another_tab_keeps_the_original_writer",
         "tests/e2e/surface.spec.ts::a_flush_of_a_committed_edit_replays",
         "crates/store/tests/commit.rs::a_retry_with_the_same_key_returns_the_stored_reply",
-        "crates/store/tests/idem.rs::a_retry_after_a_kill_after_commit_returns_the_stored_reply"
+        "crates/store/tests/idem.rs::a_retry_after_a_kill_after_commit_returns_the_stored_reply",
+        "crates/planroom/tests/scan.rs::a_scan_that_read_an_older_head_never_moves_the_repo_back",
+        "crates/store/tests/commit.rs::a_scan_whose_commit_is_no_longer_head_never_moves_a_repo_back",
+        "crates/store/tests/commit.rs::a_first_scan_records_its_commit_even_when_head_moved_since"
       ]
     },
     {
@@ -756,7 +764,12 @@
         "packages/mod/src/guard.test.ts::security-3: a Glob tool's pattern is held to the same rule as a Bash glob",
         "packages/mod/src/guard.test.ts::security-3: everyday commands still pass",
         "packages/mod/src/layout.test.ts::ux-1: no Button runs map --focus, which the engine refuses until M1",
-        "packages/mod/src/layout.test.ts::ux-1: a pressed next action shows its result, not the same press again"
+        "packages/mod/src/layout.test.ts::ux-1: a pressed next action shows its result, not the same press again",
+        "packages/mod/src/guard.test.ts::security-r2-1: Bash writes nothing under a state directory or the data root",
+        "packages/mod/src/guard.test.ts::security-r2-2: recursive reads, copies and links of a guarded place's parent are denied",
+        "packages/mod/src/guard.test.ts::security-r2-2: a Grep or Glob over the user config's or the data root's parents is denied",
+        "packages/mod/src/guard.test.ts::security-r2: everyday writes and recursive reads still pass",
+        "packages/mod/plugin-tests/guard.test.tsx::security-r2-2: recursive reads of a guarded place's parent are denied; plain rg passes"
       ]
     },
     {
@@ -1051,7 +1064,8 @@
         "tests/e2e/quality.spec.ts::top_row_fits_at_the_deepest_level",
         "tests/e2e/quality.spec.ts::keyboard_reaches_every_block_and_action",
         "tests/e2e/quality.spec.ts::axe_finds_no_serious_violation",
-        "tests/e2e/surface.spec.ts::the_phone_always_goes_back_up_through_the_ancestors_lid"
+        "tests/e2e/surface.spec.ts::the_phone_always_goes_back_up_through_the_ancestors_lid",
+        "tests/e2e/surface.spec.ts::the_top_row_holds_four_targets_at_most_every_target_is_44px_and_nothing_overflows"
       ]
     },
     {
@@ -1129,7 +1143,8 @@
         "tests/installer/run.sh::a_build_without_node_has_no_canvas",
         "tests/installer/run.sh::a_clone_build_is_cached_and_its_clone_removed",
         "tests/installer/run.sh::the_resolver_spells_no_code_or_reason_itself",
-        "tests/installer/run.sh::resolver_outputs_are_one_document_with_their_size"
+        "tests/installer/run.sh::resolver_outputs_are_one_document_with_their_size",
+        "tests/installer/run.sh::a_swapped_cached_engine_is_refused"
       ]
     },
     {
@@ -1236,7 +1251,11 @@
         "crates/planroom/tests/budgets.rs::a_map_within_its_budget_is_whole_and_untruncated",
         "crates/planroom/tests/budgets.rs::the_canvas_graph_over_serve_takes_every_block",
         "crates/planroom/tests/empty_states.rs::every_map_level_has_blocks_or_an_empty_state_whose_next_action_works",
-        "tests/e2e/surface.spec.ts::a_level_with_no_blocks_draws_an_empty_state_with_a_way_back"
+        "tests/e2e/surface.spec.ts::a_level_with_no_blocks_draws_an_empty_state_with_a_way_back",
+        "crates/planroom/tests/budgets.rs::every_built_leafs_reply_on_the_fixture_keeps_to_its_budget",
+        "crates/planroom/tests/budgets.rs::a_scan_past_the_file_bound_keeps_its_reply_to_its_budget",
+        "tests/e2e/surface.spec.ts::the_lens_switcher_and_the_project_shelf_offer_only_what_works",
+        "tests/e2e/surface.spec.ts::the_lens_switcher_and_the_project_shelf_offer_only_what_works_on_the_phone"
       ]
     },
     {
@@ -1303,9 +1322,15 @@
         "crates/planroom/tests/server_auth.rs::the_opener_gets_a_fixed_path",
         "packages/mod/src/guard.test.ts::security-3: the everyday shell forms that slipped past the guard are denied",
         "packages/mod/src/guard.test.ts::security-3: a Glob tool's pattern is held to the same rule as a Bash glob",
-        "packages/mod/src/guard.test.ts::security-3: everyday commands still pass"
+        "packages/mod/src/guard.test.ts::security-3: everyday commands still pass",
+        "packages/mod/src/guard.test.ts::security-r2-1: Bash writes nothing under a state directory or the data root",
+        "packages/mod/src/guard.test.ts::security-r2-2: recursive reads, copies and links of a guarded place's parent are denied",
+        "packages/mod/src/guard.test.ts::security-r2-2: a Grep or Glob over the user config's or the data root's parents is denied",
+        "packages/mod/src/guard.test.ts::security-r2: everyday writes and recursive reads still pass",
+        "packages/mod/plugin-tests/guard.test.tsx::security-r2-2: recursive reads of a guarded place's parent are denied; plain rg passes",
+        "tests/installer/run.sh::a_swapped_cached_engine_is_refused"
       ],
-      "decision": "DR-4, DR-52, DR-64, DR-72, DR-75, DR-85"
+      "decision": "DR-4, DR-52, DR-64, DR-72, DR-75, DR-85, DR-86"
     },
     {
       "id": "C2",
@@ -1952,9 +1977,11 @@
         "crates/planroom/tests/display.rs::every_reply_carries_the_line_text_mode_prints_first",
         "crates/planroom/tests/display.rs::an_error_line_on_stderr_is_sanitized",
         "packages/mod/src/layout.test.ts::security-5: an OSC 52 or RLO in a repo name never reaches the pane or the band raw",
-        "packages/mod/src/room.test.ts::security-5: an OSC 52 or RLO in a name or the summary never reaches the transcript raw"
+        "packages/mod/src/room.test.ts::security-5: an OSC 52 or RLO in a name or the summary never reaches the transcript raw",
+        "crates/planroom/tests/git_hardening.rs::a_scan_of_a_partial_clone_never_fetches_and_reports_the_missing_blobs",
+        "crates/planroom/tests/git_hardening.rs::a_partial_clone_that_gains_blobs_maps_them_at_the_same_commit"
       ],
-      "decision": "DR-64, DR-75, DR-78, DR-85"
+      "decision": "DR-64, DR-75, DR-78, DR-85, DR-86"
     }
   ]
 }
