@@ -44,7 +44,9 @@ It writes `round<N>-<lens>.json` per lens, with each finding and its verdict, an
 - `refuted`: dropped.
 - `UNVERIFIED`: no verdict yet. A refuter is missing or still running, so wait.
 
-A verifier's `severity_after` is final. It can downgrade a finding or upgrade it. Don't overrule it in either direction.
+A verifier's `severity_after` is final. It can downgrade a finding or upgrade it. Don't overrule it on judgment in either direction. One check is yours, though: before you drop a refuted security or data-loss finding, rerun its repro yourself, since a wrong refutation there costs the most. If it still reproduces, the finding stands as the reviewer rated it.
+
+A "completed" notification doesn't mean every refuter returned. The script counts a finding with no verdict as `UNVERIFIED`. Rerun only that lens's refuter on the same commit: that finishes the round, and doesn't start a new one. Check too that every lens you launched has a `review:` line; a lens that never ran is not a clean lens.
 
 Then write `docs/contributing/research/<phase>-review/README.md`: how the round ran, the counts, the fix tracks, and the outcome table from `--rows`. Rerun with `--tracks tracks.json` (finding ID → track name) to fill in each material row's track.
 
@@ -68,7 +70,7 @@ Then write `docs/contributing/research/<phase>-review/README.md`: how the round 
 
 Run round N+1 when round N had any material finding. Its reviewers see the fixed tree, and its `WORK` names round N's README so they check that each fix holds. A round with no material finding ends the review.
 
-After round 3, don't run a fourth. Write `accepted-risk.md` beside the README. List each material finding still open, why it's accepted, and who signed it off: the main agent, or the owner when it touches their data, money or credentials.
+After round 3, don't run a fourth. Write `accepted-risk.md` beside the README. List each material finding still open, why it's accepted, and who signed it off: the main agent, or the owner when it touches their data, money or credentials. Round 3's own fixes get no reviewer either. Say so there, and say what checks them instead: each fix's regression test, the finding's original repro rerun, and the full suite.
 
 ## 5. Record it
 
