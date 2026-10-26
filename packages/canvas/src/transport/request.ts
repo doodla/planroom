@@ -8,9 +8,14 @@
 
 import type { Handle } from "@planroom/contract";
 
-/** Each command's positional fields, in order, as its request struct names them. */
+/**
+ * Each command's positional fields, in order, as its request struct names them. `decide ID
+ * CHOICE` (contracts.md) has no request struct until M2; its fields are named as its synopsis
+ * names them.
+ */
 const POSITIONALS: Readonly<Record<string, readonly string[]>> = {
   scan: ["dir"],
+  decide: ["id", "choice"],
 };
 
 export function requestOf(handle: Handle): Record<string, unknown> {

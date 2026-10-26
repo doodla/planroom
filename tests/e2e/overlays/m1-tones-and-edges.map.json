@@ -1,0 +1,169 @@
+{
+  "overlay": "map-graph.json",
+  "milestone": "M1",
+  "why": "The engine draws no tones and no lifted edges yet: kind tones come with the packs (DR-46) and relations with the linkers, both M1. Until then this test-only overlay paints the real fixture's blocks and joins them, so tone and edge rendering stay covered.",
+  "patch": {
+    "nodes": {
+      "kit:repo:kit": {
+        "tone": "library"
+      },
+      "orders:repo:orders": {
+        "tone": "service"
+      },
+      "platform:repo:platform": {
+        "tone": "infra"
+      },
+      "storefront:repo:storefront": {
+        "tone": "service"
+      },
+      "worker:repo:worker": {
+        "tone": "service"
+      },
+      "ws:container:grafana": {
+        "tone": "infra"
+      },
+      "ws:container:orders-db": {
+        "tone": "store"
+      },
+      "ws:container:otel-collector": {
+        "tone": "infra"
+      },
+      "ws:container:prometheus": {
+        "tone": "infra"
+      },
+      "ws:container:redis": {
+        "tone": "store"
+      }
+    },
+    "edges": [
+      {
+        "kind": "code.http",
+        "from": "storefront:repo:storefront",
+        "to": "orders:repo:orders",
+        "count": 3,
+        "evidence_sample": [
+          {
+            "type": "line",
+            "path": "storefront/src/api/orders.ts",
+            "line": 26,
+            "commit": null,
+            "branch": null
+          }
+        ],
+        "children": ["e:00a11ce00000", "e:00a11ce00001", "e:00a11ce00002"]
+      },
+      {
+        "kind": "code.queue_publish",
+        "from": "orders:repo:orders",
+        "to": "ws:container:redis",
+        "count": 2,
+        "evidence_sample": [
+          {
+            "type": "line",
+            "path": "orders/internal/queue/publisher.go",
+            "line": 49,
+            "commit": null,
+            "branch": null
+          }
+        ],
+        "children": ["e:00a11ce00010", "e:00a11ce00011"]
+      },
+      {
+        "kind": "code.queue_consume",
+        "from": "worker:repo:worker",
+        "to": "ws:container:redis",
+        "count": 2,
+        "evidence_sample": [
+          {
+            "type": "line",
+            "path": "worker/worker/consumer.py",
+            "line": 18,
+            "commit": null,
+            "branch": null
+          }
+        ],
+        "children": ["e:00a11ce00020", "e:00a11ce00021"]
+      },
+      {
+        "kind": "code.db",
+        "from": "orders:repo:orders",
+        "to": "ws:container:orders-db",
+        "count": 2,
+        "evidence_sample": [
+          {
+            "type": "line",
+            "path": "orders/internal/store/store.go",
+            "line": 31,
+            "commit": null,
+            "branch": null
+          }
+        ],
+        "children": ["e:00a11ce00030", "e:00a11ce00031"]
+      },
+      {
+        "kind": "code.db",
+        "from": "worker:repo:worker",
+        "to": "ws:container:orders-db",
+        "count": 1,
+        "evidence_sample": [
+          {
+            "type": "line",
+            "path": "worker/worker/db.py",
+            "line": 12,
+            "commit": null,
+            "branch": null
+          }
+        ],
+        "children": ["e:00a11ce00040"]
+      },
+      {
+        "kind": "code.import",
+        "from": "storefront:repo:storefront",
+        "to": "kit:repo:kit",
+        "count": 1,
+        "evidence_sample": [
+          {
+            "type": "line",
+            "path": "storefront/src/main.ts",
+            "line": 3,
+            "commit": null,
+            "branch": null
+          }
+        ],
+        "children": ["e:00a11ce00050"]
+      },
+      {
+        "kind": "code.metrics",
+        "from": "ws:container:prometheus",
+        "to": "ws:container:otel-collector",
+        "count": 1,
+        "evidence_sample": [
+          {
+            "type": "line",
+            "path": "platform/prometheus.yml",
+            "line": 8,
+            "commit": null,
+            "branch": null
+          }
+        ],
+        "children": ["e:00a11ce00060"]
+      },
+      {
+        "kind": "code.dashboard",
+        "from": "ws:container:grafana",
+        "to": "ws:container:prometheus",
+        "count": 1,
+        "evidence_sample": [
+          {
+            "type": "line",
+            "path": "platform/grafana/datasources.yml",
+            "line": 5,
+            "commit": null,
+            "branch": null
+          }
+        ],
+        "children": ["e:00a11ce00070"]
+      }
+    ]
+  }
+}

@@ -28,7 +28,8 @@ usage: cargo xtask <command>
   gen --mod                   write only the mod bundle, plugin/hooks/planroom-mod.js
   gen --golden                rerun the Rust tests that write tests/golden/ from real engine runs
   gen --canvas                build the canvas into target/canvas/ (not committed)
-  e2e [--screens]             build the canvas, then its Playwright specs; --screens also writes
+  e2e [--screens]             build the canvas, the engine and the fixture, then the Playwright
+                              specs against planroom serve; --screens also writes
                               docs/screenshots/
   fixture OUT [--no-packs]    build the fixture workspace into OUT, with a config loading the Ruby pack";
 
@@ -189,6 +190,9 @@ impl Report {
 }
 
 const PNPM_FIX: &str = "pnpm install --frozen-lockfile, then fix what the output names";
+
+/// The unscanned fixture workspace `cargo xtask e2e` builds for the specs to copy.
+const E2E_FIXTURE: &str = "target/e2e/fixture/shop";
 
 fn check(root: &Path, r: &mut Report) {
     r.tool(root, "cargo fmt --check", "cargo", &["fmt", "--all", "--check"], "cargo fmt --all");
@@ -408,8 +412,9 @@ fn installer(root: &Path, r: &mut Report) {
     }
 }
 
-/// The canvas's end-to-end specs: build the canvas, then run Playwright over it against
-/// `tests/e2e`'s stand-in server, which answers from the golden CLI outputs.
+/// The canvas's end-to-end specs: build the canvas, the engine with it embedded and the fixture,
+/// then run Playwright, whose specs copy the fixture, scan it and drive the real `planroom serve`
+/// on it; only the states the engine can't produce yet use `tests/e2e`'s stand-in.
 fn e2e(root: &Path, r: &mut Report, screens: bool) {
     if !root.join("node_modules").is_dir() {
         return r.failed("e2e", "node_modules is missing", PNPM_FIX);
@@ -430,9 +435,31 @@ fn e2e(root: &Path, r: &mut Report, screens: bool) {
         Ok(files) => r.ok(&format!("canvas build ({} files in {}/)", files.len(), canvas::OUT)),
         Err(e) => return r.failed("canvas build", &e, "fix the build errors above"),
     }
+    // The engine embeds target/canvas/ at build time (build.rs), so it builds after the canvas.
+    let engine = "cargo build -p planroom (canvas embedded)";
+    match util::run(root, "cargo", &["build", "--locked", "-p", "planroom"]) {
+        (true, _) => r.ok(engine),
+        (false, out) => return r.failed(engine, &out, "fix the build"),
+    }
+    // One unscanned fixture; each spec copies it, scans the copy and serves it.
+    let fixture = root.join(E2E_FIXTURE);
+    if let Some(parent) = fixture.parent()
+        && parent.exists()
+        && let Err(e) = std::fs::remove_dir_all(parent)
+    {
+        return r.failed("fixture", &format!("{}: {e}", parent.display()), "remove target/e2e/fixture/");
+    }
+    match fixture::build(root, &fixture, true) {
+        Ok(_) => r.ok(&format!("fixture ({E2E_FIXTURE})")),
+        Err(e) => return r.failed("fixture", &e, &format!("cargo xtask fixture {E2E_FIXTURE}")),
+    }
     let name = if screens { "playwright test (with screenshots)" } else { "playwright test" };
     let mut command = std::process::Command::new("pnpm");
-    command.args(["--dir", "tests/e2e", "exec", "playwright", "test"]).current_dir(root);
+    command
+        .args(["--dir", "tests/e2e", "exec", "playwright", "test"])
+        .current_dir(root)
+        .env("PLANROOM_E2E_BIN", root.join("target/debug/planroom"))
+        .env("PLANROOM_E2E_FIXTURE", &fixture);
     if screens {
         command.env("PLANROOM_SCREENS", "1");
     }

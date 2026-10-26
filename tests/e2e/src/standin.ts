@@ -1,8 +1,10 @@
 /**
- * A small stand-in for `planroom serve`: it serves the built canvas from `target/canvas/` and
- * answers the API from the golden CLI outputs in `tests/golden/cli/`, with the server's auth
- * rules (DR-29): a one-time login code, a bearer token on every API request, an exact `Origin`,
- * no CORS and a strict CSP. It records what the canvas sends, so specs can check it.
+ * A stand-in for `planroom serve`, only for the UI states the engine can't produce yet. It serves
+ * the built canvas from `target/canvas/` and answers `map` and `focus` from the real engine's
+ * golden outputs in `tests/golden/cli/`, each with at most one test-only overlay from
+ * `tests/e2e/overlays/` laid over it. It keeps the real server's auth rules (DR-29) and answers in
+ * its envelopes, and it records what the canvas sends, so specs can check it. Every other spec
+ * runs against the real engine (`engine.ts`).
  */
 
 import { randomBytes } from "node:crypto";
@@ -16,16 +18,18 @@ import type { AddressInfo, Socket } from "node:net";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { Envelope, MapView, Position } from "@planroom/contract";
+import type { Envelope, Input, MapView } from "@planroom/contract";
 
 export const ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 export const CANVAS = join(ROOT, "target/canvas");
 export const GOLDEN = join(ROOT, "tests/golden/cli");
+export const OVERLAYS = join(ROOT, "tests/e2e/overlays");
 
-/** The CSP the engine is to send; React Flow places blocks with inline styles. */
+/** The CSP the real server sends (`crates/planroom/src/server/routes.rs`). */
 export const CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; " +
-  "font-src 'self'; connect-src 'self'; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'";
+  "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; " +
+  "font-src 'self'; connect-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; " +
+  "frame-ancestors 'none'";
 
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -37,36 +41,67 @@ const TYPES: Record<string, string> = {
   ".json": "application/json",
 };
 
-export interface LayoutPut {
-  view_key: string;
-  structure_hash: string;
-  positions: Record<string, Position>;
+/** A test-only overlay: which golden it lies over, the milestone that makes it real, and why. */
+interface Overlay {
+  overlay: string;
+  milestone: string;
+  why: string;
+  patch: unknown;
 }
 
-export interface Served {
-  /** The page's address, with no code. */
+export interface StandIn {
   readonly url: string;
   /** Register a one-time login code and return the address that carries it. */
   loginUrl(): string;
-  /** Every request's method and path, in order. */
-  readonly requests: {
-    method: string;
-    path: string;
-    origin: string | undefined;
-  }[];
-  readonly layouts: LayoutPut[];
+  readonly layouts: Input.LayoutPut[];
   /** Bodies of commands other than map and focus, by path. */
   readonly runs: { path: string; body: unknown }[];
-  /** Forget the stored layout, so the next map is served without positions. */
-  resetLayout(): void;
-  /** Push one frame to every open stream. */
-  push(event: string, data: unknown): void;
   close(): Promise<void>;
 }
 
-export interface ServeOptions {
-  /** The golden file `map` answers with. */
+export interface StandInOptions {
+  /** The golden `map` answers with. */
   map?: string;
+  /** Overlay files, by name under `tests/e2e/overlays/`. */
+  overlays?: readonly string[];
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/**
+ * `patch` laid over `base`: objects merge key by key, an array of objects with `id`s merges with
+ * an object keyed by those ids, and anything else replaces.
+ */
+export function overlay(base: unknown, patch: unknown): unknown {
+  if (Array.isArray(base) && isObject(patch)) {
+    return base.map((item: unknown) =>
+      isObject(item) && typeof item.id === "string" && item.id in patch
+        ? overlay(item, patch[item.id])
+        : item,
+    );
+  }
+  if (isObject(base) && isObject(patch)) {
+    const out: Record<string, unknown> = { ...base };
+    for (const [k, v] of Object.entries(patch)) {
+      out[k] = overlay(base[k], v);
+    }
+    return out;
+  }
+  return patch;
+}
+
+async function golden(
+  name: string,
+  overlays: readonly Overlay[],
+): Promise<Envelope> {
+  const envelope = JSON.parse(
+    await readFile(join(GOLDEN, name), "utf8"),
+  ) as Envelope;
+  for (const o of overlays.filter((o) => o.overlay === name)) {
+    envelope.result = overlay(envelope.result, o.patch);
+  }
+  return envelope;
 }
 
 async function body(req: IncomingMessage): Promise<unknown> {
@@ -83,19 +118,43 @@ function json(res: ServerResponse, status: number, value: unknown) {
   res.end(JSON.stringify(value));
 }
 
-export async function serve(options: ServeOptions = {}): Promise<Served> {
-  const mapEnvelope = JSON.parse(
-    await readFile(join(GOLDEN, options.map ?? "map-graph.json"), "utf8"),
-  ) as Envelope;
-  const focusText = await readFile(join(GOLDEN, "focus.json"), "utf8");
+const envelope = (command: string, result: unknown) => ({
+  schema_version: 1,
+  ok: true,
+  command,
+  result,
+  meta: { seq: 0, size: { bytes: 0, tokens_est: 0 } },
+});
+
+const unauthorized = (res: ServerResponse) =>
+  json(res, 401, {
+    schema_version: 1,
+    ok: false,
+    command: "serve",
+    error: {
+      code: "unauthorized",
+      message: "This tab needs a fresh link: press e in the pane.",
+      retry: "never",
+    },
+    meta: { seq: 0, size: { bytes: 0, tokens_est: 0 } },
+  });
+
+export async function standIn(options: StandInOptions = {}): Promise<StandIn> {
+  const overlays = await Promise.all(
+    (options.overlays ?? []).map(
+      async (name) =>
+        JSON.parse(await readFile(join(OVERLAYS, name), "utf8")) as Overlay,
+    ),
+  );
+  const mapEnvelope = await golden(options.map ?? "map-graph.json", overlays);
+  const focusEnvelope = await golden("focus.json", overlays);
   const codes = new Set<string>();
   const tokens = new Set<string>();
   const streams = new Set<ServerResponse>();
   const sockets = new Set<Socket>();
-  let layout: LayoutPut | null = null;
-  const requests: Served["requests"] = [];
-  const layouts: LayoutPut[] = [];
-  const runs: Served["runs"] = [];
+  let layout: Input.LayoutPut | null = null;
+  const layouts: Input.LayoutPut[] = [];
+  const runs: StandIn["runs"] = [];
   let origin = "";
 
   const server = createServer((req, res) => {
@@ -107,7 +166,6 @@ export async function serve(options: ServeOptions = {}): Promise<Served> {
   async function handle(req: IncomingMessage, res: ServerResponse) {
     const url = new URL(req.url ?? "/", origin);
     const method = req.method ?? "GET";
-    requests.push({ method, path: url.pathname, origin: req.headers.origin });
     res.setHeader("Content-Security-Policy", CSP);
     res.setHeader("X-Content-Type-Options", "nosniff");
 
@@ -131,30 +189,30 @@ export async function serve(options: ServeOptions = {}): Promise<Served> {
       }
     }
 
-    // A same-origin GET carries no Origin header (Fetch: only CORS requests and non-GET ones do),
-    // so the stream proves its origin with Sec-Fetch-Site instead.
+    // The real server's rule: an exact Origin, or Sec-Fetch-Site: same-origin on a GET, which a
+    // browser sends without one.
     const sameOrigin =
       req.headers.origin === origin ||
       (method === "GET" &&
         req.headers.origin === undefined &&
         req.headers["sec-fetch-site"] === "same-origin");
     if (!sameOrigin || req.headers.host !== new URL(origin).host) {
-      return json(res, 401, { error: "origin" });
+      return unauthorized(res);
     }
 
     if (method === "POST" && url.pathname === "/api/v1/session") {
       const { code } = ((await body(req)) ?? {}) as { code?: string };
       if (!code || !codes.delete(code)) {
-        return json(res, 401, { error: "code" });
+        return unauthorized(res);
       }
-      const token = randomBytes(16).toString("hex");
+      const token = randomBytes(32).toString("hex");
       tokens.add(token);
-      return json(res, 200, { token });
+      return json(res, 200, envelope("serve", { token }));
     }
 
     const auth = req.headers.authorization ?? "";
     if (!auth.startsWith("Bearer ") || !tokens.has(auth.slice(7))) {
-      return json(res, 401, { error: "token" });
+      return unauthorized(res);
     }
 
     if (method === "GET" && url.pathname === "/api/v1/stream") {
@@ -162,43 +220,32 @@ export async function serve(options: ServeOptions = {}): Promise<Served> {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-store",
       });
-      res.write(": open\n\n");
+      res.write('event: ping\ndata: {"type":"ping"}\n\n');
       streams.add(res);
       req.on("close", () => streams.delete(res));
       return;
     }
     if (method === "PUT" && url.pathname === "/api/v1/layout") {
-      layout = (await body(req)) as LayoutPut;
+      layout = (await body(req)) as Input.LayoutPut;
       layouts.push(layout);
       res.writeHead(204);
       return res.end();
     }
     if (method === "POST" && url.pathname === "/api/v1/map") {
-      const request = ((await body(req)) ?? {}) as {
-        level?: MapView["level"] | null;
-      };
+      await body(req);
       const view = structuredClone(mapEnvelope.result) as MapView;
-      // The stand-in has one level's blocks; it answers a level asked for with them.
-      view.level = request.level ?? view.level;
-      if (layout) {
-        for (const node of view.nodes) {
-          node.position = layout.positions[node.id] ?? null;
-        }
+      for (const node of view.nodes) {
+        node.position = layout?.positions[node.id] ?? null;
       }
       return json(res, 200, { ...mapEnvelope, result: view });
     }
     if (method === "POST" && url.pathname === "/api/v1/focus") {
       await body(req);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      return res.end(focusText);
+      return json(res, 200, focusEnvelope);
     }
     if (method === "POST") {
       runs.push({ path: url.pathname, body: await body(req) });
-      return json(res, 200, {
-        ...mapEnvelope,
-        command: url.pathname.slice(8),
-        result: null,
-      });
+      return json(res, 200, envelope(url.pathname.slice(8), null));
     }
     return json(res, 404, {});
   }
@@ -218,17 +265,8 @@ export async function serve(options: ServeOptions = {}): Promise<Served> {
       codes.add(code);
       return `${origin}/#code=${code}`;
     },
-    requests,
     layouts,
     runs,
-    resetLayout() {
-      layout = null;
-    },
-    push(event, data) {
-      for (const s of streams) {
-        s.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-      }
-    },
     close: () =>
       new Promise<void>((resolve) => {
         streams.forEach((s) => s.end());

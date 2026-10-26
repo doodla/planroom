@@ -93,8 +93,11 @@ jobs:
       - run: python3 .claude/guardrails/tests/test_guardrails.py
       - run: python3 .claude/guardrails/tests/test_context_restore.py
 
-  # Builds the canvas, installs the pinned Playwright's Chromium, then runs the specs against the
-  # stand-in server; the 1 s interactive gate runs only here, on ubuntu-24.04 (DR-43).
+  # Installs the pinned Playwright's Chromium (with its system packages), builds the canvas, the
+  # engine with the canvas embedded and the fixture (python3 and git from the runner image), then
+  # runs the specs against the real `planroom serve`, and the M1/M2 states against the stand-in.
+  # No secret and no network beyond the installs. The 1 s interactive gate runs only here, on
+  # ubuntu-24.04 (DR-43).
   e2e:
     name: e2e
     runs-on: ubuntu-24.04
