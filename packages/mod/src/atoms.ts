@@ -6,7 +6,7 @@
 import { atom } from "claude-code";
 
 import { INITIAL_ENGINE } from "./engine";
-import type { LastSeq, PaneState } from "./state-types";
+import type { LastSeq, PaneState, TurnSeq } from "./state-types";
 
 export const engineAtom = atom(
   { plugin: "planroom", key: "engine" } as const,
@@ -28,4 +28,12 @@ export const lastSeqAtom = atom(
   { plugin: "planroom", key: "lastSeq" } as const,
   INITIAL_SEQ,
   { shape: "seq-1" },
+);
+
+const INITIAL_TURN: TurnSeq = { turnId: null, seq: null };
+
+export const turnSeqAtom = atom(
+  { plugin: "planroom", key: "turnSeq" } as const,
+  INITIAL_TURN,
+  { shape: "turn-1" },
 );

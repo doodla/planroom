@@ -13,7 +13,7 @@ import type {
   Register,
 } from "claude-code";
 
-import { engineAtom, paneAtom } from "./atoms";
+import { engineAtom, paneAtom, turnSeqAtom } from "./atoms";
 import { leaf, roomLeaves } from "./catalogue";
 import {
   engineFromVersion,
@@ -27,6 +27,14 @@ import {
 } from "./engine";
 import { fallbackFor } from "./fallback";
 import {
+  guardCall,
+  guardPlaces,
+  namedPaths,
+  normalize,
+  type Denial,
+  type GuardPlaces,
+} from "./guard";
+import {
   bandRow,
   fallbackRows,
   paneRows,
@@ -37,7 +45,14 @@ import { binary, clientEnv, refreshPane, runProcess, watchStop } from "./live";
 import { personEnv, personKey, registerKey } from "./person";
 import { completions, helpText, parseRoom } from "./room-args";
 import type { EngineState } from "./state-types";
-import { timeoutFor, toolArgv, toolSpecs, type ToolInput } from "./tools";
+import {
+  changeNeedsNoPrompt,
+  roomText,
+  timeoutFor,
+  toolArgv,
+  toolSpecs,
+  type ToolInput,
+} from "./tools";
 import type { ToolName } from "./catalogue";
 import { hasStore } from "./watch";
 
@@ -289,12 +304,23 @@ const HANDLER_FAILED = JSON.stringify({
   meta: {},
 } satisfies ToolResult);
 
+/**
+ * One tool call, as the chat agent: `PLANROOM_ACTOR=agent:<session8>:chat`, never a person token.
+ * A write's `idem` defaults to the call's `tool_use_id`, its `base` to the latest `meta.seq`
+ * returned to the model this turn, else the pane's. The reply is one JSON string, the error object
+ * whole on a failure (DR-66).
+ */
 async function handleTool(
   $: $,
   tool: ToolName,
-  input: ToolInput,
+  input: ToolInput & { tool_use_id?: unknown },
 ): Promise<{ result: string }> {
-  const built = toolArgv(tool, input);
+  const turn = await read($, turnSeqAtom);
+  const pane = await read($, paneAtom);
+  const built = toolArgv(tool, input, {
+    idem: typeof input.tool_use_id === "string" ? input.tool_use_id : undefined,
+    base: turn.seq ?? pane.model?.focus.seq,
+  });
   if ("refused" in built) {
     const refused: ToolResult = {
       ok: false,
@@ -308,15 +334,65 @@ async function handleTool(
     return { result: JSON.stringify(refused) };
   }
   const session = await $.session.id();
-  const env = {
+  const env: Record<string, string> = {
     PLANROOM_ACTOR: `agent:${session.slice(0, 8)}:chat`,
     PLANROOM_CLIENT: `mod:${session}`,
   };
+  if (turn.turnId !== null) env["PLANROOM_CAUSE"] = `turn:${turn.turnId}`;
   const result = await runCommand($, built.argv, env, built.stdin);
+  const seq = result.meta["seq"];
+  if (typeof seq === "number") {
+    await update($, turnSeqAtom, (held) => ({ ...held, seq }));
+  }
   if (tool === "room_change" && result.ok) {
+    // A first scan makes the store: focus then starts the watch loop and the key registers.
     await refreshPane($);
+    await registerOnce($);
   }
   return { result: JSON.stringify(result) };
+}
+
+/** Where the guard looks, read once per module from the session's environment. */
+let places: GuardPlaces | null = null;
+
+async function guardPlacesFor($: $): Promise<GuardPlaces> {
+  if (places === null) {
+    places = guardPlaces(workspace === "" ? await $.session.cwd() : workspace, {
+      HOME: await $.env.get("HOME"),
+      CLAUDE_CONFIG_DIR: await $.env.get("CLAUDE_CONFIG_DIR"),
+      PLANROOM_DATA: await $.env.get("PLANROOM_DATA"),
+      XDG_DATA_HOME: await $.env.get("XDG_DATA_HOME"),
+      XDG_CONFIG_HOME: await $.env.get("XDG_CONFIG_HOME"),
+    });
+  }
+  return places;
+}
+
+/** Where a path lands, symlinks followed: the file's real path, else its folder's plus its name. */
+async function landing($: $, path: string): Promise<string[]> {
+  const own = await $.fs.stat(path, { resolve: true }).catch(() => undefined);
+  if (own?.realPath !== undefined) return [own.realPath];
+  const cut = path.lastIndexOf("/");
+  const folder = await $.fs
+    .stat(cut <= 0 ? "/" : path.slice(0, cut), { resolve: true })
+    .catch(() => undefined);
+  return folder?.realPath === undefined
+    ? []
+    : [`${folder.realPath.replace(/\/+$/, "")}/${path.slice(cut + 1)}`];
+}
+
+/** The guard's verdict on one call, every path it names resolved first (DR-52). */
+async function guardVerdict(
+  $: $,
+  tool: string,
+  input: unknown,
+): Promise<Denial | null> {
+  const at = await guardPlacesFor($);
+  const real = new Map<string, string[]>();
+  for (const p of namedPaths(tool, input)) {
+    real.set(p, await landing($, normalize(p, at.cwd, at.home)));
+  }
+  return guardCall(tool, input, (p) => real.get(p) ?? [], at);
 }
 
 // The host reads `register` off the bundle's source: a function declared and exported at the top
@@ -324,11 +400,14 @@ async function handleTool(
 export function register(on: Parameters<Register>[0]): void {
   on("session.start", async ($, e, next) => {
     workspace = e.cwd;
+    places = null;
+    // Immediate, so /room focuses the pane mid-turn, while the model is still working (A-22).
     await $.command.register({
       name: "room",
       description:
         "Planroom: focus the pane, or run a map command (/room help lists them)",
       argumentHint: "[help | map | focus | scan …]",
+      immediate: true,
     });
     // Awaited, so the tools are listed from turn one and the list never changes later (DR-20).
     for (const spec of toolSpecs()) {
@@ -353,8 +432,9 @@ export function register(on: Parameters<Register>[0]): void {
     const request = parseRoom(e.args, roomLeaves());
     switch (request.kind) {
       case "focus":
+        // Bare /room focuses the pane and returns no text, so it costs the model nothing (DR-77).
         await $.ui.open({ id: PANE, title: TITLE, focus: true });
-        return { text: "Opened the Planroom pane." };
+        return {};
       case "help":
         return { text: helpText(roomLeaves()) };
       case "error":
@@ -372,9 +452,17 @@ export function register(on: Parameters<Register>[0]): void {
             );
         await refreshPane($);
         await registerOnce($);
-        return { text: JSON.stringify(result) };
+        return { text: roomText(result) };
       }
     }
+  });
+
+  // The main loop's turn: its id is each tool write's cause, and the base resets with it.
+  on("turn.start", async ($, e, next) => {
+    if (e.agentId === undefined) {
+      await update($, turnSeqAtom, () => ({ turnId: e.turnId, seq: null }));
+    }
+    return next(e);
   });
 
   on("prompt.autocomplete", async ($, e, next) => {
@@ -396,10 +484,29 @@ export function register(on: Parameters<Register>[0]): void {
     handleTool($, "room_handoff", e as unknown as ToolInput),
   ).catch(() => ({ result: HANDLER_FAILED }));
 
-  // Reads are confined to the workspace, so they need no prompt (DR-52).
-  on("tool.check", { tool: "mcp__planroom__room_query" }, () => ({
-    decision: "allow" as const,
-  }));
+  // The guard, for every tool call of every agent. Planroom's reads are confined to the workspace,
+  // and an agent's edit, intent, claim and curate writes are ghosts or proposals, so those need no
+  // prompt (DR-52); everything else the guard lets through goes on to the session's own rules.
+  on("tool.check", async ($, e, next) => {
+    if (e.tool === "mcp__planroom__room_query") {
+      return { decision: "allow" as const };
+    }
+    if (e.tool === "mcp__planroom__room_change") {
+      const command = (e.input as { command?: unknown } | null)?.command;
+      return changeNeedsNoPrompt(command)
+        ? { decision: "allow" as const }
+        : next(e);
+    }
+    const denial = await guardVerdict($, e.tool, e.input);
+    return denial ?? next(e);
+  }).catch(($, e, next) =>
+    next.called
+      ? next(e)
+      : {
+          decision: "ask" as const,
+          reason: "The Planroom guard couldn't check this call.",
+        },
+  );
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
     const engine = await read($, engineAtom);

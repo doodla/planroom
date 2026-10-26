@@ -159,6 +159,12 @@ var lastSeqAtom = atom(
   INITIAL_SEQ,
   { shape: "seq-1" }
 );
+var INITIAL_TURN = { turnId: null, seq: null };
+var turnSeqAtom = atom(
+  { plugin: "planroom", key: "turnSeq" },
+  INITIAL_TURN,
+  { shape: "turn-1" }
+);
 
 // ../contract/src/generated/catalogue.ts
 var CATALOGUE = [
@@ -295,6 +301,240 @@ function fallbackFor(engine, focusError = null) {
         action: { label: "Try again", run: "retry" }
       };
   }
+}
+
+// src/guard.ts
+function guardPlaces(cwd, env) {
+  const home = env.HOME ?? "/";
+  const nonEmpty = (v) => v === void 0 || v === "" ? void 0 : v;
+  return {
+    cwd,
+    home,
+    claudeConfig: nonEmpty(env.CLAUDE_CONFIG_DIR) ?? `${home}/.claude`,
+    dataRoot: nonEmpty(env.PLANROOM_DATA) ?? `${nonEmpty(env.XDG_DATA_HOME) ?? `${home}/.local/share`}/planroom`,
+    userConfig: `${nonEmpty(env.XDG_CONFIG_HOME) ?? `${home}/.config`}/planroom/config.toml`
+  };
+}
+function normalize(path, cwd, home) {
+  let p = path.trim();
+  if (p === "~" || p.startsWith("~/")) p = home + p.slice(1);
+  if (!p.startsWith("/")) p = `${cwd}/${p}`;
+  const parts = [];
+  for (const part of p.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return `/${parts.join("/")}`;
+}
+function within(path, dir) {
+  const d = dir.replace(/\/+$/, "");
+  return path === d || path.startsWith(`${d}/`);
+}
+function basename(path) {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+function inStateDir(path) {
+  return /(^|\/)(\.planroom|\.git\/planroom)(\/|$)/.test(path);
+}
+var STORE_FILE = /^(store|ledger)\.db(-wal|-shm|-journal)?$/;
+function readDenied(path, places2) {
+  const name = basename(path);
+  if (STORE_FILE.test(name) || name === "store.pointer") {
+    return "Planroom's store is read through the planroom CLI, never directly.";
+  }
+  if (inStateDir(path) && name === "serve.json") {
+    return "serve.json holds the canvas server's control token.";
+  }
+  const data = places2.dataRoot;
+  for (const sub of ["stores", "backups", "open", "ledger.db"]) {
+    if (within(path, `${data}/${sub}`)) {
+      return "The Planroom data root's stores, ledger, backups and login pages are off limits.";
+    }
+  }
+  if (path === places2.userConfig) {
+    return "The user-level Planroom config may hold the gateway key.";
+  }
+  if (within(path, places2.claudeConfig) && !within(path, `${places2.claudeConfig}/plugins`) && /planroom/i.test(path.slice(places2.claudeConfig.length))) {
+    return "The Planroom mod's store holds the person key.";
+  }
+  return null;
+}
+function writeDenied(path, places2) {
+  if (inStateDir(path)) {
+    return "Planroom's state directory changes only through the planroom CLI.";
+  }
+  if (within(path, places2.dataRoot)) {
+    return "The Planroom data root changes only through the planroom CLI.";
+  }
+  return readDenied(path, places2);
+}
+function shellWords(command) {
+  return command.replace(/\\\n/g, " ").split(/[\s;&|()<>`'"=$]+/).filter((w) => w !== "");
+}
+var PERSON_ONLY = [
+  ["intent", "version"],
+  ["handoff", "start"],
+  ["handoff", "merge"],
+  ["handoff", "revert"],
+  ["handoff", "cancel"],
+  ["pack", "add"],
+  ["pack", "remove"],
+  ["person", "init"],
+  ["person", "pair"],
+  ["open"]
+];
+function personOnlyPaths() {
+  const fromCatalogue = CATALOGUE.filter((l) => l.actor === "person_only").map(
+    (l) => l.name.split(" ")
+  );
+  return [...PERSON_ONLY, ...fromCatalogue];
+}
+var VALUE_FLAGS = /* @__PURE__ */ new Set([
+  "--workspace",
+  "--limit",
+  "--cursor",
+  "--base",
+  "--idem",
+  "--project"
+]);
+function planroomLines(words) {
+  const lines = [];
+  words.forEach((word, i) => {
+    if (basename(word) !== "planroom") return;
+    const rest = [];
+    for (let j = i + 1; j < words.length; j++) {
+      const w = words[j] ?? "";
+      if (basename(w) === "planroom") break;
+      if (w.startsWith("--")) {
+        if (VALUE_FLAGS.has(w)) j++;
+        rest.push(w);
+        continue;
+      }
+      rest.push(w);
+    }
+    lines.push(rest);
+  });
+  return lines;
+}
+function positionals(line) {
+  return line.filter((w) => !w.startsWith("-"));
+}
+function personOnlyLine(line) {
+  const words = positionals(line);
+  for (const path of personOnlyPaths()) {
+    if (path.every((p, i) => words[i] === p)) {
+      return `planroom ${path.join(" ")} is the person's to run: ask them to press it in the Planroom pane.`;
+    }
+  }
+  if (words[0] === "decide" && words.length >= 3) {
+    return "Picking a decision card is the person's: ask them to press it in the Planroom pane.";
+  }
+  if (words[0] === "doctor" && line.includes("--restore")) {
+    return "planroom doctor --restore is the person's to run.";
+  }
+  return null;
+}
+var GUARDED_VARIABLES = /\bPLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)\b\s*=|\b(export|declare|typeset|env|set)\b[^;&|\n]*\bPLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)\b/;
+function pathWords(words) {
+  return words.filter(
+    (w) => !w.startsWith("-") && (w.includes("/") || w.startsWith("~") || STORE_FILE.test(w) || w === "serve.json")
+  );
+}
+function bashDenied(command) {
+  if (GUARDED_VARIABLES.test(command)) {
+    return "An agent never sets PLANROOM_PERSON_TOKEN, PLANROOM_RAW, PLANROOM_ENGINE or PLANROOM_RELEASE_BASE_URL.";
+  }
+  const words = shellWords(command);
+  for (const line of planroomLines(words)) {
+    const reason = personOnlyLine(line);
+    if (reason !== null) return reason;
+  }
+  const push = words.findIndex(
+    (w, i) => basename(w) === "git" && words[i + 1] === "push"
+  );
+  if (push >= 0 && words.slice(push).some((w) => w.includes("refs/planroom/"))) {
+    return "Planroom's refs move only through the planroom CLI.";
+  }
+  return null;
+}
+function callPaths(tool, input) {
+  const i = typeof input === "object" && input !== null ? input : {};
+  const str = (k) => {
+    const v = i[k];
+    return typeof v === "string" && v !== "" ? [v] : [];
+  };
+  switch (tool) {
+    case "Read":
+      return { reads: str("file_path"), writes: [], bash: null };
+    case "Grep":
+    case "Glob":
+      return {
+        reads: [
+          ...str("path"),
+          ...str("glob"),
+          ...str("pattern").filter((p) => tool === "Glob" && p.includes("/"))
+        ],
+        writes: [],
+        bash: null
+      };
+    case "Edit":
+    case "Write":
+    case "MultiEdit":
+      return { reads: [], writes: str("file_path"), bash: null };
+    case "NotebookEdit":
+      return { reads: [], writes: str("notebook_path"), bash: null };
+    case "Bash":
+      return { reads: [], writes: [], bash: str("command")[0] ?? "" };
+    default:
+      return { reads: [], writes: [], bash: null };
+  }
+}
+function namedPaths(tool, input) {
+  const { reads, writes, bash } = callPaths(tool, input);
+  const fromBash = bash === null ? [] : pathWords(shellWords(bash));
+  return [.../* @__PURE__ */ new Set([...reads, ...writes, ...fromBash])].slice(0, 32);
+}
+function guardCall(tool, input, resolved, places2) {
+  const { reads, writes, bash } = callPaths(tool, input);
+  const deny = (reason) => ({ decision: "deny", reason });
+  const spell = (p) => [
+    normalize(p, places2.cwd, places2.home),
+    ...resolved(p)
+  ];
+  for (const p of reads) {
+    for (const s of spell(p)) {
+      const reason = readDenied(s, places2);
+      if (reason !== null) return deny(reason);
+      if ((tool === "Grep" || tool === "Glob") && (inStateDir(s) || within(s, places2.dataRoot))) {
+        return deny(
+          "Planroom's state is read through the planroom CLI, never directly."
+        );
+      }
+    }
+    if (tool !== "Read" && /store\.db|serve\.json/.test(p)) {
+      return deny(
+        "Planroom's store is read through the planroom CLI, never directly."
+      );
+    }
+  }
+  for (const p of writes) {
+    for (const s of spell(p)) {
+      const reason = writeDenied(s, places2);
+      if (reason !== null) return deny(reason);
+    }
+  }
+  if (bash !== null) {
+    const reason = bashDenied(bash);
+    if (reason !== null) return deny(reason);
+    for (const p of pathWords(shellWords(bash))) {
+      for (const s of spell(p)) {
+        const why = readDenied(s, places2);
+        if (why !== null) return deny(why);
+      }
+    }
+  }
+  return null;
 }
 
 // ../ui/src/keys.ts
@@ -2934,8 +3174,8 @@ function weierstrass(params, extraOpts = {}) {
     multiply(scalar) {
       if (!Fn.isValidNot0(scalar))
         throw new RangeError("invalid scalar: out of range");
-      const { p, f } = wnaf.mulSecret(this, scalar, cofactor, normalize);
-      return normalize([p, f])[0];
+      const { p, f } = wnaf.mulSecret(this, scalar, cofactor, normalize2);
+      return normalize2([p, f])[0];
     }
     /**
      * Non-constant-time multiplication. Uses width-4 wNAF with GLV endomorphism splitting
@@ -2953,7 +3193,7 @@ function weierstrass(params, extraOpts = {}) {
       if (sc === _1n4)
         return p;
       if (wnaf.hasWindowSize(this))
-        return wnaf.mulUnsafe(p, sc, normalize);
+        return wnaf.mulUnsafe(p, sc, normalize2);
       const points = [];
       const scalars = [];
       pushWnafPair(points, scalars, p, sc);
@@ -3034,7 +3274,7 @@ function weierstrass(params, extraOpts = {}) {
       return `<Point ${this.is0() ? "ZERO" : this.toHex()}>`;
     }
   }
-  const normalize = (points) => normalizeZ(Point, points);
+  const normalize2 = (points) => normalizeZ(Point, points);
   const wnaf = new ScalarMultiplier(Point, randomBytes3);
   if (wnaf.bits >= 6)
     Point.BASE.precompute(6);
@@ -3482,12 +3722,12 @@ function signToken(key, f) {
   });
   return `${f.at}.${base64url(sig)}`;
 }
-function lineFields(argv, pathWords) {
-  const command = argv.slice(0, pathWords).join(" ");
+function lineFields(argv, pathWords2) {
+  const command = argv.slice(0, pathWords2).join(" ");
   const args = [];
   let idem = "";
   let base = "";
-  for (let i = pathWords; i < argv.length; i++) {
+  for (let i = pathWords2; i < argv.length; i++) {
     const word = argv[i] ?? "";
     if (word === "--json") continue;
     if (word === "--idem" || word === "--base") {
@@ -3511,10 +3751,10 @@ async function personKey($) {
   await $.store.set(KEY_STORE, key);
   return key;
 }
-async function personEnv($, argv, pathWords) {
+async function personEnv($, argv, pathWords2) {
   const key = await personKey($);
   const at = await $.clock.now();
-  const token = signToken(key, { ...lineFields(argv, pathWords), at });
+  const token = signToken(key, { ...lineFields(argv, pathWords2), at });
   return { ...await clientEnv($), PLANROOM_PERSON_TOKEN: token };
 }
 async function registerKey($, bin, workspace2, rekey = false) {
@@ -3698,7 +3938,7 @@ ${synopsis}`,
     ];
   });
 }
-function toolArgv(tool, input) {
+function toolArgv(tool, input, defaults = {}) {
   const leaf2 = leavesFor(tool).find((l) => l.name === input.command);
   if (leaf2 === void 0) {
     return {
@@ -3710,13 +3950,31 @@ function toolArgv(tool, input) {
     return { refused: "args must be an array of strings." };
   }
   const argv = [...leaf2.name.split(" "), ...args];
-  if (typeof input.base === "number") argv.push("--base", String(input.base));
-  if (typeof input.idem === "string") argv.push("--idem", input.idem);
-  argv.push("--json");
+  if (leaf2.class !== "read") {
+    const base = typeof input.base === "number" ? input.base : leaf2.needs_base ? defaults.base : void 0;
+    if (base !== void 0 && !args.includes("--base"))
+      argv.push("--base", String(base));
+    const idem = typeof input.idem === "string" ? input.idem : defaults.idem;
+    if (idem !== void 0 && idem !== "" && !args.includes("--idem"))
+      argv.push("--idem", idem);
+  }
   if (tool === "room_change" && input.payload !== void 0) {
+    if (!args.includes("--file")) argv.push("--file", "-");
+    argv.push("--json");
     return { argv, stdin: JSON.stringify(input.payload) };
   }
+  argv.push("--json");
   return { argv };
+}
+function changeNeedsNoPrompt(command) {
+  if (typeof command !== "string") return false;
+  const verb = command.split(" ")[0];
+  return verb === "edit" || verb === "intent" || verb === "claim" || verb === "curate";
+}
+var ROOM_TEXT_CHARS = 1200;
+function roomText(result) {
+  const text2 = JSON.stringify(result);
+  return text2.length <= ROOM_TEXT_CHARS ? text2 : `${text2.slice(0, ROOM_TEXT_CHARS - 1)}…`;
 }
 function timeoutFor(argv) {
   return argv[0] === "scan" ? 6e5 : 3e4;
@@ -3898,7 +4156,12 @@ var HANDLER_FAILED = JSON.stringify({
   meta: {}
 });
 async function handleTool($, tool, input) {
-  const built = toolArgv(tool, input);
+  const turn = await read2($, turnSeqAtom);
+  const pane = await read2($, paneAtom);
+  const built = toolArgv(tool, input, {
+    idem: typeof input.tool_use_id === "string" ? input.tool_use_id : void 0,
+    base: turn.seq ?? pane.model?.focus.seq
+  });
   if ("refused" in built) {
     const refused = {
       ok: false,
@@ -3916,19 +4179,55 @@ async function handleTool($, tool, input) {
     PLANROOM_ACTOR: `agent:${session.slice(0, 8)}:chat`,
     PLANROOM_CLIENT: `mod:${session}`
   };
+  if (turn.turnId !== null) env["PLANROOM_CAUSE"] = `turn:${turn.turnId}`;
   const result = await runCommand($, built.argv, env, built.stdin);
+  const seq = result.meta["seq"];
+  if (typeof seq === "number") {
+    await update2($, turnSeqAtom, (held) => ({ ...held, seq }));
+  }
   if (tool === "room_change" && result.ok) {
     await refreshPane($);
+    await registerOnce($);
   }
   return { result: JSON.stringify(result) };
+}
+var places = null;
+async function guardPlacesFor($) {
+  if (places === null) {
+    places = guardPlaces(workspace === "" ? await $.session.cwd() : workspace, {
+      HOME: await $.env.get("HOME"),
+      CLAUDE_CONFIG_DIR: await $.env.get("CLAUDE_CONFIG_DIR"),
+      PLANROOM_DATA: await $.env.get("PLANROOM_DATA"),
+      XDG_DATA_HOME: await $.env.get("XDG_DATA_HOME"),
+      XDG_CONFIG_HOME: await $.env.get("XDG_CONFIG_HOME")
+    });
+  }
+  return places;
+}
+async function landing($, path) {
+  const own = await $.fs.stat(path, { resolve: true }).catch(() => void 0);
+  if (own?.realPath !== void 0) return [own.realPath];
+  const cut = path.lastIndexOf("/");
+  const folder = await $.fs.stat(cut <= 0 ? "/" : path.slice(0, cut), { resolve: true }).catch(() => void 0);
+  return folder?.realPath === void 0 ? [] : [`${folder.realPath.replace(/\/+$/, "")}/${path.slice(cut + 1)}`];
+}
+async function guardVerdict($, tool, input) {
+  const at = await guardPlacesFor($);
+  const real = /* @__PURE__ */ new Map();
+  for (const p of namedPaths(tool, input)) {
+    real.set(p, await landing($, normalize(p, at.cwd, at.home)));
+  }
+  return guardCall(tool, input, (p) => real.get(p) ?? [], at);
 }
 export function register(on) {
   on("session.start", async ($, e, next) => {
     workspace = e.cwd;
+    places = null;
     await $.command.register({
       name: "room",
       description: "Planroom: focus the pane, or run a map command (/room help lists them)",
-      argumentHint: "[help | map | focus | scan …]"
+      argumentHint: "[help | map | focus | scan …]",
+      immediate: true
     });
     for (const spec of toolSpecs()) {
       await $.tool.register(spec);
@@ -3948,7 +4247,7 @@ export function register(on) {
     switch (request.kind) {
       case "focus":
         await $.ui.open({ id: PANE, title: TITLE, focus: true });
-        return { text: "Opened the Planroom pane." };
+        return {};
       case "help":
         return { text: helpText(roomLeaves()) };
       case "error":
@@ -3962,9 +4261,15 @@ export function register(on) {
         );
         await refreshPane($);
         await registerOnce($);
-        return { text: JSON.stringify(result) };
+        return { text: roomText(result) };
       }
     }
+  });
+  on("turn.start", async ($, e, next) => {
+    if (e.agentId === void 0) {
+      await update2($, turnSeqAtom, () => ({ turnId: e.turnId, seq: null }));
+    }
+    return next(e);
   });
   on("prompt.autocomplete", async ($, e, next) => {
     const mine = completions(e.text, e.cursor, roomLeaves());
@@ -3986,9 +4291,22 @@ export function register(on) {
     { tool: "mcp__planroom__room_handoff" },
     ($, e) => handleTool($, "room_handoff", e)
   ).catch(() => ({ result: HANDLER_FAILED }));
-  on("tool.check", { tool: "mcp__planroom__room_query" }, () => ({
-    decision: "allow"
-  }));
+  on("tool.check", async ($, e, next) => {
+    if (e.tool === "mcp__planroom__room_query") {
+      return { decision: "allow" };
+    }
+    if (e.tool === "mcp__planroom__room_change") {
+      const command = e.input?.command;
+      return changeNeedsNoPrompt(command) ? { decision: "allow" } : next(e);
+    }
+    const denial = await guardVerdict($, e.tool, e.input);
+    return denial ?? next(e);
+  }).catch(
+    ($, e, next) => next.called ? next(e) : {
+      decision: "ask",
+      reason: "The Planroom guard couldn't check this call."
+    }
+  );
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
     const engine = await read2($, engineAtom);
     const pane = await read2($, paneAtom);

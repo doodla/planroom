@@ -1287,12 +1287,22 @@ export interface LastSeq {
   seq: number | null;
 }
 
+/**
+ * The `turnSeq` atom: the main loop's current turn and the latest `meta.seq` a tool returned to
+ * the model in it, the default `base` of the tools' writes.
+ */
+export interface TurnSeq {
+  turnId: string | null;
+  seq: number | null;
+}
+
 declare module "claude-code" {
   interface PluginState {
     planroom: {
       engine: Shaped<EngineState>;
       pane: Shaped<PaneState>;
       lastSeq: Shaped<LastSeq>;
+      turnSeq: Shaped<TurnSeq>;
     };
   }
 }
