@@ -212,9 +212,13 @@ input {
   box-shadow: 0 var(--shadow-offset) 0 var(--ink);
 }
 
+/* The next lid stacks over an ancestor's last 10 px and takes their presses, so an ancestor is
+   10 px wider than a target: what stays exposed is at least 44 px (ux-b). */
 .lid-ancestor {
+  --lid-overlap: 10px;
+  min-width: calc(var(--target) + var(--lid-overlap));
   padding-right: 18px;
-  margin-right: -10px;
+  margin-right: calc(-1 * var(--lid-overlap));
   color: var(--muted);
 }
 
@@ -229,10 +233,10 @@ button.lid-ancestor:hover {
   color: var(--ink);
 }
 
+/* The `⋯` centres in the part the current lid leaves exposed. */
 .lid-more .lid-more-button {
   justify-content: center;
-  min-width: var(--target);
-  padding: 0 12px 0 10px;
+  padding: 0 calc(12px + var(--lid-overlap)) 0 10px;
   font-size: 19px;
 }
 
@@ -289,7 +293,7 @@ button.lid-ancestor:hover {
 }
 
 .phone .lid-more .lid-more-button {
-  padding: 0 8px;
+  padding: 0 calc(8px + var(--lid-overlap)) 0 8px;
 }
 
 .phone .lid-current[data-searching] .lid-search {
@@ -383,6 +387,28 @@ button.lid-ancestor:hover {
 .lens-switcher .yarn {
   color: var(--muted);
   stroke-width: 2.5;
+}
+
+/* A picker with nothing to pick shows what it holds, flat on the felt: no shadow to press, and
+   an empty project shelf as a chalk outline where a project will sit. */
+.picker-face {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--target);
+  padding: 0 14px;
+  border: var(--border) solid var(--muted);
+  border-radius: var(--radius-button);
+  font-weight: 600;
+}
+
+.phone .lens-switcher .picker-face {
+  padding: 0 11px;
+}
+
+.project-shelf .picker-face {
+  border-style: dashed;
+  border-color: var(--chalk);
 }
 
 .picker-sheet {

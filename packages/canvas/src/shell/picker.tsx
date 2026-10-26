@@ -1,6 +1,10 @@
 /**
- * A control that deals a sheet of entries, the current one marked: the lens switcher and the
- * project shelf. Escape or a press outside closes it.
+ * A control that deals a sheet of entries, the current one marked: the `⋯` lid, the lens switcher
+ * and the project shelf. Escape or a press outside closes it.
+ *
+ * A picker with nothing to pick, no entry but the current one or no entries at all, isn't a
+ * button: it shows what it holds, so no press opens a blank sheet or one that does nothing
+ * (design-language.md, "Empty states"; DR-85, "Surfaces offer only what works").
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -49,6 +53,19 @@ export function Picker({
       document.removeEventListener("pointerdown", onDown);
     };
   }, [open]);
+  if (onPick === undefined || !entries.some((e) => !e.current)) {
+    return (
+      <div
+        className={`picker picker-static ${className}`}
+        data-concept={concept}
+      >
+        <span className="picker-face">
+          <span className="visually-hidden">{label}: </span>
+          {children}
+        </span>
+      </div>
+    );
+  }
   return (
     <div className={`picker ${className}`} data-concept={concept} ref={root}>
       <button
