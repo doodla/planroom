@@ -19,9 +19,9 @@
         "steps": [
           "planroom scan $OUT --json (timed)",
           "planroom map --json (top level)",
-          "planroom map --level container --lens all --detail graph --json",
-          "planroom map --level component --lens all --detail graph --json",
-          "planroom map --level code --focus storefront:container:storefront --json, then planroom map --level container --json",
+          "planroom map --level container --lens all --detail graph --json, then the same command with --cursor C for each meta.next C until meta.next is null, so the comparison reads the whole map (map keeps to its budget and pages, DR-86)",
+          "planroom map --level component --lens all --detail graph --json, paged the same way with --cursor until meta.next is null",
+          "planroom map --level code --focus storefront:container:storefront --json, paged with --cursor until meta.next is null, then planroom map --level container --json",
           "planroom find NAME --json for every truth container and component name, plus planroom find gift --json and planroom find consumer.py --json",
           "planroom focus --json",
           "PLANROOM_MODELS=off planroom scan $OUT --json on a fresh fixture: the same truth comparison holds with every model call off"
@@ -38,6 +38,7 @@
           "default lens is runtime",
           "exactly one next action",
           "roll-ups are faithful at every level (counts sum to leaf edges; zoom in and out returns the same MapView)",
+          "every map page keeps to its budget, and the pages joined are the whole map at that level",
           "search finds every truth entity",
           "the first scan deals at most 3 cards, batched by cause, and no Jev setup card, with models replayed and with models off (DR-50)"
         ],
@@ -53,14 +54,14 @@
       },
       "tests": [
         "crates/planroom/tests/s01_first_look.rs::cold_scan_under_5_s",
-        "crates/planroom/tests/s01_first_look.rs::top_level_has_one_next_action",
+        "crates/planroom/tests/next.rs::top_level_has_one_next_action",
         "crates/planroom/tests/s01_first_look.rs::zoom_to_code_and_back_is_faithful",
         "crates/planroom/tests/s01_first_look.rs::every_truth_container_component_and_relation_with_evidence",
         "crates/planroom/tests/s01_first_look.rs::search_finds_every_truth_entity",
         "crates/planroom/tests/s01_first_look.rs::repo_languages_match_truth",
         "crates/planroom/tests/s01_first_look.rs::deterministic_with_models_off",
         "crates/kernel/tests/rollup.rs::rollup_is_faithful_at_every_level",
-        "tests/e2e/first-look.spec.ts",
+        "tests/e2e/src/first-look.spec.ts",
         "crates/extract/tests/contract.rs::files_language_from_the_languages_table",
         "crates/extract/tests/contract.rs::files_emit_the_repo_its_directories_and_its_files",
         "crates/extract/tests/contract.rs::evidence_that_differs_from_the_commit_is_dropped",
@@ -68,20 +69,43 @@
         "crates/planroom/tests/first_run.rs::first_scan_deals_at_most_three_cards",
         "crates/kernel/tests/rollup.rs::no_lifted_edge_joins_a_node_to_its_own_ancestor",
         "crates/kernel/tests/rollup.rs::same_ancestor_edges_are_internal",
-        "crates/planroom/tests/first_run.rs::same_named_repos_get_distinct_namespaces",
+        "crates/planroom/tests/namespaces.rs::same_named_repos_get_distinct_namespaces",
         "crates/planroom/tests/id_stability.rs::fixture_ids_match_the_last_release",
         "crates/planroom/tests/scan.rs::a_dirty_first_scan_then_a_clean_rescan_gives_the_map_a_fresh_store_gives",
         "crates/planroom/tests/scan.rs::an_untracked_directory_is_never_mapped_and_never_lingers",
         "crates/planroom/tests/scan.rs::a_file_removed_from_the_working_tree_but_in_head_stays_mapped",
         "crates/extract/tests/contract.rs::the_working_tree_never_reaches_the_facts",
-        "tests/e2e/surface.spec.ts::the_breadcrumb_names_the_level_and_each_ancestor_goes_back_up",
-        "tests/e2e/surface.spec.ts::once_its_level_shows_the_next_action_turns_into_the_way_back",
+        "tests/e2e/src/surface.spec.ts::the_breadcrumb_names_the_level_and_each_ancestor_goes_back_up",
+        "tests/e2e/src/surface.spec.ts::once_its_level_shows_the_next_action_turns_into_the_way_back",
         "crates/planroom/tests/scan.rs::moving_a_repo_out_and_back_gives_the_map_a_fresh_store_gives",
         "crates/planroom/tests/scan.rs::deleting_the_branch_a_snapshot_was_read_on_leaves_no_evidence_naming_it",
         "crates/planroom/tests/scan.rs::an_unborn_and_an_unreadable_repo_leave_the_rest_of_the_workspace_mapped",
         "crates/planroom/tests/scan.rs::a_workspace_git_can_read_none_of_offers_no_scan",
-        "crates/store/tests/commit.rs::one_commit_under_other_inputs_is_another_snapshot"
-      ]
+        "crates/store/tests/commit.rs::one_commit_under_other_inputs_is_another_snapshot",
+        "crates/planroom/tests/s01_first_look.rs::every_truth_item_the_loaded_packs_declare_matches_with_evidence",
+        "crates/planroom/tests/s01_first_look.rs::truth_recall_never_drops",
+        "crates/planroom/tests/config.rs::fixture_and_test_data_trees_are_excluded_by_default"
+      ],
+      "due": {
+        "crates/planroom/tests/s01_first_look.rs::cold_scan_under_5_s": "M1",
+        "crates/planroom/tests/next.rs::top_level_has_one_next_action": "M1",
+        "crates/planroom/tests/s01_first_look.rs::zoom_to_code_and_back_is_faithful": "M1",
+        "crates/planroom/tests/s01_first_look.rs::every_truth_container_component_and_relation_with_evidence": "M3",
+        "crates/planroom/tests/s01_first_look.rs::search_finds_every_truth_entity": "M1",
+        "crates/planroom/tests/s01_first_look.rs::repo_languages_match_truth": "M1",
+        "crates/planroom/tests/s01_first_look.rs::deterministic_with_models_off": "M1",
+        "crates/kernel/tests/rollup.rs::rollup_is_faithful_at_every_level": "M1",
+        "tests/e2e/src/first-look.spec.ts": "M1",
+        "crates/extract/tests/contract.rs::files_language_from_the_languages_table": "M1",
+        "crates/planroom/tests/first_run.rs::first_scan_deals_at_most_three_cards": "M2",
+        "crates/kernel/tests/rollup.rs::no_lifted_edge_joins_a_node_to_its_own_ancestor": "M1",
+        "crates/kernel/tests/rollup.rs::same_ancestor_edges_are_internal": "M1",
+        "crates/planroom/tests/namespaces.rs::same_named_repos_get_distinct_namespaces": "M1",
+        "crates/planroom/tests/id_stability.rs::fixture_ids_match_the_last_release": "M1",
+        "crates/planroom/tests/s01_first_look.rs::every_truth_item_the_loaded_packs_declare_matches_with_evidence": "M1",
+        "crates/planroom/tests/s01_first_look.rs::truth_recall_never_drops": "M1",
+        "crates/planroom/tests/config.rs::fixture_and_test_data_trees_are_excluded_by_default": "M1"
+      }
     },
     {
       "id": "S2",
@@ -134,7 +158,21 @@
         "crates/extract/tests/formats.rs::changelog_sets_repo_version",
         "crates/extract/tests/formats.rs::compose_kind_from_image_roles",
         "crates/planroom/tests/budgets.rs::s2_chat_proxy_within_20_percent"
-      ]
+      ],
+      "due": {
+        "crates/planroom/tests/s02_questions.rs::observability_matches_truth": "M3",
+        "crates/planroom/tests/s02_questions.rs::unmonitored_matches_truth": "M3",
+        "crates/planroom/tests/s02_questions.rs::release_order_for_kit_matches_truth": "M3",
+        "crates/planroom/tests/s02_questions.rs::stale_versions_match_truth": "M3",
+        "crates/planroom/tests/s02_questions.rs::path_storefront_to_worker_has_each_hop_with_evidence": "M3",
+        "crates/kernel/tests/query.rs::path_follows_flow_lens_only": "M1",
+        "crates/planroom/tests/budgets.rs::budgets_within_20_percent": "M2",
+        "crates/extract/tests/link.rs::metric_mentions_add_evidence_only": "M3",
+        "crates/extract/tests/link.rs::otel_counter_joins_its_prometheus_name": "M3",
+        "crates/extract/tests/formats.rs::changelog_sets_repo_version": "M3",
+        "crates/extract/tests/formats.rs::compose_kind_from_image_roles": "M3",
+        "crates/planroom/tests/budgets.rs::s2_chat_proxy_within_20_percent": "M2"
+      }
     },
     {
       "id": "S3",
@@ -187,13 +225,26 @@
         "crates/planroom/tests/s03_plan.rs::stages_produce_ghosts_until_accepted",
         "crates/planroom/tests/s03_plan.rs::agent_accept_is_person_required",
         "crates/planroom/tests/s03_plan.rs::next_actions_touch_the_three_targets",
-        "crates/planroom/tests/s03_plan.rs::lint_flags_vague_action_and_missing_done_test",
+        "crates/planroom/tests/s03_plan.rs::lint_flags_a_missing_done_test",
+        "crates/planroom/tests/s03_plan.rs::lint_flags_a_vague_action",
         "crates/planroom/tests/s03_plan.rs::accepted_plan_is_version_2",
         "crates/planroom/tests/s03_plan.rs::version_diff_renders_in_the_shared_view",
         "crates/kernel/tests/lint.rs::next_action_needs_done_test",
-        "tests/e2e/plan.spec.ts",
+        "tests/e2e/src/plan.spec.ts",
         "crates/planroom/tests/budgets.rs::s3_cache_hit_rate_at_least_0_6_after_the_first_stage"
-      ]
+      ],
+      "due": {
+        "crates/planroom/tests/s03_plan.rs::stages_produce_ghosts_until_accepted": "M1",
+        "crates/planroom/tests/s03_plan.rs::agent_accept_is_person_required": "M1",
+        "crates/planroom/tests/s03_plan.rs::next_actions_touch_the_three_targets": "M2",
+        "crates/planroom/tests/s03_plan.rs::lint_flags_a_missing_done_test": "M1",
+        "crates/planroom/tests/s03_plan.rs::lint_flags_a_vague_action": "M2",
+        "crates/planroom/tests/s03_plan.rs::accepted_plan_is_version_2": "M2",
+        "crates/planroom/tests/s03_plan.rs::version_diff_renders_in_the_shared_view": "M2",
+        "crates/kernel/tests/lint.rs::next_action_needs_done_test": "M1",
+        "tests/e2e/src/plan.spec.ts": "M2",
+        "crates/planroom/tests/budgets.rs::s3_cache_hit_rate_at_least_0_6_after_the_first_stage": "M1"
+      }
     },
     {
       "id": "S4",
@@ -270,11 +321,11 @@
         "crates/kernel/tests/reconcile.rs::a_sibling_branch_pauses_reconciliation",
         "crates/kernel/tests/reconcile.rs::a_rewritten_tracked_branch_restarts_the_window",
         "crates/kernel/tests/reconcile.rs::a_return_to_the_tracked_branch_resumes",
-        "tests/e2e/edit.spec.ts::regroup_by_a_lid_drop_and_by_the_tray",
-        "tests/e2e/edit.spec.ts::rename_hide_and_pin_from_the_tray",
-        "tests/e2e/edit.spec.ts::chalk_makes_an_intended_relation_and_forbid",
-        "tests/e2e/edit.spec.ts::the_phone_tray_moves_and_relates",
-        "tests/e2e/edit.spec.ts::each_hand_edit_undoes",
+        "tests/e2e/src/edit.spec.ts::regroup_by_a_lid_drop_and_by_the_tray",
+        "tests/e2e/src/edit.spec.ts::rename_hide_and_pin_from_the_tray",
+        "tests/e2e/src/edit.spec.ts::chalk_makes_an_intended_relation_and_forbid",
+        "tests/e2e/src/edit.spec.ts::the_phone_tray_moves_and_relates",
+        "tests/e2e/src/edit.spec.ts::each_hand_edit_undoes",
         "crates/extract/tests/link.rs::a_wrapper_call_binds_method_and_path",
         "crates/kernel/tests/fold.rs::an_override_follows_a_git_rename",
         "crates/kernel/tests/fold.rs::a_moved_directory_carries_its_regroup",
@@ -283,7 +334,46 @@
         "crates/kernel/tests/reconcile.rs::an_edited_pull_request_whose_rules_hold_is_done",
         "crates/kernel/tests/reconcile.rs::a_landed_change_is_no_residual",
         "crates/planroom/tests/handoff_preflight.rs::a_revert_reverts_a_squash"
-      ]
+      ],
+      "due": {
+        "crates/planroom/tests/s04_handoff.rs::impact_radius_matches_truth": "M2",
+        "crates/planroom/tests/s04_handoff.rs::collected_diff_equals_post_handoff": "M2",
+        "crates/planroom/tests/s04_handoff.rs::reconciliation_after_merges_matches_truth": "M2",
+        "crates/planroom/tests/s04_handoff.rs::regression_found_from_code_alone": "M2",
+        "crates/planroom/tests/s04_handoff.rs::a_rescan_keeps_the_regrouping": "M2",
+        "crates/planroom/tests/s04_handoff.rs::a_rejected_inference_survives_rescans": "M2",
+        "crates/planroom/tests/handoff_preflight.rs::a_conflict_in_the_second_repo_leaves_both_untouched": "M2",
+        "crates/kernel/tests/reconcile.rs::regression_over_unplanned": "M2",
+        "crates/kernel/tests/reconcile.rs::resolved_stays_done": "M2",
+        "crates/kernel/tests/impact.rs::impact_includes_via_endpoint_evidence": "M2",
+        "crates/extract/tests/link.rs::literal_dsn_resolves_by_host": "M1",
+        "crates/kernel/tests/reconcile.rs::merge_commits_are_never_change_units": "M2",
+        "crates/kernel/tests/reconcile.rs::a_branch_from_an_older_main_keeps_its_regression": "M2",
+        "crates/kernel/tests/reconcile.rs::classes_survive_later_scans": "M2",
+        "crates/kernel/tests/reconcile.rs::a_partial_scan_raises_no_regression": "M2",
+        "crates/planroom/tests/retries.rs::a_rescan_after_a_head_move_writes_a_new_scan_event": "M1",
+        "crates/planroom/tests/duties.rs::concurrent_rescans_link_the_final_active_set": "M1",
+        "crates/kernel/tests/reconcile.rs::the_first_scan_is_a_baseline": "M2",
+        "crates/kernel/tests/undo.rs::regroup_undo_is_atomic": "M1",
+        "crates/planroom/tests/handoff_clone.rs::the_implementer_cannot_move_the_real_repos_refs": "M2",
+        "crates/kernel/tests/reconcile.rs::a_backward_checkout_deals_no_card": "M2",
+        "crates/kernel/tests/reconcile.rs::a_sibling_branch_pauses_reconciliation": "M2",
+        "crates/kernel/tests/reconcile.rs::a_rewritten_tracked_branch_restarts_the_window": "M2",
+        "crates/kernel/tests/reconcile.rs::a_return_to_the_tracked_branch_resumes": "M2",
+        "tests/e2e/src/edit.spec.ts::regroup_by_a_lid_drop_and_by_the_tray": "M1",
+        "tests/e2e/src/edit.spec.ts::rename_hide_and_pin_from_the_tray": "M1",
+        "tests/e2e/src/edit.spec.ts::chalk_makes_an_intended_relation_and_forbid": "M1",
+        "tests/e2e/src/edit.spec.ts::the_phone_tray_moves_and_relates": "M1",
+        "tests/e2e/src/edit.spec.ts::each_hand_edit_undoes": "M1",
+        "crates/extract/tests/link.rs::a_wrapper_call_binds_method_and_path": "M1",
+        "crates/kernel/tests/fold.rs::an_override_follows_a_git_rename": "M1",
+        "crates/kernel/tests/fold.rs::a_moved_directory_carries_its_regroup": "M1",
+        "crates/kernel/tests/reconcile.rs::a_squash_merged_handoff_is_done": "M2",
+        "crates/kernel/tests/reconcile.rs::a_rebase_merged_handoff_is_done": "M2",
+        "crates/kernel/tests/reconcile.rs::an_edited_pull_request_whose_rules_hold_is_done": "M2",
+        "crates/kernel/tests/reconcile.rs::a_landed_change_is_no_residual": "M2",
+        "crates/planroom/tests/handoff_preflight.rs::a_revert_reverts_a_squash": "M2"
+      }
     },
     {
       "id": "S5",
@@ -334,10 +424,19 @@
         "crates/planroom/tests/s05_anatomy.rs::pr_42_threads_and_touched_components",
         "crates/planroom/tests/s05_anatomy.rs::skill_and_ci_workflow_parts",
         "crates/planroom/tests/s05_anatomy.rs::breakdown_edit_gives_one_text_hunk",
-        "tests/e2e/anatomy.spec.ts",
+        "tests/e2e/src/anatomy.spec.ts",
         "crates/planroom/tests/s05_anatomy.rs::part_relation_requests_are_at_most_three_per_part",
         "crates/planroom/tests/s05_anatomy.rs::breakdown_deals_no_part_relation_card"
-      ]
+      ],
+      "due": {
+        "crates/planroom/tests/s05_anatomy.rs::snapshot_parts_match_sections": "M4",
+        "crates/planroom/tests/s05_anatomy.rs::pr_42_threads_and_touched_components": "M4",
+        "crates/planroom/tests/s05_anatomy.rs::skill_and_ci_workflow_parts": "M4",
+        "crates/planroom/tests/s05_anatomy.rs::breakdown_edit_gives_one_text_hunk": "M4",
+        "tests/e2e/src/anatomy.spec.ts": "M4",
+        "crates/planroom/tests/s05_anatomy.rs::part_relation_requests_are_at_most_three_per_part": "M4",
+        "crates/planroom/tests/s05_anatomy.rs::breakdown_deals_no_part_relation_card": "M4"
+      }
     },
     {
       "id": "S6",
@@ -389,9 +488,21 @@
         "crates/planroom/tests/s06_machines.rs::step_through_respects_guards",
         "crates/kernel/tests/checks.rs::unreachable_dead_end_nondeterminism_missing",
         "packages/ui/src/machine-step.test.ts::machine_step_parity",
-        "tests/e2e/machine.spec.ts",
+        "tests/e2e/src/machine.spec.ts",
         "crates/extract/tests/link.rs::machine_pairing_scores_state_overlap"
-      ]
+      ],
+      "due": {
+        "crates/planroom/tests/s06_machines.rs::code_and_doc_machines_match_truth": "M4",
+        "crates/planroom/tests/s06_machines.rs::drift_is_fulfilling_cancel": "M4",
+        "crates/planroom/tests/s06_machines.rs::on_hold_unreachable_and_payment_failed_dead_end": "M4",
+        "crates/planroom/tests/s06_machines.rs::process_machine_matches_truth": "M4",
+        "crates/planroom/tests/s06_machines.rs::own_loops_have_no_drift": "M4",
+        "crates/planroom/tests/s06_machines.rs::step_through_respects_guards": "M4",
+        "crates/kernel/tests/checks.rs::unreachable_dead_end_nondeterminism_missing": "M4",
+        "packages/ui/src/machine-step.test.ts::machine_step_parity": "M4",
+        "tests/e2e/src/machine.spec.ts": "M4",
+        "crates/extract/tests/link.rs::machine_pairing_scores_state_overlap": "M4"
+      }
     },
     {
       "id": "S7",
@@ -460,7 +571,26 @@
         "crates/planroom/tests/s07_decisions.rs::the_routine_commit_is_unplanned",
         "crates/planroom/tests/duties.rs::concurrent_decide_runs_ask_each_subject_once",
         "crates/planroom/tests/duties.rs::one_scan_spends_at_most_its_budget_across_duty_runs"
-      ]
+      ],
+      "due": {
+        "crates/planroom/tests/s07_decisions.rs::routine_rescan_makes_no_claude_call": "M2",
+        "crates/planroom/tests/s07_decisions.rs::routine_rescan_jev_under_a_tenth_of_a_cent": "M2",
+        "crates/planroom/tests/s07_decisions.rs::routine_rescan_at_most_one_card": "M2",
+        "crates/planroom/tests/s07_decisions.rs::auto_only_where_evals_allow": "M2",
+        "crates/planroom/tests/evals.rs::evals_recompute_byte_for_byte": "M2",
+        "crates/planroom/tests/evals.rs::decision_policy_matches_eval_results": "M2",
+        "crates/models/tests/jev_contract.rs::both_codecs_agree_on_every_fixture": "M2",
+        "crates/planroom/tests/budgets.rs::budgets_within_20_percent": "M2",
+        "crates/planroom/tests/duties.rs::scan_never_waits_on_jev": "M2",
+        "crates/planroom/tests/s07_decisions.rs::a_kind_version_bump_raises_no_card_burst": "M2",
+        "crates/kernel/tests/policy.rs::options_from_gives_per_subject_candidates": "M2",
+        "crates/planroom/tests/s07_decisions.rs::nothing_deferred_by_budget_on_the_rescan": "M2",
+        "crates/planroom/tests/s07_decisions.rs::a_line_shift_above_evidence_hits_the_cache": "M2",
+        "crates/planroom/tests/first_run.rs::strict_replay_deals_no_setup_card": "M2",
+        "crates/planroom/tests/s07_decisions.rs::the_routine_commit_is_unplanned": "M2",
+        "crates/planroom/tests/duties.rs::concurrent_decide_runs_ask_each_subject_once": "M2",
+        "crates/planroom/tests/duties.rs::one_scan_spends_at_most_its_budget_across_duty_runs": "M2"
+      }
     },
     {
       "id": "S8",
@@ -512,8 +642,8 @@
         "crates/planroom/tests/s08_concurrency.rs::never_last_writer_wins",
         "crates/planroom/tests/s08_concurrency.rs::incremental_fold_equals_full_fold",
         "crates/store/tests/interleavings.rs::writer_interleavings",
-        "crates/store/tests/concurrency.rs::three_processes_five_hundred_writes",
-        "tests/e2e/s08-tab.spec.ts::rendered_within_1_s",
+        "crates/store/tests/concurrency.rs::three_writer_processes_commit_500_each_with_no_loss_and_no_busy",
+        "tests/e2e/src/s08-tab.spec.ts::rendered_within_1_s",
         "crates/kernel/tests/cas.rs::two_tabs_of_one_person_conflict",
         "crates/kernel/tests/cas.rs::a_tab_and_a_mod_press_conflict",
         "crates/kernel/tests/cas.rs::a_person_edit_supersedes_a_pending_ghost",
@@ -533,14 +663,45 @@
         "crates/kernel/tests/cas.rs::a_parent_change_that_makes_a_cycle_is_refused",
         "crates/kernel/tests/cas.rs::a_write_over_an_undo_since_base_conflicts",
         "crates/store/tests/interleavings.rs::meta_seq_never_exceeds_the_folded_view",
-        "tests/e2e/surface.spec.ts::a_flush_by_another_tab_keeps_the_original_writer",
-        "tests/e2e/surface.spec.ts::a_flush_of_a_committed_edit_replays",
+        "tests/e2e/src/surface.spec.ts::a_flush_by_another_tab_keeps_the_original_writer",
+        "tests/e2e/src/surface.spec.ts::a_flush_of_a_committed_edit_replays",
         "crates/store/tests/commit.rs::a_retry_with_the_same_key_returns_the_stored_reply",
         "crates/store/tests/idem.rs::a_retry_after_a_kill_after_commit_returns_the_stored_reply",
         "crates/planroom/tests/scan.rs::a_scan_that_read_an_older_head_never_moves_the_repo_back",
         "crates/store/tests/commit.rs::a_scan_whose_commit_is_no_longer_head_never_moves_a_repo_back",
         "crates/store/tests/commit.rs::a_first_scan_records_its_commit_even_when_head_moved_since"
-      ]
+      ],
+      "due": {
+        "crates/planroom/tests/s08_concurrency.rs::no_lost_writes": "M2",
+        "crates/planroom/tests/s08_concurrency.rs::retries_are_idempotent": "M2",
+        "crates/planroom/tests/s08_concurrency.rs::live_updates_within_1_s": "M2",
+        "crates/planroom/tests/s08_concurrency.rs::claims_and_presence_visible": "M2",
+        "crates/planroom/tests/s08_concurrency.rs::stale_write_becomes_a_diff": "M2",
+        "crates/planroom/tests/s08_concurrency.rs::never_last_writer_wins": "M2",
+        "crates/planroom/tests/s08_concurrency.rs::incremental_fold_equals_full_fold": "M2",
+        "crates/store/tests/interleavings.rs::writer_interleavings": "M2",
+        "tests/e2e/src/s08-tab.spec.ts::rendered_within_1_s": "M2",
+        "crates/kernel/tests/cas.rs::two_tabs_of_one_person_conflict": "M1",
+        "crates/kernel/tests/cas.rs::a_tab_and_a_mod_press_conflict": "M1",
+        "crates/kernel/tests/cas.rs::a_person_edit_supersedes_a_pending_ghost": "M1",
+        "crates/kernel/tests/cas.rs::an_accept_after_an_intervening_write_is_a_card": "M1",
+        "crates/kernel/tests/cas.rs::a_resolution_after_an_intervening_write_is_a_card": "M1",
+        "packages/mod/src/refresh.test.ts::pane_within_1_s_under_s8_frames": "M2",
+        "crates/planroom/tests/stream.rs::two_sse_clients_on_one_serve_see_each_others_writes": "M1",
+        "crates/planroom/tests/stream.rs::a_serve_write_then_read_shows_the_write": "M1",
+        "crates/planroom/tests/stream.rs::a_watch_duty_rescan_sends_a_frame": "M2",
+        "crates/planroom/tests/stream.rs::presence_keeps_a_row_per_surface": "M1",
+        "crates/planroom/tests/duties.rs::a_dead_holders_lease_is_taken_over_at_once": "M2",
+        "crates/planroom/tests/retries.rs::base_less_commands_mint_a_fresh_key": "M1",
+        "crates/planroom/tests/retries.rs::a_move_back_to_an_earlier_head_records_a_new_scan": "M1",
+        "crates/kernel/tests/fold.rs::incremental_fold_equals_full_fold": "M1",
+        "crates/kernel/tests/fold.rs::a_parent_cycle_breaks_by_seq": "M1",
+        "crates/kernel/tests/cas.rs::a_parent_change_that_makes_a_cycle_is_refused": "M1",
+        "crates/kernel/tests/cas.rs::a_write_over_an_undo_since_base_conflicts": "M1",
+        "crates/store/tests/interleavings.rs::meta_seq_never_exceeds_the_folded_view": "M1",
+        "tests/e2e/src/surface.spec.ts::a_flush_by_another_tab_keeps_the_original_writer": "M1",
+        "tests/e2e/src/surface.spec.ts::a_flush_of_a_committed_edit_replays": "M1"
+      }
     },
     {
       "id": "S9",
@@ -714,10 +875,10 @@
       "tests": [
         "packages/mod/src/keys.test.tsx::main_flows_within_two_keys",
         "packages/mod/src/keys.test.tsx::key_map_snapshot",
-        "packages/mod/src/keys.test.tsx::band_next_is_undoable",
+        "packages/mod/src/layout.test.ts::band_next_is_undoable",
         "packages/mod/src/surfaces.test.tsx",
-        "packages/mod/src/surfaces.test.tsx::rows_fit_at_49x34",
-        "packages/mod/src/surfaces.test.tsx::no_blank_pane",
+        "packages/mod/src/layout.test.ts::rows_fit_at_49x34",
+        "packages/mod/src/layout.test.ts::no_blank_pane",
         "packages/mod/src/actor.test.ts::tool_handlers_send_agent",
         "packages/mod/src/guard.test.ts::edit_on_touch_set_asks",
         "packages/mod/src/broker.test.ts",
@@ -733,12 +894,12 @@
         "packages/mod/src/guard.test.ts::implementer_runs_spec_checks_without_prompts",
         "packages/mod/src/guard.test.ts::implementer_unlisted_bash_is_denied_and_listed_once",
         "packages/mod/src/agents.test.ts::report_then_collect_deals_the_review_card",
-        "packages/mod/src/tools.test.ts::error_envelopes_reach_the_model",
+        "packages/mod/src/engine.test.ts::error_envelopes_reach_the_model",
         "packages/mod/src/tools.test.ts::a_stage_proposal_writes_no_file",
         "packages/mod/src/tools.test.ts::handles_round_trip_after_redaction",
         "packages/mod/src/keys.test.tsx::band_never_names_a_spending_leaf",
         "packages/mod/src/surfaces.test.tsx::no_decision_shows_next_on_every_surface",
-        "packages/mod/src/surfaces.test.tsx::rows_fit_compact_at_80x24_and_100x30",
+        "packages/mod/src/layout.test.ts::rows_fit_compact_at_80x24_and_100x30",
         "packages/mod/src/keys.test.tsx::a_band_press_from_the_prompt_offers_undo",
         "packages/mod/src/engine.test.ts::a_missing_binary_resolves_once_more",
         "packages/mod/src/engine.test.ts::schema_mismatch_names_the_right_action",
@@ -770,7 +931,50 @@
         "packages/mod/src/guard.test.ts::security-r2-2: a Grep or Glob over the user config's or the data root's parents is denied",
         "packages/mod/src/guard.test.ts::security-r2: everyday writes and recursive reads still pass",
         "packages/mod/plugin-tests/guard.test.tsx::security-r2-2: recursive reads of a guarded place's parent are denied; plain rg passes"
-      ]
+      ],
+      "due": {
+        "packages/mod/src/keys.test.tsx::main_flows_within_two_keys": "M1",
+        "packages/mod/src/keys.test.tsx::key_map_snapshot": "M1",
+        "packages/mod/src/surfaces.test.tsx": "M1",
+        "packages/mod/src/actor.test.ts::tool_handlers_send_agent": "M1",
+        "packages/mod/src/guard.test.ts::edit_on_touch_set_asks": "M2",
+        "packages/mod/src/broker.test.ts": "M2",
+        "packages/mod/src/guard.test.ts::implementer_cannot_reach_the_store_by_a_relative_path": "M1",
+        "packages/mod/src/guard.test.ts::implementer_writes_only_in_its_clones": "M1",
+        "packages/mod/src/guard.test.ts::a_pty_wrapped_person_command_is_denied": "M1",
+        "packages/mod/src/prompt.test.ts::section_is_byte_identical_across_states": "M1",
+        "packages/mod/src/tools.test.ts::tool_results_within_budget": "M1",
+        "packages/mod/src/engine.test.ts::a_catalogue_mismatch_shows_one_line": "M1",
+        "packages/mod/src/engine.test.ts::no_watch_until_a_store_exists": "M1",
+        "crates/planroom/tests/packs.rs::a_suggestion_cannot_name_an_irreversible_command": "M1",
+        "packages/mod/src/guard.test.ts::implementer_runs_spec_checks_without_prompts": "M2",
+        "packages/mod/src/guard.test.ts::implementer_unlisted_bash_is_denied_and_listed_once": "M2",
+        "packages/mod/src/agents.test.ts::report_then_collect_deals_the_review_card": "M2",
+        "packages/mod/src/tools.test.ts::a_stage_proposal_writes_no_file": "M1",
+        "packages/mod/src/tools.test.ts::handles_round_trip_after_redaction": "M1",
+        "packages/mod/src/keys.test.tsx::band_never_names_a_spending_leaf": "M1",
+        "packages/mod/src/surfaces.test.tsx::no_decision_shows_next_on_every_surface": "M1",
+        "packages/mod/src/keys.test.tsx::a_band_press_from_the_prompt_offers_undo": "M1",
+        "packages/mod/src/engine.test.ts::a_missing_binary_resolves_once_more": "M1",
+        "packages/mod/src/engine.test.ts::schema_mismatch_names_the_right_action": "M1",
+        "packages/mod/src/guard.test.ts::implementer_cannot_edit_its_clones_git_dir": "M1",
+        "packages/mod/src/guard.test.ts::without_a_sandbox_approved_commands_ask": "M2",
+        "packages/mod/src/agents.test.ts::the_implementer_spawns_sandboxed": "M2",
+        "packages/mod/src/agents.test.ts::installs_run_before_the_implementer": "M2",
+        "packages/mod/src/agents.test.ts::observed_steps_are_written_before_report": "M2",
+        "packages/mod/src/host.test.ts::a_missing_member_registers_nothing_and_shows_one_line": "M1",
+        "packages/mod/src/host.test.ts::an_older_host_falls_back_to_the_skills": "M1",
+        "packages/mod/src/host.test.ts::a_newer_host_with_every_member_runs": "M1",
+        "packages/mod/src/keys.test.tsx::a_lens_and_a_project_are_a_key_and_a_digit": "M1",
+        "packages/mod/src/keys.test.tsx::any_stage_runs_in_two_keys_through_its_cost_card": "M1",
+        "packages/mod/src/keys.test.tsx::a_last_row_hand_off_is_two_keys": "M2",
+        "packages/mod/src/keys.test.tsx::merge_is_two_keys_from_the_review_card": "M2",
+        "packages/mod/src/keys.test.tsx::a_picker_owns_the_digits_until_it_closes": "M1",
+        "packages/mod/src/surfaces.test.tsx::drift_and_who_top_rows_carry_row_keys": "M1",
+        "packages/mod/src/surfaces.test.tsx::compact_keeps_the_top_diff_line": "M1",
+        "packages/mod/src/room.test.ts::room_is_immediate": "M1",
+        "packages/mod/src/room.test.ts::bare_room_starts_no_sync": "M1"
+      }
     },
     {
       "id": "S10",
@@ -849,8 +1053,35 @@
         "crates/planroom/tests/packs.rs::an_added_pack_loads_from_its_copy",
         "crates/planroom/tests/packs.rs::editing_a_packs_source_deals_one_card_and_refuses_no_write",
         "crates/planroom/tests/packs.rs::deleting_a_packs_source_changes_nothing",
-        "crates/planroom/tests/packs.rs::an_unconsumed_hint_kind_is_pack_invalid"
-      ]
+        "crates/planroom/tests/packs.rs::an_unconsumed_hint_kind_is_pack_invalid",
+        "crates/planroom/tests/packs.rs::accepting_the_changed_source_card_updates_the_copy"
+      ],
+      "due": {
+        "crates/planroom/tests/s10_extensibility.rs::ruby_absent_without_pack": "M1",
+        "crates/planroom/tests/s10_extensibility.rs::toy_pack_adds_kinds_lens_and_decision": "M5",
+        "crates/planroom/tests/s10_extensibility.rs::healthcheck_edges_through_the_ruby_pack": "M1",
+        "crates/planroom/tests/s10_extensibility.rs::no_engine_source_mentions_the_packs": "M5",
+        "crates/planroom/tests/s10_extensibility.rs::same_binary_runs_with_and_without_the_packs": "M5",
+        "crates/planroom/tests/packs.rs::requires_is_inward_only": "M1",
+        "crates/planroom/tests/packs.rs::alternating_scans_with_different_environments_never_flip_the_snapshot": "M1",
+        "crates/planroom/tests/packs.rs::a_process_with_another_pack_set_refuses_writes": "M1",
+        "crates/planroom/tests/packs.rs::an_out_of_tree_pack_may_require_any_built_in": "M1",
+        "crates/planroom/tests/packs.rs::a_pack_that_only_adds_an_image_role_keeps_every_container_id": "M1",
+        "crates/planroom/tests/packs.rs::duplicate_table_keys_are_pack_invalid": "M1",
+        "crates/planroom/tests/packs.rs::two_default_lenses_are_pack_invalid": "M1",
+        "crates/planroom/tests/packs.rs::every_v0_1_decision_kind_validates_against_the_contract": "M2",
+        "crates/planroom/tests/trust.rs::an_agent_cannot_add_a_pack": "M1",
+        "crates/kernel/tests/effects.rs::retarget_needs_a_person_stakes_role_subject": "M2",
+        "crates/extract/tests/contract.rs::a_bare_path_reference_is_pack_invalid": "M1",
+        "crates/planroom/tests/s10_extensibility.rs::an_edgeless_lens_kind_shows_on_its_map": "M5",
+        "crates/planroom/tests/s10_extensibility.rs::ask_lists_what_is_loaded": "M1",
+        "crates/kernel/tests/policy.rs::when_reads_graph_structure": "M2",
+        "crates/planroom/tests/packs.rs::an_added_pack_loads_from_its_copy": "M1",
+        "crates/planroom/tests/packs.rs::editing_a_packs_source_deals_one_card_and_refuses_no_write": "M1",
+        "crates/planroom/tests/packs.rs::deleting_a_packs_source_changes_nothing": "M1",
+        "crates/planroom/tests/packs.rs::an_unconsumed_hint_kind_is_pack_invalid": "M1",
+        "crates/planroom/tests/packs.rs::accepting_the_changed_source_card_updates_the_copy": "M1"
+      }
     },
     {
       "id": "S11",
@@ -931,13 +1162,13 @@
         "crates/planroom/tests/s11_remote.rs::forged_actor_is_ignored",
         "crates/planroom/tests/s11_remote.rs::reimport_is_a_no_op",
         "crates/planroom/tests/s11_remote.rs::no_contains_by_default",
-        "tests/e2e/artifact.spec.ts",
+        "tests/e2e/src/artifact.spec.ts",
         "crates/planroom/tests/s11_remote.rs::unpaired_owner_edits_wait_on_one_apply_card",
         "crates/planroom/tests/actor.rs::agent_cannot_import_inbox_rows",
         "crates/planroom/tests/s11_remote.rs::an_unlisted_inbox_command_is_refused",
-        "tests/e2e/artifact.spec.ts::a_view_outside_the_snapshot_becomes_a_request",
-        "tests/e2e/artifact.spec.ts::a_synced_edit_shows_on_the_map",
-        "tests/e2e/artifact.spec.ts::a_tapped_card_shows_queued_until_acked",
+        "tests/e2e/src/artifact.spec.ts::a_view_outside_the_snapshot_becomes_a_request",
+        "tests/e2e/src/artifact.spec.ts::a_synced_edit_shows_on_the_map",
+        "tests/e2e/src/artifact.spec.ts::a_tapped_card_shows_queued_until_acked",
         "crates/planroom/tests/s11_remote.rs::one_instances_rows_apply_in_counter_order",
         "crates/planroom/tests/s11_remote.rs::two_instances_of_one_viewer_conflict",
         "crates/planroom/tests/s11_remote.rs::a_signed_owner_row_applies",
@@ -945,20 +1176,46 @@
         "crates/planroom/tests/s11_remote.rs::rows_come_only_from_the_mod",
         "crates/planroom/tests/s11_remote.rs::a_confirmed_row_keeps_the_viewer_as_actor",
         "crates/planroom/tests/s11_remote.rs::sample_calls_reach_the_spend_log",
-        "tests/e2e/artifact.spec.ts::pairing_signs_rows",
+        "tests/e2e/src/artifact.spec.ts::pairing_signs_rows",
         "packages/mod/src/room.test.ts::sync_passes_the_observed_rows_on_stdin",
         "crates/planroom/tests/s11_remote.rs::a_wake_sync_applies_only_signed_rows",
-        "tests/e2e/artifact.spec.ts::queued_rows_are_the_face_up_card",
+        "tests/e2e/src/artifact.spec.ts::queued_rows_are_the_face_up_card",
         "crates/planroom/tests/s11_remote.rs::a_declined_unpaired_row_is_kept_and_undoable",
         "crates/planroom/tests/s11_remote.rs::a_row_pick_waits_preselected_on_its_card",
         "crates/planroom/tests/s11_remote.rs::a_signed_row_never_runs_a_person_only_command",
-        "tests/e2e/artifact.spec.ts::no_state_names_room_open",
-        "tests/e2e/artifact.spec.ts::a_lost_pairing_key_shows_pair_this_device",
+        "tests/e2e/src/artifact.spec.ts::no_state_names_room_open",
+        "tests/e2e/src/artifact.spec.ts::a_lost_pairing_key_shows_pair_this_device",
         "crates/planroom/tests/s11_remote.rs::a_read_request_is_answered_by_a_tokenless_sync",
         "crates/planroom/tests/s11_remote.rs::a_read_request_that_spends_is_refused",
         "crates/planroom/tests/s11_remote.rs::the_snapshot_holds_every_lens_and_the_precomputed_answers",
         "packages/mod/src/remote.test.ts::a_cloud_session_syncs_at_turn_start"
-      ]
+      ],
+      "due": {
+        "crates/planroom/tests/s11_remote.rs::edit_imports_as_attributed_person_edit": "M5",
+        "crates/planroom/tests/s11_remote.rs::stale_row_becomes_a_conflict": "M5",
+        "crates/planroom/tests/s11_remote.rs::reimport_is_a_no_op": "M5",
+        "crates/planroom/tests/s11_remote.rs::unpaired_owner_edits_wait_on_one_apply_card": "M5",
+        "crates/planroom/tests/actor.rs::agent_cannot_import_inbox_rows": "M1",
+        "tests/e2e/src/artifact.spec.ts::a_synced_edit_shows_on_the_map": "M5",
+        "tests/e2e/src/artifact.spec.ts::a_tapped_card_shows_queued_until_acked": "M5",
+        "crates/planroom/tests/s11_remote.rs::two_instances_of_one_viewer_conflict": "M5",
+        "crates/planroom/tests/s11_remote.rs::a_signed_owner_row_applies": "M5",
+        "crates/planroom/tests/s11_remote.rs::an_unsigned_or_broken_signature_joins_the_card": "M5",
+        "crates/planroom/tests/s11_remote.rs::a_confirmed_row_keeps_the_viewer_as_actor": "M5",
+        "crates/planroom/tests/s11_remote.rs::sample_calls_reach_the_spend_log": "M5",
+        "tests/e2e/src/artifact.spec.ts::pairing_signs_rows": "M5",
+        "packages/mod/src/room.test.ts::sync_passes_the_observed_rows_on_stdin": "M5",
+        "crates/planroom/tests/s11_remote.rs::a_wake_sync_applies_only_signed_rows": "M5",
+        "tests/e2e/src/artifact.spec.ts::queued_rows_are_the_face_up_card": "M5",
+        "crates/planroom/tests/s11_remote.rs::a_declined_unpaired_row_is_kept_and_undoable": "M5",
+        "crates/planroom/tests/s11_remote.rs::a_row_pick_waits_preselected_on_its_card": "M5",
+        "crates/planroom/tests/s11_remote.rs::a_signed_row_never_runs_a_person_only_command": "M5",
+        "tests/e2e/src/artifact.spec.ts::no_state_names_room_open": "M5",
+        "tests/e2e/src/artifact.spec.ts::a_lost_pairing_key_shows_pair_this_device": "M5",
+        "crates/planroom/tests/s11_remote.rs::a_read_request_that_spends_is_refused": "M5",
+        "crates/planroom/tests/s11_remote.rs::the_snapshot_holds_every_lens_and_the_precomputed_answers": "M5",
+        "packages/mod/src/remote.test.ts::a_cloud_session_syncs_at_turn_start": "M5"
+      }
     },
     {
       "id": "S12",
@@ -1006,7 +1263,16 @@
         "crates/planroom/tests/s12_curation.rs::agent_imported_runs_are_not_mined",
         "crates/planroom/tests/s12_curation.rs::every_draft_is_shown_in_full",
         "crates/planroom/tests/s12_curation.rs::agent_written_run_steps_are_never_mined"
-      ]
+      ],
+      "due": {
+        "crates/planroom/tests/s12_curation.rs::proposes_worker_claude_md_redis_url": "M5",
+        "crates/planroom/tests/s12_curation.rs::proposes_regenerate_orders_client_skill": "M5",
+        "crates/planroom/tests/s12_curation.rs::both_with_replayed_claude_and_models_off": "M5",
+        "crates/planroom/tests/curate_triggers.rs::fires_after_five_reports_and_each_merge": "M5",
+        "crates/planroom/tests/s12_curation.rs::agent_imported_runs_are_not_mined": "M5",
+        "crates/planroom/tests/s12_curation.rs::every_draft_is_shown_in_full": "M5",
+        "crates/planroom/tests/s12_curation.rs::agent_written_run_steps_are_never_mined": "M5"
+      }
     },
     {
       "id": "S13",
@@ -1051,22 +1317,36 @@
         ]
       },
       "tests": [
-        "tests/e2e/quality.spec.ts::interactive_under_1_s",
-        "tests/e2e/quality.spec.ts::no_overflow_at_390x844",
-        "tests/e2e/quality.spec.ts::tap_targets_at_least_44_px",
-        "tests/e2e/quality.spec.ts::pinch_and_tap_to_focus",
-        "tests/e2e/quality.spec.ts::gestures_follow_the_gesture_table",
-        "tests/e2e/quality.spec.ts::cards_take_one_tap",
-        "tests/e2e/quality.spec.ts::reduced_motion_swaps_to_crossfades",
-        "tests/e2e/quality.spec.ts::no_console_errors",
-        "tests/e2e/quality.spec.ts::live_update_renders_within_1_s",
+        "tests/e2e/src/quality.spec.ts::interactive_under_1_s",
+        "tests/e2e/src/quality.spec.ts::no_overflow_at_390x844",
+        "tests/e2e/src/quality.spec.ts::tap_targets_at_least_44_px",
+        "tests/e2e/src/quality.spec.ts::pinch_and_tap_to_focus",
+        "tests/e2e/src/quality.spec.ts::gestures_follow_the_gesture_table",
+        "tests/e2e/src/quality.spec.ts::cards_take_one_tap",
+        "tests/e2e/src/quality.spec.ts::reduced_motion_swaps_to_crossfades",
+        "tests/e2e/src/quality.spec.ts::no_console_errors",
+        "tests/e2e/src/quality.spec.ts::live_update_renders_within_1_s",
         "packages/ui/src/tokens.test.ts::contrast_meets_the_bar",
-        "tests/e2e/quality.spec.ts::top_row_fits_at_the_deepest_level (planned for M1)",
-        "tests/e2e/quality.spec.ts::keyboard_reaches_every_block_and_action",
-        "tests/e2e/quality.spec.ts::axe_finds_no_serious_violation",
-        "tests/e2e/surface.spec.ts::the_phone_always_goes_back_up_through_the_ancestors_lid",
-        "tests/e2e/surface.spec.ts::the_top_row_holds_four_targets_at_most_every_target_is_44px_and_nothing_overflows"
-      ]
+        "tests/e2e/src/quality.spec.ts::top_row_fits_at_the_deepest_level",
+        "tests/e2e/src/quality.spec.ts::keyboard_reaches_every_block_and_action",
+        "tests/e2e/src/quality.spec.ts::axe_finds_no_serious_violation",
+        "tests/e2e/src/surface.spec.ts::the_phone_always_goes_back_up_through_the_ancestors_lid",
+        "tests/e2e/src/surface.spec.ts::the_top_row_holds_four_targets_at_most_every_target_is_44px_and_nothing_overflows"
+      ],
+      "due": {
+        "tests/e2e/src/quality.spec.ts::interactive_under_1_s": "M1",
+        "tests/e2e/src/quality.spec.ts::no_overflow_at_390x844": "M5",
+        "tests/e2e/src/quality.spec.ts::tap_targets_at_least_44_px": "M5",
+        "tests/e2e/src/quality.spec.ts::pinch_and_tap_to_focus": "M5",
+        "tests/e2e/src/quality.spec.ts::gestures_follow_the_gesture_table": "M5",
+        "tests/e2e/src/quality.spec.ts::cards_take_one_tap": "M5",
+        "tests/e2e/src/quality.spec.ts::reduced_motion_swaps_to_crossfades": "M5",
+        "tests/e2e/src/quality.spec.ts::no_console_errors": "M5",
+        "tests/e2e/src/quality.spec.ts::live_update_renders_within_1_s": "M5",
+        "tests/e2e/src/quality.spec.ts::top_row_fits_at_the_deepest_level": "M1",
+        "tests/e2e/src/quality.spec.ts::keyboard_reaches_every_block_and_action": "M5",
+        "tests/e2e/src/quality.spec.ts::axe_finds_no_serious_violation": "M5"
+      }
     },
     {
       "id": "S14",
@@ -1124,28 +1404,46 @@
         "crates/planroom/tests/release_pins.rs",
         "crates/planroom/tests/docs.rs::links_resolve",
         "crates/planroom/tests/docs.rs::prose_rules_hold",
-        "crates/planroom/tests/routes.rs::serves_the_embedded_canvas",
-        "crates/planroom/tests/routes.rs::serves_the_fix_page_without_a_canvas",
+        "crates/planroom/tests/server_auth.rs::the_canvas_or_its_fix_page_is_served_at_the_root",
         "crates/planroom/tests/docs.rs::releasing_has_the_owner_checklist",
-        "crates/planroom/tests/docs.rs::every_image_has_its_prompt_and_spend_row",
-        "tests/installer/run.sh::every_resolver_output_validates (planned for M5)",
-        "tests/installer/run.sh::a_missing_tag_builds_nothing (planned for M5)",
-        "tests/installer/run.sh::detach_gets_its_own_session (planned for M5)",
-        "tests/installer/run.sh::a_non_default_base_never_fills_the_shared_cache (planned for M5)",
-        "tests/installer/run.sh::an_engine_override_is_never_cached (planned for M5)",
-        "tests/installer/run.sh::a_newer_dev_catalogue_misses_the_cache (planned for M5)",
-        "tests/installer/run.sh::a_marketplace_clone_is_not_a_checkout (planned for M5)",
-        "tests/installer/run.sh::a_failed_download_names_its_urls (planned for M5)",
+        "crates/xtask/tests/docs.rs::every_image_has_its_prompt_and_spend_row",
+        "tests/installer/run.sh::every_resolver_output_validates",
+        "tests/installer/run.sh::a_missing_tag_builds_nothing",
+        "tests/installer/run.sh::detach_gets_its_own_session",
+        "tests/installer/run.sh::a_non_default_base_never_fills_the_shared_cache",
+        "tests/installer/run.sh::an_engine_override_is_never_cached",
+        "tests/installer/run.sh::a_newer_dev_catalogue_misses_the_cache",
+        "tests/installer/run.sh::a_marketplace_clone_is_not_a_checkout",
+        "tests/installer/run.sh::a_failed_download_names_its_urls",
         "crates/planroom/tests/docs.rs::readme_installs_the_release",
         "crates/planroom/tests/docs.rs::remove_planroom_lists_every_location",
-        "crates/xtask/tests/gates.rs::a_dispatch_run_checks_state_only",
+        "crates/xtask/src/layout.rs::a_dispatch_run_checks_state_only",
         "tests/installer/run.sh::a_checkout_build_builds_the_canvas_first",
         "tests/installer/run.sh::a_build_without_node_has_no_canvas",
         "tests/installer/run.sh::a_clone_build_is_cached_and_its_clone_removed",
         "tests/installer/run.sh::the_resolver_spells_no_code_or_reason_itself",
         "tests/installer/run.sh::resolver_outputs_are_one_document_with_their_size",
         "tests/installer/run.sh::a_swapped_cached_engine_is_refused"
-      ]
+      ],
+      "due": {
+        "cargo xtask release-dry-run": "M5",
+        "tests/plugin/validate.sh": "M5",
+        "tests/plugin/install.sh": "M5",
+        "crates/planroom/tests/release_pins.rs": "M1",
+        "crates/planroom/tests/docs.rs::links_resolve": "M5",
+        "crates/planroom/tests/docs.rs::prose_rules_hold": "M5",
+        "crates/planroom/tests/docs.rs::releasing_has_the_owner_checklist": "M5",
+        "tests/installer/run.sh::every_resolver_output_validates": "M5",
+        "tests/installer/run.sh::a_missing_tag_builds_nothing": "M5",
+        "tests/installer/run.sh::detach_gets_its_own_session": "M5",
+        "tests/installer/run.sh::a_non_default_base_never_fills_the_shared_cache": "M5",
+        "tests/installer/run.sh::an_engine_override_is_never_cached": "M5",
+        "tests/installer/run.sh::a_newer_dev_catalogue_misses_the_cache": "M1",
+        "tests/installer/run.sh::a_marketplace_clone_is_not_a_checkout": "M5",
+        "tests/installer/run.sh::a_failed_download_names_its_urls": "M5",
+        "crates/planroom/tests/docs.rs::readme_installs_the_release": "M5",
+        "crates/planroom/tests/docs.rs::remove_planroom_lists_every_location": "M5"
+      }
     },
     {
       "id": "S15",
@@ -1206,25 +1504,24 @@
         "crates/planroom/tests/s15_surface.rs::help_snapshot",
         "crates/planroom/tests/s15_surface.rs::skills_are_not_user_invocable",
         "packages/mod/src/room.test.ts::room_commands_snapshot",
-        "tests/e2e/surface.spec.ts::exactly_five_concepts",
-        "tests/e2e/surface.spec.ts::empty_state_audit",
-        "packages/mod/src/surfaces.test.tsx::no_blank_pane",
-        "crates/planroom/tests/first_run.rs::focus_outside_a_workspace_creates_nothing",
+        "tests/e2e/src/surface.spec.ts::exactly_five_concepts",
+        "tests/e2e/src/surface.spec.ts::empty_state_audit",
+        "packages/mod/src/layout.test.ts::no_blank_pane",
+        "crates/planroom/tests/focus.rs::focus_outside_a_workspace_is_an_empty_state_and_creates_nothing",
         "crates/planroom/tests/envelope_schema.rs::the_documented_error_table_is_the_error_codes",
         "crates/kernel/tests/undo.rs::every_edit_type_undoes",
         "crates/planroom/tests/catalogue.rs::undo_classes_snapshot",
         "cargo xtask check boundaries --self-test",
         "tests/plugin/surface_tokens.sh",
         "cargo xtask check layout",
-        "crates/xtask/tests/gates.rs::layout_gate_fails_without_a_record",
-        "crates/xtask/tests/gates.rs::a_missing_base_fails",
+        "crates/xtask/tests/gates.rs::a_changed_surface_fails_until_a_newer_record_ratifies_it",
+        "crates/xtask/tests/gates.rs::a_range_that_cant_be_resolved_fails",
         "crates/xtask/tests/gates.rs::a_bad_commit_already_pushed_fails_no_later_run",
         "crates/xtask/tests/gates.rs::the_first_lock_names_dr_79",
         "crates/xtask/tests/gates.rs::a_lock_naming_a_missing_record_fails",
         "crates/xtask/tests/gates.rs::a_duplicate_record_heading_fails",
-        "crates/xtask/tests/gates.rs::an_edited_area_row_needs_a_record",
-        "crates/xtask/tests/gates.rs::a_new_package_dependency_needs_a_record",
-        "crates/xtask/tests/gates.rs::a_dependency_version_bump_needs_none",
+        "crates/xtask/tests/gates.rs::an_edited_area_row_needs_a_record_and_its_formatting_does_not",
+        "crates/xtask/tests/gates.rs::a_dependency_version_bump_needs_none_and_a_new_dependency_needs_a_record",
         "crates/xtask/tests/gates.rs::ci_runs_only_xtask",
         "crates/xtask/tests/gates.rs::area_contracts_match_repo_layout",
         "crates/planroom/tests/envelope_schema.rs::breaking_change_guard",
@@ -1233,12 +1530,11 @@
         "crates/planroom/tests/s15_surface.rs::help_shows_five_ideas",
         "crates/xtask/tests/skips.rs::a_skip_fails_under_ci",
         "crates/xtask/tests/skips.rs::a_declared_skip_passes",
-        "crates/xtask/tests/gates.rs::a_dispatch_run_checks_state_only",
-        "crates/xtask/tests/gates.rs::a_tag_push_checks_state_only",
-        "crates/xtask/tests/gates.rs::a_worktree_change_is_pending_not_failed",
-        "crates/xtask/tests/gates.rs::gen_layout_lock_refuses_in_a_worktree",
+        "crates/xtask/src/layout.rs::a_dispatch_run_checks_state_only",
+        "crates/xtask/src/layout.rs::a_tag_push_checks_state_only",
+        "crates/xtask/tests/gates.rs::a_worktree_change_is_pending_not_failed_and_gen_layout_lock_refuses_there",
         "crates/xtask/tests/gates.rs::every_directory_has_a_purpose",
-        "crates/planroom/tests/envelope_schema.rs::golden_outputs_equal_engine_output",
+        "crates/planroom/tests/golden.rs::golden_outputs_equal_engine_output",
         "crates/planroom/tests/docs.rs::read_first_names_resolve",
         "crates/planroom/tests/docs.rs::an_amended_record_says_so_in_its_status",
         "crates/planroom/tests/usage.rs::a_bad_flag_or_value_with_json_is_one_invalid_argument_envelope",
@@ -1251,12 +1547,32 @@
         "crates/planroom/tests/budgets.rs::a_map_within_its_budget_is_whole_and_untruncated",
         "crates/planroom/tests/budgets.rs::the_canvas_graph_over_serve_takes_every_block",
         "crates/planroom/tests/empty_states.rs::every_map_level_has_blocks_or_an_empty_state_whose_next_action_works",
-        "tests/e2e/surface.spec.ts::a_level_with_no_blocks_draws_an_empty_state_with_a_way_back",
+        "tests/e2e/src/surface.spec.ts::a_level_with_no_blocks_draws_an_empty_state_with_a_way_back",
         "crates/planroom/tests/budgets.rs::every_built_leafs_reply_on_the_fixture_keeps_to_its_budget",
         "crates/planroom/tests/budgets.rs::a_scan_past_the_file_bound_keeps_its_reply_to_its_budget",
-        "tests/e2e/surface.spec.ts::the_lens_switcher_and_the_project_shelf_offer_only_what_works",
-        "tests/e2e/surface.spec.ts::the_lens_switcher_and_the_project_shelf_offer_only_what_works_on_the_phone"
-      ]
+        "tests/e2e/src/surface.spec.ts::the_lens_switcher_and_the_project_shelf_offer_only_what_works",
+        "tests/e2e/src/surface.spec.ts::the_lens_switcher_and_the_project_shelf_offer_only_what_works_on_the_phone"
+      ],
+      "due": {
+        "crates/planroom/tests/s15_surface.rs::one_binary_one_family": "M1",
+        "crates/planroom/tests/s15_surface.rs::help_snapshot": "M1",
+        "crates/planroom/tests/s15_surface.rs::skills_are_not_user_invocable": "M1",
+        "packages/mod/src/room.test.ts::room_commands_snapshot": "M1",
+        "tests/e2e/src/surface.spec.ts::empty_state_audit": "M1",
+        "crates/planroom/tests/envelope_schema.rs::the_documented_error_table_is_the_error_codes": "M1",
+        "crates/kernel/tests/undo.rs::every_edit_type_undoes": "M1",
+        "crates/planroom/tests/catalogue.rs::undo_classes_snapshot": "M1",
+        "tests/plugin/surface_tokens.sh": "M1",
+        "crates/xtask/tests/gates.rs::ci_runs_only_xtask": "M1",
+        "crates/xtask/tests/gates.rs::area_contracts_match_repo_layout": "M1",
+        "crates/planroom/tests/envelope_schema.rs::breaking_change_guard": "M1",
+        "crates/planroom/tests/catalogue.rs::every_leaf_has_a_budget_or_streams": "M1",
+        "packages/mod/src/tools.test.ts::a_wrong_argument_returns_the_leaf_synopsis": "M1",
+        "crates/planroom/tests/s15_surface.rs::help_shows_five_ideas": "M5",
+        "crates/xtask/tests/gates.rs::every_directory_has_a_purpose": "M1",
+        "crates/planroom/tests/docs.rs::read_first_names_resolve": "M1",
+        "crates/planroom/tests/docs.rs::an_amended_record_says_so_in_its_status": "M1"
+      }
     },
     {
       "id": "C1",
@@ -1304,9 +1620,9 @@
         "crates/planroom/tests/actor.rs::agent_cannot_import_an_event_export",
         "crates/planroom/tests/actor.rs::model_responses_only_for_pending_requests",
         "crates/planroom/tests/actor.rs::open_is_person_only_and_prints_no_code",
-        "crates/planroom/tests/actor.rs::a_read_outside_the_workspace_is_path_refused",
-        "crates/planroom/tests/actor.rs::a_credential_path_needs_a_person",
-        "crates/planroom/tests/actor.rs::workspace_flag_on_a_read_needs_an_existing_store",
+        "crates/planroom/tests/confine.rs::a_read_outside_the_workspace_is_path_refused",
+        "crates/planroom/tests/confine.rs::a_credential_path_needs_a_person",
+        "crates/planroom/tests/confine.rs::workspace_flag_on_a_read_needs_an_existing_store",
         "crates/planroom/tests/actor.rs::a_token_works_once_and_only_for_its_command",
         "crates/planroom/tests/actor.rs::repo_changing_commands_refuse_the_terminal_path",
         "crates/planroom/tests/actor.rs::children_never_inherit_the_token",
@@ -1330,6 +1646,33 @@
         "packages/mod/plugin-tests/guard.test.tsx::security-r2-2: recursive reads of a guarded place's parent are denied; plain rg passes",
         "tests/installer/run.sh::a_swapped_cached_engine_is_refused"
       ],
+      "due": {
+        "crates/planroom/tests/actor.rs::an_unnamed_write_with_no_terminal_is_actor_required": "M1",
+        "crates/planroom/tests/actor.rs::a_pty_without_confirmation_is_no_person": "M1",
+        "crates/planroom/tests/actor.rs::reads_need_no_actor": "M1",
+        "crates/planroom/tests/actor.rs::person_claim_without_key_is_refused": "M1",
+        "crates/planroom/tests/actor.rs::tool_handlers_never_send_a_person": "M1",
+        "packages/mod/src/guard.test.ts::person_key_is_guarded": "M1",
+        "crates/planroom/tests/actor.rs::agent_cannot_import_inbox_rows": "M1",
+        "crates/planroom/tests/actor.rs::agent_cannot_import_an_event_export": "M1",
+        "crates/planroom/tests/actor.rs::model_responses_only_for_pending_requests": "M2",
+        "crates/planroom/tests/actor.rs::open_is_person_only_and_prints_no_code": "M1",
+        "crates/planroom/tests/confine.rs::a_read_outside_the_workspace_is_path_refused": "M1",
+        "crates/planroom/tests/confine.rs::a_credential_path_needs_a_person": "M1",
+        "crates/planroom/tests/confine.rs::workspace_flag_on_a_read_needs_an_existing_store": "M1",
+        "crates/planroom/tests/actor.rs::a_token_works_once_and_only_for_its_command": "M1",
+        "crates/planroom/tests/actor.rs::repo_changing_commands_refuse_the_terminal_path": "M1",
+        "crates/planroom/tests/actor.rs::children_never_inherit_the_token": "M1",
+        "packages/mod/src/guard.test.ts::agents_cannot_choose_the_engine": "M1",
+        "crates/planroom/tests/actor.rs::a_mismatched_key_returns_person_key_mismatch": "M1",
+        "crates/planroom/tests/actor.rs::rekey_needs_the_old_key_or_a_press": "M1",
+        "crates/planroom/tests/actor.rs::rekey_and_open_refuse_the_terminal_path": "M1",
+        "crates/planroom/tests/actor.rs::open_takes_the_terminal_path_only_with_no_mod_key": "M1",
+        "crates/planroom/tests/actor.rs::a_leaked_store_cannot_sign_a_person_action": "M1",
+        "packages/mod/src/guard.test.ts::the_user_config_is_guarded": "M1",
+        "packages/mod/src/guard.test.ts::an_agent_push_of_planroom_refs_is_denied": "M1",
+        "crates/planroom/tests/server_auth.rs::the_opener_gets_a_fixed_path": "M1"
+      },
       "decision": "DR-4, DR-52, DR-64, DR-72, DR-75, DR-85, DR-86"
     },
     {
@@ -1368,6 +1711,13 @@
         "crates/models/tests/session_backend.rs::a_rewritten_request_file_is_refused",
         "packages/mod/src/broker.test.ts::a_changed_request_file_is_not_sent"
       ],
+      "due": {
+        "crates/models/tests/session_backend.rs::request_import_and_reuse": "M2",
+        "packages/mod/src/broker.test.ts::fulfils_with_cache_marks_in_prompt": "M2",
+        "packages/mod/src/broker.test.ts::fulfilled_request_reruns_its_handle": "M2",
+        "crates/models/tests/session_backend.rs::a_rewritten_request_file_is_refused": "M2",
+        "packages/mod/src/broker.test.ts::a_changed_request_file_is_not_sent": "M2"
+      },
       "decision": "DR-18, DR-75"
     },
     {
@@ -1398,6 +1748,9 @@
       "tests": [
         "packages/mod/src/guard.test.ts::edit_on_touch_set_asks"
       ],
+      "due": {
+        "packages/mod/src/guard.test.ts::edit_on_touch_set_asks": "M2"
+      },
       "decision": "DR-26"
     },
     {
@@ -1445,6 +1798,19 @@
         "crates/planroom/tests/handoff_preflight.rs::a_retry_joins_a_running_merge_duty",
         "crates/planroom/tests/handoff_clone.rs::the_implementer_cannot_move_the_real_repos_refs"
       ],
+      "due": {
+        "crates/planroom/tests/handoff_preflight.rs::a_conflict_in_the_second_repo_leaves_both_untouched": "M2",
+        "crates/planroom/tests/handoff_preflight.rs::a_crash_between_repos_resumes_on_retry": "M2",
+        "crates/planroom/tests/handoff_preflight.rs::a_revert_undoes_the_merge_in_every_repo": "M2",
+        "crates/planroom/tests/handoff_preflight.rs::a_revert_preflight_failure_leaves_every_repo_merged": "M2",
+        "crates/planroom/tests/handoff_preflight.rs::a_crash_mid_revert_resumes_on_retry": "M2",
+        "crates/planroom/tests/handoff_preflight.rs::cancel_archives_the_branch": "M2",
+        "crates/planroom/tests/actor.rs::agent_revert_is_person_required": "M2",
+        "crates/planroom/tests/handoff_preflight.rs::a_commit_after_preflight_aborts_cleanly": "M2",
+        "crates/planroom/tests/handoff_preflight.rs::a_retry_with_the_same_key_resumes_mid_merge": "M2",
+        "crates/planroom/tests/handoff_preflight.rs::a_retry_joins_a_running_merge_duty": "M2",
+        "crates/planroom/tests/handoff_clone.rs::the_implementer_cannot_move_the_real_repos_refs": "M2"
+      },
       "decision": "DR-25, DR-55, DR-64"
     },
     {
@@ -1477,6 +1843,10 @@
         "crates/kernel/tests/questions.rs::fires_if_lists_direct_and_indirect_alerts",
         "crates/kernel/tests/questions.rs::bump_breaks_lists_consumers"
       ],
+      "due": {
+        "crates/kernel/tests/questions.rs::fires_if_lists_direct_and_indirect_alerts": "M3",
+        "crates/kernel/tests/questions.rs::bump_breaks_lists_consumers": "M3"
+      },
       "decision": "DR-15"
     },
     {
@@ -1507,6 +1877,9 @@
       "tests": [
         "crates/planroom/tests/packs.rs::doctor_pack_passes_on_every_pack"
       ],
+      "due": {
+        "crates/planroom/tests/packs.rs::doctor_pack_passes_on_every_pack": "M1"
+      },
       "decision": "DR-10"
     },
     {
@@ -1535,8 +1908,11 @@
         ]
       },
       "tests": [
-        "tests/e2e/same-output.spec.ts::cli_pane_and_canvas_say_the_same_thing"
+        "tests/e2e/src/same-output.spec.ts::cli_pane_and_canvas_say_the_same_thing"
       ],
+      "due": {
+        "tests/e2e/src/same-output.spec.ts::cli_pane_and_canvas_say_the_same_thing": "M1"
+      },
       "decision": "DR-21"
     },
     {
@@ -1566,8 +1942,13 @@
       },
       "tests": [
         "crates/models/tests/redact.rs::poison_values_never_recorded",
-        "crates/planroom/tests/privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output"
+        "crates/planroom/tests/privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output",
+        "crates/contract/tests/schema.rs::every_redacted_field_is_listed"
       ],
+      "due": {
+        "crates/models/tests/redact.rs::poison_values_never_recorded": "M1",
+        "crates/planroom/tests/privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output": "M1"
+      },
       "decision": "security table"
     },
     {
@@ -1602,6 +1983,10 @@
         "crates/planroom/tests/server_auth.rs::serve_drains_for_newer_engine",
         "crates/planroom/tests/server_auth.rs::serve_drains_for_another_catalogue"
       ],
+      "due": {
+        "crates/planroom/tests/server_auth.rs::serve_drains_for_newer_engine": "M1",
+        "crates/planroom/tests/server_auth.rs::serve_drains_for_another_catalogue": "M1"
+      },
       "decision": "DR-1, DR-58"
     },
     {
@@ -1637,11 +2022,22 @@
         "crates/planroom/tests/trust.rs::a_committed_planroom_config_is_not_loaded",
         "crates/planroom/tests/trust.rs::credential_settings_come_only_from_user_config",
         "crates/planroom/tests/trust.rs::api_key_env_outside_the_allow_list_is_refused",
-        "crates/planroom/tests/trust.rs::credentials_go_only_to_allow_listed_hosts",
+        "crates/models/tests/hosts.rs::credentials_go_only_to_allow_listed_hosts",
         "crates/planroom/tests/trust.rs::an_out_of_tree_pack_loads_without_a_card",
         "crates/planroom/tests/trust.rs::an_out_of_tree_pack_cannot_enable_its_own_auto_action",
-        "crates/planroom/tests/trust.rs::planroom_packs_loads_nothing_outside_doctor"
+        "crates/planroom/tests/trust.rs::planroom_packs_loads_nothing_outside_doctor",
+        "crates/planroom/tests/trust.rs::accepting_the_trust_card_loads_the_config"
       ],
+      "due": {
+        "crates/planroom/tests/trust.rs::a_committed_planroom_config_is_not_loaded": "M1",
+        "crates/planroom/tests/trust.rs::credential_settings_come_only_from_user_config": "M1",
+        "crates/planroom/tests/trust.rs::api_key_env_outside_the_allow_list_is_refused": "M1",
+        "crates/models/tests/hosts.rs::credentials_go_only_to_allow_listed_hosts": "M1",
+        "crates/planroom/tests/trust.rs::an_out_of_tree_pack_loads_without_a_card": "M1",
+        "crates/planroom/tests/trust.rs::an_out_of_tree_pack_cannot_enable_its_own_auto_action": "M2",
+        "crates/planroom/tests/trust.rs::planroom_packs_loads_nothing_outside_doctor": "M1",
+        "crates/planroom/tests/trust.rs::accepting_the_trust_card_loads_the_config": "M1"
+      },
       "decision": "DR-48"
     },
     {
@@ -1681,6 +2077,15 @@
         "crates/planroom/tests/privacy.rs::pending_consents_batch_into_one_card",
         "crates/planroom/tests/privacy.rs::the_setup_choice_preselects_yes_on_consent"
       ],
+      "due": {
+        "crates/planroom/tests/live_gate.rs::the_proxy_alone_makes_no_model_request": "M1",
+        "crates/planroom/tests/privacy.rs::the_first_billable_call_waits_for_consent": "M2",
+        "crates/planroom/tests/privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output": "M1",
+        "packages/mod/src/tools.test.ts::handles_round_trip_after_redaction": "M1",
+        "crates/planroom/tests/privacy.rs::raw_never_reaches_share_or_model_requests": "M2",
+        "crates/planroom/tests/privacy.rs::pending_consents_batch_into_one_card": "M2",
+        "crates/planroom/tests/privacy.rs::the_setup_choice_preselects_yes_on_consent": "M2"
+      },
       "decision": "DR-49, DR-64, DR-75"
     },
     {
@@ -1728,6 +2133,21 @@
         "crates/kernel/tests/policy.rs::a_kind_version_bump_keeps_person_overrides",
         "crates/kernel/tests/policy.rs::an_infer_rerun_keeps_hand_edited_parts"
       ],
+      "due": {
+        "crates/planroom/tests/first_run.rs::first_scan_deals_at_most_three_cards": "M2",
+        "crates/planroom/tests/first_run.rs::a_large_repo_first_scan_deals_at_most_three_cards": "M2",
+        "crates/kernel/tests/policy.rs::low_stakes_prefill_and_person_stakes_card": "M2",
+        "crates/kernel/tests/policy.rs::a_budget_past_the_cap_keeps_the_default": "M2",
+        "crates/kernel/tests/policy.rs::a_prefill_never_retracts": "M2",
+        "crates/kernel/tests/policy.rs::person_stakes_escalate_only_lazily": "M2",
+        "crates/kernel/tests/policy.rs::a_confident_person_card_never_asks_claude": "M2",
+        "crates/kernel/tests/policy.rs::focus_never_spends": "M2",
+        "crates/kernel/tests/policy.rs::batch_accept_is_bounded_by_base": "M2",
+        "crates/planroom/tests/first_run.rs::the_setup_choice_is_per_user": "M2",
+        "crates/kernel/tests/policy.rs::a_prefill_never_overwrites_a_person_field": "M2",
+        "crates/kernel/tests/policy.rs::a_kind_version_bump_keeps_person_overrides": "M2",
+        "crates/kernel/tests/policy.rs::an_infer_rerun_keeps_hand_edited_parts": "M2"
+      },
       "decision": "DR-50, DR-73"
     },
     {
@@ -1779,8 +2199,30 @@
         "crates/planroom/tests/budgets.rs::a_prefix_that_never_caches_fails",
         "crates/planroom/tests/text.rs::card_costs_match_the_estimator",
         "crates/planroom/tests/live_gate.rs::a_warm_prefix_is_refused_before_any_call",
-        "crates/planroom/tests/docs.rs::the_spend_log_starts_with_phase_1"
+        "crates/planroom/tests/docs.rs::the_spend_log_starts_with_phase_1",
+        "crates/planroom/tests/live_gate.rs::the_cap_keeps_a_25_cent_margin",
+        "crates/planroom/tests/live_gate.rs::a_live_flag_without_a_spend_log_is_refused",
+        "crates/planroom/tests/live_gate.rs::intent_next_without_a_record_flag_is_budget_exceeded"
       ],
+      "due": {
+        "crates/store/tests/ledger.rs::the_daily_cap_spans_workspaces": "M2",
+        "crates/planroom/tests/live_gate.rs::the_spend_log_stops_live_calls_at_the_cap": "M1",
+        "tests/plugin/surface_tokens.sh": "M1",
+        "packages/mod/src/agents.test.ts::curator_spawns_only_after_the_card": "M5",
+        "packages/mod/src/agents.test.ts::agent_usage_goes_to_the_ledger": "M2",
+        "crates/planroom/tests/live_gate.rs::the_spend_log_is_shared_across_worktrees_and_cwds": "M1",
+        "crates/planroom/tests/live_gate.rs::concurrent_live_calls_serialize_on_the_spend_log": "M2",
+        "crates/planroom/tests/live_gate.rs::a_relative_spend_log_is_refused": "M1",
+        "crates/store/tests/ledger.rs::session_and_agent_usage_is_reported_not_gated": "M2",
+        "packages/mod/src/agents.test.ts::a_spawn_is_never_refused_by_a_cap": "M2",
+        "crates/planroom/tests/budgets.rs::a_prefix_that_never_caches_fails": "M2",
+        "crates/planroom/tests/text.rs::card_costs_match_the_estimator": "M2",
+        "crates/planroom/tests/live_gate.rs::a_warm_prefix_is_refused_before_any_call": "M2",
+        "crates/planroom/tests/docs.rs::the_spend_log_starts_with_phase_1": "M5",
+        "crates/planroom/tests/live_gate.rs::the_cap_keeps_a_25_cent_margin": "M1",
+        "crates/planroom/tests/live_gate.rs::a_live_flag_without_a_spend_log_is_refused": "M1",
+        "crates/planroom/tests/live_gate.rs::intent_next_without_a_record_flag_is_budget_exceeded": "M1"
+      },
       "decision": "DR-51, DR-65"
     },
     {
@@ -1835,10 +2277,9 @@
         "crates/planroom/tests/backup.rs::a_replayed_edit_conflicts_with_a_post_restore_edit",
         "crates/planroom/tests/backup.rs::a_restore_keeps_done_classes",
         "crates/store/tests/migrations.rs::an_older_writer_refuses_after_a_concurrent_migration",
-        "crates/store/tests/fs_check.rs::a_single_repo_keeps_its_state_in_the_git_dir",
-        "crates/planroom/tests/first_run.rs::a_single_repo_workspace_keeps_its_state_in_the_git_dir",
+        "crates/planroom/tests/state_dir.rs::a_single_repo_workspace_keeps_its_state_in_the_git_dir",
         "crates/planroom/tests/backup.rs::the_backup_ref_is_redacted",
-        "crates/planroom/tests/privacy.rs::no_envelope_suggests_pushing_the_backup",
+        "crates/planroom/tests/backup.rs::no_envelope_suggests_pushing_the_backup",
         "crates/store/tests/migrations.rs::an_older_watch_exits_after_a_migration",
         "crates/store/tests/ledger.rs::an_older_engine_reads_a_newer_ledger",
         "crates/store/tests/ledger.rs::a_ledger_migration_keeps_a_copy",
@@ -1847,6 +2288,30 @@
         "crates/planroom/tests/workspaces.rs::an_engine_older_than_the_file_refuses_it_and_leaves_it_as_it_was",
         "crates/planroom/tests/workspaces.rs::a_file_from_before_min_reader_version_loads_and_gains_it"
       ],
+      "due": {
+        "crates/planroom/tests/backup.rs::a_lost_state_directory_then_scan_offers_one_restore_card": "M1",
+        "crates/planroom/tests/backup.rs::a_failed_migration_rolls_back": "M1",
+        "crates/planroom/tests/backup.rs::an_older_engine_says_restart_once": "M1",
+        "crates/planroom/tests/backup.rs::doctor_restore_is_person_only": "M1",
+        "crates/planroom/tests/backup.rs::doctor_warns_when_the_backup_is_behind": "M1",
+        "crates/planroom/tests/backup.rs::a_burst_of_three_edits_is_fully_backed_up": "M1",
+        "crates/planroom/tests/backup.rs::concurrent_appenders_keep_order": "M1",
+        "crates/planroom/tests/backup.rs::a_later_process_catches_up_a_gap": "M1",
+        "crates/planroom/tests/backup.rs::a_temporary_host_writes_the_backup_ref": "M1",
+        "crates/planroom/tests/backup.rs::scan_restores_from_the_backup_ref": "M1",
+        "crates/planroom/tests/backup.rs::a_restore_is_undone_by_its_pre_restore_copy": "M1",
+        "crates/planroom/tests/backup.rs::restore_then_upgrade_replays_set_aside_edits": "M1",
+        "crates/planroom/tests/backup.rs::git_clean_leaves_a_single_repos_state_alone": "M1",
+        "crates/planroom/tests/backup.rs::a_replayed_edit_conflicts_with_a_post_restore_edit": "M1",
+        "crates/planroom/tests/backup.rs::a_restore_keeps_done_classes": "M2",
+        "crates/store/tests/migrations.rs::an_older_writer_refuses_after_a_concurrent_migration": "M1",
+        "crates/planroom/tests/state_dir.rs::a_single_repo_workspace_keeps_its_state_in_the_git_dir": "M1",
+        "crates/planroom/tests/backup.rs::the_backup_ref_is_redacted": "M1",
+        "crates/planroom/tests/backup.rs::no_envelope_suggests_pushing_the_backup": "M1",
+        "crates/store/tests/migrations.rs::an_older_watch_exits_after_a_migration": "M1",
+        "crates/store/tests/ledger.rs::an_older_engine_reads_a_newer_ledger": "M1",
+        "crates/store/tests/ledger.rs::a_ledger_migration_keeps_a_copy": "M1"
+      },
       "decision": "DR-53, DR-73, DR-74, DR-75, DR-78, DR-85"
     },
     {
@@ -1880,19 +2345,26 @@
         ]
       },
       "tests": [
-        "crates/planroom/tests/server_auth.rs::a_request_without_the_token_is_refused",
-        "crates/planroom/tests/server_auth.rs::a_missing_origin_is_refused",
+        "crates/planroom/tests/server_auth.rs::requests_without_a_token_or_from_another_origin_or_host_are_refused",
         "crates/planroom/tests/server_auth.rs::an_expired_or_reused_code_is_refused",
         "crates/store/tests/fs_check.rs::store_files_are_0600_in_a_0700_directory",
         "crates/planroom/tests/server_auth.rs::the_code_is_never_in_an_argv",
-        "crates/planroom/tests/server_auth.rs::a_code_exchanged_twice_revokes_its_token",
-        "crates/planroom/tests/server_auth.rs::serve_port_moves_only_when_asked",
-        "tests/e2e/surface.spec.ts::reload_mid_edit_keeps_the_edit",
-        "tests/e2e/surface.spec.ts::serve_restart_keeps_pending_edits",
-        "crates/planroom/tests/first_run.rs::open_without_a_display_offers_share",
-        "crates/planroom/tests/server_auth.rs::a_taken_port_exits_with_port_in_use",
+        "crates/planroom/tests/server_auth.rs::a_login_code_works_once_and_a_second_try_revokes_its_token",
+        "crates/planroom/tests/server_auth.rs::serve_keeps_its_port_and_another_program_on_it_is_port_in_use",
+        "tests/e2e/src/surface.spec.ts::reload_mid_edit_keeps_the_edit",
+        "tests/e2e/src/surface.spec.ts::serve_restart_keeps_pending_edits",
+        "crates/planroom/tests/open.rs::open_without_a_display_offers_share",
         "crates/planroom/tests/server_auth.rs::two_workspaces_never_record_one_port"
       ],
+      "due": {
+        "crates/planroom/tests/server_auth.rs::an_expired_or_reused_code_is_refused": "M1",
+        "crates/store/tests/fs_check.rs::store_files_are_0600_in_a_0700_directory": "M1",
+        "crates/planroom/tests/server_auth.rs::the_code_is_never_in_an_argv": "M1",
+        "tests/e2e/src/surface.spec.ts::reload_mid_edit_keeps_the_edit": "M1",
+        "tests/e2e/src/surface.spec.ts::serve_restart_keeps_pending_edits": "M1",
+        "crates/planroom/tests/open.rs::open_without_a_display_offers_share": "M1",
+        "crates/planroom/tests/server_auth.rs::two_workspaces_never_record_one_port": "M1"
+      },
       "decision": "DR-29, DR-64, DR-78"
     },
     {
@@ -1927,8 +2399,19 @@
         "cargo xtask check boundaries --self-test",
         "crates/xtask/tests/gates.rs::budgets_raise_needs_a_record",
         "crates/xtask/tests/gates.rs::feature_list_is_complete",
-        "crates/planroom/tests/release_pins.rs::dependabot_cooldown_matches_the_pin_age"
+        "crates/planroom/tests/release_pins.rs::dependabot_cooldown_matches_the_pin_age",
+        "crates/xtask/tests/gates.rs::a_new_budgets_key_is_not_a_raise",
+        "crates/xtask/tests/gates.rs::a_listed_test_that_resolves_carries_no_due",
+        "crates/xtask/tests/gates.rs::a_passing_entry_has_no_due",
+        "crates/xtask/tests/gates.rs::a_feature_test_that_needs_a_live_flag_fails",
+        "crates/xtask/tests/gates.rs::a_listed_test_resolves_only_where_ci_runs_it",
+        "crates/xtask/tests/gates.rs::a_mistyped_filter_fails"
       ],
+      "due": {
+        "crates/xtask/tests/gates.rs::budgets_raise_needs_a_record": "M1",
+        "crates/planroom/tests/release_pins.rs::dependabot_cooldown_matches_the_pin_age": "M1",
+        "crates/xtask/tests/gates.rs::a_new_budgets_key_is_not_a_raise": "M1"
+      },
       "decision": "DR-59, DR-70"
     },
     {
@@ -1981,6 +2464,15 @@
         "crates/planroom/tests/git_hardening.rs::a_scan_of_a_partial_clone_never_fetches_and_reports_the_missing_blobs",
         "crates/planroom/tests/git_hardening.rs::a_partial_clone_that_gains_blobs_maps_them_at_the_same_commit"
       ],
+      "due": {
+        "crates/planroom/tests/git_hardening.rs::textconv_ext_diff_and_drivers_never_fire": "M2",
+        "crates/planroom/tests/git_hardening.rs::a_repo_whose_config_names_a_command_is_refused_before_merge": "M2",
+        "packages/ui/src/display.test.ts::display_parity": "M1",
+        "crates/planroom/tests/handoff_clone.rs::a_hidden_character_hunk_warns": "M2",
+        "crates/planroom/tests/handoff_clone.rs::an_out_of_scope_change_is_flagged": "M2",
+        "crates/planroom/tests/git_hardening.rs::a_repo_another_user_owns_is_refused": "M1",
+        "crates/planroom/tests/git_hardening.rs::an_old_git_gets_git_too_old": "M1"
+      },
       "decision": "DR-64, DR-75, DR-78, DR-85, DR-86"
     }
   ]

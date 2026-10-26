@@ -43,6 +43,7 @@ const GENERATORS: &[Generator] = &[
     area_contracts,
     modgen::bundle,
     plugin_version,
+    redact_fields,
 ];
 
 /// Every generated file, grouped by drift check.
@@ -308,6 +309,37 @@ fn plugin_version(root: &Path) -> Result<Group, String> {
         name: "plugin/.claude-plugin/plugin.json version",
         files: vec![plugin::stamped_manifest(root)?],
     })
+}
+
+pub const REDACT_FIELDS_RS: &str = "crates/kernel/src/redact_fields.rs";
+
+/// `crates/kernel/src/redact_fields.rs`: the paths to every field the contract marks `x-redact`,
+/// from each output type that holds one, so `kernel::redact` masks exactly those (DR-89). The
+/// kernel can't include a file from outside its crate, so the list is written inside it.
+fn redact_fields(_: &Path) -> Result<Group, String> {
+    let mark = schema::REDACT_MARK;
+    let mut contents = format!(
+        "// {GENERATED_HEADER}
+// Source: the `{mark}` marks of the output schema view (`planroom_contract::schema::redacted_paths`).
+
+//! The fields `kernel::redact` masks: for each output type that holds a field the contract marks
+//! `#[schemars(extend(\"{mark}\" = true))]`, the paths from it to each marked field (DR-89).
+
+/// Each output type, by name, with the paths to its marked fields, both sorted: property names
+/// joined by `.`, with `[]` for an array's items and `{{}}` for a map's values.
+#[rustfmt::skip]
+pub const PATHS: &[(&str, &[&str])] = &[
+"
+    );
+    for (name, paths) in schema::redacted_paths() {
+        contents.push_str(&format!("    ({name:?}, &[\n"));
+        for path in paths {
+            contents.push_str(&format!("        {path:?},\n"));
+        }
+        contents.push_str("    ]),\n");
+    }
+    contents.push_str("];\n");
+    Ok(Group { name: REDACT_FIELDS_RS, files: vec![Generated { path: REDACT_FIELDS_RS.into(), contents }] })
 }
 
 /// `plugin/scripts/engine.env`: the engine version the resolver fetches, the catalogue hash a checkout

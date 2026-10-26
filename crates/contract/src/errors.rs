@@ -128,6 +128,37 @@ error_codes! {
         ["found", "supported", "writer_version", "file"];
     PackInvalid = "pack_invalid", Failed, Never, "a pack failed validation", ["file", "line", "reference"];
     GitFailed = "git_failed", Failed, Never, "git exited non-zero; stderr redacted", ["argv", "stderr"];
+    BaseRequired = "base_required", Usage, Never,
+        "a write to user-authored state without base; the hint names meta.seq", [];
+    ActorRequired = "actor_required", Usage, Never,
+        "a write with no PLANROOM_ACTOR, no person token and no terminal; the hint shows PLANROOM_ACTOR=agent:<id>:<role>",
+        [];
+    StaleWrite = "stale_write", Conflict, AfterReread,
+        "a field changed since base; stored as a conflict, never merged",
+        ["event", "base", "theirs", "yours", "card"];
+    AlreadyResolved = "already_resolved", Conflict, Never, "the card was already picked", ["by", "at", "pick"];
+    HandoffConflict = "handoff_conflict", Conflict, Never,
+        "the merge preflight failed; every repo untouched", ["repo", "files"];
+    ConsentRequired = "consent_required", Permission, Never,
+        "a model-only command before the person allowed this provider for the workspace; only the person's pick on the consent card clears it",
+        ["provider", "card"];
+    PathRefused = "path_refused", Permission, Never,
+        "a read named a path outside the workspace's repos and scanned files, a non-person named a credential path, or a repo's git directory belongs to another user",
+        ["path", "reason"];
+    RepoConfigRefused = "repo_config_refused", Permission, Never,
+        "a checkout or merge in a workspace repo whose local git config names a command git would run",
+        ["repo", "keys", "card"];
+    BudgetExceeded = "budget_exceeded", Budget, Later,
+        "a spend or size guard stopped a model-only command; decisions keep their default instead",
+        ["guard", "limit", "spent"];
+    ModelUnavailable = "model_unavailable", Unavailable, Later,
+        "a model-only command found Jev or Claude unreachable", ["provider"];
+    GitTooOld = "git_too_old", Unavailable, Never,
+        "the git on PATH is older than 2.34.1, the oldest whose plumbing the adapter uses", ["found", "minimum", "fix"];
+    PacksMismatch = "packs_mismatch", Unavailable, Never,
+        "this process resolved another pack set than the one the store records; a write is refused",
+        ["recorded", "resolved"];
+    ReplayMissing = "replay_missing", Unavailable, Never, "strict replay found no record", ["key", "path"];
     Internal = "internal", Internal, Never, "a bug", ["report"];
 }
 
@@ -164,8 +195,16 @@ impl JsonSchema for ErrorCode {
 /// keeps to its leaf's budget, so a warning never lists every path of a large repo.
 pub const WARNING_SAMPLE: usize = 10;
 
+/// A registered warning code, with its meaning and `details` fields.
+pub struct WarningSpec {
+    pub code: WarningCode,
+    pub meaning: &'static str,
+    /// The keys of the warning's `details` object.
+    pub details: &'static [&'static str],
+}
+
 macro_rules! warning_codes {
-    ($($variant:ident = $code:literal, $meaning:literal;)*) => {
+    ($($variant:ident = $code:literal, $meaning:literal, [$($detail:literal),*];)*) => {
         /// A stable warning code.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
         #[serde(rename_all = "snake_case")]
@@ -184,31 +223,80 @@ macro_rules! warning_codes {
                 }
             }
 
-            pub const fn meaning(self) -> &'static str {
+            /// The code's registry entry.
+            pub const fn spec(self) -> &'static WarningSpec {
                 match self {
-                    $(WarningCode::$variant => $meaning,)*
+                    $(WarningCode::$variant => &WarningSpec {
+                        code: WarningCode::$variant,
+                        meaning: $meaning,
+                        details: &[$($detail),*],
+                    },)*
                 }
+            }
+
+            pub const fn meaning(self) -> &'static str {
+                self.spec().meaning
             }
         }
     };
 }
 
 warning_codes! {
-    Truncated = "truncated", "the result hit its budget; the summary and first page are kept";
-    UnresolvedRef = "unresolved_ref", "an alias or a linker join had zero or several candidates; no edge was made";
-    EvidenceDropped = "evidence_dropped", "an evidence item failed verification at ingest";
+    Truncated = "truncated", "the result hit its budget; the summary and first page are kept",
+        ["kept", "total", "budget_tokens", "next", "left_out", "codes"];
+    UnresolvedRef = "unresolved_ref", "an alias or a linker join had zero or several candidates; no edge was made", [];
+    EvidenceDropped = "evidence_dropped", "an evidence item failed verification at ingest", ["repo", "count", "items"];
     PartialParse = "partial_parse",
-        "files parsed with error nodes, so their facts are weak; details name the repo, the count and the first 10 paths in sorted order";
+        "files parsed with error nodes, so their facts are weak; details name the repo, the count and the first 10 paths in sorted order",
+        ["repo", "count", "paths"];
     PartialScan = "partial_scan",
-        "an extractor reached its file or byte bound, or a partial clone lacks some blobs; details name the extractor, the repo, the count of uncovered files and the first 10 in sorted order";
+        "an extractor reached its file or byte bound, or a partial clone lacks some blobs; details name the extractor, the repo, the count of uncovered files and the first 10 in sorted order",
+        ["extractor", "repo", "count", "uncovered"];
     WorkspaceNested = "workspace_nested",
-        "another workspace's .planroom/ sits inside this one, or this one inside it; details name the other root";
+        "another workspace's .planroom/ sits inside this one, or this one inside it; details name the other root",
+        ["other_root"];
     RepoUnborn = "repo_unborn",
-        "a repo has no commit yet, so it maps nothing until its first commit; details name the repo and its branch";
+        "a repo has no commit yet, so it maps nothing until its first commit; details name the repo and its branch",
+        ["repo", "branch"];
     RepoSkipped = "repo_skipped",
-        "git couldn't read a repo, so the scan left it out and its last map stays; details name the repo, the reason (other_owner or git_failed) and the fix";
+        "git couldn't read a repo, so the scan left it out and its last map stays; details name the repo, the reason (other_owner or git_failed) and the fix",
+        ["repo", "reason", "fix"];
     ScanSuperseded = "scan_superseded",
-        "a repo's HEAD moved on while the scan read it, or the workspace's repos changed and a newer scan mapped it meanwhile, so its map stays as it was and a scan never moves it back; details name the repo, the commit this scan read and the reason (head_moved or repos_changed)";
+        "a repo's HEAD moved on while the scan read it, or the workspace's repos changed and a newer scan mapped it meanwhile, so its map stays as it was and a scan never moves it back; details name the repo, the commit this scan read and the reason (head_moved or repos_changed)",
+        ["repo", "commit", "reason"];
+    Claimed = "claimed", "the target is claimed by someone else", ["by", "until"];
+    DeterministicFallback = "deterministic_fallback",
+        "no model was reachable, allowed or within budget; deterministic tiers run, low kinds keep their default and cards pre-select it",
+        [];
+    WorkspaceUntrusted = "workspace_untrusted",
+        "the workspace's .planroom/ is untrusted, so its config wasn't loaded; details name the trust card",
+        ["card"];
+    ConfigKeyIgnored = "config_key_ignored",
+        "a user-level key in a workspace's config, or api_key in a user-level config that isn't mode 0600",
+        ["file", "key"];
+    InferredUnconfirmed = "inferred_unconfirmed", "the result includes inferred facts no person confirmed", [];
+    CacheRegression = "cache_regression", "an unchanged Claude prefix wrote the cache again inside its TTL", [];
+    CacheNotApplied = "cache_not_applied",
+        "a marked Claude prefix reported no cache write and no cache read, so it is below the model's minimum", [];
+    HiddenCharacters = "hidden_characters",
+        "a diff hunk holds bidi controls or zero-width characters, which surfaces show as markers", ["path", "lines"];
+    OutsideTouchPoints = "outside_touch_points",
+        "a hand-off's diff changes files outside the components its spec's touch points name", ["files"];
+    ScanChangedUnderEdit = "scan_changed_under_edit", "a fact under a person's override changed; see Diffs", [];
+    StalePage = "stale_page",
+        "a page cursor's seq is behind, or its snapshot was pruned so the page folds at the current seq", [];
+    ModelRequestPending = "model_request_pending", "the session backend is waiting for the mod", [];
+    StoreMigrated = "store_migrated",
+        "this command migrated the store; details name the versions and the VACUUM INTO copy", ["from", "to", "backup"];
+    TemporaryHost = "temporary_host",
+        "this host loses its files with its container, so a redacted copy of the backup is also kept at a local ref",
+        ["repo", "ref"];
+    ReconcilePaused = "reconcile_paused",
+        "a repo's HEAD moved other than forward along its tracked branch, so the map follows it and the reconciler skipped it",
+        ["repo", "head", "tracked_branch", "reason"];
+    DutyFailed = "duty_failed",
+        "a background duty failed and hasn't succeeded since; details name the duty, when, and its log under the data root",
+        ["duty", "at", "log"];
 }
 
 impl JsonSchema for WarningCode {
@@ -237,6 +325,7 @@ mod tests {
     fn every_warning_code_serializes_as_its_registry_string() {
         for code in WarningCode::ALL {
             assert_eq!(serde_json::to_value(code).unwrap(), code.as_str());
+            assert_eq!(code.spec().code, *code);
         }
     }
 

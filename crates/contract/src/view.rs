@@ -43,6 +43,7 @@ pub struct MapNode {
     /// The kind's block color, which its pack declares; none draws as a plain card (DR-46).
     #[serde(default)]
     pub tone: Option<Tone>,
+    #[schemars(extend("x-redact" = true))]
     pub name: String,
     pub level: Level,
     pub parent: Option<NodeId>,
@@ -118,6 +119,7 @@ pub struct Focus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Crumb {
     pub id: NodeId,
+    #[schemars(extend("x-redact" = true))]
     pub name: String,
 }
 
@@ -145,13 +147,15 @@ pub struct Choice {
     pub preselected: bool,
 }
 
-/// How much a wrong pick costs; cards rank by stakes and staleness.
+/// How much a wrong pick costs, as a decision kind declares it; cards rank by stakes and
+/// staleness (DR-50).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Stakes {
+    /// A model's pick prefills, listed in one batch per kind.
     Low,
-    Medium,
-    High,
+    /// Only a person picks: the result deals a card.
+    Person,
 }
 
 /// The items one card applies together.
@@ -186,6 +190,7 @@ pub struct DiffLine {
     pub summary: String,
     pub open: Handle,
     /// Up to 5, for the first diff only.
+    #[schemars(extend("x-redact" = true))]
     pub hunk: Vec<String>,
 }
 
@@ -202,6 +207,7 @@ pub struct DriftLine {
 pub struct PresenceRow {
     pub actor: Actor,
     pub surface: Surface,
+    #[schemars(extend("x-redact" = true))]
     pub doing: Option<String>,
     pub focus: Option<NodeId>,
     pub seen_at: Timestamp,
@@ -219,6 +225,7 @@ pub struct MiniMap {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct MiniBlock {
     pub id: NodeId,
+    #[schemars(extend("x-redact" = true))]
     pub name: String,
     pub focused: bool,
 }

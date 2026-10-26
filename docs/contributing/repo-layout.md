@@ -273,6 +273,7 @@ A wholly generated directory has a `GENERATED.md` stub; a generated file in a ha
 | `plugin/scripts/contract.sh` | `cargo xtask gen` from `contract::ErrorCode` and `contract::resolver`; its contents are in [Contracts](contracts.md#the-resolvers-environment) [DR-69, DR-85] | yes | `cargo xtask gen` |
 | `.dependency-cruiser.cjs` | `cargo xtask gen` from `boundaries.toml` | yes | `cargo xtask gen` |
 | `crates/{kernel,contract,store,extract}/clippy.toml` | `cargo xtask gen` from `boundaries.toml`: `no_io` for the kernel and contract, `std::net` for store and extract [DR-79] | yes [DR-59] | `cargo xtask gen` |
+| `crates/kernel/src/redact_fields.rs` | `cargo xtask gen` from the `x-redact` marks of the output schema view: the paths `kernel::redact` masks ([Contracts](contracts.md#cli-json-envelope)) [DR-89] | yes | `cargo xtask gen` |
 | each area's contract block and Read first lines in its `AGENTS.md`, its marked region | `cargo xtask gen` from the two area tables on this page | yes [DR-59, DR-70] | `cargo xtask gen` |
 | `layout.lock` | `cargo xtask gen --layout-lock DR-n`, in the commit that adds the record (a branch's merge commit when a branch brought the change) | yes [DR-59] | a record and `gen --layout-lock` with it, in the same commit |
 | `docs/reference/cli.md` and `configuration.md`; the marked tables in `errors.md` and `packs.md` | `cargo xtask gen` | yes | `cargo xtask gen` |

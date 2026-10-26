@@ -5,7 +5,9 @@ use planroom_contract::{
     Command, CommandName, Envelope, ErrorCode, Level, MapView, Meta, ModelUse, SCHEMA_VERSION, Size,
     WarningCode,
 };
-use serde_json::{Value, json};
+use std::collections::BTreeMap;
+
+use serde_json::{Map, Value, json};
 
 /// A validator for one `$defs` entry of a view.
 fn validator_for(view: View, def: &str) -> jsonschema::Validator {
@@ -176,5 +178,95 @@ fn evidence_is_a_line_or_a_ref() {
         (serde_json::to_value(&reference).unwrap(), "Evidence"),
     ] {
         assert!(validator_for(View::Output, def).is_valid(&value), "{value}");
+    }
+}
+
+type Marks = BTreeMap<(String, String), Value>;
+
+/// Every `x-redact` mark in `view`, as `(type, field)`, with the marked property's schema; read
+/// from each type's own schema, so a mark is found whether or not any path reaches it. A `$ref`
+/// that is itself a branch of `oneOf`, `anyOf` or `allOf` is followed, since serde writes that
+/// type's fields into the same object, as an internally tagged enum's newtype variant does.
+fn redact_marks(view: View) -> Marks {
+    fn walk(defs: &Map<String, Value>, def: &str, schema: &Value, out: &mut Marks) {
+        let Some(schema) = schema.as_object() else { return };
+        for (field, property) in schema.get("properties").and_then(Value::as_object).into_iter().flatten() {
+            if property.get(schema::REDACT_MARK).is_some() {
+                assert_eq!(property[schema::REDACT_MARK], json!(true), "{def}.{field}");
+                out.insert((def.to_owned(), field.clone()), property.clone());
+            }
+            walk(defs, def, property, out);
+        }
+        for key in ["items", "additionalProperties"] {
+            if let Some(inner) = schema.get(key) {
+                walk(defs, def, inner, out);
+            }
+        }
+        for key in ["oneOf", "anyOf", "allOf", "prefixItems"] {
+            for inner in schema.get(key).and_then(Value::as_array).into_iter().flatten() {
+                let merged = key != "prefixItems";
+                let target =
+                    inner.get("$ref").and_then(Value::as_str).and_then(|r| r.strip_prefix("#/$defs/"));
+                if let Some(target) = target.filter(|_| merged).and_then(|name| defs.get(name)) {
+                    walk(defs, def, target, out);
+                }
+                walk(defs, def, inner, out);
+            }
+        }
+    }
+    let root = schema::generate(view);
+    let defs = root["$defs"].as_object().unwrap();
+    let mut out = BTreeMap::new();
+    for (def, schema) in defs {
+        walk(defs, def, schema, &mut out);
+    }
+    out
+}
+
+#[test]
+fn every_redacted_field_is_listed() {
+    let marks = redact_marks(View::Output);
+    let listed: Vec<(String, String)> = schema::redacted_paths()
+        .into_iter()
+        .flat_map(|(def, paths)| paths.into_iter().map(move |p| (def.clone(), p)))
+        .filter(|(_, path)| !path.contains(['.', '[', '{']))
+        .collect();
+    // Each type lists its own marked fields and nothing else, so every type that holds one,
+    // directly or through a field, has its paths in `crates/kernel/src/redact_fields.rs`, which
+    // `cargo xtask gen` writes from this list and `cargo xtask check` compares.
+    assert_eq!(listed, marks.keys().cloned().collect::<Vec<_>>());
+    // A mark on a type Planroom only reads would never reach an output.
+    for key in redact_marks(View::Input).keys() {
+        assert!(marks.contains_key(key), "{key:?} is marked but never emitted");
+    }
+    // An ID, a handle, a cursor or a hash is never marked.
+    for ((def, field), property) in &marks {
+        let id_like = field == "id"
+            || ["_id", "hash", "cursor", "handle", "handles", "idem", "next", "commit"]
+                .iter()
+                .any(|s| field.ends_with(s));
+        assert!(!id_like, "{def}.{field} names an ID, a handle, a cursor or a hash");
+        let text = property.to_string();
+        for def in ["NodeId", "EdgeId", "EventId", "Cursor", "Handle", "Kind", "Ref"] {
+            assert!(!text.contains(&format!("#/$defs/{def}\"")), "{text} holds a {def}");
+        }
+    }
+    // The repo-derived free text contracts.md names, and the names and lines the views show.
+    for (def, field) in [
+        ("Evidence", "contains"),
+        ("Hint", "value"),
+        ("Hint", "attrs"),
+        ("Node", "name"),
+        ("Node", "props"),
+        ("Edge", "props"),
+        ("MapNode", "name"),
+        ("Crumb", "name"),
+        ("MiniBlock", "name"),
+        ("DiffLine", "hunk"),
+        ("PresenceRow", "doing"),
+        ("AskItem", "name"),
+        ("FindItem", "name"),
+    ] {
+        assert!(marks.contains_key(&(def.to_owned(), field.to_owned())), "{def}.{field} is not marked");
     }
 }

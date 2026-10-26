@@ -84,7 +84,7 @@ This section is the conventions' only home; `docs/contributing/repo-layout.md` l
 - `tracing` to stderr, so `--json` stdout stays one document; `PLANROOM_LOG=info` by default.
 - `watch`, `serve` and duties also log to `DATA_ROOT/logs/<workspace_id>/<process>.log`, capped at 1 MiB with one rotation, because a detached process's stderr goes nowhere.
 - Never log prompts, slices, file contents, headers, the person key or a person token.
-- Mark every field that holds repo-derived free text `#[redact]`; `kernel::redact` masks it on every output path, logs included, and only the truth comparator opts out, with `PLANROOM_RAW=1`. Never redact an ID, a handle, a cursor or a hash.
+- Mark every field that holds repo-derived free text with `#[schemars(extend("x-redact" = true))]`. `cargo xtask gen` writes the marked paths into `crates/kernel/src/redact_fields.rs`, and `kernel::redact` masks exactly those fields on every output path, logs included. Only the truth comparator opts out, with `PLANROOM_RAW=1`. Never mark an ID, a handle, a cursor or a hash.
 - Pass every human-facing string through the display-sanitizing pass (`kernel::display::sanitize`, or its port in `@planroom/ui`), so control and bidi characters show as markers.
 
 ### Configuration

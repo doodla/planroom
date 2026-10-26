@@ -143,6 +143,7 @@ pub enum Evidence {
         /// The exact line, cut to 200 characters; omitted in a default Artifact snapshot.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[schemars(length(max = 200))]
+        #[schemars(extend("x-redact" = true))]
         contains: Option<String>,
         commit: Option<String>,
         branch: Option<String>,
@@ -168,10 +169,12 @@ pub struct Node {
     pub level: Level,
     /// `None` only at the top.
     pub parent: Option<NodeId>,
+    #[schemars(extend("x-redact" = true))]
     pub name: String,
     /// Such as `host:orders`, `service:orders`, `pkg:@acme/kit`.
     pub aliases: Vec<String>,
     /// Validated against the kind's prop schema.
+    #[schemars(extend("x-redact" = true))]
     pub props: BTreeMap<String, Value>,
     pub layer: Layer,
     pub provenance: Provenance,
@@ -190,6 +193,7 @@ pub struct Edge {
     pub via: Option<String>,
     /// A node whose evidence also counts for this edge, such as an endpoint.
     pub via_ref: Option<Ref>,
+    #[schemars(extend("x-redact" = true))]
     pub props: BTreeMap<String, Value>,
     pub evidence: Vec<Evidence>,
     /// 1.0 for deterministic tiers.
@@ -211,8 +215,10 @@ pub struct Hint {
     pub scope: NodeId,
     /// The join key: a host, an environment variable name, a path, a queue key.
     pub key: String,
+    #[schemars(extend("x-redact" = true))]
     pub value: Option<String>,
     /// Scheme, port, path, method, op, driver, default.
+    #[schemars(extend("x-redact" = true))]
     pub attrs: BTreeMap<String, Value>,
     pub evidence: Vec<Evidence>,
     /// Always `Extracted`.

@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::envelope::{CommandName, Handle};
+use crate::envelope::{CommandName, Cursor, Handle};
 use crate::errors::ErrorCode;
 use crate::model::{Level, NodeId, Seq};
 use crate::view::MapView;
@@ -411,7 +411,7 @@ pub enum Detail {
     Graph,
 }
 
-/// `planroom map [--level L] [--lens X] [--focus ID] [--detail summary|graph]`.
+/// `planroom map [--level L] [--lens X] [--focus ID] [--detail summary|graph] [--cursor C]`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct MapReq {
     /// The level to show; the top level when absent.
@@ -426,6 +426,10 @@ pub struct MapReq {
     #[arg(long, value_enum, default_value_t)]
     #[serde(default)]
     pub detail: Detail,
+    /// The cursor `meta.next` gave, to read the page after it.
+    #[arg(long)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<Cursor>,
 }
 
 /// `planroom focus [--session ID]`.

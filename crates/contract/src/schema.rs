@@ -1,11 +1,16 @@
 //! The two schema views of the one contract: what Planroom emits and what it accepts.
 
+use std::collections::BTreeSet;
+
 use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value, json};
 
 use crate::{
     Ack, Answer, ImportLine, ImportReq, ImportResult, InboxHead, InboxRow, LiveHead, ShareReq, ShareResult,
     Snapshot,
+};
+use crate::{
+    AskReq, AskResult, EditReq, FindReq, FindResult, IntentNextReq, LintReq, PackFile, ProposeReq, ReviewReq,
 };
 use crate::{
     CodeReq, Command, CommandList, Edge, Envelope, ErrorCode, ErrorObject, Event, Evidence, FactBatch,
@@ -113,6 +118,16 @@ pub fn generate(view: View) -> Value {
         PaneState,
         LastSeq,
         TurnSeq,
+        EditReq,
+        ReviewReq,
+        IntentNextReq,
+        ProposeReq,
+        LintReq,
+        AskReq,
+        AskResult,
+        FindReq,
+        FindResult,
+        PackFile,
     );
     let mut defs: Vec<(String, Value)> = generator.take_definitions(true).into_iter().collect();
     defs.sort_by(|a, b| a.0.cmp(&b.0));
@@ -128,6 +143,63 @@ pub fn generate(view: View) -> Value {
         "description": description,
         "$defs": defs.into_iter().collect::<Map<String, Value>>(),
     })
+}
+
+/// The mark on a field that holds repo-derived free text, `#[schemars(extend("x-redact" = true))]`:
+/// `kernel::redact` masks the secrets in it on every output path (DR-89). An ID, a handle, a
+/// cursor or a hash is never marked.
+pub const REDACT_MARK: &str = "x-redact";
+
+/// For each type of the output view that holds a marked field, by name, the paths from it to each
+/// marked field: property names joined by `.`, with `[]` for an array's items and `{}` for a map's
+/// values, such as `nodes[].name`. Both lists are sorted. `cargo xtask gen` writes them into
+/// `crates/kernel/src/redact_fields.rs`.
+pub fn redacted_paths() -> Vec<(String, Vec<String>)> {
+    let root = generate(View::Output);
+    let Some(defs) = root["$defs"].as_object() else { return vec![] };
+    let mut out = Vec::new();
+    for (name, def) in defs {
+        let mut paths = BTreeSet::new();
+        marked_paths(defs, def, "", &mut paths);
+        if !paths.is_empty() {
+            out.push((name.clone(), paths.into_iter().collect()));
+        }
+    }
+    out
+}
+
+/// Every path under `schema` to a marked property, each prefixed with `path`. The contract has no
+/// recursive type, so following each `$ref` ends.
+fn marked_paths(defs: &Map<String, Value>, schema: &Value, path: &str, out: &mut BTreeSet<String>) {
+    let Some(schema) = schema.as_object() else { return };
+    let target = schema.get("$ref").and_then(Value::as_str).and_then(|r| r.strip_prefix("#/$defs/"));
+    if let Some(def) = target.and_then(|name| defs.get(name)) {
+        marked_paths(defs, def, path, out);
+    }
+    if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
+        for (field, property) in properties {
+            let field_path = if path.is_empty() { field.clone() } else { format!("{path}.{field}") };
+            if property.get(REDACT_MARK) == Some(&Value::Bool(true)) {
+                out.insert(field_path);
+            } else {
+                marked_paths(defs, property, &field_path, out);
+            }
+        }
+    }
+    if let Some(items) = schema.get("items") {
+        marked_paths(defs, items, &format!("{path}[]"), out);
+    }
+    for item in schema.get("prefixItems").and_then(Value::as_array).into_iter().flatten() {
+        marked_paths(defs, item, &format!("{path}[]"), out);
+    }
+    if let Some(values) = schema.get("additionalProperties") {
+        marked_paths(defs, values, &format!("{path}{{}}"), out);
+    }
+    for key in ["oneOf", "anyOf", "allOf"] {
+        for branch in schema.get(key).and_then(Value::as_array).into_iter().flatten() {
+            marked_paths(defs, branch, path, out);
+        }
+    }
 }
 
 /// The view as the committed file's bytes.

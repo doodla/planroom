@@ -7,6 +7,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::card::Card;
 use crate::decision::DecisionRecord;
 use crate::model::{EdgeId, Layer, NodeId, Seq};
 use crate::open_set::{self, CODE_PATTERN};
@@ -105,7 +106,7 @@ pub enum Status {
 pub enum EventBody {
     /// The only event that changes the graph.
     Edit(Edit),
-    /// Accepts or rejects a ghost, a conflict or an inferred fact.
+    /// Accepts or rejects a ghost, a conflict, an inferred fact or a card.
     Review {
         of: EventId,
         verdict: Verdict,
@@ -131,9 +132,15 @@ pub enum EventBody {
         snapshot: u64,
         /// The workspace link snapshot of the active set this scan committed.
         link: u64,
+        /// The renames git reports since the repo's last snapshot, files and wholly moved
+        /// directories; the fold resolves a vanished edit target through them (DR-74).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        renames: Vec<Rename>,
         stats: ScanStats,
     },
     Handoff(HandoffStep),
+    /// A card a write dealt; open while no `review` names it (DR-89).
+    Card(Card),
     /// A kind a later version added: the raw body, `kind` included, kept as it was read. The fold
     /// skips it; a read-modify-write or an export writes it back unchanged.
     #[serde(untagged)]
@@ -194,6 +201,7 @@ pub enum EventKind {
     Claim,
     Scan,
     Handoff,
+    Card,
     /// A kind this version doesn't know.
     Unknown(String),
 }
@@ -209,6 +217,7 @@ impl EventKind {
         EventKind::Claim,
         EventKind::Scan,
         EventKind::Handoff,
+        EventKind::Card,
     ];
 
     /// The kind as it appears on the wire and in the store.
@@ -222,6 +231,7 @@ impl EventKind {
             EventKind::Claim => "claim",
             EventKind::Scan => "scan",
             EventKind::Handoff => "handoff",
+            EventKind::Card => "card",
             EventKind::Unknown(kind) => kind,
         }
     }
@@ -273,6 +283,7 @@ impl EventBody {
             EventBody::Claim { .. } => EventKind::Claim,
             EventBody::Scan { .. } => EventKind::Scan,
             EventBody::Handoff(_) => EventKind::Handoff,
+            EventBody::Card(_) => EventKind::Card,
             EventBody::Unknown(raw) => {
                 EventKind::parse(raw.get("kind").and_then(Value::as_str).unwrap_or_default())
             }
@@ -312,11 +323,18 @@ pub enum Target {
 }
 
 /// A review's outcome.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum Verdict {
     Accept,
     Reject,
+}
+
+/// A rename git reported between two snapshots of one repo: the old and the new ID.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Rename {
+    pub from: NodeId,
+    pub to: NodeId,
 }
 
 /// What one repo's scan found.
@@ -336,6 +354,7 @@ pub struct HandoffStep {
     pub key: String,
     pub from: HandoffState,
     pub to: HandoffState,
+    #[schemars(extend("x-redact" = true))]
     pub note: Option<String>,
 }
 

@@ -8,6 +8,14 @@
  */
 export type AckStatus = "imported" | "held" | "conflict" | "refused";
 /**
+ * A command name from the catalogue, its path joined with spaces.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "CommandName".
+ */
+export type CommandName =
+  ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve" | "share" | "import") | string;
+/**
  * Who did it.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
@@ -34,14 +42,6 @@ export type Actor =
       kind: "system";
     };
 /**
- * A command name from the catalogue, its path joined with spaces.
- *
- * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
- * via the `definition` "CommandName".
- */
-export type CommandName =
-  ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve" | "share" | "import") | string;
-/**
  * A stable error code. Older readers map an unknown code to its category.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
@@ -64,6 +64,19 @@ export type ErrorCode =
       | "schema_mismatch"
       | "pack_invalid"
       | "git_failed"
+      | "base_required"
+      | "actor_required"
+      | "stale_write"
+      | "already_resolved"
+      | "handoff_conflict"
+      | "consent_required"
+      | "path_refused"
+      | "repo_config_refused"
+      | "budget_exceeded"
+      | "model_unavailable"
+      | "git_too_old"
+      | "packs_mismatch"
+      | "replay_missing"
       | "internal"
     )
   | string;
@@ -83,12 +96,41 @@ export type Category =
  */
 export type Retry = "never" | "now" | "after_reread" | "later";
 /**
+ * A snake_case code naming why something is empty.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "EmptyReason".
+ */
+export type EmptyReason = string;
+/**
  * Which policy band a score fell in.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
  * via the `definition` "Band".
  */
 export type Band = "auto" | "card" | "escalate";
+/**
+ * How long Claude caches a prompt's prefix: 5 minutes, or an hour for person-paced purposes.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "CacheTtl".
+ */
+export type CacheTtl = "5m" | "1h";
+/**
+ * How much a wrong pick costs, as a decision kind declares it; cards rank by stakes and
+ * staleness (DR-50).
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Stakes".
+ */
+export type Stakes = "low" | "person";
+/**
+ * A card's kind; an open set.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "CardKind".
+ */
+export type CardKind = ("apply" | "trust" | "pack_source" | "restore") | string;
 /**
  * What an event follows from; a chat turn batches ghosts into one card.
  *
@@ -174,19 +216,19 @@ export type Command =
  */
 export type Level = "intent" | "system" | "container" | "component" | "code";
 /**
- * A node ID, `<namespace>:<kind-short>:<key>`, such as `orders:pkg:internal/http`.
- *
- * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
- * via the `definition` "NodeId".
- */
-export type NodeId = string;
-/**
  * An opaque page cursor over `(seq, last_id, filter hash)`.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
  * via the `definition` "Cursor".
  */
 export type Cursor = string;
+/**
+ * A node ID, `<namespace>:<kind-short>:<key>`, such as `orders:pkg:internal/http`.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "NodeId".
+ */
+export type NodeId = string;
 /**
  * A `db` write's operation.
  *
@@ -195,12 +237,87 @@ export type Cursor = string;
  */
 export type DbOp = "set" | "update" | "delete";
 /**
- * How much a wrong pick costs; cards rank by stakes and staleness.
+ * What a decision kind is about: a node or edge kind, or the subjects a kernel role's raiser
+ * supplies.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
- * via the `definition` "Stakes".
+ * via the `definition` "SubjectKind".
  */
-export type Stakes = "low" | "medium" | "high";
+export type SubjectKind =
+  | string
+  | {
+      role: Role;
+    };
+/**
+ * A kernel role a pack binds a decision kind to (DR-17, DR-63).
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Role".
+ */
+export type Role = "rescan.retarget" | "reconcile.residual" | "attach.target";
+/**
+ * The question a model answers, by its type.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Question".
+ */
+export type Question =
+  | {
+      instructions: string;
+      criteria?: BoolCriteria | null;
+      type: "boolean";
+    }
+  | {
+      instructions: string;
+      /**
+       * Static options, ID to label, in the order the pack lists them; empty when
+       * `options_from` is set.
+       */
+      options?: {
+        [k: string]: string;
+      };
+      options_from?: OptionsFrom | null;
+      /**
+       * Static options only; with `options_from` any candidate may auto-act.
+       */
+      auto_choices?: string[];
+      type: "choice";
+    }
+  | {
+      instructions: string;
+      /**
+       * 2 to 10, low to high.
+       */
+      levels: string[];
+      type: "score";
+    };
+/**
+ * The kernel's twelve query shapes. `kinds`, `stage`, `lint`, `missing` and `drift` are built-in
+ * questions the engine serves, not shapes (DR-15).
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Shape".
+ */
+export type Shape =
+  | "node"
+  | "find"
+  | "neighbors"
+  | "path"
+  | "why"
+  | "filter"
+  | "compare"
+  | "order"
+  | "subgraph"
+  | "tree"
+  | "machine"
+  | "checks";
+/**
+ * The closed set of kernel effects.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "EffectOp".
+ */
+export type EffectOp = ("none" | "lint" | "set_prop" | "put_edge" | "retract_edge") | "retarget";
 /**
  * What an edit or claim is about.
  *
@@ -329,13 +446,123 @@ export type Tier = ("universal" | "syntactic" | "config" | "pattern" | "inferenc
  * via the `definition` "Op".
  */
 export type Op = "put" | "set" | "retract";
+export type EditReq =
+  | {
+      id: string;
+      /**
+       * The new parent.
+       */
+      parent: string;
+      op: "move";
+    }
+  | {
+      /**
+       * The group's name.
+       */
+      name: string;
+      /**
+       * The nodes to move into it.
+       */
+      ids: string[];
+      op: "group";
+    }
+  | {
+      id: string;
+      name: string;
+      op: "rename";
+    }
+  | {
+      id: string;
+      op: "hide";
+    }
+  | {
+      id: string;
+      /**
+       * The view the position belongs to, such as `map:system:all`.
+       */
+      view: string;
+      x: number;
+      y: number;
+      op: "pin";
+    }
+  | {
+      from: string;
+      to: string;
+      /**
+       * The relation kind.
+       */
+      kind: string;
+      op: "relate";
+    }
+  | {
+      from: string;
+      to: string;
+      /**
+       * The relation kind.
+       */
+      kind: string;
+      op: "unrelate";
+    }
+  | {
+      from: string;
+      to: string;
+      /**
+       * The relation kind the rule forbids; every kind when absent.
+       */
+      kind?: string | null;
+      op: "forbid";
+    }
+  | {
+      /**
+       * An event ID or an ID suffix.
+       */
+      event: string;
+      op: "undo";
+    };
 /**
- * A snake_case code naming why something is empty.
+ * What a declarative extractor emits per match. Values may use `$file`, `$stem`, `$repo`,
+ * `$line`, `$1`..`$9` and `@capture`. A reference is `@alias:...`, an ID, `@id:KIND:KEY` or
+ * `@ext:NAME`; a bare path such as `$file` is `pack_invalid`.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
- * via the `definition` "EmptyReason".
+ * via the `definition` "EmitTemplate".
  */
-export type EmptyReason = string;
+export type EmitTemplate =
+  | {
+      node: string;
+      key: string;
+      name?: string | null;
+      parent?: string | null;
+      /**
+       * TOML values; captures are coerced to the prop schema's type.
+       */
+      props?: {
+        [k: string]: unknown;
+      };
+      aliases?: string[];
+    }
+  | {
+      edge: string;
+      from: string;
+      to: string;
+      via?: string | null;
+      /**
+       * 1.0 when absent, as for every deterministic tier.
+       */
+      confidence?: number | null;
+      props?: {
+        [k: string]: unknown;
+      };
+    }
+  | {
+      hint: string;
+      scope: string;
+      key: string;
+      value?: string | null;
+      attrs?: {
+        [k: string]: string;
+      };
+    };
 /**
  * Which pane the mod draws until the engine answers: `ready` draws the `PaneModel` (DR-57, DR-60).
  *
@@ -369,6 +596,22 @@ export type WarningCode =
       | "repo_unborn"
       | "repo_skipped"
       | "scan_superseded"
+      | "claimed"
+      | "deterministic_fallback"
+      | "workspace_untrusted"
+      | "config_key_ignored"
+      | "inferred_unconfirmed"
+      | "cache_regression"
+      | "cache_not_applied"
+      | "hidden_characters"
+      | "outside_touch_points"
+      | "scan_changed_under_edit"
+      | "stale_page"
+      | "model_request_pending"
+      | "store_migrated"
+      | "temporary_host"
+      | "reconcile_paused"
+      | "duty_failed"
     )
   | string;
 /**
@@ -425,10 +668,16 @@ export type EventBody =
        * The workspace link snapshot of the active set this scan committed.
        */
       link: number;
+      /**
+       * The renames git reports since the repo's last snapshot, files and wholly moved
+       * directories; the fold resolves a vanished edit target through them (DR-74).
+       */
+      renames?: Rename[];
       stats: ScanStats;
       kind: "scan";
     }
   | HandoffStep
+  | Card1
   | {
       kind: string;
     };
@@ -445,7 +694,43 @@ export type Verdict = "accept" | "reject";
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
  * via the `definition` "EventKind".
  */
-export type EventKind = ("edit" | "review" | "undo" | "version" | "decision" | "claim" | "scan" | "handoff") | string;
+export type EventKind =
+  ("edit" | "review" | "undo" | "version" | "decision" | "claim" | "scan" | "handoff" | "card") | string;
+/**
+ * `[[extractors]]`: a built-in, a regex or a tree-sitter query, told apart by which of
+ * `builtin`, `regex` or `query` it sets.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ExtractorDecl".
+ */
+export type ExtractorDecl =
+  | {
+      id: string;
+      builtin: string;
+      files?: string[];
+      options?: {
+        [k: string]: unknown;
+      };
+    }
+  | {
+      id: string;
+      files: string[];
+      regex: string;
+      emit: EmitTemplate[];
+    }
+  | {
+      id: string;
+      files: string[];
+      /**
+       * A `[[languages]]` ID with a built-in grammar.
+       */
+      language: string;
+      /**
+       * The path of the `.scm` file, under `queries/`.
+       */
+      query: string;
+      emit: EmitTemplate[];
+    };
 /**
  * A kind, `<pack>.<name>`, such as `code.service`, `kernel.group` or `kernel.external`.
  *
@@ -454,6 +739,13 @@ export type EventKind = ("edit" | "review" | "undo" | "version" | "decision" | "
  */
 export type Kind = string;
 /**
+ * The direction a lens follows a relation.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Flow".
+ */
+export type Flow = "forward" | "backward";
+/**
  * The states of a hand-off.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
@@ -461,6 +753,14 @@ export type Kind = string;
  */
 export type HandoffState =
   "proposed" | "started" | "reported" | "failed" | "reviewing" | "merged" | "reconciled" | "dropped";
+/**
+ * A Container-level kind's block color: surfaces style a block from its tone, never from a kind
+ * ID (DR-46).
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Tone".
+ */
+export type Tone = "service" | "library" | "store" | "infra";
 /**
  * One frame of the live stream.
  *
@@ -489,13 +789,26 @@ export type StreamFrame =
       type: "ping";
     };
 /**
- * A Container-level kind's block color: surfaces style a block from its tone, never from a kind
- * ID (DR-46).
+ * Which Claude model a call takes: the mod maps `cheap` to Haiku and `capable` to Sonnet.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
- * via the `definition` "Tone".
+ * via the `definition` "ModelTier".
  */
-export type Tone = "service" | "library" | "store" | "infra";
+export type ModelTier = "cheap" | "capable";
+/**
+ * The four lint rule types.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "RuleType".
+ */
+export type RuleType = "requires_prop" | "requires_edge" | "min_children" | "covers";
+/**
+ * What a prompt's output does: an inferred fact, or a proposal that lands as ghosts.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "PromptRole".
+ */
+export type PromptRole = "infer" | "propose";
 /**
  * Whether the workspace has been scanned.
  *
@@ -547,6 +860,16 @@ export interface Ack {
     [k: string]: AckStatus;
   };
   [k: string]: unknown;
+}
+/**
+ * The leaf a suggestion runs, with its arguments.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ActionDecl".
+ */
+export interface ActionDecl {
+  command: CommandName;
+  args?: string[];
 }
 /**
  * `planroom.answer/v1`: a read request's result, under `answers/<docId>`, or a view the snapshot
@@ -615,14 +938,32 @@ export interface ErrorObject {
   };
 }
 /**
- * The items one card applies together.
+ * One argument a question takes, such as `X` in `fires-if X`.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
- * via the `definition` "BatchInfo".
+ * via the `definition` "ArgDecl".
  */
-export interface BatchInfo {
-  count: number;
-  items: Handle1[];
+export interface ArgDecl {
+  name: string;
+  optional?: boolean;
+}
+/**
+ * One item of an answer.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "AskItem".
+ */
+export interface AskItem {
+  /**
+   * A node ID, or with `ask` alone a kind, lens or question ID.
+   */
+  id: string;
+  name: string;
+  /**
+   * One line on why the item answers the question.
+   */
+  why: string;
+  handles: Handle1[];
 }
 /**
  * An exact invocation a surface can offer, such as a drill-down or the next action.
@@ -634,6 +975,117 @@ export interface Handle1 {
   command: CommandName;
   args: string[];
   label: string;
+}
+/**
+ * `planroom ask [QUESTION [ARGS]]`: a pack or built-in question; alone, it lists every loaded
+ * kind, lens and question.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "AskReq".
+ */
+export interface AskReq {
+  question?: string | null;
+  /**
+   * The question's arguments, such as the two ends of `path A B`.
+   */
+  args?: string[];
+}
+/**
+ * What `ask` returns: the answer's summary line and its items, each with the handles that drill
+ * down.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "AskResult".
+ */
+export interface AskResult {
+  /**
+   * The question's ID, such as `unmonitored`.
+   */
+  question: string;
+  summary: string;
+  items: AskItem[];
+  empty?: Empty | null;
+}
+/**
+ * Why a list or view is empty, and what to do next; no surface shows a blank state.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Empty".
+ */
+export interface Empty {
+  reason: EmptyReason;
+  /**
+   * The one engine-authored line every surface shows for this state, such as "Map these 3
+   * repos? About 2 s."; absent where a surface still words it from `reason`.
+   */
+  line?: string | null;
+  next: Handle1;
+}
+/**
+ * The items one card applies together.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "BatchInfo".
+ */
+export interface BatchInfo {
+  count: number;
+  items: Handle1[];
+}
+/**
+ * What a yes and a no mean.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "BoolCriteria".
+ */
+export interface BoolCriteria {
+  true: string;
+  false: string;
+}
+/**
+ * One card a write dealt.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Card".
+ */
+export interface Card {
+  /**
+   * Sent as `card_kind`, not `kind`, because `kind` is the event body's tag, as with
+   * `DecisionRecord.decision_kind`.
+   */
+  card_kind: ("apply" | "trust" | "pack_source" | "restore") | string;
+  /**
+   * What the card is about, such as the workspace root or a pack's ID; no second card of one
+   * kind and subject is dealt while one is open.
+   */
+  subject: string;
+  /**
+   * The `en.toml` key of the card's one-line question.
+   */
+  question: string;
+  /**
+   * The `en.toml` key of the card's one-line why.
+   */
+  why: string;
+  /**
+   * The values the question's and why's `{name}`s take, such as a pack's name or an edit count.
+   */
+  vars?: {
+    [k: string]: string;
+  };
+  stakes: Stakes;
+  /**
+   * 2 to 4; each label is an `en.toml` key, as the question is.
+   */
+  choices: Choice[];
+  /**
+   * The ID of the choice that holds while nobody picks.
+   */
+  default: string;
+  /**
+   * A command name from the catalogue, its path joined with spaces.
+   */
+  dealt_by:
+    ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve" | "share" | "import") | string;
 }
 /**
  * One choice on a card.
@@ -670,7 +1122,7 @@ export interface CodeReq {
   code_sha256: string;
 }
 /**
- * `planroom map [--level L] [--lens X] [--focus ID] [--detail summary|graph]`.
+ * `planroom map [--level L] [--lens X] [--focus ID] [--detail summary|graph] [--cursor C]`.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
  * via the `definition` "MapReq".
@@ -692,6 +1144,10 @@ export interface MapReq {
    * How much `map` returns.
    */
   detail?: "summary" | "graph";
+  /**
+   * The cursor `meta.next` gave, to read the page after it.
+   */
+  cursor?: Cursor | null;
 }
 /**
  * `planroom focus [--session ID]`.
@@ -938,6 +1394,19 @@ export interface DbWrite {
   if_version?: number | null;
 }
 /**
+ * How many model calls a kind may spend.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "DecisionBudget".
+ */
+export interface DecisionBudget {
+  /**
+   * Counted per scan event, which its one decide duty run spends, and per explicit
+   * `decide --run` (DR-65).
+   */
+  max_calls_per_scan: number;
+}
+/**
  * A decision a person is asked to make.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
@@ -963,6 +1432,117 @@ export interface DecisionCard {
    */
   batch?: BatchInfo | null;
   person_only: boolean;
+}
+/**
+ * `[[decisions]]` in a pack: one kind of question a model answers about one kind of subject
+ * (DR-50, DR-63).
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "DecisionKind".
+ */
+export interface DecisionKind {
+  id: string;
+  /**
+   * A bump invalidates the cache and the eval result.
+   */
+  version: number;
+  subject: SubjectKind;
+  /**
+   * The deterministic precheck, in the filter shape's predicate form.
+   */
+  when?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Kinds with the same group and subject share one Jev request.
+   */
+  group?: string | null;
+  question: Question;
+  slice: SliceSpec;
+  effect: Effect;
+  stakes: Stakes;
+  /**
+   * The answer that leaves the deterministic result as it is.
+   */
+  default: {
+    [k: string]: unknown;
+  };
+  policy: Policy;
+  /**
+   * Such as `evals/next_action_concrete`.
+   */
+  eval?: string | null;
+  budget: DecisionBudget;
+  /**
+   * The kernel role this kind serves, if any.
+   */
+  role?: Role | null;
+}
+/**
+ * Candidate nodes from a query shape over the subject, at most `max`.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "OptionsFrom".
+ */
+export interface OptionsFrom {
+  shape: Shape;
+  params?: {
+    [k: string]: unknown;
+  };
+  max: number;
+}
+/**
+ * The slice of the model a request carries; evidence goes in as path and contains, never line.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "SliceSpec".
+ */
+export interface SliceSpec {
+  query: Shape;
+  relations?: string[];
+  fields?: string[];
+  max_tokens: number;
+}
+/**
+ * What a pick does: one of six kernel effects, with its own parameters, such as
+ * `{ on = "false", do = "lint", rule = "vague_action" }`.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Effect".
+ */
+export interface Effect {
+  /**
+   * The answer the effect fires on; every answer when absent.
+   */
+  on?: string | null;
+  do: EffectOp;
+  [k: string]: unknown;
+}
+/**
+ * When a kind acts on its own, deals a card or asks Claude.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Policy".
+ */
+export interface Policy {
+  /**
+   * Absent: never auto, and never asks Claude up front.
+   */
+  auto_at?: number | null;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  card_band: [number, number];
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  escalate_band: [number, number];
+  /**
+   * Which Claude model a call takes: the mod maps `cheap` to Haiku and `capable` to Sonnet.
+   */
+  escalate_to?: "cheap" | "capable";
 }
 /**
  * One decision a model or a person made about one subject.
@@ -1008,6 +1588,19 @@ export interface DiffLine {
    * Up to 5, for the first diff only.
    */
   hunk: string[];
+}
+/**
+ * A repo with uncommitted changes: `orders: 3 uncommitted files aren't on the map`.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "DirtyRepo".
+ */
+export interface DirtyRepo {
+  repo: string;
+  /**
+   * Changed and untracked files `git status` lists, `.gitignore` honoured.
+   */
+  files: number;
 }
 /**
  * Intended rules broken and machine drift, in one line.
@@ -1090,15 +1683,19 @@ export interface Edit {
     [k: string]: unknown;
   };
 }
-/**
- * Why a list or view is empty, and what to do next; no surface shows a blank state.
- *
- * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
- * via the `definition` "Empty".
- */
-export interface Empty {
-  reason: EmptyReason;
-  next: Handle1;
+export interface EditReq1 {
+  /**
+   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   */
+  base?: number | null;
+  /**
+   * The idempotency key; derived from the request when absent.
+   */
+  idem?: string | null;
+  /**
+   * The project the write belongs to.
+   */
+  project?: NodeId | null;
 }
 /**
  * The mod's `engine` atom: written by `session.start` from the resolver's reply (DR-81).
@@ -1175,6 +1772,11 @@ export interface Meta {
    * A replay of a derived key: the original `seq`; pass a new `--idem` to repeat the write.
    */
   replayed_from?: number | null;
+  /**
+   * `focus` and `map` only: the repos with uncommitted changes, untracked files included,
+   * which never reach the map.
+   */
+  dirty_repos?: DirtyRepo[];
   warnings?: Warning[];
   /**
    * Absent when no model was called.
@@ -1237,9 +1839,27 @@ export interface Usage {
  * via the `definition` "ModelRequestRef".
  */
 export interface ModelRequestRef {
+  /**
+   * The request's input hash, which names its file.
+   */
   id: string;
+  /**
+   * Such as `plan.stage.outcome`.
+   */
   purpose: string;
-  est_tokens: number;
+  /**
+   * The sha256 of the request file; the mod sends the file only when its bytes match.
+   */
+  sha256: string;
+  rerun: Handle3;
+}
+/**
+ * An exact invocation a surface can offer, such as a drill-down or the next action.
+ */
+export interface Handle3 {
+  command: CommandName;
+  args: string[];
+  label: string;
 }
 /**
  * One appended change.
@@ -1289,6 +1909,16 @@ export interface DecisionRecord1 {
   kind: "decision";
 }
 /**
+ * A rename git reported between two snapshots of one repo: the old and the new ID.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Rename".
+ */
+export interface Rename {
+  from: NodeId;
+  to: NodeId;
+}
+/**
  * What one repo's scan found.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
@@ -1309,6 +1939,12 @@ export interface ScanStats {
  */
 export interface HandoffStep {
   kind: "handoff";
+}
+/**
+ * A card a write dealt; open while no `review` names it (DR-89).
+ */
+export interface Card1 {
+  kind: "card";
 }
 /**
  * What every extractor and linker returns, sorted by ID.
@@ -1434,6 +2070,38 @@ export interface PartialFile {
   errors: number;
 }
 /**
+ * One match, with its level and kind.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "FindItem".
+ */
+export interface FindItem {
+  id: NodeId;
+  name: string;
+  level: Level;
+  kind: Kind;
+}
+/**
+ * `planroom find TEXT`: fuzzy search over node names and IDs.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "FindReq".
+ */
+export interface FindReq {
+  text: string;
+}
+/**
+ * What `find` returns: the matches, best first.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "FindResult".
+ */
+export interface FindResult {
+  summary: string;
+  items: FindItem[];
+  empty?: Empty | null;
+}
+/**
  * Where you are.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
@@ -1460,6 +2128,34 @@ export interface HandoffStep1 {
   from: HandoffState;
   to: HandoffState;
   note?: string | null;
+}
+/**
+ * `[[hints]]`: a hint kind a linker consumes.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "HintDecl".
+ */
+export interface HintDecl {
+  id: string;
+  /**
+   * The attribute names the hint carries, such as `scheme`, `port` and `path`.
+   */
+  attrs?: string[];
+}
+/**
+ * `[[image_roles]]`: a compose image glob's kind and role, such as `redis*` to a queue kind with
+ * role `queue`.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ImageRole".
+ */
+export interface ImageRole {
+  /**
+   * A glob over the image name.
+   */
+  image: string;
+  role: string;
+  kind: string;
 }
 /**
  * How many stdin lines of one `import -` came to each outcome.
@@ -1645,6 +2341,97 @@ export interface InboxRow {
   [k: string]: unknown;
 }
 /**
+ * `planroom intent next [--stage S]`: draft a plan stage's items as ghosts.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "IntentNextReq".
+ */
+export interface IntentNextReq {
+  /**
+   * The stage to draft; the next one the plan lacks when absent.
+   */
+  stage?: string | null;
+  /**
+   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   */
+  base?: number | null;
+  /**
+   * The idempotency key; derived from the request when absent.
+   */
+  idem?: string | null;
+  /**
+   * The project the write belongs to.
+   */
+  project?: NodeId | null;
+}
+/**
+ * One plan item type a stage writes.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ItemType".
+ */
+export interface ItemType {
+  /**
+   * The item's `type` prop, such as `next_action`.
+   */
+  id: string;
+  /**
+   * A JSON Schema fragment.
+   */
+  props?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * `[[kinds]]`: a node kind.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "KindDecl".
+ */
+export interface KindDecl {
+  id: string;
+  /**
+   * The ID's kind-short. One pack owns it, except the kernel's `container`, which every
+   * Container-level kind uses (DR-46).
+   */
+  id_prefix: string;
+  level: Level;
+  label: string;
+  parents?: string[];
+  /**
+   * A JSON Schema fragment the kind's props validate against.
+   */
+  props?: {
+    [k: string]: unknown;
+  };
+  icon?: string | null;
+  /**
+   * A Container-level kind's block color; surfaces style from `MapNode.tone`, never from a kind
+   * ID (DR-46).
+   */
+  tone?: Tone | null;
+  empty_text?: string | null;
+  empty_action?: string | null;
+}
+/**
+ * `[[languages]]`: a language's file extensions and comment forms.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "LanguageDecl".
+ */
+export interface LanguageDecl {
+  id: string;
+  extensions: string[];
+  line_comment?: string | null;
+  /**
+   * The opening and closing marks.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  block_comment?: [string, string] | null;
+}
+/**
  * The mod's `lastSeq` atom: the `seq` of the last frame the watch loop read, so the loop starts
  * again from it after a reload (DR-6); null before the first frame (DR-82).
  *
@@ -1718,6 +2505,35 @@ export interface LeafSchema {
   };
 }
 /**
+ * `[[lenses]]`: which relationships a view shows (DR-15).
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "LensDecl".
+ */
+export interface LensDecl {
+  id: string;
+  label: string;
+  relations: string[];
+  /**
+   * The direction each relation flows in; forward when absent.
+   */
+  flow?: {
+    [k: string]: Flow;
+  };
+  /**
+   * The node kinds the lens is about: its map shows their nodes first, and `map --lens` alone
+   * takes the lens's level.
+   */
+  kinds?: string[];
+  level: Level;
+  /**
+   * Two defaults are `pack_invalid`, unless one is the code pack's, which wins.
+   */
+  default?: boolean;
+  empty_text?: string | null;
+  empty_action?: string | null;
+}
+/**
  * Edges lifted to the nearest ancestors at the view's level; `count == children.len()`.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
@@ -1733,6 +2549,30 @@ export interface LiftedEdge {
    */
   evidence_sample: Evidence[];
   children: EdgeId[];
+}
+/**
+ * `[[linkers]]`: a built-in linker and its options.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "LinkerDecl".
+ */
+export interface LinkerDecl {
+  builtin: string;
+  options?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * `planroom intent lint [--project P]`: the plan's lint findings.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "LintReq".
+ */
+export interface LintReq {
+  /**
+   * The project to lint; the current one when absent.
+   */
+  project?: string | null;
 }
 /**
  * `planroom.live-head/v1`: the small `db` document `live/head` the session writes last in each
@@ -1857,6 +2697,194 @@ export interface MiniMap {
   edges: MiniEdge[];
 }
 /**
+ * One pack's `pack.toml`.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "PackFile".
+ */
+export interface PackFile {
+  /**
+   * `planroom.pack/v1`.
+   */
+  format: string;
+  /**
+   * Lowercase, `[a-z0-9_]`.
+   */
+  id: string;
+  version: number;
+  title: string;
+  /**
+   * A built-in pack: `[]` or `["code"]`; an out-of-tree pack: any built-in packs (DR-62).
+   */
+  requires?: string[];
+  /**
+   * Merged across packs; a duplicate extension is `pack_invalid`.
+   */
+  languages?: LanguageDecl[];
+  /**
+   * Merged across packs; a duplicate glob is `pack_invalid`, and overlapping globs take the
+   * first match in load order.
+   */
+  image_roles?: ImageRole[];
+  kinds?: KindDecl[];
+  relations?: RelationDecl[];
+  /**
+   * A hint kind no loaded linker consumes is `pack_invalid` (DR-9).
+   */
+  hints?: HintDecl[];
+  extractors?: ExtractorDecl[];
+  linkers?: LinkerDecl[];
+  lenses?: LensDecl[];
+  questions?: QuestionDecl[];
+  rules?: RuleDecl[];
+  decisions?: DecisionKind[];
+  /**
+   * Each action names a leaf that can be undone, isn't a hand-off and never spends (DR-54).
+   */
+  suggestions?: SuggestionDecl[];
+  prompts?: PromptDecl[];
+  /**
+   * The plan pack only.
+   */
+  stages?: StageDecl[];
+}
+/**
+ * `[[relations]]`: an edge kind.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "RelationDecl".
+ */
+export interface RelationDecl {
+  id: string;
+  from: string[];
+  to: string[];
+  label: string;
+  /**
+   * A JSON Schema fragment the relation's props validate against.
+   */
+  props?: {
+    [k: string]: unknown;
+  };
+  inferred?: boolean;
+}
+/**
+ * `[[questions]]`: a named pipeline of one to three query shapes.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "QuestionDecl".
+ */
+export interface QuestionDecl {
+  id: string;
+  args?: ArgDecl[];
+  /**
+   * 1 to 3; each step's input is the previous step's node set.
+   */
+  steps: ShapeStep[];
+  /**
+   * The summary line's template.
+   */
+  summary: string;
+  /**
+   * Clamped to 3,000; absent takes `ask`'s 1,500 (DR-21).
+   */
+  budget_tokens?: number | null;
+}
+/**
+ * One step of a question: a shape and its parameters.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ShapeStep".
+ */
+export interface ShapeStep {
+  shape: Shape;
+  params?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * `[[rules]]`: a structural lint rule over one kind.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "RuleDecl".
+ */
+export interface RuleDecl {
+  id: string;
+  kind: RuleType;
+  /**
+   * The kind the rule checks.
+   */
+  subject: string;
+  params?: {
+    [k: string]: unknown;
+  };
+  message: string;
+}
+/**
+ * `[[suggestions]]`: a candidate for the one next action.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "SuggestionDecl".
+ */
+export interface SuggestionDecl {
+  /**
+   * When the suggestion applies, in the filter shape's predicate form.
+   */
+  when?: {
+    [k: string]: unknown;
+  };
+  text: string;
+  action: ActionDecl;
+  /**
+   * Higher ranks first.
+   */
+  priority?: number;
+}
+/**
+ * `[[prompts]]`: a Claude stable prefix the engine sends.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "PromptDecl".
+ */
+export interface PromptDecl {
+  id: string;
+  /**
+   * The path of the prompt, under `prompts/`.
+   */
+  file: string;
+  tier: ModelTier;
+  role: PromptRole;
+  /**
+   * The contract type name the reply validates against.
+   */
+  output: string;
+  /**
+   * How long Claude caches a prompt's prefix: 5 minutes, or an hour for person-paced purposes.
+   */
+  ttl?: "5m" | "1h";
+}
+/**
+ * `[[stages]]`: one plan stage (R5).
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "StageDecl".
+ */
+export interface StageDecl {
+  id: string;
+  method: string;
+  /**
+   * The `kernel.item` types the stage writes.
+   */
+  items: ItemType[];
+  /**
+   * The stage's instructions, sent in the uncached tail after the plan pack's shared prefix.
+   */
+  prompt: string;
+  /**
+   * The IDs of the lint rules the stage runs.
+   */
+  lint?: string[];
+}
+/**
  * What `focus` returns: the pane, the band and the status line; at most 4 KB.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
@@ -1876,7 +2904,7 @@ export interface PaneModel {
   diffs: DiffLine[];
   drift: DriftLine;
   who: PresenceRow[];
-  next: Handle3;
+  next: Handle4;
   minimap: MiniMap;
   empty?: Empty | null;
 }
@@ -1909,7 +2937,7 @@ export interface PresenceRow {
 /**
  * An exact invocation a surface can offer, such as a drill-down or the next action.
  */
-export interface Handle3 {
+export interface Handle4 {
   command: CommandName;
   args: string[];
   label: string;
@@ -1943,6 +2971,30 @@ export interface PersonKey {
    * This call replaced another key.
    */
   rekeyed: boolean;
+}
+/**
+ * `planroom intent propose --file F|-`: plan items proposed as ghosts, one batch.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ProposeReq".
+ */
+export interface ProposeReq {
+  /**
+   * The proposal's path, or `-` for stdin, so a proposal writes no file.
+   */
+  file: string;
+  /**
+   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   */
+  base?: number | null;
+  /**
+   * The idempotency key; derived from the request when absent.
+   */
+  idem?: string | null;
+  /**
+   * The project the write belongs to.
+   */
+  project?: NodeId | null;
 }
 /**
  * The exact arguments of the Artifact publish the session makes.
@@ -2000,6 +3052,32 @@ export interface ResolverStatus {
    * The engine version this plugin names, from `engine.env`.
    */
   version: string;
+}
+/**
+ * `planroom review ID accept|reject`: accept or reject one ghost, conflict, inferred fact or
+ * card.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ReviewReq".
+ */
+export interface ReviewReq {
+  /**
+   * An event ID or an ID suffix.
+   */
+  id: string;
+  verdict: Verdict;
+  /**
+   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   */
+  base?: number | null;
+  /**
+   * The idempotency key; derived from the request when absent.
+   */
+  idem?: string | null;
+  /**
+   * The project the write belongs to.
+   */
+  project?: NodeId | null;
 }
 /**
  * What `scan` returns: the map at the top level with the default lens, and the next action.
@@ -2159,6 +3237,11 @@ export interface Snapshot {
  */
 export interface Empty1 {
   reason: EmptyReason;
+  /**
+   * The one engine-authored line every surface shows for this state, such as "Map these 3
+   * repos? About 2 s."; absent where a surface still words it from `reason`.
+   */
+  line?: string | null;
   next: Handle1;
 }
 /**

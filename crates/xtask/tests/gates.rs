@@ -290,3 +290,211 @@ fn ci_walks_branch_pushes_and_pull_requests_only() {
         CiWalk::StateOnly(_)
     ));
 }
+
+// --- feature_list_is_complete (contracts.md, Every public contract; DR-59, DR-89) ----------------
+
+/// A temporary repository holding a feature list and the test files it names, removed on drop.
+struct Listed {
+    dir: PathBuf,
+}
+
+impl Listed {
+    /// S1 to S15 with no tests, then `extra` as entry `C1`, beside `files`.
+    fn new(name: &str, extra: serde_json::Value, files: &[(&str, &str)]) -> Self {
+        let dir = std::env::temp_dir().join(format!("planroom-features-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let mut features: Vec<serde_json::Value> = (1..=15)
+            .map(|n| serde_json::json!({"id": format!("S{n}"), "status": "failing", "tests": []}))
+            .collect();
+        let mut extra = extra;
+        extra["id"] = "C1".into();
+        features.push(extra);
+        let list = serde_json::json!({"format": "planroom.feature-list/v1", "features": features});
+        let mut all = vec![
+            ("feature_list.json", serde_json::to_string_pretty(&list).unwrap()),
+            (
+                "vitest.config.js",
+                r#"include: ["packages/*/src/**/*.test.ts", "tests/e2e/src/**/*.test.ts"]"#.to_owned(),
+            ),
+        ];
+        all.extend(files.iter().map(|(p, t)| (*p, (*t).to_owned())));
+        for (rel, text) in all {
+            let path = dir.join(rel);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        }
+        Self { dir }
+    }
+
+    fn problems(&self) -> Vec<String> {
+        xtask::features::problems(&self.dir).unwrap()
+    }
+}
+
+impl Drop for Listed {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
+const BUILT: &str = "#[test]\nfn built() {\n    assert_eq!(1 + 1, 2);\n}\n";
+const BUILT_TEST: &str = "crates/k/tests/t.rs::built";
+const UNBUILT: &str = "crates/k/tests/t.rs::not_written_yet";
+
+#[test]
+fn feature_list_is_complete() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let problems = xtask::features::problems(&root).unwrap();
+    assert!(problems.is_empty(), "feature_list.json is incomplete:\n{}", problems.join("\n"));
+}
+
+#[test]
+fn a_listed_test_that_resolves_carries_no_due() {
+    let ok = Listed::new(
+        "due-ok",
+        serde_json::json!({"status": "failing", "tests": [BUILT_TEST, UNBUILT], "due": {UNBUILT: "M2"}}),
+        &[("crates/k/tests/t.rs", BUILT)],
+    );
+    assert!(ok.problems().is_empty(), "{:?}", ok.problems());
+
+    let stale = Listed::new(
+        "due-stale",
+        serde_json::json!({"status": "failing", "tests": [BUILT_TEST], "due": {BUILT_TEST: "M1"}}),
+        &[("crates/k/tests/t.rs", BUILT)],
+    );
+    let p = stale.problems();
+    assert!(p.iter().any(|l| l.contains(BUILT_TEST) && l.contains("carries no `due`")), "{p:?}");
+
+    // An unbuilt test with no `due` can't be told from a mistyped one, so it fails too.
+    let untagged = Listed::new(
+        "due-missing",
+        serde_json::json!({"status": "failing", "tests": [UNBUILT]}),
+        &[("crates/k/tests/t.rs", BUILT)],
+    );
+    let p = untagged.problems();
+    assert!(p.iter().any(|l| l.contains(UNBUILT) && l.contains("no test `fn not_written_yet`")), "{p:?}");
+
+    // A `due` names a milestone, and only a test the entry lists.
+    let odd = Listed::new(
+        "due-odd",
+        serde_json::json!({
+            "status": "failing",
+            "tests": [UNBUILT],
+            "due": {UNBUILT: "M9", "crates/k/tests/t.rs::other": "M2"},
+        }),
+        &[("crates/k/tests/t.rs", BUILT)],
+    );
+    let p = odd.problems();
+    assert!(p.iter().any(|l| l.contains("not one of M1 to M5")), "{p:?}");
+    assert!(p.iter().any(|l| l.contains("which the entry doesn't list")), "{p:?}");
+}
+
+#[test]
+fn a_passing_entry_has_no_due() {
+    let listed = Listed::new(
+        "passing",
+        serde_json::json!({"status": "passing", "tests": [BUILT_TEST, UNBUILT], "due": {UNBUILT: "M2"}}),
+        &[("crates/k/tests/t.rs", BUILT)],
+    );
+    let p = listed.problems();
+    assert!(p.iter().any(|l| l.contains("a passing entry still has") && l.contains(UNBUILT)), "{p:?}");
+}
+
+#[test]
+fn a_feature_test_that_needs_a_live_flag_fails() {
+    let rust = "\
+#[test]
+fn calls_the_gateway() {
+    if std::env::var(\"PLANROOM_LIVE_GATEWAY\").is_err() {
+        return;
+    }
+}
+
+#[test]
+fn sets_the_flag_on_a_child() {
+    let _ = std::process::Command::new(\"planroom\").env(\"PLANROOM_LIVE_GATEWAY\", \"1\");
+}
+";
+    let ts = "test(\"asks_claude\", () => {\n  if (!process.env.PLANROOM_LIVE_CLAUDE) return;\n});\n";
+    let sh = "asks_live() {\n  [ -n \"${PLANROOM_LIVE_GATEWAY:-}\" ] || return 0\n}\n\nfor t in asks_live; do\n  $t\ndone\n";
+    let listed = Listed::new(
+        "live",
+        serde_json::json!({
+            "status": "failing",
+            "tests": [
+                "crates/k/tests/live.rs::calls_the_gateway",
+                "crates/k/tests/live.rs::sets_the_flag_on_a_child",
+                "packages/p/src/live.test.ts::asks_claude",
+                "tests/installer/run.sh::asks_live",
+            ],
+            // A `due` tag doesn't excuse a test that exists but needs a live flag.
+            "due": {"packages/p/src/live.test.ts::asks_claude": "M2"},
+        }),
+        &[
+            ("crates/k/tests/live.rs", rust),
+            ("packages/p/src/live.test.ts", ts),
+            ("tests/installer/run.sh", sh),
+        ],
+    );
+    let p = listed.problems();
+    let live = |test: &str| p.iter().any(|l| l.contains(test) && l.contains("needs a live flag"));
+    assert!(live("::calls_the_gateway"), "{p:?}");
+    assert!(live("::asks_claude"), "{p:?}");
+    assert!(live("::asks_live"), "{p:?}");
+    // Setting the flag on a child process, to test that the engine refuses it, needs nothing live.
+    assert!(!p.iter().any(|l| l.contains("sets_the_flag_on_a_child")), "{p:?}");
+}
+
+#[test]
+fn a_listed_test_resolves_only_where_ci_runs_it() {
+    let listed = Listed::new(
+        "runners",
+        serde_json::json!({
+            "status": "failing",
+            "tests": [
+                "packages/p/src/a.test.ts::rows_fit",
+                "packages/p/src/a.test.tsx::rows_fit",
+                "tests/plugin/surface.sh",
+                "tests/e2e/src/s.spec.ts",
+                "cargo xtask check layout",
+                "cargo xtask release-dry-run",
+                "crates/k/tests/t.rs::ignored",
+            ],
+        }),
+        &[
+            ("packages/p/src/a.test.ts", "test(\"rows_fit: every row fits\", () => {});\n"),
+            ("packages/p/src/a.test.tsx", "test(\"rows_fit\", () => {});\n"),
+            ("tests/plugin/surface.sh", "echo ok\n"),
+            ("tests/e2e/src/s.spec.ts", "test.describe(\"at 390x844\", () => { test(\"x\", () => {}); });\n"),
+            ("crates/xtask/src/main.rs", "match args { [\"check\", \"layout\"] => {} }\n"),
+            ("crates/k/tests/t.rs", "#[test]\n#[ignore = \"slow\"]\nfn ignored() {\n}\n"),
+        ],
+    );
+    let p = listed.problems();
+    let fails = |test: &str| p.iter().any(|l| l.contains(&format!(" {test} ")));
+    assert!(!fails("packages/p/src/a.test.ts::rows_fit"), "{p:?}");
+    assert!(!fails("tests/e2e/src/s.spec.ts"), "{p:?}");
+    assert!(!fails("cargo xtask check layout"), "{p:?}");
+    // vitest includes only *.test.ts under src/, and no cargo xtask command runs tests/plugin/.
+    assert!(fails("packages/p/src/a.test.tsx::rows_fit"), "{p:?}");
+    assert!(fails("tests/plugin/surface.sh"), "{p:?}");
+    assert!(fails("cargo xtask release-dry-run"), "{p:?}");
+    assert!(fails("crates/k/tests/t.rs::ignored"), "{p:?}");
+}
+
+#[test]
+fn a_mistyped_filter_fails() {
+    use xtask::testrun;
+    let listing = "t::a_mistyped_filter_fails: test\nsrc/lib.rs - parse (line 4): test\n";
+    assert_eq!(testrun::listed(listing), 2);
+    assert_eq!(testrun::unmatched("xtask", "mistyped", listing), None);
+    let why = testrun::unmatched("xtask", "a_mistypd_filter", "").expect("an empty listing fails");
+    assert!(why.contains("no test in xtask") && why.contains("`a_mistypd_filter`"), "{why}");
+    assert_eq!(
+        testrun::list_args("xtask", "f"),
+        ["test", "--locked", "-p", "xtask", "f", "--", "--list", "--format", "terse"]
+    );
+    // nextest fails a filter that matches nothing, and passes a whole run with no tests.
+    assert_eq!(testrun::no_tests(Some("f")), "fail");
+    assert_eq!(testrun::no_tests(None), "pass");
+}

@@ -104,6 +104,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 88 | The guard's residual risks, decided | Actors: agents never act as a person | extended | walking skeleton review round 3's residual risks |
 | 89 | What M1 builds, compares and leaves to later milestones | none (Milestones; S1, S3, S15 and the feature list's gate) | added | milestone planning (M1's scope, read against the tree) |
 | 90 | The guard lets everyday work through, and closes three more doors | Actors: agents never act as a person | extended | a usability review of the guard after DR-88 |
+| 91 | The contract M1 builds on: cards on the wire, the edit ops, and the redaction marks | none (Contracts; the Logging convention) | added | M1's first change, read against the docs |
 
 ## Where the design reviews disagreed
 
@@ -2009,7 +2010,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-83: What the walking skeleton's gates, remote slice and platform checks settled
 
-- **Status:** accepted (decided at the merges of the gates and remote-slice work, the CI repairs and the WS7 and WS8 checks, 2026-10-26). Amended by DR-87 and DR-89.
+- **Status:** accepted (decided at the merges of the gates and remote-slice work, the CI repairs and the WS7 and WS8 checks, 2026-10-26). Amended by DR-87, DR-89 and DR-91.
 - **Starting point:** extended "Repo layout: a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` in TypeScript", Remote mode, and the release model.
 - **Origin:** the walking skeleton's gates and remote-slice work, CI's first runs on the merged tree, and the platform checks in `research/ws7-remote.md` and `research/ws8-install.md`.
 - **Context:**
@@ -2079,6 +2080,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-39, DR-52, DR-55, DR-56, DR-67, DR-70, DR-75, DR-78, DR-79 and DR-81.
 - **Amended by DR-87:** import's result carries `counts`, the first 5 rows' outcomes, `root` and `batch_files`, one file per `ArtifactData batch` call, in place of the batches inline; each batch keeps at most 50 writes and 1 MiB, with `live/head` last.
 - **Amended by DR-89:** a `#[redact]` mark is `#[schemars(extend("x-redact" = true))]` on the field. `cargo xtask gen` writes the marked field paths into `crates/kernel/src/redact_fields.rs`, and `kernel::redact` masks exactly those paths.
+- **Amended by DR-91:** the mark also sits on node and block names, diff hunks, presence `doing`, a hand-off step's `note` and a card's `vars`; join keys (`Hint.key`, `Edge.via`, `Node.aliases`) stay unmarked.
 - **Sources (checked 2026-10-26):** `research/ws7-remote.md`, `research/ws8-install.md`; the gates and remote-slice merge notes in `progress.md`; CI runs 36 to 46 on the working branch; RUSTSEC-2026-0386; `crates/planroom/src/app/{share,import}.rs`; `crates/xtask/src/{layout,tools,plugin}.rs`.
 
 ## DR-84: The umbrella skill is `planroom`, so the mod can own `/room`
@@ -2241,7 +2243,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-89: What M1 builds, compares and leaves to later milestones
 
-- **Status:** accepted (decided before M1's first change, 2026-10-26).
+- **Status:** accepted (decided before M1's first change, 2026-10-26). Amended by DR-91.
 - **Starting point:** none; it amends [Milestones](architecture.md#milestones) and serves S1, S3 and S15, and the feature list's gate (DR-59).
 - **Origin:** milestone planning: M1's scope, read against the tree after DR-88.
 - **Context:** M1's row in the Milestones table says it closes S1, S15 (most) and S3's deterministic part. Read against the code and `feature_list.json`, several things don't hold:
@@ -2351,6 +2353,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - **How to read a record:** it gains the "Extended by DR-n" bullet and its Status form, which DR-65's Status uses for this record, and "milestone planning" as an origin.
   - **Tests:** the new and written-under-their-name tests above, among them `s01_first_look.rs::every_truth_item_the_loaded_packs_declare_matches_with_evidence` and `truth_recall_never_drops`; `trust.rs::accepting_the_trust_card_loads_the_config`; `packs.rs::accepting_the_changed_source_card_updates_the_copy`; `backup.rs::a_lost_state_directory_then_scan_offers_one_restore_card`; `cards.rs` (a dealt card listed face up, a second pick `already_resolved`, an agent's pick `person_required`, no second open card, the Apply card resolved by its last ghost); `config.rs::fixture_and_test_data_trees_are_excluded_by_default`; `live_gate.rs` (the cap, its margin, a relative path, a live flag with no spend log, `intent next` without a record flag); `gates.rs::a_new_budgets_key_is_not_a_raise`, `feature_list_is_complete`.
   - It amends DR-3 (a ninth event kind, `card`), DR-12 (full evidence recall is verified in M3, with a stated subset in M1), DR-59 (what `feature_list_is_complete` checks, and what a raise is) and DR-83 (the form of the `#[redact]` marks), and extends DR-65 (in M1, `intent next` answers from replay).
+- **Amended by DR-91:** a card's own kind travels as `card_kind`, since `kind` tags the event body, and a card carries `vars`, the values its question and why lines name.
 - **Sources (checked 2026-10-26):** `architecture.md` ([Milestones](architecture.md#milestones), trust in [Where the workspace lives](architecture.md#where-the-workspace-lives), [Ruby through the extractor contract](architecture.md#ruby-through-the-extractor-contract), `budgets.json` in [Token budgets](architecture.md#token-budgets-s7), [Spend guards](architecture.md#spend-guards), `intent next` in [Planning](architecture.md#planning-stages-ghosts-and-lint-r5), the server's exposure in [Security and privacy](architecture.md#security-and-privacy), the fold benchmark in [Performance budgets](architecture.md#performance-budgets), [Found by dogfooding](architecture.md#found-by-dogfooding)); `contracts.md` (open sets in [Versioning rules](contracts.md#versioning-rules), the Feature list row in [Every public contract](contracts.md#every-public-contract), `review` in [Command catalogue](contracts.md#command-catalogue), [Event model](contracts.md#event-model)); `feature_list.json` (S1, S3, C15); `examples/TRUTH.json` (`containers`, `relations`); `crates/contract/src/event.rs`; `crates/store/migrations/0001_init.sql`; `crates/planroom/tests/server_auth.rs`; `crates/planroom/src/server/auth.rs` (`CODE_LIFE`).
 
 ## DR-90: The guard lets everyday work through, and closes three more doors
@@ -2374,3 +2377,33 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `packages/mod/src/guard.test.ts` ("everyday calls from a usability sweep pass the guard", the `**`, in-place script, `find -empty`, dry-run `git clean`, `store.db`, `_host` and sandbox, start-up and settings file, and backslash-newline cases); `packages/mod/plugin-tests/guard.test.tsx`; `actor.test.tsx` ("no run the mod starts takes its engine from the environment it inherited"); `tests/installer/run.sh::empty_overrides_count_as_unset`; the `review-*` and `review2-*` cases in `guard.test.ts`; `actor.test.tsx`'s data-root tests ("every run the mod starts names the data root the session started with", and the run with no place, which names `unplaced`).
   - It amends DR-88 (the guard's Bash reading and its read rule for store names).
 - **Sources (checked 2026-10-26):** `packages/mod/src/guard.ts`, `live.ts` and `register.tsx`; `plugin/scripts/planroom` (an empty override is unset); [accepted risk](research/skeleton-review/accepted-risk.md#the-guards-residual-risks-decided).
+
+## DR-91: The contract M1 builds on: cards on the wire, the edit ops, and the redaction marks
+
+- **Status:** accepted (decided at M1's first change, 2026-10-26).
+- **Starting point:** none; it settles details of [Contracts](contracts.md) and AGENTS.md's Logging convention.
+- **Origin:** M1's first change, read against the docs: the contract types M1 builds on (every documented error and warning code, the card event, the pack manifest, the vocabulary, M1's request shapes), the kernel's `resolve` and `fold` signatures, and the redaction marks DR-89 gave a form.
+- **Context:**
+  - DR-89 names a card's own field `kind`, but `EventBody` is tagged on `kind`, so the two would collide in one JSON object.
+  - DR-89's card names its question and why lines by `en.toml` key, and has no place for the values those lines hold, such as an edit count or a date.
+  - contracts.md's first sketch of `EditOp` named a `regroup` op and left out `unrelate`, while architecture.md's CLI table and the design language name `edit group` and `edit unrelate`.
+  - The hand-written redaction list also masked block names, diff hunks and what people are doing, which contracts.md's list of marked fields left out, and a few free-text fields had no decision either way.
+  - AGENTS.md's Logging convention still says `#[redact]`. DR-89 gave the mark its form and changes the convention at M1's first change, and that section is gated.
+- **Decision:**
+  - **A card travels as `card_kind`.** The Rust field stays `kind`; its JSON name is `card_kind`, as a decision record's is `decision_kind`. Its values stay DR-89's open set.
+  - **A card carries `vars`,** a map from name to string holding the values its `question` and `why` lines fill in, left out when empty. The lines stay `en.toml` keys, so the engine renders and sanitizes them at display.
+  - **`EditOp` follows architecture.md's CLI table:** `group`, not `regroup`, and `unrelate` beside `relate`. `set`, `text` and `propose` arrive with the `edit` leaf, which fixes their fields.
+  - **Which fields carry the mark.** Besides contracts.md's list: node and block names, crumbs, mini-blocks, ask and find item names, diff hunks, presence `doing`, a hand-off step's `note`, since a note can quote a test's output, and a card's `vars`, which can name a repo or a pack. Join keys stay unmarked, as `Hint.key` already is: `Edge.via` and `Node.aliases` are keys a later read resolves. An edit's `fields` and `over` stay unmarked until the `edit` leaf gives them types, because a mark on a whole map would mask the IDs in it.
+  - **AGENTS.md's Logging line names the mark and the generated list,** as DR-89 decided: `cargo xtask gen` writes the marked paths into `crates/kernel/src/redact_fields.rs`, and `kernel::redact` masks exactly those fields.
+  - **`Stakes` and `ModelRequestRef` match contracts.md:** `Stakes` is `low | person`, and `ModelRequestRef` is `{ id, purpose, sha256, rerun }`. Nothing ever wrote the code's extra `medium` and `high` or its `est_tokens`, so `schema_version` stays 1.
+- **Alternatives rejected:**
+  - Renaming `EventBody`'s tag: every stored event carries `kind`, and a rename breaks every reader.
+  - Storing a card's rendered question: the event would hold text the engine couldn't render in another language or sanitize at display.
+  - Marking `Edge.via` and `Node.aliases`: they are join keys, and the edge ID hashes `via`.
+  - Keeping `regroup` beside the CLI table's `group`: two names for one op.
+- **Consequences:**
+  - Contracts: `Card.card_kind` and `Card.vars`, marked; `EditOp::Group` and `EditOp::Unrelate`; the marked fields in the redaction paragraph; `evidence_dropped`'s `details {repo, count, items}`.
+  - Conventions: AGENTS.md's Logging line, ratified with the layout lock.
+  - Tests: `crates/contract/tests/schema.rs::every_redacted_field_is_listed`; `crates/contract/src/card.rs`'s round trips; `crates/contract/src/requests.rs::an_edit_parses_from_its_op_and_travels_with_it_flattened`.
+  - It amends DR-89 (the card's wire name and `vars`) and DR-83 (the marked fields).
+- **Sources (checked 2026-10-26):** `crates/contract/src/{card.rs, event.rs, requests.rs, model.rs, view.rs, schema.rs}`; `crates/kernel/src/redact.rs`; [Contracts](contracts.md) (CLI JSON envelope's redaction paragraph, Event model, the requests sketch); [CLI](architecture.md#one-command-catalogue) and [Design language](design-language.md#edit-by-hand) for the edit ops.

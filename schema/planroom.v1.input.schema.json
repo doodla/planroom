@@ -59,6 +59,25 @@
       ],
       "description": "What import did with one row, as `acks/<uid>` lists it."
     },
+    "ActionDecl": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/CommandName"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "description": "The leaf a suggestion runs, with its arguments."
+    },
     "Actor": {
       "oneOf": [
         {
@@ -189,6 +208,107 @@
       "additionalProperties": true,
       "description": "`planroom.answer/v1`: a read request's result, under `answers/<docId>`, or a view the snapshot\nprecomputed. Redacted, within the leaf's budget."
     },
+    "ArgDecl": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "description": "One argument a question takes, such as `X` in `fires-if X`."
+    },
+    "AskItem": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "A node ID, or with `ask` alone a kind, lens or question ID."
+        },
+        "name": {
+          "type": "string",
+          "x-redact": true
+        },
+        "why": {
+          "type": "string",
+          "description": "One line on why the item answers the question."
+        },
+        "handles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Handle"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "why",
+        "handles"
+      ],
+      "description": "One item of an answer."
+    },
+    "AskReq": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The question's arguments, such as the two ends of `path A B`.",
+          "default": []
+        }
+      },
+      "description": "`planroom ask [QUESTION [ARGS]]`: a pack or built-in question; alone, it lists every loaded\nkind, lens and question."
+    },
+    "AskResult": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "description": "The question's ID, such as `unmonitored`."
+        },
+        "summary": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AskItem"
+          }
+        },
+        "empty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Empty"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "question",
+        "summary",
+        "items"
+      ],
+      "description": "What `ask` returns: the answer's summary line and its items, each with the handles that drill\ndown."
+    },
     "Band": {
       "type": "string",
       "enum": [
@@ -218,6 +338,106 @@
         "items"
       ],
       "description": "The items one card applies together."
+    },
+    "BoolCriteria": {
+      "type": "object",
+      "properties": {
+        "true": {
+          "type": "string"
+        },
+        "false": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "true",
+        "false"
+      ],
+      "description": "What a yes and a no mean."
+    },
+    "CacheTtl": {
+      "type": "string",
+      "enum": [
+        "5m",
+        "1h"
+      ],
+      "description": "How long Claude caches a prompt's prefix: 5 minutes, or an hour for person-paced purposes."
+    },
+    "Card": {
+      "type": "object",
+      "properties": {
+        "card_kind": {
+          "$ref": "#/$defs/CardKind",
+          "description": "Sent as `card_kind`, not `kind`, because `kind` is the event body's tag, as with\n`DecisionRecord.decision_kind`."
+        },
+        "subject": {
+          "type": "string",
+          "description": "What the card is about, such as the workspace root or a pack's ID; no second card of one\nkind and subject is dealt while one is open."
+        },
+        "question": {
+          "type": "string",
+          "description": "The `en.toml` key of the card's one-line question."
+        },
+        "why": {
+          "type": "string",
+          "description": "The `en.toml` key of the card's one-line why."
+        },
+        "vars": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The values the question's and why's `{name}`s take, such as a pack's name or an edit count.",
+          "x-redact": true
+        },
+        "stakes": {
+          "$ref": "#/$defs/Stakes"
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Choice"
+          },
+          "description": "2 to 4; each label is an `en.toml` key, as the question is."
+        },
+        "default": {
+          "type": "string",
+          "description": "The ID of the choice that holds while nobody picks."
+        },
+        "dealt_by": {
+          "$ref": "#/$defs/CommandName",
+          "description": "The leaf whose write dealt the card, such as `scan` or `import`."
+        }
+      },
+      "required": [
+        "card_kind",
+        "subject",
+        "question",
+        "why",
+        "stakes",
+        "choices",
+        "default",
+        "dealt_by"
+      ],
+      "description": "One card a write dealt."
+    },
+    "CardKind": {
+      "description": "A card's kind; an open set.",
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "apply",
+            "trust",
+            "pack_source",
+            "restore"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        }
+      ]
     },
     "Category": {
       "type": "string",
@@ -538,7 +758,8 @@
           "$ref": "#/$defs/NodeId"
         },
         "name": {
-          "type": "string"
+          "type": "string",
+          "x-redact": true
         }
       },
       "required": [
@@ -612,6 +833,21 @@
       ],
       "description": "One `db` write, in the shape an `ArtifactData batch` entry takes."
     },
+    "DecisionBudget": {
+      "type": "object",
+      "properties": {
+        "max_calls_per_scan": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Counted per scan event, which its one decide duty run spends, and per explicit\n`decide --run` (DR-65)."
+        }
+      },
+      "required": [
+        "max_calls_per_scan"
+      ],
+      "description": "How many model calls a kind may spend."
+    },
     "DecisionCard": {
       "type": "object",
       "properties": {
@@ -660,6 +896,91 @@
         "person_only"
       ],
       "description": "A decision a person is asked to make."
+    },
+    "DecisionKind": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "A bump invalidates the cache and the eval result."
+        },
+        "subject": {
+          "$ref": "#/$defs/SubjectKind"
+        },
+        "when": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The deterministic precheck, in the filter shape's predicate form.",
+          "default": {}
+        },
+        "group": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Kinds with the same group and subject share one Jev request.",
+          "default": null
+        },
+        "question": {
+          "$ref": "#/$defs/Question"
+        },
+        "slice": {
+          "$ref": "#/$defs/SliceSpec"
+        },
+        "effect": {
+          "$ref": "#/$defs/Effect"
+        },
+        "stakes": {
+          "$ref": "#/$defs/Stakes"
+        },
+        "default": {
+          "description": "The answer that leaves the deterministic result as it is."
+        },
+        "policy": {
+          "$ref": "#/$defs/Policy"
+        },
+        "eval": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Such as `evals/next_action_concrete`.",
+          "default": null
+        },
+        "budget": {
+          "$ref": "#/$defs/DecisionBudget"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Role"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The kernel role this kind serves, if any.",
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "subject",
+        "question",
+        "slice",
+        "effect",
+        "stakes",
+        "default",
+        "policy",
+        "budget"
+      ],
+      "description": "`[[decisions]]` in a pack: one kind of question a model answers about one kind of subject\n(DR-50, DR-63)."
     },
     "DecisionRecord": {
       "type": "object",
@@ -764,7 +1085,8 @@
           "items": {
             "type": "string"
           },
-          "description": "Up to 5, for the first diff only."
+          "description": "Up to 5, for the first diff only.",
+          "x-redact": true
         }
       },
       "required": [
@@ -773,6 +1095,25 @@
         "hunk"
       ],
       "description": "One pending diff."
+    },
+    "DirtyRepo": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string"
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Changed and untracked files `git status` lists, `.gitignore` honoured."
+        }
+      },
+      "required": [
+        "repo",
+        "files"
+      ],
+      "description": "A repo with uncommitted changes: `orders: 3 uncommitted files aren't on the map`."
     },
     "DriftLine": {
       "type": "object",
@@ -834,7 +1175,8 @@
         },
         "props": {
           "type": "object",
-          "additionalProperties": true
+          "additionalProperties": true,
+          "x-redact": true
         },
         "evidence": {
           "type": "array",
@@ -913,11 +1255,431 @@
       ],
       "description": "One operation on one target."
     },
+    "EditReq": {
+      "type": "object",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "parent": {
+              "type": "string",
+              "description": "The new parent."
+            },
+            "op": {
+              "type": "string",
+              "const": "move"
+            }
+          },
+          "required": [
+            "op",
+            "id",
+            "parent"
+          ],
+          "description": "Move a node under another parent: a `set parent` edit."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The group's name."
+            },
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The nodes to move into it."
+            },
+            "op": {
+              "type": "string",
+              "const": "group"
+            }
+          },
+          "required": [
+            "op",
+            "name",
+            "ids"
+          ],
+          "description": "Make a group by hand and move the nodes into it; undoing it removes the group and restores\nevery member's parent together."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "rename"
+            }
+          },
+          "required": [
+            "op",
+            "id",
+            "name"
+          ],
+          "description": "Rename a node."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "hide"
+            }
+          },
+          "required": [
+            "op",
+            "id"
+          ],
+          "description": "Hide a node; a view counts it as hidden, never drops it silently."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "view": {
+              "type": "string",
+              "description": "The view the position belongs to, such as `map:system:all`."
+            },
+            "x": {
+              "type": "number",
+              "format": "double"
+            },
+            "y": {
+              "type": "number",
+              "format": "double"
+            },
+            "op": {
+              "type": "string",
+              "const": "pin"
+            }
+          },
+          "required": [
+            "op",
+            "id",
+            "view",
+            "x",
+            "y"
+          ],
+          "description": "Pin a node's position in one view."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "description": "The relation kind."
+            },
+            "op": {
+              "type": "string",
+              "const": "relate"
+            }
+          },
+          "required": [
+            "op",
+            "from",
+            "to",
+            "kind"
+          ],
+          "description": "Add an intended relation between two nodes."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "description": "The relation kind."
+            },
+            "op": {
+              "type": "string",
+              "const": "unrelate"
+            }
+          },
+          "required": [
+            "op",
+            "from",
+            "to",
+            "kind"
+          ],
+          "description": "Remove an intended relation between two nodes."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "kind": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The relation kind the rule forbids; every kind when absent.",
+              "default": null
+            },
+            "op": {
+              "type": "string",
+              "const": "forbid"
+            }
+          },
+          "required": [
+            "op",
+            "from",
+            "to"
+          ],
+          "description": "Add a boundary rule that forbids a relation between two nodes."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "description": "An event ID or an ID suffix."
+            },
+            "op": {
+              "type": "string",
+              "const": "undo"
+            }
+          },
+          "required": [
+            "op",
+            "event"
+          ],
+          "description": "Undo the command that wrote an event: every event it wrote, together."
+        }
+      ],
+      "description": "`planroom edit OP ...`: one hand edit. An agent's edit is a ghost until a person accepts it.",
+      "properties": {
+        "base": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The `seq` of the view you acted on; required when the command writes user-authored state."
+        },
+        "idem": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The idempotency key; derived from the request when absent."
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The project the write belongs to."
+        }
+      }
+    },
+    "Effect": {
+      "type": "object",
+      "properties": {
+        "on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The answer the effect fires on; every answer when absent.",
+          "default": null
+        },
+        "do": {
+          "$ref": "#/$defs/EffectOp"
+        }
+      },
+      "required": [
+        "do"
+      ],
+      "additionalProperties": true,
+      "description": "What a pick does: one of six kernel effects, with its own parameters, such as\n`{ on = \"false\", do = \"lint\", rule = \"vague_action\" }`."
+    },
+    "EffectOp": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "none",
+            "lint",
+            "set_prop",
+            "put_edge",
+            "retract_edge"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "retarget",
+          "description": "Only on a `rescan.retarget` role subject in a person-stakes kind (DR-63)."
+        }
+      ],
+      "description": "The closed set of kernel effects."
+    },
+    "EmitTemplate": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "node": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "parent": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "props": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "TOML values; captures are coerced to the prop schema's type.",
+              "default": {}
+            },
+            "aliases": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            }
+          },
+          "required": [
+            "node",
+            "key"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "edge": {
+              "type": "string"
+            },
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "via": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "confidence": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float",
+              "description": "1.0 when absent, as for every deterministic tier.",
+              "default": null
+            },
+            "props": {
+              "type": "object",
+              "additionalProperties": true,
+              "default": {}
+            }
+          },
+          "required": [
+            "edge",
+            "from",
+            "to"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "hint": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            },
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "attrs": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {}
+            }
+          },
+          "required": [
+            "hint",
+            "scope",
+            "key"
+          ]
+        }
+      ],
+      "description": "What a declarative extractor emits per match. Values may use `$file`, `$stem`, `$repo`,\n`$line`, `$1`..`$9` and `@capture`. A reference is `@alias:...`, an ID, `@id:KIND:KEY` or\n`@ext:NAME`; a bare path such as `$file` is `pack_invalid`."
+    },
     "Empty": {
       "type": "object",
       "properties": {
         "reason": {
           "$ref": "#/$defs/EmptyReason"
+        },
+        "line": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The one engine-authored line every surface shows for this state, such as \"Map these 3\nrepos? About 2 s.\"; absent where a surface still words it from `reason`."
         },
         "next": {
           "$ref": "#/$defs/Handle"
@@ -1072,6 +1834,19 @@
             "schema_mismatch",
             "pack_invalid",
             "git_failed",
+            "base_required",
+            "actor_required",
+            "stale_write",
+            "already_resolved",
+            "handoff_conflict",
+            "consent_required",
+            "path_refused",
+            "repo_config_refused",
+            "budget_exceeded",
+            "model_unavailable",
+            "git_too_old",
+            "packs_mismatch",
+            "replay_missing",
             "internal"
           ]
         },
@@ -1231,7 +2006,7 @@
             "of",
             "verdict"
           ],
-          "description": "Accepts or rejects a ghost, a conflict or an inferred fact."
+          "description": "Accepts or rejects a ghost, a conflict, an inferred fact or a card."
         },
         {
           "type": "object",
@@ -1336,6 +2111,13 @@
               "minimum": 0,
               "description": "The workspace link snapshot of the active set this scan committed."
             },
+            "renames": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Rename"
+              },
+              "description": "The renames git reports since the repo's last snapshot, files and wholly moved\ndirectories; the fold resolves a vanished edit target through them (DR-74)."
+            },
             "stats": {
               "$ref": "#/$defs/ScanStats"
             },
@@ -1368,6 +2150,20 @@
           ]
         },
         {
+          "$ref": "#/$defs/Card",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "card"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "A card a write dealt; open while no `review` names it (DR-89)."
+        },
+        {
           "description": "A kind a later version added: the raw body, `kind` included, kept as it was read. The fold\nskips it; a read-modify-write or an export writes it back unchanged.",
           "type": "object",
           "required": [
@@ -1386,7 +2182,8 @@
                   "decision",
                   "claim",
                   "scan",
-                  "handoff"
+                  "handoff",
+                  "card"
                 ]
               }
             }
@@ -1413,7 +2210,8 @@
             "decision",
             "claim",
             "scan",
-            "handoff"
+            "handoff",
+            "card"
           ]
         },
         {
@@ -1443,7 +2241,8 @@
                 "null"
               ],
               "description": "The exact line, cut to 200 characters; omitted in a default Artifact snapshot.",
-              "maxLength": 200
+              "maxLength": 200,
+              "x-redact": true
             },
             "commit": {
               "type": [
@@ -1496,6 +2295,100 @@
       ],
       "description": "What a fact was read from, verified at ingest (DR-12)."
     },
+    "ExtractorDecl": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "builtin": {
+              "type": "string"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            },
+            "options": {
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "builtin"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "regex": {
+              "type": "string"
+            },
+            "emit": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/EmitTemplate"
+              }
+            }
+          },
+          "required": [
+            "id",
+            "files",
+            "regex",
+            "emit"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "language": {
+              "type": "string",
+              "description": "A `[[languages]]` ID with a built-in grammar."
+            },
+            "query": {
+              "type": "string",
+              "description": "The path of the `.scm` file, under `queries/`."
+            },
+            "emit": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/EmitTemplate"
+              }
+            }
+          },
+          "required": [
+            "id",
+            "files",
+            "language",
+            "query",
+            "emit"
+          ]
+        }
+      ],
+      "description": "`[[extractors]]`: a built-in, a regex or a tree-sitter query, told apart by which of\n`builtin`, `regex` or `query` it sets."
+    },
     "FactBatch": {
       "type": "object",
       "properties": {
@@ -1546,6 +2439,80 @@
         "partial"
       ],
       "description": "What every extractor and linker returns, sorted by ID."
+    },
+    "FindItem": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/NodeId"
+        },
+        "name": {
+          "type": "string",
+          "x-redact": true
+        },
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "level",
+        "kind"
+      ],
+      "description": "One match, with its level and kind."
+    },
+    "FindReq": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "description": "`planroom find TEXT`: fuzzy search over node names and IDs."
+    },
+    "FindResult": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FindItem"
+          }
+        },
+        "empty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Empty"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "summary",
+        "items"
+      ],
+      "description": "What `find` returns: the matches, best first."
+    },
+    "Flow": {
+      "type": "string",
+      "enum": [
+        "forward",
+        "backward"
+      ],
+      "description": "The direction a lens follows a relation."
     },
     "Focus": {
       "type": "object",
@@ -1653,7 +2620,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-redact": true
         }
       },
       "required": [
@@ -1687,12 +2655,14 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-redact": true
         },
         "attrs": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Scheme, port, path, method, op, driver, default."
+          "description": "Scheme, port, path, method, op, driver, default.",
+          "x-redact": true
         },
         "evidence": {
           "type": "array",
@@ -1716,6 +2686,26 @@
       ],
       "description": "A partial observation a linker joins with others, such as a URL literal or an environment read."
     },
+    "HintDecl": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "attrs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The attribute names the hint carries, such as `scheme`, `port` and `path`.",
+          "default": []
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "description": "`[[hints]]`: a hint kind a linker consumes."
+    },
     "HintRef": {
       "type": "object",
       "properties": {
@@ -1731,6 +2721,27 @@
         "extractor"
       ],
       "description": "A hint a linked edge joined: its ID and the pack-qualified extractor that emitted it."
+    },
+    "ImageRole": {
+      "type": "object",
+      "properties": {
+        "image": {
+          "type": "string",
+          "description": "A glob over the image name."
+        },
+        "role": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "image",
+        "role",
+        "kind"
+      ],
+      "description": "`[[image_roles]]`: a compose image glob's kind and role, such as `redis*` to a queue kind with\nrole `queue`."
     },
     "ImportCounts": {
       "type": "object",
@@ -1993,10 +3004,176 @@
       "additionalProperties": true,
       "description": "`planroom.inbox/v1`: one row a viewer's page writes to `inbox/{self}/events/{docId}`. Import\nvalidates it, and takes the author from the path, never from the body: a field the row doesn't\ndefine, such as a forged `actor`, is ignored."
     },
+    "IntentNextReq": {
+      "type": "object",
+      "properties": {
+        "stage": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The stage to draft; the next one the plan lacks when absent.",
+          "default": null
+        },
+        "base": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The `seq` of the view you acted on; required when the command writes user-authored state."
+        },
+        "idem": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The idempotency key; derived from the request when absent."
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The project the write belongs to."
+        }
+      },
+      "description": "`planroom intent next [--stage S]`: draft a plan stage's items as ghosts."
+    },
+    "ItemType": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The item's `type` prop, such as `next_action`."
+        },
+        "props": {
+          "description": "A JSON Schema fragment.",
+          "default": null
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "description": "One plan item type a stage writes."
+    },
     "Kind": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
       "description": "A kind, `<pack>.<name>`, such as `code.service`, `kernel.group` or `kernel.external`."
+    },
+    "KindDecl": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "id_prefix": {
+          "type": "string",
+          "description": "The ID's kind-short. One pack owns it, except the kernel's `container`, which every\nContainer-level kind uses (DR-46)."
+        },
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "label": {
+          "type": "string"
+        },
+        "parents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "props": {
+          "description": "A JSON Schema fragment the kind's props validate against.",
+          "default": null
+        },
+        "icon": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "tone": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Tone"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A Container-level kind's block color; surfaces style from `MapNode.tone`, never from a kind\nID (DR-46).",
+          "default": null
+        },
+        "empty_text": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "empty_action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "id_prefix",
+        "level",
+        "label"
+      ],
+      "description": "`[[kinds]]`: a node kind."
+    },
+    "LanguageDecl": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "line_comment": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "block_comment": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "The opening and closing marks.",
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "extensions"
+      ],
+      "description": "`[[languages]]`: a language's file extensions and comment forms."
     },
     "LastSeq": {
       "type": "object",
@@ -2136,6 +3313,68 @@
       ],
       "description": "What `schema --command LEAF` returns: the leaf's request and result type names, and every\ndefinition they reference, keyed by name."
     },
+    "LensDecl": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "flow": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Flow"
+          },
+          "description": "The direction each relation flows in; forward when absent.",
+          "default": {}
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The node kinds the lens is about: its map shows their nodes first, and `map --lens` alone\ntakes the lens's level.",
+          "default": []
+        },
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "default": {
+          "type": "boolean",
+          "description": "Two defaults are `pack_invalid`, unless one is the code pack's, which wins.",
+          "default": false
+        },
+        "empty_text": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "empty_action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "relations",
+        "level"
+      ],
+      "description": "`[[lenses]]`: which relationships a view shows (DR-15)."
+    },
     "Level": {
       "type": "string",
       "enum": [
@@ -2187,6 +3426,35 @@
         "children"
       ],
       "description": "Edges lifted to the nearest ancestors at the view's level; `count == children.len()`."
+    },
+    "LinkerDecl": {
+      "type": "object",
+      "properties": {
+        "builtin": {
+          "type": "string"
+        },
+        "options": {
+          "default": null
+        }
+      },
+      "required": [
+        "builtin"
+      ],
+      "description": "`[[linkers]]`: a built-in linker and its options."
+    },
+    "LintReq": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The project to lint; the current one when absent.",
+          "default": null
+        }
+      },
+      "description": "`planroom intent lint [--project P]`: the plan's lint findings."
     },
     "LiveHead": {
       "type": "object",
@@ -2262,7 +3530,8 @@
           "default": null
         },
         "name": {
-          "type": "string"
+          "type": "string",
+          "x-redact": true
         },
         "level": {
           "$ref": "#/$defs/Level"
@@ -2353,9 +3622,20 @@
         "detail": {
           "$ref": "#/$defs/Detail",
           "default": "summary"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The cursor `meta.next` gave, to read the page after it."
         }
       },
-      "description": "`planroom map [--level L] [--lens X] [--focus ID] [--detail summary|graph]`."
+      "description": "`planroom map [--level L] [--lens X] [--focus ID] [--detail summary|graph] [--cursor C]`."
     },
     "MapView": {
       "type": "object",
@@ -2468,6 +3748,13 @@
           "minimum": 0,
           "description": "A replay of a derived key: the original `seq`; pass a new `--idem` to repeat the write."
         },
+        "dirty_repos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DirtyRepo"
+          },
+          "description": "`focus` and `map` only: the repos with uncommitted changes, untracked files included,\nwhich never reach the map."
+        },
         "warnings": {
           "type": "array",
           "items": {
@@ -2506,7 +3793,8 @@
           "$ref": "#/$defs/NodeId"
         },
         "name": {
-          "type": "string"
+          "type": "string",
+          "x-redact": true
         },
         "focused": {
           "type": "boolean"
@@ -2571,23 +3859,37 @@
       "type": "object",
       "properties": {
         "id": {
-          "type": "string"
+          "type": "string",
+          "description": "The request's input hash, which names its file."
         },
         "purpose": {
-          "type": "string"
+          "type": "string",
+          "description": "Such as `plan.stage.outcome`."
         },
-        "est_tokens": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0
+        "sha256": {
+          "type": "string",
+          "description": "The sha256 of the request file; the mod sends the file only when its bytes match."
+        },
+        "rerun": {
+          "$ref": "#/$defs/Handle",
+          "description": "The exact command the mod's broker re-runs once it has fulfilled the request."
         }
       },
       "required": [
         "id",
         "purpose",
-        "est_tokens"
+        "sha256",
+        "rerun"
       ],
       "description": "A model request waiting for the mod (session backend)."
+    },
+    "ModelTier": {
+      "type": "string",
+      "enum": [
+        "cheap",
+        "capable"
+      ],
+      "description": "Which Claude model a call takes: the mod maps `cheap` to Haiku and `capable` to Sonnet."
     },
     "ModelUse": {
       "type": "object",
@@ -2629,7 +3931,8 @@
           "description": "`None` only at the top."
         },
         "name": {
-          "type": "string"
+          "type": "string",
+          "x-redact": true
         },
         "aliases": {
           "type": "array",
@@ -2641,7 +3944,8 @@
         "props": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Validated against the kind's prop schema."
+          "description": "Validated against the kind's prop schema.",
+          "x-redact": true
         },
         "layer": {
           "$ref": "#/$defs/Layer"
@@ -2683,6 +3987,27 @@
       ],
       "description": "The three edit operations."
     },
+    "OptionsFrom": {
+      "type": "object",
+      "properties": {
+        "shape": {
+          "$ref": "#/$defs/Shape"
+        },
+        "params": {
+          "default": null
+        },
+        "max": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "shape",
+        "max"
+      ],
+      "description": "Candidate nodes from a query shape over the subject, at most `max`."
+    },
     "Outcome": {
       "type": "string",
       "enum": [
@@ -2693,6 +4018,145 @@
         "overridden"
       ],
       "description": "What happened with the decision."
+    },
+    "PackFile": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "`planroom.pack/v1`."
+        },
+        "id": {
+          "type": "string",
+          "description": "Lowercase, `[a-z0-9_]`."
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "title": {
+          "type": "string"
+        },
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "A built-in pack: `[]` or `[\"code\"]`; an out-of-tree pack: any built-in packs (DR-62).",
+          "default": []
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LanguageDecl"
+          },
+          "description": "Merged across packs; a duplicate extension is `pack_invalid`.",
+          "default": []
+        },
+        "image_roles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImageRole"
+          },
+          "description": "Merged across packs; a duplicate glob is `pack_invalid`, and overlapping globs take the\nfirst match in load order.",
+          "default": []
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/KindDecl"
+          },
+          "default": []
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RelationDecl"
+          },
+          "default": []
+        },
+        "hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HintDecl"
+          },
+          "description": "A hint kind no loaded linker consumes is `pack_invalid` (DR-9).",
+          "default": []
+        },
+        "extractors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExtractorDecl"
+          },
+          "default": []
+        },
+        "linkers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LinkerDecl"
+          },
+          "default": []
+        },
+        "lenses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LensDecl"
+          },
+          "default": []
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QuestionDecl"
+          },
+          "default": []
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RuleDecl"
+          },
+          "default": []
+        },
+        "decisions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DecisionKind"
+          },
+          "default": []
+        },
+        "suggestions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SuggestionDecl"
+          },
+          "description": "Each action names a leaf that can be undone, isn't a hand-off and never spends (DR-54).",
+          "default": []
+        },
+        "prompts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptDecl"
+          },
+          "default": []
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StageDecl"
+          },
+          "description": "The plan pack only.",
+          "default": []
+        }
+      },
+      "required": [
+        "format",
+        "id",
+        "version",
+        "title"
+      ],
+      "description": "One pack's `pack.toml`."
     },
     "PaneModel": {
       "type": "object",
@@ -2874,6 +4338,47 @@
       ],
       "description": "What `person init` returns: the registered key's fingerprint and when and from where it was\nregistered."
     },
+    "Policy": {
+      "type": "object",
+      "properties": {
+        "auto_at": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "description": "Absent: never auto, and never asks Claude up front.",
+          "default": null
+        },
+        "card_band": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "escalate_band": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "escalate_to": {
+          "$ref": "#/$defs/ModelTier",
+          "default": "capable"
+        }
+      },
+      "required": [
+        "card_band",
+        "escalate_band"
+      ],
+      "description": "When a kind acts on its own, deals a card or asks Claude."
+    },
     "Position": {
       "type": "object",
       "properties": {
@@ -2905,7 +4410,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-redact": true
         },
         "focus": {
           "anyOf": [
@@ -2963,6 +4469,88 @@
         "scan"
       ],
       "description": "The plan stage and the work in flight."
+    },
+    "PromptDecl": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string",
+          "description": "The path of the prompt, under `prompts/`."
+        },
+        "tier": {
+          "$ref": "#/$defs/ModelTier"
+        },
+        "role": {
+          "$ref": "#/$defs/PromptRole"
+        },
+        "output": {
+          "type": "string",
+          "description": "The contract type name the reply validates against."
+        },
+        "ttl": {
+          "$ref": "#/$defs/CacheTtl",
+          "default": "5m"
+        }
+      },
+      "required": [
+        "id",
+        "file",
+        "tier",
+        "role",
+        "output"
+      ],
+      "description": "`[[prompts]]`: a Claude stable prefix the engine sends."
+    },
+    "PromptRole": {
+      "type": "string",
+      "enum": [
+        "infer",
+        "propose"
+      ],
+      "description": "What a prompt's output does: an inferred fact, or a proposal that lands as ghosts."
+    },
+    "ProposeReq": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "The proposal's path, or `-` for stdin, so a proposal writes no file."
+        },
+        "base": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The `seq` of the view you acted on; required when the command writes user-authored state."
+        },
+        "idem": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The idempotency key; derived from the request when absent."
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The project the write belongs to."
+        }
+      },
+      "required": [
+        "file"
+      ],
+      "description": "`planroom intent propose --file F|-`: plan items proposed as ghosts, one batch."
     },
     "Provenance": {
       "oneOf": [
@@ -3101,6 +4689,147 @@
       ],
       "description": "The exact arguments of the Artifact publish the session makes."
     },
+    "Question": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "instructions": {
+              "type": "string"
+            },
+            "criteria": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/BoolCriteria"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "type": {
+              "type": "string",
+              "const": "boolean"
+            }
+          },
+          "required": [
+            "type",
+            "instructions"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "instructions": {
+              "type": "string"
+            },
+            "options": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Static options, ID to label, in the order the pack lists them; empty when\n`options_from` is set.",
+              "default": {}
+            },
+            "options_from": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/OptionsFrom"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "auto_choices": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Static options only; with `options_from` any candidate may auto-act.",
+              "default": []
+            },
+            "type": {
+              "type": "string",
+              "const": "choice"
+            }
+          },
+          "required": [
+            "type",
+            "instructions"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "instructions": {
+              "type": "string"
+            },
+            "levels": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "2 to 10, low to high."
+            },
+            "type": {
+              "type": "string",
+              "const": "score"
+            }
+          },
+          "required": [
+            "type",
+            "instructions",
+            "levels"
+          ]
+        }
+      ],
+      "description": "The question a model answers, by its type."
+    },
+    "QuestionDecl": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArgDecl"
+          },
+          "default": []
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ShapeStep"
+          },
+          "description": "1 to 3; each step's input is the previous step's node set."
+        },
+        "summary": {
+          "type": "string",
+          "description": "The summary line's template."
+        },
+        "budget_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Clamped to 3,000; absent takes `ask`'s 1,500 (DR-21).",
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "steps",
+        "summary"
+      ],
+      "description": "`[[questions]]`: a named pipeline of one to three query shapes."
+    },
     "Ref": {
       "oneOf": [
         {
@@ -3129,6 +4858,60 @@
         }
       ],
       "description": "An edge end: a node ID, or an alias another extractor defines, such as `host:orders`."
+    },
+    "RelationDecl": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "from": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "to": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "label": {
+          "type": "string"
+        },
+        "props": {
+          "description": "A JSON Schema fragment the relation's props validate against.",
+          "default": null
+        },
+        "inferred": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "id",
+        "from",
+        "to",
+        "label"
+      ],
+      "description": "`[[relations]]`: an edge kind."
+    },
+    "Rename": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/NodeId"
+        },
+        "to": {
+          "$ref": "#/$defs/NodeId"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "description": "A rename git reported between two snapshots of one repo: the old and the new ID."
     },
     "ResolverStatus": {
       "type": "object",
@@ -3208,6 +4991,108 @@
         }
       ],
       "description": "When a caller may retry a failed command."
+    },
+    "ReviewReq": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "An event ID or an ID suffix."
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        },
+        "base": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The `seq` of the view you acted on; required when the command writes user-authored state."
+        },
+        "idem": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The idempotency key; derived from the request when absent."
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The project the write belongs to."
+        }
+      },
+      "required": [
+        "id",
+        "verdict"
+      ],
+      "description": "`planroom review ID accept|reject`: accept or reject one ghost, conflict, inferred fact or\ncard."
+    },
+    "Role": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "rescan.retarget",
+          "description": "The fold raises it for an override whose target vanished."
+        },
+        {
+          "type": "string",
+          "const": "reconcile.residual",
+          "description": "The reconciler raises it for a change unit its rules can't place."
+        },
+        {
+          "type": "string",
+          "const": "attach.target",
+          "description": "The intent fold raises it for an accepted plan item with nothing it touches."
+        }
+      ],
+      "description": "A kernel role a pack binds a decision kind to (DR-17, DR-63)."
+    },
+    "RuleDecl": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/RuleType"
+        },
+        "subject": {
+          "type": "string",
+          "description": "The kind the rule checks."
+        },
+        "params": {
+          "default": null
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "subject",
+        "message"
+      ],
+      "description": "`[[rules]]`: a structural lint rule over one kind."
+    },
+    "RuleType": {
+      "type": "string",
+      "enum": [
+        "requires_prop",
+        "requires_edge",
+        "min_children",
+        "covers"
+      ],
+      "description": "The four lint rule types."
     },
     "SampleUse": {
       "type": "object",
@@ -3472,6 +5357,39 @@
       ],
       "description": "The tab's bearer token, kept in `sessionStorage` and sent as `Authorization: Bearer`."
     },
+    "Shape": {
+      "type": "string",
+      "enum": [
+        "node",
+        "find",
+        "neighbors",
+        "path",
+        "why",
+        "filter",
+        "compare",
+        "order",
+        "subgraph",
+        "tree",
+        "machine",
+        "checks"
+      ],
+      "description": "The kernel's twelve query shapes. `kinds`, `stage`, `lint`, `missing` and `drift` are built-in\nquestions the engine serves, not shapes (DR-15)."
+    },
+    "ShapeStep": {
+      "type": "object",
+      "properties": {
+        "shape": {
+          "$ref": "#/$defs/Shape"
+        },
+        "params": {
+          "default": null
+        }
+      },
+      "required": [
+        "shape"
+      ],
+      "description": "One step of a question: a shape and its parameters."
+    },
     "ShareReq": {
       "type": "object",
       "properties": {
@@ -3576,6 +5494,38 @@
       ],
       "description": "The reply's size."
     },
+    "SliceSpec": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "$ref": "#/$defs/Shape"
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "max_tokens": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "query",
+        "max_tokens"
+      ],
+      "description": "The slice of the model a request carries; evidence goes in as path and contains, never line."
+    },
     "Snapshot": {
       "type": "object",
       "properties": {
@@ -3660,14 +5610,57 @@
       "additionalProperties": true,
       "description": "`planroom.snapshot/v1`: what the Artifact page draws with no engine, published as\n`data/snapshot.json`. It passes `kernel::redact`, and holds no evidence `contains` unless\n`share --include-snippets`, and no presence unless `share --include-presence`."
     },
-    "Stakes": {
-      "type": "string",
-      "enum": [
-        "low",
-        "medium",
-        "high"
+    "StageDecl": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ItemType"
+          },
+          "description": "The `kernel.item` types the stage writes."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "The stage's instructions, sent in the uncached tail after the plan pack's shared prefix."
+        },
+        "lint": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The IDs of the lint rules the stage runs.",
+          "default": []
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "items",
+        "prompt"
       ],
-      "description": "How much a wrong pick costs; cards rank by stakes and staleness."
+      "description": "`[[stages]]`: one plan stage (R5)."
+    },
+    "Stakes": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "low",
+          "description": "A model's pick prefills, listed in one batch per kind."
+        },
+        {
+          "type": "string",
+          "const": "person",
+          "description": "Only a person picks: the result deals a card."
+        }
+      ],
+      "description": "How much a wrong pick costs, as a decision kind declares it; cards rank by stakes and\nstaleness (DR-50)."
     },
     "Status": {
       "type": "string",
@@ -3768,6 +5761,54 @@
         }
       ],
       "description": "One frame of the live stream."
+    },
+    "SubjectKind": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "role": {
+              "$ref": "#/$defs/Role"
+            }
+          },
+          "required": [
+            "role"
+          ]
+        }
+      ],
+      "description": "What a decision kind is about: a node or edge kind, or the subjects a kernel role's raiser\nsupplies."
+    },
+    "SuggestionDecl": {
+      "type": "object",
+      "properties": {
+        "when": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "When the suggestion applies, in the filter shape's predicate form.",
+          "default": {}
+        },
+        "text": {
+          "type": "string"
+        },
+        "action": {
+          "$ref": "#/$defs/ActionDecl"
+        },
+        "priority": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Higher ranks first.",
+          "default": 0
+        }
+      },
+      "required": [
+        "text",
+        "action"
+      ],
+      "description": "`[[suggestions]]`: a candidate for the one next action."
     },
     "Surface": {
       "type": "string",
@@ -4122,7 +6163,23 @@
             "workspace_nested",
             "repo_unborn",
             "repo_skipped",
-            "scan_superseded"
+            "scan_superseded",
+            "claimed",
+            "deterministic_fallback",
+            "workspace_untrusted",
+            "config_key_ignored",
+            "inferred_unconfirmed",
+            "cache_regression",
+            "cache_not_applied",
+            "hidden_characters",
+            "outside_touch_points",
+            "scan_changed_under_edit",
+            "stale_page",
+            "model_request_pending",
+            "store_migrated",
+            "temporary_host",
+            "reconcile_paused",
+            "duty_failed"
           ]
         },
         {

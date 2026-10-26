@@ -137,7 +137,7 @@ fn snapshot(store: &Store, root: &Path, req: &ShareReq) -> Result<Snapshot, AppE
     }
     redact::pane(&mut pane);
     let who = who.map(|mut rows| {
-        rows.iter_mut().for_each(|r| r.doing = r.doing.as_deref().map(redact::text));
+        redact::presence(&mut rows);
         rows
     });
     let capabilities =
@@ -157,6 +157,7 @@ fn snapshot(store: &Store, root: &Path, req: &ShareReq) -> Result<Snapshot, AppE
         capabilities,
         unavailable: Empty {
             reason: EmptyReason("not_in_snapshot".into()),
+            line: None,
             next: Handle {
                 command: CommandName("map".into()),
                 args: vec![],

@@ -8,8 +8,8 @@ sha256 = "c5a39aa7ef07f0c8aeec20a30bcefd215fb0d71d703519c7be296d3dc29a64e3"
 record = "DR-79"
 
 ["AGENTS.md Conventions"]
-sha256 = "6864a0b0f915205522947f5205f5ecb717959d3d706258c719807fd1ceb53f51"
-record = "DR-79"
+sha256 = "ab22b68dd0bd02db5f8d40e3a0af99ef28c33da028e085f69c89042c40692797"
+record = "DR-91"
 
 ["area contracts table"]
 sha256 = "39f4aea43a1f636fa70ad159adfccb71e2ceed71441dc6af4362e94c4ac436b5"

@@ -57,6 +57,10 @@ pub struct Meta {
     /// A replay of a derived key: the original `seq`; pass a new `--idem` to repeat the write.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replayed_from: Option<Seq>,
+    /// `focus` and `map` only: the repos with uncommitted changes, untracked files included,
+    /// which never reach the map.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dirty_repos: Vec<DirtyRepo>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<Warning>,
     /// Absent when no model was called.
@@ -88,6 +92,13 @@ pub struct Size {
 #[serde(transparent)]
 pub struct Cursor(pub String);
 
+/// A cursor as `--cursor C` passes it, unchanged.
+impl From<String> for Cursor {
+    fn from(cursor: String) -> Cursor {
+        Cursor(cursor)
+    }
+}
+
 /// Model calls this reply made.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 pub struct ModelUse {
@@ -103,12 +114,25 @@ pub struct Usage {
     pub cost_usd: f64,
 }
 
+/// A repo with uncommitted changes: `orders: 3 uncommitted files aren't on the map`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DirtyRepo {
+    pub repo: String,
+    /// Changed and untracked files `git status` lists, `.gitignore` honoured.
+    pub files: u32,
+}
+
 /// A model request waiting for the mod (session backend).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ModelRequestRef {
+    /// The request's input hash, which names its file.
     pub id: String,
+    /// Such as `plan.stage.outcome`.
     pub purpose: String,
-    pub est_tokens: u32,
+    /// The sha256 of the request file; the mod sends the file only when its bytes match.
+    pub sha256: String,
+    /// The exact command the mod's broker re-runs once it has fulfilled the request.
+    pub rerun: Handle,
 }
 
 /// A failed command's error.
@@ -225,6 +249,10 @@ pub struct Handle {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Empty {
     pub reason: EmptyReason,
+    /// The one engine-authored line every surface shows for this state, such as "Map these 3
+    /// repos? About 2 s."; absent where a surface still words it from `reason`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<String>,
     pub next: Handle,
 }
 

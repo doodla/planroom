@@ -10,7 +10,10 @@ use std::process::ExitCode;
 
 use xtask::report::Report;
 use xtask::tools::{self, Tool};
-use xtask::{areas, boundaries, canvas, docs, fixture, generate, layout, modgen, plugin, util, workflows};
+use xtask::{
+    areas, boundaries, canvas, docs, features, fixture, generate, layout, modgen, plugin, testrun, util,
+    workflows,
+};
 
 const USAGE: &str = "\
 usage: cargo xtask <command>
@@ -183,9 +186,8 @@ const E2E_FIXTURE: &str = "target/e2e/fixture/shop";
 
 /// The steps repo-layout.md puts in `check` that nobody has built yet, with the milestone that
 /// builds each (architecture.md, Milestones; DR-85).
-const CHECK_NOT_BUILT: [(&str, &str); 6] = [
+const CHECK_NOT_BUILT: [(&str, &str); 5] = [
     ("breaking-change guard over schema/baseline/", "M1"),
-    ("feature_list_is_complete", "M1"),
     ("secret scan over tests/replay/ and docs/evidence/", "M1"),
     ("release_pins", "M1"),
     ("docs tests (links, prose rules, CLI reference)", "M5"),
@@ -234,6 +236,15 @@ fn check(root: &Path, r: &mut Report) {
             "run the step through cargo xtask, or install the tool from xtask (crates/xtask/src/tools.rs)",
         ),
         Err(e) => r.failed("ci_runs_only_xtask", &e, "fix the error above"),
+    }
+    match features::problems(root) {
+        Ok(p) if p.is_empty() => r.ok("feature_list_is_complete"),
+        Ok(p) => r.failed(
+            "feature_list_is_complete",
+            &p.join("\n"),
+            "point each listed test at the test that runs it, or tag it in the entry's `due` with the milestone that builds it",
+        ),
+        Err(e) => r.failed("feature_list_is_complete", &e, "fix feature_list.json"),
     }
     for (name, milestone) in CHECK_NOT_BUILT {
         r.not_built(name, milestone);
@@ -489,6 +500,19 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>, filter: Option<&str>) 
             }
         }
     }
+    // A filter that matches nothing fails here, so a mistyped name never reports `ok`.
+    if let (Some(k), Some(f)) = (krate, filter) {
+        let name = format!("test filter `{f}` in {k}");
+        match util::capture(root, "cargo", &testrun::list_args(k, f)) {
+            Ok(listing) => match testrun::unmatched(k, f, &listing) {
+                Some(why) => {
+                    return r.failed(&name, &why, "check the name, or run the crate's tests with no filter");
+                }
+                None => r.ok(&format!("{name} ({} tests)", testrun::listed(&listing))),
+            },
+            Err(e) => return r.failed(&name, &e, "fix the build errors above"),
+        }
+    }
     let nextest = tools::ensure(root, Tool::Nextest);
     if nextest.is_ok() {
         // A failing test's output comes at the end, so a CI log's tail shows why it failed.
@@ -498,7 +522,7 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>, filter: Option<&str>) 
             "--locked",
             "--no-fail-fast",
             "--no-tests",
-            "pass",
+            testrun::no_tests(filter),
             "--failure-output",
             "final",
         ];

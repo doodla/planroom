@@ -141,7 +141,9 @@ pub struct ErrorObject {
 pub struct Warning { pub code: WarningCode, pub message: String, pub details: serde_json::Value }
 
 pub struct Handle { pub command: CommandName, pub args: Vec<String>, pub label: String }   // an exact invocation
-pub struct Empty  { pub reason: EmptyReason, pub next: Handle }                          // no blank states
+pub struct Empty  { pub reason: EmptyReason, pub line: Option<String>, pub next: Handle } // no blank states; line: the one
+                                             // engine-authored line every surface shows, omitted where a surface still words it
+pub struct DirtyRepo { pub repo: String, pub files: u32 }                                // files: the count git status lists
 pub struct Listing<T> { pub summary: String, pub items: Vec<T>, pub empty: Option<Empty> }
 ```
 
@@ -180,7 +182,7 @@ No level or view is blank: an empty one carries an `Empty`, whose `next` runs to
 | `nothing_mapped` | the top of the map after a scan found nothing to map, while a repo with a commit could be mapped | `scan ROOT` (DR-85, DR-87) |
 | `not_in_snapshot` | the Artifact's request state for a view the snapshot doesn't hold | the read request row (DR-77) |
 
-Redaction is by field [DR-64]. A field that holds repo-derived free text carries the `#[redact]` mark, `#[schemars(extend("x-redact" = true))]`, in `crates/contract/src/`: `Evidence.contains`, `Hint.value` and `Hint.attrs`, the string values of `Node.props` and `Edge.props`, `ContextExcerpt.excerpt`, `RunStep::Command.output_excerpt`, the `stderr` in `git_failed`'s `details`, and prompt text. `cargo xtask gen` writes the marked field paths into `crates/kernel/src/redact_fields.rs`, and `kernel::redact` masks secrets in exactly those fields on every output path [DR-89], CLI text and `--json` included. It never touches an ID, a handle, a cursor or a hash. `PLANROOM_RAW=1` turns it off for the truth comparator alone, and only on a read command's `--json` stdout: model requests, session request files, the snapshot, `live/head`, acks, tool results and logs stay redacted whatever it says. The mod's guard denies that variable to agents (DR-75).
+Redaction is by field [DR-64]. A field that holds repo-derived free text carries the `#[redact]` mark, `#[schemars(extend("x-redact" = true))]`, in `crates/contract/src/`: `Evidence.contains`, `Hint.value` and `Hint.attrs`, `Node.name`, the string values of `Node.props` and `Edge.props`, the names a view shows (`MapNode.name`, `Crumb.name`, `MiniBlock.name`, `AskItem.name`, `FindItem.name`), `DiffLine.hunk`, `PresenceRow.doing`, `HandoffStep.note` (a note can quote a test's output) and `Card.vars` (the names a card's lines fill in) [DR-91]; and, as their types land, `ContextExcerpt.excerpt`, `RunStep::Command.output_excerpt`, the `stderr` in `git_failed`'s `details`, and prompt text. `cargo xtask gen` writes the marked field paths into `crates/kernel/src/redact_fields.rs`: for each output type that holds a marked field, the paths from it to each one, such as `MapView`'s `nodes[].name` (`.` joins fields, `[]` is an array's items, `{}` a map's values). `kernel::redact` masks secrets in every string under exactly those fields, keys excepted, on every output path [DR-89], CLI text and `--json` included. `contract/tests/schema.rs::every_redacted_field_is_listed` checks that every mark is listed and that none is on an ID. It never touches an ID, a handle, a cursor or a hash; join keys such as `Hint.key`, `Edge.via` and `Node.aliases` stay unmarked, and an edit's `fields` and `over` stay unmarked until the `edit` leaf gives them types [DR-91]. `PLANROOM_RAW=1` turns it off for the truth comparator alone, and only on a read command's `--json` stdout: model requests, session request files, the snapshot, `live/head`, acks, tool results and logs stay redacted whatever it says. The mod's guard denies that variable to agents (DR-75).
 
 ### Error codes
 
@@ -227,7 +229,7 @@ A code that only a person can clear has retry `never` and names the card or comm
 | `claimed` | the target is claimed by someone else; `details {by, until}` |
 | `truncated` | the result hit its budget; the summary and first page are kept. For `map`, `details {kept, total, budget_tokens, next}`, where `next` is the drill-down handle in [Token budgets](architecture.md#token-budgets-s7) (DR-85). From the CLI's check of a whole reply against its leaf's budget, `details {budget_tokens, left_out, codes}`: `left_out` counts the warnings it left out after those it kept in order, and `codes` counts them by code. A result that passes the budget alone keeps only the leaf's own `truncated` warning and leaves out every other, so `left_out` counts them all. Only the message marks that case: it says the reply passes its budget (DR-86) |
 | `unresolved_ref` | an alias or a linker join had zero or several candidates; no edge was made |
-| `evidence_dropped` | an evidence item failed verification at ingest |
+| `evidence_dropped` | an evidence item failed verification at ingest; `details {repo, count, items}`, where `items` is a sample of the dropped items |
 | `partial_parse` | files parsed with error nodes, so their facts are weak; `details {repo, count, paths}`, where `paths` is a sample: the first 10 in sorted order (DR-86) |
 | `partial_scan` | an extractor reached its file or byte bound, or a partial clone lacks blobs, which a scan never fetches; `details {extractor, repo, count, uncovered}`, where `count` counts every uncovered file and `uncovered` is a sample: the first 10 in sorted order (DR-86) |
 | `deterministic_fallback` | no model was reachable, allowed or within budget; deterministic tiers, `low` kinds keep their default and cards pre-select it |
@@ -301,6 +303,35 @@ pub struct WriteCommon {                     // flattened into every write reque
                                              // ID from PLANROOM_ACTOR, or cli:<pid> for a person at a terminal (DR-60)
     pub project: Option<NodeId>,
 }
+
+// crates/contract/src/requests.rs: the M1 leaves' requests and results; a target is an ID, an ID suffix or a name
+pub struct MapReq { pub level: Option<Level>, pub lens: Option<String>, pub focus: Option<String>, pub detail: Detail,
+                    pub cursor: Option<Cursor> }             // in command.rs; cursor: meta.next of the page before
+pub struct EditReq { #[serde(flatten)] pub op: EditOp, #[serde(flatten)] pub common: WriteCommon }
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum EditOp {                            // a clap subcommand: `edit [--base SEQ] OP ...`
+    Move { id: String, parent: String },
+    Group { name: String, ids: Vec<String> },               // a group made by hand; one undo removes it and restores every parent
+    Rename { id: String, name: String },
+    Hide { id: String },
+    Pin { id: String, view: String, x: f64, y: f64 },       // pos@VIEW
+    Relate { from: String, to: String, kind: String },      // an intended relation
+    Unrelate { from: String, to: String, kind: String },    // removes an intended relation
+    Forbid { from: String, to: String, kind: Option<String> },  // a boundary rule; every kind when None
+    Undo { event: String },
+    // `set`, `text` and `propose` (architecture.md's CLI table) arrive with the `edit` leaf
+}
+pub struct ReviewReq { pub id: String, pub verdict: Verdict, #[serde(flatten)] pub common: WriteCommon }
+pub struct IntentNextReq { pub stage: Option<String>, #[serde(flatten)] pub common: WriteCommon }
+pub struct ProposeReq { pub file: String /* a path or - */, #[serde(flatten)] pub common: WriteCommon }
+pub struct LintReq { pub project: Option<String> }
+pub struct AskReq { pub question: Option<String>, pub args: Vec<String> }
+pub struct AskResult { pub question: String, pub summary: String, pub items: Vec<AskItem>, pub empty: Option<Empty> }
+pub struct AskItem { pub id: String /* a node, or with ask alone a kind, lens or question */, pub name: String,
+                     pub why: String, pub handles: Vec<Handle> }
+pub struct FindReq { pub text: String }
+pub struct FindResult { pub summary: String, pub items: Vec<FindItem>, pub empty: Option<Empty> }
+pub struct FindItem { pub id: NodeId, pub name: String, pub level: Level, pub kind: Kind }
 ```
 
 | Leaf | Idea | Actor | Class | Tool |
@@ -542,14 +573,17 @@ pub enum EventBody {
     Card(Card),                                             // a card a write dealt; open while no Review names it (DR-89)
 }
 
-pub struct Card {                            // fills a DecisionCard; person_only is true for every kind M1 deals (DR-89)
-    pub kind: String,                        // an open set: apply | trust | pack_source | restore
+pub struct Card {                            // crates/contract/src/card.rs; fills a DecisionCard; person_only is true for every
+                                             // kind M1 deals (DR-89)
+    #[serde(rename = "card_kind")]           // not `kind`, the event body's tag, as with DecisionRecord.decision_kind
+    pub kind: CardKind,                      // an open set: apply | trust | pack_source | restore
     pub subject: String,                     // what the card is about; one open card per kind and subject
     pub question: String, pub why: String,   // en.toml keys
-    pub stakes: Stakes,
-    pub choices: Vec<Choice>,
-    pub default: String,                     // the choice that holds while nobody picks
-    pub dealt_by: String,                    // the command whose write dealt it: import or scan
+    pub vars: BTreeMap<String, String>,      // the values their {name}s take; omitted when empty
+    pub stakes: Stakes,                      // Low | Person
+    pub choices: Vec<Choice>,                // each label an en.toml key
+    pub default: String,                     // the ID of the choice that holds while nobody picks
+    pub dealt_by: CommandName,               // the leaf whose write dealt it: import or scan
 }
 
 pub struct Edit {
@@ -684,7 +718,7 @@ pub struct PackFile {
     #[serde(default)] pub stages: Vec<StageDecl>,      // plan pack only
 }
 pub struct LanguageDecl { pub id: String, pub extensions: Vec<String>, pub line_comment: Option<String>,
-                          pub block_comment: Option<(String, String)> }
+                          pub block_comment: Option<[String; 2]> }
 pub struct ImageRole { pub image: String /* glob */, pub role: String, pub kind: String }
 pub struct KindDecl { pub id: String, pub id_prefix: String /* the ID's kind-short; owned by one pack, except the kernel's
                                                                   "container", which every Container-level kind uses */,
@@ -695,12 +729,14 @@ pub struct KindDecl { pub id: String, pub id_prefix: String /* the ID's kind-sho
                       pub empty_text: Option<String>, pub empty_action: Option<String> }
 pub struct RelationDecl { pub id: String, pub from: Vec<String>, pub to: Vec<String>, pub label: String,
                           pub props: Value /* JSON Schema fragment */, pub inferred: bool }
-pub enum ExtractorDecl {
+pub struct HintDecl { pub id: String, pub attrs: Vec<String> /* the attribute names it carries */ }
+pub enum ExtractorDecl {                     // untagged: told apart by which of builtin, regex or query it sets
     Builtin { id: String, builtin: String, files: Vec<String>, options: Value },
     Regex   { id: String, files: Vec<String>, regex: String, emit: Vec<EmitTemplate> },
-    Query   { id: String, files: Vec<String>, language: Language, query: String /* path to .scm */, emit: Vec<EmitTemplate> },
+    Query   { id: String, files: Vec<String>, language: String /* a [[languages]] ID */, query: String /* path to .scm */,
+              emit: Vec<EmitTemplate> },
 }
-pub enum EmitTemplate {                      // values may use $file, $stem, $repo, $line, $1..$9, @capture
+pub enum EmitTemplate {                      // untagged, by node, edge or hint; values may use $file, $stem, $repo, $line, $1..$9, @capture
     Node { node: String, key: String, name: Option<String>, parent: Option<String> /* a ref, as `to` */,
            props: BTreeMap<String, Value>, aliases: Vec<String> },   // TOML values; captures coerced to the prop schema's type
     Edge { edge: String, from: String /* a ref, as `to` */, to: String /* @alias:..., an ID, @id:KIND:KEY, or @ext:NAME */,
@@ -717,6 +753,8 @@ pub struct LensDecl { pub id: String, pub label: String, pub relations: Vec<Stri
                       pub empty_text: Option<String>, pub empty_action: Option<String> }
 pub struct QuestionDecl { pub id: String, pub args: Vec<ArgDecl>, pub steps: Vec<ShapeStep> /* 1 to 3 */,
                           pub summary: String, pub budget_tokens: Option<u32> /* clamped to 3,000; None takes ask's 1,500 (DR-21) */ }
+pub struct ArgDecl { pub name: String /* "X" in fires-if X */, pub optional: bool }
+pub struct ShapeStep { pub shape: Shape, pub params: Value }
 pub enum Shape { Node, Find, Neighbors, Path, Why, Filter, Compare, Order, Subgraph, Tree, Machine, Checks }
 // kinds, stage, lint, missing and drift are built-in questions the engine serves, not shapes; no pack declares one (DR-15)
 pub struct RuleDecl { pub id: String, pub kind: RuleType /* RequiresProp | RequiresEdge | MinChildren | Covers */,
@@ -728,6 +766,22 @@ pub struct ItemType { pub id: String /* the kernel.item type: "next_action" */, 
 pub struct PromptDecl { pub id: String, pub file: String, pub tier: ModelTier /* Cheap | Capable */,
                         pub role: PromptRole /* Infer | Propose */, pub output: String /* a contract type name */,
                         pub ttl: CacheTtl /* M5 (default) | H1 for person-paced purposes */ }
+pub struct SuggestionDecl { pub when: Predicate /* the filter shape's predicate, as a decision kind's when */,
+                            pub text: String, pub action: ActionDecl, pub priority: u32 /* higher ranks first */ }
+pub struct ActionDecl { pub command: CommandName, pub args: Vec<String> }
+```
+
+The loader turns the loaded packs into one `Vocabulary` (`crates/contract/src/vocab.rs`), in load order, with every ID qualified as `<pack>.<name>`. It is what the kernel's resolution and fold read, so the kernel learns a kind only from it:
+
+```rust
+pub struct Vocabulary { pub kinds: Vec<KindVocab>, pub relations: Vec<RelationVocab>, pub lenses: Vec<LensVocab>,
+                        pub suggestions: Vec<SuggestionDecl> }
+pub struct KindVocab { pub kind: Kind, pub level: Level, pub id_prefix: String, pub label: String, pub props: Value,
+                       pub tone: Option<Tone> }
+pub struct RelationVocab { pub kind: Kind, pub label: String, pub from: Vec<Kind>, pub to: Vec<Kind>, pub props: Value,
+                           pub inferred: bool }
+pub struct LensVocab { pub id: String, pub label: String, pub relations: Vec<Kind>, pub flow: BTreeMap<Kind, Flow>,
+                       pub kinds: Vec<Kind>, pub level: Level, pub default: bool }
 ```
 
 ### Pack test layout
@@ -794,7 +848,7 @@ pub enum Question {
     Score   { instructions: String, levels: Vec<String> },             // 2 to 10, low to high
 }
 pub struct Policy { pub auto_at: Option<f64> /* None: never auto, never asks Claude up front */,
-                    pub card_band: (f64, f64), pub escalate_band: (f64, f64), pub escalate_to: ModelTier }
+                    pub card_band: [f64; 2], pub escalate_band: [f64; 2], pub escalate_to: ModelTier }
 
 pub struct DecisionRecord {                  // the body of a decision event
     pub decision_kind: String,               // not `kind`: `kind` is the event body's serde tag
@@ -1171,7 +1225,7 @@ Owned by Claude Code. Users install from the release line the README names: a ma
 
 These aren't product contracts, but tools and reviewers read them, so their shape is fixed here.
 
-- **`budgets.json`** (hand-ratcheted): `{ "<scenario>.<question>": { "tool_tokens": N, "tool_result_tokens": N, "chat_proxy": N, "claude": { "prompt_total": N, "output": N, "cache_hit_rate": F } }, "fold.20k": { "ms": N }, "fold.50k": { "ms": N }, "surface": { "tools": N, "section": N, "skills_and_agents": N, "skill_bodies": { "<skill>": N } }, "room_text": N, "recorded": { "<scenario>.<question>": { "chat_prompt": N, "chat_output": N, "chat_cache_hit_rate": F, "measured_by": "cargo xtask live evidence S02" }, "token_ratio": F } }`. CI gates every number outside `recorded`; `chat_proxy`, an S2 question's projected chat input (the always-on surface, the skill bodies its path loads and its tool results), is one of them. `recorded` changes only with the command it names [DR-51], and that command refuses a value more than 20% above the old one, or a hit rate more than 0.1 lower, unless the commit adds a decision record (DR-65). `cargo xtask gen --budgets` never writes this file: it writes `target/budgets.measured.json` and prints the diff. A person lowers a number by hand; a commit that raises a gated one must add a decision record (DR-59). A raise is a larger value for a key the file already holds; a new key isn't a raise and needs no record (DR-89).
+- **`budgets.json`** (hand-ratcheted): `{ "<scenario>.<question>": { "tool_tokens": N, "tool_result_tokens": N, "chat_proxy": N, "claude": { "prompt_total": N, "output": N, "cache_hit_rate": F } }, "fold.20k": { "ms": N }, "fold.50k": { "ms": N }, "surface": { "tools": N, "section": N, "skills_and_agents": N, "skill_bodies": { "<skill>": N } }, "room_text": N, "recorded": { "<scenario>.<question>": { "chat_prompt": N, "chat_output": N, "chat_cache_hit_rate": F, "measured_by": "cargo xtask live evidence S02" }, "token_ratio": F } }`. CI gates every number outside `recorded`; `chat_proxy`, an S2 question's projected chat input (the always-on surface, the skill bodies its path loads and its tool results), is one of them. `recorded` changes only with the command it names [DR-51], and that command refuses a value more than 20% above the old one, or a hit rate more than 0.1 lower, unless the commit adds a decision record (DR-65). `cargo xtask gen --budgets` never writes this file: it writes `target/budgets.measured.json` and prints the diff. A person lowers a number by hand; a commit that raises a gated one must add a decision record (DR-59). A raise is a larger value for a key the file already holds; a new key isn't a raise and needs no record (DR-89). A key that holds no number yet is `{}` (an object of numbers) or `null` (a number), and its first number isn't a raise: M1 creates the file with every key above that it gates and none of their numbers, which arrive with the checks that measure them.
 - **`layout.lock`** (written by `cargo xtask gen --layout-lock DR-n`): TOML with the generated header, one table per gated surface, `["<surface>"]` with `sha256 = "..."` and `record = "DR-n"` (DR-83), one per gated surface: `boundaries.toml`, the workspace-crate dependency graph, the top-level directory list, each package's `exports` and its dependency names (never their versions, so a Dependabot bump needs no record), the area contracts table in `repo-layout.md`, parsed so formatting doesn't count, and the Boundaries and Conventions sections of `AGENTS.md` (DR-59, DR-70). Each `record` names a record heading that appears once in `decisions.md`; the first lock names DR-79 for every surface (DR-81).
 - **`schema/baseline/`**: copies of both schema views at the last `schema_version` bump, or before any, at the commit that added them. `cargo xtask gen --schema-baseline` writes them, and the breaking-change guard reads them (DR-59).
 - **`docs/evidence/spend.jsonl`** (appended, committed): one line per live call, the `sample` calls an import prices included, `{ "at", "generation_id", "provider", "model", "cost_usd", "scenario" }`, where `provider` is `jev`, `gateway`, `typesafe` or `sample`. The walking skeleton seeds it with Phase 1's live spend, `scenario` `phase1`. It is written only through the absolute path `cargo xtask` sets, under `spend.jsonl.lock` (DR-65).
