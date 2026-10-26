@@ -1,0 +1,10 @@
+# The checks that may print `skipped` under CI=true. Every other skipped check fails in CI
+# (repo-layout.md, The one task entry point; DR-79). Each entry names the check as its report line
+# prints it, the reason, and the decision record that approved the skip:
+#
+# [[skip]]
+# check = "the step's name"
+# reason = "why it can't run in CI"
+# record = "DR-n"
+#
+# None today: CI installs what each step needs (crates/xtask/src/tools.rs).
