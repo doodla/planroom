@@ -109,7 +109,7 @@ impl Extractor for Compose {
                 batch.partial.push(PartialFile { path: full, errors: 1 });
                 continue;
             };
-            let doc = match yaml::parse(&text) {
+            let doc = match yaml::parse(text) {
                 Ok(mut docs) if !docs.is_empty() => docs.swap_remove(0),
                 _ => {
                     batch.partial.push(PartialFile { path: full, errors: 1 });
@@ -119,7 +119,7 @@ impl Extractor for Compose {
             let Some(services) = doc.get("services").and_then(Yaml::entries) else {
                 continue;
             };
-            let ctx = Ctx { repo, path: full, text: &text };
+            let ctx = Ctx { repo, path: full, text };
             if !tooling_done {
                 tooling_done = true;
                 let at =
