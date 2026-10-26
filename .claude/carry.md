@@ -3,11 +3,10 @@
 Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `ccr-b124f0e3-xnzjca`; push with `git push -u origin ccr-b124f0e3-xnzjca`.
 
 ## Where I am
-- Phases 1-3 DONE. Phase 4 skeleton DONE and live. Review round 1 DONE (DR-85, README). CI run 70 green.
-- Review ROUND 2 triaged: 16 material = 12 defects (round2-*.json committed). tests-r2-1 fixed in plan (map paging into M1 S1 slice, M1 121 h, 71bd6ff). Track map for README rows: scratchpad/tracks2.json.
-- Fixing round 2: wf_86ae4359-6d1 (SCAN2 track/r2-scan: key incl. repo set, no branch in facts, stale scan can't move back, no lazy fetch, per-repo outcomes; BUDGET2 track/r2-budget: warnings capped, whole-reply budget check, schema --command and share within budget) and wf_8b2a4ca7-639 (GUARD2 track/r2-guard: Bash writeDenied, recursive reads of guarded parents, generated Envelope/VersionInfo/ResolverStatus in mod, resolver sha check; CANVAS2 track/r2-canvas: 44px lid, no blank sheet).
-- Then: merge (merge-track skill), DR-86 (round 2 decisions; amends DR-85's "no meta.next until M2"), README round 2 section with fix commits, progress log, then ROUND 3 (last; then accepted-risk.md), then M1.
-- M1 plan: tracks K, X (dirty signal untracked; cross-repo join into linkers), P, A (fs check), M (map --focus), C, G (S1 path + map paging, gates incl. not-built ones). Default excludes for fixture/test-data trees.
+- Phases 1-3 DONE. Phase 4 skeleton DONE and live. Review rounds 1 and 2 DONE and merged (DR-85, DR-86; README has both rounds with fix commits). Full suite green on 492bb69; unborn repo maps nothing (11fe179). Pushed.
+- Running: DR-86 docs fold + checker (wf_a71b0977-635, branch track/docs-dr86). Then merge it, fix checker findings.
+- Next: ROUND 3 (the last): regenerate r2a/r2b scripts (scratchpad) as r3 with the new commit, "Round 3" paragraph naming both rounds; triage --round 3; fix material; then accepted-risk.md (round 3's fixes un-reviewed; what stays open), progress log, close task #10 and #11; then M1 (#12).
+- M1 plan: tracks K, X (dirty signal untracked; cross-repo join into linkers, then per-repo keys), P, A (fs check), M (map --focus), C, G (S1 path + map paging, gates incl. not-built ones). Default excludes for fixture/test-data trees.
 - Skills: merge-track, review-round. Lesson: chain check && test && push; kill own PIDs only.
 
 ## Gotchas
