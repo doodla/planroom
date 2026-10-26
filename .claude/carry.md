@@ -12,7 +12,8 @@ Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `c
 - Art done in docs/art/ (Iris, $0.27): logo, hero, social-base (wordmark overlay later), 3 empty states. Plugin icon = logo (512-2048 px PNG at plugin/.claude-plugin/icon.png).
 - Design language: docs/contributing/design-language.md (planning table).
 - Phase 3 round 1 done: 102 findings, 49 material upheld (records + my owner decisions D1-D21 in docs/contributing/research/arch-review/round-1/). Fix workflow wf_170682f9-3d0 running (kernel -> security -> surfaces -> consistency). Then round 2 review (all 9 lenses, fresh), max 3 rounds.
-- Skeleton WS1+WS2 agent running in a worktree (.claude/worktrees/); merge after checking against round-1 decisions (e.g. budgets ratchet, data root, all CI via xtask, mod test harness).
+- WS1+WS2 merged (3cd4e66): xtask check/test green (verified). Gaps: cargo-deny never run locally; e2e/installer/release jobs are if:false stubs; layout gate, release pins, secret scan, catalogue.ts not built yet.
+- After fix workflow: apply skeleton doc notes: repo-layout self-test step 4 path + not-to-unresolvable; contracts EventBody tag -> DecisionRecord.decision_kind; repo-layout Conventions -> link AGENTS.md; AGENTS.md attribution wording; record actual pins in DR-39/40.
 - All WS assumptions A-1..A-4, A-8..A-11 settled (progress.md).
 - Docs style rules (bind README/docs/CONTRIBUTING/SECURITY): `docs/contributing/research/iris-release-bar.md` sec 4.
 
