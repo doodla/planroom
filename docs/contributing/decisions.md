@@ -97,6 +97,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 81 | What the walking skeleton's engine and plugin tracks settled | Store: events carry an idempotency key; Repo layout: boundary checks; Remote mode | extended | walking skeleton (ENGINE and PLUGIN tracks), main agent |
 | 82 | What the walking skeleton's serve, canvas and mod tracks settled | Actors: person actions are signed; Surfaces read one contract; Repo layout: package dependencies | extended | walking skeleton (ENGINE-2, CANVAS and MOD-2 tracks), main agent |
 | 83 | What the walking skeleton's gates, remote slice and platform checks settled | Repo layout: boundary checks; Remote mode; the release model | extended | walking skeleton (GATES and REMOTE tracks, CI, WS7, WS8), main agent |
+| 84 | The umbrella skill is `planroom`, so the mod can own `/room` | Plugin: skills, agents and the mod ship as one plugin | extended | walking skeleton (live mod run), main agent |
 
 ## Judge disagreements and how they were resolved
 
@@ -2059,3 +2060,22 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It changes no gated surface beyond what the first lock records.
   - It amends DR-39, DR-52, DR-55, DR-56, DR-67, DR-70, DR-75, DR-78, DR-79 and DR-81.
 - **Sources (checked 2026-10-26):** `research/ws7-remote.md`, `research/ws8-install.md`; the GATES and REMOTE merge notes in `progress.md`; CI runs 36 to 46 on `ccr-b124f0e3-xnzjca`; RUSTSEC-2026-0386; `crates/planroom/src/app/{share,import}.rs`; `crates/xtask/src/{layout,tools,plugin}.rs`.
+
+## DR-84: The umbrella skill is `planroom`, so the mod can own `/room`
+
+- **Status:** accepted (decided by the main agent when the mod first ran live, 2026-10-26).
+- **Starting point:** extended "Plugin: skills, agents and the mod ship as one plugin".
+- **Origin:** the walking skeleton's live run of the mod in the build session.
+- **Context:** Loaded live, the mod's `session.start` threw at `$.command.register({ name: "room" })`. The host refused the command because the plugin's own `room` skill already claims `/planroom:room`, and the refusal skipped the whole start: no engine, no pane, no tools that work. `claude plugin test` mocks `command.register`, so the harness never showed it.
+- **Decision:**
+  - The umbrella skill is named `planroom` (`plugin/skills/planroom/SKILL.md`). `/room` stays the mod's one command family [DR-77]. `room-plan` and `room-handoff` keep their names, since no mod command has them.
+  - The plugin layout check refuses a skill whose name equals a command the mod registers. Its list of the mod's commands sits beside the check, with a pointer to `register.tsx`.
+- **Alternatives rejected:**
+  - Renaming the mod's command: `/room` is the design's one command family, in every key count and guide.
+  - Registering the command under another name only where the skill exists: two names for one thing.
+- **Consequences:**
+  - Layout: `plugin/skills/planroom/`.
+  - Tests: `cargo xtask check`'s plugin layout step.
+  - Users: none see the skill, which is `user-invocable: false`.
+  - It amends DR-30 and DR-57, where they name the `room` skill.
+- **Sources (checked 2026-10-26):** the host's refusal in this session, "`$.command.register`: "/room" refused: it is the plugin's /planroom:room"; `packages/mod/src/register.tsx`; `crates/xtask/src/plugin.rs`.

@@ -6,7 +6,7 @@ user-invocable: false
 
 # Hand-offs
 
-Load the `room` skill first for how to call Planroom. Code changes go through a hand-off, never through edits in chat.
+Load the `planroom` skill first for how to call Planroom. Code changes go through a hand-off, never through edits in chat.
 
 ## The loop
 

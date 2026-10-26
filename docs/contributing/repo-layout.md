@@ -65,7 +65,7 @@ planroom/
 │   ├── hooks/                       GENERATED, the whole directory [DR-79]: hooks.json, {"modules": ["./planroom-mod.js"]},
 │   │                                and planroom-mod.js, the bundle of packages/mod
 │   ├── types/index.d.ts             GENERATED $.state contract; the directory holds nothing else
-│   ├── skills/room/  skills/room-plan/  skills/room-handoff/    SKILL.md each, user-invocable: false
+│   ├── skills/planroom/  skills/room-plan/  skills/room-handoff/    SKILL.md each, user-invocable: false
 │   ├── agents/implementer.md  agents/curator.md
 │   └── scripts/planroom  scripts/engine.env   the POSIX sh resolver (with prefetch, build and status) and its pinned version,
 │                                    whose generated lines sit between BEGIN and END GENERATED markers [DR-69, DR-79];
@@ -343,7 +343,7 @@ plugin/
   hooks/hooks.json                   {"modules": ["./planroom-mod.js"]}
   hooks/planroom-mod.js              the mod's bundle
   types/index.d.ts                   GENERATED
-  skills/room/SKILL.md               user-invocable: false
+  skills/planroom/SKILL.md               user-invocable: false
   skills/room-plan/SKILL.md          user-invocable: false
   skills/room-handoff/SKILL.md       user-invocable: false
   agents/implementer.md              model sonnet, effort high, tools Read, Edit, Write, Bash, Grep, Glob; Bash sandbox

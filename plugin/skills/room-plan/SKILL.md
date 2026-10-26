@@ -6,7 +6,7 @@ user-invocable: false
 
 # Planning with Planroom
 
-Load the `room` skill first for how to call Planroom. Plans live in the map as items, and what you write is a ghost until the person accepts it.
+Load the `planroom` skill first for how to call Planroom. Plans live in the map as items, and what you write is a ghost until the person accepts it.
 
 ## The stages
 

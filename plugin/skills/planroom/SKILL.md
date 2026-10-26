@@ -1,5 +1,5 @@
 ---
-name: room
+name: planroom
 description: Use Planroom, the shared, living map of this system, to answer questions about how repos, services and data connect, to plan a change, or to see what changed. Load it before calling a planroom tool or the planroom CLI.
 user-invocable: false
 ---
