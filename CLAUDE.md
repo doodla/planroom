@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # Planroom
 
 ## Keeping track across compactions
