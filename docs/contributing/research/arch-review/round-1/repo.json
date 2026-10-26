@@ -1,0 +1,172 @@
+{
+ "key": "repo",
+ "findings": [
+  {
+   "id": "repo-1",
+   "title": "The decision-record gate (and the schema breaking-change guard) can never fire on this repo's real branch topology",
+   "severity": "material",
+   "claim": "`cargo xtask check layout` compares the working diff with 'the merge base' and passes if 'the same diff' adds a record to decisions.md. On the build branch that merge base is the Initial commit, and the branch diff already adds DR-1..DR-43, so every later change to the layout, a boundary or a convention passes without a new record. The schema breaking-change guard (contracts.md: 'compares the generated schema with origin/main') is inert in the same way. CI also never states fetch-depth, and actions/checkout fetches only depth 1 by default, so in CI the merge base and origin/main may not exist at all.",
+   "evidence": "repo-layout.md 'Decision-record gate': 'compares with the merge base ... the same diff must add a record'. contracts.md line 16: breaking-change guard vs `origin/main`. Verified with `git merge-base HEAD origin/main` = 3227142 'Initial commit'; origin/main has only that commit; KICKOFF <context>: 'Commit and push to the branch you were assigned', so main never moves during the build. KICKOFF R16: 'Changing the layout, a boundary or a convention needs a decision record from the main agent before it lands.' traceability.md R16 names `cargo xtask check layout` as the test for this rule.",
+   "failure_scenario": "In M3 a track adds `extract` to the kernel's may_depend in boundaries.toml, or edits the AGENTS.md Conventions section. The main agent merges it. `cargo xtask check layout` passes because decisions.md already differs from the Initial commit. The boundary change lands with no record, and nothing flags it. In CI with a depth-1 checkout the gate either errors on every push or is quietly skipped.",
+   "proposed_fix": "Make the gate check each commit, not a merge-base diff. Every commit (and every track merge commit) in `base..HEAD` that touches a gated path must add a new `## DR-n` heading in the same commit. Alternatively, keep a committed `layout.lock` with a hash of the gated surfaces plus the DR id that last approved them, and fail when the hash changes without a new DR id. Use the track's fork point when the main agent merges a track. Set `fetch-depth: 0` in ci.yml and fail loudly (never skip) when the base ref is missing. Give the breaking-change guard a committed baseline (`schema/baseline/planroom.v1.schema.json`, updated only alongside a schema_version bump) instead of `origin/main`."
+  },
+  {
+   "id": "repo-2",
+   "title": "The planted-import self-test cannot tell a working boundary checker from a broken one",
+   "severity": "material",
+   "claim": "As designed, the self-test passes even if the TypeScript boundary rule is broken. (1) It runs in a fresh `git worktree add --detach`, which has no node_modules: pnpm's per-package node_modules are untracked. Every bare import then fails to resolve and produces `not-to-unresolvable` and `not-in-allowed` errors. (2) The planted `import \"@planroom/mod\"` is not declared in canvas's package.json, so even with node_modules it fails as unresolvable, not because the sideways rule caught it. (3) There is no control step that runs the checks on the unmodified copy and expects them to pass. A plausible further hole I did not verify: the spike's allow rule `{ to: { dependencyTypes: ['npm', ...] } }` may also match a sideways workspace package once it is declared `workspace:*` in package.json. The self-test never plants that realistic crossing.",
+   "evidence": "repo-layout.md 'Planted-import self-test' steps 1 and 4; it lists no clean-copy control step. ts-stack.md \u00a76.1: the spike symlinked the packages into node_modules and used an 'external deps' allow rule keyed on dependencyTypes. KICKOFF R16: 'A check in CI fails on any crossing, in both Rust and TypeScript.' S15: 'The boundary checks fail on a planted bad import in a temporary copy.' feature_list S15 asserts 'every planted crossing fails with its rule name'.",
+   "failure_scenario": "A later edit to the boundaries.toml-to-depcruise generator makes canvas\u2192mod allowed when the dependency is declared, or drops the canvas rule entirely. A track then adds `\"@planroom/mod\": \"workspace:*\"` to canvas and imports it, and the real check passes. The self-test still exits green because, in the worktree without node_modules, everything fails as unresolvable. S15 reports pass while R16's TypeScript enforcement is broken.",
+   "proposed_fix": "In the temporary copy, first run `pnpm install --frozen-lockfile --offline` (or link the main repo's store). Then run every check on the unmodified copy and require exit 0 as the control. For each plant, assert that exactly the expected rule name appears and that no `not-to-unresolvable` error appears. Plant the realistic TS crossing: add `@planroom/mod: workspace:*` to canvas's package.json, re-link, then import it. Also plant a relative `../../mod/src` import. Key the external-deps allow rule on a path under node_modules outside `packages/`, not on dependencyTypes alone."
+  },
+  {
+   "id": "repo-3",
+   "title": "CI runs commands outside the one task entry point, so local `cargo xtask check` is not what CI runs",
+   "severity": "material",
+   "claim": "KICKOFF requires one entry point that runs the same commands locally and in CI, and agents use only those. CI jobs call tools directly instead. The deny-and-audit job runs `cargo deny check` and `pnpm audit --prod`, and neither appears in `cargo xtask check`. The installer job runs ShellCheck, BusyBox and `sh tests/installer/run.sh`. The S15 and S14 CI steps call `sh tests/plugin/surface_tokens.sh`, `validate.sh` and `install.sh` directly, and none of `check`, `test` or `e2e` lists surface_tokens.sh or no_bin.sh. An agent following AGENTS.md ('Run cargo xtask check and cargo xtask test before claiming success') will miss checks that CI fails on.",
+   "evidence": "repo-layout.md 'CI workflows' table: jobs `deny-and-audit` and `installer (os)` run raw commands. The `cargo xtask check` row has no cargo-deny or audit step. The `cargo xtask test` row has no tests/plugin or tests/installer step. feature_list S15 step 'sh tests/plugin/surface_tokens.sh'. KICKOFF <constraints> Repo tooling: 'One task entry point runs the same check, test, end-to-end, generate and release-dry-run commands locally and in CI, and agents use only those commands.'",
+   "failure_scenario": "An agent adds a crate with a non-allowed licence, or a resolver change that breaks BusyBox sh. `cargo xtask check` and `cargo xtask test` are green locally, and the agent marks the feature passing and commits. CI goes red on deny-and-audit or installer. With nobody reviewing closely, the agent (or a resumed session) cannot reproduce the failure through any documented command.",
+   "proposed_fix": "Route every CI job through xtask. Add `cargo deny check` and the offline part of the audit to `cargo xtask check`, with network-dependent audit as `cargo xtask check --audit`, skipped with a reason when offline. Add `cargo xtask test --installer` (ShellCheck, BusyBox, run.sh) and run all of `tests/plugin/*.sh` inside `cargo xtask test`/`e2e`. Every ci.yml job then runs `cargo xtask <cmd> [flags]`. Add a check that greps ci.yml for any `run:` that does not start with `cargo xtask` (setup steps excepted)."
+  },
+  {
+   "id": "repo-4",
+   "title": "budgets.json is a regenerable 'GENERATED' file, so the S7 regression gate can be silently rebaselined",
+   "severity": "material",
+   "claim": "S7's baseline (budgets.json) is classified as a generated file written by `cargo xtask gen --budgets`. Either the generic drift check regenerates it ('every file under a generated directory ... equals a fresh generation'), in which case any 1-token change fails check, which contradicts the 20% rule. Or it does not, in which case any agent can bless a 50% token regression with one documented command. budgets.json is not on the decision-record gate's path list, and 'reviewed like code' has no enforcement in a build where, per KICKOFF, nobody reviews closely.",
+   "evidence": "repo-layout.md directory map ('budgets.json GENERATED, reviewed like code') and the generated-directories table. architecture.md 'Token budgets (S7)'. The repo-layout.md 'Generated code is never hand-edited' row: 'equals a fresh generation'. KICKOFF S7: 'Commit those as budgets. A regression test fails if any of them grows by more than 20%.' <acceptance_scenarios>: 'Never weaken or delete a scenario, test or entry any other way.' <stance>: 'Nobody will review your work closely.'",
+   "failure_scenario": "In M4 a new evidence format grows the S2 'how does the web app reach the worker' output by 35%. budgets.rs fails, and the agent follows the 'names the fix command' convention and runs `cargo xtask gen --budgets`. The baseline moves and CI is green. The S7 budget, a tier A item, has been weakened with no record.",
+   "proposed_fix": "Treat budgets.json as a hand-ratcheted baseline, not generated output. `cargo xtask gen --budgets` writes `target/budgets.measured.json` and prints the diff. Lowering a number is allowed. Raising one requires a new decision record in the same commit, so add budgets.json to the decision-record gate. Keep it out of the generic drift check."
+  },
+  {
+   "id": "repo-5",
+   "title": "Packs depending on the `code` pack is a sideways dependency that R16 forbids, labelled 'inward' with no decision record",
+   "severity": "material",
+   "claim": "R16 says packs depend inward, never sideways. `code` is itself a pack (packs/code, alongside plan, observability, release, artifacts and machines). Yet every pack may `requires = [\"code\"]` and reference code kinds, and the docs call this 'the inward-only rule'. No decision record argues that `code` is an inner ring or names this as a deviation from R16. DR-9 states `requires is [\"code\"] or nothing` but gives no R16 justification.",
+   "evidence": "repo-layout.md boundaries.toml `[packs] requires = [[], [\"code\"]]` and the row 'Packs depend inward | requires is [] or [\"code\"]'. Area contract for `packs/*`: 'may depend on ... the code pack'. architecture.md 'What a pack is': '`requires` (only [\"code\"] or []) | identity; the inward-only rule'. DR-9. KICKOFF R16: 'Packs and adapters depend inward, never sideways.' KICKOFF <context>: everything except <design_starting_points> is binding.",
+   "failure_scenario": "The final review checks R16 literally: observability, release and machines declare `requires = [\"code\"]` and reference `code.service`, which is a pack-to-pack edge. Separately, a pack author (S10) reads that sideways dependencies on a privileged sibling are fine and wonders why `plan` can't be one too. The rule has no stated principle behind it.",
+   "proposed_fix": "Either make the layering explicit and recorded, or remove the sideways edge. For the first, add a DR that makes `code` ring 1 (the system vocabulary every domain attaches to) and the other packs ring 2. Encode that in boundaries.toml as `[packs] rings = { code = 1, \"*\" = 2 }` with 'a pack may require only packs in a lower ring', and state it in R16 traceability. For the second, move the shared kinds the other packs need (service, component, module) into kernel vocabulary as role-bound kinds. The domain-free scan would forbid kernel naming `code.*`, so the first option is the practical one."
+  },
+  {
+   "id": "repo-6",
+   "title": "`claude plugin test packages/mod` exits 1 as designed, and the mod tests cannot read the golden JSON they depend on",
+   "severity": "material",
+   "claim": "Three problems with the mod test path. (1) packages/mod is a source package with no hooks/hooks.json, and `claude plugin test` on a dir with no `modules` entry exits 1 (verified). (2) `claude plugin test` runs tests with no fs, and plugin modules may only be .ts/.tsx/.js/.mjs/.cjs. The DR-6 test design ('packages/mod tests read tests/golden/cli/*.json') cannot load JSON files from outside the package. (3) Mod source imports `@planroom/contract` and `@planroom/ui`, and research says bare specifiers are not resolvable when the engine loads plugin source directly (marked [A], not verified). The area contract's 'How to test it' and `cargo xtask test` both name this exact command.",
+   "evidence": "plugin-packaging.md \u00a71: 'On a plugin with no mod it exits 1: no hooks module to load; hooks/hooks.json names none in \"modules\" [verified] ... Run it on the mod's plugin dir only.' plugin-packaging.md line 266: 'claude plugin test needs that modules key, or it exits 1 [verified]'. mod-api.md \u00a79: 'no fs, network or process'. mod-api.md \u00a71: allowed file types; '[A] Bare npm specifiers are not resolvable'. repo-layout.md: `cargo xtask test` runs 'claude plugin test packages/mod'; the packages/mod area contract. DR-6 consequences. traceability S9 tests surfaces.test.tsx and keys.test.tsx.",
+   "failure_scenario": "In the walking skeleton, `cargo xtask test` runs `claude plugin test packages/mod` and gets exit 1 ('no hooks module to load'). Or, once a hooks.json is added, it fails to import tests/golden/cli/*.json and @planroom/ui. S9's CI path (tier B) and the same_output check cannot pass. A track 'fixes' it ad hoc by copying golden files into the package by hand, which breaks the generated-files rule.",
+   "proposed_fix": "Add a generated test harness. `cargo xtask gen --mod` (or `test`) bundles packages/mod with its *.test.tsx into `target/mod-test/` using esbuild. The workspace packages are inlined and `claude-code`/`claude-code/testing` stay external. The golden CLI outputs are inlined as generated TS modules (`golden.generated.ts`), and the harness gets a `hooks/hooks.json` naming the bundle. Then run `claude plugin test target/mod-test`. Prove it in the walking skeleton with one four-surface test, and update the area contract, DR-6 and traceability to match."
+  },
+  {
+   "id": "repo-7",
+   "title": "S15 (tier A) can never reach 'passing', because its CI tests include one that needs a live session",
+   "severity": "material",
+   "claim": "feature_list S15 `tests` and traceability's S15 CI-test column both list `tests/plugin/slash_commands_snapshot.sh`. DR-30 says that test is 'evidence path, needs a session'. The repo convention is that an entry turns passing only when every test it lists passes on its CI path, and CI has no live model or secrets. So S15 is either permanently failing, or it will be marked passing in violation of the convention.",
+   "evidence": "feature_list.json S15 `tests` (lines ~752-763) includes 'tests/plugin/slash_commands_snapshot.sh'. traceability.md S15 row. decisions.md DR-30 consequences: 'tests/plugin/slash_commands_snapshot.sh (evidence path, needs a session) and a static frontmatter check in CI'. repo-layout.md Conventions > Tests: 'A feature_list.json entry turns passing only when every test it lists passes on its CI path.' KICKOFF: 'Deterministic CI. CI needs no secrets and no live model.'",
+   "failure_scenario": "At release every S15 CI test is green except slash_commands_snapshot.sh, which cannot run in CI. Either S15, a tier A item, stays 'failing' and the definition of done is unmet, or an agent flips it to passing by hand. The feature list then lies, and that is what a resumed session trusts.",
+   "proposed_fix": "Move slash_commands_snapshot.sh to S15's evidence_path. Add to `tests` the deterministic stand-in DR-30 already names: a static check that every plugin SKILL.md has `user-invocable: false`, plus the `room_commands_snapshot`. Add a check in `cargo xtask check` that every path in each feature's `tests` is run by some xtask command and needs no `PLANROOM_LIVE_*` or session."
+  },
+  {
+   "id": "repo-8",
+   "title": "Rust enforcement covers only workspace-crate edges and the kernel's external allow-list; most area-contract 'must not' rules remain convention",
+   "severity": "minor",
+   "claim": "boundaries.toml gives an external allow-list only to `kernel`. The 'must not' rules for the adapters are never checked: `extract` must not use reqwest or run code from scanned repos, `models` must not touch the network in tests, `store` must not hold business rules, and `contract` has a listed external set (serde, schemars, clap derive) under `may_depend = []`. The kernel's 'no I/O, no async' is enforced only indirectly, through the external allow-list. `std::fs`, `std::net`, `std::process` and `std::env` remain usable inside crates/kernel.",
+   "evidence": "repo-layout.md boundaries.toml: `external_allow` appears only on kernel. Area contracts table: the store, extract, models and contract 'May depend on' and 'Must not' columns. KICKOFF R16: 'Boundaries are enforced by tooling, not convention.'",
+   "failure_scenario": "An agent adds a `std::fs::read_to_string` cache inside kernel::reconcile, or `reqwest` to planroom-extract to fetch an OpenAPI $ref. Every check passes, and the 'pure, no I/O' kernel contract that the fold, undo and property tests rely on is broken without anyone noticing.",
+   "proposed_fix": "Give every crate an `external_allow` in boundaries.toml, checked from `cargo metadata` for normal, build and dev dependencies separately. Add `crates/kernel/clippy.toml` with `disallowed-methods` and `disallowed-types` for std::fs, std::net, std::process, std::env and std::time::SystemTime, under `-D warnings`. Add one planted std::fs call to the self-test."
+  },
+  {
+   "id": "repo-9",
+   "title": "Conventions and area contracts are written in two places, and the layout gate watches only one of them",
+   "severity": "minor",
+   "claim": "repo-layout.md says conventions go in AGENTS.md 'once ... and nowhere else', yet it holds the full Naming, Error codes, Logging, Configuration, Where-new-code-goes, Tests and Working sections itself. It also says 'Each row is the content of that area's AGENTS.md', so every area contract exists twice. The gate covers only 'the Conventions section of AGENTS.md', and no drift test ties the copies together. Once AGENTS.md exists, edits to either copy drift apart, and repo-layout.md edits bypass the gate.",
+   "evidence": "repo-layout.md 'Conventions' intro and 'Area contracts' intro. 'Decision-record gate' path list. KICKOFF R16: 'Conventions are written down once, in AGENTS.md'. <constraints> release bar: 'each fact in one place'.",
+   "failure_scenario": "A track updates the 'Where new code goes' row in crates/extract/AGENTS.md for a new linker directory, but repo-layout.md still shows the old place. A resumed agent reads repo-layout.md, which the carry file and progress.md point to, and puts code in the wrong crate.",
+   "proposed_fix": "When the skeleton lands, make AGENTS.md the only home of the conventions and turn repo-layout.md's Conventions section into a link. Generate each area's contract block (owns, may depend on, must not, test command) from boundaries.toml plus one table file, and drift-check it. Alternatively, make the repo-layout table link to each area AGENTS.md instead of restating it."
+  },
+  {
+   "id": "repo-10",
+   "title": "Area AGENTS.md files are not loaded into an agent's context when it works in that area",
+   "severity": "minor",
+   "claim": "Only the root AGENTS.md is imported, through CLAUDE.md '@AGENTS.md'. Claude Code loads nested CLAUDE.md files automatically when it reads files in a subdirectory. To my knowledge (an assumption, not verified on 2.1.310) it does not do the same for AGENTS.md. A track agent or a post-compaction agent editing crates/store therefore never sees store's 'must not hold business rules' contract unless something points it there. Neither the root AGENTS.md design nor carry.md says to read the area file first.",
+   "evidence": "repo-layout.md directory map: 'CLAUDE.md \"@AGENTS.md\" on line 1'. Area contracts: 'Each row is the content of that area's AGENTS.md'. KICKOFF <stance>: 'how an agent finds its way around'. Principle 2: 'AGENTS.md invariants, small modules with clear contracts ... context that is kept current'.",
+   "failure_scenario": "After a compaction, an agent resumes M2 in crates/store and adds the stale-write classification there, because nothing in its context says business rules belong in the kernel. The Rust boundary check cannot catch this, since it is logic placement, not a dependency.",
+   "proposed_fix": "Put a one-line `CLAUDE.md` containing `@AGENTS.md` beside each area AGENTS.md, so Claude Code's lazy nested loading picks it up. Also add a root AGENTS.md bullet under 'Working in this repository': 'Before editing under <area>/, read <area>/AGENTS.md.' Check in `cargo xtask check` that every area in boundaries.toml has both files."
+  },
+  {
+   "id": "repo-11",
+   "title": "Toolchain bootstrap and pins are incomplete for a fresh clone, a worktree or a resumed container",
+   "severity": "minor",
+   "claim": "pnpm is pinned as '10.28.x', which is not an exact version; `packageManager` requires one, and research measured 10.28.0. No xtask command installs or verifies JS dependencies (`pnpm install --frozen-lockfile`), yet `cargo xtask check` immediately needs prettier, eslint, tsc, depcruise, json-schema-to-typescript and esbuild. The design does not say how CI gets pnpm (corepack or setup action). Fresh clones and track worktrees, which have no node_modules, fail with tool-not-found rather than one clear 'run X' line.",
+   "evidence": "repo-layout.md 'Toolchain pins' row 'pnpm 10.28.x'. ts-stack.md line 3: 'pnpm 10.28.0'. 'The one task entry point' table has no bootstrap step. KICKOFF: 'Toolchains are pinned, lockfiles are committed'; S14: 'From a fresh clone, the release build ... runs'.",
+   "failure_scenario": "A track worktree created for M3 runs `cargo xtask check`. Every TS step fails because there is no node_modules, and the agent improvises `npm install`, which writes a package-lock.json and breaks the one-workspace rule. CI's pnpm drifts to a newer 10.28 patch with a different lockfile resolution.",
+   "proposed_fix": "Pin `packageManager: pnpm@10.28.0` exactly and run `release_pins` on it. Have every xtask command first ensure deps, running `pnpm install --frozen-lockfile --offline`, falling back to online, and verifying the pnpm version through corepack. Print a single fix line when that fails. Document corepack in ci.yml setup."
+  }
+ ],
+ "verdicts": [
+  {
+   "id": "repo-1",
+   "verdict": "upheld",
+   "reason": "The gate is defined only as a merge-base diff, and nothing else in the docs adds a per-commit check, a lock file or a fetch-depth setting. On this branch the merge base with origin/main is the Initial commit, and the branch already adds decisions.md, so every later gated change passes. The breaking-change guard has the same problem. This leaves R16's 'decision record before it lands' rule with no working enforcement, and that is a KICKOFF constraint.",
+   "evidence": "repo-layout.md:173 'cargo xtask check layout compares with the merge base ... the same diff must add a record'. contracts.md:16 breaking-change guard 'compares the generated schema with origin/main'. Ran `git merge-base HEAD origin/main` = 3227142 (the only commit on origin/main is 'Initial commit'). KICKOFF:12 'Commit and push to the branch you were assigned'. KICKOFF:119 R16 decision-record rule. The ci.yml description (repo-layout.md:255) names permissions, persist-credentials and SHA pins, but no fetch-depth."
+  },
+  {
+   "id": "repo-2",
+   "verdict": "upheld",
+   "reason": "The self-test runs in a `git worktree add --detach` copy. That copy has no node_modules, because pnpm's links are untracked, and the docs add no install step and no clean-copy control. The only TS assertion is 'expects a not-in-allowed error'. With a default-deny allow-list, unresolvable imports also produce not-in-allowed. So the TS plant passes for the wrong reason, or depcruise itself is missing and the step errors. Either way it does not prove S15's tier A 'every planted crossing fails with its rule name'. The plant also never declares @planroom/mod in canvas's package.json. That is the realistic crossing, and the spike's dependencyTypes-keyed external rule may allow it.",
+   "evidence": "repo-layout.md:160-169 (steps 1-6; step 4 'expects a not-in-allowed error'; no control run, no install). ts-stack.md:239 (the spike symlinked packages into node_modules), :251 (an unresolved import yields 'not-to-unresolvable + not-in-allowed'), :274 (the external-deps allow rule keyed on dependencyTypes). feature_list.json:730,740."
+  },
+  {
+   "id": "repo-3",
+   "verdict": "upheld",
+   "reason": "This is partly handled: `cargo xtask test` runs 'the scenario CI paths S1 to S15', and those include the S14 and S15 steps for tests/installer/run.sh, validate.sh, install.sh and surface_tokens.sh. Two CI jobs still run tools outside the entry point. deny-and-audit runs `cargo deny check` and `pnpm audit --prod`, and neither is in the `cargo xtask check` row. The installer job runs ShellCheck and BusyBox, which appear in no xtask command. The docs also contradict themselves: traceability claims 'CI uses only cargo xtask'. This breaks the binding KICKOFF repo-tooling constraint.",
+   "evidence": "repo-layout.md:262 '`deny-and-audit` | `cargo deny check`, `pnpm audit --prod`', :264 'installer (os) | ShellCheck, BusyBox, `sh tests/installer/run.sh`', :198 (the check row has no deny or audit), :200 (the test row runs 'the scenario CI paths S1 to S15'). traceability.md:70 'CI uses only `cargo xtask`'. KICKOFF:241 'agents use only those commands'."
+  },
+  {
+   "id": "repo-4",
+   "verdict": "upheld",
+   "reason": "The first horn is refuted. contracts.md says budgets.json's drift check is the budget test itself, not equality with a fresh generation, so a 1-token change does not fail check. The second horn stands. `cargo xtask gen --budgets` is a documented one-command rebaseline. budgets.json is not on the decision-record gate's path list, and 'reviewed like code' has no enforcement in a build where nobody reviews closely. So the S7 tier A gate can be weakened without any record, against KICKOFF's 'never weaken a test any other way'. I am not sure this is material, so I uphold it.",
+   "evidence": "contracts.md:62 'Budgets file | budgets.json | ... generated by cargo xtask gen --budgets | ... | the budget test itself (20% growth fails)' (refutes the drift-check horn). repo-layout.md:23, :189 'yes, reviewed like code'. repo-layout.md:173 gate paths exclude budgets.json. repo-layout.md:194 'names the fix command on failure'. KICKOFF:16, :134, :168."
+  },
+  {
+   "id": "repo-5",
+   "verdict": "downgraded",
+   "reason": "The design does treat `code` as the base layer that other packs attach to, not as a peer. A dependency on a declared base ring is a defensible reading of 'inward', and the rule is enforced by the loader and packs.rs. What is missing is a decision record that states the layering against R16 in so many words. That is a documentation gap, not an R16 violation, and no acceptance scenario fails because of it.",
+   "evidence": "architecture.md:678 lists the pack as '`code` (the base)'. architecture.md:489 'requires (only [\"code\"] or [])'. DR-9 (decisions.md:231-245) 'requires is [\"code\"] or nothing'. repo-layout.md:153 enforcement by the pack loader and tests/packs.rs. KICKOFF:117 'Packs and adapters depend inward, never sideways' does not define the rings."
+  },
+  {
+   "id": "repo-6",
+   "verdict": "upheld",
+   "reason": "The design runs `claude plugin test packages/mod`, but packages/mod is a source package with no hooks/hooks.json. Research verified that this command exits 1 without a modules entry. Tests run with no fs, and module files must be TS or JS, so the DR-6 plan of stubbing process.run with tests/golden/cli/*.json cannot load those files as written. Bare workspace specifiers are flagged as unresolvable when source is loaded directly. No harness or bundling step for tests exists in the generated-directories table. As specified, the S9 (tier B) mod tests and the same_output check cannot run.",
+   "evidence": "plugin-packaging.md:34 'On a plugin with no mod it exits 1 ... [verified] ... Run it on the mod's plugin dir only', :266. mod-api.md:353 'no fs, network or process'. mod-api.md:~47 allowed file types; :52 '[A] Bare npm specifiers are not resolvable'. repo-layout.md:104, :200 'claude plugin test packages/mod'. architecture.md:1194 'stubbed with tests/golden/cli/*.json'. DR-6 decisions.md:191."
+  },
+  {
+   "id": "repo-7",
+   "verdict": "upheld",
+   "reason": "DR-30 itself classifies slash_commands_snapshot.sh as 'evidence path, needs a session', and S15's own evidence_path already lists 'the headless session's init event showing the slash command list'. Yet the script is in S15's `tests` array and in the traceability CI-tests column. The repo convention says an entry turns passing only when every listed test passes on its CI path, and CI has no live session. So tier A S15 cannot legitimately reach passing as listed.",
+   "evidence": "feature_list.json:763 'tests/plugin/slash_commands_snapshot.sh' in S15 tests; S15 evidence_path step 'the headless session's init event showing the slash command list'. decisions.md:518 '(evidence path, needs a session) and a static frontmatter check in CI'. repo-layout.md:327. traceability.md:61. S14 stand_ins: 'a headless session that needs them runs only on the evidence path'."
+  },
+  {
+   "id": "repo-8",
+   "verdict": "upheld",
+   "reason": "This is correct as stated, and the reviewer already marked it minor. Only kernel has external_allow. The adapters' 'must not' rules (reqwest in extract, network in models tests, business rules in store) and kernel's 'no I/O' through std are not checked by any listed tool. KICKOFF's named boundaries (domain-free kernel, inward deps) are still covered, so minor is the right severity.",
+   "evidence": "repo-layout.md:115-124 (external_allow only on kernel), :93-96 'Must not' column, :150-152 enforcement rows cover only crate-graph edges, the kernel allow-list and the literal scan."
+  },
+  {
+   "id": "repo-9",
+   "verdict": "upheld",
+   "reason": "repo-layout.md says the conventions go in AGENTS.md 'once ... and nowhere else' while holding them in full. It also says each area-contract row 'is the content of that area's AGENTS.md'. The gate watches only AGENTS.md's Conventions section, and no drift test ties the two copies together. KICKOFF requires repo-layout.md to include conventions, so some restating is expected, but the drift risk is real. Minor is correct.",
+   "evidence": "repo-layout.md:88 'Each row is the content of that area's AGENTS.md', :271 'These go in AGENTS.md once, under \"Conventions\", and nowhere else', :273-335 the full conventions, :173 the gate path list. KICKOFF:118, :336."
+  },
+  {
+   "id": "repo-10",
+   "verdict": "upheld",
+   "reason": "Only the root AGENTS.md is imported through CLAUDE.md. No document points an agent to an area's AGENTS.md before it edits there, or adds per-area CLAUDE.md shims. The claim about nested auto-loading is unverified, but I found no mitigation in the docs. Minor is correct.",
+   "evidence": "repo-layout.md:10 'CLAUDE.md \"@AGENTS.md\" on line 1', :329-334 'Working in this repository' has no 'read the area AGENTS.md' bullet. architecture.md:1215 WS1 'AGENTS.md per area', with no loading mechanism."
+  },
+  {
+   "id": "repo-11",
+   "verdict": "upheld",
+   "reason": "pnpm is pinned as '10.28.x' rather than the exact measured 10.28.0. None of the entry-point commands installs or verifies JS deps (`pnpm install --frozen-lockfile`) before `check` needs eslint, tsc and depcruise. How CI gets pnpm is unspecified. Fresh clones and track worktrees will hit tool-not-found errors. Minor, because the gaps are easy to close during implementation.",
+   "evidence": "repo-layout.md:216 'pnpm 10.28.x'. decisions.md:662 'pnpm 10.28'. ts-stack.md:3 'pnpm 10.28.0'. repo-layout.md:196-206 (no bootstrap step). KICKOFF:242 'Toolchains are pinned, lockfiles are committed'."
+  }
+ ]
+}

@@ -1,0 +1,187 @@
+{
+ "key": "unasked",
+ "findings": [
+  {
+   "id": "unasked-1",
+   "title": "Everything a person authors lives only in one gitignored, unbacked local file",
+   "severity": "material",
+   "claim": "All user-authored state (plans, overrides, rejections, decisions, versions) lives in WORKSPACE/.planroom/store.db. That directory carries a `.gitignore` of `*` and is never pushed, synced or backed up automatically. When the workspace is a single repo, the store sits inside that repo's working tree. A routine clean, an ephemeral container or a second machine therefore loses all of it without warning.",
+   "evidence": "architecture.md 'Where the workspace lives': the repo root is the workspace when it is a git repo, and `.planroom/` holds store.db plus a `.gitignore` of `*`. DR-34: 'the workspace store is the one source; `planroom export` writes events as NDJSON for backup'. Export is manual only, and no automatic export or backup appears anywhere (grep 'backup' finds only these manual mentions). Security table 'Store integrity' covers crashes and nothing else. Assumptions A-10 and A-11 show the design targets cloud sessions, and KICKOFF <context> says the build itself runs in 'a cloud Claude Code container'. This conflicts with KICKOFF principle 1: 'Never lose or overwrite what someone did.'",
+   "failure_scenario": "(a) A person plans 'Add retries to the worker' in a Claude Code cloud session. When the container is recycled, the plan, its accepted ghosts, version 2 and every regroup are gone, and the next session starts from an empty store. (b) In a single-repo workspace, the person or an agent runs `git clean -fdx` to fix a build. That deletes `.planroom/store.db` (ignored files are removed with -x), along with every correction R6 promised would 'survive every rescan'. (c) The same repo on a laptop and a desktop shows two unrelated plans.",
+   "proposed_fix": "Keep the store as the one source, but make losing it recoverable by default. (1) After every person-authored commit (debounced), write the append-only event export (`planroom.event/v1`) to a durable place outside the working tree. Locally use `$CLAUDE_PLUGIN_DATA/backups/<workspace_id>/` with rotation. In a repo, offer a git ref such as `refs/planroom/events` that the person can push with one tap. (2) When `.planroom/` is missing but a backup or ref exists, `scan` deals one card, 'Restore 214 edits from <date>?', with Yes pre-selected. (3) For single-repo workspaces, document the `git clean -x` hazard, and have `doctor` warn when no backup is newer than the last authored event. Record this as a decision record that amends DR-34."
+  },
+  {
+   "id": "unasked-2",
+   "title": "Store migrations are automatic, irreversible, unbacked and break sessions still on the old version",
+   "severity": "material",
+   "claim": "Any newer engine that opens an older store migrates it in place on the spot. It takes no snapshot first and offers no downgrade path. Once migrated, the store is unusable by every running session whose plugin still pins the old engine.",
+   "evidence": "contracts.md 'Store schema and migrations': 'One that finds an older one migrates after asking any older `serve` to drain', and 'A binary that finds a newer `store_version` refuses with `schema_mismatch`'. architecture.md 'Version handshake': 'After a migration, a `watch` or `serve` of an older version exits with `schema_mismatch`, and the mod restarts `watch` through the resolver'. Packaging pins the resolver to the fixed tag `vVERSION` (DR-28, engine.env), so the restart resolves the same old binary. Migration tests cover only committed fixture databases (`migrations_open_every_released_fixture`). This conflicts with KICKOFF principles 'Everything is reversible' and 'Never lose ... what someone did', and with R10 ('several Claude sessions ... all at once').",
+   "failure_scenario": "The person has two Claude Code sessions open and starts a third after a plugin update to v0.2. The new engine's first `version` or `focus` call migrates `events`. The two older sessions now get `schema_mismatch` on every tool call, and their mods restart `watch`, which exits again in a loop. If the migration has a bug that mangles an `events` column, there is no copy to go back to. Rolling the plugin back to v0.1 does not help either, because v0.1 refuses the newer store.",
+   "proposed_fix": "Before any migration, write `VACUUM INTO .planroom/store.v<N>.db` and an event export, and keep the last two. Ask before migrating when other live sessions are present: one card, 'Upgrade the store for v0.2? 2 open sessions on v0.1 will need a restart', with Upgrade pre-selected. Teach older engines to say 'restart this session to use v0.2' in one status line instead of crash-looping. Add `planroom doctor --restore-backup`. Test it with a migration that fails halfway through and an older engine that opens the migrated store."
+  },
+  {
+   "id": "unasked-3",
+   "title": "Repo content goes to the gateway and TypeSafe with no disclosure, consent or redaction",
+   "severity": "material",
+   "claim": "If a gateway or TypeSafe credential happens to be in the environment, the default config sends slices of scanned repos to third-party services the first time a decision or Claude call runs. Those slices include file paths, evidence lines and document text. Nothing tells the person or asks first, and `kernel::redact` is never applied to model requests.",
+   "evidence": "contracts.md 'Configuration': `models = auto`, `[claude] backend = auto` ('gateway if a credential resolves'), `[jev] backend = gateway`. architecture.md 'Main flows' 5 and 'Duties': decisions run as a background duty after a scan. The design gates other outbound data paths: the session backend gets a consent card (DR-18), and the first Artifact publish 'shows one line of what will be shared' with code text excluded by default (DR-31). The gateway path gets neither. Redaction scope (repo-layout.md 'Logging'; architecture.md security table) covers 'a log, an error `details` or a snapshot', not Jev states or Claude slices. The fixture itself carries a credentialed DSN literal (`postgresql://...@orders-db:5432/orders`, architecture.md 'Hints and linkers'). This is a security and privacy risk.",
+   "failure_scenario": "An engineer exports AI_GATEWAY_API_KEY in their shell profile for another project, installs Planroom, and opens a proprietary repo. The first scan's decide duty sends `dependency_real`, `file_component` and `part_relation` slices to Vercel and TypeSafe, including a hard-coded `postgres://admin:hunter2@...` line. Nothing on screen says this happened.",
+   "proposed_fix": "Before the first billable call per workspace and provider, deal one card: 'Send short code excerpts (paths and up to 200-character lines) to Vercel AI Gateway / TypeSafe for cheap decisions? About $0.001 per scan.' Pre-select Yes only when the credential is Planroom-specific (for example PLANROOM_* or config-named), otherwise No. Record the choice as a decision event. Run `kernel::redact` over every Jev state and Claude slice before the preflight, and extend the poison-value test to requests in live mode. List the providers and what each receives in SECURITY.md."
+  },
+  {
+   "id": "unasked-4",
+   "title": "Large repos and monorepos give results that depend on machine speed, and spurious regressions",
+   "severity": "material",
+   "claim": "A wall-clock cut decides which files get syntactic facts on large repos: each extractor gets 2 s per repo. Each head move triggers a full non-incremental rescan inline in the next command. The facts from a large repo therefore change from run to run and from machine to machine, and the reconciler reads disappearing edges as regressions.",
+   "evidence": "architecture.md 'The extractor contract': 'Deterministic. The same commit gives byte-identical facts', yet 'Bounded ... Each extractor has 2 s per repo; one over budget is cut and reported'. rust-stack \u00a74 measured 690 files/s on one thread, so about 1,400 files fit in 2 s. Scans parallelize 'across repos' ('Main flows' 1), which does not help a monorepo. 'Main flows' 2 and DR-33: each command rescans what moved, and a scan 'writes one snapshot of facts per repo' with no per-blob reuse. 'The fold': one-shot commands fold from scratch, with a 50 ms budget at 20,000 facts. Snapshots keep the last 20 per repo. The reconciler marks a change unit as `regression` when its fact delta breaks a rule met before. These conflict with KICKOFF principle 2 ('deterministic commands') and principle 1 (interrupt only for real decisions).",
+   "failure_scenario": "In a 40,000-file TypeScript monorepo, the tree-sitter import extractor is cut at about 1,400 files, and which files make it depends on CPU load. A person adds `require worker -> orders`. After an unrelated commit, the next rescan happens to cut before the files holding that evidence. The reconciler flags a `regression` and deals a card, and every override on the missing nodes raises `scan_changed_under_edit`. Each `room_query` call from the chat also refolds hundreds of thousands of facts from scratch, taking seconds per call.",
+   "proposed_fix": "Replace the wall-clock cut with deterministic bounds: a file-count or byte budget in sorted path order, reported as `partial_scan` with the uncovered paths. Better, make the scan incremental by caching facts per `(blob sha, extractor, packs_hash)`, so a commit re-extracts only the blobs it changed. Never classify a fact delta from a partial scan as a regression or a scan-changed-under-edit. Add a scale test on a generated 50k-file repo with budgets for rescan time, fold time and store size in budgets.json. Persist the fold cache (bet 2's fallback) before v0.1, not after."
+  },
+  {
+   "id": "unasked-5",
+   "title": "Nothing detects filesystems where multi-process SQLite WAL is unsafe",
+   "severity": "material",
+   "claim": "Correctness rests on multi-process SQLite in WAL mode (bet 1, DR-1), but nothing checks whether the store's filesystem supports WAL's shared-memory locking. Repos on network home directories, in folders a sync tool replicates, or under WSL's /mnt/c can therefore get lost writes, 'database is locked' errors or corruption, silently.",
+   "evidence": "architecture.md 'Biggest bets' 1 and DR-1: 'Multi-process SQLite (WAL, `BEGIN IMMEDIATE`...)' with several concurrent processes (cli, watch, serve). The store lives inside the workspace ('Where the workspace lives'), wherever the person's repos are. grep for Windows, WSL, NFS and 'network file' finds nothing in any reviewed doc. rust-stack G13: only Linux x86_64 was built, and other platforms were not tried. SQLite's own documentation says WAL needs all processes on one host and does not work over a network filesystem. The risk is to R10 'No write is lost' and is a data-loss risk.",
+   "failure_scenario": "A developer at a company with NFS-mounted home directories, or a Windows user working in /mnt/c/Users/me/src under WSL 2, runs two Claude sessions and a canvas tab. WAL index locking is unreliable on that mount, so an S8-style concurrent write is lost or the store is corrupted. Nothing told them the location was unsupported.",
+   "proposed_fix": "At store open, check the filesystem type (statfs on Linux, including 9p/drvfs, NFS, SMB and FUSE, and known sync roots on macOS such as iCloud Drive and Dropbox). On an unsafe one, put the store under `$CLAUDE_PLUGIN_DATA/stores/<workspace_id>/` with a pointer file in `.planroom/`, and say so in one line. Add the check to `doctor`, and document WSL 2 support as 'repos under the Linux filesystem'."
+  },
+  {
+   "id": "unasked-6",
+   "title": "No Jev setup on first run, and nothing caps the cards on a first real scan",
+   "severity": "material",
+   "claim": "The design itself says most plugin users won't have a gateway or TypeSafe key, and nothing walks them through getting one. For them, every Jev decision becomes a card with no pick. Nothing caps how many cards the first scan of a real (non-fixture) repo deals: only the S7 routine rescan on the fixture is bounded.",
+   "evidence": "DR-18 Context: 'most plugin users won't set `AI_GATEWAY_API_KEY`'. Jev needs that key or TYPESAFE_API_KEY (architecture.md 'Jev'). 'When no model is reachable': 'Jev: ... other requests become cards with no pick'. Request sources: `file_component` for every file no path rule placed, and `dependency_real` (cards only even with Jev) for every edge with `confidence < 1`. The design's own import template emits `confidence = 0.9` (architecture.md 'The extractor contract'). `budget.max_calls_per_scan` limits Jev calls, not cards. DR-20 shows the top card with '+N more'. This conflicts with KICKOFF principle 1 ('Make those decisions cheap: pre-decided, batched') and R9 ('Keeping the map and plan current must be nearly free').",
+   "failure_scenario": "A new user without a gateway key scans a 300-file repo. The pane shows 'Pick one (Jev unavailable)' with '+180 more': no-pick `file_component` cards for leftover files, plus `dependency_real` cards for every 0.9-confidence import edge. Nothing says that adding a key would pre-decide them or what it would cost. The first impression is a pile of busywork, the opposite of 'glad Planroom exists'.",
+   "proposed_fix": "(1) On first scan with no Jev backend, deal one setup card: 'Let Jev pre-decide 180 small choices (~$0.002)? Set AI_GATEWAY_API_KEY' with the exact command, or 'Keep deterministic'. Record the choice. (2) Defer, rather than deal, low-stakes kinds (`file_component`, `dependency_real` at the extractor's default confidence) when no model is reachable. Leave the deterministic placement standing and visible in Diffs, not Decisions. (3) Add a first-scan card budget (for example at most 3 cards, batched by cause) with a test on a non-fixture repo. (4) Make deterministic-tier edges 1.0 as contracts.md says, so `dependency_real` targets only genuinely inferred edges."
+  },
+  {
+   "id": "unasked-7",
+   "title": "Behavior in a directory that isn't a workspace yet is unspecified",
+   "severity": "minor",
+   "claim": "The design never says what the mod and `watch` do in a session whose directory has no `.planroom/`. That covers a parent folder with dozens of repos, a home directory, a non-git directory and a repo the person never asked Planroom to map. It also never says whether they create a store, scan automatically or stay idle.",
+   "evidence": "architecture.md 'Where the workspace lives': without `.planroom/`, the current directory is the root, and its immediate child git repos are the workspace. 'Mod: Wiring' step 4 spawns `watch` unconditionally in `session.start`. `watch` 'writes presence every 10 s' and polls every 200 ms ('Processes and boundaries'), which needs a store. Only `scan` is documented as creating `.planroom/` ('Main flows' 1). KICKOFF principles: 'Never show a blank state. Never ask what a good default could answer.'",
+   "failure_scenario": "With the plugin installed at user scope, the person opens Claude Code in ~/src, which holds 70 repos. Either `watch` creates ~/src/.planroom and a later freshness check cold-scans 70 repos nobody asked for, with Jev spend and minutes of CPU, or the pane shows an error from `workspace_not_found` or an empty `focus`. Every unrelated session also runs a 200 ms poll.",
+   "proposed_fix": "Specify the dormant state. With no `.planroom/`, `focus` returns a non-blank empty state: 'Map these 3 repos? (~2 s)' with one tap, or for many repos 'Pick repos to map' with the most recently committed five pre-selected. Don't create `.planroom/` until a person confirms. Don't start `watch` until a store exists. Add a `first_run_outside_workspace` test and an empty-state screenshot for it."
+  },
+  {
+   "id": "unasked-8",
+   "title": "Native Windows and failed engine fetches end in an unclear dead end",
+   "severity": "minor",
+   "claim": "No doc mentions Windows or WSL. The resolver is POSIX sh, and release builds cover only Linux and macOS. On any fetch failure, the bootstrap offers 'Build the engine from source, about 4 minutes?' without first checking for cargo, a C compiler or network access. On native Windows, without a Rust toolchain, or offline, the person gets a build that is bound to fail rather than one clear line.",
+   "evidence": "architecture.md 'Packaging and release': `plugin/scripts/planroom`, 'a POSIX sh resolver', plus four Unix targets. 'Mod: Wiring' step 1 / DR-28: 'If the fetch fails, deal one card: \"Build the engine from source, about 4 minutes?\"'. rust-stack \u00a72 notes the build needs a C compiler (cc) for tree-sitter and SQLite. grep for windows and WSL finds nothing. KICKOFF <stance> lists 'error messages, first run' as gaps the team owns, and the constraints only require Linux and macOS builds, so this is not a violation.",
+   "failure_scenario": "A Windows user installs the plugin. `process.run` of a sh script fails, the card offers a source build, `cargo` isn't found, and the status line shows a cryptic failure. A macOS user behind a captive portal gets the same card, and `cargo install` fails fetching crates.",
+   "proposed_fix": "Have the mod check the platform before running the resolver. On win32, show one status line: 'Planroom v0.1 runs on macOS, Linux and WSL 2; open this repo from WSL'. Before offering the source build, check for `cargo` and `cc` and test network access. If something is missing, show the exact rustup or Xcode command instead of the card. Add a guide page on WSL 2, with repos on the Linux filesystem (see unasked-5)."
+  },
+  {
+   "id": "unasked-9",
+   "title": "No uninstall or cleanup story, and hand-off worktrees sit inside single-repo workspaces",
+   "severity": "minor",
+   "claim": "Planroom leaves things in the person's repos and machine: worktrees registered in `.git/worktrees`, `planroom/KEY` branches, `.planroom/` directories, detached `serve` processes and the engine cache. Neither uninstall nor cleanup is specified. In a single-repo workspace, the open hand-off worktrees live inside that repo's working tree, where test runners and type checkers that ignore .gitignore pick up duplicate sources.",
+   "evidence": "grep 'uninstall' finds nothing. architecture.md 'Main flows' 6: worktrees at `.planroom/handoffs/KEY/REPO` on branch `planroom/KEY`. Worktrees are removed on merge, but nothing is said about cancel, drop or branch deletion. `serve --detach` uses setsid. The engine is cached in `$CLAUDE_PLUGIN_DATA`. 'Where the workspace lives': the root is the repo itself when it is a git repo.",
+   "failure_scenario": "A person cancels three hand-offs in a single-repo Python project. `pytest` from the repo root now collects tests three more times from `.planroom/handoffs/*/repo`, and `tsc` or jest in a TS repo report duplicate modules. Later they uninstall the plugin and still have stray `planroom/*` branches, stale worktree entries, a running `serve`, and a `.planroom/` in every repo.",
+   "proposed_fix": "Put worktrees outside the working tree when the workspace root is a repo, for example `$CLAUDE_PLUGIN_DATA/worktrees/<workspace_id>/KEY/REPO`. On cancel or drop, remove the worktrees and delete unmerged branches after a confirm. Add `planroom doctor --clean` (worktrees, branches, `serve`, caches) and a 'Remove Planroom' guide page that lists every file and process Planroom creates."
+  },
+  {
+   "id": "unasked-10",
+   "title": "Accessibility is one line in M5: intended-layer chalk is nearly invisible and diff tape is color-only",
+   "severity": "minor",
+   "claim": "The canvas has no accessibility bar beyond touch targets and reduced motion. The tokens as specified fail non-text contrast for the intended layer in light mode. Added and removed tape is told apart by color alone. Nothing covers keyboard navigation or screen readers on the canvas.",
+   "evidence": "design-language.md: `--chalk` is #ffffff at 80% on `--table` #cfe6dc, which I computed as a contrast of 1.24:1 (WCAG 1.4.11 needs 3:1 for meaningful graphics). Tape is 'green added, red removed'. `--pass` #1f7a4d and `--fail` #b3261e have nearly the same luminance (0.147 vs 0.111), so red-green colorblind users can't tell them apart. The rule 'never the only signal' covers block colors only. architecture.md M5 lists 'accessibility' as part of one 9 h slice, with no test named in traceability or feature_list.",
+   "failure_scenario": "In light mode on S4 step 2, the 'drift is a block outside its outline' cue cannot be seen. A deuteranopic reviewer can't tell which edges a hand-off adds and which it removes. A keyboard-only or screen-reader user can't move through MapView, since the mod is keyboard-first but the canvas has no stated keyboard model.",
+   "proposed_fix": "Give tape a shape or pattern as well as color (for example + / \u2212 glyphs or hatching), and raise chalk contrast in light mode to at least 3:1. Add axe-core to the Playwright suite on every view in both themes, with a token contrast test in `@planroom/ui`. Define canvas keyboard navigation (the same hotkeys as the pane) and ARIA roles for blocks, edges and cards."
+  },
+  {
+   "id": "unasked-11",
+   "title": "Planroom's own background processes can't be observed or debugged",
+   "severity": "minor",
+   "claim": "Logs go only to stderr. The long-lived and background work (a detached `serve`, the mod-spawned `watch`, and the rescan, decide and curate duties run under leases) has no persistent log, no failure surface and no diagnostics bundle. A failure there is invisible to the person and the agent, and hard to put in a bug report.",
+   "evidence": "repo-layout.md 'Logging': '`tracing` to stderr only'. architecture.md 'Processes and boundaries': `serve` is detached with `setsid`, and `watch` speaks NDJSON on stdout to the mod. 'Duties' run in any live process. contracts.md `internal`: `details.report` is 'a path to a redacted report' with no location. `doctor` checks git, the store, packs, models and the version, but produces no shareable report. KICKOFF R15 sets the bar at a releasable public project (issue templates, support).",
+   "failure_scenario": "A user reports 'the map stopped updating'. The decide duty in `watch` has been failing on a malformed pack row for an hour, but its stderr went nowhere, the status line still reads healthy, and the bug template has nothing to ask for beyond a vague description.",
+   "proposed_fix": "Give `watch`, `serve` and duties a size-capped, redacted log at `.planroom/logs/<process>.log`. Surface a failing duty as one status-line entry and one `focus` warning code (for example `duty_failed`). Add `planroom doctor --report`, which writes a redacted bundle (versions, platform, filesystem type, store stats, the last 200 log lines, the ledger total), and have the issue template ask for it."
+  },
+  {
+   "id": "unasked-12",
+   "title": "Repo identity is the directory name, so a rename or re-clone orphans every correction",
+   "severity": "minor",
+   "claim": "Node IDs are namespaced by repo name, and repos are discovered as directories. Renaming a repo directory, or cloning it under another name, changes every ID in that repo. Every override, rejection and plan `touches` edge pointing at it is then orphaned and needs a person to rebind it.",
+   "evidence": "architecture.md 'IDs and aliases': 'The namespace is the repo name' (for example `storefront:dir:src/cart`). 'Where the workspace lives': the repos are the immediate child directories. The fold's step 5 raises the `rescan.retarget` role for vanished targets, and `override_retarget` is 'cards only'. R6: 'Corrections survive every rescan.'",
+   "failure_scenario": "The person renames `orders/` to `orders-service/`, or re-clones it as `orders-svc`. On the next scan, 40 overrides and 6 plan next-action targets point at IDs that no longer exist, giving 40+ no-pick retarget cards for a change that has nothing to do with the system's shape.",
+   "proposed_fix": "Store a mapping in `meta` from each directory to a stable repo identity (the root commit hash, with the origin URL as a hint), and keep the namespace from the first scan. When a known identity turns up under a new directory, rebind it automatically and show one line in Diffs ('orders moved to orders-service'), not cards. Test it by renaming a fixture repo between scans."
+  }
+ ],
+ "verdicts": [
+  {
+   "id": "unasked-1",
+   "verdict": "upheld",
+   "reason": "The design has no automatic backup or recovery path for the only store of authored state. When the workspace is a single repo, that store sits inside a gitignored directory in the repo's working tree. This is a real data-loss risk and conflicts with principle 1 ('Never lose ... what someone did').",
+   "evidence": "architecture.md:461-463: 'The repos are the root itself if it's a git repo' and '.planroom/ holds store.db ... and a .gitignore of *'. DR-34 (decisions.md:559): 'the workspace store is the one source; planroom export writes events as NDJSON for backup'. The security table row 'Store integrity' (architecture.md:1167) lists only WAL, migration tests and '`export` for backups'. Nothing exports automatically and nothing restores from a backup. `git clean -fdx` removes ignored files, so it deletes store.db."
+  },
+  {
+   "id": "unasked-2",
+   "verdict": "upheld",
+   "reason": "The migration policy migrates in place as soon as a newer binary opens the store. It takes no snapshot first, and older binaries refuse the migrated store, so a migration bug or a plugin rollback can lose authored events. The older watch exits with schema_mismatch and the mod restarts it through the same resolver. No backoff or 'restart this session' message is specified, and v0.1 is the version that has to carry that behavior.",
+   "evidence": "contracts.md:279: 'A binary that finds a newer store_version refuses with schema_mismatch. One that finds an older one migrates after asking any older serve to drain.' architecture.md:1052: 'After a migration, a watch or serve of an older version exits with schema_mismatch, and the mod restarts watch through the resolver'. architecture.md:1205: the resolver downloads 'for the fixed tag vVERSION'. grep finds no VACUUM, pre-migration snapshot or restore anywhere in the docs."
+  },
+  {
+   "id": "unasked-3",
+   "verdict": "upheld",
+   "reason": "Model requests to the gateway and TypeSafe get no disclosure, no consent and no redaction. Other outbound paths do get them: the Artifact publish states what will be shared and runs kernel::redact, and the session backend deals a consent card. Redaction scope covers logs, error details and snapshots, not request slices, so secret-bearing lines from scanned repos can reach a third party. This is a security and privacy risk.",
+   "evidence": "repo-layout.md:294: 'Redact ... before it reaches a log, an error details or a snapshot'. Security table (architecture.md:1158): the Secrets row covers only Planroom's own keys, and the poison-value test checks fake key values in recorded requests, not repo secrets. architecture.md:1143-1144: the Artifact gets a one-line disclosure and redaction. DR-18 (decisions.md:367): the consent card applies to the session backend only. architecture.md:800: the gateway backend is used whenever 'a gateway credential resolves (AI_GATEWAY_API_KEY ...)', which is a generic Vercel variable."
+  },
+  {
+   "id": "unasked-4",
+   "verdict": "upheld",
+   "reason": "A wall-clock cut contradicts the extractor contract's own determinism property. On large repos it makes facts depend on machine load, and with `require` rules a dropped edge counts as a broken rule, which the reconciler classes as a regression and deals as a card. The fixture is far under budget, so tier A passes, but this conflicts with principle 1 (interrupt only for real decisions) and with the design's own deterministic claim. R-2 accepts fold slowness as a risk but never addresses the cut.",
+   "evidence": "architecture.md:511: 'Each extractor has 2 s per repo; one over budget is cut and reported.' The same 'extractor contract' section lists 'Deterministic' as a property. architecture.md:914-916: 'require (this edge must exist)' and 'A mismatch is a broken rule (a required edge missing...)'. architecture.md:935: 'A change unit whose fact delta breaks an intended rule that was met before it is regression'. No rule excludes cut or partial scans from that classification. architecture.md:568: 690 files/s."
+  },
+  {
+   "id": "unasked-5",
+   "verdict": "upheld",
+   "reason": "Correctness depends on multi-process WAL, but no reviewed doc mentions filesystem type, network mounts or WSL, and the store always sits wherever the repos are. NFS home directories on Linux, a supported platform, are a realistic case. This is a data-loss risk against R10's 'No write is lost'.",
+   "evidence": "decisions.md:94 (DR-1): 'every engine process writes through store::commit ... in WAL mode'. architecture.md:461-463: the store is in WORKSPACE/.planroom/. grep for windows, wsl, nfs, 'network file', filesystem and statfs over docs/contributing/*.md and feature_list.json finds nothing. rust-stack.md:350 (G13): 'Only Linux x86_64 was built here.'"
+  },
+  {
+   "id": "unasked-6",
+   "verdict": "upheld",
+   "reason": "The finding holds, and the gap is wider than it states. dependency_real is 'cards only' even when Jev is available, and the precheck targets edges with confidence < 1, while the design's own import template emits confidence 0.9. So every syntactic import edge on a real repo can raise a card, with or without a key, and only the S7 routine rescan on the fixture is bounded. Nothing in the design guides a first-run user to set up a key. This conflicts with principle 1 ('pre-decided, batched') and R9.",
+   "evidence": "architecture.md:526: 'edge = \"code.imports\" ... confidence = 0.9'. architecture.md:731: 'dependency_real only about edges with confidence < 1'. architecture.md:772: 'dependency_real ... cards only'. architecture.md:858: 'other requests become cards with no pick'. contracts.md:312: 'confidence: f32, // 1.0 for deterministic tiers', which contradicts the template. DR-18 (decisions.md:363): 'most plugin users won't set AI_GATEWAY_API_KEY'. architecture.md:780: the card bound is argued for the S7 rescan only."
+  },
+  {
+   "id": "unasked-7",
+   "verdict": "upheld",
+   "reason": "The finding is correctly rated minor, and it is only partly handled. design-language.md specifies an empty state with a 'Scan this repo' button. But it never says whether watch, which the mod spawns unconditionally, creates a store or polls outside a workspace, or how a parent directory with many child repos is treated before anyone confirms.",
+   "evidence": "design-language.md:64: 'Every empty state shows ... the single next action as a button, for example \"Scan this repo\"' covers the blank-state part. architecture.md:1063 (Wiring step 4) spawns watch with no workspace check. architecture.md:461-462: 'without one, the given or current directory is' the root, and 'its immediate child directories that are git repos' are the repos. contracts.md:147: workspace_not_found."
+  },
+  {
+   "id": "unasked-8",
+   "verdict": "upheld",
+   "reason": "This is minor, as the finding says: the constraints require only Linux and macOS. The source-build card is still offered without checking that cargo or a C compiler is present, and nothing addresses Windows or WSL.",
+   "evidence": "architecture.md:1060 (Wiring step 1): 'If the fetch fails, deal one card: \"Build the engine from source, about 4 minutes?\"' comes with no toolchain check. architecture.md:1205 describes the POSIX sh resolver. rust-stack.md:134 says the build needs the cc crate and a C compiler. No reviewed doc mentions Windows or WSL."
+  },
+  {
+   "id": "unasked-9",
+   "verdict": "upheld",
+   "reason": "There is no uninstall or cleanup story, and the cancel and drop paths don't say they remove worktrees or `planroom/KEY` branches; only merge removes worktrees. The duplicate-collection scenario is overstated, though. pytest's default norecursedirs includes '.*', and TypeScript's wildcard include skips dot-directories, so `.planroom/handoffs` would mostly not be picked up. The finding stays minor.",
+   "evidence": "architecture.md:983: merge will 'then remove the worktrees'. The state diagram at architecture.md:968-978 goes reviewing --> dropped on cancel with no cleanup step. grep for 'uninstall' finds nothing. architecture.md:242: worktrees go under .planroom/handoffs/KEY/REPO."
+  },
+  {
+   "id": "unasked-10",
+   "verdict": "upheld",
+   "reason": "I recomputed the numbers and they are correct. Chalk at 80% white over #cfe6dc has a contrast of 1.245:1, and --pass and --fail have relative luminances of 0.147 and 0.111. Tape is described by color alone. Accessibility appears only as a word in an M5 slice, with no named test. The finding is correctly rated minor.",
+   "evidence": "design-language.md palette: '--chalk #ffffff at 80%' and '--table #cfe6dc'. Diffs row: 'strips of tape (green added, red removed)'. The 'never the only signal' rule covers block colors only. architecture.md:1300: 'Mobile, touch, accessibility, ...' is one slice. grep for axe, aria and contrast finds nothing."
+  },
+  {
+   "id": "unasked-11",
+   "verdict": "upheld",
+   "reason": "Logs go to stderr only, and there is no persistent log, duty-failure surface or diagnostics bundle for the detached serve or the mod-spawned watch. The finding is correctly rated minor.",
+   "evidence": "repo-layout.md 'Logging': tracing to stderr only. architecture.md:153: serve is detached with setsid. architecture.md:1044: SSE has a duty frame, but no failure surface or warning code for a duty is defined. contracts.md:162: internal details.report is 'a path to a redacted report' and no location is given."
+  },
+  {
+   "id": "unasked-12",
+   "verdict": "upheld",
+   "reason": "Node IDs are namespaced by repo name, and repos are found as directories, with no stable repo identity stored. Renaming or re-cloning a repo therefore orphans every override, and each one goes to the cards-only override_retarget kind. The finding is correctly rated minor.",
+   "evidence": "architecture.md 'IDs and aliases': 'The namespace is the repo name ... storefront:dir:src/cart'. architecture.md:462: the repos are the immediate child directories. architecture.md:433: meta holds only workspace_id, store_version, created_at and engine_version, with no repo identity. architecture.md:678: 'override_retarget (choice, role rescan.retarget)'."
+  }
+ ]
+}

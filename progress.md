@@ -11,7 +11,7 @@ The full record of the build that `KICKOFF.md` describes. A later session should
 |---|---|
 | 1. Understand | research done; mod and Artifact spikes in main session |
 | 2. Architecture | done: 3 candidates, 3 judges, synthesis; main agent decided DR-43 |
-| 3. Architecture review | round 1 running |
+| 3. Architecture review | round 1: 102 findings, 49 material upheld; fixes running |
 | 4. Walking skeleton | not started |
 | 5. Milestones M1–M5 | not started |
 | 6. Release | not started |
@@ -107,3 +107,4 @@ From the synthesized architecture, in agent-hours of one focused build agent. Pe
   - A-11: a cloud session can start with no surface.
   - A-9: `$.model.complete` caching works in this session: the first call wrote 14,403 cache tokens, the second read 14,403 (`mcp__planroom-spike__spike_probe what=model`, haiku, 8 output tokens).
   - A-10: `$.process.run` works in this cloud session (exit 0, no TTY, git 2.43.0), and `$.process.spawn` streams stdout as written (chunks at 6, 310 and 624 ms).
+- 2026-10-26: Architecture review round 1: nine lenses with independent refuters gave 102 findings (49 material and upheld, 5 downgraded, 0 refuted). Owner decisions D1 to D21 are in `docs/contributing/research/arch-review/round-1/owner-decisions.md`; the fixes run as three sequential clusters plus a consistency pass.
