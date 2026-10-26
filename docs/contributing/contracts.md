@@ -1129,6 +1129,7 @@ Two optional files share one schema, and every key has a default in `crates/plan
 | Key | Where | Default | Meaning |
 |---|---|---|---|
 | `packs` | workspace | `[]` | extra pack directories, after the built-ins; written by the person-only `planroom pack add`, which copies the pack into the state directory's `packs/` for every process to load from there, and by `pack remove`; recorded in the store with the resolved set, and never overridden from the environment (DR-62): `PLANROOM_PACKS` only names directories for `doctor --pack` (DR-62) |
+| `[scan] exclude` | either | `["**/fixture/**", "**/fixtures/**", "**/__fixtures__/**", "**/testdata/**", "**/test-data/**"]` | directories a scan skips, as globs relative to each repo's root; a value replaces the default list; part of the snapshot key (DR-89) |
 | `models` | either | `auto` | `off` turns every Jev and Claude call off: deterministic tiers, defaults and pre-selected cards (privacy, offline work, the models-off test path) |
 | `[claude] backend` | user | `auto` | `auto` (gateway if a credential resolves, else session if a mod is attached, else off), `gateway`, `session`, `off` |
 | `[claude] base_url` | user | `https://ai-gateway.vercel.sh` | a credential goes only to this host, `ai-gateway.vercel.sh` or `api.typesafe.ai` |
