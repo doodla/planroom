@@ -114,14 +114,74 @@
   {
    "id": "principles-1",
    "verdict": "upheld",
-   "reason": "No document under review says a tool result carries the envelope's error. All three tool-result descriptions name `result` plus `meta.next` (contracts adds seq and warnings). The envelope makes `result` and `error` mutually exclusive Options, so on the tool path an error reply loses its code, retry class, hint and details. I found no isError or error pass-through anywhere. S14 (tier A) has an agent drive S1 and S2 through the tools alone, and DR-21's retry classes only help if the agent can see them.",
-   "evidence": "architecture.md:1227 'return the envelope's `result` and `meta.next`'; architecture.md:1518 A-4 'JSON.stringify of the envelope's result and meta.next as one string'; contracts.md:792 'the envelope's result plus meta.next, meta.seq and warnings'; contracts.md:84-85 result and error are each skip_serializing_if Option; grep for isError, is_error and 'tool result' finds only architecture.md:922 (budgets) and feature_list.json:480, and neither mentions errors."
+   "reason": "Every place the tool result is defined names `result` and `meta.next` (contracts adds seq and warnings). None mentions `error`, and contracts makes `result` and `error` mutually exclusive Options. An error envelope therefore reaches the agent with no code, retry class, hint or details. I found nothing elsewhere that covers it: decisions.md and the tool-result budget test say nothing about error envelopes. S14 (tier A) depends on agents driving S1 and S2 through the tools, and principle 2 asks for stable error codes there.",
+   "evidence": "architecture.md:1227 'return the envelope's `result` and `meta.next`'; architecture.md:1518 (A-4) 'returns `JSON.stringify` of the envelope's `result` and `meta.next` as one string'; contracts.md:792 'the envelope's `result` plus `meta.next`, `meta.seq` and warnings'; contracts.md:83-84 `result: Option<T>` and `error: Option<ErrorObject>`, both skip_serializing_if none; architecture.md:922 says only that tools.test.ts serializes each tool result from the goldens, not that errors are included."
   },
   {
-   "id": "principles-1",
+   "id": "principles-2",
    "verdict": "upheld",
-   "reason": "placeholder-removed",
-   "evidence": "duplicate guard"
+   "reason": "Redaction is applied to the whole tool output, with no field scope and no exemption for IDs, cursors or hashes. The docs never define the high-entropy threshold. Commit SHAs, uuid v7 event IDs and opaque cursors would plausibly trip a typical entropy detector, and no test checks that handles survive redaction. Whether IDs actually break depends on a threshold the design leaves open, so I uphold it as a real risk to S14's tools-only path.",
+   "evidence": "architecture.md:881 '`kernel::redact` runs on every Jev state, every Claude prompt, every session-backend request file and every mod tool output. It masks ... high-entropy strings'; contracts.md:792 'as compact JSON, after `kernel::redact`'; architecture.md:1302 repeats it, and its tests (`a_planted_repo_secret_reaches_no_request_or_tool_output`) check only that secrets are masked, never that handles survive."
+  },
+  {
+   "id": "principles-3",
+   "verdict": "upheld",
+   "reason": "Plan items can only be proposed with `intent propose --file F` (and `edit propose --file`). The tool input is a list of string arguments with no inline payload, so the chat model has to Write a file first. The guard denies Write under `.planroom/`, so the file lands somewhere else, and in default mode every Write prompts the person. That adds an interruption that isn't a person's decision to S3 (tier A), against principle 1.",
+   "evidence": "architecture.md:976 'it proposes items itself through `room_change` (ghosts, one batch per turn)'; architecture.md:1138 '`intent ... propose --file F`'; contracts.md:783 '\"args\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } }'; architecture.md:401 'Edit, Write, MultiEdit and NotebookEdit under `.planroom/`' are denied; architecture.md:1106 the curator 'submits a reworded draft with `edit propose --file`' with tools `Read, Bash, Grep, Glob` (1231). No inline-payload or stdin form appears in any document."
+  },
+  {
+   "id": "principles-4",
+   "verdict": "upheld",
+   "reason": "The design says pending edits survive a reload in sessionStorage, but a reloaded tab has lost its in-memory bearer token. The only way back in is `e` or `/room open`, which opens the URL in the browser as a new tab, and a new tab starts with empty sessionStorage. The old tab keeps the edits but can't send them. Nothing defines what an unauthorized tab shows, and the empty-state audit covers only empty-workspace views. The window is narrow (edits are pending only while a request is in flight or `serve` is down, for example after a drain on upgrade), but the documented recovery doesn't work. That breaks principle 1's 'never lose what someone did'.",
+   "evidence": "architecture.md:1256 'Pending edits survive a reload in `sessionStorage` ... until confirmed'; architecture.md:1173 'which the tab keeps in memory ... A reload asks for a new code: `e` or `/room open`'; architecture.md:1172 'It opens `http://127.0.0.1:PORT/#code=...` in the browser itself'; architecture.md:1158 binds `127.0.0.1:0`; architecture.md:156 exits after 30 min with no client or on drain; architecture.md:1274 `empty_state_audit` 'visits every canvas view on an empty workspace'."
+  },
+  {
+   "id": "principles-5",
+   "verdict": "upheld",
+   "reason": "DR-60 removed the first-load card, but feature_list.json and DR-48's consequences still depend on it. That includes a tier A S7 CI step that keeps a card that will no longer exist. `Command::PersonInit`, which DR-60 says contracts gain, appears nowhere in contracts.md or the architecture's leaf and undo tables. The setup card is dealt 'when no backend is configured', and no document says whether strict replay counts as configured, so S7's max_cards 1 is at risk.",
+   "evidence": "decisions.md:1157 'A pack that a person lists in config or `PLANROOM_PACKS` loads with no card'; decisions.md:1159 'contracts gain `Command::PersonInit`' (grep finds PersonInit only in decisions.md); decisions.md:861 'the Ruby pack's first-load card is dealt on every fixture; S7's warm phase keeps it before the rescan'; feature_list.json S7 step 'planroom decide CARD keep --base SEQ --json (person) for the Ruby pack's first-load card'; the S1 assert 'the Ruby pack's first-load card among them'; architecture.md:958 the setup card for 'a workspace with none' (no backend); the fixture_note says only that 'strict replay counts as consent', not that it counts as a configured backend."
+  },
+  {
+   "id": "principles-6",
+   "verdict": "upheld",
+   "reason": "The Escalation bullet, the loop diagram and DR-50 all ask Claude for a person card when it reaches the top of the stack, with no band condition. The Policy bands section limits 'Ask Claude' to the escalate band, run lazily. The docs contradict each other, and neither says which process makes the call or whether a read triggers it. In S7 (tier A, max_claude_calls 0) the one allowed person card would be on top, so the literal rule means a Claude call. The reviewer's 30-call example is overstated, because cards of one kind batch into one card, but the conflict with R9 and S7 stands.",
+   "evidence": "architecture.md:776 'card --> card: Claude asked when the card is on top or a person taps Ask Claude'; architecture.md:794 'the engine asks Claude only when the card reaches the top of the stack or the person taps \"Ask Claude\"'; decisions.md:898 same; architecture.md:893 'In the escalate band ... a `person` card offers \"Ask Claude\", run lazily'; feature_list.json S7 'sum of meta.models.claude.calls over the rescan is 0', 'at most one open card after the rescan'."
+  },
+  {
+   "id": "principles-7",
+   "verdict": "upheld",
+   "reason": "After `handoff report`, nothing runs `handoff collect`. The mod handler runs only report. The pane's keys have no collect. The band and `PaneModel.next` can't name collect, because its permission class is handoff. In chat it sits in the deferred `room_handoff` tool behind the normal permission prompt. So the diff doesn't come back by itself as R8 requires, and S9's (tier B) two-keystroke hand-off flow has no path from reported to reviewing.",
+   "evidence": "architecture.md:1054 'On the agent's `turn.complete`, the mod runs `planroom handoff report KEY --file result.json`' (nothing more); architecture.md:1071 'reported --> reviewing: handoff collect builds the proposed-change diff'; architecture.md:1211 list keys '`h` hand off, `g` merge, `u` undo, `e` ..., `c` curate, `t` remote' (no collect); architecture.md:1216 band names no command 'whose permission class isn't `handoff`'; architecture.md:1225 '`room_handoff` | yes | `handoff report`, `handoff collect`, `share` | the normal permission flow'."
+  },
+  {
+   "id": "principles-8",
+   "verdict": "downgraded",
+   "reason": "The friction is real, but it's a deliberate, documented security trade-off (DR-52, owner decision D15). The session's ArtifactData writes as the owner with no prompt, so an owner-uid row could have been written by the model. Confirming it is arguably a decision only the person can make. It's batched into one card with Yes pre-selected, which matches principle 1's 'batched ... one tap to confirm'. Import needs a person at the session anyway (`/room sync` or Send to Claude), so the confirming card shows up in the same sitting. S11's CI path still shows an attributed person edit. What's left is minor: the attribution of confirmed owner rows isn't specified.",
+   "evidence": "architecture.md:1289 'The session's `ArtifactData` writes as the owner with no prompt [artifact-spike], so the model could have written it. They become one card the local person confirms: \"Apply 3 edits and 1 pick from your phone?\", with Yes pre-selected'; architecture.md:1287 import is part of the person's `/room sync`; decisions.md:577 'the owner's rows and person-only rows become one confirming card (D15; security-2, principles-1)'; feature_list.json S11 'u_test is not the owner ...'."
+  },
+  {
+   "id": "principles-9",
+   "verdict": "upheld",
+   "reason": "Nothing bounds a batch accept to the items the person saw. `BatchInfo` carries a count and item handles, but neither `decide CARD accept` nor the pane's `a` is described as taking them or the card's base. Compare-and-set covers fields, not batch membership. The reviewer rated it minor, and I keep it minor.",
+   "evidence": "contracts.md:493 '`batch: Option<BatchInfo>`, // \"Apply Claude's 2 edits\": count and item handles'; architecture.md:1205 '`a` accept the batch'; architecture.md:896 'Ghosts from one cause batch into one card (\"Accept 5 proposals?\")'; architecture.md:357 compare-and-set applies to the copied fields only."
+  },
+  {
+   "id": "principles-10",
+   "verdict": "upheld",
+   "reason": "The table gives `consent_required` retry class `later` but no `retry_after_ms`, and only a person's pick on the consent card can clear it, while `person_required` says `never` and names the card. An agent that follows the retry class will poll. One could argue for `later`, since the condition can clear eventually, but with no timing signal the guidance invites wasted calls. Minor, as reported.",
+   "evidence": "contracts.md:163 '`consent_required` | permission | 5 | later | ... | `provider`, `card`'; contracts.md:162 '`person_required` | permission | 5 | never'; contracts.md:106-107 '`retry_after_ms`: with Later, when the caller may try again'."
+  },
+  {
+   "id": "principles-11",
+   "verdict": "upheld",
+   "reason": "`Meta` has no skip-if-empty on any field, and both documented examples serialize `replayed_from: null`, `stale_repos: []`, `warnings: []`, the full zeroed `models` usage and `model_requests: []`. That boilerplate counts against the small 400 to 600-token budgets on every call. Minor, as reported.",
+   "evidence": "contracts.md:89-101 Meta fields with no `skip_serializing_if` (only result and error carry it, at 83-84); contracts.md:128-130 and 139-141 examples with `\"replayed_from\":null,\"stale_repos\":[],\"warnings\":[],\"models\":{\"jev\":{\"calls\":0,...},\"claude\":{...}},\"model_requests\":[]`; architecture.md:1139 `edit` budget 400, 1140 `claim` 600, 1135 `find` 600."
+  },
+  {
+   "id": "principles-12",
+   "verdict": "upheld",
+   "reason": "The band rule excludes only NotUndoable leaves and handoff-class leaves. `intent next` and `decide --run` are Edit-class with permission class change, so the band can name them, and a stray digit can start a paid model call. Consent and the daily budget limit how much it can cost, so it stays minor, as reported.",
+   "evidence": "architecture.md:1216 'name only commands whose undo class isn't `NotUndoable` and whose permission class isn't `handoff`'; architecture.md:1120 'Edit | ... | `intent next`, ... `decide --run`'; architecture.md:940 S03 stage calls on the capable tier at 'about $0.15' each."
   }
  ]
 }
