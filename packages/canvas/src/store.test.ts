@@ -48,6 +48,7 @@ function map(over: Partial<MapView> = {}): MapView {
     ],
     hidden: 0,
     empty: null,
+    layout: { view_key: "map:container:all", structure_hash: "5e1f" },
     ...over,
   };
 }
@@ -135,8 +136,8 @@ describe("start", () => {
     expect(f.layout).toHaveBeenCalledOnce();
     expect(f.saved).toEqual([
       {
-        view_key: "container|all|",
-        structure_hash: expect.stringMatching(/^[0-9a-f]{16}$/) as string,
+        view_key: "map:container:all",
+        structure_hash: "5e1f",
         positions: s.positions,
       },
     ]);
@@ -144,6 +145,14 @@ describe("start", () => {
       command: "map",
       request: { detail: "graph", level: null },
     });
+  });
+
+  test("a map with no layout key is laid out but has nowhere to store it", async () => {
+    const f = fake({ map: () => map({ layout: null }) });
+    const store = createCanvasStore(f.transport, f.layout);
+    await store.getState().start();
+    expect(store.getState().laidOut).toBe(true);
+    expect(f.saved).toEqual([]);
   });
 
   test("stored positions are used as they are, with no layout and no write", async () => {

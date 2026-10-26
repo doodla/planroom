@@ -4,12 +4,7 @@
  * the Artifact `db`. Each declares what it can serve.
  */
 
-import type {
-  Envelope,
-  Handle,
-  Position,
-  StreamFrame,
-} from "@planroom/contract";
+import type { Envelope, Handle, Input, StreamFrame } from "@planroom/contract";
 
 /** What a transport can serve. `local` serves every view and query. */
 export interface Capabilities {
@@ -18,12 +13,11 @@ export interface Capabilities {
   readonly layoutWriteBack: boolean;
 }
 
-/** `PUT /api/v1/layout`: an auto-layout, a cache keyed by view and structure. */
-export interface LayoutPut {
-  readonly view_key: string;
-  readonly structure_hash: string;
-  readonly positions: Readonly<Record<string, Position>>;
-}
+/**
+ * `PUT /api/v1/layout`: an auto-layout, a cache keyed by the view and structure the map's
+ * `layout` names.
+ */
+export type LayoutPut = Input.LayoutPut;
 
 /** Why a transport can't answer: the tab needs a fresh link, or the engine can't be reached. */
 export class TransportError extends Error {

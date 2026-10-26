@@ -12,7 +12,7 @@ import type {
   PaneModel,
   Position,
 } from "@planroom/contract";
-import { blocksOf, edgesOf, structureHash, viewKey } from "@planroom/ui";
+import { blocksOf, edgesOf } from "@planroom/ui";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 import {
@@ -103,12 +103,11 @@ export function createCanvasStore(
           positionsOf(await layout(elkGraph(blocks, edgesOf(map)))),
         );
         laidOut = true;
-        if (transport.capabilities.layoutWriteBack) {
-          const write = {
-            view_key: viewKey(map),
-            structure_hash: structureHash(map),
-            positions,
-          };
+        // Stored under the key the engine named for this view and structure, so the next map
+        // it serves carries these positions. A map with no key has nowhere to store them.
+        const key = map.layout ?? null;
+        if (transport.capabilities.layoutWriteBack && key !== null) {
+          const write = { ...key, positions };
           // A cache: a failed write only means the next tab lays out again.
           transport.saveLayout(write).catch(() => undefined);
         }
