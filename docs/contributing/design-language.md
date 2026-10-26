@@ -41,6 +41,8 @@ Colors are CSS variables in `packages/ui`, with a designed dark mode, not an inv
 
 Block colors encode a Container-level kind's `tone`, which its pack declares as `service`, `library`, `store` or `infra`, one per block token above. A kind with no tone draws as `--card` with its label. Surfaces read the tone from the view model and never switch on a kind ID [DR-46]. Block colors are never the only signal: each block also carries its kind as a label or icon. Tape isn't told by color alone either: added tape carries `+`, removed tape `−` and changed tape `~`.
 
+Lens yarn has no tokens yet. Until packs bring lenses in M1, every edge draws in `--muted`. M1 adds one yarn token per lens to this table, each held to the 3:1 mark bar below [DR-82].
+
 Every token meets a contrast bar against `--table` and `--card` in both themes: 4.5:1 for text, and 3:1 for marks such as chalk outlines, tape and edges. A block's fill leans on its border and its label, so the border is the mark that counts. The bar checks the border tokens for blocks, since the fills alone measure as low as 1.39:1 on the light felt. `packages/ui/src/tokens.test.ts::contrast_meets_the_bar` checks every pair [DR-77]. White chalk on the light felt measured 1.24:1, which is why light mode draws dark chalk.
 
 ## Type

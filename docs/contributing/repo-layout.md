@@ -177,6 +177,7 @@ testkit  = { may_depend = ["contract"], dev_only = true }
 xtask    = { may_depend = ["*"], ships = false }
            # net: of the crates that ship, only models and planroom (the server) may open a socket. Every other shipped
            # crate's generated clippy.toml disallows std::net, and no network crate is on its allow-list [DR-79]
+           # libc binds every C call, so the socket scan exempts libc itself and finds its callers by libc::socket [DR-83]
 
 [rust.kernel]
 domain_free = ["kernel", "contract"]   # no string literal under these crates' src/ equals a built-in pack kind or relation
@@ -209,6 +210,9 @@ not_to_unresolvable = true
 generated_read_only = "docs/contributing/repo-layout.md#generated-directories"   # gen expands it from that table [DR-79]
 golden_readers = ["packages/mod/plugin-tests/**", "packages/mod/src/**/*.test.ts"]   # only these read tests/golden/*.json [DR-81]
 domain_free = ["ui", "canvas", "mod"]   # no string literal equals a built-in kind or lens ID; surfaces style from MapNode.tone [DR-45, DR-46]
+test_tooling = { files = ["**/*.test.ts", "**/*.test.tsx", "packages/canvas/vite.config.js", "tests/e2e/playwright.config.ts"],
+                 third_party = ["vitest", "vite", "@vitejs/plugin-react"] }
+                            # the test runner and the build tool, imported only by tests and configs, which no bundle holds [DR-83]
 
 [packs]
 requires = [[], ["code"]]   # the only values for a built-in pack
@@ -228,7 +232,7 @@ no_executables = true
 | Surfaces reach the engine only through published contracts | `canvas` and `mod` import `@planroom/contract` and `@planroom/ui` only through their exports; each package imports only the third-party packages its `third_party` lists, so `ui` reaches no React or DOM even through another package; the mod has no Node APIs [DR-70] | `depcruise packages tests/e2e --config .dependency-cruiser.cjs --output-type err` (allow-list, default deny, one allow rule per listed package); the mod's `tsconfig` `lib: ["es2023"]`, `types: []` |
 | Only the mod reaches the host API and the golden outputs | only `packages/mod` imports `claude-code` and `claude-code/testing`, the mod API types, which the bundle keeps external; only the mod's tests read `tests/golden/*.json` [DR-81] | depcruise rules `cargo xtask gen` writes from `host_types` and `golden_readers`; `not-to-unresolvable` exempts only the host module, which no package installs |
 | Generated code is never hand-edited | every file under a generated directory has the header and equals a fresh generation | `cargo xtask check` drift checks |
-| No OpenSSL, no unknown sources | `deny.toml` bans `openssl` and `openssl-sys`, denies wildcards and unknown git sources | `cargo deny check licenses bans sources` inside `cargo xtask check` |
+| No OpenSSL, no unknown sources | `deny.toml` bans `openssl` and `openssl-sys`, denies wildcards and unknown git sources, and allows the licenses DR-39 names, BSD-3-Clause among them; each workspace path dependency names `version = "=X.Y.Z[-dev]"`, so it isn't a wildcard and the crates stay publishable [DR-83] | `cargo deny check licenses bans sources` inside `cargo xtask check` |
 
 ### Planted-import self-test
 
@@ -243,7 +247,7 @@ A planted bad import must fail CI (S15), and a broken checker must fail the self
 7. Changes `boundaries.toml` with no new record, runs `cargo xtask check layout`, and expects it to fail.
 8. Removes the worktree.
 
-CI runs the self-test on every push.
+CI runs the self-test on every push. Until packs land in M1, the bare-name literal scan in step 4 and the pack `requires` plants in step 6 print `not built`, not `skipped`: there is no check yet to skip, and none passes for them [DR-83].
 
 ### Decision-record gate
 
@@ -273,9 +277,9 @@ A wholly generated directory has a `GENERATED.md` stub; a generated file in a ha
 | each area's contract block and Read first lines in its `AGENTS.md`, its marked region | `cargo xtask gen` from the two area tables on this page | yes [DR-59, DR-70] | `cargo xtask gen` |
 | `layout.lock` | `cargo xtask gen --layout-lock DR-n`, by the main agent only | yes [DR-59] | the main agent: a record in the merge commit, then `gen --layout-lock` with it |
 | `docs/reference/cli.md` and `configuration.md`; the marked tables in `errors.md` and `packs.md` | `cargo xtask gen` | yes | `cargo xtask gen` |
-| `tests/golden/` | `cargo xtask gen --golden`, which runs the Rust tests that write them; a plain test run compares and never writes [DR-70, DR-79] | yes | `cargo xtask gen --golden` |
+| `tests/golden/` | `cargo xtask gen --golden`, which runs the Rust tests that write them on the built fixture, with `PLANROOM_GOLDEN=write`, which the engine never reads; a plain test run compares and never writes. Every file comes from a real engine run; `cli/map-empty.json` is `map --detail graph` before the first scan, with the temporary root written as `/home/you/shop` [DR-70, DR-79, DR-82] | yes | `cargo xtask gen --golden` |
 | `packs/*/evals/*.result.json` | `cargo xtask eval` | yes | `cargo xtask eval` |
-| `target/canvas/` | `cargo xtask gen --canvas` (`vite build`); `crates/planroom/build.rs` embeds it | no | |
+| `target/canvas/` | `cargo xtask gen --canvas` (`vite build --configLoader runner`, so the config can import `@planroom/ui`'s TypeScript [DR-82]); `crates/planroom/build.rs` embeds it | no | |
 | `target/mod-test/` | `cargo xtask test`, before it runs `claude plugin test`: the mod and its tests bundled by esbuild, the workspace packages inlined, `claude-code` and `claude-code/testing` external, the golden CLI outputs as a generated module, and a `hooks/hooks.json` naming the bundle | no [DR-59] | |
 | `target/budgets.measured.json` | `cargo xtask gen --budgets`, which prints its diff against `budgets.json` and never writes that file | no [DR-59] | |
 
@@ -288,9 +292,9 @@ A wholly generated directory has a `GENERATED.md` stub; a generated file in a ha
 | `cargo xtask check` | `cargo fmt --check`; clippy with `-D warnings`; `prettier --check`; `eslint`; `tsc -b`; depcruise; the boundary rules and self-test; every drift check; the docs tests; release pins; the guardrails tests (`python3 .claude/guardrails/tests/test_guardrails.py` and `test_context_restore.py`); `examples/check-fixture`; `scripts/check-tag-version.sh` against the workspace version [DR-69]; `claude plugin validate --strict` on `.` and `plugin/`; `cargo deny check licenses bans sources`; the layout gate; `ci_runs_only_xtask`; `feature_list_is_complete`; the secret scan over `tests/replay/` and `docs/evidence/` | 2 to 3 min |
 | `cargo xtask check boundaries [--self-test]` | the boundary rules alone, or with the control and the planted crossings | 40 s |
 | `cargo xtask check layout [--commits RANGE]` | the state check of `layout.lock`, and in CI the walk over the commits a branch push or pull request adds, never on a `workflow_dispatch`, a `schedule` or a tag push [DR-79]; in a linked worktree, `pending ratification` instead of a failure for a changed surface [DR-79]; on a track merge, the list of its gated changes [DR-70] | 5 s |
-| `cargo xtask check audit` | `cargo deny check advisories`, `pnpm audit --prod`, and the pin-age check (each direct pin's release at least 14 days older than the commit that set it, from crates.io and the npm registry), which need the network; locally `skipped (offline)` when it's down, in CI a failure [DR-70] | 30 s |
+| `cargo xtask check audit` | `cargo deny check advisories`, `pnpm audit --prod`, and the pin-age check (each direct pin's release at least 14 days older than the commit that set it, from crates.io and the npm registry, except a release that fixes a RustSec advisory in the tree, which the commit and DR-83's list name [DR-83]), which need the network; locally `skipped (offline)` when it's down, in CI a failure [DR-70] | 30 s |
 | `cargo xtask check guardrails` | the two guardrails test files alone | 5 s |
-| `cargo xtask test [-p CRATE] [FILTER] [--ts PATH] [--scenario SNN] [--installer]` | `cargo nextest run` plus `cargo test --doc` (locally, without nextest, `cargo test` with a `skipped` line; in CI nextest is installed and the fallback fails [DR-79]); `vitest run`; with `-p`, `FILTER` or `--ts`, only that crate, the tests whose names match, or that vitest file, for a quick loop [DR-70]; `claude plugin test target/mod-test`; the scenario CI paths S1 to S15 on fresh fixtures; the `tests/plugin/` scripts, except `slash_commands_snapshot.sh`, which needs a live session and runs from `cargo xtask live evidence S15`; budgets; eval recompute. `--installer` runs ShellCheck and `tests/installer/run.sh` instead, under BusyBox `sh` and dash on Linux, and under `/bin/sh` and dash on macOS, which has no BusyBox build; the detach test runs on both [DR-78, DR-79] | 4 to 6 min |
+| `cargo xtask test [-p CRATE] [FILTER] [--ts PATH] [--scenario SNN] [--installer]` | `cargo nextest run` plus `cargo test --doc` (locally, without nextest, `cargo test` with a `skipped` line; in CI nextest is installed and the fallback fails [DR-79]), each with `--no-fail-fast`, so one failure doesn't hide the next [DR-83]; `vitest run`; with `-p`, `FILTER` or `--ts`, only that crate, the tests whose names match, or that vitest file, for a quick loop [DR-70]; `claude plugin test target/mod-test`; the scenario CI paths S1 to S15 on fresh fixtures; the `tests/plugin/` scripts, except `slash_commands_snapshot.sh`, which needs a live session and runs from `cargo xtask live evidence S15`; budgets; eval recompute. `--installer` runs ShellCheck and `tests/installer/run.sh` instead, under BusyBox `sh` and dash on Linux, and under `/bin/sh` and dash on macOS, which has no BusyBox build; the detach test runs on both [DR-78, DR-79]. The harnesses compare paths as the engine reports them, physical (`pwd -P`, `canonicalize`), so macOS's `/private/var` matches, and find a command by walking `PATH` rather than with `command -v` [DR-83] | 4 to 6 min |
 | `cargo xtask e2e [--screens]` | `playwright install chromium` at the pinned version (`--with-deps` in CI); builds the canvas; `planroom serve` on a built fixture with replay; Playwright at 1440×900 and 390×844, light and dark; the empty-state audit through both transports; reduced motion; console errors; the Artifact page with the fake `db`; the plugin install smoke in an isolated `HOME`, with mods on and off | 4 min |
 | `cargo xtask gen [--mod] [--golden] [--budgets] [--canvas] [--layout-lock DR-n] [--schema-baseline] [--version V]` | plain `gen` writes every committed output whose generator the table above names as `cargo xtask gen`, the mod bundle and the CLI reference included; `--mod` writes only the mod bundle, for a quick loop on the mod [DR-81]; `--golden` reruns the tests that write `tests/golden/`, which a plain test run only compares against; `--budgets` and `--canvas` write outputs that aren't committed; the last three are one-off writes. On a conflict in a generated file, run the command the table's last column names [DR-70, DR-79] | 30 s |
 | `cargo xtask fixture OUT [--no-packs]` | `examples/build-fixture OUT`, then `OUT/.planroom/config.toml` loading `examples/packs/ruby` (omitted with `--no-packs`), recorded as a trusted workspace in the data root [DR-48] | 2 s |
@@ -311,7 +315,8 @@ Each pin has one home and a `release_pins` test that fails when another file nam
 | Claude Code 2.1.310 | an `xtask` constant; `xtask` installs that exact version with `DISABLE_AUTOUPDATER=1`; `packages/mod/vendor/claude-code.d.ts` holds that version's mod API types [DR-81] |
 | Python 3.11 or later (guardrails, `build-fixture`, `check-fixture`) | `xtask` check, CI setup |
 | git 2.34.1 or later, Ubuntu 22.04's; the engine checks repo ownership itself [DR-78] | `planroom doctor` and `scan` (`git_too_old`), CI setup |
-| `cargo-deny 0.20.2`, `cargo-nextest 0.9.149`, `cargo-about 0.9.2`, ShellCheck, and BusyBox on Linux for the installer suite | sha256-pinned downloads in `xtask` |
+| `cargo-about 0.9.2` | a sha256-pinned download in `xtask` |
+| `cargo-deny 0.20.2`, `cargo-nextest 0.9.149`; ShellCheck, BusyBox (Linux only) and dash for the installer suite | `xtask`, which installs them under `CI=true` (`crates/xtask/src/tools.rs`): cargo-deny from its sha256-pinned release archive, nextest with `cargo install --locked` at its exact version, ShellCheck, BusyBox and dash from the runner's package manager. A tool fetched as a release binary is pinned by sha256; one from a package manager or `cargo install --locked`, by version [DR-83] |
 | `json-schema-to-typescript 16.0.0` | `packages/contract/package.json` |
 | Playwright 1.63.0 and its Chromium | `tests/e2e/package.json`; `cargo xtask e2e` installs the matching Chromium |
 | Jev and Claude model IDs | `crates/planroom/src/config/defaults.toml` |
@@ -326,7 +331,8 @@ The Rust types in `crates/contract/src/` are the one source. `cargo xtask gen` t
 ```text
 .claude-plugin/marketplace.json      name "planroom"; one plugin, source "./plugin"  → install ID planroom@planroom
 plugin/
-  .claude-plugin/plugin.json         name, version (= the workspace version), description, author, license "MIT",
+  .claude-plugin/plugin.json         name, version (the workspace version; a -dev one stamped .g<8 hex> by plain gen from
+                                     plugin/'s own files [DR-83]), description, author, license "MIT",
                                      homepage, repository, keywords
   .claude-plugin/icon.png            1024 px square, from the Iris logo
   README.md                          for users: what it is, the first command, links; one line on turning mods on;
