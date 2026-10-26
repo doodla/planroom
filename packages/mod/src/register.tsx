@@ -12,6 +12,7 @@ import type {
   RenderElement,
   Register,
 } from "claude-code";
+import { sanitize } from "@planroom/ui";
 
 import { engineAtom, paneAtom, turnSeqAtom } from "./atoms";
 import { leaf, roomLeaves } from "./catalogue";
@@ -20,6 +21,7 @@ import {
   engineMissing,
   INITIAL_ENGINE,
   isWindowsRoot,
+  parseReply,
   pathFromStatus,
   toolResult,
   unsupportedPlatform,
@@ -43,11 +45,20 @@ import {
 } from "./layout";
 import { binary, clientEnv, refreshPane, runProcess, watchStop } from "./live";
 import { personEnv, personKey, registerKey } from "./person";
+import {
+  lineFor,
+  replySummary,
+  roomRows,
+  roomText,
+  shownFrom,
+  type Ran,
+  type RoomRow,
+  type Shown,
+} from "./room";
 import { completions, helpText, parseRoom } from "./room-args";
 import type { EngineState } from "./state-types";
 import {
   changeNeedsNoPrompt,
-  roomText,
   timeoutFor,
   toolArgv,
   toolSpecs,
@@ -64,9 +75,26 @@ type $ = EngineInterface;
 /** The session's working directory, which names the workspace a key is registered in. */
 let workspace = "";
 
+/**
+ * What the pane's next action showed when the person last pressed it (ux-1). The pane draws it in
+ * place of the press until focus moves on; a reload forgets it, and the press comes back.
+ */
+let shown: Shown | null = null;
+
+/**
+ * Each `/room` run's full result, by the text it returned, so its `CommandOutput` row can draw it
+ * whole; the newest few only, and a reload forgets them, so the row then draws its text.
+ */
+const drawn = new Map<string, { command: string; ran: Ran }>();
+const DRAWN = 16;
+
 async function setEngine($: $, state: EngineState): Promise<void> {
   await update($, engineAtom, () => state);
-  $.ui.status(state.status === "ready" ? undefined : (state.line ?? undefined));
+  $.ui.status(
+    state.status === "ready" || state.line === null
+      ? undefined
+      : sanitize(state.line),
+  );
 }
 
 /**
@@ -136,22 +164,24 @@ async function startEngine($: $): Promise<void> {
 /** The engine's start-up in this module's life; session.start sets it, a reload starts it again. */
 let starting: Promise<void> = Promise.resolve();
 
-/** Run one catalogue command line through the engine; the reply as a tool result. */
+/** Run one catalogue command line through the engine; the reply as a tool result and its summary. */
 async function runCommand(
   $: $,
   argv: string[],
   env: Record<string, string>,
   stdin?: string,
-): Promise<ToolResult> {
+): Promise<Ran> {
   await starting;
   const engine = await read($, engineAtom);
   const bin = binary(engine);
   if (bin === null) {
-    return engineMissing(engine);
+    return { result: engineMissing(engine), summary: null };
   }
-  return toolResult(
-    await runProcess($, [bin, ...argv], env, timeoutFor(argv), stdin),
-  );
+  const run = await runProcess($, [bin, ...argv], env, timeoutFor(argv), stdin);
+  return {
+    result: toolResult(run),
+    summary: replySummary(parseReply(run.stdout)),
+  };
 }
 
 /**
@@ -163,7 +193,7 @@ async function personRun(
   $: $,
   command: string,
   args: readonly string[],
-): Promise<ToolResult> {
+): Promise<Ran> {
   const path = command.split(" ");
   const spec = leaf(command);
   const argv = [...path, ...args];
@@ -178,8 +208,16 @@ async function personRun(
   return runCommand($, argv, await personEnv($, argv, path.length));
 }
 
-/** What a press does: a fallback's resolver step, the key's re-registration, or a command. */
+/**
+ * What a press does: a fallback's resolver step, the key's re-registration, putting the next
+ * action back, or a command, whose result the pane shows in place of the press (ux-1).
+ */
 async function act($: $, action: Action): Promise<void> {
+  if (action.kind === "clear") {
+    shown = null;
+    $.ui.invalidate("ui.render");
+    return;
+  }
   if (action.kind === "fallback" && action.run === "rekey") {
     await registerOnce($, true);
     return;
@@ -214,13 +252,13 @@ async function act($: $, action: Action): Promise<void> {
     await starting;
     return;
   }
-  const result = await personRun($, action.command, action.args);
-  $.ui.toast(
-    result.ok
-      ? `${action.label}: done`
-      : (result.error?.message ?? `${action.label} failed`),
-  );
+  const seq = (await read($, paneAtom)).model?.focus.seq;
+  const ran = await personRun($, action.command, action.args);
+  const line = lineFor(action.command, action.label, ran);
+  $.ui.toast(ran.result.ok ? `${sanitize(action.label)}: ${line}` : line);
+  shown = seq === undefined ? null : shownFrom(action, ran, seq);
   await refreshPane($);
+  $.ui.invalidate("ui.render");
   await registerOnce($);
 }
 
@@ -237,23 +275,25 @@ function draw(
         switch (row.kind) {
           case "text":
             return row.tone === "dim" ? (
-              <Text dimColor wrap="truncate-end">
+              <Text key={row.key} dimColor wrap="truncate-end">
                 {row.text}
               </Text>
             ) : row.tone === "warn" ? (
-              <Text color="warning" wrap="truncate-end">
+              <Text key={row.key} color="warning" wrap="truncate-end">
                 {row.text}
               </Text>
             ) : row.tone === "accent" ? (
-              <Text weight="bold" wrap="truncate-end">
+              <Text key={row.key} weight="bold" wrap="truncate-end">
                 {row.text}
               </Text>
             ) : (
-              <Text wrap="truncate-end">{row.text}</Text>
+              <Text key={row.key} wrap="truncate-end">
+                {row.text}
+              </Text>
             );
           case "buttons":
             return (
-              <Box flexDirection="row" gap={2}>
+              <Box key={row.key} flexDirection="row" gap={2}>
                 {row.buttons.map((b) => {
                   const press = (): Promise<void> => act($, b.action);
                   return b.hotkey === undefined ? (
@@ -280,9 +320,41 @@ function draw(
               </Box>
             );
           case "diff":
-            return <Code source={row.source} format="diff" />;
+            return <Code key={row.key} source={row.source} format="diff" />;
         }
       })}
+    </Box>
+  );
+}
+
+/** A `/room` result's rows, drawn at the transcript's width: texts wrap, the JSON is a code block. */
+function drawRoom(
+  $: $,
+  e: RenderInput<"CommandOutput">,
+  rows: RoomRow[],
+): RenderElement {
+  const { Box, Text, Code } = $.ui.resolve(e);
+  return (
+    <Box flexDirection="column">
+      {rows.map((row) =>
+        row.kind === "code" ? (
+          <Code key={row.key} source={row.source} language="json" />
+        ) : row.tone === "bold" ? (
+          <Text key={row.key} weight="bold">
+            {row.text}
+          </Text>
+        ) : row.tone === "warn" ? (
+          <Text key={row.key} color="warning">
+            {row.text}
+          </Text>
+        ) : row.tone === "dim" ? (
+          <Text key={row.key} dimColor>
+            {row.text}
+          </Text>
+        ) : (
+          <Text key={row.key}>{row.text}</Text>
+        ),
+      )}
     </Box>
   );
 }
@@ -332,7 +404,7 @@ async function handleTool(
     PLANROOM_CLIENT: `mod:${session}`,
   };
   if (turn.turnId !== null) env["PLANROOM_CAUSE"] = `turn:${turn.turnId}`;
-  const result = await runCommand($, built.argv, env, built.stdin);
+  const { result } = await runCommand($, built.argv, env, built.stdin);
   const seq = result.meta["seq"];
   if (typeof seq === "number") {
     await update($, turnSeqAtom, (held) => ({ ...held, seq }));
@@ -431,12 +503,12 @@ export function register(on: Parameters<Register>[0]): void {
       case "help":
         return { text: helpText(roomLeaves()) };
       case "error":
-        return { text: request.message };
+        return { text: sanitize(request.message) };
       case "run": {
         // A /room the person typed acts as the person; one a plugin or the SDK ran doesn't.
         const typed =
           e.origin.kind === "composer" || e.origin.kind === "bridge";
-        const result = typed
+        const ran = typed
           ? await personRun($, request.leaf.name, request.args)
           : await runCommand(
               $,
@@ -445,7 +517,15 @@ export function register(on: Parameters<Register>[0]): void {
             );
         await refreshPane($);
         await registerOnce($);
-        return { text: roomText(result) };
+        // The model reads the summary line and handles; the row draws the whole result (DR-65).
+        const text = roomText(request.leaf.name, ran);
+        drawn.delete(text);
+        drawn.set(text, { command: request.leaf.name, ran });
+        for (const old of drawn.keys()) {
+          if (drawn.size <= DRAWN) break;
+          drawn.delete(old);
+        }
+        return { text };
       }
     }
   });
@@ -507,10 +587,22 @@ export function register(on: Parameters<Register>[0]): void {
     const columns = e.props.bodyColumns;
     const rows =
       engine.status === "ready" && pane.model !== null
-        ? paneRows(pane.model, columns, e.props.scroll.bodyRows)
+        ? paneRows(pane.model, columns, e.props.scroll.bodyRows, shown)
         : fallbackRows(fallbackFor(engine, pane.error), columns);
     return draw($, e, rows);
   });
+
+  // A `/room` run's row draws its whole result in place of the text the model reads (DR-65).
+  on(
+    "ui.render",
+    { component: "CommandOutput", props: { command: "room" } },
+    ($, e, next) => {
+      const held = drawn.get(e.props.text);
+      return held === undefined
+        ? next(e)
+        : drawRoom($, e, roomRows(held.command, held.ran));
+    },
+  );
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     if (e.props.hasSurvey) {
@@ -522,6 +614,6 @@ export function register(on: Parameters<Register>[0]): void {
       engine.status === "ready" && pane.model !== null
         ? { model: pane.model }
         : { fallback: fallbackFor(engine, pane.error) };
-    return draw($, e, [bandRow(source, e.props.bodyColumns)]);
+    return draw($, e, [bandRow(source, e.props.bodyColumns, shown)]);
   });
 }

@@ -1,13 +1,19 @@
 /**
  * The pane's and the band's rows, as plain data: the PaneModel or a fallback laid out for a body of
  * `columns` by `rows` cells (architecture.md, "Pane"). register.tsx turns rows into elements.
+ *
+ * Every string a row draws comes from the repo, the engine or the resolver, so `text` and each
+ * Button label pass the display-sanitizing pass before they're cut to fit (DR-64, security-5).
+ * Every Button runs something the engine accepts today (ux-1): blocks are plain rows until
+ * `map --focus` exists, and a next action the person ran shows its result in place of the press.
  */
 
 import type { DiffLine, Handle, PaneModel } from "@planroom/contract";
-import { BAND_KEYS, rowKeys, truncate, width } from "@planroom/ui";
+import { BAND_KEYS, rowKeys, sanitize, truncate, width } from "@planroom/ui";
 
 import { bandMayRun } from "./catalogue";
 import type { Fallback } from "./fallback";
+import { shows, type Shown } from "./room";
 
 /** The narrowest dock, measured at 120x40 [mod-spike]. */
 export const DOCK = { columns: 49, rows: 34 } as const;
@@ -15,10 +21,11 @@ export const DOCK = { columns: 49, rows: 34 } as const;
 /** A fixed choice label holds at most this many columns (DR-54). */
 export const CHOICE_COLUMNS = 20;
 
-/** What pressing a Button does. */
+/** What pressing a Button does: a command, a fallback's step, or putting the next action back. */
 export type Action =
   | { kind: "run"; command: string; args: string[]; label: string }
-  | { kind: "fallback"; run: "retry" | "build" | "rekey" };
+  | { kind: "fallback"; run: "retry" | "build" | "rekey" }
+  | { kind: "clear" };
 
 export interface ButtonSpec {
   key: string;
@@ -72,9 +79,15 @@ function text(
   columns: number,
   tone?: "dim" | "accent" | "warn",
 ): Row {
+  const shown = truncate(sanitize(value), columns);
   return tone === undefined
-    ? { kind: "text", key, text: truncate(value, columns) }
-    : { kind: "text", key, text: truncate(value, columns), tone };
+    ? { kind: "text", key, text: shown }
+    : { kind: "text", key, text: shown, tone };
+}
+
+/** A Button's label: sanitized, then cut to `columns`. */
+function label(value: string, columns: number): string {
+  return truncate(sanitize(value), columns);
 }
 
 function run(handle: Handle): Action {
@@ -126,10 +139,45 @@ function focusRows(model: PaneModel, columns: number, compact: boolean): Row[] {
   ];
 }
 
-function cardRows(model: PaneModel, columns: number): Row[] {
+/** The next action's result, while the pane still offers that action at the seq it ran at. */
+function shownNext(model: PaneModel, shown: Shown | null): Shown | null {
+  const next = model.empty?.next ?? model.next;
+  return model.decision === null && shows(shown, next, model.focus.seq)
+    ? shown
+    : null;
+}
+
+function cardRows(
+  model: PaneModel,
+  columns: number,
+  shown: Shown | null,
+): Row[] {
   const card = model.decision;
   if (card === null) {
     const next = model.empty?.next ?? model.next;
+    if (shown !== null) {
+      // Pressed: its result in place of the press, and a way back to the pane's own level.
+      return [
+        text("card-title", next.label, columns, "dim"),
+        text("card-result", shown.line, columns, "accent"),
+        {
+          kind: "buttons",
+          key: "card-back",
+          buttons: [
+            {
+              key: "back",
+              label: label(
+                `Back to the ${model.minimap.level} level`,
+                columns - 3,
+              ),
+              hotkey: "1",
+              primary: true,
+              action: { kind: "clear" },
+            },
+          ],
+        },
+      ];
+    }
     return [
       text("card-title", "Next", columns, "dim"),
       {
@@ -138,7 +186,7 @@ function cardRows(model: PaneModel, columns: number): Row[] {
         buttons: [
           {
             key: "next",
-            label: truncate(next.label, columns - 3),
+            label: label(next.label, columns - 3),
             hotkey: "1",
             primary: true,
             action: run(next),
@@ -153,7 +201,7 @@ function cardRows(model: PaneModel, columns: number): Row[] {
   ];
   const choices: ButtonSpec[] = card.choices.slice(0, 4).map((c, i) => ({
     key: `choice-${c.id}`,
-    label: truncate(c.label, CHOICE_COLUMNS),
+    label: label(c.label, CHOICE_COLUMNS),
     hotkey: String(i + 1),
     primary: c.preselected,
     action: {
@@ -204,7 +252,7 @@ function diffRows(
     const room = columns - (hotkey === undefined ? 0 : hotkey.length + 2);
     const button: ButtonSpec = {
       key: `diff-${i}`,
-      label: truncate(d.summary, room),
+      label: label(d.summary, room),
       action: run(d.open),
     };
     if (hotkey !== undefined) button.hotkey = hotkey;
@@ -241,39 +289,41 @@ function whoRow(model: PaneModel, columns: number): Row {
   );
 }
 
+/**
+ * The list: the pane's blocks, or the blocks the next action showed, as plain rows. A block row
+ * runs nothing until `map --focus` exists (M1), so it takes no row key (ux-1).
+ */
 function blockRows(
   model: PaneModel,
-  keys: (string | undefined)[],
   columns: number,
   room: number,
+  shown: Shown | null,
 ): Row[] {
-  const blocks = model.minimap.blocks;
+  const level = shown?.level ?? model.minimap.level;
+  const blocks =
+    shown?.level != null
+      ? shown.blocks.map((name, i) => ({
+          key: `shown-${i}`,
+          name,
+          focused: false,
+        }))
+      : model.minimap.blocks.map((b) => ({
+          key: b.id,
+          name: b.name,
+          focused: b.focused,
+        }));
   const rows: Row[] = [
-    text("blocks-title", `Blocks · ${model.minimap.level}`, columns, "dim"),
+    text("blocks-title", `Blocks · ${level}`, columns, "dim"),
   ];
-  const shown = Math.max(0, Math.min(blocks.length, 9, room - 2));
-  blocks.slice(0, shown).forEach((b, i) => {
-    const hotkey = keys[i];
-    const label = truncate(
-      `${b.focused ? "▣" : "□"} ${b.name}`,
-      columns - (hotkey === undefined ? 0 : hotkey.length + 2),
-    );
-    const button: ButtonSpec = {
-      key: `block-${b.id}`,
-      label,
-      action: {
-        kind: "run",
-        command: "map",
-        args: ["--focus", b.id],
-        label: b.name,
-      },
-    };
-    if (hotkey !== undefined) button.hotkey = hotkey;
-    rows.push({ kind: "buttons", key: `block-row-${i}`, buttons: [button] });
-  });
-  if (blocks.length > shown)
+  const fit = Math.max(0, Math.min(blocks.length, 9, room - 2));
+  for (const b of blocks.slice(0, fit)) {
     rows.push(
-      text("blocks-more", `+${blocks.length - shown} more`, columns, "dim"),
+      text(`block-${b.key}`, `${b.focused ? "▣" : "□"} ${b.name}`, columns),
+    );
+  }
+  if (blocks.length > fit)
+    rows.push(
+      text("blocks-more", `+${blocks.length - fit} more`, columns, "dim"),
     );
   if (blocks.length === 0)
     rows.push(
@@ -282,16 +332,21 @@ function blockRows(
   return rows;
 }
 
-/** The pane for a PaneModel: the full layout from 49x34, else the compact one (DR-54). */
+/**
+ * The pane for a PaneModel: the full layout from 49x34, else the compact one (DR-54). `shown` is
+ * what the next action showed when the person ran it, drawn while the pane still offers it.
+ */
 export function paneRows(
   model: PaneModel,
   columns: number,
   rows: number,
+  shown: Shown | null = null,
 ): Row[] {
   const compact = columns < DOCK.columns || rows < DOCK.rows;
+  const result = shownNext(model, shown);
   const out: Row[] = [
     ...focusRows(model, columns, compact),
-    ...cardRows(model, columns),
+    ...cardRows(model, columns, result),
   ];
   const keys = rowKeys(12);
   if (!compact) {
@@ -311,8 +366,7 @@ export function paneRows(
     out.push(whoRow(model, columns));
   }
   const used = out.reduce((sum, r) => sum + rowHeight(r), 0);
-  const listKeys = compact ? keys : keys.slice(Math.min(3, model.diffs.length));
-  out.push(...blockRows(model, listKeys, columns, rows - used));
+  out.push(...blockRows(model, columns, rows - used, result));
   return out;
 }
 
@@ -331,7 +385,7 @@ export function fallbackRows(f: Fallback, columns: number): Row[] {
       buttons: [
         {
           key: "fallback-action",
-          label: f.action.label,
+          label: label(f.action.label, columns - 3),
           hotkey: "1",
           primary: true,
           action: { kind: "fallback", run: f.action.run },
@@ -349,6 +403,7 @@ export function fallbackRows(f: Fallback, columns: number): Row[] {
 export function bandRow(
   source: { model: PaneModel } | { fallback: Fallback },
   columns: number,
+  shown: Shown | null = null,
 ): Row {
   if ("fallback" in source) {
     const f = source.fallback;
@@ -364,14 +419,14 @@ export function bandRow(
         "dim",
       );
     }
-    const label = truncate(`${f.headline} ${f.action.label}`, columns - 3);
+    const primary = label(`${f.headline} ${f.action.label}`, columns - 3);
     return {
       kind: "buttons",
       key: "band",
       buttons: [
         {
           key: "band-primary",
-          label,
+          label: primary,
           hotkey: BAND_KEYS.primary,
           primary: true,
           action: { kind: "fallback", run: f.action.run },
@@ -380,6 +435,15 @@ export function bandRow(
     };
   }
   const next = source.model.empty?.next ?? source.model.next;
+  if (shownNext(source.model, shown) !== null) {
+    // Already run: the band says what it showed instead of offering the same press again.
+    return text(
+      "band",
+      `${next.label}: ${shown?.line ?? ""} · /room to open the pane`,
+      columns,
+      "dim",
+    );
+  }
   if (!bandMayRun(next.command)) {
     return text(
       "band",
@@ -394,7 +458,7 @@ export function bandRow(
     buttons: [
       {
         key: "band-primary",
-        label: truncate(next.label, columns - 3),
+        label: label(next.label, columns - 3),
         hotkey: BAND_KEYS.primary,
         primary: true,
         action: run(next),

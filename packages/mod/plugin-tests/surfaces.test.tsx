@@ -11,9 +11,11 @@ import {
   DOCK,
   host,
   PANE,
+  readyEngine,
   RESOLVER,
   START,
   SURFACES,
+  type Answer,
 } from "./host";
 
 const NO_RELEASE = JSON.stringify({
@@ -110,7 +112,7 @@ test("the pane draws the golden focus PaneModel on every surface", async ($, on)
       "Open the containers",
     );
     expect(
-      (await ui.find({ key: "block-worker:repo:worker" }))?.text,
+      (await ui.find({ type: "Text", text: /^□ worker$/ }))?.text,
     ).toContain("worker");
     expect(await ui.find({ type: "Text", text: /^No drift/ })).toBeDefined();
     for (const t of await texts(ui))
@@ -123,5 +125,105 @@ test("the pane draws the golden focus PaneModel on every surface", async ($, on)
       "Open the containers",
     );
     await band.unmount();
+  }
+});
+
+/** The container level a press of "Open the containers" shows, with a name that tries OSC 52. */
+const CONTAINERS = JSON.stringify({
+  schema_version: 1,
+  ok: true,
+  command: "map",
+  result: {
+    level: "container",
+    lens: "all",
+    focus: null,
+    nodes: [
+      { id: "orders:svc:api", name: "api", counts: { component: 3 } },
+      { id: "w:svc:e", name: "evil\u001b]52;c;aGVsbG8=\u0007‮abc", counts: {} },
+    ],
+    edges: [],
+    hidden: 0,
+    empty: null,
+  },
+  meta: { seq: 412 },
+});
+
+function containersEngine(argv: readonly string[]): Answer {
+  return argv[1] === "map" && argv.includes("container")
+    ? { exitCode: 0, stdout: CONTAINERS }
+    : readyEngine(argv);
+}
+
+test("ux-1: the next action shows its result in the pane, the band stops offering it, and Back puts it back", async ($, on) => {
+  const h = host(on, containersEngine);
+  await $.session.start(START);
+  await h.clock.settle();
+
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  await ui.press({ key: "next" });
+  await h.clock.settle();
+  await ui.redraw();
+  expect(h.runs.some((r) => r.argv.includes("--focus"))).toBe(false);
+  expect((await ui.find({ type: "Text", text: /blocks at/ }))?.text).toBe(
+    "2 blocks at the container level",
+  );
+  expect(await ui.find({ key: "next" })).toBeUndefined();
+  expect((await ui.find({ type: "Text", text: /^Blocks · / }))?.text).toBe(
+    "Blocks · container",
+  );
+  // The repo-derived name shows its escapes, never the raw OSC 52 or RLO (security-5).
+  for (const t of await texts(ui)) {
+    expect(t).not.toMatch(/[\u001b\u0007‮]/);
+  }
+  const band = await $.ui.mount({ ...BAND, surface: "terminal" });
+  expect(await band.find({ key: "band-primary" })).toBeUndefined();
+  expect((await band.find({ type: "Text" }))?.text).toContain(
+    "2 blocks at the container level",
+  );
+  await band.unmount();
+
+  await ui.press({ key: "back" });
+  await h.clock.settle();
+  await ui.redraw();
+  expect((await ui.find({ key: "next" }))?.text).toContain(
+    "Open the containers",
+  );
+  await ui.unmount();
+});
+
+test("ux-2: /room map returns its summary line and draws the full result in its CommandOutput row", async ($, on) => {
+  const h = host(on, containersEngine);
+  await $.session.start(START);
+  await h.clock.settle();
+
+  const ran = await $.command.run({
+    command: "room",
+    args: "map --level container",
+    origin: { kind: "composer" },
+    presentation: { isFullscreen: true, columns: 120 },
+  });
+  expect(ran.text).toBe("2 blocks at the container level");
+  for (const surface of SURFACES) {
+    const row = await $.ui.mount({
+      plugin: "planroom",
+      surface,
+      component: "CommandOutput",
+      props: {
+        command: "room",
+        args: "map --level container",
+        text: ran.text ?? "",
+        isErrored: false,
+      },
+    });
+    expect((await row.find({ type: "Text", text: /blocks at/ }))?.text).toBe(
+      "2 blocks at the container level",
+    );
+    expect((await row.find({ type: "Text", text: /^□ api/ }))?.text).toBe(
+      "□ api · 3 component",
+    );
+    expect((await row.find({ type: "Text", text: /^□ evil/ }))?.text).toContain(
+      "\\x1b]52",
+    );
+    await row.unmount();
   }
 });
