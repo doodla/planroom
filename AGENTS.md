@@ -46,7 +46,8 @@ Shared instructions for coding agents (and people) working on Planroom, a shared
 
 - `boundaries.toml` is the single source of the boundary rules for Rust, TypeScript and packs. `cargo xtask check boundaries` enforces the Rust side and `cargo xtask gen` writes `.dependency-cruiser.cjs` for the TypeScript side.
 - Library crates depend only on `planroom-contract`; only `planroom` composes them; `planroom-testkit` is a dev-dependency only.
-- The kernel is domain-free: no I/O in any target, its tests included, and no built-in pack kind or relation name, with or without its `<pack>.` prefix, in its string literals or in those of `planroom-contract`, its one workspace dependency. A test that reads pack files goes in `crates/planroom/tests/`.
+- The kernel is domain-free: no I/O in any target, its tests included, and no built-in pack kind or relation name in its string literals or in those of `planroom-contract`, its one workspace dependency: none with its `<pack>.` prefix, and no bare one outside `kernel_vocabulary` in `boundaries.toml`. A test that reads pack files goes in `crates/planroom/tests/`.
+- `packages/ui`, `canvas` and `mod` name no built-in kind or lens ID; a surface styles a block from the view model's `tone`.
 - Each TypeScript package imports only the third-party packages that `boundaries.toml` lists for it.
 - Packs depend inward: a built-in pack requires `code` or nothing; an out-of-tree pack may require any built-in pack, never another out-of-tree pack.
 - Every top-level area, and each `tests/*` directory, has an `AGENTS.md` that states what it owns, what it may depend on, how to test it and what to read first; `plugin/` and `packs/` keep a user-facing `README.md` beside it.
@@ -70,7 +71,7 @@ This section is the conventions' only home; `docs/contributing/repo-layout.md` l
 ### Error codes
 
 - Add a variant to `contract::ErrorCode` with its category, exit code, retry class (`never`, `now`, `after_reread` or `later`), `details` shape and docs row; regenerate `docs/reference/errors.md`.
-- Never return an ad-hoc code string; a source scan fails on one outside the registry.
+- Never return an ad-hoc code string; a source scan fails on one outside the registry and the files `cargo xtask gen` writes from it, such as the resolver's `plugin/scripts/contract.sh`.
 - A code that only a person can clear has retry `never` and names the card or command a person can use.
 - Messages are one line, engine-authored, from `crates/planroom/text/en.toml`; hints are exact commands.
 - Warnings use `contract::WarningCode` the same way.
@@ -85,7 +86,7 @@ This section is the conventions' only home; `docs/contributing/repo-layout.md` l
 
 ### Configuration
 
-- Two optional files of one schema: the workspace's `.planroom/config.toml`, loaded only when the workspace is trusted, and the user-level `${XDG_CONFIG_HOME:-$HOME/.config}/planroom/config.toml`; every key has a default in `crates/planroom/src/config/defaults.toml`.
+- Two optional files of one schema: the workspace's `config.toml` in its state directory (`.planroom/`, or `.git/planroom/` when the workspace is one repo), loaded only when the workspace is trusted, and the user-level `${XDG_CONFIG_HOME:-$HOME/.config}/planroom/config.toml`; every key has a default in `crates/planroom/src/config/defaults.toml`.
 - Environment overrides are `PLANROOM_*`. Credential settings (backends, `base_url`, `api_key_env`, `api_key`) come only from the environment or the user-level file, and `api_key` only at mode 0600; a workspace's file never holds them.
 - `docs/reference/configuration.md` is generated from the defaults file.
 - A new setting needs a decision record saying why no default works (R14).

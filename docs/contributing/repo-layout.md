@@ -34,7 +34,7 @@ planroom/
 ├── .github/
 │   ├── workflows/                 ci.yml, release.yml, advisories.yml, toolchain.yml
 │   ├── dependabot.yml             cargo, npm, github-actions; weekly, grouped, with a 14-day cooldown, the direct-pin age [DR-70]
-│   ├── ISSUE_TEMPLATE/            bug (it asks for `planroom doctor --json`), feature, pack request
+│   ├── ISSUE_TEMPLATE/            bug (it asks for the report file `planroom doctor --json` names), feature, pack request
 │   └── PULL_REQUEST_TEMPLATE.md
 ├── crates/
 │   ├── contract/   planroom-contract   every public type; the error and warning registries; the command catalogue
@@ -66,7 +66,8 @@ planroom/
 │   ├── skills/room/  skills/room-plan/  skills/room-handoff/    SKILL.md each, user-invocable: false
 │   ├── agents/implementer.md  agents/curator.md
 │   └── scripts/planroom  scripts/engine.env   the POSIX sh resolver (with prefetch, build and status) and its pinned version,
-│                                    written by cargo xtask gen [DR-69]
+│                                    written by cargo xtask gen [DR-69]; scripts/contract.sh, GENERATED: the codes and output
+│                                    templates the resolver sources [DR-69]
 ├── schema/                          GENERATED: planroom.v1.schema.json, planroom.v1.input.schema.json; baseline/, the breaking-change guard's copy
 ├── examples/
 │   ├── fixture/  build-fixture  check-fixture  TRUTH.json  README.md  kickoff-snapshot.md
@@ -98,7 +99,7 @@ Each row is the source of that area's contract block: `cargo xtask gen` writes t
 |---|---|---|---|---|
 | `crates/contract` | every public type, `ErrorCode`, `WarningCode`, `Command` and `CommandSpec` | `serde`, `serde_json`, `schemars`, `clap` (derive only), `uuid`, `indexmap` | any other workspace crate; I/O; logic beyond validation; any built-in pack kind or relation name as a string literal, with or without its pack prefix, since the kernel reads every constant here | `cargo xtask test -p planroom-contract` (schema snapshot, round trips) |
 | `crates/kernel` | the fold, resolution, roll-up, the twelve query shapes and question pipelines, diff, impact, reconcile, policy bands, lint rule types, machine checks and step, budgets, next action, redaction by field, the display-sanitizing pass, the decision and hand-off loop tables, roles | `contract`, plus the allow-list in `boundaries.toml` (`serde`, `serde_json`, `petgraph`, `similar`, `nucleo-matcher`, `sha2`, `thiserror`, `indexmap`, `regex` for redaction) | I/O in any target, tests and benches included, async, `rusqlite`, `reqwest`, `tree-sitter`; any built-in pack kind or relation name as a string literal, with or without its pack prefix | unit and property tests (`rollup`, `cas`, `undo`, `query`, `reconcile`) on data passed in as values; `cargo bench fold` |
-| `crates/store` | the tables, `commit` (idempotency, compare-and-set by writer instance, status by actor), the per-blob fact cache, the filesystem check and file modes, `tail` on its own read-only connection, leases, presence, layouts, migrations with their `VACUUM INTO` copies; the user-level ledger and event backups under the data root | `contract`, `rusqlite` | other workspace crates; business rules (it calls a kernel function passed in by `app`) | `concurrency.rs` (3 processes × 500 writes), `crash.rs`, `idem.rs`, `fs_check.rs`, `ledger.rs`, `writer_interleavings` proptest, migration fixtures |
+| `crates/store` | the tables, `commit` (idempotency, compare-and-set by writer instance, status by actor, a person's field held against automatic writes, the store-version check [DR-73]), the per-blob fact cache, the filesystem check and file modes, `tail` on its own read-only connection, leases, presence, layouts, migrations with their `VACUUM INTO` copies; the user-level ledger and event backups under the data root | `contract`, `rusqlite` | other workspace crates; business rules (it calls a kernel function passed in by `app`) | `concurrency.rs` (3 processes × 500 writes), `crash.rs`, `idem.rs`, `fs_check.rs`, `ledger.rs`, `writer_interleavings` proptest, migration fixtures |
 | `crates/extract` | the `Extractor` and `Linker` traits, built-ins, the declarative runner, evidence location and verification, the git CLI adapter | `contract`, `tree-sitter` and grammars, `ignore`, `globset`, `regex`, `saphyr`, `toml`, `pulldown-cmark`, `promql-parser` | other workspace crates; running anything from a scanned repo except `git` with hooks, external diffs and textconv off; a checkout or merge in a repo whose local git config names a command [DR-64] | `contract.rs` (every extractor over the fixture and a fuzz corpus), `link.rs`, per-extractor fixtures, the ABI floor test |
 | `crates/models` | `Transport` (live, record, replay), Jev codecs, the Claude gateway and session backends, retries, spend accounting, the live gate and the host allow-list | `contract`, `reqwest`, `tokio`, `sha2` | other workspace crates; any network call without `PLANROOM_LIVE_*` or a consented credential; treating an ambient proxy as a credential | `jev_contract.rs` (both codecs over every fixture), `claude_decoders.rs`, `session_backend.rs`, `redact.rs` |
 | `crates/planroom` | the CLI, the server, the live loop, app services (orchestration only), actor resolution, workspace trust, consent cards, pack loading and embedding, canvas embedding, config (workspace and user-level), the string catalog, the daemonizing of `serve --detach` | every workspace crate, `axum`, `tower-http`, `tokio`, `tokio-stream`, `tracing`, `anyhow`, `libc` (fork and `setsid` only) [DR-69] | business rules that belong in the kernel; spelling an error code outside the registry; reading a credential setting from a workspace's config | scenario tests `tests/sNN_*.rs`, `budgets.rs`, `actor.rs`, `trust.rs`, `privacy.rs`, `live_gate.rs`, `backup.rs`, `git_hardening.rs`, `handoff_clone.rs`, `evals.rs` (the kernel's eval recompute over pack files), golden outputs |
@@ -127,14 +128,14 @@ Each row is the source of that area's contract block: `cargo xtask gen` writes t
 | Area | Sections | Records | Scenarios |
 |---|---|---|---|
 | `crates/contract` | [Contracts](contracts.md); One command catalogue | DR-14, DR-21, DR-37 | S15 |
-| `crates/kernel` | Data and event model; The fold; Levels and roll-ups; One diff engine; The reconciler; Policy bands | DR-2, DR-3, DR-44, DR-45, DR-61, DR-71 | S1, S4, S7 |
-| `crates/store` | Store schema; Writes: actors, base, conflicts and retries; Duties | DR-1, DR-5, DR-7, DR-8, DR-53 | S8 |
-| `crates/extract` | Packs and extractors; The extractor contract; Hints and linkers; Adapters | DR-12, DR-16, DR-46, DR-47 | S1, S2, S10 |
+| `crates/kernel` | Data and event model; The fold; Levels and roll-ups; One diff engine; The reconciler; Policy bands | DR-2, DR-3, DR-44, DR-45, DR-61, DR-71, DR-73, DR-74 | S1, S4, S7 |
+| `crates/store` | Store schema; Writes: actors, base, conflicts and retries; Duties | DR-1, DR-5, DR-7, DR-8, DR-53, DR-73 | S8 |
+| `crates/extract` | Packs and extractors; The extractor contract; Hints and linkers; Adapters | DR-12, DR-16, DR-46, DR-47, DR-74 | S1, S2, S4, S10 |
 | `crates/models` | Model adapters; Spend guards; What leaves the machine | DR-18, DR-41, DR-49, DR-65 | S7 |
-| `crates/planroom` | Surfaces; Local server and live stream; Actors; Where the workspace lives; Packaging and release | DR-4, DR-29, DR-58, DR-64, DR-69 | S1 to S15 |
+| `crates/planroom` | Surfaces; Local server and live stream; Actors; Where the workspace lives; Packaging and release | DR-4, DR-29, DR-58, DR-64, DR-69, DR-74 | S1 to S15 |
 | `crates/testkit` | Testing strategy | DR-12, DR-32 | S1, S8 |
 | `crates/xtask` | [The one task entry point](#the-one-task-entry-point); [Decision-record gate](#decision-record-gate) | DR-38, DR-59, DR-70 | S14, S15 |
-| `packs/*` | What a pack is; The v0.1 packs; A decision kind | DR-9, DR-46, DR-62, DR-63 | S2, S10 |
+| `packs/*` | What a pack is; The v0.1 packs; Lenses and questions; A decision kind | DR-9, DR-15, DR-46, DR-62, DR-63 | S2, S10 |
 | `packages/contract` | [Codegen flow](contracts.md#codegen-flow) | DR-37 | S15 |
 | `packages/ui` | How all three render the same output; [Design language](design-language.md) | DR-21, DR-64 | S13 |
 | `packages/canvas` | The canvas; Remote mode through the Artifact; [Design language](design-language.md) | DR-56, DR-68 | S4, S11, S13 |
@@ -166,7 +167,11 @@ xtask    = { may_depend = ["*"], ships = false }
 
 [rust.kernel]
 domain_free = ["kernel", "contract"]   # no string literal under these crates' src/ equals a built-in pack kind or relation
-                                       # name, with or without "<pack>."; contract is the kernel's one workspace dependency
+                                       # name with "<pack>.", or a bare one outside kernel_vocabulary; contract is the
+                                       # kernel's one workspace dependency [DR-45]
+kernel_vocabulary = ["person", "repo", "workspace", "commit", "file", "state", "step", "machine", "image", "tag"]
+                                       # bare names the kernel and contract spell for their own meaning: actor kinds, ID
+                                       # namespaces, version tags, and the machine shapes' states and steps
 no_path_escapes = true      # no #[path = "../"] or include! leaving a crate's directory (every crate)
 no_io = { types = ["std::fs::*", "std::net::*", "std::process::*", "std::env::*"],   # cargo xtask gen expands each module to every
           methods = ["std::path::Path::exists", "std::path::Path::try_exists", "std::path::Path::metadata",    # public function and type it
@@ -186,7 +191,9 @@ e2e      = { may_import = ["contract"], third_party = ["@playwright/test", "@axe
 entry_only = true           # cross-package imports only through package.json "exports"
 no_circular = true
 not_to_unresolvable = true
-generated_read_only = ["packages/contract/src/generated/**", "plugin/types/index.d.ts", "plugin/hooks/planroom-mod.js"]
+generated_read_only = ["packages/contract/src/generated/**", "plugin/types/index.d.ts", "plugin/hooks/planroom-mod.js",
+                       "plugin/scripts/contract.sh"]
+domain_free = ["ui", "canvas", "mod"]   # no string literal equals a built-in kind or lens ID; surfaces style from MapNode.tone [DR-45, DR-46]
 
 [packs]
 requires = [[], ["code"]]   # the only values for a built-in pack
@@ -196,7 +203,8 @@ no_executables = true
 
 | Boundary | Rule | Enforced by |
 |---|---|---|
-| The kernel depends on no domain | `planroom-kernel` depends only on `contract` and its external allow-list; no built-in pack kind or relation name, with or without its prefix, in the string literals of the kernel or of `planroom-contract`, so a constant can't carry a domain name into the kernel; prop names reach machine checks as shape parameters | `cargo xtask check boundaries` (crate graph and allow-list from `cargo metadata`; the literal scan over both crates) |
+| The kernel depends on no domain | `planroom-kernel` depends only on `contract` and its external allow-list; no built-in pack kind or relation name with its prefix, and no bare one outside `kernel_vocabulary`, in the string literals of the kernel or of `planroom-contract`, so a constant can't carry a domain name into the kernel; prop names reach machine checks as shape parameters [DR-45] | `cargo xtask check boundaries` (crate graph and allow-list from `cargo metadata`; the literal scan over both crates) |
+| Surfaces name no domain | no string literal in `packages/ui`, `canvas` or `mod` equals a built-in kind or lens ID; a block's color comes from `MapNode.tone` [DR-46] | the same literal scan over the three packages |
 | The kernel does no I/O | no function or type from `std::fs`, `std::net`, `std::process` or `std::env`, no I/O method on `Path`, no `std::io` standard stream, no `SystemTime::now` and no print macro in any kernel target, tests and benches included [DR-70] | clippy's `disallowed-methods`, `disallowed-types` and `disallowed-macros` from `crates/kernel/clippy.toml`, which `cargo xtask gen` expands from `no_io`, under `-D warnings` |
 | Adapters depend inward, never sideways | `store`, `extract` and `models` depend on `contract` only; only `models` may use a network client | the same check, with each crate's `external_forbid` read from `cargo metadata` for normal, build and dev dependencies |
 | One composition root | only `planroom` (and `xtask`) depend on more than one workspace crate; `testkit` only as a dev-dependency | the same check |
@@ -212,7 +220,7 @@ A planted bad import must fail CI (S15), and a broken checker must fail the self
 1. Copies the repo to a temporary directory with `git worktree add --detach`, then runs `pnpm install --frozen-lockfile --offline` in the copy, from the store the main checkout filled.
 2. Runs every boundary check on the unmodified copy and requires exit 0. This control proves the copy resolves, so a later failure is the plant's.
 3. Adds `planroom-store` to `crates/kernel/Cargo.toml` and a `use planroom_store as _;` line, runs the Rust check, and expects exit 1 with "kernel -> store is not allowed".
-4. Adds `"code.service"`, then the bare relation name `"watches"`, as string literals in `crates/kernel/src/lib.rs`, runs the literal scan, and expects each to fail. Then adds a `std::fs::read_to_string` call there, then a `std::path::Path::new("x").exists()` call, runs clippy on the kernel after each, and expects the disallowed-method error both times [DR-70]. Last, it adds `pub const SERVICE: &str = "code.service";` to `crates/contract/src/lib.rs`, used from the kernel, and expects the literal scan to fail on the contract file.
+4. Adds `"code.service"`, then the bare relation name `"watches"`, as string literals in `crates/kernel/src/lib.rs`, runs the literal scan, and expects each to fail. A bare `"person"`, which `kernel_vocabulary` holds, must pass, and `"code.service"` in `packages/ui/src/planted.ts` must fail [DR-45]. Then adds a `std::fs::read_to_string` call to the kernel's `lib.rs`, then a `std::path::Path::new("x").exists()` call, runs clippy on the kernel after each, and expects the disallowed-method error both times [DR-70]. Last, it adds `pub const SERVICE: &str = "code.service";` to `crates/contract/src/lib.rs`, used from the kernel, and expects the literal scan to fail on the contract file.
 5. Adds `"@planroom/mod": "workspace:*"` to `packages/canvas/package.json`, links it offline, and writes `packages/canvas/src/planted.ts` importing `@planroom/mod`. Then it replaces that import with a relative `../../mod/src/index.ts`. For each, depcruise must report `not-in-allowed`, the default-deny rule, and no `not-to-unresolvable` error, so the plant fails for the right reason. Each generated allow rule for a third-party package matches that package's resolved path under `node_modules/`, never a dependency type, so a declared workspace package, which resolves to `packages/`, can't pass as third-party. Last, it writes `packages/ui/src/planted.ts` importing `radix-ui`, which the canvas installs, and expects `not-in-allowed`, since `ui` lists no third-party package [DR-70].
 6. Adds `requires = ["observability"]` to `packs/code/pack.toml`, a built-in that requires an outer ring, then `requires = ["ruby"]` to an out-of-tree copy of the flags pack loaded beside the Ruby pack, so it requires another out-of-tree pack. It runs the loader on each and expects `pack_invalid` naming the inward rule.
 7. Changes `boundaries.toml` with no new record, runs `cargo xtask check layout`, and expects it to fail.
@@ -242,6 +250,7 @@ Each has a `GENERATED.md` stub or a header line, and a drift check. Nobody edits
 | `plugin/types/index.d.ts` | `cargo xtask gen` | yes |
 | `plugin/hooks/planroom-mod.js` | `cargo xtask gen` (esbuild, ESM, no splitting, `claude-code` external; deterministic) [DR-70] | yes, because a local-path marketplace loads the plugin from the repo |
 | `plugin/scripts/engine.env` | `cargo xtask gen` writes `PLANROOM_CATALOGUE_HASH`; `cargo xtask gen --version V` writes `PLANROOM_ENGINE_VERSION` with every other manifest [DR-69] | yes, in the commit that changes it |
+| `plugin/scripts/contract.sh` | `cargo xtask gen` from `contract::ErrorCode` and `ResolverStatus`: `SCHEMA_VERSION`, the resolver's two codes with category, exit and retry, and printf templates [DR-69] | yes |
 | `.dependency-cruiser.cjs` | `cargo xtask gen` from `boundaries.toml` | yes |
 | `crates/kernel/clippy.toml` | `cargo xtask gen` from `boundaries.toml` `no_io` | yes [DR-59] |
 | each area's contract block and Read first lines in its `AGENTS.md` | `cargo xtask gen` from the two area tables on this page | yes [DR-59, DR-70] |
@@ -317,6 +326,8 @@ plugin/
                                      prefetch, build and status subcommands for the mod [DR-58]
   scripts/engine.env                 PLANROOM_ENGINE_VERSION (written by cargo xtask gen --version), PLANROOM_REPO;
                                      PLANROOM_CATALOGUE_HASH (written by cargo xtask gen); committed and drift-checked [DR-69]
+  scripts/contract.sh                GENERATED: the codes and output templates the resolver sources, so every resolver
+                                     output is a contract type [DR-69]
 ```
 
 No `bin/`, no `.mcp.json`, no symlinks, no classic hooks; `tests/plugin/` asserts each [DR-14, DR-28, DR-30].

@@ -31,7 +31,7 @@ Colors are CSS variables in `packages/ui`, with a designed dark mode, not an inv
 | `--block-infra` | `#6b8f71` sage | `#8fb596` | Tooling and observability |
 | `--pass`, `--fail`, `--wait` | `#1a6b43`, `#b3261e`, `#6b5c0c` | `#5fd39a`, `#ff8a80`, `#e6cf6a` | Semantic states and diff tape, separate from block colors |
 
-Block colors encode container kind and are never the only signal: each block also carries its kind as a label or icon. Tape isn't told by color alone either: added tape carries `+`, removed tape `−` and changed tape `~`.
+Block colors encode a Container-level kind's `tone`, which its pack declares as `service`, `library`, `store` or `infra`, one per block token above. A kind with no tone draws as `--card` with its label. Surfaces read the tone from the view model and never switch on a kind ID [DR-46]. Block colors are never the only signal: each block also carries its kind as a label or icon. Tape isn't told by color alone either: added tape carries `+`, removed tape `−` and changed tape `~`.
 
 Every token meets a contrast bar against `--table` and `--card` in both themes: 4.5:1 for text, and 3:1 for marks such as chalk outlines, tape and edges. A block's fill leans on its darker border and its label, so the border is the mark that counts. `packages/ui/src/tokens.test.ts::contrast_meets_the_bar` checks every pair. White chalk on the light felt measured 1.24:1, which is why light mode draws dark chalk.
 
