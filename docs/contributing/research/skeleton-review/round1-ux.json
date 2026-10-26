@@ -1,0 +1,269 @@
+{
+ "lens": "ux",
+ "review": {
+  "summary": "I used the UX lens and checked every finding against the built binary on a temporary copy of the fixture (PLANROOM_DATA was a temp dir, and I killed the serve process afterwards) or against file:line. I ran nothing that builds, and I made no writes under the repo.\n\nThe look matches the design language: felt in both themes, chunky blocks and 44 px targets on the phone. The empty-state art has one button. The defects are in what the buttons do:\n- **Mod.** Every actionable button in the pane leads nowhere. \"Open the containers\" runs a map and throws the result away. Every block row runs `map --focus`, which the engine refuses.\n- **`/room`.** A typed `/room` command shows the person raw JSON cut off at 1,200 characters.\n- **Canvas.** The Intent level draws a blank map. On the phone, after \"Open the containers\" there is no way back up.\n- **Serve.** A second `serve` for the same workspace blames \"another program\" and says to stop it.\n- **Wrong folder.** In a folder with no repos, the one next action fails.\n\nThe minor findings are these:\n- Recovery strings name a canvas `e` key that doesn't exist yet, and serve's text output hides the login page path.\n- On the Artifact, the next action points to a view the snapshot doesn't hold, and the message shown next to it contradicts itself.\n- The canvas turns any failed command into a full-page outage, and error hints are dropped.\n- The mod has user-facing strings outside en.toml.\n- Labels are wrong: redis and orders-db show as \"service\", and no block has a tone.\n- Some engine text lines are wrong or jargon.\n\nAssumed rather than run: the canvas and mod behaviour comes from reading the code. I didn't drive a browser or a live mod. I took the screenshots as showing the current build.",
+  "findings": [
+   {
+    "id": "ux-1",
+    "title": "In the mod pane, every actionable button leads nowhere: the next action does nothing, and every block row errors",
+    "severity": "material",
+    "where": [
+     "packages/mod/src/layout.ts:255-271",
+     "packages/mod/src/register.tsx:216-224",
+     "crates/planroom/src/app/focus.rs:63-80",
+     "crates/planroom/src/app/map.rs:23-25"
+    ],
+    "evidence": "focus.rs:63-80 always sets `level: System` and `next = map --level container` (\"Open the containers\"), whatever has happened. In the mod, act() (register.tsx:216-224) runs that through personRun and discards the map result. It then toasts `Open the containers: done` and refreshes focus, which returns the same pane, so the band's `1` and the pane's Next button do the same no-op forever. Each block row is a button that runs `map --focus <id>` (layout.ts:265-268). Verified: `planroom map --focus kit:repo:kit --json` returned `{\"ok\":false,\"error\":{\"code\":\"invalid_argument\",\"message\":\"--focus isn't available yet; run map without it.\",\"hint\":null}}` with exit 2. So 10 of the 11 buttons on a scanned fixture's pane end in an error toast, and the eleventh does nothing visible.",
+    "why": "This violates principle 1 (respect human attention: one suggested next action that works, cheap decisions). The fixture's first look (S1, tier A, through the mod) and S9 (tier B, every main flow drivable from the mod) can't pass while the pane's own actions fail or do nothing.",
+    "fix": "Only render actions the engine accepts. Draw block rows as text, or have them run `map --level <child level>`, until `--focus` exists. Give focus a per-session level (the `--session` it already takes) so that the next action changes the pane's level. Or show the returned map's summary in the pane instead of discarding it, and stop offering `next` once that level is shown."
+   },
+   {
+    "id": "ux-2",
+    "title": "A typed /room command shows the person raw JSON cut off at 1,200 characters, not the summary line and handles",
+    "severity": "material",
+    "where": [
+     "packages/mod/src/tools.ts:143-151",
+     "packages/mod/src/register.tsx:410-428",
+     "docs/contributing/architecture.md:1315"
+    ],
+    "evidence": "roomText() returns `JSON.stringify(result)` cut at ROOM_TEXT_CHARS = 1200 with a trailing `\u2026`. Verified: `planroom map --json` on the fixture is 2,120 bytes, so `/room map` prints half an envelope that is no longer valid JSON. It starts `{\"schema_version\":1,\"ok\":true,\"command\":\"map\",\"result\":{\"level\":\"system\",...`. The engine's own one-line summary (\"10 at the top: kit (11 code, 4 component); \u2026\") isn't shown. Architecture line 1315 says every /room result is \"drawn in full through the CommandOutput site, and returned as text the model reads \u2026 only its summary line and handles, at most 300 tokens\".",
+    "why": "This violates principle 1 (\"Never make someone read what a summary, diagram or diff could show\") and principle 2's summary-first, handles-to-drill-down output. It is also drift from the documented /room contract that S9 relies on.",
+    "fix": "Return the reply's engine-authored summary plus its handles as `text`. That means either running the leaf in text mode or carrying the summary in the envelope. Draw the full result through CommandOutput, as the architecture says."
+   },
+   {
+    "id": "ux-3",
+    "title": "The Intent level is a blank map, with no empty state and a broken summary line",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/map.rs:59-74",
+     "crates/planroom/src/app/map.rs:115-128",
+     "packages/canvas/src/shell/zoom-rail.tsx:15-30",
+     "packages/canvas/src/views/map-view.tsx",
+     "packages/canvas/src/app.tsx:39-53"
+    ],
+    "evidence": "Verified: `planroom map --level intent --json` returns 0 nodes with `empty: null`, and the text mode prints `0 at the top: .`. The desktop zoom rail offers Intent as its first step (screenshots main-1440x900-*.png). App only shows EmptyState when `map.empty !== null`, and map-view.tsx has no zero-node branch: grep finds no `length === 0` or EmptyState there. So pressing Intent shows bare felt and nothing to do.",
+    "why": "This violates principle 1 (\"Never show a blank state\") and design-language.md \"Empty states\" (\"No screen is blank\"). S15 (tier A) requires an empty-state audit that finds no blank states.",
+    "fix": "When a level has no blocks, have map return an `Empty` with a reason and a next handle, for example `no_intent` \u2192 \"Start a plan\", or for now back to the System level. Add a MapCanvas branch that renders EmptyState for zero blocks."
+   },
+   {
+    "id": "ux-4",
+    "title": "On the phone, \"Open the containers\" is one-way: no breadcrumb, rail or gesture leads back up, and the lid never names the level",
+    "severity": "material",
+    "where": [
+     "packages/canvas/src/shell/top-row.tsx:30-33",
+     "packages/canvas/src/shell/top-row.tsx:60-63",
+     "packages/canvas/src/shell/shell.tsx:48-58",
+     "packages/canvas/src/store.ts:233-246",
+     "packages/canvas/src/views/map-view.tsx:153-167"
+    ],
+    "evidence": "On the phone the breadcrumb sets ancestors to [] (top-row.tsx:33), and there is no `\u22ef` lid. The phone shell renders no ZoomRail. The lid's name comes from `pane.focus.breadcrumb.at(-1)`, which focus.rs always sets to the workspace crumb, so it keeps reading \"shop\" at every level (main-390x844-*.png). map-view handles only onNodeClick (select) and onPaneClick: nothing dives or rises. store.run turns the bottom sheet's \"Open the containers\" into showLevel('container'). After that, nothing returns to System short of a reload, and the sheet keeps offering the same button.",
+    "why": "S1 (tier A) needs \"zooming to code and back\". S13 (tier B) and design-language.md \"Touch\" require the `\u22ef` ancestors lid and \"Tap an ancestor's lid \u2026 goes back up\". As built, the phone canvas traps the person a level down.",
+    "fix": "Build the breadcrumb from the map's level, not the pane's: show the current level's lid and a `\u22ef` lid that lists the levels above (a one-entry list is enough for the skeleton). Name the level in the lid, and hide or swap the next action once its level is shown."
+   },
+   {
+    "id": "ux-5",
+    "title": "A second `serve` fails with port_in_use and tells the person to stop their own Planroom server",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/server/mod.rs:85-145",
+     "crates/planroom/text/en.toml:12",
+     "docs/contributing/architecture.md:156"
+    ],
+    "evidence": "Verified on the temporary fixture copy: `planroom serve --detach` printed \"Serving the canvas at http://127.0.0.1:35567/\u2026\". A second `planroom serve --detach`, and then a plain `planroom serve`, both exited 7 with \"Port 35567, this workspace's canvas address, is in use by another program. Stop it and press e again, or run planroom serve --port N to move\u2026\", while `ps` showed the first serve (pid 3546) alive. prepare()/bind() go straight to TcpListener::bind and never read serve.json. Architecture line 156 says serve is \"idempotent through `.planroom/serve.json` for one version and catalogue\".",
+    "why": "The diagnosis is wrong (the port is held by Planroom itself), and both suggested fixes do harm. Stopping it kills the person's open tabs. `--port N` moves the canvas origin, which strands each tab's storage and pending edits (DR-78, principle \"Never lose or overwrite what someone did\"). Any caller that starts serve twice, such as the M1 `e` key or the e2e harness, gets exit 7.",
+    "fix": "Before binding, read serve.json. If its pid is alive and its version and catalogue match, return that server's URL and mint a fresh login code through POST /api/v1/code with the control token. Raise port_in_use only when the holder isn't this workspace's serve."
+   },
+   {
+    "id": "ux-6",
+    "title": "In a folder with no git repos, the one next action is a scan that fails, and map and focus disagree",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/map.rs:103-114",
+     "crates/planroom/src/app/focus.rs:104-124",
+     "crates/planroom/text/en.toml:4,15,62",
+     "packages/mod/src/layout.ts:142-160,381-403",
+     "packages/canvas/src/app.tsx:39-50"
+    ],
+    "evidence": "Verified in an empty temp dir: `planroom focus --json` returns ok (exit 0) with `next = {command: scan, args: [<that dir>], label: \"No git repos here. Run planroom scan PATH on a directory that holds some.\"}`. Running that handle, `planroom scan <that dir>`, fails with workspace_not_found (exit 3), hint `planroom scan DIR`. `planroom map` in the same dir fails with the same error, so the two commands disagree. The mod draws this label as the band's `1` button and the pane's Next button, and the canvas draws it as its primary button. Each press runs the failing scan, and the error points back at the same command.",
+    "why": "This violates principle 1: the empty state's single next action can't succeed, and its label is a CLI instruction where a button belongs. It is also the first-run experience whenever Claude Code opens in the wrong folder (S14 install flow, S15 empty-state audit).",
+    "fix": "For `no_repos`, return no runnable handle. Show a line that says what to do, such as opening Claude Code in a folder with repos, or a `scan` handle with no dir argument that the surface draws as text. Make `map` return the same Empty that `focus` does, not an error."
+   },
+   {
+    "id": "ux-7",
+    "title": "No built path lets a person open the canvas, and the recovery strings point at an `e` key that doesn't exist",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/text/en.toml:12-13",
+     "crates/planroom/text/en.toml:83",
+     "packages/canvas/src/strings.ts:9",
+     "packages/canvas/src/app.tsx:23-37",
+     "packages/contract/src/generated/catalogue.ts:103-114"
+    ],
+    "evidence": "`error.unauthorized` (\"press e in the pane\"), `error.port_in_use` (\"press e again\") and the canvas's needsLogin string all name an `e` key. layout.ts and register.tsx have no such key, the catalogue has no `open` leaf, and `serve` has `room: false`. The human output of `planroom serve` reads \"open it with the login page this serve wrote\" without the path; only the --json `login_page` field holds it, and the mod's guard rightly stops an agent from reading it. When serve exits after 30 idle minutes, the canvas's unreachable page offers only \"Try again\", which can't restart it. (DR-82 and the M1 canvas slice schedule `open` and the generated canvas strings, so this is the shipped text running ahead of the code.)",
+    "why": "Every needs-login and port_in_use message names a control the person can't find. Today the only way into the canvas is a terminal command whose text output hides the one file it needs.",
+    "fix": "Until `open` lands, print the login page path in serve's text summary, and word the needs-login and unreachable lines with a command that exists (`planroom serve`, then open the printed page). Switch them to the `e` key in the M1 slice that adds it."
+   },
+   {
+    "id": "ux-8",
+    "title": "On the Artifact, the face-up next action points outside the snapshot, and without the db the page asks you to \"Ask your computer\" while saying it can't",
+    "severity": "minor",
+    "where": [
+     "packages/canvas/src/transport/artifact.ts:203-240",
+     "packages/canvas/src/views/request-state.tsx:22-46",
+     "packages/canvas/src/store.ts:233-246",
+     "crates/planroom/text/en.toml:121"
+    ],
+    "evidence": "Verified with `planroom share --out <tmp>` on the fixture: snapshot.capabilities = ['map:system:all','pane'], and pane.next = map --level container (\"Open the containers\"). So the Artifact's only primary button always leads to a request state. Without `db` (canAsk false), RequestState prints the share line \"Not in this snapshot. Ask your computer for it\" as plain text, while TransportNote says \"Snapshot only: this view can't reach live updates or ask your computer.\" The two lines contradict each other, and the only action is Back. Separately, any non-map handle on this transport rejects with TransportError('unreachable'), and store.fail() turns that into the full-page \"Planroom isn't answering at this address.\"",
+    "why": "The Artifact is the fallback surface (R13, S11 tier B). Its one next action costs a sync round trip even with the db, and leads nowhere without it.",
+    "fix": "Have share include every view the snapshot's own pane.next and card handles name (the container map is 9 nodes). When !canAsk, use a line that names what to do, such as opening Planroom on the computer that published the page. On a partial transport, show non-map handles as request states, not as an outage."
+   },
+   {
+    "id": "ux-9",
+    "title": "A failed command takes over the whole canvas, and both surfaces drop the error's hint",
+    "severity": "minor",
+    "where": [
+     "packages/canvas/src/store.ts:95-104",
+     "packages/canvas/src/store.ts:233-246",
+     "packages/mod/src/register.tsx:216-224"
+    ],
+    "evidence": "store.run catches any failure and calls fail(), which maps a CommandError, a refused command such as store_busy or workspace_not_found, to `phase: \"unreachable\"`. App then replaces the map with a full-page EmptyState showing only `e.message`, and its \"Try again\" re-runs start(), not the command. The mod's act() toasts `result.error?.message` and never shows `error.hint`. For example, store_busy's \"retry the same command\" and person_key_mismatch's \"press Use this session's key\" are both lost.",
+    "why": "The AGENTS.md error conventions make hints \"exact commands\" so that a person has one next action. Both surfaces throw that away and show a one-command failure as if the engine were down.",
+    "fix": "Keep the map on a CommandError and show the message plus its hint inline: a toast, or the card face with the hint as the action. Keep phase 'unreachable' for transport failures only. Add the hint to the mod's toast, or put a button on it."
+   },
+   {
+    "id": "ux-10",
+    "title": "The mod's user-facing strings bypass en.toml, and the version-mismatch pane's button doesn't do what its detail says",
+    "severity": "minor",
+    "where": [
+     "packages/mod/src/layout.ts:145,199-201,213,236-238,277-283,385-387",
+     "packages/mod/src/register.tsx:193-204,220-223,511",
+     "packages/mod/src/engine.ts:75,92,122",
+     "crates/planroom/text/en.toml:58-59"
+    ],
+    "evidence": "Hard-coded person-facing text includes: \"Next\", \"No pending diffs\", \"Nobody else is here\", \"No blocks at this level yet\", \"no plan stage\", \"not scanned\", \"Next: \u2026 \u00b7 /room to open it\" (layout.ts); \"Building the Planroom engine from source\u2026\", \"The source build failed: \u2026\", \"${label}: done\", \"The Planroom guard couldn't check this call.\" (register.tsx); \"Rebuild the engine: \u2026\" and \"The Planroom engine didn't answer version --json\" (engine.ts). fallback.ts claims its strings come from en.toml. For version_mismatch, the detail says \"Rebuild the engine: <fix>\", but the action is \"Try again\" (run: 'retry'), which re-resolves the same stale binary and never builds. Architecture line 1313 wants a band press's toast to be \"the engine-authored line of what it did\" with a 10 s undo; the code toasts \"<label>: done\".",
+    "why": "This breaks the documented rule that every user-facing string lives in crates/planroom/text/en.toml (AGENTS.md \"Where new code goes\"; DR-21). The version-mismatch button sends the person around a loop.",
+    "fix": "Move these strings into en.toml sections that `cargo xtask gen` emits for the mod, as FALLBACK_PANES already is. Give version_mismatch run: 'build' (or 'Rebuild it') so its button matches its detail."
+   },
+   {
+    "id": "ux-11",
+    "title": "Blocks are mislabelled and never take a tone, and their subtitles truncate the counts",
+    "severity": "minor",
+    "where": [
+     "packs/",
+     "docs/screenshots/main-1440x900-light.png",
+     "docs/screenshots/main-390x844-dark.png",
+     "examples/TRUTH.json:250-275",
+     "docs/contributing/design-language.md:41-43"
+    ],
+    "evidence": "`planroom map --json` on the fixture gives every node `tone: null`, and `grep -rn tone packs/` finds nothing, so every block draws in --card and none of the palette's block tokens appear in any screenshot. redis (TRUTH kind \"queue\") and orders-db (TRUTH \"datastore\") are `code.service`, so both are labelled \"service\". The System level puts container-level externals (`level: container`) beside the repos. Subtitles read \"4 component \u00b7 11 code\" (singular) and are cut off at \"1 container \u00b7 14 component\u2026\" on both the 1440 and 390 layouts, which hides the code count for 4 of the 5 repos.",
+    "why": "The map shows a person wrong facts (\"orders-db service\"), and the design language's main colour signal (tone) is never drawn.",
+    "fix": "Have the code pack declare tones and map compose images such as postgres and redis to store kinds; until then, label from the extractor's kind. Pluralize the counts, and drop the lowest level from the subtitle instead of cutting it mid-word."
+   },
+   {
+    "id": "ux-12",
+    "title": "Engine text lines are wrong at other levels and use internal jargon",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/text/en.toml:51,66-67,96",
+     "crates/planroom/src/app/map.rs:115-128",
+     "packages/mod/src/layout.ts:120-121"
+    ],
+    "evidence": "Verified outputs: `planroom map --level container` prints \"9 at the top: \u2026\" (map.summary is used at every level), and `--level intent` prints \"0 at the top: .\". A first `planroom scan` prints \"Mapped 5 repos, 5 of them moved\", where \"moved\" means changed heads, which means nothing on a first scan. `focus` and the pane show \"lens all \u00b7 seq 5\" and \"no project \u00b7 seq 5\", which exposes the store sequence to a person. With an empty breadcrumb, the pane's focus row shows the literal \"\u25a3 workspace\". `invalid_argument` has no hint (`hint: null` for map --focus).",
+    "why": "The AGENTS.md message conventions call for engine-authored lines that are correct and actionable. These lines are wrong or meaningless to a person, which runs against principle 1.",
+    "fix": "Add a level-aware `map.summary_level` (\"{count} blocks at the {level} level\") and an empty variant. Drop \"moved\" on a first scan. Leave `seq` out of person-facing text (agents read it from meta.seq). Use the workspace name for the focus row."
+   },
+   {
+    "id": "ux-13",
+    "title": "Design-language drift: the Artifact bundles its fonts instead of loading them from Google Fonts",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/design-language.md:57",
+     "crates/planroom/src/app/share.rs"
+    ],
+    "evidence": "design-language.md \"Type\" says \"The Artifact loads them from Google Fonts.\" `planroom share --out <tmp>` writes the @fontsource .woff and .woff2 files (bricolage, atkinson, jetbrains) under assets/ and lists them in publish.files. page.html links only ./assets/tokens.css and ./assets/index.css; grep finds no fonts.googleapis link. The bundle is 2.3 MB.",
+    "why": "The doc and the code disagree, and the AGENTS.md rule is that every fact has one home.",
+    "fix": "Either point the Artifact's CSS at Google Fonts, which shrinks the publish, or change the design-language line to say the Artifact bundles the @fontsource files."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "ux-1",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed. I ran `planroom map --focus kit:repo:kit --json` on a fixture copy. It returned invalid_argument, \"--focus isn't available yet; run map without it.\", hint null, exit 2. map.rs:23-25 rejects any --focus. layout.ts:255-271 makes each block row a button that runs `map --focus <id>`. focus.rs:63-80 always sets level System and next = `map --level container` (\"Open the containers\"). register.tsx:216-224 act() runs it through personRun, throws the result away, toasts \"<label>: done\" and refreshes focus, which returns the same pane. So the pane's one next action has no visible effect and every block row ends in an error toast. That breaks principle 1 on a built surface (S1 and S9)."
+  },
+  {
+   "id": "ux-2",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed. tools.ts:143-151 roomText() returns JSON.stringify(result) cut at 1,200 characters with a trailing \"\u2026\". register.tsx:440-448 returns `{ text: roomText(result) }`. `planroom map --json` on the fixture is 2,121 bytes, so `/room map` would print invalid, truncated JSON. mod-api.md:204-207 says `text` is the transcript row, which the person also sees, not only the model. Nothing named CommandOutput exists in packages/mod/src (grep is empty). Architecture line 1315 asks for the summary line and handles. DR-65 only caps the length at 300 tokens, so it doesn't excuse showing raw JSON. This puts a cut-off envelope in front of the person where an engine summary exists (\"10 at the top: kit (11 code, 4 component); \u2026\"), against principle 1."
+  },
+  {
+   "id": "ux-3",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed. `planroom map --level intent --json` returns nodes [] and empty null, and the text mode prints \"0 at the top: .\". The zoom rail lists LEVELS starting with \"intent\" (ui/src/map.ts:17-23, zoom-rail.tsx). app.tsx shows EmptyState only when map.empty is not null. map-view.tsx has no zero-node branch: its only `length` checks are for the ready mark (lines 130 and 134). So pressing Intent draws a blank felt. design-language.md:128-130 says \"No screen is blank\", and S15 (tier A) audits that."
+  },
+  {
+   "id": "ux-4",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed from the code and screenshots. top-row.tsx:33 sets ancestors to [] on the phone. The ancestors are plain spans even on the desktop. The phone Shell (shell.tsx:48-58) renders no ZoomRail. The only showLevel callers are zoom-rail.tsx and store.run (store.ts:236-246). map-view only selects on click. The lid name is pane.focus.breadcrumb.at(-1), which focus.rs always sets to the workspace crumb, so it reads \"shop\" at every level, as main-390x844-dark.png shows. After the bottom sheet's \"Open the containers\", nothing on the phone returns to System, and the sheet keeps offering the same button. This is a one-way trap in a built surface. It breaks S1's \"and back\" on that form factor and S13's touch rules."
+  },
+  {
+   "id": "ux-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced the defect. A first `serve --detach` served on port 33827. A second `serve --detach` exited 7 with \"Port 33827 \u2026 is in use by another program. Stop it and press e again, or run planroom serve --port N\u2026\", while serve.json recorded the live pid 17779. prepare() and bind() (server/mod.rs:85-145) never read serve.json, which contradicts architecture.md:156 (\"idempotent through serve.json\"). I downgraded it because no tier A or B scenario fails in the skeleton. The callers that would start serve twice (the `e` key, `/room open`) aren't built. The data-loss path needs the person to choose --port deliberately, and the message itself warns that a tab's unsent edits stay with the old address. It stands as doc drift plus a wrong diagnosis and harmful advice."
+  },
+  {
+   "id": "ux-6",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed in an empty temp dir. `focus --json` returns ok, with next = scan <dir> and the label \"No git repos here. Run planroom scan PATH on a directory that holds some.\". `scan <dir> --json` fails with workspace_not_found, exit 3, hint \"planroom scan DIR\". `map --json` fails the same way, so map and focus disagree. The mod draws empty.next as the Next button (layout.ts cardRows). One part is overstated: serve needs a store, so the canvas never shows this state. The mod path alone breaks the empty state's single working next action (S15, tier A; principle 1)."
+  },
+  {
+   "id": "ux-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. en.toml:12-13 and canvas strings.ts:9 tell the person to \"press e\". The mod has no `e` key (grep finds none) and the catalogue has no `open` leaf. serve's text summary (en.toml:96) doesn't print the login page path. The finding itself notes that M1 schedules `open`, so minor is right."
+  },
+  {
+   "id": "ux-8",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. `share --out` on the fixture gives capabilities ['map:system:all','pane'] and pane.next = map --level container. store.run turns that into showLevel, and load() then sees that the partial transport doesn't serve it, so it shows a request state. Without the db, RequestState prints \"Not in this snapshot. Ask your computer for it\" as plain text. TransportNote meanwhile says \"Snapshot only: this view can't reach live updates or ask your computer.\" (strings.ts:33-34, artifact.ts:247), so the two lines contradict each other. artifact.ts:305-308 run() rejects with TransportError('unreachable'), and fail() turns that into a full-page outage. Minor is right."
+  },
+  {
+   "id": "ux-9",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. store.ts:93-101 maps a CommandError to phase 'unreachable', and app.tsx then replaces the whole canvas with EmptyState plus a \"Try again\" button that runs start(). register.tsx:218-222 toasts only error.message, never error.hint. Minor is right."
+  },
+  {
+   "id": "ux-10",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Partly confirmed. The hard-coded person-facing strings are real: layout.ts (\"Next\", \"No pending diffs\", \"Nobody else is here\", \"no plan stage\", \"not scanned\", \"No blocks at this level yet\"), register.tsx (\"Building the Planroom engine from source\u2026\", \"${label}: done\") and engine.ts (\"Rebuild the engine: \u2026\", \"didn't answer version --json\"). DR-21 says the engine authors every human-readable string from en.toml. The version-mismatch \"loop\" is refuted. The resolver's fix for stale_build is a shell command for the person to run (plugin/scripts/planroom:427-428, `cd $checkout && cargo build -p planroom`), and \"Try again\" re-resolves after they run it. That is a coherent flow, not a loop."
+  },
+  {
+   "id": "ux-11",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. `map --json` gives every node tone None, and `grep -rn tone packs/` is empty. redis and orders-db are code.service, while TRUTH.json:251-267 has queue and datastore. The container-level externals appear at the system top level. The screenshots main-1440x900-light.png and main-390x844-dark.png show \"4 component \u00b7 11 code\" (singular) and subtitles cut at \"1 container \u00b7 14 component\u2026\", which hides the code count for 4 of the 5 repos. Minor is right."
+  },
+  {
+   "id": "ux-12",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by running the commands. `map --level container` prints \"9 at the top: \u2026\", `--level intent` prints \"0 at the top: .\", and the first scan prints \"Mapped 5 repos, 5 of them moved\". `focus` text shows \"lens all \u00b7 seq 5\", and layout.ts focusRows shows \"seq N\" and falls back to the literal \"workspace\". The map --focus error has hint null. Minor is right."
+  },
+  {
+   "id": "ux-13",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. design-language.md:56 says \"The Artifact loads them from Google Fonts.\" `share --out` writes the @fontsource .woff and .woff2 files under assets/. page.html links only ./assets/tokens.css and ./assets/index.css, there is no googleapis reference anywhere, and the bundle is 2.3M. No decision record changes the Artifact font source; decisions.md:782 only pins @fontsource. This is doc drift, so minor."
+  }
+ ]
+}

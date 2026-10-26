@@ -1,0 +1,270 @@
+{
+ "lens": "tests",
+ "review": {
+  "summary": "Lens: tests and evidence, on the walking skeleton at HEAD 33713c5. All 32 feature_list.json entries are `failing`, so no entry is marked passing without its tests. The goldens match the real engine: I ran target/debug/planroom on a fresh fixture under a temporary PLANROOM_DATA, and `focus --json` returned a result equal to tests/golden/cli/focus.json. The integration tests (golden.rs, live.rs, concurrency.rs, idem.rs, s11_remote.rs, watch.rs, and server_auth.rs apart from its latency start point) exercise real processes and can fail.\n\nWhat I found falls into four groups.\n(1) Seams the skeleton says it fixed are pinned only in part. No test passes a token the mod signed to the real engine. The mod's harness answers `version` with a hand-written reply whose catalogue hash doesn't match, and the mod never compares the hash, although architecture.md says it does.\n(2) Evidence claims the repository doesn't support. WS5 says the resolver's background detach is built and checked on both OSes in the installer job, but nothing in the resolver or tests/installer/run.sh does it. ws8-install.md cites a guard test that doesn't exist. The WS4 and canvas timing numbers live only in prose. The testkit's \"Ruby pack config\" names a directory that doesn't exist, and the engine never reads the file.\n(3) Test data and names that drift. The M1 overlay invents relation kinds and evidence paths that contradict TRUTH.json. Many feature_list test names don't match the tests that were actually written, and no gate checks them.\n(4) Gates that can't see. The CI skip rule only sees whole-step skips. The golden-reader boundary misses runtime fs reads. The skill-versus-command collision list is hand-maintained. Two latency tests start their clock after the command returns, not at the commit.\n\nNothing here demonstrably makes a tier A or B scenario fail today, so every finding is minor.\n\nVerified: every file:line cited, the golden comparison, the commit hashes cited in architecture.md, and a script that resolved every feature_list test reference against the existing files.\nNot verified: whether a mod-signed token is accepted at runtime. I tried a cross-check script and the permission system denied it. I also assume, without checking, that `cargo nextest run` builds target/debug/planroom before vitest runs in CI.",
+  "findings": [
+   {
+    "id": "tests-1",
+    "title": "No test passes a token the mod signed to the real engine; the 'shared example' pins only the message bytes",
+    "severity": "minor",
+    "where": [
+     "packages/mod/src/actor.test.ts:70",
+     "crates/kernel/src/keys.rs:86",
+     "packages/mod/src/actor.ts:167-186",
+     "crates/planroom/src/app/actor.rs:64-71",
+     "crates/planroom/tests/actor.rs",
+     "crates/planroom/tests/s11_remote.rs:356-375"
+    ],
+    "evidence": "Both sides pin the same string, 'person init\\0[\"--rekey\"]\\0k1\\0\\01793000000\\0' (actor.test.ts:70-75, keys.rs:86-89). Each side's argv-to-fields split is separate code: lineFields in actor.ts:167-186 and Caller::leaf_args in actor.rs:64-71. Every engine-side token test signs with the Rust p256 crate (actor.rs, s11_remote.rs:356-375). The mod-side tests verify with the mod's own verifyToken. `grep -rln PLANROOM_PERSON_TOKEN tests/e2e/src` finds only lines that delete the variable (engine-watch.ts:89, artifact-host.ts:68). So no test anywhere signs with @noble/curves (compact, lowS, prehash) and verifies with the engine. I tried a cross-check script and the permission system denied it, so whether this works at runtime is unverified. Example of an untested divergence: a typed `/room ... --idem=X` puts `--idem=X` into args on both sides, but the mod's idem stays '' (actor.ts:178 matches only the bare word) while clap gives the engine idem=X.",
+    "why": "progress.md and the architecture.md table 'Seam bugs only integration found' record that each side's tests passed while every mod token was refused. The documented fix pins only the byte layout, not the argv split, the time unit at runtime, or the signature encoding. A regression in any of these breaks every person action (S9, S11) and shows up only live.",
+    "fix": "Add one test that runs the mod's signToken and lineFields (vitest, or the e2e globalSetup that already spawns the binary) for `person init` and `import -` with --idem and --base, then runs target/debug/planroom with that token and asserts ok:true."
+   },
+   {
+    "id": "tests-2",
+    "title": "WS5's resolver background detach and its installer-job check are claimed but not built; the resolver's JSON isn't validated against the schema",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/architecture.md:1527",
+     "docs/contributing/decisions.md:1513",
+     "docs/contributing/decisions.md:1545",
+     "plugin/scripts/planroom",
+     "tests/installer/run.sh:369-374",
+     "feature_list.json (S14 tests)"
+    ],
+    "evidence": "WS5's row (architecture.md:1527) includes 'the resolver's background detach in its own session, with setsid on Linux and perl on macOS, and serve's own daemonizing, checked on both in the installer job'. DR-69's status (decisions.md:1513) says 'verify the detach on macOS in the installer job from WS5'. `grep -n 'setsid\\|perl\\|detach' plugin/scripts/planroom` returns nothing. The installer runner (run.sh:369-374) lists 15 tests, none about detach. feature_list's S14 names `detach_gets_its_own_session` and `every_resolver_output_validates`, and neither exists. Only serve's own detach is tested (server_auth.rs:311), and that test checks neither the new session nor macOS. architecture.md's 'What the walking skeleton found' and its assumptions table don't record the gap.",
+    "why": "The skeleton's docs present a slice item as built and verified when no code or test exists. The rule DR-69 adopted because dash ignores `set -m` without a terminal has never run. The resolver's status, engine_fetching and engine_unavailable output is checked against the contract only by mod-side string stubs.",
+    "fix": "Mark the detach and its macOS check as not built in 'What the walking skeleton found', with the M1 or M3 slice that builds it. Until `every_resolver_output_validates` exists, don't describe the resolver's outputs as schema-checked."
+   },
+   {
+    "id": "tests-3",
+    "title": "Tests that were built don't carry the names feature_list.json lists, and no gate checks the references",
+    "severity": "minor",
+    "where": [
+     "feature_list.json",
+     "crates/store/tests/concurrency.rs:125",
+     "crates/planroom/tests/server_auth.rs:101,131,274",
+     "crates/xtask/tests/gates.rs:171,185,201",
+     "docs/contributing/traceability.md"
+    ],
+    "evidence": "A script resolved every `file::test` reference in feature_list.json against the files that exist. For behaviour that is built and tested, the listed names are missing. S8 lists concurrency.rs::three_processes_five_hundred_writes; the test is three_writer_processes_commit_500_each_with_no_loss_and_no_busy. C15 lists server_auth.rs::a_code_exchanged_twice_revokes_its_token, a_request_without_the_token_is_refused and a_taken_port_exits_with_port_in_use; the tests are a_login_code_works_once_and_a_second_try_revokes_its_token, requests_without_a_token_or_from_another_origin_or_host_are_refused and serve_keeps_its_port_and_another_program_on_it_is_port_in_use. S15 lists gates.rs::a_dependency_version_bump_needs_none and a_new_package_dependency_needs_a_record, but one combined test exists; the same holds for the worktree and area-row pairs. S1 lists contract.rs::files_language_from_the_languages_table, which doesn't exist. gates.rs::feature_list_is_complete is listed (C16) but not written, so nothing catches this.",
+    "why": "AGENTS.md says an entry turns passing only when every test it lists passes. As written, these entries can never pass without a rename, and traceability.md points readers at tests that don't exist under those names.",
+    "fix": "Rename the tests or the references so they agree, and add the feature_list_is_complete check: every `path::name` in a file that exists must resolve."
+   },
+   {
+    "id": "tests-4",
+    "title": "ws8-install.md backs the implementer's sandbox rule with a test that doesn't exist",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/research/ws8-install.md:51",
+     "packages/mod/src/guard.test.ts"
+    ],
+    "evidence": "ws8-install.md:51 says the rule stands as written 'with it off, they ask (`guard.test.ts::without_a_sandbox_approved_commands_ask`)'. guard.test.ts has 8 tests (lines 28-193) and none is that one. `grep -rn sandbox packages/mod/src packages/mod/plugin-tests` returns nothing. The name appears only in feature_list.json:732, decisions.md:1722, architecture.md:1416 and traceability.md as a planned test.",
+    "why": "A research note marked [V] cites a test as present evidence for a security rule (A-18, DR-75) when neither the test nor the behaviour exists. A reader will take the rule as enforced.",
+    "fix": "Reword the note: the rule is planned for M2 or M3, and the test named is where it will live."
+   },
+   {
+    "id": "tests-5",
+    "title": "The mod's harness answers `version` with a mismatched catalogue hash and calls it ready; the mod never makes the hash check architecture.md describes",
+    "severity": "minor",
+    "where": [
+     "packages/mod/plugin-tests/host.ts:127-133",
+     "packages/mod/src/engine.ts:79-105",
+     "docs/contributing/architecture.md:1280",
+     "packages/contract/src/generated/catalogue.ts:142"
+    ],
+    "evidence": "readyEngine (host.ts:127-133) returns a hand-written `version` reply with version '0.1.0', git_commit 'abc1234' and catalogue_hash 'ab12'. The real engine (target/debug/planroom version --json) reports version '0.1.0-dev', git_commit null, a target field and a 64-hex hash. engineFromVersion (engine.ts:96-105) stores catalogue_hash and returns status 'ready' without comparing it. CATALOGUE_HASH is exported from @planroom/contract but no mod source compares against it. architecture.md:1280 says the mod 'compares the hash with the one generated into its bundle. A mismatch shows one status line'. traceability lists engine.test.ts::a_catalogue_mismatch_shows_one_line, which doesn't exist.",
+    "why": "Every plugin test runs the mod against an engine whose hash doesn't match, and they all pass as 'ready'. That bakes the documented check's absence into the harness. An engine set through PLANROOM_ENGINE with another catalogue goes unflagged. DR-82's lesson ('stand-in goldens drifted') applies to these hand-written replies too.",
+    "fix": "Answer `version` from a golden made by the real engine, or stamp CATALOGUE_HASH into the stub. Implement or de-scope the mod's hash comparison, and add the mismatch test the docs list."
+   },
+   {
+    "id": "tests-6",
+    "title": "The M1 overlay invents relation kinds and evidence paths that contradict TRUTH.json and the fixture",
+    "severity": "minor",
+    "where": [
+     "tests/e2e/overlays/m1-tones-and-edges.map.json",
+     "tests/e2e/src/standin.spec.ts:52-61",
+     "examples/TRUTH.json"
+    ],
+    "evidence": "The overlay's edges cite these evidence paths: storefront/src/main.ts:3, orders/internal/store/store.go:31, platform/prometheus.yml:8, platform/grafana/datasources.yml:5, worker/worker/consumer.py:18 and worker/worker/db.py:12. None of the first four exists anywhere under examples/fixture/repos (find found postgres.go, prometheus/prometheus.yml and grafana/provisioning/datasources/prometheus.yml instead). TRUTH cites consumer.py:41/15 and db.py:22/46. The overlay's kinds code.import, code.metrics and code.dashboard don't match TRUTH's depends_on_package, scrapes and queries. The spec asserts 8 edges with labels 3, 2, 2, 2 from this data.",
+    "why": "tests/e2e/AGENTS.md says a spec moves to the real engine and its overlay goes once the engine produces the state. These expectations encode a map the real engine must not produce: wrong kinds and evidence that doesn't exist. The test will need rewriting instead of a straight move, and until then it can't catch canvas regressions on real relation data.",
+    "fix": "Rebuild the overlay's edges from TRUTH.relations (kinds, from/to, evidence path and line), and assert counts derived from TRUTH rather than literals."
+   },
+   {
+    "id": "tests-7",
+    "title": "The testkit fixture's Ruby pack config names a directory that doesn't exist, and the engine never reads the config",
+    "severity": "minor",
+    "where": [
+     "crates/testkit/src/lib.rs:31-55",
+     "docs/contributing/architecture.md:1452",
+     "examples/"
+    ],
+    "evidence": "fixture() writes `.planroom/config.toml` with packs = [\"<repo>/examples/packs/ruby\"] (lib.rs:42 and 46-55). `ls examples/packs` fails: there is no such directory. `grep -rn 'config.toml\\|packs =' crates/planroom/src` finds no config loader; scan only inserts meta 'packs' as '[]' (app/scan.rs:52). The testing strategy (architecture.md:1452) says scenario tests use the fixture 'with the Ruby pack config'. I scanned a fixture built without the config, and its focus result equalled the golden.",
+    "why": "Every test and golden claims to run with the DR-13 Ruby pack and runs without it. When M1 adds config loading, every fixture will name a pack path that doesn't exist, and S1's and S10's CI paths (which need the Ruby pack) aren't what the skeleton exercises.",
+    "fix": "Until the pack exists, don't write the config (or write one that names no pack), and say in the testkit doc and the testing strategy that the Ruby pack arrives with S10's slice."
+   },
+   {
+    "id": "tests-8",
+    "title": "The CI skip rule only sees whole-step skips; in-test skips pass as ok, including the only real-engine mod test",
+    "severity": "minor",
+    "where": [
+     "packages/mod/src/watch-engine.test.ts:46-48",
+     "tests/e2e/src/engine-watch.ts:70-79",
+     "crates/xtask/src/report.rs:115-126",
+     "crates/xtask/src/main.rs:485-490",
+     "tests/e2e/src/screens.spec.ts:21"
+    ],
+    "evidence": "report.rs counts only `r.skipped(step)` calls. main.rs:487 runs `pnpm exec vitest run` as one step, and its exit code is 0 when a test is skipped. watch-engine.test.ts uses test.skipIf(run.skipped !== null), and the setup skips when target/debug/planroom is missing (engine-watch.ts:71-79). It also runs whatever binary is there, stale or not. architecture.md's 'Bets and budgets' table gives this file as the sole evidence for bet 3, 'the mod through the CLI'. I assume, without checking, that today cargo nextest builds the binary before vitest in the CI test job, so the test runs there.",
+    "why": "AGENTS.md says a skipped check fails in CI unless ci_skips.toml lists it. That only works at step level. A reordering, a `-p` run or a build change would turn bet 3's evidence into a silent pass.",
+    "fix": "Have the setup throw under CI=true instead of providing `skipped`, or have xtask's vitest step fail when the reporter shows any skipped test that ci_skips.toml doesn't list."
+   },
+   {
+    "id": "tests-9",
+    "title": "The 1 s commit-to-frame tests start their clock after the command returns, not at the commit",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/tests/server_auth.rs:209-214",
+     "tests/e2e/src/surface.spec.ts:236-256",
+     "tests/e2e/src/engine.ts:68-69",
+     "docs/contributing/architecture.md (Bets and budgets: serve's SSE stream)"
+    ],
+    "evidence": "server_auth.rs:209-213 runs `planroom scan` to completion with output() and only then calls read_stream_until, whose timer starts at its own entry. A frame already buffered counts as about 0 ms. surface.spec.ts sets `const committed = Date.now()` after engine.cli(['scan']), which is spawnSync (engine.ts:69). architecture.md says 'A frame arrives within the 1 s bar after a CLI commit'.",
+    "why": "Both tests understate commit-to-frame latency by however long the command takes after its commit. They can't fail on a regression hidden inside that window. S8 and S13 build on these as the latency evidence.",
+    "fix": "Take the commit time from the store (the event's `at`, or a timestamp the CLI prints) or start the timer before spawning the command, and assert frame time minus commit time."
+   },
+   {
+    "id": "tests-10",
+    "title": "The golden-reader boundary is bypassed by a runtime fs read the gate can't see",
+    "severity": "minor",
+    "where": [
+     "AGENTS.md (Boundaries)",
+     "boundaries.toml:53",
+     "tests/e2e/src/standin.ts:25,94-150",
+     "crates/xtask/src/boundaries.rs:792-811"
+    ],
+    "evidence": "AGENTS.md says 'only the mod's tests read tests/golden/*.json', and boundaries.toml:53 sets golden_readers to packages/mod/plugin-tests/** and packages/mod/src/**/*.test.ts. The generated depcruise rule (boundaries.rs:808) checks only imports. standin.ts:25 defines GOLDEN = join(ROOT, 'tests/golden/cli') and reads the files at runtime (lines 94 and 149-150), so the gate never sees it. tests/e2e/AGENTS.md documents this use, which contradicts the root invariant.",
+    "why": "A gated invariant ('Boundaries' needs a decision record) is broken by a pattern its check can't detect. Two AGENTS files now disagree about who may read goldens.",
+    "fix": "Either add tests/e2e/src/standin.ts to golden_readers through a decision record, or route the stand-in's data through an import the rule can see. Then make the root AGENTS.md line match."
+   },
+   {
+    "id": "tests-11",
+    "title": "WS4 and canvas timing claims have no committed run data",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/research/ws4-concurrency.md",
+     "crates/store/tests/concurrency.rs:158-163",
+     "crates/planroom/tests/live.rs:6",
+     "docs/contributing/architecture.md (Bets and budgets: Canvas interactive)"
+    ],
+    "evidence": "concurrency.rs and live.rs write their numbers to CARGO_TARGET_TMPDIR (target/tmp/ws4-*.json). `git ls-files | grep -i 'ws4\\|evidence'` shows only the test, the prose note, docs/evidence/s15/first-turn.json and spend.jsonl. The '3 runs, the tables give the range' results (1,630 to 1,690 commits/s, the 631 to 634 ms tail, 135 to 546 ms rescans) exist only as prose. The canvas's '200 to 310 ms' was measured against the stand-in server, and the only reference is commit 7f85e4f.",
+    "why": "Bet 1 (A-6 'holds') and the S13 interactive figures are cited as evidence, but nobody can check the ranges against recorded runs. The first-turn numbers show the repo's own pattern of committing the raw JSON.",
+    "fix": "Commit the three runs' JSON under docs/evidence/ws4/ (and the quality.spec annotations), and link them from ws4-concurrency.md and the Bets table."
+   },
+   {
+    "id": "tests-12",
+    "title": "The pane's 49-column fit check allows 3 extra columns and measures elements, not rows",
+    "severity": "minor",
+    "where": [
+     "packages/mod/plugin-tests/surfaces.test.tsx:68",
+     "packages/mod/plugin-tests/surfaces.test.tsx:117",
+     "packages/mod/plugin-tests/host.ts:23"
+    ],
+    "evidence": "Both checks assert `t.length <= DOCK.columns + 3`, with DOCK.columns = 49 (host.ts:23), over each Text and Button found separately. String.length counts UTF-16 units, not terminal cells: a wide glyph counts 1, an emoji 2. Neither the code nor the docs explain the +3.",
+    "why": "S9 requires the pane to fit 49\u00d734 (rows_fit_at_49x34). This check passes a 52-column element, two elements on one row that together overflow, and wide-character overflow. So the four-surface test can't prove the fit it's cited for.",
+    "fix": "Assert each rendered row's display width (with a wcwidth-style measure) is at most bodyColumns, with no slack, or document the reason for the slack."
+   },
+   {
+    "id": "tests-13",
+    "title": "The skill/command collision gate is a hand-kept list, and the harness accepts every command registration",
+    "severity": "minor",
+    "where": [
+     "crates/xtask/src/plugin.rs:131-139",
+     "crates/xtask/src/plugin.rs:165-168",
+     "packages/mod/plugin-tests/host.ts:184"
+    ],
+    "evidence": "MOD_COMMANDS is hard-coded as [\"room\"] (plugin.rs:168), and its comment says it mirrors register.tsx by hand. The harness mock `on(\"command.register\", ... ({ value: { command: e.name } }))` (host.ts:184) accepts any name. So a new mod command that collides with a skill passes both the layout check and every plugin test. The host's refusal 'skips the mod's whole session.start' (DR-84).",
+    "why": "This is the exact failure WS8 found only live (ws8-install.md, 'The real mod, live' item 2). The fix guards only today's single name, not the class of bug.",
+    "fix": "Derive the command list from register.tsx (or a generated constant the mod also uses). Make the harness refuse a command.register whose name matches a plugin skill, as the host does."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "tests-1",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. Both sides pin the same bytes (packages/mod/src/actor.test.ts:70-76; crates/kernel/src/keys.rs:86-89). The argv split is separate code on each side: lineFields at actor.ts:166-186 matches only the bare words `--idem` and `--base`, while the engine signs with bound.idem from clap (crates/planroom/src/app/actor.rs:144-146) and leaf_args (actor.rs:64-71). So `--idem=X` would give the mod idem '' and the engine idem 'X'. The engine-side token tests sign with Rust p256 (crates/planroom/tests/actor.rs:48, s11_remote.rs:392). In tests/e2e/src, PLANROOM_PERSON_TOKEN appears only in the two lines that delete it (engine-watch.ts:89, artifact-host.ts:68). No mod test spawns the real binary with a token. I did not run a cross-signing check. Minor is right: this is a missing test, not a shown defect."
+  },
+  {
+   "id": "tests-2",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed with one correction. The WS5 row (architecture.md:1527) lists the resolver's setsid/perl detach, checked in the installer job. DR-69's status (decisions.md:1513) says to verify the detach on macOS in WS5's installer job. plugin/scripts/planroom has no setsid, perl or detach, and the only background-related entry is a `build)` case at line 477. The runner list in tests/installer/run.sh:369-374 has neither detach_gets_its_own_session nor every_resolver_output_validates, though feature_list.json:1105,1107 lists both. The correction: the M5 release row (architecture.md:1653) already schedules 'the detach in its own session on Linux and macOS' and 'every resolver output validated'. So the later slice is named, and the remaining drift is the WS5 row and DR-69's status still pointing at WS5. Minor."
+  },
+  {
+   "id": "tests-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by grep. feature_list.json:504 names three_processes_five_hundred_writes, but the test is concurrency.rs:125 three_writer_processes_commit_500_each_with_no_loss_and_no_busy. Lines 1823, 1828 and 1833 name server_auth tests that don't exist; the actual names are at server_auth.rs:101, 131 and 274. Lines 1194-1195 name two gates.rs tests, but there is one combined test at gates.rs:171. Line 64 names files_language_from_the_languages_table, which isn't in crates/extract/tests/contract.rs. feature_list_is_complete (line 1869) doesn't exist, and nothing in crates/xtask/src mentions feature_list. All the affected entries have status 'failing', so nothing is falsely marked passing. The problem is name drift that would block the entries from passing, so minor."
+  },
+  {
+   "id": "tests-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. ws8-install.md, in the section '## The implementer's Bash sandbox [A-18] [V]', cites `guard.test.ts::without_a_sandbox_approved_commands_ask`. None of the 8 tests in packages/mod/src/guard.test.ts (lines 28-193) has that name, and grep finds no 'sandbox' anywhere in packages/mod/src or plugin-tests. The note cites a test that doesn't exist as if it were present. Minor is right because it is doc drift."
+  },
+  {
+   "id": "tests-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. readyEngine (packages/mod/plugin-tests/host.ts:129-135) answers with version 0.1.0, git_commit abc1234 and catalogue_hash ab12. The real `target/debug/planroom version --json` returns 0.1.0-dev, git_commit null, a target field and a 64-hex hash (7a8e30...). engineFromVersion (engine.ts:96-105) stores the hash and returns ready without comparing it, and no non-test mod source reads CATALOGUE_HASH. architecture.md:1280 describes the comparison, and feature_list.json:715 names engine.test.ts::a_catalogue_mismatch_shows_one_line, which doesn't exist. Note that the WS5 row doesn't claim the hash check, so the gap in the mod is design not yet built. The stub's fabricated reply is still a defect in what exists, so minor."
+  },
+  {
+   "id": "tests-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. The overlay's edge kinds include code.import, code.metrics and code.dashboard. TRUTH.json's relation kinds are db, depends_on_package, deploys, exports_telemetry, http, queries, queue_consume, queue_publish and scrapes, so those three have no match. Of the overlay's evidence paths, storefront/src/main.ts, orders/internal/store/store.go, platform/prometheus.yml and platform/grafana/datasources.yml match no file in examples/fixture/repos. The real files are at prometheus/prometheus.yml and grafana/provisioning/datasources/prometheus.yml. standin.spec.ts:58-64 asserts 8 edges and labels 3, 2, 2, 2. DR-82 allows test-only overlays, so this is minor."
+  },
+  {
+   "id": "tests-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. crates/testkit/src/lib.rs:42 calls write_config with examples/packs/ruby. `ls examples/packs` fails, and examples/ holds no packs directory. No config loader exists in crates/planroom/src: scan.rs:35 and :52 hard-code packs '[]'. architecture.md:1452 says scenario tests use the fixture 'with the Ruby pack config'. I did not rerun the focus-equals-golden check. Minor."
+  },
+  {
+   "id": "tests-8",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. Report::skipped (crates/xtask/src/report.rs:115-126) is the only place CI skips are enforced, and it works per step. main.rs:487 runs `pnpm exec vitest run` as one tool step. engine-watch.ts:70-79 provides `skipped` when target/debug/planroom is missing, and watch-engine.test.ts uses test.skipIf, so vitest still exits 0. architecture.md:1549 names that file as bet 3's sole evidence. Today nextest's integration tests most likely build the binary first, so the risk is latent. Minor."
+  },
+  {
+   "id": "tests-9",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. server_auth.rs:213 runs scan to completion with .output(), and read_stream_until starts its own Instant at :160. The serve-own-write half does the same with the blocking api() call at :225. surface.spec.ts sets `committed = Date.now()` after engine.cli(['scan']), which uses spawnSync (engine.ts:69). Both tests measure from the command's return, not from the commit. The window is probably small, since the scan commits near its end. Minor."
+  },
+  {
+   "id": "tests-10",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed with nuance. boundaries.toml:53 limits golden_readers to the mod's tests. The generated rule (boundaries.rs:808) is an import rule only. tests/e2e/src/standin.ts:25 and :99 read tests/golden/cli at runtime with readFile, which the rule can't see. The nuance: DR-82 (decisions.md ~1963) explicitly allows 'a surface test that needs a state the engine can't produce yet' to lay an overlay over a real golden. So this use is ratified, and the defect is drift: root AGENTS.md:54 and golden_readers weren't updated, and the gate can't detect fs reads. Minor."
+  },
+  {
+   "id": "tests-11",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. concurrency.rs:163 and live.rs:98 write to CARGO_TARGET_TMPDIR. `git ls-files | grep -i 'ws4\\|evidence'` lists only ws4-concurrency.md, docs/evidence/s15/first-turn.json and spend.jsonl. The canvas row at architecture.md:1545 cites only quality.spec.ts and commit 7f85e4f. These are spike numbers, not scenario evidence paths, and the tests can be rerun, so minor."
+  },
+  {
+   "id": "tests-12",
+   "refuted": true,
+   "severity_after": "none",
+   "reason": "The core claim is refuted. The 49x34 fit is checked strictly elsewhere: packages/mod/src/layout.test.ts:89 'rows_fit_at_49x34' lays out a four-choice card and asserts widest(rows) <= DOCK.columns and height(rows) <= DOCK.rows, per row with no slack. So the four-surface test's loose `+3` check per element (surfaces.test.tsx:68, :117) is not what proves the fit. The unexplained +3 slack is real but a nit. One side note: feature_list.json:705 points at packages/mod/src/surfaces.test.tsx::rows_fit_at_49x34, a file that doesn't exist. That is tests-3's class of name drift, not this finding."
+  },
+  {
+   "id": "tests-13",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. MOD_COMMANDS is the hand-kept [\"room\"] at crates/xtask/src/plugin.rs:168, and its comment says it mirrors register.tsx. register.tsx:398-399 registers 'room'. The harness's command.register mock (host.ts:184) accepts any name. Today's single command is guarded, so this is a latent, class-level gap. Minor."
+  }
+ ]
+}

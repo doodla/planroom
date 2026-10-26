@@ -1,0 +1,237 @@
+{
+ "lens": "correctness",
+ "review": {
+  "summary": "Correctness and concurrency review of the walking skeleton. I read crates/store (commit, read, tail, layouts, presence, migrations), the app handlers (scan, map, focus, person, actor, share, import, data, workspace), live.rs, server/ (mod, routes, auth), kernel keys/tree/facts, and extract files/walk/verify/lines, and I checked them against contracts.md, architecture.md and the DRs. I ran target/debug/planroom on fresh copies of the fixture from examples/build-fixture in the scratchpad, with PLANROOM_DATA pointed at temporary directories.\n\nVerified by running the binary:\n- (1) The first scan of a commit stores whatever the working tree held, and later scans of that commit never correct it. A clean rescan still lacked 5 containers and a committed CHANGELOG.md.\n- (2) Untracked directories and empty untracked files enter the map.\n- (3) A repo that leaves the workspace stays on the map. The scan said \"Mapped 4 repos\" while the map showed 5.\n- (4) workspaces.json loses unknown fields, min_reader_version among them.\n- (5) Two concurrent `serve --detach` in one workspace both succeed on different ports.\n\nAlso verified, and working: concurrent first scans join on one set of events (3 parallel scans x 6 runs, 5 events each). A head moving A->B->A->B->A->B records each move.\n\nFound by reading code only, not run: the other findings. They are (6) torn reads, (7) the canvas subscribe gap, (8) a second envelope from serve, (9) a stale packs_hash, (10) live/head's seq bookkeeping, (11) a live loop that dies silently and (12) a store file left unmigrated.\n\nLeft out because the docs already schedule them: the SSE broadcast-lag reset, `serve` reuse and drain, the commit-time store-version check, and meta.dirty_repos.\n\nNot tested: whether ArtifactData `update` deep-merges `acks/<uid>.rows`. I couldn't run it.\n\nThe plugin guard blocked direct reads of store.db and serve.json, so I used `watch --json` to inspect the event log.",
+  "findings": [
+   {
+    "id": "correctness-1",
+    "title": "A snapshot is keyed by the HEAD commit but built from the working tree, so the first scan of a commit freezes a dirty tree's facts and later clean rescans never correct them",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/scan.rs:108",
+     "crates/planroom/src/app/scan.rs:166",
+     "crates/extract/src/files.rs:102",
+     "crates/store/src/commit.rs:154-163",
+     "crates/store/src/commit.rs:293-310"
+    ],
+    "evidence": "Verified by running the binary. scan.rs:108 walks the working tree. The facts are stored under the snapshot (repo, HEAD commit, packs_hash). put_snapshot is INSERT ... ON CONFLICT DO NOTHING (commit.rs:303), and insert_facts runs only when `created` (commit.rs:156). previous == snapshot then reports Unchanged (commit.rs:160).\n\nRepro 1, on a fresh fixture copy: prepend '# local note' to platform/docker-compose.yml (uncommitted) and run `scan`. It warns evidence_dropped, 27 items. The map shows only the 5 repos, and the 5 ws:container:* nodes are gone. Restore the file (`git status` clean) and `scan` again. Still 5 repos, 0 containers, and 'Mapped ... 0 of them moved'.\n\nRepro 2: move kit/CHANGELOG.md away, scan, move it back (clean tree), scan. `map --level code` reports kit:file:CHANGELOG.md MISSING, while the scan line claims 135 nodes. The map now depends on the working tree at the first scan of each commit, not on the commit.",
+    "why": "The map is wrong and stays wrong, with no recovery until HEAD moves. Two stores at the same heads give different maps, which is not deterministic. It contradicts architecture.md:609 ('The map holds only committed lines'). A person's first scan of a real repo is often dirty, so S1/S2-style answers on a real workspace silently lose components. Any rescan-based reconcile (S4 step 4/5) reads a frozen snapshot.",
+    "fix": "Extract from the commit's blobs (git ls-tree plus cat-file through the existing Objects adapter) rather than the working tree, so the facts are a pure function of the snapshot key. If the working-tree walk must stay, make the snapshot key include a hash of the verified fact set, so a different fact set creates a new snapshot instead of reusing the old one."
+   },
+   {
+    "id": "correctness-2",
+    "title": "Ref evidence verifies paths that aren't in the commit: untracked directories and empty untracked files reach the map",
+    "severity": "minor",
+    "where": [
+     "crates/extract/src/files.rs:66-72",
+     "crates/extract/src/files.rs:111",
+     "crates/extract/src/files.rs:141",
+     "crates/extract/src/verify.rs:121-133"
+    ],
+    "evidence": "Verified by running the binary. On a fresh copy, `mkdir -p kit/scratch/deep && echo notes > kit/scratch/deep/notes.txt && touch kit/EMPTY_UNTRACKED` (git status shows both as ??), then `scan`. The file inside is dropped (1 evidence_dropped). But `map --level component` lists kit:dir:scratch and kit:dir:scratch/deep, and `map --level code` lists kit:file:EMPTY_UNTRACKED. Directories, empty files and non-UTF-8 files carry Evidence::Ref {commit, branch}. Verifier::check only checks that the commit and ref exist, never that the path is in that commit's tree. Combined with correctness-1, these nodes then persist after the files are removed.",
+    "why": "The evidence claims a commit holds something it doesn't. That breaks the stated rule that the map holds only committed content (architecture.md:609, DR-71/DR-81) and the evidence-at-ingest guarantee (DR-12).",
+    "fix": "Give directory and empty-file nodes evidence that names the path (for example a Ref plus path, checked with `git cat-file -e <commit>:<path>`), and drop a directory node when none of its files survive verification."
+   },
+   {
+    "id": "correctness-3",
+    "title": "A repo that leaves the workspace (deleted, moved or renamed) stays on the map forever",
+    "severity": "material",
+    "where": [
+     "crates/store/src/read.rs:113-129",
+     "crates/store/src/commit.rs:146-170",
+     "crates/planroom/src/app/map.rs:46-56"
+    ],
+    "evidence": "Verified by running the binary. In a scanned fixture copy, `mv kit elsewhere`, then `scan . --json`. The text summary says 'Mapped 4 repos, 0 of them moved', but result.map.nodes still contains kit:repo:kit. active_snapshots takes the last scan event per target, and nothing ever retires a target. commit_scan only adds or moves repos in `active` and builds the link from all of them. The event model has no 'repo removed' body. A directory rename (which DR-74 says namespaces survive) shows both the old and the new repo.",
+    "why": "This is a design gap the skeleton revealed: the 'living map' shows a system that no longer exists, with no command to correct it. The only recovery is deleting the store, which in M1+ loses person-authored events (KICKOFF principle 1, 'never lose what someone did'). The scan's own reply (4 repos) and its map (5) disagree.",
+    "fix": "In commit_scan, for each active repo absent from ScanWrite.repos, append a scan-family event (for example `repo_removed`, an additive EventBody) that drops it from the active set and rebuilds the link snapshot. Have active_snapshots honour it. Treat a rename through DR-74's meta.repos mapping."
+   },
+   {
+    "id": "correctness-4",
+    "title": "workspaces.json is rewritten without a lock and drops every field this build doesn't know, min_reader_version included",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/data.rs:50-86",
+     "crates/planroom/src/server/mod.rs:150-155"
+    ],
+    "evidence": "Verified by running the binary. I wrote a workspaces.json with top-level \"min_reader_version\":\"0.1.0\" and \"future_key\":1, and an entry with \"label\". Then `serve --detach --port 41777`. The rewritten file holds only format and workspaces[{root, workspace_id, port}]; all three unknown fields were gone. `record` deserializes into a struct with no #[serde(flatten)] extra, then does a read-modify-write rename with no file lock. Two engines recording at once (two workspaces' first serve) lose one entry.",
+    "why": "This violates the AGENTS.md compatibility invariant ('Readers of persisted documents ... keep fields they don't know') and contracts.md:14. contracts.md:357 says this file is shared by every engine version on the machine and changes only by additions. An older engine erasing min_reader_version defeats DR-78's guard. A lost entry lets a workspace's port move, which DR-78 forbids, and that strands a tab's sessionStorage token and pending edits.",
+    "fix": "Add `#[serde(flatten)] extra: Map<String, Value>` to Workspaces and WorkspaceEntry, and write them back. Hold an flock on workspaces.json.lock across read, modify and rename. Check min_reader_version on read."
+   },
+   {
+    "id": "correctness-5",
+    "title": "Two concurrent first `serve --detach` runs in one workspace both start, on different ports; one is orphaned",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/server/mod.rs:126-158",
+     "crates/planroom/src/server/mod.rs:144-149"
+    ],
+    "evidence": "Verified by running the binary. Fresh data root, two `serve --detach --json` at once in one workspace. Both returned ok, port 43473 pid 7197 and port 45747 pid 7198. workspaces.json recorded only 45747, and both processes stayed up until I killed them. With no recorded port, `bind` binds port 0 in each process, and the last `record` wins. serve.json is likewise last-writer-wins, so it can name the other port.",
+    "why": "This is a design gap that the planned reuse through serve.json (architecture.md:156, 1271, 1603) won't close, because that is also check-then-act. Two surfaces (the pane's `e` and `/room open`) racing on first use leave an unreachable server and can record a port that serve.json disagrees with.",
+    "fix": "Take an exclusive lock (for example flock on .planroom/serve.lock) across reading serve.json and workspaces.json, binding and recording, and release it after serve.json is written. The second caller then sees the first and reuses it."
+   },
+   {
+    "id": "correctness-6",
+    "title": "Reads aren't in one read transaction, so a reply's meta.seq can be newer than its content and the active set can be torn",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/map.rs:31-40",
+     "crates/store/src/read.rs:73-85",
+     "crates/planroom/src/app/focus.rs:46-48",
+     "crates/planroom/src/app/share.rs:123-126"
+    ],
+    "evidence": "Found by reading code only. map::run folds through active_set (two separate SELECTs: per-repo scans, then the last scan's link) and facts, then reads store.seq() afterwards (map.rs:40). Each statement is its own autocommit read, so a commit between them returns content from N-1 with meta.seq = N, or repos from one scan and the link from another. contracts.md:94 defines seq as 'the highest seq inside the one read', and architecture.md:384 (DR-73) says a read takes N inside that transaction so that 'a writer's base never covers a write it didn't see'.",
+    "why": "Writes aren't built yet, so the harm is latent. But meta.seq is already returned and documented as the base a writer uses (architecture.md:434-435), and the M1 base check will trust it.",
+    "fix": "Add a Store read-snapshot method that opens one `BEGIN` (deferred) transaction and reads active set, facts and max seq inside it, and route map, focus, share and import through it."
+   },
+   {
+    "id": "correctness-7",
+    "title": "The canvas subscribes to the stream after loading, with no `since`, so a commit in between never triggers a refetch",
+    "severity": "minor",
+    "where": [
+     "packages/canvas/src/store.ts:205-214",
+     "packages/canvas/src/transport/local.ts:189-200",
+     "crates/planroom/src/server/routes.rs:336-339"
+    ],
+    "evidence": "Found by reading code only. start() awaits load() (map and focus), then calls transport.subscribe(). The first stream request carries no Last-Event-ID (lastId starts null) and no since, and the server starts the cursor at the store's latest seq (backlog: Live::new(tail, None) leaves the cursor at latest). A commit landing after the map read and before the stream request sends no frame, so the canvas shows the old map until some later commit.",
+    "why": "S8 (tier A) requires live updates within 1 s while several writers commit. A final write that lands in this window is never shown, which makes S8 flaky.",
+    "fix": "Have subscribe take the loaded view's meta.seq and send `?since=SEQ` on the first connection. The server already replays the backlog for `since`."
+   },
+   {
+    "id": "correctness-8",
+    "title": "A foreground `serve --json` prints a second JSON document when serving fails after its success envelope",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/server/mod.rs:51-61"
+    ],
+    "evidence": "Found by reading code only. In the non-detached path, announce() is printed through cli::finish (one envelope). Then `serve(prepared)` runs, and on Err calls cli::finish::<()>(json, \"serve\", Err(e), started) again, a second document on stdout. Possible errors include the Tokio runtime build, Store::open_existing in serve() (for example the store migrated or removed between prepare and serve), and axum::serve failing.",
+    "why": "AGENTS.md: '`--json` mode prints exactly one JSON document on stdout'. A client parsing the stream reads two envelopes, and may read the first ok:true and miss the failure.",
+    "fix": "After the success envelope has gone out, report a later failure on stderr (and through the exit code) only, as the detached child already does."
+   },
+   {
+    "id": "correctness-9",
+    "title": "meta.packs_hash is written only once, so after an engine upgrade it disagrees with the hash new snapshots carry",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/scan.rs:52-53",
+     "crates/planroom/src/app/scan.rs:30-33"
+    ],
+    "evidence": "Found by reading code only. packs_hash() includes the engine's CARGO_PKG_VERSION (DR-62), so it changes with every release. scan stores it with meta_insert_once, which never overwrites. After an upgrade, every new snapshot uses the new hash while meta keeps the first engine's.",
+    "why": "architecture.md:243 has every read compare 'the recorded packs_hash' with the active snapshot to decide on a rescan. Built on this value, freshness would rescan on every read forever, or never detect a pack change. Nothing reads it yet.",
+    "fix": "Write packs and packs_hash inside commit_scan's transaction (an upsert), together with the snapshots that use them."
+   },
+   {
+    "id": "correctness-10",
+    "title": "live/head's seq bookkeeping can skip changes the published page never saw, and can list changes past head.seq",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/share.rs:81-82",
+     "crates/planroom/src/app/import.rs:173-175",
+     "crates/planroom/src/app/import.rs:299-309",
+     "packages/canvas/src/transport/artifact.ts:229"
+    ],
+    "evidence": "Found by reading code only. (a) `share` sets meta.share_snapshot_seq when it writes the bundle to disk, before (and whether or not) the session publishes it. A second `share --out` that isn't published, or a failed publish, moves it forward. import's live_head then starts at that seq, so the page built from the earlier snapshot never gets the events in between. (b) import reads seq (import.rs:173), then pages events_after in a loop with no upper bound, so a commit in between appears in head.changes with seq > head.seq. The page uses head.seq as the base of its writes.",
+    "why": "The remote page can show a map missing changes with no sign of it, and its later writes carry a base older than what it displayed. That becomes spurious conflicts once M1/M5 apply rows.",
+    "fix": "Record the snapshot seq only after the publish succeeds (have the mod confirm it, for example with `share --published SEQ`), or store it in the published snapshot and have import read it from the inbox or head. Bound the live_head events by `seq` and read both in one read transaction."
+   },
+   {
+    "id": "correctness-11",
+    "title": "serve's live loop thread dies silently on any error other than schema_mismatch, and the server keeps running with no live frames",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/server/routes.rs:96-107",
+     "crates/planroom/src/live.rs:84-90"
+    ],
+    "evidence": "Found by reading code only. start_live spawns a thread that runs live.run once. On Err other than SchemaMismatch it prints to stderr and returns. A transient store_busy (data_version, count_after and events_after all run under the 5 s busy timeout) or any Sqlite error is enough. Every SSE client stays connected and receives nothing more, not even pings: the per-client stream yields only broadcast frames, and the pings come from that loop.",
+    "why": "Canvases stop updating with no error shown. S8 requires live updates within 1 s.",
+    "fix": "Retry transient errors (Busy) in the loop with backoff, and on a fatal one send a Reset frame and exit the process (as for schema_mismatch), so the resolver or mod restarts serve."
+   },
+   {
+    "id": "correctness-12",
+    "title": "A store file left unmigrated makes every read command fail with internal until the next scan",
+    "severity": "minor",
+    "where": [
+     "crates/store/src/lib.rs:59-82",
+     "crates/store/src/lib.rs:109-120",
+     "crates/store/src/tail.rs:18-26"
+    ],
+    "evidence": "Found by reading code only. I couldn't reproduce the timing: the guard refuses creating a store.db directly, and 8x150 parallel `focus` runs against a first scan never hit the window. Store::open creates store.db with create_new, then migrates in a separate transaction. If the process dies in between, the file stays at user_version 0. open_existing (map, focus, share, import, person, watch, serve) then runs migration 1 with init=None, which returns StoreError::Io('a new store needs its workspace record'), mapped to `internal`. Tail::seq on such a file fails on 'no such table'.",
+    "why": "The pane draws an internal error instead of the not-a-workspace state that DR-57 requires ('never a blank'), until someone runs scan.",
+    "fix": "In open_existing, treat user_version 0 with no tables as 'no store' (return Ok(None)), so readers show the scan empty state. Or create the file under a temporary name and rename it into place after migration 1 commits."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "correctness-1",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "I reproduced it myself on a fresh fixture with its own PLANROOM_DATA. I prepended '# local note' to platform/docker-compose.yml and scanned: 'Mapped 5 repos, 5 of them moved: 0 containers, 125 nodes'. `map` then shows only the 5 repo nodes. I restored the file (git status clean) and rescanned: 'Mapped 5 repos, 0 of them moved: 0 containers, 135 nodes, 17 hints', but `map` still shows 5 nodes. A fresh store over the same clean heads gives 10 nodes, including ws:container:grafana, orders-db, otel-collector, prometheus and redis. So the scan line and the map disagree, and two stores at the same heads give different maps. Code: the facts come from the working-tree walk (scan.rs:108). put_snapshot is ON CONFLICT DO NOTHING keyed by (repo, commit, purpose, packs_hash) (commit.rs:301-303). insert_facts runs only when `created` (commit.rs:156-157), and previous==snapshot reports Unchanged (commit.rs:160). The architecture's own rules conflict here: 'Deterministic. The same commit gives byte-identical facts' and 'The map holds only committed lines' (architecture.md:604, 609). The known-gaps table (architecture.md:1560-1572) doesn't list it. The map stays wrong with no recovery until HEAD moves, on the everyday first scan of a dirty repo. I keep it material."
+  },
+  {
+   "id": "correctness-2",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "I reproduced it myself on a fresh fixture and store. I made kit/scratch/deep/notes.txt and an empty kit/EMPTY_UNTRACKED; git status shows both as ??. After `scan`, `map --level code` lists kit:file:EMPTY_UNTRACKED and `map --level component` lists kit:dir:scratch/deep and kit:dir:scratch. Code: the directory set comes from every walked file, before verification (files.rs:96-100). An empty file and every directory get tree_evidence(), a Ref holding only the commit and branch (files.rs:66-71, 111, 141). Verifier::check for a Ref checks only that the commit and the ref exist (verify.rs:113-125). DR-81 deliberately gives directories a commit Ref, but the outcome is that untracked paths reach the map, against architecture.md:609. Minor is right."
+  },
+  {
+   "id": "correctness-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "I reproduced it myself. After a scan, `mv kit` out of the workspace and `scan`: 'Mapped 4 repos, 0 of them moved', yet `map` still lists kit:repo:kit. I then moved it back as kit2 and scanned: the map lists both kit:repo:kit and kit2:repo:kit2. Code: active_snapshots takes MAX(seq) per target over scan events, with no retirement (read.rs:113-129). commit_scan only adds or moves repos (commit.rs:146-170). No doc handles a repo that leaves the workspace; DR-74 routes a renamed repo directory through rescan.retarget, which is M1. I downgrade it to minor. The ghost repo is wrong, but it fails no tier A or B scenario on the fixture. It loses no data today. The 'only recovery deletes person events' harm needs M1 writes, and the planned event backups and restore (DR-53) also cover that case."
+  },
+  {
+   "id": "correctness-4",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "I reproduced it myself. I wrote a workspaces.json with top-level min_reader_version and future_key, and an entry carrying 'label', then ran `serve --detach --port 41777`. The rewritten file keeps only format and workspaces[{root, workspace_id, port}]; all three unknown fields are gone. Code: Workspaces and WorkspaceEntry have no #[serde(flatten)] extra (data.rs:49-61). record() reads, modifies and renames with no lock (data.rs:78-86), and bind() calls it (server/mod.rs:150-155). This contradicts contracts.md:14 ('Unknown fields are kept through #[serde(flatten)] extra and written back unchanged'), contracts.md:357 (the file is shared by every engine version and changes only by additions), and the AGENTS.md compatibility invariant. Once this build ships, its behaviour can't be fixed retroactively: it will erase a newer engine's fields, min_reader_version included, which defeats DR-78's guard. The lost-update race can also move a workspace's port. I keep it material, as a violation of the versioned-contract constraint and a cross-version data-loss risk."
+  },
+  {
+   "id": "correctness-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "I reproduced it myself with a fresh data root and two concurrent `serve --detach --json` runs in one workspace. Both returned ok:true, one with port 42129 pid 19455 and one with port 41155 pid 19456, and ps showed both processes alive. workspaces.json and serve.json recorded only 41155. I then killed both pids. Code: bind() reads workspaces.json, binds port 0 when no port is recorded, and records, all without a lock (server/mod.rs:126-158). announce() writes serve.json last-writer-wins. Minor is right: it needs a race on first use."
+  },
+  {
+   "id": "correctness-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading code. map::run calls top(), which runs active_set() (active_snapshots, then a separate SELECT for the last scan's link, read.rs:73-85) and facts(), then reads store.seq() afterwards (map.rs:31-40). Each runs as its own autocommit statement on the connection, with no surrounding read transaction. A commit between them yields content from N-1 under seq N, or a torn repo/link set. It stays minor because writes aren't built yet and the harm is latent."
+  },
+  {
+   "id": "correctness-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading code. start() awaits load(), then subscribes (store.ts:206-215). The first stream fetch sends no Last-Event-ID (lastId=null) and no since (local.ts:186-200). On the server, backlog() with since=None sets the cursor to tail.seq() (live.rs:43-46, routes.rs:359-370), and broadcast frames with seq <= cursor are filtered out. A commit after the map read and before the stream request therefore sends no frame. The first frame is a Ping, which the canvas ignores, and the canvas has no periodic refetch (store.ts:169-182). Minor."
+  },
+  {
+   "id": "correctness-8",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading code. In the non-detached path, cli::finish prints the announce envelope (server/mod.rs:52-56). On Err, serve(prepared) calls cli::finish::<()>(json, \"serve\", Err(e), ...) again (mod.rs:58-61), printing a second document. serve() can fail after the announce: the runtime build, or Store::open_existing returning None or Err (mod.rs:205-209). This breaks the AGENTS.md one-document rule only in a rare failure path, so it stays minor."
+  },
+  {
+   "id": "correctness-9",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading code. packs_hash() includes CARGO_PKG_VERSION (scan.rs:32-34). scan stores it through meta_insert_once (scan.rs:52-53), which is INSERT OR IGNORE (store lib.rs:147-153). After an engine upgrade, meta.packs_hash therefore keeps the first engine's hash while new snapshots carry the new one. No code reads it yet, so it stays minor and latent."
+  },
+  {
+   "id": "correctness-10",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading code. (a) share writes the bundle to disk, then meta_swaps share_snapshot_seq to the snapshot's seq (share.rs:73-82), regardless of any publish. (b) import reads seq (import.rs:173), then live_head pages events_after in a loop with no upper bound (import.rs:299-306), so head.changes can hold events past head.seq. The page uses head.seq as its row base (artifact.ts:229). Also, `after` starts at max(snapshot_seq, seq-HEAD_CHANGES), which silently drops older changes. Writes aren't applied yet, so it stays minor."
+  },
+  {
+   "id": "correctness-11",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading code. The start_live thread runs live.run once. On any Err it prints to stderr and exits the process only for SchemaMismatch (routes.rs:96-107). Live::run propagates every StoreError from data_version, check_version and drain through ? (live.rs:84-95). No SSE KeepAlive is configured (grep for keep_alive/KeepAlive in server/ finds nothing), so clients get neither events nor pings afterwards. Transient errors on a WAL read connection are uncommon, so it stays minor."
+  },
+  {
+   "id": "correctness-12",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by code and by a simulated state. Store::open creates the file with create_new, then migrates in a separate transaction (store lib.rs:59-70). open_existing migrates with init=None, and migration 1 then fails with 'a new store needs its workspace record' (lib.rs:121-124). I put an empty 0600 .planroom/store.db in a fresh fixture workspace. `focus --json` and `map --json` both return ok:false with code internal and the message 'Planroom hit a bug: a new store needs its workspace record'; before the file existed, focus returned the never-scanned empty state. The same path is reachable when a reader takes the migration lock first during a concurrent first scan. Minor."
+  }
+ ]
+}

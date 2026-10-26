@@ -1,0 +1,271 @@
+{
+ "lens": "operability",
+ "review": {
+  "findings": [
+   {
+    "id": "ops-1",
+    "title": "The resolver's engine cache is keyed only by version, so a -dev install keeps running an older engine after the plugin updates. Nothing compares catalogue hashes.",
+    "severity": "material",
+    "where": [
+     "plugin/scripts/planroom:138",
+     "plugin/scripts/planroom:436-440",
+     "plugin/scripts/planroom:374-381",
+     "packages/mod/src/engine.ts:79-106",
+     "docs/contributing/contracts.md:1058",
+     "docs/contributing/architecture.md (Packaging and release, resolver step 3)"
+    ],
+    "evidence": "VERIFIED: line 138 sets `cache_dir=\"$data/engine/$version\"` with no hash. The cache step (436) accepts any executable that has a non-empty `.ok`. I copied plugin/ to a temp dir and changed engine.env's PLANROOM_CATALOGUE_HASH to ffff\u2026. I put a stub engine in $PLANROOM_DATA/engine/0.1.0-dev/ with `.ok` containing just `x`. `status --json` answered `{\"ok\":true,\"step\":\"cache\",...}` and `focus --json` ran the stub (\"old engine from an earlier main: focus --json\"). The source build from an install (360-381) checks only `--version` == `0.1.0-dev`, which every main commit reports. So it caches whatever main builds, even when main's catalogue differs from the installed plugin's. The mod reads catalogue_hash but never compares it (engine.ts:104; grep finds no other use). The `.ok` sha256 is written but never checked. contracts.md:1058 and DR-78 say the key is `VERSION+HASH`, \"so a newer -dev build never resolves an older one\". DR-83's list of \"code that trails the docs\" doesn't include this.",
+    "why": "Today every marketplace install is a -dev install (engine.env says 0.1.0-dev, and WS8's A-23 fix makes each main commit a new plugin version). After `/plugin update`, the new mod, skills and tools run against the engine built for an earlier commit. A command it doesn't have fails, or its JSON shape differs, and nothing reports the mismatch. This breaks S14 step 3 (/room and the tools work after install or upgrade) and the version handshake DR-69/DR-78 rely on.",
+    "fix": "Key the cache and the src clone by `$version+${catalogue%${catalogue#????????}}` as contracts.md says. In `build`, compare `engine_catalogue \"$built\"` with engine.env and keep no binary on a mismatch. In the cache step, check the cached binary's catalogue hash (or the `.ok` sha256) before using it."
+   },
+   {
+    "id": "ops-2",
+    "title": "The source build never builds the canvas, so the engine's fix page sends the user into a loop",
+    "severity": "material",
+    "where": [
+     "plugin/scripts/planroom:351-382",
+     "plugin/scripts/planroom:336-340",
+     "crates/planroom/text/en.toml:102",
+     "crates/planroom/src/server/canvas.rs:44-55",
+     "crates/planroom/build.rs:17-25"
+    ],
+    "evidence": "VERIFIED by reading. `build_preflight` computes `canvas=true/false` (337-339), but `build()` only runs `cargo build --release --locked -p planroom`, both in a checkout (357) and in the clone (372). It never runs pnpm or `cargo xtask gen --canvas`. build.rs embeds `target/canvas/` only when it already exists, so a binary built from a fresh clone has no canvas. That binary is copied into the cache, outside its build root, so `fix_line()` picks `canvas.missing_install`: \"Install Node 22 and pnpm, then run scripts/planroom build.\" Running that again produces the same canvas-less binary. architecture.md (The source build) says the build runs `cargo xtask gen --canvas` first when Node and pnpm are present. The clone, with its multi-GB target/, also stays in DATA_ROOT/src/<version> for good: prune only walks engine/.",
+    "why": "Today the source build is the only way a marketplace user gets an engine (a -dev version has no release). So no first user can get the canvas, and the fix text promises a remedy that doesn't work. This hits S14 (\"release build ... plus the frontend build\"; the source-build path tested live) and the canvas surface, a tier A loop.",
+    "fix": "In `build()`, when `canvas=true`, run `pnpm install --frozen-lockfile && cargo xtask gen --canvas` (or the canvas build xtask uses) in the checkout or clone before cargo build. Until then, change `missing_install` so it doesn't promise the canvas. Delete or prune DATA_ROOT/src after a successful install."
+   },
+   {
+    "id": "ops-3",
+    "title": "The plugin README's install line uses a `--marketplace` flag, which KICKOFF says doesn't exist",
+    "severity": "material",
+    "where": [
+     "plugin/README.md (Install)",
+     "KICKOFF.md:303",
+     "README.md"
+    ],
+    "evidence": "VERIFIED: plugin/README.md tells users to run `/plugin install planroom --marketplace doodla/planroom`. KICKOFF.md:303 says: \"Install is `/plugin marketplace add <source>`, then `/plugin install planroom@<marketplace name>`. There's no `--marketplace` flag.\" WS8 (ws8-install.md) verified only the two-step form. The root README.md is the single line `# planroom`, so a visitor to the GitHub repo gets no install line at all. The plugin README also says the first run \"fetches its engine ... checked against the release's SHA256SUMS\". No release exists, and the current -dev version always goes to the source build.",
+    "why": "The first command a new user copies fails. This breaks S14's plugin-install step (tier A) and violates a stated KICKOFF constraint.",
+    "fix": "Replace it with `/plugin marketplace add doodla/planroom` followed by `/plugin install planroom@planroom`, and give the root README at least the same two lines. Until a release exists, say the first run builds from source (about 4 minutes, needs Rust and a C compiler)."
+   },
+   {
+    "id": "ops-4",
+    "title": "PLANROOM_RELEASE_BASE_URL downloads go into the shared cache and become the engine later sessions run",
+    "severity": "material",
+    "where": [
+     "plugin/scripts/planroom:138",
+     "plugin/scripts/planroom:296-298",
+     "plugin/scripts/planroom:436-447",
+     "tests/installer/run.sh:236-241",
+     "docs/contributing/contracts.md:1064"
+    ],
+    "evidence": "VERIFIED by reading. `download()` installs into `$cache_dir`, which is `$data/engine/$version` whatever the base. The cache step runs whether or not the variable is set. The installer test pins the opposite of the contract: `a_verified_download_is_cached` downloads from a loopback server with PLANROOM_RELEASE_BASE_URL set, then runs again *without* it (240-241) and expects the loopback archive's binary to run (\"downloaded: map --json\"). For a -dev version, setting the variable (443) also bypasses the build card and fills the shared dev cache. contracts.md:1064 and DR-78 say a non-default base is cached under `DATA_ROOT/engine-alt/<sha256 of the base>/` and is used only while that base is set, \"so it never becomes the binary later sessions run\".",
+    "why": "This is a security property the design states and the code inverts. One run against a test or loopback server, which the contract permits over plain http, quietly replaces the engine every later session and agent runs, with only that server's own SHA256SUMS behind it.",
+    "fix": "When the base isn't the default, use `cache_dir=\"$data/engine-alt/$(printf %s \"$base\" | sha256)/$version\"` and never read that directory without the same base. Flip the test so the second run, without the base, doesn't resolve the loopback build."
+   },
+   {
+    "id": "ops-5",
+    "title": "The source build runs attached with a 10-minute cap and restarts from scratch each time",
+    "severity": "material",
+    "where": [
+     "packages/mod/src/register.tsx:186-208",
+     "plugin/scripts/planroom:351-382",
+     "plugin/scripts/planroom:313-332",
+     "docs/contributing/architecture.md (Detached work; WS5 row)"
+    ],
+    "evidence": "VERIFIED: the mod's build press runs `[resolver, \"build\"]` through `$.process.run` with `600_000` ms (register.tsx:195-200). The resolver has no `--detach`, no `prefetch`, no build lock and no log file. A grep for setsid/detach in plugin/ and tests/installer finds nothing, and `detach_gets_its_own_session` doesn't exist. Every build starts with `rm -rf \"$src\"` and a fresh `git clone --depth 1` (368-370), so an interrupted build keeps none of its target/. From an install, the preflight skips the rust-version check (it runs only inside a checkout, 318) and never checks for git. The architecture's WS5 row lists \"the resolver's background detach in its own session ... checked on both in the installer job\" as skeleton scope. ASSUMED, not measured: a cold machine also installs toolchain 1.97.0 plus the four cross targets that rust-toolchain.toml lists, and then a full release build. That can pass 10 minutes on a modest laptop, and I don't know whether process.run's timeout kills cargo's children.",
+    "why": "Today the source build is the only engine path for a marketplace user (S14, tier A). If it times out, each retry throws away the work and starts over, so a slow machine may never finish. An apt-installed cargo older than 1.97 fails partway through the build rather than at the preflight that the design promises.",
+    "fix": "Give the resolver `build --detach` (setsid on Linux, perl POSIX::setsid on macOS) with a pid file, a lock and DATA_ROOT/logs/engine.log, as architecture.md specifies. Have the mod poll `status --json`. Keep the clone and its target/ between attempts (fetch and reset instead of rm -rf). Run the rust-version and git checks on the install path too."
+   },
+   {
+    "id": "ops-6",
+    "title": "A second `serve --detach` in the same workspace fails with port_in_use and suggests moving the port. Once the 60 s login code expires, there's no way back into the canvas.",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/server/mod.rs:46-86",
+     "crates/planroom/src/server/mod.rs:118-147",
+     "crates/planroom/text/en.toml:12"
+    ],
+    "evidence": "VERIFIED by running target/debug/planroom in a temp workspace with PLANROOM_DATA set to a temp dir. The first `serve --detach --json` returned ok with port 46513. The second returned `port_in_use`, exit 7: \"Port 46513 ... is in use by another program ... or run planroom serve --port N to move\". The program holding the port was Planroom's own serve for this same workspace. `prepare()` never reads serve.json or contacts the running serve. There's no stop command, no `open` command, and no client of `POST /api/v1/code`. The login code is minted only at serve start and lives 60 s. To get back in after that, you kill the pid stored in serve.json, which the mod's guard (correctly) denies to agents. A kill -9 leaves serve.json and the login page behind.",
+    "why": "The suggested fix (move the port) is the action DR-78 is built to avoid, because it strands a tab's pending edits. A user who closes the tab after a minute can't reopen the canvas without killing a process by hand.",
+    "fix": "Before binding, read serve.json. If its pid is alive and its version and catalogue match, return that serve's url (and, once `open` exists, a fresh code through /api/v1/code) instead of port_in_use. Keep port_in_use for a port held by something other than this workspace's serve."
+   },
+   {
+    "id": "ops-7",
+    "title": "A release can't be cut from what exists, and the manifests' versions already disagree",
+    "severity": "minor",
+    "where": [
+     ".github/workflows/ci.yml (release-dry-run, if: false)",
+     "package.json:3",
+     "packages/*/package.json:3",
+     "tests/e2e/package.json:3",
+     "crates/xtask/src/plugin.rs:106-121",
+     "docs/contributing/contracts.md:1069",
+     "docs/contributing/repo-layout.md:11"
+    ],
+    "evidence": "VERIFIED: there's no .github/workflows/release.yml, no `cargo xtask release-dry-run` (the CI job is `if: false` with a TODO), no `gen --version` (grep in crates/xtask/src finds none), no CHANGELOG.md, scripts/check-tag-version.sh, docs/contributing/releasing.md, .github/dependabot.yml, SECURITY.md, CONTRIBUTING.md or CODE_OF_CONDUCT.md. All of these are in repo-layout.md's directory map or the owner checklist. Every package.json says `\"version\": \"0.1.0\"` while the workspace and engine.env say `0.1.0-dev`, which is the same mismatch WS8 fixed for plugin.json. contracts.md:1069 says plugin.json's version equals every package.json's, but the plugin layout check (plugin.rs:106-121) compares only Cargo.toml and plugin.json. AGENTS.md says Dependabot waits 14 days and that `check audit` checks pin ages; neither exists (the pin-age check is deferred to M1 in DR-83). Release work is scheduled for M3/M5.",
+    "why": "S14 (tier A) needs the release workflow, changelog and notes. The package.json drift would get past the planned check-tag-version gate only if gen --version also fixes it, and nothing checks for it today.",
+    "fix": "Set the package.json versions to 0.1.0-dev and add package.json and engine.env to the layout check's version comparison now. Track release.yml, release-dry-run, gen --version (including the `=X.Y.Z-dev` path pins in Cargo.toml) and the hygiene files as M3 items. Until the pin-age gate exists, mark the AGENTS.md Dependabot and audit statements as planned."
+   },
+   {
+    "id": "ops-8",
+    "title": "The resolver's error codes aren't registered, and contract.sh and ResolverStatus don't exist",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:57-90",
+     "plugin/scripts/planroom:458-475",
+     "crates/contract/src/errors.rs:101-125",
+     "schema/planroom.v1.schema.json ($defs.ErrorCode)",
+     "packages/mod/src/engine.ts:113-116",
+     "AGENTS.md (Error codes)",
+     "docs/contributing/contracts.md:29,71"
+    ],
+    "evidence": "VERIFIED: `engine_unavailable` and `engine_fetching` don't appear anywhere in crates/ or in the schema's ErrorCode enum, which lists 14 codes. The resolver spells them, and `invalid_argument`, by hand. The mod hard-codes them too (engine.ts:113,116,210). plugin/scripts holds only `planroom` and `engine.env`: there's no generated `contract.sh`, and grep finds no `ResolverStatus` type in crates/contract. `status --json`'s not-ready output, `{\"ok\":false,\"step\":\"download\",\"version\":...}` (461-464), isn't an Envelope or any schema type.",
+    "why": "AGENTS.md says \"Never return an ad-hoc code string\" and names contract.sh as the generated source for the resolver. The resolver's outputs are a public contract (contracts.md:71) with nothing to check them against, so errors.md lists neither code.",
+    "fix": "Add EngineUnavailable and EngineFetching to contract::ErrorCode and a ResolverStatus type, generate plugin/scripts/contract.sh, and have the resolver source it. Add `every_resolver_output_validates` to the installer suite."
+   },
+   {
+    "id": "ops-9",
+    "title": "How the resolver decides it's in a checkout, and how it handles a missing release tag, both differ from the design",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:133-136",
+     "plugin/scripts/planroom:361-377",
+     "docs/contributing/architecture.md (resolver step 2; The source build)"
+    ],
+    "evidence": "VERIFIED by reading. `checkout_dir` tests only `$here/../../Cargo.toml`. The design (DR-78) requires `crates/planroom/Cargo.toml` *and* that the script isn't under Claude Code's plugins directory, \"so a marketplace clone of the repo never counts as a checkout\". WS8 saw a `github` source cache the whole repo root, which is exactly the layout this check misreads, and no installer test covers the case. For a release version whose tag isn't pushed, `build` says \"builds from main\" and builds it (364-366). The design (DR-75) says to build nothing and return `no_release`, because main isn't that version's code. The version check (374) then fails and prints \"This plugin is older than main\" when in fact the plugin is ahead of every tag. That's a wasted build and a wrong message.",
+    "why": "A misread checkout writes target/ into the plugin cache and makes later runs report stale_build. A user who installs between the version bump and the tag gets a long build and then advice that's backwards.",
+    "fix": "Require `$here/../../crates/planroom/Cargo.toml` and refuse paths under `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/`. For a non-dev version with no tag, return `unavailable no_release` without cloning."
+   },
+   {
+    "id": "ops-10",
+    "title": "A failed download loses its reason and URLs when the toolchain is also missing",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:343-352",
+     "plugin/scripts/planroom:456",
+     "docs/contributing/architecture.md (The fetch lock, DR-78)"
+    ],
+    "evidence": "VERIFIED by running the resolver from a copy of plugin/ set to version 0.1.0, with PLANROOM_RELEASE_BASE_URL=http://127.0.0.1:9 and PATH=/usr/bin:/bin. The output was `\"details\":{\"reason\":\"no_toolchain\",\"fix\":\"Install Rust with rustup...\",\"missing\":\"cargo\"}`. The download failure appears only inside the message text. The reason is no longer `download_failed`, and neither the archive URL nor the SHA256SUMS URL is in details. DR-78 says details name both URLs \"so a person behind a proxy that blocks the release host knows what failed\". The mod maps `no_toolchain` to its generic `failed` state (engine.ts:130).",
+    "why": "A user behind a proxy (the build container's own proxy breaks GitHub release URLs, per progress.md) is told to install Rust, when the real problem is the download.",
+    "fix": "Keep `reason: download_failed` and add `archive_url` and `sums_url` to details. Report the missing toolchain as an extra field rather than replacing the reason."
+   },
+   {
+    "id": "ops-11",
+    "title": "The resolver creates the data root as 0755, before the engine's 0700 rule can apply",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:174",
+     "crates/planroom/src/app/data.rs:28-35"
+    ],
+    "evidence": "VERIFIED: a first resolver run with HOME set to a temp dir and umask 022 left `drwxr-xr-x .../.local/share/planroom` and `.../planroom/engine`. The engine's `ensure_dir` uses DirBuilder mode 0700 with recursive=true, which doesn't change a directory that already exists. So on a fresh machine where the resolver runs first, which is the normal order, the data root stays world-listable. Files inside (workspaces.json, login pages under open/, logs/<id>/) are each 0600 or 0700, so only listing is exposed.",
+    "why": "The data root holds the ledger, login pages and workspace paths. C15 expects store files to be 0600 inside 0700 directories, and the first user's machine won't meet that.",
+    "fix": "Run `umask 077` at the top of the resolver, or `mkdir -p` then `chmod 700 \"$data\"`. Optionally have the engine chmod the data root when it finds it wider than 0700."
+   },
+   {
+    "id": "ops-12",
+    "title": "The logging convention isn't built, and serve's failures are mostly silent",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/server/mod.rs:176-200",
+     "crates/planroom/src/server/routes.rs:88-112",
+     "AGENTS.md (Logging)"
+    ],
+    "evidence": "VERIFIED: grep finds no `tracing` or `PLANROOM_LOG` anywhere in crates/planroom/src, and no log file for `watch`. A detached serve sends stderr to DATA_ROOT/logs/<id>/serve.log, which stayed 0 bytes during my run. The file is rotated only at startup, so a long-running serve isn't held to the 1 MiB cap. If the live loop fails for any reason other than schema_mismatch, it prints one line and the thread ends (routes.rs:103-107) while HTTP keeps serving, so the canvas stops getting frames with no error shown. On schema_mismatch the server calls `process::exit`, which skips the cleanup that removes serve.json (mod.rs:233-236).",
+    "why": "AGENTS.md's Logging conventions say watch, serve and duties log to that path with a cap, because a detached process's stderr goes nowhere. Without logs and a live-loop health signal, a stalled serve can't be diagnosed.",
+    "fix": "Add a tracing subscriber (stderr, plus a file writer with size rotation for serve and watch). Make a live-loop error of any kind shut serve down through the graceful path, which removes serve.json."
+   },
+   {
+    "id": "ops-13",
+    "title": "workspaces.json is rewritten without a lock and drops fields it doesn't know",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/data.rs:47-86",
+     "AGENTS.md (Compatibility)"
+    ],
+    "evidence": "VERIFIED by reading. `record()` reads, edits and writes the whole file with no lock, so two concurrent `serve` runs in different workspaces can lose one entry. The losing workspace then gets a new port next time, and its tab's origin changes. `Workspaces` and `WorkspaceEntry` are plain serde structs with no flatten or extra-field map, so a newer engine's added fields are thrown away when an older engine records. A corrupt file makes every `serve` fail with `internal`.",
+    "why": "AGENTS.md says \"Readers of persisted documents keep loading older format versions and keep fields they don't know\". DR-78 is about machine-wide files shared across versions, and a stable port is what protects pending edits.",
+    "fix": "Take a lock file (or `flock` on workspaces.json) around read-modify-write. Add `#[serde(flatten)] extra: serde_json::Map` to both structs so unknown fields survive."
+   }
+  ],
+  "summary": "Operability and release lens. The commands I ran: the built target/debug/planroom (scan, then `serve --detach` twice, in a temp workspace with a temp PLANROOM_DATA), and the resolver from copies of plugin/ in temp dirs with `env -i`. Everything else comes from reading files at the lines cited.\n\nMaterial findings, all checked:\n1. The resolver's cache is keyed only by `0.1.0-dev`, and nothing compares catalogue hashes: not the cache step, the build, or the mod. A plugin update keeps running an older engine; I demonstrated it with a stub engine.\n2. The source build never builds the canvas, and the fix page says to rerun that same build, which loops.\n3. plugin/README.md's install line uses the `--marketplace` flag that KICKOFF says doesn't exist, and the root README is one line.\n4. Downloads from PLANROOM_RELEASE_BASE_URL go into the shared cache, the reverse of contracts.md's engine-alt rule. The installer test asserts that reversed behaviour.\n5. The only engine path for a marketplace user today, the source build, runs attached under a 600 s cap, deletes its clone on every retry, and has no detach, lock or log, although WS5 lists the detach as skeleton scope.\n\nOne part of finding 5 is assumed, not measured: that a cold toolchain install plus build can exceed 10 minutes, and whether the timeout kills cargo.\n\nMinor findings:\n- A second `serve --detach` in the same workspace fails with `port_in_use` \"another program\" and suggests moving the port. After the 60 s code expires, there's no way back in without killing the process.\n- No release can be cut: release.yml, release-dry-run, gen --version, CHANGELOG, check-tag-version.sh and the hygiene files are all missing, and the package.json versions say 0.1.0 while everything else says 0.1.0-dev.\n- The resolver's error codes, contract.sh and ResolverStatus aren't in the registry or don't exist.\n- The resolver's checkout detection and its handling of a missing tag differ from the design.\n- A failed download's reason and URLs are lost when cargo is also missing.\n- The resolver creates the data root as 0755.\n- The logging convention isn't built, and a dead live loop goes unnoticed.\n- workspaces.json is rewritten without a lock and drops unknown fields.\n\nWhat already holds: the stamp in plugin.json, 0.1.0-dev.g59c082b7, matches a recomputed hash of plugin/. The `-dev` \u2192 build-card path works. Checksum checks, the loopback-only http rule, the 0600 serve.json and login page, and serve's setsid detach all behave as documented.\n\nCI runs check, test, e2e, audit, guardrails and installer on Linux and macOS, and ci_skips.toml is empty. release-dry-run is disabled with `if: false`, and the A-21 git 2.34.1 job doesn't exist yet."
+ },
+ "verdicts": [
+  {
+   "id": "ops-1",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed: plugin/scripts/planroom:138 sets cache_dir=\"$data/engine/$version\" with no hash; :436 accepts any executable with a non-empty .ok and never compares it to the sha256 written at :381; :374 checks only --version; packages/mod/src/engine.ts:104 stores catalogue_hash and nothing else reads it (grep). contracts.md:1058 does say VERSION+HASH. But the finding's claim that no deferral list names it is wrong: DR-82's Context lists \"the resolver's cache path ignores the catalogue hash\" (decisions.md:1950), and its decision schedules \"The resolver's cache key takes the catalogue hash\" for M1 (decisions.md:1972-1975). So this is accepted, scheduled drift. At release time each release has its own version string, so a version-keyed cache works for S14's release-asset path. The stale -dev engine after /plugin update is a real problem for today's users, but it doesn't fail a tier A/B scenario as defined. Downgraded to minor."
+  },
+  {
+   "id": "ops-2",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed by reading. build() runs only `cargo build --release --locked -p planroom`, in the checkout (plugin/scripts/planroom:357) and in the clone (:372). It never runs pnpm or `cargo xtask gen --canvas`, even though build_preflight computes canvas=true/false (:337-340). architecture.md:1484-1485 says the checkout build runs `cargo xtask gen --canvas` first when Node and pnpm are present, and that the clone build works \"the same way\". build.rs:20-25 embeds target/canvas only when it already exists, which it never does in a fresh clone. canvas.rs fix_line() picks canvas.missing_install for a binary outside its build root, and en.toml says \"Install Node 22 and pnpm, then run scripts/planroom build\". That remedy rebuilds the same binary without a canvas, so the user loops. No DR-82/83 deferral covers it. prune() walks only engine/ (:145-155), so the clone in src/ is never pruned. Every -dev marketplace user today gets no canvas and a fix that can't work, which breaks a core surface. Material stands."
+  },
+  {
+   "id": "ops-3",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed. plugin/README.md's Install section says `/plugin install planroom --marketplace doodla/planroom`. KICKOFF.md:303 says \"There's no `--marketplace` flag\", and S14 step 1 (KICKOFF.md:192) uses the two-step form. The root README.md is only `# planroom`. The plugin README also promises a SHA256SUMS-checked release download, but engine.env is 0.1.0-dev and the resolver goes straight to the build offer (:443-444). The install line users copy fails, and S14 needs complete docs. Material stands."
+  },
+  {
+   "id": "ops-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. cache_dir (:138) ignores the base, download() installs into it (:296-298), and the cache step (:436) runs whether or not PLANROOM_RELEASE_BASE_URL is set. tests/installer/run.sh:236-241 runs a second time without the base and expects the loopback binary (\"downloaded: map --json\"). That contradicts contracts.md:1064 and architecture.md:1477 (engine-alt/<sha256 of base>/). The defect is real and the test pins the wrong behaviour. Severity is lower than claimed: packages/mod/src/guard.ts:236 stops agents from setting the variable, so only a person who sets it deliberately is exposed. The archive must also carry the plugin's exact version and match that server's own SHA256SUMS. architecture.md:1653 already schedules \"a non-default base cached apart\" for M5. A contract violation with a narrow, person-only trigger, so minor."
+  },
+  {
+   "id": "ops-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed: register.tsx:195-200 runs `[resolver, \"build\"]` attached with a 600_000 ms cap. The resolver has no `--detach`, prefetch, build lock or log; a grep for setsid/detach in plugin/scripts and tests/installer finds nothing. build() does `rm -rf \"$src\"` and a fresh clone every time (:368-370). The rust-version check runs only when rustup is missing *and* a checkout exists (:318), so it never runs on the install path. WS5 (architecture.md:1527) does list the resolver's detach as skeleton scope, and no deferral record names it (it shows up again in the M5 row at architecture.md:1653). So this is undocumented drift from skeleton scope. The claim that it breaks S14 rests on an unmeasured assumption that a cold build takes over 10 minutes (the docs estimate 4). Minor."
+  },
+  {
+   "id": "ops-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced with target/debug/planroom on git-initialised copies of the fixture repos and PLANROOM_DATA in the scratchpad. The first `serve --detach --json` returned ok on port 40367. The second returned port_in_use: \"Port 40367 ... is in use by another program ... or run planroom serve --port N to move\", while the holder was the first serve. prepare()/bind() (server/mod.rs:86-147) never read serve.json. DR-82 already schedules \"reuse of a running server\" and `code` for M1 (decisions.md:1974). The misleading message is a defect in built code, but minor is right."
+  },
+  {
+   "id": "ops-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. Every package.json, packages/* and tests/e2e has \"version\": \"0.1.0\", while Cargo.toml:6 has 0.1.0-dev. crates/xtask/src/plugin.rs:106-121 compares only the workspace version and plugin.json. .github/workflows has only ci.yml, whose release-dry-run job is `if: false` with a TODO (ci.yml:139-142). CHANGELOG.md, SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md, dependabot.yml, check-tag-version.sh and releasing.md are all absent. The release work is scheduled for M3/M5. The package.json drift against contracts.md's version rule is real and unchecked. Minor."
+  },
+  {
+   "id": "ops-8",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. A grep for engine_unavailable/engine_fetching/EngineUnavailable over crates/, schema/ and docs/reference returns nothing. plugin/scripts holds only engine.env and planroom, with no contract.sh, and there's no ResolverStatus in crates. The resolver spells codes by hand (:70, :79, :187), which AGENTS.md's ad-hoc code rule forbids. DR-69's round-3 amendment calls for contract.sh, while architecture.md:1653 places the generated contract.sh and resolver output validation in M5. A real rule violation in shipped code, but minor."
+  },
+  {
+   "id": "ops-9",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. checkout_dir (:133-136) checks only `$here/../../Cargo.toml`, not crates/planroom/Cargo.toml, and doesn't exclude the plugins directory that architecture.md:1475 requires. For a non-dev version with no tag, build() says \"builds from main\" and builds (:364-366). architecture.md:1485 says it should build nothing and return no_release; afterwards the version check (:374-375) prints the backwards \"older than main\" message. The checkout misread only matters for a github-source install that copies the repo root, as WS8 observed. Minor."
+  },
+  {
+   "id": "ops-10",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced with a scratchpad copy of plugin/ set to version 0.1.0, PLANROOM_RELEASE_BASE_URL=http://127.0.0.1:9 and PATH=/usr/bin:/bin. The result was engine_unavailable with details {\"reason\":\"no_toolchain\",...,\"missing\":\"cargo\"}. The download failure appears only in the message text (with the archive URL), not in details, and SHA256SUMS's URL is absent. That comes from offer_build at :345-352 replacing the reason. Minor."
+  },
+  {
+   "id": "ops-11",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced in the same run, under umask 022 with HOME in the scratchpad: $HOME/.local/share/planroom and engine/ were both drwxr-xr-x, made by `mkdir -p` at :174 (build's `mkdir -p \"$data/src\"` at :369 does the same). data.rs ensure_dir uses DirBuilder recursive with mode 0700, which doesn't fix an existing directory. architecture.md:534 says DATA_ROOT is mode 0700. Only listing is exposed, since files and subdirectories the engine creates are 0600/0700 (my serve run showed logs/ and open/ at 0700). Minor."
+  },
+  {
+   "id": "ops-12",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. A grep finds no `tracing` in any crates/*/src or Cargo.toml. My detached serve's DATA_ROOT/logs/<id>/serve.log was 0 bytes. log_path rotates only at start (server/mod.rs:176-186). start_live (routes.rs:88-112) prints one line and lets the thread end for any error other than SchemaMismatch, which calls process::exit and skips the serve.json cleanup. That last item is a DR-82 M1 deferral (decisions.md:1974); the missing logging convention isn't deferred anywhere. Minor."
+  },
+  {
+   "id": "ops-13",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading crates/planroom/src/app/data.rs. record() does read-modify-write with no lock; write_private's per-pid temp file plus rename keeps writes atomic, but two writers can still lose an entry. Workspaces and WorkspaceEntry have no flatten/extra map, so serde drops unknown fields on rewrite, which goes against AGENTS.md's \"keep fields they don't know\". A parse error becomes internal. Minor."
+  }
+ ]
+}

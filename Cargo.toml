@@ -35,3 +35,11 @@ axum = { version = "=0.8.9", default-features = false, features = ["http1", "jso
 tokio = { version = "=1.53.3", features = ["rt-multi-thread", "net", "sync", "time", "signal", "macros"] }
 tokio-stream = { version = "=0.1.19", features = ["sync"] }
 libc = "=0.2.190"
+
+# Line tables keep backtraces readable at about a third of full debuginfo's disk,
+# so several worktrees' targets fit at once.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = "line-tables-only"

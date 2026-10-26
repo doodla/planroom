@@ -1,0 +1,246 @@
+{
+ "lens": "repo",
+ "review": {
+  "summary": "Lens: repo design and agent findability (R16). What I checked: all 21 AGENTS.md and CLAUDE.md files, docs/contributing/repo-layout.md, boundaries.toml, .dependency-cruiser.cjs, the clippy.toml files, layout.lock, .gitattributes, crates/xtask/src (USAGE, check(), test(), generate.rs, areas.rs), ci.yml, and the tracked directory tree from `git ls-files`. I compared each against the tree. I also checked every markdown link and anchor in the tracked docs with a script: none are broken. Every area has an AGENTS.md and a one-line CLAUDE.md (plugin/ correctly has none). The generated area blocks are present, and since the lock was written the gated surfaces changed only in ungated ways that I could see. The main weakness is that the docs mix the skeleton's real state with the M1-M5 target, and nothing marks which is which. (1) Several S15 (tier A) gates are described as part of `cargo xtask check`, but they are not built, not listed among the skeleton's deferred gates, and not in any milestone slice. `check` prints nothing for them, so a green run looks complete. (2) The command root AGENTS.md tells agents to iterate with (`cargo xtask test -p CRATE [FILTER]` / `--ts PATH`) is rejected with usage and exit 2. (3) The directory map, the area tables and the \"How to test it\" lines name about 20 paths and tests that don't exist, with no \"planned\" marker. Other findings: a gated boundary statement that tests/e2e contradicts; the generated-file marking claims; engine.env drift; a wrong \"where new code goes\" path; a restated boundaries.toml that has drifted; and xtask not setting the env vars the docs say it sets. Most of the generated-marking and Layout-list gaps are acknowledged as M1 work in architecture.md:1602 and DR-83. I rated those minor and say so in each finding. Not verified: I did not run `cargo xtask` (not allowed), so whether the layout.lock state check passes today is inferred from the git diff since the lock commit b0a1b6c, not observed. Also seen, outside HEAD: the working tree has uncommitted edits to packages/mod/AGENTS.md and plugin/AGENTS.md (`git diff --stat`). The plugin/ edit will change the plugin.json version stamp, so `cargo xtask gen` must run before it is committed.",
+  "findings": [
+   {
+    "id": "repo-1",
+    "title": "S15 gates that docs place inside `cargo xtask check` are neither built nor scheduled, and check prints no line for them",
+    "severity": "material",
+    "where": [
+     "crates/xtask/src/main.rs:178-220",
+     "docs/contributing/repo-layout.md:292",
+     "docs/contributing/contracts.md:16",
+     "docs/contributing/decisions.md:2040-2048",
+     "docs/contributing/architecture.md:1602",
+     "schema/AGENTS.md",
+     "feature_list.json (S15)"
+    ],
+    "evidence": "repo-layout.md:292 says `cargo xtask check` runs the docs tests, release pins, `feature_list_is_complete`, the secret scan over tests/replay/ and docs/evidence/, and scripts/check-tag-version.sh. contracts.md:16 says check runs the breaking-change guard against schema/baseline/. check() in main.rs:178-220 runs only fmt, clippy, prettier, eslint, tsc, depcruise, boundaries with the self-test, drift and headers, area_contracts, the art-spend docs check, the layout gate, python, plugin layout and validate, deny licenses/bans/sources, and ci_runs_only_xtask. `grep -rn 'feature_list_is_complete|release_pins|breaking_change_guard|secret' crates/xtask/src` finds no implementation. schema/baseline/ and scripts/ don't exist (`test -e`). Only the self-test prints `not built` lines (boundaries.rs:938). DR-83's list of what the skeleton left (decisions.md:2046-2048) and the M1 repo-gates slice (architecture.md:1602) name the pin-age audit, every_directory_has_a_purpose and the testkit allow-list, but none of these. No milestone row mentions them (`grep` over the Milestones section). S15's feature_list entry requires the breaking-change guard and feature_list_is_complete.",
+    "why": "S15 is tier A, and these gates have no milestone that builds them. AGENTS.md tells agents to run `cargo xtask check` and to 'say what was skipped', and DR-79 promises that no S14 or S15 gate can go unrun on a green CI. Because check prints no `skipped` or `not built` line for these gates, agents and CI report a full pass while the schema breaking-change guard and the secret scan are absent. The schema is already consumed by the mod and the canvas.",
+    "fix": "Add a `not built (M-n)` line to check's report for each missing gate, as the self-test does. Add the gates to DR-83's deferred list and to a milestone slice. The breaking-change guard and schema/baseline/ are small enough to land with the first M1 contract change."
+   },
+   {
+    "id": "repo-2",
+    "title": "Root AGENTS.md and repo-layout name xtask commands and flags that don't exist",
+    "severity": "minor",
+    "where": [
+     "AGENTS.md:118",
+     "AGENTS.md:121",
+     "docs/contributing/repo-layout.md:297-303",
+     "crates/xtask/src/main.rs:15-35",
+     "crates/xtask/src/main.rs:43-53",
+     "crates/xtask/src/main.rs:123-125"
+    ],
+    "evidence": "AGENTS.md:118 says 'While you iterate, run one crate, test or vitest file with `cargo xtask test -p CRATE [FILTER]` or `--ts PATH`'. main.rs matches only [\"test\"], [\"test\",\"-p\",krate] and [\"test\",\"--installer\"] (lines 50-52). Any other argument hits the `_` arm, which prints USAGE and returns exit 2 (lines 123-125). AGENTS.md:121 also names `cargo xtask eval`, which doesn't exist. repo-layout.md's task table lists `test --scenario SNN`, `gen --budgets/--schema-baseline/--version V`, `eval`, `release-dry-run` and `live`, none of which USAGE (main.rs:15-35) or the dispatcher accepts. ci.yml:138 admits that release-dry-run doesn't exist. DR-70 (traceability.md:41) lists 'test filters' as a built R16 item.",
+    "why": "These are the first commands a new agent is told to run, and they fail. KICKOFF R16 asks for an agent to find its way around easily.",
+    "fix": "Make AGENTS.md:118 say `cargo xtask test -p CRATE` (and `pnpm exec vitest run PATH` only if that is allowed), or add FILTER and --ts to xtask. In repo-layout's task table, mark each unbuilt command or flag with its milestone. Drop `cargo xtask eval` from AGENTS.md:121 until it exists."
+   },
+   {
+    "id": "repo-3",
+    "title": "Directory map and area tables describe about 20 paths that don't exist, unmarked",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/repo-layout.md:8-90",
+     "docs/contributing/repo-layout.md:103-130",
+     "plugin/AGENTS.md",
+     "packs/AGENTS.md"
+    ],
+    "evidence": "`test -e` fails for CHANGELOG.md, CONTRIBUTING.md, SECURITY.md, CODE_OF_CONDUCT.md, budgets.json, scripts/, tests/replay/, tests/plugin/, docs/README.md, docs/guides/, docs/concepts/, docs/reference/, examples/packs/, schema/baseline/, .github/dependabot.yml, .github/ISSUE_TEMPLATE/, .github/PULL_REQUEST_TEMPLATE.md and plugin/scripts/contract.sh. The map also gives crates/planroom `cli/` and `config/` directories: the real tree has cli.rs and no config/. The area contracts table has rows for `scripts/`, `tests/replay` and `tests/plugin`, which don't exist. plugin/AGENTS.md's generated 'How to test it' names `tests/plugin/`. Only packs/AGENTS.md says its subdirectories come later ('No pack directory yet ... in M1').",
+    "why": "R16 says every directory has a stated purpose, and the map is how an agent finds that purpose. With no planned marker, an agent can't tell where real code lives (for example, it looks for tests/plugin/ instead of xtask's plugin_checks) or where a new file should go.",
+    "fix": "Tag each not-yet-existing entry in the Directory map and the area table with its milestone (for example '(M5)'), as packs/AGENTS.md does. Or move planned entries into a separate 'Planned' block."
+   },
+   {
+    "id": "repo-4",
+    "title": "tests/e2e reads tests/golden via fs, contradicting the gated rule that only the mod's tests read the goldens",
+    "severity": "minor",
+    "where": [
+     "AGENTS.md:54",
+     "tests/golden/AGENTS.md",
+     "boundaries.toml golden_readers",
+     "tests/e2e/src/standin.ts:25",
+     "tests/e2e/src/standin.ts:94-100",
+     ".dependency-cruiser.cjs:29-41"
+    ],
+    "evidence": "AGENTS.md (gated Boundaries section): 'only the mod's tests read `tests/golden/*.json`'. tests/golden's contract repeats this ('which only the mod's tests read'), and golden_readers lists only packages/mod paths. standin.ts:25 sets `GOLDEN = join(ROOT, \"tests/golden/cli\")`, and lines 94-100 `readFile` map-graph.json and focus.json. tests/e2e/AGENTS.md documents this, and DR-82 (decisions.md:1963) implies e2e overlays sit on real goldens. The depcruise rule golden-only-in-mod-tests matches only module imports, so an fs read passes it.",
+    "why": "A gated boundary statement and its tooling disagree with the code and with a later record. An agent can't tell which rule holds, and R16 asks for boundaries enforced by tooling, not convention.",
+    "fix": "Add `tests/e2e/src/**` to golden_readers and amend the AGENTS.md Boundaries line and the tests/golden row, with a record at the next lock. Or have the stand-in import the goldens, so depcruise sees and governs the read."
+   },
+   {
+    "id": "repo-5",
+    "title": "Generated-file marking described as done is mostly hand-written or missing",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/repo-layout.md:28",
+     "docs/contributing/repo-layout.md:210",
+     "docs/contributing/repo-layout.md:264",
+     ".gitattributes",
+     "boundaries.toml generated_read_only",
+     "crates/xtask/src/generate.rs (missing_headers)"
+    ],
+    "evidence": "repo-layout.md:264 says 'A wholly generated directory has a `GENERATED.md` stub', but none exist in schema/, plugin/hooks/ or packages/contract/src/generated/. repo-layout.md:28 says .gitattributes is 'written from the Generated directories table'. The real file is hand-written with 3 lines (schema/**, packages/contract/src/generated/**, .dependency-cruiser.cjs) and misses plugin/hooks/, plugin/types/, tests/golden/, the clippy.toml files and engine.env. repo-layout.md:210 says generated_read_only is expanded from the table. In boundaries.toml it is 3 hand-listed globs, so the `generated headers` check (main.rs drift_checks, generate::missing_headers) covers only those 3 paths. tests/golden/cli/*.json and plugin/hooks/hooks.json carry no marker anywhere. architecture.md:1602 lists 'generated regions marked, and the read-only list and .gitattributes generated' as M1 work, so the gap is acknowledged, but repo-layout states it in the present tense.",
+    "why": "R16 says generated code lives in marked directories and is never hand-edited. An agent opening tests/golden/cli/focus.json or plugin/hooks/hooks.json sees nothing that says not to edit it.",
+    "fix": "Until M1, add .gitattributes lines for plugin/hooks/**, plugin/types/** and tests/golden/** (tests/golden/AGENTS.md already explains them). Reword repo-layout.md:28, :210 and :264 to say these are hand-listed until M1."
+   },
+   {
+    "id": "repo-6",
+    "title": "engine.env is generated whole, but the docs say PLANROOM_REPO is hand-written outside BEGIN/END markers",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/engine.env:1-4",
+     "crates/xtask/src/generate.rs:250-263",
+     "docs/contributing/repo-layout.md (Plugin layout, scripts/engine.env; Generated directories row)"
+    ],
+    "evidence": "engine.env starts with '# GENERATED by cargo xtask gen. Do not edit.' and has no BEGIN/END markers. generate.rs:252-258 writes all of it, including `PLANROOM_REPO={repo}` from plugin::workspace_repo. repo-layout's Plugin layout says 'PLANROOM_REPO, hand-written; between BEGIN and END GENERATED markers, PLANROOM_ENGINE_VERSION (written by cargo xtask gen --version)'. `gen --version` doesn't exist (main.rs USAGE).",
+    "why": "An agent following the docs would hand-edit PLANROOM_REPO. The drift check would then fail, telling it to run `cargo xtask gen`, which overwrites the edit.",
+    "fix": "Update repo-layout's Plugin layout line and Generated directories row to match the generator: the whole file is generated, PLANROOM_REPO comes from the workspace's repository field, and `--version` is planned."
+   },
+   {
+    "id": "repo-7",
+    "title": "AGENTS.md conventions point to files that don't exist, including the wrong home for pane code",
+    "severity": "minor",
+    "where": [
+     "AGENTS.md:110",
+     "AGENTS.md:76-77",
+     "AGENTS.md (Providers, Configuration)"
+    ],
+    "evidence": "'Where new code goes' (AGENTS.md:110) sends a pane section or key to `packages/mod/src/pane.tsx`. No such file exists. The pane rows live in packages/mod/src/layout.ts (paneRows, buttons) and register.tsx:230 (RenderInput<\"Pane\">). The Error codes convention (AGENTS.md:76) says to 'regenerate `docs/reference/errors.md`', but no generator writes it (GENERATORS in generate.rs:33-43) and docs/reference/ doesn't exist. AGENTS.md:77 names `plugin/scripts/contract.sh`, and the Configuration and Providers sections name `crates/planroom/src/config/defaults.toml`; neither exists. My check of code-span paths in every AGENTS.md (a shell loop over `git ls-files '*AGENTS.md'`) listed these.",
+    "why": "'Where new code goes' is the convention's only home, and it sends agents to a file that doesn't exist. An agent adding an ErrorCode today can't follow the documented step.",
+    "fix": "Point the pane row at `packages/mod/src/layout.ts` (and register.tsx), or create pane.tsx. Mark the errors.md, contract.sh and defaults.toml steps with their milestone. This is a Conventions edit, so it needs a record at the next lock."
+   },
+   {
+    "id": "repo-8",
+    "title": "Most areas' 'How to test it' names tests that don't exist and omits the ones that do",
+    "severity": "minor",
+    "where": [
+     "crates/store/AGENTS.md",
+     "crates/models/AGENTS.md",
+     "crates/planroom/AGENTS.md",
+     "crates/extract/AGENTS.md",
+     "crates/xtask/AGENTS.md",
+     "schema/AGENTS.md",
+     "tests/golden/AGENTS.md",
+     "packages/ui/AGENTS.md",
+     "docs/AGENTS.md"
+    ],
+    "evidence": "store lists crash.rs, fs_check.rs, ledger.rs and writer_interleavings. Only concurrency.rs, idem.rs and the unlisted commit.rs exist (`ls crates/store/tests`). models lists four test files; the crate is a 1-line lib.rs. planroom lists budgets.rs, trust.rs, privacy.rs, live_gate.rs, backup.rs and others. The real tests are actor, focus, golden, help, live, map_graph, s11_remote, scan, server_auth, version and watch. extract lists link.rs, which is absent. schema lists committed_schema_matches_the_generated_schema and breaking_change_guard; neither name exists in the code (the check is xtask's 'drift: schema/'). tests/golden lists golden_outputs_type_check, which is really tsc via packages/mod/tsconfig.json:20. ui lists machine_step_parity and display_parity, both absent. docs lists the docs tests (links, prose, CLI reference), which are absent. xtask says only 'it runs in CI', although crates/xtask/tests has gates.rs, skips.rs and docs.rs, runnable with `cargo xtask test -p xtask`.",
+    "why": "KICKOFF R16 requires each area's AGENTS.md to say how to test it. Today the line describes the M5 target, so an agent can't find or run the tests that guard the area.",
+    "fix": "In each area row of repo-layout's table, add the tests that exist now (or a `cargo xtask test -p <crate>` line) and mark the planned ones with their milestone; `cargo xtask gen` then regenerates the blocks."
+   },
+   {
+    "id": "repo-9",
+    "title": "Layout lists missing in 15 of 20 areas; several tracked directories have no stated purpose anywhere",
+    "severity": "minor",
+    "where": [
+     "AGENTS.md:56",
+     "crates/*/AGENTS.md",
+     "packages/mod/AGENTS.md",
+     "packages/ui/AGENTS.md",
+     "packages/contract/AGENTS.md",
+     "plugin/AGENTS.md",
+     "docs/AGENTS.md",
+     "examples/AGENTS.md",
+     "tests/installer/AGENTS.md"
+    ],
+    "evidence": "AGENTS.md:56 (gated Boundaries) says each area's AGENTS.md 'Layout list names each subdirectory and what goes there'. Printing the text after END GENERATED in each AGENTS.md shows a Layout section only in packages/canvas, packs, schema, tests/e2e and tests/golden. These tracked directories (from `git ls-files`) appear in neither the Directory map nor any Layout list: crates/store/migrations, packages/mod/plugin-tests (named only in the eslint note), docs/contributing/research/{arch,arch-review/round-1..3,artifact-probe/{assets,data},claude-fixtures,jev-fixtures}, crates/planroom/src/{app,server}. every_directory_has_a_purpose is unimplemented (no match in crates/xtask). DR-83 (decisions.md:2047) defers it to M1, so this is acknowledged.",
+    "why": "R16 says every directory has a stated purpose, and AGENTS.md presents this as current, while the M1 tracks that will add directories have no lists to extend.",
+    "fix": "Before M1 tracks fork, add short Layout lists to the crates, packages/mod, plugin and docs AGENTS.md files. They are hand-written and outside the generated block, so they need no record."
+   },
+   {
+    "id": "repo-10",
+    "title": "repo-layout restates boundaries.toml, and the copy has drifted",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/repo-layout.md:181-224",
+     "boundaries.toml"
+    ],
+    "evidence": "repo-layout.md:210 shows `generated_read_only = \"docs/contributing/repo-layout.md#generated-directories\"   # gen expands it from that table`. The real boundaries.toml has `generated_read_only = [\"packages/contract/src/generated/**\", \"plugin/types/index.d.ts\", \"plugin/hooks/planroom-mod.js\"]`. The copy also carries comments the real file lacks (the libc/DR-83 socket-scan line, the [DR-83] tag on test_tooling).",
+    "why": "AGENTS.md (Documentation) says every fact has one home. boundaries.toml is declared 'the single source', yet an agent reading the copy learns a rule that isn't in force.",
+    "fix": "Replace the code block with a link to boundaries.toml and a one-line summary per table. Or have `cargo xtask gen` write the block between GENERATED markers."
+   },
+   {
+    "id": "repo-11",
+    "title": "xtask doesn't set PLANROOM_REPLAY, PLANROOM_SPEND_LOG or a temp PLANROOM_DATA as the docs say",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/repo-layout.md:288",
+     "docs/contributing/repo-layout.md:30",
+     "AGENTS.md (Money and credentials; Tests)",
+     ".claude/settings.json",
+     "crates/xtask/src"
+    ],
+    "evidence": "repo-layout.md:288 says 'Every command sets `PLANROOM_REPLAY=strict` and `PLANROOM_SPEND_LOG` ... The test commands give each run a temporary `PLANROOM_DATA`'. AGENTS.md's Money section says cargo xtask names the spend log by one absolute path. `grep -rn 'PLANROOM_REPLAY|PLANROOM_SPEND_LOG|PLANROOM_DATA' crates/xtask/src` finds nothing. The Directory map (repo-layout.md:30) says .claude/settings.json sets env PLANROOM_REPLAY=strict; the file has no env key. The risk is latent: crates/models/src/lib.rs is 1 line, so no live call exists, and each Rust test sets PLANROOM_DATA itself (8 test files). I also confirmed that `planroom scan` on a scratch fixture with PLANROOM_DATA set wrote nothing to the data root.",
+    "why": "The $3 live-spend cap relies on xtask naming the one shared spend log. The docs say this safeguard is in place when it isn't, and the first live transport in M1 or M2 would run without it.",
+    "fix": "Set the three variables in xtask (in Report::tool or a shared Command builder) before the models crate gains a transport. Until then, mark the sentence in repo-layout as 'from M1'."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "repo-1",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed. check() at crates/xtask/src/main.rs:178-220 runs no breaking-change guard, feature_list_is_complete, release-pins check, secret scan or check-tag-version step, and grep over crates/xtask/src finds no implementation of any of them. schema/baseline, scripts/ and tests/replay are missing. The only `not built` output is the boundaries self-test's (main.rs:366). repo-layout.md's check row and contracts.md's 'Breaking-change guard' bullet describe these gates as part of `cargo xtask check`. The S15 feature_list entry lists crates/planroom/tests/envelope_schema.rs::breaking_change_guard and feature_list_is_complete among its tests. The M1 row 'Repo gates the skeleton left' (architecture.md, Milestones) names only the pin-age audit, generated marking, Layout lists, the allow-list and the plants, then says 'The skeleton's GATES track built the rest of DR-70's and DR-79's gates'. That is false for the breaking-change guard, and no other milestone row names these gates. Mitigation: S15 is honestly marked `failing`. Even so, no milestone schedules gates that a tier A entry requires, and the docs say they were built. I keep it material, at the borderline."
+  },
+  {
+   "id": "repo-2",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. AGENTS.md:117 (the 'Working in this repository' bullet) gives `cargo xtask test -p CRATE [FILTER]` or `--ts PATH`. The dispatcher (main.rs:43-53) matches only test, test -p X and test --installer, and every other argument list falls through to the `_` arm, which prints USAGE and exits 2 (main.rs:123-126). AGENTS.md:121 names `cargo xtask eval`, which USAGE doesn't list. ci.yml has the release-dry-run TODO with `if: false`. traceability.md:41 lists 'test filters' among R16's DR-70 items. Minor is right."
+  },
+  {
+   "id": "repo-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed with `test -e`. All 18 listed paths are missing, crates/planroom/src/cli and src/config are absent, and cli.rs exists. plugin/AGENTS.md:10 names `tests/plugin/`. The Directory map (repo-layout.md:8-90) has no planned or milestone markers. It also lists six pack directories under packs/ that don't exist, a gap only packs/AGENTS.md admits to. Minor."
+  },
+  {
+   "id": "repo-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. standin.ts:25 sets GOLDEN to tests/golden/cli, and lines 94-100 readFile it. boundaries.toml:53 golden_readers lists only packages/mod paths, and AGENTS.md:54 says only the mod's tests read tests/golden/*.json. The depcruise rule (.dependency-cruiser.cjs:29-41) matches module imports only, so this fs read is invisible to it. tests/e2e/AGENTS.md:23 documents the read openly. This is drift between a gated rule and the code, not a safety issue, so minor."
+  },
+  {
+   "id": "repo-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. .gitattributes is 3 hand-written lines (schema/**, packages/contract/src/generated/**, .dependency-cruiser.cjs). No GENERATED.md exists anywhere. boundaries.toml:52 has a hand-listed generated_read_only with 3 globs. repo-layout.md says gen writes generated_read_only and .gitattributes from the table and that wholly generated directories have GENERATED.md stubs. plugin/hooks/hooks.json and tests/golden/cli/focus.json carry no marker. plugin/hooks/planroom-mod.js does carry a header and is in the list. The M1 row acknowledges this work as pending, so minor."
+  },
+  {
+   "id": "repo-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. plugin/scripts/engine.env is one GENERATED header plus three lines, with no BEGIN/END markers. generate.rs:252-258 writes the whole file, PLANROOM_REPO included, from plugin::workspace_repo. repo-layout.md:273 and :354 say PLANROOM_REPO is hand-written outside the markers and that `gen --version` writes the version. Neither `--version` nor any markers exist. Minor."
+  },
+  {
+   "id": "repo-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. packages/mod/src/pane.tsx doesn't exist. Pane rows live in layout.ts (paneRows at :286), and the pane render is in register.tsx:230. docs/reference/errors.md, plugin/scripts/contract.sh and crates/planroom/src/config/defaults.toml are all missing, and no defaults.toml exists anywhere. GENERATORS (generate.rs:34-44) has no errors.md or contract.sh generator. Minor."
+  },
+  {
+   "id": "repo-8",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. crates/store/tests holds commit.rs, concurrency.rs and idem.rs, yet the store's AGENTS.md:10 lists crash.rs, fs_check.rs, ledger.rs and writer_interleavings. models/src/lib.rs is 1 line but its AGENTS.md lists four test files. The planroom list names trust.rs, privacy.rs, budgets.rs and others, none present (actor.rs is present). extract lists link.rs (absent). xtask says only 'it runs in CI', though tests/{docs,gates,skips}.rs exist. machine_step_parity, display_parity and golden_outputs_type_check exist nowhere. xtask/tests/docs.rs covers only the art-spend check, not links, prose or the CLI reference. Minor."
+  },
+  {
+   "id": "repo-9",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. Of 21 AGENTS.md files, only packages/canvas, packs, schema, tests/e2e and tests/golden carry a Layout list after END GENERATED. plugin's only match is a mention of the 'plugin layout check'. crates/store/migrations and packages/mod/plugin-tests exist without a stated purpose. every_directory_has_a_purpose isn't implemented. DR-83 and the M1 row defer this, so it is acknowledged, but AGENTS.md:56 states it as current. Minor."
+  },
+  {
+   "id": "repo-10",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. repo-layout.md's boundaries block shows generated_read_only as a string pointing at the docs table, while boundaries.toml:52 holds a 3-item array. The copy also carries a libc/DR-83 comment and a [DR-83] tag on test_tooling that the real file lacks (grep shows libc only as an allow-list entry at boundaries.toml:18). This breaks the one-home rule. Minor."
+  },
+  {
+   "id": "repo-11",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. grep for PLANROOM_REPLAY, PLANROOM_SPEND_LOG, PLANROOM_DATA and OPENAI_API_KEY in crates/xtask/src returns nothing. .claude/settings.json has keys hooks, claudeMdExcludes and permissions, with no env. The risk is latent: models is a 1-line lib, and no crate reads SPEND_LOG or PLANROOM_LIVE outside the art docs test. So no paid call can happen today, and minor is right."
+  }
+ ]
+}

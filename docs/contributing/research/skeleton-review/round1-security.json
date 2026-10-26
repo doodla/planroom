@@ -1,0 +1,239 @@
+{
+ "lens": "security",
+ "review": {
+  "findings": [
+   {
+    "id": "security-1",
+    "title": "person init and --rekey accept a token signed by the key on stdin, so any process can make itself the person",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/person.rs:5-7",
+     "crates/planroom/src/app/person.rs:45-46",
+     "crates/planroom/tests/actor.rs:142-150",
+     "docs/contributing/architecture.md:1416",
+     "docs/contributing/decisions.md (DR-75, 'Presses for the keys')"
+    ],
+    "evidence": "Static read (the mod guard in this session denied my live attempt to set PLANROOM_PERSON_TOKEN, and I did not work around it). person.rs builds `allowed = vec![&new_key]` from the key read on stdin, plus the old key, and actor::check accepts a signature under either. So `person init --rekey` with a fresh P-256 key on stdin and a token that key signed replaces the registered key. The test `a_rekey_takes_the_mismatch_panes_press_under_the_new_key` asserts this works with key b against a registered key a. The 'press' is just a self-signed token: the engine cannot tell it apart from an agent's. Caller::client() takes PLANROOM_CLIENT (`mod:...`) on trust, so the recorded surface can be spoofed too. A first `person init` is self-signed in the same way.",
+    "why": "DR-75 and architecture.md:1416 say `person init --rekey` takes only a mod press or a token under the old key. KICKOFF R5 says 'the AI proposes and the person disposes'. In practice any process of the user (an agent that gets past the textual guard, see security-3) can mint its own key, rekey, and then sign every person-only command (merge, revert, decide, import). That makes the store-holds-only-the-public-key design (DR-72, 'a_leaked_store_cannot_sign_a_person_action') moot.",
+    "fix": "Allow `--rekey` only under a token from the old key. For the mismatch pane, have the mod prove possession differently: a press that shows an out-of-band confirmation, or a rekey that needs the old key (kept in $.store) or a /dev/tty confirmation the person types. At minimum, record every key change as an event the pane surfaces, and refuse a self-signed first registration once the workspace has any person events."
+   },
+   {
+    "id": "security-2",
+    "title": "One-time person tokens can be replayed: the spent-token digest is over the raw token string, which has many valid spellings",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/actor.rs:138",
+     "crates/planroom/src/app/actor.rs:150",
+     "crates/planroom/src/app/actor.rs:179",
+     "crates/store/src/lib.rs:184-196"
+    ],
+    "evidence": "actor::check parses `at` with `u64::parse` (actor.rs:138), which accepts leading zeros, then signs over `at.to_string()`. It decodes the signature with base64url_decode, which strips any number of trailing '=' (actor.rs:179; the unit test asserts `base64url_decode(\"aGk=\") == \"hi\"`). But the digest it spends is `sha256_plain_hex(token.as_bytes())` over the raw string (actor.rs:150). So `0<at>.<sig>`, `<at>.<sig>=`, `<at>.<sig>==` and so on all verify, and each has a fresh digest that spend_token doesn't hold. Separately, ECDSA (r, n\u2212s) is also a valid signature unless the verifier enforces low-S. This is verified by reading the code, not run, because the guard blocks setting the token variable.",
+    "why": "The architecture promises tokens 'work once and only for their command' (a_token_works_once_and_only_for_its_command, DR-64, DR-72). A token captured during its 30 s window can be replayed many times. For `import -`, whose token doesn't bind stdin (see security-9), a replay carries the attacker's own rows as a person import.",
+    "fix": "Spend a canonical digest: the sha256 of (at as u64, the normalized r\u2016s with low-S enforced) or of the signed message plus normalized signature. Reject non-canonical encodings: leading zeros in `at`, any '=' padding, high-S."
+   },
+   {
+    "id": "security-3",
+    "title": "The mod guard is bypassed by everyday shell forms (globs, cd, split quoting, a script file), exposing the person key file and person-only commands",
+    "severity": "material",
+    "where": [
+     "packages/mod/src/guard.ts:93-128",
+     "packages/mod/src/guard.ts:133-137",
+     "packages/mod/src/guard.ts:172-190",
+     "packages/mod/src/guard.ts:218-232",
+     "packages/mod/src/register.tsx:364-389"
+    ],
+    "evidence": "I ran the guard's own pure guardCall, copied to the scratchpad with only the contract import stubbed, on sample Bash strings. `cat ~/.claude/plugins/store/planroom_x.json` returns deny. `cat ~/.claude/plugins/st*/planroom_*` returns allow. `cd ~/.claude/plugins && cat store/planroom_x.json` returns allow. `cat ~/.config/planroom/config.tom?` (the gateway key) returns allow. `cat <dataRoot>/op*/*.html` (serve's login code) returns allow. `sqlite3 .planroom/stor?.db .dump` returns allow. `p=planroom; $p person init` returns allow. `env PLANROOM_PERSON\"_TOKEN\"=1 ...` returns allow. `cat /proc/*/environ` returns allow. landing() in register.tsx stats the literal glob text, which doesn't exist, so resolution adds nothing. Write/Edit content and scripts run by path are never inspected.",
+    "why": "architecture.md:1416 makes this guard the containment that keeps agents out of the stores, the mod's $.store (the private person key), the user-level config and person-only commands, and it lists guard tests as evidence. The docs call it a guardrail, not a boundary. But these are routine forms a model writes without any intent to evade, not adversarial tricks. Reading the $.store file gives the private key, and so full person authority, with no further step.",
+    "fix": "Deny any Bash path word that contains glob metacharacters and could expand into a guarded directory, by matching on the directory prefix before the first metacharacter. Deny `cd` into a guarded parent, or resolve relative words against every `cd` target on the line. Match variable names after removing quotes. Add /proc/*/environ and /proc/*/mem to readDenied. In SECURITY.md, state the residual risk of scripts. Better still, keep the private key where a same-user Bash cannot read it, for example in the OS keychain."
+   },
+   {
+    "id": "security-4",
+    "title": "Redaction runs only in share and import: map/focus CLI output, mod tool results, /room, HTTP and watch emit planted secrets raw",
+    "severity": "material",
+    "where": [
+     "crates/kernel/src/redact.rs:92-118",
+     "crates/planroom/src/app/share.rs:125-133",
+     "crates/planroom/src/app/import.rs:254",
+     "crates/planroom/src/app/map.rs",
+     "crates/planroom/src/app/focus.rs",
+     "crates/planroom/src/server/routes.rs:283-300",
+     "packages/mod/src/register.tsx:301-340"
+    ],
+    "evidence": "`grep -rn 'redact::' crates` finds call sites only in share.rs and import.rs. Nothing reads PLANROOM_RAW. I planted a compose service named `ghp_0123456789abcdefghijABCDEFGHIJ012345` in a temp workspace and scanned it. `planroom --json map --level container` printed the token twice. Text `planroom map --level container` printed '3 at the top: api; app; ghp_0123\u2026'. `planroom --json focus` printed it too. These are the outputs room_query and /room return to the model. Mod tool results also carry no `untrusted: true` marker (grep finds none in crates/*/src or packages/*/src).",
+    "why": "architecture.md 'What leaves the machine' says kernel::redact runs on every output path (tool results, CLI --json and text, /room, live/head, acks), and only PLANROOM_RAW opts out. Tool and /room output is sent to the model provider. The skeleton ships these paths live (WS8 ran the mod on this repository), so repo secrets reach a third party today. 'Injection into the chat model' also relies on the untrusted marking.",
+    "fix": "Redact in the one place every reply passes, cli::envelope / Reply serialization, for map, focus and frames, with PLANROOM_RAW honoured only on a read command's --json stdout. Add `untrusted: true` to tool results. Land privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output with a name-shaped plant like this one."
+   },
+   {
+    "id": "security-5",
+    "title": "No display sanitizing: repo-derived names carry OSC 52 and bidi controls raw to the terminal and the mod pane",
+    "severity": "material",
+    "where": [
+     "crates/kernel/src (no display.rs)",
+     "crates/planroom/src/app/map.rs",
+     "packages/mod/src/layout.ts:110",
+     "packages/mod/src/layout.ts:258",
+     "packages/mod/src/layout.ts:268"
+    ],
+    "evidence": "I added a compose service `\"evil\\e]52;c;aGVsbG8=\\aname\u202eabc\"` to a temp repo and scanned it. `planroom map --level container | od -c` shows a raw 033 ] 5 2 ... 007 (an OSC 52 clipboard write) and the RLO bytes 342 200 256 in the text output. kernel::display doesn't exist; only packages/ui/src/display.ts sanitizes. The mod renders `b.name` and breadcrumb names straight into the terminal pane (layout.ts:110, 258, 268) without importing it.",
+    "why": "AGENTS.md Logging says every human-facing string passes kernel::display::sanitize or its @planroom/ui port. architecture.md cites controls_and_bidi_show_as_markers with an OSC 52 file name. A scanned repo can write to the person's clipboard or disguise text in the terminal and the pane: a security issue on surfaces the skeleton already ships.",
+    "fix": "Add kernel::display::sanitize and apply it to every text-mode reply and stderr line. In the mod, pass every pane, band and toast string through @planroom/ui's sanitize (already an allowed dependency)."
+   },
+   {
+    "id": "security-6",
+    "title": "A PLANROOM_RELEASE_BASE_URL download is installed into the shared engine cache that every later session runs",
+    "severity": "material",
+    "where": [
+     "plugin/scripts/planroom:138",
+     "plugin/scripts/planroom:254",
+     "plugin/scripts/planroom:296-299",
+     "plugin/scripts/planroom:436-441",
+     "docs/contributing/architecture.md:1473",
+     "docs/contributing/architecture.md:1477"
+    ],
+    "evidence": "`cache_dir=\"$data/engine/$version\"` (line 138) is the only cache. download() moves the verified binary into `$cache_dir/planroom` whatever base it came from (lines 296-299), and resolve() step 3 later serves `$cache_dir/planroom` with no base check (436-441). The SHA256SUMS come from the same base, so they vouch for nothing. There is no `engine-alt/<sha256 of base>/`. The `.ok` stamp is only checked for being non-empty (`-s`) and never compared with the binary's sha256.",
+    "why": "DR-78 and architecture.md:1473/1477 say neither PLANROOM_ENGINE's nor PLANROOM_RELEASE_BASE_URL's binary enters the shared cache, 'so a test server's archive never becomes the binary later sessions run'. One run with a hostile or test base (the only control on setting it is the bypassable guard, security-3) permanently swaps the engine every future session and the mod execute, and with it the code that verifies person tokens.",
+    "fix": "Install a non-default base's download under `$data/engine-alt/<sha256(base)>/<version>`, use it only while the same base is set, and name the source in `status --json`. Check `.ok` against the binary's sha256 before exec."
+   },
+   {
+    "id": "security-7",
+    "title": "Resolver drift: a release version with no tag builds and caches main; the checkout test lacks the plugins-dir exclusion; the cache key lacks the hash",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:133-136",
+     "plugin/scripts/planroom:138",
+     "plugin/scripts/planroom:359-366",
+     "docs/contributing/architecture.md:1474-1476",
+     "docs/contributing/architecture.md:1485"
+    ],
+    "evidence": "Lines 362-366: when `git ls-remote` finds no `v$version` tag, it says 'this builds from main' and sets ref=main. The build is kept whenever main's version equals the plugin's (the window between the version bump and the tag push) and cached as that release. architecture.md:1485 says it 'builds nothing, returning engine_unavailable with reason no_release, since main isn't the code that version names [DR-75]'. checkout_dir (133-136) tests only `$here/../../Cargo.toml`, not `crates/planroom/Cargo.toml` plus 'not under Claude Code's plugins directory', so a marketplace clone of this repo counts as a checkout. The cache key is VERSION, not VERSION+HASH (line 138), so different -dev mains share one cached build. The resolver also spells its error codes inline instead of sourcing contract.sh (no such file in plugin/scripts).",
+    "why": "These are supply-chain rules DR-75, DR-78 and DR-69 state. As written, unreleased main code can be installed under a release version, and a stale -dev engine can be served.",
+    "fix": "Return engine_unavailable/no_release on a missing tag. Implement the documented checkout test. Key the cache by VERSION+HASH8. Generate and source contract.sh."
+   },
+   {
+    "id": "security-8",
+    "title": "Node IDs embed repo-derived text and are exempt from redaction, so a secret-shaped name reaches the shared Artifact snapshot",
+    "severity": "minor",
+    "where": [
+     "crates/kernel/src/redact.rs:1-6",
+     "crates/kernel/src/redact.rs:92-98",
+     "crates/planroom/src/app/share.rs:121-131"
+    ],
+    "evidence": "With the planted service `ghp_0123\u2026345`, `planroom share --out DIR` masked the node's name, but data/snapshot.json still holds `\"id\":\"ws:container:ghp_0123456789abcdefghijABCDEFGHIJ012345\"` twice (grep count 2). IDs are `<namespace>:<kind-short>:<key>`, with the key taken from the repo, and the redact rules never touch an ID.",
+    "why": "The snapshot is published to an Artifact that every viewer of the page can read. The rule 'never redact an ID' means any secret-shaped key (a service, file or env-var name) leaks through IDs on every redacted path. This design gap only shows once IDs come from repo text.",
+    "fix": "Have the extractors run the secret detectors over a key before minting an ID, and replace a matching key with a stable hash (`ws:container:h-<8 hex>`). Then the 'never redact an ID' rule stays sound."
+   },
+   {
+    "id": "security-9",
+    "title": "Person tokens bind neither the workspace nor stdin, and the token stays readable in /proc/<pid>/environ",
+    "severity": "minor",
+    "where": [
+     "crates/kernel/src/keys.rs:23-37",
+     "crates/planroom/src/app/actor.rs:37-52",
+     "packages/mod/src/person.ts:36-48",
+     "crates/planroom/src/app/import.rs:85-93"
+    ],
+    "evidence": "person_token_message signs `command \u2016 args \u2016 idem \u2016 base \u2016 at`, with no workspace_id and no digest of stdin. The mod keeps one key for every workspace (person.ts `registered` list), and spent tokens are per store, so a token is valid in any workspace for the same command line. `import -` and `person init` take their payload from stdin, which the token doesn't cover. Caller::from_env removes the variable, but the kernel still exposes the exec-time environment: `env FOO_TOK=secretvalue python3 -c \"import os; os.unsetenv('FOO_TOK'); print('FOO_TOK' in open('/proc/self/environ').read())\"` prints True. The guard allows `cat /proc/*/environ`.",
+    "why": "A same-user agent that polls /proc while the person presses can capture a token and use it in another workspace, or with its own stdin. Combined with security-2, it can use it more than once.",
+    "fix": "Add workspace_id and sha256(stdin) to the signed message on both sides (keys.rs and actor.ts). Pass the token to the child on an inherited pipe or fd instead of the environment, and guard /proc/*/environ."
+   },
+   {
+    "id": "security-10",
+    "title": "Import writes answers to answers/<docId> with no viewer in the key, so one viewer's row can overwrite another's answer",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/import.rs:322-327",
+     "crates/planroom/src/app/import.rs:456-463",
+     "crates/planroom/src/app/share.rs:178-188"
+    ],
+    "evidence": "batch_files writes each answer as `set(\"answers\", doc_id, \u2026)`, where doc_id is the last path segment of `inbox/<uid>/events/<docId>` and is chosen by the viewer. Acks are keyed per uid, but answers are not. Two rows from different inboxes with the same docId produce two `answers/<docId>` sets in one batch, and the last one wins. A viewer can also aim at a docId another viewer is waiting on.",
+    "why": "This is an integrity gap in the remote read path the skeleton ships (WS7). Under A-13's fallback the inbox path is already not proof of authorship, so answers should at least not collide across viewers.",
+    "fix": "Key answers by `answers/<uid>:<docId>` (or nest them under the uid) and have the page read its own key."
+   },
+   {
+    "id": "security-11",
+    "title": "SECURITY.md and the Dependabot config don't exist, yet the docs rest residual risks on them",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/repo-layout.md:11",
+     "docs/contributing/architecture.md:424",
+     "docs/contributing/architecture.md:1416",
+     "docs/contributing/architecture.md:1423",
+     "docs/contributing/architecture.md:1426",
+     ".github/"
+    ],
+    "evidence": "`ls SECURITY.md` reports no such file. `.github/` holds only workflows/ci.yml, and `git ls-files | grep -i dependabot` finds nothing. The architecture repeatedly says the guard is 'a guardrail, not a boundary \u2026 and SECURITY.md says so', and lists Dependabot with a 14-day cooldown under Supply chain. ci.yml's audit comment says the pin-age check 'isn't built yet'.",
+    "why": "The skeleton's plugin already installs and runs live (WS8). The acceptance of the guard's residual risk (A-18, R-8) depends on users being told about it, and there's no private reporting path. This is drift against repo-layout.md's top-level list.",
+    "fix": "Add SECURITY.md with the scope the architecture lists (architecture.md:1426) and .github/dependabot.yml with the cooldown, or mark both as M5 in repo-layout and traceability."
+   }
+  ],
+  "summary": "Security and privacy review of the walking skeleton. Verified by running the built engine on temporary workspaces (PLANROOM_DATA in the scratchpad), by evaluating a stubbed copy of the pure guard function, and by reading the code. Not run live: anything that sets PLANROOM_PERSON_TOKEN. The mod's guard in this session denied that, and I did not work around it, so the token findings (1, 2, 9) rest on code reading plus the repo's own tests.\n\nThe most serious problem is the person-authority chain:\n- **Self-signed rekey.** `person init --rekey` accepts a token signed by the new key it is handed on stdin (person.rs:45-46; the test a_rekey_takes_the_mismatch_panes_press_under_the_new_key relies on it). So the 'mod press' cannot be told apart from any process that makes its own key.\n- **Replayable tokens.** One-time tokens can be replayed with different spellings (leading zeros in `at`, '=' padding), because the spent digest covers the raw token string.\n- **Guard bypasses.** The guard lets through globs, `cd`, split quoting and /proc/*/environ, so the mod's $.store file with the private person key, the gateway config and person-only commands are all reachable with ordinary shell.\n\nConfirmed by running the engine:\n- map/focus CLI and tool output carry a planted `ghp_` token unredacted. Redaction runs only in share and import, and nothing reads PLANROOM_RAW.\n- `map` text output passes a repo-derived OSC 52 clipboard write and RLO bidi characters straight to the terminal. The mod pane renders names unsanitized too.\n- The share snapshot still leaks the secret through node IDs, which are exempt from redaction.\n\nResolver: a PLANROOM_RELEASE_BASE_URL download goes into the shared cache that every later session runs, contrary to DR-78. A release version with no tag builds from main, contrary to DR-75.\n\nLooks sound: serve auth (exact Host/Origin checks, one-time code, bearer token, strict CSP, 0600/0700 file modes), CI (SHA-pinned actions, persist-credentials off) and deny.toml.\n\nSECURITY.md and the Dependabot config are missing."
+ },
+ "verdicts": [
+  {
+   "id": "security-1",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading: person.rs:45-46 builds allowed=[new_key, old_key], and actor::check (actor.rs:136-150) accepts a signature under any allowed key. The test at crates/planroom/tests/actor.rs:142-150 asserts that a rekey succeeds with a token signed by the new key b. So the 'press' is any token the submitted key signed, and the engine cannot tell a mod press from any process holding a fresh key. Caller::client() trusts PLANROOM_CLIENT (actor.rs:56-62), so the recorded surface can be spoofed. This is not drift: DR-75 ('Presses for the keys') and architecture.md:410 specify exactly this behaviour. The finding is a real design gap. I downgraded it because using it requires running `planroom person init --rekey`, which only the mod guard blocks. Any same-user process that gets past the guard can already read $.store directly (security-3), so this path adds little. A rekey also makes the mod's own key mismatch, so the person_key_mismatch pane shows it to the person."
+  },
+  {
+   "id": "security-2",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading. actor.rs:138 parses `at` with u64::parse, which accepts leading zeros and '+'. person_token_message signs at.to_string() (keys.rs), so the signed bytes are the same whatever the spelling. base64url_decode trims any number of trailing '=' (actor.rs:174). Yet the spent digest is sha256 over the raw token string (actor.rs:150), and spend_token (store/src/lib.rs:184-196) only checks an exact digest. So `0<at>.<sig>` or `<at>.<sig>=` verifies again with a fresh digest, which breaks the 'works once' property. I did not run it, because setting the token variable is out of bounds. Downgraded: a replay needs a same-user process to capture the token within the 30 s window, for example from /proc environ (security-9), and such a process has easier routes to full authority through the guard gaps (security-3). The token still binds the command and its arguments."
+  },
+  {
+   "id": "security-3",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "I reran the pure guardCall from packages/mod/src/guard.ts, copied to the scratchpad with only the CATALOGUE import stubbed, under node --experimental-strip-types. The literal `cat ~/.claude/plugins/store/planroom_x.json` is denied. These are all allowed: `cat ~/.claude/plugins/st*/planroom_*`; `cd ~/.claude/plugins && cat store/planroom_x.json`; `cat ~/.config/planroom/config.tom?`; `p=planroom; $p person init`; `env PLANROOM_PERSON\"_TOKEN\"=1 planroom map`; `env PLANROOM_RELEASE\"_BASE_URL\"=... planroom map`; `cat /proc/*/environ`. For Bash, the guard only applies readDenied to each path word (guard.ts:337-342). landing() in register.tsx:365-376 stats the literal word, so a glob resolves to nothing. readDenied (guard.ts:93-128) has no /proc rule. The docs call the guard a guardrail (guard.ts:8-9). But architecture.md:410 relies on it to keep agents out of $.store, which holds the private key, and these are ordinary shell forms, so material stands."
+  },
+  {
+   "id": "security-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced. In a temp repo whose compose service is named `ghp_0123456789abcdefghijABCDEFGHIJ012345`, scanned with PLANROOM_DATA in the scratchpad, `planroom --json map --level container` printed the token twice, text-mode `map` printed it, and `--json focus` printed it. `grep redact::` finds call sites only in share.rs (104-133) and import.rs:254. kernel::redact::map_view and pane exist but map and focus never call them. Nothing reads PLANROOM_RAW, and no tool result carries an `untrusted` marker. Downgraded: architecture.md:1592 makes 'redaction by field on every output path' an M1 deliverable, and the skeleton doesn't claim it for map or focus. The leak shown needs a secret-shaped name, which reaches the same outputs through the node ID anyway, since IDs are never redacted by design (security-8). The model provider already sees repo contents through Claude Code's own Read and Bash tools, so the added exposure is small."
+  },
+  {
+   "id": "security-5",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced. With a compose service named `evil\\x1b]52;c;aGVsbG8=\\x07name\u202eabc`, `planroom map --level container | od -c` shows raw `033 ] 5 2 ; c ; aGVsbG8= \\a` (an OSC 52 clipboard write) and the RLO bytes `342 200 256`. crates/kernel/src holds only facts.rs, keys.rs, lib.rs, redact.rs and tree.rs, with no display module. `grep sanitize` finds nothing in packages/mod/src or crates/*/src. layout.ts:110 and 255-268 put breadcrumb and block names into pane labels unsanitized. The full sanitizing pass is M1 scope (architecture.md:1592). But AGENTS.md (Logging) already states it as a standing invariant, and a scanned repo can write the person's clipboard through a shipped text path. Material stands. I did not verify how the host renders escape bytes in mod pane labels."
+  },
+  {
+   "id": "security-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading plugin/scripts/planroom. cache_dir=\"$data/engine/$version\" (line 138) is the only cache. release_base takes PLANROOM_RELEASE_BASE_URL (210-220), download() installs into $cache_dir whatever the base (292-299), and resolve() serves $cache_dir/planroom when .ok is non-empty (436-441), with no base check and no sha256 check of .ok. There is no engine-alt directory, which contradicts architecture.md:1477 and DR-78. Downgraded: the guard doesn't cover the engine cache for Bash at all. A guard run on `cp /tmp/x ~/.local/share/planroom/engine/0.1.0/planroom` returns allow, because readDenied covers only stores, backups, open and ledger.db under the data root. So a hostile agent already has a simpler way to replace the engine. What remains is doc drift plus the accidental case the doc names: a test base's binary persisting into the shared cache."
+  },
+  {
+   "id": "security-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. Lines 359-366: when the release tag is missing, the resolver says 'this builds from main' and sets ref=main. DR-75 ('A release version whose tag is missing builds nothing') and architecture.md:1485 (engine_unavailable/no_release) say otherwise. checkout_dir (133-136) tests only $here/../../Cargo.toml, without the crates/planroom/Cargo.toml and plugins-directory checks of architecture.md:1475. The cache key is VERSION, not VERSION+HASH (line 138, against architecture.md:1476). plugin/scripts holds only engine.env and planroom; there is no contract.sh, though AGENTS.md:77 and contracts.md:29/71 name it. The full resolver suite is M3, so minor is right."
+  },
+  {
+   "id": "security-8",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced. `planroom --json share --out DIR` on the planted workspace masks the node names (`\"name\":\"[redacted]\"`), but data/snapshot.json still holds `ghp_0123456789abcdefghijABCDEFGHIJ012345` twice, inside the node ID `ws:container:<key>`. redact.rs:1-6 states that IDs are never touched. This is a real design gap: IDs minted from repo text are exempt from redaction. It needs a secret-shaped name, so minor is right."
+  },
+  {
+   "id": "security-9",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading. kernel::keys::person_token_message signs command, args, idem, base and at, with no workspace ID and no stdin digest. import.rs:85-93 checks the token with Bound::default() before it reads stdin rows, so the rows are unbound. Spent digests live per store (store/src/lib.rs:184). Caller::from_env removes the variable only from the process's own environment, and Linux /proc/<pid>/environ keeps the exec-time environment, which is standard kernel behaviour. The guard allows `cat /proc/*/environ`, as my guard run showed. Exploiting it needs a same-user process racing the press, so minor is right."
+  },
+  {
+   "id": "security-10",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed: import.rs:339-340 writes `set(\"answers\", doc_id, ...)` with no uid in the key. The code follows the design, though: architecture.md:1402 specifies `answers/<docId>`, readable by every viewer. A collision only overwrites the result of a read request. This is a small design-level integrity gap, so minor."
+  },
+  {
+   "id": "security-11",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. `ls SECURITY.md` fails, .github/ holds only workflows/, and `git ls-files | grep -i dependabot` finds nothing. repo-layout.md:11 and :37 list both files, and repo-layout.md:314/377 describe dependabot.yml. DR-75 has SECURITY.md state residual risks. Doc drift with no direct exploit, so minor."
+  }
+ ]
+}

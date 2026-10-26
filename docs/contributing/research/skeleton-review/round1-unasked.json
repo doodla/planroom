@@ -1,0 +1,192 @@
+{
+ "lens": "unasked",
+ "review": {
+  "summary": "Lens: expected but unasked. I read KICKOFF's requirements, acceptance scenarios and constraints first, then the store, contract, extract, server and mod code, the architecture's skeleton, findings and milestone sections, and contracts.md. I also ran the built binary on a freshly built fixture and on a synthetic 20,000-file repo, both under the scratchpad with PLANROOM_DATA set there. I found four material gaps. (1) The versioning rules for persisted documents (keep unknown fields, check `format`, treat event kinds as an open set) are implemented in no reader. EventKind is a closed enum in the generated schema and TypeScript, so once v0.1 ships, adding an event kind or field breaks older readers or loses data. (2) `workspaces.json` is shared across the machine but is read, changed and written back with no lock. Writing it back drops unknown fields, and the read skips both the format check and `min_reader_version`. A lost entry moves a workspace's port, which strands a tab's pending edits in another origin. (3) `scan` walks the working tree but files the result under HEAD's commit. A directory made of untracked files becomes a node whose ref evidence can't be checked. It stays on the map after the files are deleted, because a rescan at the same HEAD reuses the snapshot. I reproduced this with the binary. (4) The DR-1 filesystem check (WSL /mnt, NFS, FUSE, sync folders) and its tests are designed but neither built nor in any milestone slice, so the skeleton opens a multi-process WAL store anywhere. Minor gaps: the engine has no logging at all, though AGENTS.md's Logging convention requires it; the canvas ships third-party notices only in archives, with no npm license gate; the community-health files, Dependabot and the weekly audit are missing and unscheduled, though AGENTS.md describes Dependabot as if it ran; `map` has no output ceiling and the live mod tool exposes it (3.5 MB at code level on 20,000 files); the string catalogue has no plural forms. Already-scheduled M1/M2 items I left out on purpose: the commit-time store-version check, event backups, VACUUM INTO before migrations, the single repo's state in .git/planroom, budgets, gc. What I verified versus assumed is stated in each finding's evidence.",
+  "findings": [
+   {
+    "id": "unasked-1",
+    "title": "The versioning rules for persisted documents are implemented in no reader; EventKind ships as a closed set",
+    "severity": "material",
+    "where": [
+     "crates/contract/src/event.rs:97",
+     "crates/contract/src/event.rs:132",
+     "schema/planroom.v1.schema.json ($defs.EventKind)",
+     "packages/contract/src/generated/input.ts:415",
+     "docs/contributing/contracts.md:13-14",
+     "crates/planroom/src/app/data.rs:62-70",
+     "packages/canvas/src/transport/artifact.ts:149,276"
+    ],
+    "evidence": "Verified. contracts.md:13 says event kinds are an open set (`anyOf: [{enum}, {pattern}]`). contracts.md:14 says readers refuse newer `format` versions and keep unknown fields through `#[serde(flatten)] extra`, written back unchanged. In fact, `EventBody` is a closed `#[serde(tag = \"kind\")]` enum with no fallback variant. The generated schema's `EventKind` is a plain `enum` of 8 values; ErrorCode, by contrast, is `anyOf` as the rule requires. The generated TypeScript is the closed union `\"edit\" | ... | \"handoff\"`. `grep -rn extra crates/contract/src` finds no `extra` field on any persisted type. `data.rs::workspaces` deserializes `workspaces.json` without looking at `format`. The Artifact page casts `live/head` and `snapshot.json` with `as LiveHead` and `as Snapshot` and checks neither format. Only `import.rs:143` checks a format tag. Assumed: an engine and a published page of different versions will meet the same store, db and data root, since DR-78 runs several engine versions on one machine and a published page outlives upgrades.",
+    "why": "This breaks the AGENTS.md Compatibility invariant: readers keep loading older `format` versions and keep fields they don't know. Once v0.1 ships, any additive event kind or field, which the rules call non-breaking, will fail decoding in an older `watch`, `serve` or page, or be silently dropped on a read-modify-write or export, losing data. Retrofitting `extra` and open enums after release is itself a breaking change to the generated TS and the schema, so the longer it waits, the more types M1-M4 build on the closed shapes.",
+    "fix": "Before M1 adds types: add an `Unknown` fallback (or `anyOf` with a pattern) to EventKind and EventBody in the contract. Add `#[serde(flatten)] extra: BTreeMap<String, Value>` to every persisted document type. Add one shared `check_format(tag, own)` helper used by every reader, including the canvas transport. Add one round-trip test per persisted type with an unknown field and a newer format."
+   },
+   {
+    "id": "unasked-2",
+    "title": "workspaces.json is rewritten with no lock, dropping unknown fields and skipping the format and min_reader_version checks",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/data.rs:62-86",
+     "crates/planroom/src/server/mod.rs:113-145",
+     "docs/contributing/decisions.md:1800-1804"
+    ],
+    "evidence": "Verified by reading the code; the race was not reproduced. `serve`'s `bind` reads `workspaces.json` (mod.rs:119), chooses a port, then `data::record` reads it again, edits it and writes it back through a temp file and a rename (data.rs:76-86), with no file lock. The typed `Workspaces` and `WorkspaceEntry` structs drop any unknown key on that rewrite. No `min_reader_version` exists anywhere (`grep -rn min_reader_version crates packages` finds nothing). DR-78 (decisions.md:1800-1804) makes this file shared by every engine version on the machine, changed only by additions and guarded by `min_reader_version`. It also makes it the trust anchor (DR-48) and the store of each workspace's port, a port that never moves.",
+    "why": "Two `serve`s starting at once (two sessions, two workspaces), or a v0.1 `serve` alongside a newer engine that added a trust flag, lose an entry or its new fields. A lost port record means the next `serve` picks a new port. The tab's origin then changes and its pending edits in localStorage strand, which DR-78 exists to prevent. That breaks principle 1, \"never lose ... what someone did\". A lost trust field silently un-trusts a workspace. Once the file is machine-wide, fixing this after release needs a format bump that every older engine must survive.",
+    "fix": "Take an exclusive lock on `workspaces.json.lock` around the read-modify-write. Keep unknown top-level and per-entry fields through `flatten`. Write and check `format` and `min_reader_version` now. Add a two-process test that records two workspaces at once and asserts both entries survive."
+   },
+   {
+    "id": "unasked-3",
+    "title": "scan maps the working tree but files it under HEAD's commit, so untracked directories stay on the map after they're deleted",
+    "severity": "material",
+    "where": [
+     "crates/extract/src/walk.rs:33-70",
+     "crates/extract/src/files.rs:1-5",
+     "crates/store/migrations/0001_init.sql (snapshots UNIQUE)",
+     "docs/contributing/architecture.md:243,609"
+    ],
+    "evidence": "Verified with the binary, on the built fixture in the scratchpad with PLANROOM_DATA there. I removed `.planroom` and created `kit/newdir/f1..f3.py` (untracked). `scan` reported kit with `component: 5`. I then deleted `kit/newdir`: `scan` and `map --json` still showed `component: 5`. A read-only query on store.db shows the stored fact `kit:dir:newdir`, in the snapshot for commit d77bb65, with evidence `{type: ref, commit: d77bb65..., ref: refs/heads/main}`, a commit that doesn't contain the directory. The walk reads the filesystem (`ignore::WalkBuilder`), while snapshots are unique per (repo, commit_id, purpose, packs_hash), so a rescan at the same HEAD reuses the snapshot. Line-evidence verification dropped the files, but directory and repo nodes carry only `Evidence::Ref`, which nothing can check against the tree. The design's dirty signal is `git status --untracked-files=no` (architecture.md:243), which by construction never reports untracked files, the commonest dirty state.",
+    "why": "R1 and S1 require each higher level to be a faithful roll-up of the one below. Here a person's scratch directory becomes a permanent component, and the evidence presented for it points at a commit that doesn't contain it. Nothing clears it until HEAD or the pack set moves. When the blob_facts cache lands in M1, keyed by blob, the extractors' input must change from filesystem paths to tree entries anyway. Doing that now avoids building M1's extractors on the wrong input.",
+    "fix": "Walk the committed tree (`git ls-tree -r -z HEAD` plus `cat-file --batch`), filtered by the same size and binary bounds, and read file contents from the blobs rather than the working tree. Alternatively, at least drop directory and file nodes whose paths aren't in `ls-tree HEAD`. Report untracked files in `meta.dirty_repos` too. Add a first_run test: an untracked directory is never mapped, and a deleted one never lingers."
+   },
+   {
+    "id": "unasked-4",
+    "title": "The DR-1 filesystem check is neither built nor scheduled, so the skeleton opens its WAL store on WSL /mnt, NFS or a sync folder",
+    "severity": "material",
+    "where": [
+     "crates/store/src/lib.rs:80-93",
+     "crates/store/tests/",
+     "docs/contributing/architecture.md:533,1424",
+     "docs/contributing/architecture.md:1575-1676 (milestone tables)",
+     "docs/contributing/repo-layout.md:107"
+    ],
+    "evidence": "Verified. `Store::connect` only checks that `journal_mode` returns `wal`. `grep -rn 'statfs|drvfs|9p|store.pointer|nfs' crates` finds nothing. `crates/store/tests` holds only commit.rs, concurrency.rs and idem.rs, yet repo-layout.md:107, the store's AGENTS.md and traceability.md:12 list `crash.rs`, `fs_check.rs`, `ledger.rs` and `interleavings`. No M1-M5 slice row mentions the filesystem check, `store.pointer`, `fs_check` or `crash.rs`; grep over the milestone section returned nothing. The check appears only in the security table (architecture.md:1424) and DR-1's amendment. `doctor`, which that design makes the place that reports the check, also has no slice of its own. Not tested: actual WAL corruption on 9p or drvfs, which is a documented SQLite limitation (shared memory needs a local filesystem).",
+    "why": "WSL 2 is the only Windows path the design supports (architecture.md:1281), and opening a repo under /mnt/c is the common WSL setup. Several processes (`watch`, `serve`, CLI calls) sharing a WAL store on 9p or drvfs, NFS or a sync folder risk a corrupt store and the loss of person-authored events. That is a data-loss risk against principle 1 and R10. An item with no slice won't be built, and moving existing stores behind a pointer after release needs its own migration step.",
+    "fix": "Add a row to M1's store slice: the filesystem check at `Store::open` with `store.pointer`, `fs_check.rs` (filesystem type faked through a seam), `crash.rs` (kill mid-commit, reopen), and the `doctor` command as its own slice, since restore, pack, backup and the fs check all hang off it. Until then, have `scan` refuse a state directory on a non-local filesystem."
+   },
+   {
+    "id": "unasked-5",
+    "title": "The engine has no logging: no tracing, no PLANROOM_LOG, no log file for watch, and serve's log never rotates while it runs",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/Cargo.toml:17-31",
+     "crates/planroom/src/server/mod.rs:33,177-186",
+     "AGENTS.md (Conventions, Logging)",
+     "docs/contributing/architecture.md:166"
+    ],
+    "evidence": "Verified. `tracing` is in boundaries.toml's allow-list for `planroom` but not in crates/planroom/Cargo.toml's dependencies. `grep -rn 'tracing::|info!|warn!|error!' crates/planroom/src crates/store/src` finds nothing. The only log is `serve.log`, which receives a detached serve's raw stderr and is rotated in `log_path` only once at start (`fs::metadata(&log).len() > LOG_CAP`), so a long-running serve grows it without bound. `watch` writes no log file, though AGENTS.md and architecture.md:166 say `watch`, `serve` and duties log to `DATA_ROOT/logs/<workspace_id>/<process>.log`, capped and redacted. No milestone slice names the logging setup.",
+    "why": "Detached `serve`, `watch` and the coming duties are exactly where failures go unseen. DR-58's \"a detached process's failures went nowhere\" is still true. The log-redaction path (`#[redact]` on every output path, logs included) can't be tested without a logger. Adding tracing spans after M1-M2 means touching every handler again.",
+    "fix": "In M1's first slice, add a `tracing-subscriber` (stderr, `PLANROOM_LOG`) to the allow-list and a size-checked rolling writer for file logs, with redaction in the formatter. Log scan, commit, serve requests and live-loop events at info level. Add a test that a long-running serve rotates its log at 1 MiB."
+   },
+   {
+    "id": "unasked-6",
+    "title": "The canvas ships elkjs (EPL-2.0) and OFL fonts with no notice in served or Artifact builds, and no npm license gate",
+    "severity": "minor",
+    "where": [
+     "packages/canvas/package.json:11-17",
+     "packages/canvas/src/main.tsx:7-11",
+     "crates/xtask/src/main.rs:211,248-261",
+     "docs/contributing/decisions.md:772",
+     "docs/contributing/research/ts-stack.md:332,376"
+    ],
+    "evidence": "Verified. ts-stack \u00a713 calls elkjs's `EPL-2.0 OR GPL-3.0-or-later` the stack's only non-permissive license and says it needs \"the notice and a source pointer\" and an explicit npm license allow-list entry. DR row at decisions.md:772 and architecture.md:1489 put the notice only in the release archive. The canvas is also embedded in every binary, including the source-build and `cargo install --git` paths, and published as an Artifact by `share` (WS7), with no notice in either. xtask runs `cargo deny` for licenses (Rust only) and `pnpm audit` for advisories only; there is no npm license check, so a new copyleft JS dependency would pass CI.",
+    "why": "KICKOFF's build constraint asks for permissively licensed libraries, and R15 asks for releasability. A shared Artifact is redistribution. Generating notices into the bundle, where the canvas build and the Artifact can both carry them, is cheaper now than retrofitting it in M5's release slice.",
+    "fix": "Generate `THIRD_PARTY_NOTICES` for the JS bundle at `xtask gen --canvas` (e.g. from `pnpm licenses list --json`), served at `/licenses.txt` by `serve` and shipped by `share`. Add an npm license allow-list check to `xtask check` mirroring deny.toml, with elkjs and OFL as recorded exceptions."
+   },
+   {
+    "id": "unasked-7",
+    "title": "Community-health files, Dependabot and the weekly audit are missing and unscheduled, while AGENTS.md describes Dependabot as running",
+    "severity": "minor",
+    "where": [
+     "AGENTS.md (Dependencies: \"Dependabot waits the same 14 days\")",
+     ".github/workflows/ci.yml:3-7",
+     "docs/contributing/architecture.md:76,424,955,1423,1426",
+     "docs/contributing/architecture.md:1651-1655"
+    ],
+    "evidence": "Verified. `find .github` finds only `workflows/ci.yml`. There is no `dependabot.yml`, issue or PR template, CONTRIBUTING.md, SECURITY.md, CODE_OF_CONDUCT.md or CHANGELOG.md at the root. ci.yml triggers only on push, pull_request and workflow_dispatch, with no `schedule`, though architecture.md:1423 says `cargo deny` and `pnpm audit` run \"in CI and weekly\" with Dependabot \"for cargo, npm and actions\". AGENTS.md states the Dependabot cooldown as a current invariant. Several design facts are homed in a SECURITY.md that doesn't exist: the store inside `.git` copied by build contexts (architecture.md:527/1426), what each provider receives (955), and the actor guard not being a security boundary (424). M5's docs slice (1651) lists guides, concepts, reference and contributing pages, but no row schedules SECURITY.md, the code of conduct, templates or Dependabot; the KICKOFF release bar requires them.",
+    "why": "Without them the R15 release bar is unmet. The facts sent to SECURITY.md have no home now, against the AGENTS.md rule that every fact has one. Without Dependabot or a scheduled audit, an advisory against a pin goes unnoticed between pushes.",
+    "fix": "Add a WS-follow-up or M1 row: `.github/dependabot.yml` (cargo, npm, actions, 14-day cooldown), a weekly `schedule` on the audit job, and SECURITY.md stubbed with the facts already pointed at it. Add the code of conduct, CONTRIBUTING.md (linking docs/contributing) and the templates in M5's docs row by name."
+   },
+   {
+    "id": "unasked-8",
+    "title": "map has no output ceiling, and the live mod tool exposes it: 3.5 MB at code level for a 20,000-file repo",
+    "severity": "minor",
+    "where": [
+     "packages/mod/src/tools.ts:17-60",
+     "crates/planroom/src/app/map.rs",
+     "docs/contributing/architecture.md (M2 Budgets slice)"
+    ],
+    "evidence": "Verified with the binary, on a synthetic repo of 200 dirs \u00d7 100 .ts files in the scratchpad: `scan` took 5.5 s (debug build), and `planroom map --level code --json` printed 3,574,220 bytes, roughly 900,000 tokens, with no warning, truncation or cursor. `meta.size` reports the size but nothing caps it. The plugin registers `room_query` with `command: map` and free `args` such as `[\"--level\",\"code\"]`, and WS8 ran this mod live. Budgets, paging and `--limit/--cursor` are scheduled for M2 (Budgets slice). This finding is only that the tool is already exposed without a ceiling.",
+    "why": "KICKOFF principle 2 says every agent-facing output has a size budget, and the tool exposed now breaks it. One agent call on a real repo can fill a session's context. It is planned, but M1 builds four more query leaves on the same unbounded reply path.",
+    "fix": "Until M2's budgets land, put a hard byte ceiling in the reply path that cuts `nodes` and returns a `truncated` warning with `--focus` as the drill-down hint. Then make M2's budget slice replace the ceiling rather than add a second mechanism."
+   },
+   {
+    "id": "unasked-9",
+    "title": "The string catalogue has no plural forms, and the canvas builds count text by hand (\"4 component \u00b7 11 code\")",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/text/en.toml:37-52,109,126",
+     "packages/canvas/src/views/block-node.tsx:40",
+     "docs/screenshots/main-1440x900-light.png"
+    ],
+    "evidence": "Verified. en.toml strings interpolate `{count}` into fixed nouns (\"Map these {count} repos?\", \"{count} files weren't scanned\", \"{count} commands\") with no `one` or `other` forms. With one repo, `not_scanned` renders \"Map these 1 repos?\". block-node.tsx:40 builds `${c.count} ${c.level}`, which the committed screenshots show as \"4 component \u00b7 11 code\" and \"1 container \u00b7 14 component\u2026\". DR-82 moves canvas strings into en.toml in M1, but the catalogue format has no plural mechanism to move them into.",
+    "why": "Engine-authored strings are the single source for every surface, and the snapshot and golden tests pin their exact text. Adding plural rules after M1 has written dozens more count strings means editing every one and regenerating every golden.",
+    "fix": "Before M1's strings slice, add `{one, other}` tables to the en.toml format, which `text::get` selects by a `count` argument, and generate the same selector into the canvas and mod. Render block counts through it."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "unasked-1",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "I confirmed this myself. contracts.md:13-14 says event kinds are an open set (`anyOf [{enum},{pattern}]`) and that readers keep unknown fields through `#[serde(flatten)] extra`. The code does neither. crates/contract/src/event.rs:96-127 makes `EventBody` a closed `#[serde(tag=\"kind\")]` enum with no fallback variant. In schema/planroom.v1.schema.json, `$defs.EventKind` is a plain enum of 8 strings, while `ErrorCode` is `anyOf`. packages/contract/src/generated/input.ts:415 is a closed union. `grep flatten crates/contract/src` finds only the clap/serde flattens in command.rs:444 and :487, with no `extra` field anywhere. data.rs:62-70 deserializes workspaces.json without checking `format`. artifact.ts:150 and :272 cast `as LiveHead` and `as Snapshot` without checking format. Only import.rs:143 checks a format tag. I found no DR exempting EventKind; DR-37 (decisions.md:710) restates the open-set rule. I keep it material: it breaks KICKOFF principle 2 (one versioned schema) and the AGENTS.md Compatibility invariant, and it can lose unknown fields on rewrite. That loss only happens once a second version exists, which is an assumption."
+  },
+  {
+   "id": "unasked-2",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "The defect is confirmed but narrower than claimed. data.rs:73-86 reads, edits and rewrites workspaces.json with no lock. `bind` (server/mod.rs:113-145) reads the file, then `record` reads it again. A typed `WorkspaceEntry {root, workspace_id, port}` drops unknown keys, and the reader ignores `format`. Two parts are overstated. First, `min_reader_version` for data-root files is already scheduled in M1 (architecture.md:1593, the DR-78 row), so its absence is an unbuilt item, not a defect. Second, the entry holds no trust field today, so the 'silently un-trusts a workspace' scenario is speculative. The unknown-field and format part repeats unasked-1. What remains is a narrow race when two `serve`s start at the same moment, and it would cost a port record, not authored data. I did not reproduce the race. Downgraded to minor."
+  },
+  {
+   "id": "unasked-3",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "I reproduced it with target/debug/planroom on a fresh git repo in the scratchpad, with PLANROOM_DATA there. I committed a/m.py and b.py, added an untracked newdir/f1.py and removed .planroom. `scan` then reported `counts {code:2, component:2}`. After `rm -rf newdir`, `scan` returned seq 1 with the same counts, and `map --level component --json` still listed `kit:dir:newdir`. Line-evidence verification dropped the file (the warning said \"1 evidence items ... didn't match commit\"), but the directory node stayed. The reverse also holds: an untracked dir created after the first scan never appeared, because the snapshot at the same HEAD is reused. walk.rs:33-50 walks the filesystem with ignore::WalkBuilder, and migrations/0001_init.sql:33 keys snapshots UNIQUE(repo, commit_id, purpose, packs_hash). So the map depends on whatever the working tree held at the first scan, and the directory is filed under evidence pointing at a commit that doesn't contain it. That breaks the faithful-map and evidence promise (KICKOFF principle 2: pointers to evidence; R1). I keep it material."
+  },
+  {
+   "id": "unasked-4",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed. store/src/lib.rs:82-93 `connect` only checks that journal_mode returns wal. `grep statfs|drvfs|store.pointer|nfs` over crates finds nothing. crates/store/tests holds only commit.rs, concurrency.rs and idem.rs, yet store/AGENTS.md:10 and repo-layout.md:107 list crash.rs and fs_check.rs. One claim needs a correction: fs_check.rs is not wholly unscheduled. feature_list.json C14 and C15 list `fs_check.rs::a_single_repo_keeps_its_state_in_the_git_dir` and `store_files_are_0600_in_a_0700_directory`. Neither is the mount-type check, though, and no milestone row in architecture.md:1570-1680 mentions network, WSL, FUSE, sync folders or store.pointer. The check is specified only at architecture.md:533 and :1424 and in DR-1's amendment (decisions.md:148). The skeleton's store already opens on any filesystem, while the design makes WSL a supported path and runs several processes against one WAL store. That is a data-loss risk in something already built. I did not test actual corruption on 9p."
+  },
+  {
+   "id": "unasked-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. No crate's Cargo.toml lists tracing; it appears only in boundaries.toml:17's allow-list. `grep tracing::|info!(|warn!(` over crates/*/src finds nothing. `PLANROOM_LOG` and any `logs/` path for watch are absent from crates/planroom/src. server/mod.rs:176-185 rotates serve.log only once, when serve starts, so a long-running serve can grow it past 1 MiB. This is drift from AGENTS.md Logging and architecture.md:166. Minor is right."
+  },
+  {
+   "id": "unasked-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Mostly confirmed. packages/canvas/package.json ships elkjs 0.12.0, which ts-stack.md:38 and :332 list as EPL-2.0 OR GPL-3.0-or-later, plus the @fontsource fonts. target/canvas/assets, which build.rs embeds and `share` publishes, holds no license or notice file. The one apparent hit was a case-insensitive \"EPL\" matching inside \"Replace\". decisions.md:772 puts the notice only in the archive. xtask main.rs:211 runs cargo deny licenses for Rust only, and the audit at :44-57 is advisories only. One correction: the claim that a new copyleft JS dependency would pass CI is overstated for direct dependencies. boundaries.toml:43 lists each package's `third_party`, and changing it is layout-gated behind a decision record. Transitive npm dependencies are not license-checked. Minor stands."
+  },
+  {
+   "id": "unasked-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. `find .github -type f` shows only workflows/ci.yml. The repo root has no SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md or CHANGELOG.md. ci.yml:3-7 has no `schedule` trigger, while architecture.md:1423 says the audit also runs weekly. AGENTS.md:28 states the Dependabot cooldown as current fact. architecture.md:955 and :1426 point facts at a SECURITY.md that doesn't exist. In the milestone table, CHANGELOG is scheduled (M5 'Final reviews ... changelog'), but no row names SECURITY.md, the code of conduct, the templates or Dependabot, and KICKOFF.md:258-262 requires them for the release bar. Minor is right for the skeleton phase."
+  },
+  {
+   "id": "unasked-8",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "I reproduced it with the binary on a 2,000-file synthetic repo (20 dirs \u00d7 100 .ts files) in the scratchpad. `map --level code --json` printed 338,097 bytes, with meta.size.tokens_est 84,524 and no warning, truncation or cursor. That scales to about 3.4 MB at 20k files, consistent with the claim. packages/mod/src/tools.ts exposes `map` with free `args` and applies no cap. I upgraded the severity. The skeleton's own catalogue declares `budget_tokens: 1_500` for map (crates/contract/src/command.rs:101-107), and only focus enforces a budget (app/focus.rs:23, :92). So this is a contract the built code claims and doesn't honor, not merely an M2 item, and it breaks KICKOFF principle 2 ('every agent-facing output has a size budget') on a tool that is already live."
+  },
+  {
+   "id": "unasked-9",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. The count strings at en.toml:37-52 and :109 interpolate `{count}` into fixed plural nouns, and en.toml has no one/other plural mechanism; its only `other =` key, at :88, is an event-kind fallback. My own scan printed the warning \"1 evidence items in kit didn't match commit ...\". block-node.tsx:40 builds `${c.count} ${c.level}`, which gives the singular-noun counts the finding describes. This is a minor string-quality and design gap."
+  }
+ ]
+}

@@ -1,0 +1,250 @@
+{
+ "lens": "drift",
+ "review": {
+  "findings": [
+   {
+    "id": "drift-1",
+    "title": "With --json, a bad flag or value prints no JSON at all; the mod reports it as `internal`",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/cli.rs:68",
+     "packages/mod/src/engine.ts:176-189",
+     "docs/contributing/contracts.md:84",
+     "AGENTS.md (Compatibility: --json prints exactly one JSON document)"
+    ],
+    "evidence": "Verified by running the binary in a scratch fixture. `planroom map --level foo --json 2>/dev/null | wc -c` printed 0, and so did `map --bogus --json` and `watch --since abc --json`. Each exits 2 with clap's plain-text error on stderr. `cli.rs:68` calls `Cli::parse()`, which exits inside clap before `finish()` can build an envelope. When stdout is empty, the mod's `toolResult` (engine.ts:178-189) returns `{ok:false, error:{code:\"internal\", ...}}` built from stderr's first line. contracts.md:84 says this case is `invalid_argument`, with `field`, `synopsis` and the `schema --command LEAF` handle in `details` and `hint` (DR-21, DR-66). contracts.md 'Mod tool schemas' also says tool args go through the same clap tree, 'so validation and errors are the CLI's'.",
+    "why": "This breaks the public `--json` contract (one document on stdout) and the stable error codes that KICKOFF principle 2 requires. An agent that passes one wrong argument through `room_query` or `room_change` gets `internal` ('a bug') with retry `never`, instead of a usage error and its synopsis. That defeats the 'a wrong argument costs one small read' design. S15's error-code checks and DR-66's `tools.test.ts::a_wrong_argument_returns_the_leaf_synopsis` cannot pass against this. The docs are right.",
+    "fix": "Use `Cli::try_parse()`. On a clap error, when `--json` is in argv, print an `invalid_argument` envelope that names the leaf, with `details.field`, `details.synopsis` and the `schema --command LEAF` handle (help and version stay as they are). Keep exit 2."
+   },
+   {
+    "id": "drift-2",
+    "title": "Types the docs place in the contract crate are still hand-written outside it: EngineState, ToolResult and the resolver's envelopes (contract.sh doesn't exist)",
+    "severity": "material",
+    "where": [
+     "crates/xtask/src/modgen.rs:15-40",
+     "packages/mod/src/engine.ts:152-157",
+     "plugin/scripts/planroom:66-70,187,397,433",
+     "docs/contributing/repo-layout.md (Generated directories: plugin/scripts/contract.sh)",
+     "docs/contributing/contracts.md:29,71,154,179-180",
+     "docs/contributing/decisions.md DR-81 'The mod and its build'"
+    ],
+    "evidence": "Four places, each verified. (1) DR-81 decided that `EngineState` and `EngineStatus` move from a string in `crates/xtask/src/modgen.rs` to `crates/contract/src/view.rs`. `grep EngineState crates/contract/src` finds nothing, and modgen.rs:15-40 still holds them as a TypeScript string literal. (2) contracts.md puts `ToolResult<T>` and `ToolMeta` in `crates/contract/src/envelope.rs`. Neither exists in the contract crate. The mod defines `interface ToolResult` by hand at engine.ts:152, with `meta: Record<string, unknown>`. (3) The resolver spells `engine_unavailable` and `engine_fetching` with their category and retry class itself (plugin/scripts/planroom:70,187). Neither code is in `contract::ErrorCode`: the v1 schema's ErrorCode enum has 14 codes and lacks both. There is no `ResolverStatus` $def in schema/planroom.v1.schema.json. (4) `plugin/scripts/contract.sh` doesn't exist (`ls plugin/scripts` shows only `engine.env` and `planroom`). Yet the Generated directories table, contracts.md:154 and AGENTS.md ('such as the resolver's plugin/scripts/contract.sh') describe it as generated and committed. No 'code that trails the docs' list in DR-81, DR-82 or DR-83 names any of these. The M5 release slice mentions contract.sh, but no record accepts the skeleton shipping without it.",
+    "why": "KICKOFF's 'One contract source' constraint says schemas are generated for every language from one source, and types are never hand-copied across the language boundary. AGENTS.md says public types live only in `crates/contract`. Today a change to the resolver's output or the tool-result shape has no drift test, and DR-81 records a decision as made that the code never carried out. The docs are right.",
+    "fix": "Move `EngineState`/`EngineStatus` into `crates/contract/src/view.rs`, add `ToolResult`/`ToolMeta`, `ResolverStatus` and the two resolver codes to the contract, and generate `contract.sh` and the TS types with `cargo xtask gen`. Or, if this waits, add these items to a 'code that trails the docs' list with a milestone, and fix the docs that describe them as already generated."
+   },
+   {
+    "id": "drift-3",
+    "title": "CommandSpec doesn't match contracts.md, and DR-81 records `spends` as done when it isn't",
+    "severity": "minor",
+    "where": [
+     "crates/contract/src/command.rs:43-76",
+     "crates/contract/src/command.rs:141-162",
+     "docs/contributing/contracts.md (Command catalogue: CommandSpec and the leaf table)",
+     "docs/contributing/decisions.md DR-81 'Catalogue and resolver'"
+    ],
+    "evidence": "`grep -rn spends crates packages/*/src` finds nothing. CommandSpec has `budget_tokens: u32` instead of `budget: Budget` (Tokens or Stream), and `Undo::Compensate` carries no name for the reversing command. `watch` and `serve` use `budget_tokens: 0` where the docs say `Stream`. `SCAN` declares `idea: Idea::Setup, actor: ActorRule::Any`, while the leaf table says `scan | Levels (DR-77) | mixed: a credential path needs a person`. `schema --commands --json` publishes `\"name\":\"scan\",\"idea\":\"setup\",\"actor\":\"any\"`. `person init` is `Undo::Query`, although it writes `meta.person_pubkey`. DR-81 says 'The contract crate follows the design: `scan` is `Query` ... and `CommandSpec` has `spends`', and progress.md's PLUGIN entry lists 'CommandSpec lacks spends' as something to fold in. DR-83 fixed only the `scan` undo class.",
+    "why": "Nothing spends money yet, so this is drift, not a live defect. But these fields feed the catalogue hash and `schema --commands`. With `scan` in Setup, M5's grouped help (DR-77) would hide the first action a person takes behind `help --all`. And a record states something as done that isn't. The docs are right.",
+    "fix": "Add `spends: bool` and `budget: Budget`, give `Compensate` its reversing command, and set `scan` to `Idea::Levels` and `ActorRule::Mixed`. Then regenerate. Or correct DR-81 to list these as trailing, with a milestone."
+   },
+   {
+    "id": "drift-4",
+    "title": "The error and warning registries hold about half the documented codes, and the documented table-versus-registry tests don't exist",
+    "severity": "minor",
+    "where": [
+     "crates/contract/src/errors.rs",
+     "schema/planroom.v1.schema.json $defs.ErrorCode, WarningCode",
+     "docs/contributing/contracts.md:42,154,188,1090",
+     "docs/contributing/repo-layout.md (Generated directories: docs/reference/errors.md)"
+    ],
+    "evidence": "The schema's ErrorCode enum lists 14 codes: invalid_argument, ambiguous_ref, workspace_not_found, not_found, person_required, unauthorized, person_key_mismatch, idempotency_mismatch, store_busy, port_in_use, schema_mismatch, pack_invalid, git_failed and internal. The documented table has 29. WarningCode lists 6 of the 21 documented. `grep -rln 'the_documented_error_table_is_the_error_codes\\|errors_are_only_built_from_the_registry\\|every_cli_json_output_validates\\|breaking_change_guard' crates tests packages` finds nothing, and `docs/reference/` and `schema/baseline/` don't exist. The schema's open-set pattern `^[a-z][a-z0-9_]*$` accepts any undeclared code, which is how the resolver's undeclared codes (drift-2) pass validation.",
+    "why": "Adding codes later is additive, so this alone isn't a contract break. But contracts.md says the table is the registry and names drift tests that would catch exactly this, and S15 (tier A) needs 'the error-code schema has a drift test'. Nothing records the gap. The docs are right about the end state.",
+    "fix": "Add the remaining codes to the registry now, since they are fixed by design, or mark the table's rows with their milestone. Add `the_documented_error_table_is_the_error_codes` and the registry source scan, and generate `docs/reference/errors.md`."
+   },
+   {
+    "id": "drift-5",
+    "title": "The committed v1 schema publishes Stakes and ModelRequestRef in shapes contracts.md contradicts",
+    "severity": "minor",
+    "where": [
+     "crates/contract/src/view.rs (enum Stakes)",
+     "crates/contract/src/envelope.rs (ModelRequestRef, Meta)",
+     "schema/planroom.v1.schema.json $defs.Stakes, ModelRequestRef, Meta",
+     "docs/contributing/contracts.md:32,723"
+    ],
+    "evidence": "Stakes: the schema has `{\"enum\":[\"low\",\"medium\",\"high\"]}`, while contracts.md:723 says `Low: prefill and list in one batch per kind | Person: deal a card`. The architecture also speaks only of `low` and `person` stakes (R-6, DR-50). ModelRequestRef: the schema has `{id, purpose, est_tokens}` (all required), while contracts.md:32 says `{ id, purpose, sha256, rerun: Handle }`, and the mod checks `sha256` before it sends a request file (DR-75). Meta also lacks `stale_repos` and `dirty_repos`, but adding those later is additive. No record accepts the Stakes or ModelRequestRef shapes.",
+    "why": "Under AGENTS.md's Compatibility rules, moving these to the documented shape after release is a rename or removal that bumps `schema_version`. Nothing produces either type yet, so now is the cheap moment. The docs are right: the code shapes don't support the person-card rule or the sha256 check.",
+    "fix": "Change `Stakes` to `{Low, Person}` and `ModelRequestRef` to `{id, purpose, sha256, rerun}` before any release, then run `cargo xtask gen`."
+   },
+   {
+    "id": "drift-6",
+    "title": "`map` and `map --level system` both say level system but return different blocks; the explicit level drops parentless containers without counting them",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/map.rs:60-63",
+     "crates/kernel/src/tree.rs:22-32",
+     "docs/contributing/architecture.md (Levels and roll-ups)"
+    ],
+    "evidence": "Ran on the built fixture. `map --json` gives level system, 10 nodes, including ws:container:{grafana, orders-db, otel-collector, prometheus, redis}. `map --level system --json` gives level system, 5 nodes (the repos only), with `hidden: 0`. `--detail graph` behaves the same way, and both use view_key `map:system:all`. `None` maps to `tree::top_level` (parentless nodes), while `Some(level)` maps to `tree::at_level` (exact level only). The architecture says `orders -> redis` lifts with 'redis drawn beside the repos' at System, and 'hidden nodes ... show as \"3 hidden\", never as a silent loss'.",
+    "why": "S1 (tier A) needs faithful roll-ups when zooming. The skeleton's two paths disagree about the same level and lose nodes silently. M1 replaces this with `rollup::lift`, but nothing records the current behaviour, and the canvas and surfaces are already built on it.",
+    "fix": "Make `map` with no level the same as `--level system`, selecting each node's nearest ancestor at or above the level so parentless lower-level nodes stay in. Or count them in `hidden` until M1's `rollup::lift` lands, and note it in M1's slice."
+   },
+   {
+    "id": "drift-7",
+    "title": "Error envelopes break the envelope rules: meta.seq is always 0, invalid_argument lacks its synopsis and schema handle, and hints aren't exact commands",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/cli.rs:134-136",
+     "crates/planroom/text/en.toml:17-24",
+     "crates/planroom/src/server/routes.rs:320",
+     "docs/contributing/contracts.md:20,84",
+     "AGENTS.md (Conventions: hints are exact commands)"
+    ],
+    "evidence": "`finish()` builds every error envelope with `seq` 0, even inside a scanned workspace (`map --focus x --json` returned `\"meta\":{\"seq\":0,...}` in a store at seq 5). contracts.md:20 says meta.seq is the store version the reply reflects, to pass back as `base`. The same envelope has `hint:null` and `details:{\"field\":\"focus\"}`, with no `synopsis` and no `schema` handle. en.toml's hints include 'pass a new --idem to make another write', 'retry the same command', 'update Planroom, then retry', \"press the action's button in the Planroom pane, or type it after /room\" and \"press Use this session's key in the Planroom pane\", which are prose, not exact commands. An unknown HTTP command returns an envelope whose `command` is \"serve\" (routes.rs:320), not the requested name.",
+    "why": "These are documented rules from AGENTS.md and contracts.md. The `after_reread` errors still to come (`stale_write`) depend on a correct `meta.seq`. The docs are right.",
+    "fix": "Pass the store's seq into error envelopes where a store is open. Add `synopsis` and `schema` to `invalid_argument`. Rewrite the hints as commands, such as `planroom person init --rekey`, or record that a press-only fix may name a pane key. Echo the requested command name over HTTP."
+   },
+   {
+    "id": "drift-8",
+    "title": "Neither `scan` nor `cargo xtask fixture` records the workspace in workspaces.json, so M1's trust check will treat skeleton workspaces and the fixture as untrusted",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/scan.rs",
+     "crates/planroom/src/app/data.rs:62-85",
+     "crates/xtask/src/fixture.rs:18-32",
+     "docs/contributing/architecture.md (Where the workspace lives: Trust)"
+    ],
+    "evidence": "With PLANROOM_DATA set to a temporary directory, `planroom scan --json` created `.planroom/store.db` but left the data root missing (`ls $PLANROOM_DATA` failed). Only `serve` later wrote `workspaces.json`. `xtask fixture` creates `.planroom/` and `config.toml` itself before any engine run, writes no trust record, and points at `examples/packs/ruby`, which doesn't exist (`ls examples/packs` fails). The architecture says a state directory is trusted only when `workspaces.json` records that the engine created it, and that '`cargo xtask fixture` records its fixture as trusted, as the engine does for a directory it creates.'",
+    "why": "Trust is M1 work, but the skeleton already creates workspaces the M1 rule will call untrusted. So the fixture's config, and the Ruby pack that S10 and the S1 truth's `healthcheck` component need, would be ignored. This is a design gap the skeleton revealed, and no record names it.",
+    "fix": "Have the store's first creation in `scan` record `{root, workspace_id}` in `workspaces.json`, and have `xtask fixture` record its root the same way, through the engine or a shared helper. Note in M1's packs slice that `examples/packs/ruby` must exist before the fixture's config names it."
+   },
+   {
+    "id": "drift-9",
+    "title": "The catalogue hash covers only the leaf listing, so it can't detect an engine whose flags or result types changed",
+    "severity": "minor",
+    "where": [
+     "crates/xtask/src/generate.rs:173-178",
+     "crates/planroom/src/app/version.rs:18-21",
+     "docs/contributing/contracts.md:235,1058"
+    ],
+    "evidence": "Both sides hash `serde_json::to_string(&Command::listing())`, which holds each leaf's name, idea, summary, actor, class, budget, needs_base, undo, tool and room. No request or result schema goes in. DR-58 says the hash lets 'the mod and serve detect a mismatched engine'. contracts.md:1058 keys the resolver's cache as `DATA_ROOT/engine/VERSION+HASH/` 'so a newer -dev build never resolves an older one' (DR-78).",
+    "why": "This is a design gap: two `-dev` builds that differ only in a flag or a result field (the change the mod's argv and parsers depend on) share version and hash. A mixed pair passes the handshake, and the resolver's cache can return the older binary once DR-82's M1 cache key lands. Neither side is wrong on its own terms; the definition is too narrow for what it promises.",
+    "fix": "Define the hash over the listing plus the sha256 of the generated schema (or each leaf's `schema --command` closure). Update contracts.md:235 and regenerate `engine.env` and `catalogue.ts`."
+   },
+   {
+    "id": "drift-10",
+    "title": "The CLI surface differs from the docs: `map --focus` is offered then refused, short flags exist, and bare `planroom` prints help",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/map.rs:23-25",
+     "crates/planroom/src/cli.rs:66-70",
+     "docs/contributing/architecture.md:1219",
+     "AGENTS.md (Naming: CLI flags are long-form only)"
+    ],
+    "evidence": "`planroom map --help` lists `--focus <FOCUS>  A node ID, an ID suffix or a name to centre on`, but `map --focus x --json` returns `invalid_argument` with \"--focus isn't available yet\". `planroom --help` shows `-V, --version` and `-h, --help`. `planroom` with no arguments in a scanned workspace prints clap's help, while architecture.md:1219 says it prints `focus`. No record lists these lags. Grouping help into the five ideas is planned in M5's docs slice; the no-arguments behaviour and `--focus` aren't scheduled anywhere.",
+    "why": "These flags and the no-arguments behaviour are versioned public CLI contracts. A flag the help offers but the engine refuses costs agents a round trip. The docs are right.",
+    "fix": "Hide `--focus` until M1 builds it (or record the lag), set clap's `disable_version_flag` and add a long-only `--version` (or record `-h`/`-V` as allowed), and make no subcommand run `focus`."
+   },
+   {
+    "id": "drift-11",
+    "title": "Logging follows neither convention: no `tracing`, no PLANROOM_LOG, and foreground serve and watch write no log file",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/server/mod.rs:73,176-200",
+     "crates/planroom/src/server/routes.rs:103",
+     "crates/planroom/Cargo.toml",
+     "AGENTS.md (Logging)"
+    ],
+    "evidence": "`crates/planroom/Cargo.toml` doesn't depend on `tracing`, although it is on the allow-list. Diagnostics go out through `eprintln!` (server/mod.rs:73, routes.rs:103, cli.rs:139). `log_path()` is used only by `detach_stdio`, so `serve` in the foreground wrote nothing under `$PLANROOM_DATA/logs` (after a run, the data root held only `open/` and `workspaces.json`). `watch` has no log file at all. AGENTS.md says `tracing` to stderr, `PLANROOM_LOG=info` by default, and that watch, serve and duties also log to `DATA_ROOT/logs/<workspace_id>/<process>.log`.",
+    "why": "This is a documented convention and no record accepts the gap. The mod spawns `watch` with stderr it doesn't keep, so a dying watch leaves no trace. The docs are right.",
+    "fix": "Add a `tracing` subscriber to stderr filtered by `PLANROOM_LOG`, and a capped file writer for watch and serve whether or not they are detached. Or record the lag by milestone in a DR."
+   },
+   {
+    "id": "drift-12",
+    "title": "Docs describe the built skeleton wrongly: the `room` skill and undocumented v1 result types",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/architecture.md:1336",
+     "docs/contributing/contracts.md (View models: MapView)",
+     "schema/planroom.v1.schema.json $defs"
+    ],
+    "evidence": "architecture.md's Skills table still lists `room` as the umbrella skill. DR-84 renamed it to `planroom` (plugin/skills/planroom/), and repo-layout.md was updated, but architecture.md, the home of that fact, was not. contracts.md's MapView sketch omits the `layout: Option<LayoutKey>` field the code serves (view.rs MapView) and DR-82 relies on. A scan of the v1 schema's $defs against contracts.md and architecture.md finds these public types named nowhere: LayoutKey, LayoutPut, ScanResult, ServeInfo, ShareResult, SessionReq, SessionToken, PersonKey, SchemaSummary, LeafListing, LeafSchema, CommandList, DbBatch, DbWrite, DbOp, InboxHead, ImportedRow, PublishArgs, SharedFile, SampleUse, AckStatus, Crumb, MiniBlock, MiniEdge, Position, ScanState and Detail.",
+    "why": "'Every public shape in Contracts', and every fact has one home. Agents and the M1 tracks read the docs first. The code is right here; the docs trail it.",
+    "fix": "Rename the skill row to `planroom` in architecture.md. Add `layout` to MapView, and give the result types of `scan`, `serve`, `share`, `schema` and `person init`, plus `LayoutPut` and the session exchange, a line each in contracts.md, or link the schema $defs as their home."
+   }
+  ],
+  "summary": "Architecture-drift review of the walking skeleton at /home/user/planroom, HEAD 33713c5. Method: compared crates/contract, the CLI, store, serve, import, mod and xtask code with architecture.md, contracts.md, DR-81..DR-84 and repo-layout.md, and ran target/debug/planroom on a fixture built with examples/build-fixture in the scratchpad, with PLANROOM_DATA in a temporary directory. Two material findings. (1) With --json, a bad flag or value prints no JSON at all (clap exits before the envelope), and the mod then reports `internal` instead of `invalid_argument`; this breaks the one-document invariant and DR-66's agent error path. (2) KICKOFF's one-contract-source constraint is broken in four places no record accepts: EngineState is still an xtask string despite DR-81; ToolResult is hand-written in the mod; the resolver hand-spells two error codes the registry lacks, with no ResolverStatus type; and plugin/scripts/contract.sh, which the docs call generated and committed, doesn't exist. Minor findings: CommandSpec lacks `spends`, `Budget` and the documented idea and actor for `scan`, though DR-81 states `spends` as done. The registries hold about half the documented codes, and the named drift tests and docs/reference are missing. The committed v1 schema publishes Stakes {low, medium, high} and ModelRequestRef {est_tokens}, which contradict contracts.md and will need a schema_version bump to fix after release. `map` and `map --level system` disagree and drop parentless containers without counting them. Error envelopes always carry seq 0 and prose hints. `scan` and `xtask fixture` never record trust in workspaces.json, so M1's trust check will reject the fixture's config. The catalogue hash ignores request and result types. There are CLI-surface and logging-convention gaps, and the docs still name the `room` skill and omit 27 v1 types. Verified by command or file:line: everything cited. Assumed, not run: CI behaviour and the mod's live behaviour beyond the code read. Checked and found consistent: VersionInfo, Evidence, the store DDL against the migration (events.reply present), the plugin version stamp (recomputed g59c082b7), the catalogue hash in engine.env and catalogue.ts against version --json, the CSP, the body limit, watch frames, and DR-84's skill rename in the plugin."
+ },
+ "verdicts": [
+  {
+   "id": "drift-1",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced on a freshly built fixture (examples/build-fixture, then scan). `map --level foo --json`, `map --bogus --json` and `watch --since abc --json` each print 0 bytes on stdout and exit 2, with clap's plain-text error on stderr. cli.rs:68 calls `Cli::parse()`, so clap exits before `finish()` runs. engine.ts:176-189 `toolResult` turns empty stdout into `{code:\"internal\", retry:\"never\"}`. contracts.md:158 (the finding cited :84) gives `invalid_argument` `details` as `field`, `synopsis` and `schema`. contracts.md:910 says tool args go through the same clap tree and that `tools.test.ts::a_wrong_argument_returns_the_leaf_synopsis` checks this. traceability S15 (tier A) lists that test. I found no record that accepts the gap. It breaks the one-document `--json` rule in AGENTS.md and the stable-error-codes principle in KICKOFF, so it stays material."
+  },
+  {
+   "id": "drift-2",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed: `grep EngineState|ToolResult|ToolMeta|ResolverStatus crates/contract/src` finds nothing, and modgen.rs:15-40 still holds EngineState and EngineStatus as a TS string. DR-81 (decisions.md, 'The mod and its build') decides they move to view.rs, and DR-82's 'Code that trails the docs' list doesn't name them. engine.ts:152 hand-writes `interface ToolResult`, which contracts.md:922 places in the contract. The resolver spells engine_unavailable and engine_fetching itself (plugin/scripts/planroom:70,187). The schema's ErrorCode enum has 14 codes and neither of these, and has no ResolverStatus $def. plugin/scripts/contract.sh doesn't exist. One mitigation: architecture.md:1653 puts the generated contract.sh in M5's release slice, so that one part is scheduled. EngineState and ToolResult are hand-copied across the language boundary with no record, which KICKOFF's 'One contract source' constraint (KICKOFF.md:239) forbids, so it stays material."
+  },
+  {
+   "id": "drift-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed: there is no `spends` anywhere in crates or packages, and CommandSpec has `budget_tokens: u32` (command.rs:52) where contracts.md:228-233 has `budget: Budget`, `spends` and `Compensate(&'static str)`. The SCAN spec is `Idea::Setup` with `ActorRule::Any`, while the contracts.md:286 leaf table says Levels and mixed. `schema --commands --json` publishes scan as idea `setup` and actor `any`. DR-81 states 'CommandSpec has spends' as decided. One sub-claim is arguable: `person init` as Query fits 'changes no authored state' if a person key doesn't count as authored state. Minor is right."
+  },
+  {
+   "id": "drift-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed: the schema's ErrorCode enum has 14 codes and WarningCode has 6. The open pattern `^[a-z][a-z0-9_]*$` is present. A grep for the named drift tests finds them only in feature_list.json and traceability, under S15, which is `failing`. docs/reference and schema/baseline don't exist. This is planned end-state work that S15's failing status tracks, and adding codes is additive, so minor."
+  },
+  {
+   "id": "drift-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed from the committed schema: Stakes is the enum low, medium, high; ModelRequestRef is {id, purpose, est_tokens}, all required; and Meta has no stale_repos or dirty_repos. contracts.md:723 has Stakes Low and Person, and contracts.md:106 (the finding cited :32) has `{ id, purpose, sha256, rerun: Handle }`. No code outside the contract produces either type. Minor is right."
+  },
+  {
+   "id": "drift-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced: `map --json` returns level system with 10 nodes, the 5 repos plus 5 ws:container nodes, and hidden 0. `map --level system --json` returns level system with 5 nodes and hidden 0. In map.rs:60-63, None goes to `tree::top_level` and Some(level) goes to `tree::at_level`. The explicit level silently drops parentless containers. Minor is right."
+  },
+  {
+   "id": "drift-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced: `map --focus x --json` in a store at seq 5 returns meta.seq 0, hint null and details {field:'focus'}, with no synopsis or schema handle. cli.rs:134 passes 0. en.toml has prose hints ('retry the same command', 'update Planroom, then retry'), and routes.rs:320 replies with command 'serve' for an unknown HTTP command. One part is refuted: AGENTS.md says a code only a person can clear 'names the card or command a person can use'. So the person_required and person_key_mismatch hints, which name a pane press, are allowed. The rest stands as minor."
+  },
+  {
+   "id": "drift-8",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed: after `scan --json` with PLANROOM_DATA set, the data root doesn't exist, so no workspaces.json is written. xtask/src/fixture.rs:18-31 writes .planroom/config.toml pointing at examples/packs/ruby and records no trust. `ls examples/packs` fails. architecture.md:535 makes trust depend on a workspaces.json record. Trust is M1 work, so this is a design gap the skeleton revealed, and minor is right."
+  },
+  {
+   "id": "drift-9",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed: both catalogue_hash functions (xtask generate.rs:174-178, app/version.rs:18-21) hash `Command::listing()`. `schema --commands --json` shows each item has only name, idea, actor, class, budget_tokens, undo and a schema handle, with no flags or result types. The code matches contracts.md:309's definition, so this is a design gap, not code drift: a change to a flag or a result field doesn't move the hash that DR-78 keys the cache on. Minor."
+  },
+  {
+   "id": "drift-10",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced: `planroom --help` shows `-h, --help` and `-V, --version`. `map --help` lists `--focus`, and `map --focus x --json` returns invalid_argument 'isn't available yet'. Bare `planroom` prints clap's help (cli.rs:69-71), while architecture.md:1219 says it prints focus. Separately, I saw the bare-planroom help path panic on a broken pipe (cli.rs:70 `expect`) when piped into `head`; that is a small issue of its own. Minor."
+  },
+  {
+   "id": "drift-11",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed: crates/planroom/Cargo.toml has no tracing dependency, and there is no tracing:: or PLANROOM_LOG in crates/planroom/src. Diagnostics go through eprintln! (routes.rs:103, server/mod.rs:73, cli.rs:139). `log_path` is called only in the forked detach child (server/mod.rs:70-71), and watch has no log file. No record accepts this. Minor."
+  },
+  {
+   "id": "drift-12",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed: architecture.md's Skills table (around line 1336) still lists `room`, while plugin/skills holds `planroom`, `room-handoff` and `room-plan` (DR-84). view.rs's MapView has `layout: Option<LayoutKey>`, and contracts.md's MapView block doesn't mention layout. A word grep of contracts.md and architecture.md finds 0 matches for LayoutKey, LayoutPut, ScanResult, ServeInfo, ShareResult, SessionReq, PersonKey, SchemaSummary, LeafListing, DbBatch, InboxHead, ImportedRow, AckStatus, Crumb, MiniBlock, ScanState, Detail and Position. LayoutPut does appear in DR-82. Minor."
+  }
+ ]
+}
