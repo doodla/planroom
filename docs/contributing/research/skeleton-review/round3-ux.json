@@ -1,0 +1,155 @@
+{
+ "lens": "ux",
+ "review": {
+  "summary": "Lens: user surface and UX, round 3, on b007ff3. I ran target/debug/planroom (built 16:05, after the last code commit, 15:56) on copies of the built fixture (/tmp/planroom-e2e-1dPm8Y/shop) and on small hand-made workspaces in my scratchpad, each with its own PLANROOM_DATA. I read all 14 PNGs in docs/screenshots, the canvas shell, views and transports, the mod's layout.ts, room.ts, fallback.ts and register.tsx, en.toml, cli.rs, focus.rs, scan.rs and error.rs. I couldn't run the mod host or a browser, so I read the mod and canvas behaviour from the code, and each finding says which parts I ran.\n\nFix check, round 2 material findings in my area:\n- ux-a: PARTLY HOLDS. Verified working: with at least one committed repo, an unborn repo no longer blocks the scan. On the fixture plus `git init newsvc`, scan returns ok, the 5 repos map, and meta.warnings carries repo_unborn. Also verified working: when git can read no repo (a repo chowned to nobody), focus and map return `repos_unreadable` with next=`focus`, not a failing scan. NOT HELD for a workspace whose only repos have no commits. scan succeeds and maps nothing, focus has empty=null and says \"0 at the top: .\" with \"Open the containers\", and map's empty is `nothing_mapped` \u2192 \"Scan again\", the same loop. See ux-r3-1.\n- ux-b: HOLDS, from reading the code and the screenshot; I didn't run e2e. styles.css:216-222 makes `.lid-ancestor` 44+10 px wide with a \u221210 px margin, and :236-240 and :296 pad the \u22ef button. In container-390x844-light.png the \u22ef lid runs from about x=32 to x=122 device px before the current lid starts, which is about 45 CSS px.\n- ux-c: HOLDS, from the code. picker.tsx:56-68 draws a static face when there's no onPick or nothing else to pick, and top-row.tsx:168-192 uses it for the lens and the empty project shelf. The screenshots show the flat \"No project\" outline.\n\nRound 1 spot checks:\n- ux-1 holds: layout.ts:142-196 and 296-333 draw block rows as plain text, and a press shows its result.\n- ux-2 holds: room.ts:138-146 returns the summary plus handles, never JSON.\n- ux-3 holds, rerun: `map --level intent` gives empty.reason=no_intent.\n- ux-4 holds: crumbsAt plus the phone's \u22ef lid, shown in the screenshots.\n- ux-6 holds, rerun: in an empty dir, focus and map return no_repos with next=focus.\n\nKnown minor gaps I saw unchanged and don't re-report:\n- ux-5 / ops-6: a second `serve --detach` blames \"another program\" and says \"press e\". Rerun.\n- ux-7: text-mode `serve` says \"open it with the login page this serve wrote\" but prints no path; only --json carries login_page. Rerun.\n- ux-8, ux-d, ux-f and ux-g.\n- ux-h: `share --json` still says \"were not provided:.\". Rerun.\n- ux-12, and unasked-9 (\"Map these 1 repos\").\n\nWhat's new is mostly fallout from DR-86's per-repo scan outcomes. The new warnings reach agents only: no person-facing surface (CLI text, pane, toast, /room, canvas) shows them. The unborn-only workspace falls into an empty-state loop. Two of the new fix lines can't be run as written. The rest are smaller wording and design gaps.",
+  "findings": [
+   {
+    "id": "ux-r3-1",
+    "title": "A workspace whose only repos have no commits gets a blank map and a loop: \"0 at the top: .\", then \"Open the containers\", an empty level, \"Scan again\", and back; the line saying it maps after its first commit reaches no person",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/focus.rs:36-42,63-84 (pane() never sets `empty`)",
+     "crates/planroom/src/app/focus.rs:139 with en.toml:81 (focus.blocks)",
+     "crates/planroom/text/en.toml:67 (empty.nothing_mapped)",
+     "crates/planroom/src/app/scan.rs:131-141 (summary counts the unborn repo)",
+     "crates/planroom/src/cli.rs:139-146 (text mode prints reply.text, never the warnings)",
+     "crates/planroom/src/live.rs:143 (frame.scan)",
+     "packages/canvas/src/app.tsx:44-56",
+     "packages/mod/src/layout.ts:150-196,328-331"
+    ],
+    "evidence": "Verified with the binary. Workspace `ws/only`, made by `git init` with no commit:\n- `planroom focus` gives \"Map these 1 repos? About 2 s.\"\n- `planroom scan` gives \"Mapped 1 repos, 1 of them moved: 0 containers, 0 nodes, 0 hints.\" and exit 0. repo_unborn appears only in `--json` meta.warnings. Text mode prints no warning.\n- `planroom focus` then prints \"ws \u00b7 system \u00b7 lens all \u00b7 seq 1 / 0 at the top: . / \u2026 / Next: Open the containers\". `--json` has `empty: null` and `minimap.blocks: []`.\n- `map --level container` gives empty_level, \"Nothing at the container level here. Show the top of the map.\"\n- `map` gives empty.reason=`nothing_mapped`, next=`scan <root>`, \"The last scan found nothing to map. Scan again.\" Scanning again changes nothing.\n- `watch --since 0` prints \"1 Scanned only at .\".\n\nI got the same result for a single new project dir (`git init; echo > README.md`) used as the workspace root.\n\nRead, not run, for the surfaces. The pane draws \"Next: Open the containers\" and \"No blocks at this level yet\" (layout.ts:181-196,328-331). Its press shows the empty-level line and \"Back to the system level\". The canvas's top-level empty state presses `scan` again (app.tsx:44-56).\n\nNo surface ever says \"make a first commit\". This is the same loop round 2 rated material in ux-a; DR-86's fix covers only workspaces where some repo has a commit.",
+    "why": "KICKOFF principle 1, \"Never show a blank state\". S15's empty-state audit. R1's \"no repo gets nothing\". Round 2's ux-a was rated material for exactly this loop. The common first run of a planning tool, a fresh `git init` project, hits it, and DR-86's own remedy, the repo_unborn line, never reaches the person.",
+    "fix": "When the store has repos but every one is unborn, have focus and map return an empty reason such as `repos_unborn`. Its line is en.toml's repo_unborn text, and its next action is `focus` (check again after a commit), never `scan`. Have focus set `empty` whenever the top-level map is empty, so the \"0 at the top: .\" line can't appear. Leave unborn repos out of scan's \"Mapped N repos\" and \"moved\" counts, and give frame.scan a no-commit wording."
+   },
+   {
+    "id": "ux-r3-2",
+    "title": "DR-86's per-repo warnings never reach a person: CLI text, the pane's toast, /room rows and text, and the canvas drop repo_skipped and repo_unborn, so a partly mapped workspace reads as whole",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/cli.rs:139-146",
+     "packages/mod/src/register.tsx:255-258 (toast uses the summary only)",
+     "packages/mod/src/room.ts:69-91,138-146,166-216 (no meta.warnings)",
+     "packages/canvas/src (no reference to `warnings`)",
+     "crates/planroom/src/app/scan.rs:120-141"
+    ],
+    "evidence": "Verified with the binary. On the fixture plus `newsvc` (git init) plus `other` (chowned to nobody):\n- `planroom scan` prints only \"Mapped 6 repos, 6 of them moved: 9 containers, 135 nodes, 17 hints.\"\n- `--json` meta.warnings holds repo_unborn for newsvc and repo_skipped for other, with the chown fix line.\n- \"6 repos\" counts the unborn repo, which mapped nothing, and leaves out the skipped one.\n- \"6 of them moved\" on a rescan where no commit moved: adding `other` re-keys every snapshot (DR-86), and the summary reports that as a move.\n\nOn kit + r1 (another owner) + newone (unborn), scan prints \"Mapped 2 repos, 2 of them moved\" and focus \"1 at the top: kit.\". Nothing names r1 or newone.\n\nBy grep: `warnings` appears nowhere in packages/canvas/src, and in packages/mod/src only in engine.ts's agent tool-result field list. The mod's toast, roomRows and roomText use the summary line and handles only.\n\nIn contrast, `map` appends its `truncated` warning to text mode (verified: `map --level code`). So scan is the one leaf whose warnings text mode drops.",
+    "why": "KICKOFF principle 2: \"The human surfaces render the same output.\" repo_skipped's fix (chown) is for the person, who never sees it. architecture.md:243 says a skipped repo's last map stays, so a stale map shows as current with no marker. Rated minor, consistent with unasked-r2-3 (a partly mapped repo shown as whole): no blank state and no tier A/B failure on the fixture.",
+    "fix": "Append each warning's message to scan's text-mode output, as map does for truncated. In the mod, draw meta.warnings as dim rows in roomRows and add a count to the toast. Count only recorded, born repos in scan.summary, and count a move only when a repo's commit changed."
+   },
+   {
+    "id": "ux-r3-3",
+    "title": "Two of DR-86's new fix lines can't be run as written: `chown` to yourself needs root, and paths go into commands unquoted",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/text/en.toml:72 (fix.other_owner)",
+     "crates/planroom/text/en.toml:31 (hint.git_failed)",
+     "crates/planroom/text/en.toml:68 (empty.repos_unreadable)",
+     "crates/planroom/src/text.rs:22-24 (values are sanitized, not shell-quoted)",
+     "docs/contributing/contracts.md:248"
+    ],
+    "evidence": "Verified output. repo_skipped's fix reads: Make it yours with chown -R \"$(id -un)\" /tmp/\u2026/w3/ws/r1, or scan as the user who owns it.\n\nOn Linux, an unprivileged process can't chown files another user owns (CAP_CHOWN), so for the usual case, a repo created by root in a container or by another account, the line fails with EPERM. It needs `sudo`.\n\ntext::get interpolates `{path}` raw. A path with a space, such as macOS's `~/Documents/My Projects/api`, turns `git -C {path} status` and the chown line into broken commands.\n\nrepos_unreadable says \"Run git status in each to see why\". That isn't an exact command, and it drops the per-repo fix that repo_skipped carries. The fix appears only in scan's `--json`; focus returns no warnings (focus.rs:41,124).\n\ncontracts.md:248 promises that `fix` is \"one line with an exact command\".",
+    "why": "AGENTS.md conventions: hints are exact commands. contracts.md:248 makes the same promise, and these lines are the only way out of the repos_unreadable state.",
+    "fix": "Write the fix as `sudo chown -R \"$(id -un)\" '<path>'`, and shell-quote every path interpolated into a hint or fix: add a `{path}` filter in text::get, or quote at the call sites. Have repos_unreadable name each repo's `git -C '<path>' status`, or carry the first repo_skipped fix."
+   },
+   {
+    "id": "ux-r3-4",
+    "title": "person_required tells you to press a pane button or type the command after /room, but neither command that raises it is a pane button or a /room leaf",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/text/en.toml:11,27",
+     "crates/planroom/src/app/person.rs:50",
+     "crates/planroom/src/app/import.rs:91",
+     "packages/contract/src/generated/catalogue.ts:92-101,128-137 (person init and import: room false)"
+    ],
+    "evidence": "Read, not run with a forged token.\n- person_required is raised only by `person init` (person.rs:50) and by a person's `import` (import.rs:91 and actor.rs:159).\n- Its message is \"Only a person can run {command}: press its button in the Planroom pane.\" Its hint is \"press the action's button in the Planroom pane, or type it after /room\".\n- The generated catalogue marks both leaves `room: false`, so `/room person init` and `/room import` are refused (\"/room has no command\").\n- The pane offers no person-init or import button; registerOnce runs init itself, and the rekey button appears only on a mismatch.",
+    "why": "AGENTS.md: a code only a person can clear has retry `never` and names the card or command a person can use. Here the card and command it names don't exist. Minor, because agents mostly hit it, and the guard blocks them first.",
+    "fix": "Give person_required a per-command hint: for `person init`, \"open the Planroom pane; it registers this session's key\", or the rekey button on a mismatch; for `import`, the /room sync it waits for. Or make both reachable from the place the message names."
+   },
+   {
+    "id": "ux-r3-5",
+    "title": "On the phone, no control reaches the component, code or intent levels: there's no zoom rail, the \u22ef lid only goes up, and the next action only opens containers",
+    "severity": "minor",
+    "where": [
+     "packages/canvas/src/shell/shell.tsx:48-58 (the phone shell has no ZoomRail)",
+     "packages/canvas/src/shell/top-row.tsx:26-55",
+     "packages/canvas/src/shell/next-action.ts:25-41",
+     "docs/contributing/design-language.md:78-103"
+    ],
+    "evidence": "Read, not run in a browser.\n- The phone branch of Shell renders TopRow, the stage and the BottomSheet, with no ZoomRail (shell.tsx:48-58).\n- The \u22ef lid lists only ancestors (crumbsAt).\n- The card's press is either \"Open the containers\" or \"Back to shop\" (screenshots main-390x844-dark and container-390x844-light).\n- design-language.md's phone gestures dive into a block (double tap), which needs `map --focus` (M1), and nothing on the phone ever lists intent, which sits beside the system level.\n\nOn the phone, then, the skeleton reaches only the top and container levels. After M1 the design still has no path to Intent or to a whole level such as component.\n\nThe desktop rail reaches every level (main-1440x900-light.png).",
+    "why": "S1 asks for zooming to code and back, and S13 for the phone's layout. The design asks for mobile first, yet the design-language has no level control on 390 px besides per-block dives. A design gap the skeleton exposes; the desktop path works, so it's minor.",
+    "fix": "Have the \u22ef lid list every level, the five steps with the current one marked (it's already the Levels concept's phone control), or add the levels to the bottom sheet. Record it in design-language.md's Touch section."
+   },
+   {
+    "id": "ux-r3-6",
+    "title": "A picker with nothing to pick still looks like a button: a bordered 44 px box with a button radius, not \"flat on the felt\"",
+    "severity": "minor",
+    "where": [
+     "packages/canvas/src/styles.css:392-412",
+     "docs/contributing/design-language.md:89",
+     "docs/screenshots/main-390x844-dark.png",
+     "docs/screenshots/main-1440x900-light.png"
+    ],
+    "evidence": "Read and seen in the screenshots. `.picker-face` keeps `min-height: var(--target)`, `border: var(--border) solid var(--muted)` and `border-radius: var(--radius-button)` (styles.css:394-402). Only the offset shadow is gone.\n\nIn main-390x844-dark.png the lens swatch is a bordered rounded box the same height as the \u22ef and search lids next to it, and \"No project\" is a dashed box of the same size. A tap on either does nothing.\n\ndesign-language.md:89 says such a picker \"shows what it holds, flat on the felt\".",
+    "why": "The ux-c fix removed the empty sheet, but it left two of the phone's four top-row slots looking pressable when they aren't. That costs the person a wasted tap and goes against the design-language text. Cosmetic, so minor.",
+    "fix": "Draw the static lens face without a border, just the swatch and name on the felt. Keep the dashed chalk outline for the shelf, but drop the button radius and the 44 px box, which is only needed for a target."
+   },
+   {
+    "id": "ux-r3-7",
+    "title": "Code-level text lists blocks by bare file name, so a person can't tell them apart: \".gitignore; .gitignore; .gitignore; .gitignore\"",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/text/en.toml:112-113 (map.summary, map.more)",
+     "packages/mod/src/room.ts:244-250 (shown blocks are names only)",
+     "packages/mod/src/layout.ts:302-323"
+    ],
+    "evidence": "Verified: `map --level code` on the fixture gives \"83 at the top: .dockerignore; .dockerignore; .gitignore; .gitignore; .gitignore; .gitignore; .golangci.yml; 001_create_orders.sql; 002_add_tracking_number.sql; CHANGELOG.md; CHANGELOG.md; CHANGELOG.md; and 71 more.\"\n\nRead, not run: the pane's shown block rows (layout.ts:302-323, from shownFrom's names) and /room's block rows (room.ts:178-185) draw the same bare names, with no repo or parent.\n\nux-12 logs \"at the top\" at every level, and ux-11 the labels; neither covers duplicate names.",
+    "why": "KICKOFF principle 1: a summary should give understanding. A list of identical names gives none. Minor: the canvas at `--detail graph` nests blocks under their parents, so it shows the difference there.",
+    "fix": "When two blocks in a summary or a block list share a name, qualify each with its repo or parent (\"orders/.gitignore\"). Do it in the engine's summary and in the MapView rows the surfaces draw."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "ux-r3-1",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "I reproduced this with target/debug/planroom on scratchpad/v1/ws/only (git init, no commit, PLANROOM_DATA in the scratchpad).\n- `focus` gives \"Map these 1 repos? About 2 s.\"\n- `scan` gives \"Mapped 1 repos, 1 of them moved: 0 containers, 0 nodes, 0 hints.\" and exits 0. repo_unborn appears only in the --json meta.warnings.\n- `focus` then gives \"0 at the top: .\" and \"Next: Open the containers\". --json has empty=None and blocks=[].\n- `map --level container` gives the empty_level line. `map` gives nothing_mapped, \"Scan again.\", with next=scan <root>.\n- `watch --since 0` gives \"1 Scanned only at .\"\n\nThe code agrees. focus.rs:44-84 pane() hard-codes `empty: None` and next = map --level container. cli.rs text mode prints only reply.text. The surfaces would show the same states: layout.ts:181-196 and 328-331 (\"No blocks at this level yet\"), and canvas app.tsx:44-56, whose empty state runs empty.next, which is scan. I read the surface code and did not run it.\n\nRound 2's ux-a evidence (round2-ux.json) names this exact sub-case: \"With only an unborn repo (w/bare/r1), the same happens\". The README marks ux-a fixed by SCAN2 22c5611, so that fix does not hold for the all-unborn workspace. DR-86's repos_unreadable covers only repos git can't read, not unborn ones. This breaks KICKOFF principle 1 (\"Never show a blank state\", line 39) and the S15 audit (tier A), so material stands."
+  },
+  {
+   "id": "ux-r3-2",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "I reproduced this on scratchpad/v2: kit committed, r1 committed and chowned to nobody, newone unborn.\n- `scan` text prints only \"Mapped 2 repos, 2 of them moved: 0 containers, 2 nodes, 0 hints.\"\n- --json meta.warnings holds repo_unborn for newone and repo_skipped for r1, with the chown fix.\n- `focus` gives \"1 at the top: kit.\" and nothing names r1 or newone.\n\nThe code agrees. cli.rs finish() text mode is sanitize_lines(&reply.text), with no warnings. map.rs:71-79 appends warning messages to its text, and scan.rs:120-141 doesn't. A grep shows that `warnings` appears in packages/canvas/src nowhere and in packages/mod/src only at engine.ts:183. register.tsx:257's toast uses the label and line only.\n\nI did not separately verify the \"moved\" miscount on a re-key. In v1, the first scan of a lone unborn repo did report \"1 of them moved\". There is no blank state and no fixture tier A/B failure, so minor is right."
+  },
+  {
+   "id": "ux-r3-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Verified.\n- The v2 output gives fix `chown -R \"$(id -un)\" /tmp/.../ws/r1` with the path unquoted. text.rs:22-24 only display-sanitizes interpolated values and never shell-quotes them, so a path with a space breaks both en.toml:72 (fix.other_owner) and en.toml:73 (fix.git_failed, `git -C {path} status`). hint.git_failed at en.toml:31 has the same form.\n- On Linux, changing a file's owner needs CAP_CHOWN, so an unprivileged user can't chown another user's repo to themselves. This is a standard kernel rule; I did not test it here because the container runs as root.\n- empty.repos_unreadable (en.toml:68) says \"Run git status in each\", which is not an exact command.\n- contracts.md:248 promises that `fix` is \"one line with an exact command\".\n\nThe line also offers \"or scan as the user who owns it\", which softens the problem. Minor is right."
+  },
+  {
+   "id": "ux-r3-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Verified by reading the code.\n- actor::person_required is raised only from person.rs:50, import.rs:91 and actor.rs:159 (spend, called from both of those).\n- The message (en.toml:11) and hint (en.toml:27) point to a pane button or /room.\n- The generated catalogue.ts marks `person init` and `import` room:false.\n- No code in packages/mod/src runs `import`: a grep for \"import\" as a command finds nothing.\n- register.tsx runs person init only through registerOnce, with no button except the rekey on a mismatch.\n\nSo the card or command the message names doesn't exist for either command, which goes against the AGENTS.md error-code rule. It mostly affects agents, so minor."
+  },
+  {
+   "id": "ux-r3-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Verified by reading the code.\n- shell.tsx's phone branch renders TopRow, the stage and the BottomSheet, with no ZoomRail. The desktop branch has one.\n- top-row.tsx's phone Ancestors picker lists only crumbs, which are ancestors.\n- next-action.ts goes only to the pane's next action (containers) or back.\n- map-view.tsx:168 sets zoomOnDoubleClick={false}, and no double-tap dive exists.\n\nOn the phone, then, only the top and container levels are reachable. design-language.md's Touch section defines dives per block and ancestors only, with no whole-level or intent control. S13 is tier B and the desktop rail works, so minor is right."
+  },
+  {
+   "id": "ux-r3-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Partly verified.\n- styles.css:394-403 gives .picker-face min-height var(--target), a muted border and --radius-button.\n- In main-390x844-dark.png, the static lens swatch is a bordered rounded box the same height as the search lid. It looks like a button with only the press shadow removed, which goes against design-language.md's \"flat on the felt\".\n\nThe project-shelf half is weaker. The same Touch section explicitly asks for \"a dashed chalk outline\" for an empty shelf, which is what the screenshot shows. So only the lens swatch, and the button-sized box, contradict the doc. Cosmetic, so minor."
+  },
+  {
+   "id": "ux-r3-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "I reproduced this on a copy of the built fixture (scratchpad/v3/shop, from /tmp/planroom-e2e-1dPm8Y/shop). `map --level code` gives \"83 at the top: .dockerignore; .dockerignore; .gitignore; .gitignore; .gitignore; .gitignore; .golangci.yml; ...; CHANGELOG.md; CHANGELOG.md; CHANGELOG.md; and 71 more.\"\n\nThe /room block rows (room.ts:178-185) and shown blocks (room.ts:244-250) use the bare n.name with no repo or parent, so they show the same duplicates. I read these and did not run them. The README's ux-11 and ux-12 don't cover duplicate names. The canvas graph view separates them by nesting, so minor is right."
+  }
+ ]
+}

@@ -1,0 +1,86 @@
+{
+ "lens": "repo",
+ "review": {
+  "findings": [
+   {
+    "id": "repo3-1",
+    "title": "The fixture copy that `cargo xtask e2e` builds inside the repo escapes `claudeMdExcludes`, so its planted CLAUDE.md is no longer excluded",
+    "severity": "minor",
+    "where": [
+     ".claude/settings.json:29-31",
+     "crates/xtask/src/main.rs:176 (b007ff3: E2E_FIXTURE = \"target/e2e/fixture/shop\")",
+     "AGENTS.md:120",
+     "docs/contributing/architecture.md (A-16 row)",
+     "target/e2e/fixture/shop/worker/CLAUDE.md"
+    ],
+    "evidence": "Verified: `find target -name CLAUDE.md` returns target/e2e/fixture/shop/worker/CLAUDE.md, and `find target -name SKILL.md` returns target/e2e/fixture/shop/worker/.claude/skills/run-worker-tests/SKILL.md. Both come from `cargo xtask e2e`, which calls fixture::build into E2E_FIXTURE. That file says 'Set up with python -m venv .venv && ... pip install -e .[test]' and 'Run the tests with pytest -q and lint with ruff check . before you finish'. The only exclusion, in .claude/settings.json:30, is `**/examples/fixture/**/CLAUDE.md`, which doesn't match target/e2e/fixture/shop/worker/CLAUDE.md. AGENTS.md:120 says the fixture's CLAUDE.md 'is never an instruction for this repository; .claude/settings.json excludes the first', and A-16 rests on that. The skill is still covered, because `Skill(run-worker-tests)` is denied by name wherever it is. `cargo xtask fixture OUT` creates the same exposure for any OUT inside the repo. Assumed, not verified: that Claude Code loads a nested CLAUDE.md under a gitignored target/ when an agent reads files there, such as while debugging a failing e2e spec.",
+    "why": "R16 and A-16: this is the guard that keeps test data from becoming agent instructions. It covers only the source copy, not the copies the repo's own task runner writes into the tree. It's minor because the planted text is benign: it can at most make an agent run pip or pytest in a throwaway copy.",
+    "fix": "Widen the exclude to cover built copies, e.g. add `**/target/**/CLAUDE.md`, or match any `fixture/**/CLAUDE.md`. Alternatively, build the e2e fixture outside the checkout, in a temp dir. Say which in A-16's row."
+   },
+   {
+    "id": "repo3-2",
+    "title": "repo2-1's test-filter fix (e447235, after b007ff3) doesn't match repo-layout's `test` row, and a mistyped FILTER reports `ok`",
+    "severity": "minor",
+    "where": [
+     "crates/xtask/src/main.rs:52-56 (HEAD aaad29d)",
+     "crates/xtask/src/main.rs:492 (`--no-tests pass`)",
+     "docs/contributing/repo-layout.md:297",
+     "AGENTS.md:118"
+    ],
+    "evidence": "On the reviewed commit b007ff3, the dispatcher accepted only `test`, `test -p K` and `test --installer`, so AGENTS.md:118's `cargo xtask test -p CRATE [FILTER]` / `--ts PATH` exited 2 (repo2-1, logged as a known gap). While this review ran, the branch moved to aaad29d. e447235 adds `[\"test\",\"-p\",krate,filter]` and `[\"test\",\"--ts\",path]`, so AGENTS.md:118 is now accurate. repo-layout.md:297 wasn't updated. It still shows `test [-p CRATE] [FILTER] [--ts PATH] [--scenario SNN] [--installer]`, which reads as FILTER without -p and flags that combine. The code accepts FILTER only after `-p CRATE` and takes no combinations: `cargo xtask test FILTER` and `test --scenario S01` fall to the USAGE arm and exit 2. nextest also runs with `--no-tests pass` (main.rs:492), and the cargo-test fallback passes on zero tests, so a filter that matches nothing prints `ok`, not `skipped`. I read this in the code and didn't run it.",
+    "why": "R16 findability: the one task-command table disagrees with the dispatcher, and a typo in the quick loop that AGENTS.md teaches looks like a green run. It's minor: nothing ships on it, and CI never passes a filter.",
+    "fix": "Change the row to `test [-p CRATE [FILTER]] | --ts PATH | --installer` and mark `--scenario` (M1). Have a filtered run fail, or print `skipped (no test matched FILTER)`, when nextest reports zero tests."
+   },
+   {
+    "id": "repo3-3",
+    "title": "`.cargo/`, which makes `cargo xtask` exist at all, has no stated purpose, and its alias builds xtask without `--locked`",
+    "severity": "minor",
+    "where": [
+     ".cargo/config.toml",
+     "docs/contributing/repo-layout.md:7-95 (Directory map)"
+    ],
+    "evidence": "`git ls-files | cut -d/ -f1 | sort -u` lists `.cargo` as a tracked top-level directory. .cargo/config.toml holds only `[alias] xtask = \"run --package xtask --quiet --\"`. `grep -rn '.cargo/config' docs/contributing AGENTS.md` finds nothing, and the Directory map, which names .claude/, .claude-plugin/ and .github/, has no .cargo/ line. Every cargo call xtask makes passes `--locked` (main.rs: clippy, nextest, test, build, deny), but the alias that builds xtask itself doesn't. So in CI, a Cargo.lock out of step with a manifest is first rewritten silently by the xtask build, and only the inner steps fail. This directory isn't among repo-9's listed unexplained directories.",
+    "why": "R16 says every directory has a stated purpose, and this one is the entry point the whole task model depends on. It's minor: the alias is self-explanatory once found, and the inner --locked calls still catch a stale lock.",
+    "fix": "Add a Directory map line: `.cargo/config.toml  the cargo xtask alias`. Make the alias `run --locked --package xtask --quiet --`."
+   },
+   {
+    "id": "repo3-4",
+    "title": "The review index's Files table still describes only round 1's files",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/research/skeleton-review/README.md:13-16"
+    ],
+    "evidence": "The Files table lists `round1-<lens>.json` and `README.md` only. The directory now also holds round2-{correctness,drift,operability,repo,security,tests,unasked,ux}.json (`ls docs/contributing/research/skeleton-review/`), and round 3's files are about to join them. Each round-2 file has the same shape (lens, review, verdicts) and 65 findings in total, matching the README's Round 2 counts (I recounted them).",
+    "why": "It's the index a reader or agent uses to find each finding's evidence, and it no longer names half its files. Minor: the round sections link the IDs.",
+    "fix": "Change the row to `round<N>-<lens>.json`."
+   }
+  ],
+  "summary": "Lens: repo design and agent findability (R16). I reviewed b007ff3. While the review ran, the branch moved to aaad29d (e447235 xtask test filters, 9cabf5f review-round skill, aaad29d carry), so I read b007ff3 through `git show` where it mattered.\n\nFix check, per ID:\n- Round 2 has no MATERIAL finding in this lens: repo2-1 and repo2-2 were minor, and repo2-3 was refuted. So no round-2 material fix is due here.\n- repo2-1 (minor) is now partly closed after b007ff3: e447235 builds `test -p CRATE FILTER` and `test --ts PATH`, so AGENTS.md:118 now matches the dispatcher. repo-layout's row still differs; see repo3-2. Its other parts are unchanged: the check audit pin-age step, every_directory_has_a_purpose, the e2e install smoke, and the 'GATES track built the rest' clause at architecture.md:1642.\n- Round-1 repo-1 (material) HOLDS. At b007ff3, crates/xtask/src/main.rs:180-188 has CHECK_NOT_BUILT (four M1 entries, two M5), main.rs:232 prints each through Report::not_built (report.rs:132), and crates/xtask/tests/skips.rs:43 `a_gate_not_built_is_a_line_that_neither_passes_nor_fails` tests it. repo-layout.md:292's check row names the same six items. Out of lens, I spot-checked ops-3: `git grep -- --marketplace` finds nothing in plugin/ or README.md.\n\nWhat I verified on this tree:\n- I recomputed the layout lock's hashes the way layout.rs does: boundaries.toml (0d2a66\u2026), the Boundaries and Conventions sections of AGENTS.md (c5a39a\u2026, 6864a0\u2026), the top-level directory list (44f002\u2026) and the area contracts table (df5809\u2026, 24 rows). All match layout.lock. No gated surface changed after DR-85, so the state check holds.\n- I wrote a link checker for every tracked .md outside examples/fixture: every relative link and #anchor resolves (bad 0). That includes the generated Read-first links in all 20 area AGENTS.md files after the DR-86 fold's architecture.md edits.\n- All 20 area CLAUDE.md files are `@AGENTS.md`, and plugin/ has none.\n- The Layout lists that exist (canvas, e2e, golden, schema, packs) name only paths that exist, and every tracked subdirectory in those areas is listed.\n- crates/*/Cargo.toml dependencies are inside each crate's external_allow, except testkit, whose allow-list is logged for M1. .dependency-cruiser.cjs carries the mod's @noble/curves, host_types, golden_readers and test_tooling rules. No TS deep imports other than the allowed golden readers. No pack-prefixed literal in the kernel, the contract or the surfaces.\n- The tests the DR-86 fold names as built exist (scan.rs, git_hardening.rs, store commit.rs, budgets.rs, installer a_swapped_cached_engine_is_refused, e2e lens/shelf/lid specs). Two are missing, every_resolver_output_validates and detach_gets_its_own_session, and both are known (tests-2).\n- feature_list.json: all 32 entries are `failing`, so no false `passing` claim.\n- fb9c260's warning-meaning edits don't reach any generated file, so there's no drift there.\n- DR-86's amend list (DR-85, DR-81, DR-8, DR-47) matches those records' Status lines. Older records' Status lines don't name later DR amendments, which is the logged M1 'amended records marked' gap.\n\nKnown gaps unchanged and not re-reported: repo-2 (eval, release-dry-run, live and gen flags), repo-3 (missing map paths: scripts/, tests/replay, tests/plugin, docs/reference\u2026), repo-4, repo-5 (.gitattributes and generated_read_only hand-written; the table claims every_directory_has_a_purpose and generated_headers coverage it lacks), repo-6 (engine.env), repo-7, repo-8 (How to test it; store's row still omits commit.rs, which the SCAN2 fix extended), repo-9 (Layout lists in 5 of 20 areas), repo-10, repo-11 (no env in settings.json despite decisions.md:726), and repo2-2.\n\nNew findings: four, all minor. No material defect remains in this lens, so I propose no accepted-risk entry for it."
+ },
+ "verdicts": [
+  {
+   "id": "repo3-1",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "I confirmed this one. In `.claude/settings.json`, the only entry in `claudeMdExcludes` is `**/examples/fixture/**/CLAUDE.md`. `E2E_FIXTURE` is `target/e2e/fixture/shop`: line 176 at b007ff3, line 180 at HEAD. `find target` returns both `target/e2e/fixture/shop/worker/CLAUDE.md` and `.claude/skills/run-worker-tests/SKILL.md`. AGENTS.md:120 and A-16's row (architecture.md:1736) cover only the `examples/fixture/` source. The `Skill(run-worker-tests)` deny still applies by name. `target/` is gitignored, but I found nothing showing that Claude Code skips a nested CLAUDE.md under a gitignored path; like the reviewer, I assumed this and didn't test it. It stays minor: the planted text is benign build instructions, and it is reached only when an agent reads files in the built copy."
+  },
+  {
+   "id": "repo3-2",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "I confirmed this one. At HEAD (aaad29d), the dispatcher (`crates/xtask/src/main.rs:52-56`) accepts only `test`, `test -p K`, `test -p K FILTER`, `test --ts PATH` and `test --installer`. `grep scenario` finds no `--scenario` arm. repo-layout.md:297 still reads `test [-p CRATE] [FILTER] [--ts PATH] [--scenario SNN] [--installer]`. nextest runs with `--no-tests pass` (main.rs:492), so a filter that matches nothing exits 0. I read that from the code and didn't run it, because running cargo is outside the rules. It's minor because the docs drift only affects the local quick loop, and CI never passes a filter."
+  },
+  {
+   "id": "repo3-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "I confirmed this one. `git ls-files .cargo` returns `.cargo/config.toml`, and that file holds only `xtask = \"run --package xtask --quiet --\"`, with no `--locked`. The repo-layout Directory map (lines 7-95) lists `.claude-plugin/`, `.claude/` and `.github/` but has no `.cargo/` line. The CI workflow calls `cargo xtask ...` directly, with no earlier `--locked` step or `CARGO_*` env to guard the lock. It's minor because the inner cargo calls pass `--locked` and would still fail on a stale lock."
+  },
+  {
+   "id": "repo3-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "I confirmed this one. The README's Files table lists only `round1-<lens>.json` and `README.md`. `ls` shows eight `round2-*.json` files beside them. The finding is about the index only, and the round sections still link each ID, so it's minor."
+  }
+ ]
+}

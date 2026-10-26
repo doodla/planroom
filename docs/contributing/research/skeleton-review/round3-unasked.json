@@ -1,0 +1,164 @@
+{
+ "lens": "unasked",
+ "review": {
+  "summary": "Lens: expected but unasked, round 3. I read KICKOFF's principles, requirements, acceptance and constraints first. Then I read the review README, round1/round2-unasked.json, DR-85, DR-86, DR-74, the M1 plan, and the store, workspace, git adapter, server and data-root code. I ran target/debug/planroom only on fixture copies and synthetic repos under /tmp/claude-0/-home-user-planroom/d26fcf29-d6d2-57f8-acca-1138f06b3754/scratchpad/u3/, with PLANROOM_DATA pointed at directories there. I stopped every detached serve I started.\n\nFix check, round 2 material findings in this lens:\n- **unasked-r2-1 holds.**\n  - A fresh `git init` repo next to the fixture gives ok:true with `repo_unborn` (\"fresh has no commits yet; it maps after its first commit.\").\n  - A copy chowned to uid 1234 gives `repo_skipped` (reason `other_owner`), and the other repos map.\n- **unasked-r2-2 holds.** On a 55,000-file repo, the scan reply is 933 bytes (234 tokens). Its `partial_scan` carries count 5000 and a 10-path sample.\n\nFix check, round 1 material findings (spot checks):\n- **unasked-1 holds.** A `workspaces.json` tagged `planroom.workspaces/v2` is refused with `schema_mismatch` and `details.file`, and the file is left byte-for-byte unchanged.\n- **unasked-3 holds.** An untracked `kit/newdir/a.py` leaves 0 facts matching `newdir` in store.db, against 48 `kit:` facts.\n- **unasked-8 holds.** `map --level component` on the 55k repo returns the `truncated` warning.\n- **unasked-4** is still the schedule fix DR-85 chose (M1 backups slice).\n\nNew: 2 material, 6 minor.\n- **unasked-r3-1, material.** A repo's namespace is its unescaped path, so a directory named `my app` or `svc:v2` produces node IDs that the published NodeId pattern rejects or that split at the wrong colon. The code also differs from DR-74 (path, not name plus hash suffix), and neither the code nor DR-74 restricts which characters a namespace may hold.\n- **unasked-r3-2, material.** correctness-15's no-fetch fix holds only where git reads GIT_NO_LAZY_FETCH. The comment at git.rs:69-70 says `protocol.allow=never` refuses every transport on any version. That's false: a repo-local `protocol.ext.allow=always` overrides it. Plain git with `-c protocol.allow=never` and no env var ran the ext:: promisor command (PWNED file created). The supported floor 2.34.1 isn't enforced, and the hardening test doesn't plant this case.\n- **Minor:**\n  - With HOME unset, the data root is relative to the current directory.\n  - A moved workspace gets a new port, and stale `workspaces.json` entries are never pruned.\n  - The filesystem check covers the state directory but not the data root, which is also the fallback.\n  - `repo_skipped`'s fix line tells a root agent to `chown -R` another user's tree.\n  - The 50k cut drops whole top-level directories in sorted order, while focus reports scan \"done\".\n  - The scan summary counts unborn and skipped repos as \"Mapped\".\n\nVerified versus assumed is stated in each finding's evidence.",
+  "findings": [
+   {
+    "id": "unasked-r3-1",
+    "title": "Repo namespaces are the raw directory path: a directory with a space or colon yields node IDs the published NodeId contract rejects or splits wrongly, and the code differs from DR-74",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/workspace.rs:22-23",
+     "crates/planroom/src/app/workspace.rs:59",
+     "crates/planroom/src/app/workspace.rs:83",
+     "crates/extract/src/ids.rs:7-8",
+     "crates/contract/src/model.rs:28-41",
+     "schema/planroom.v1.schema.json ($defs.NodeId pattern ^[^:\\s]+:[^:\\s]+:.+$)",
+     "docs/contributing/decisions.md (DR-74, Decision bullet 1)",
+     "docs/contributing/architecture.md:311-312"
+    ],
+    "evidence": "Verified with the binary:\n- A workspace with repos `my app/` and `svc:v2/` scanned ok:true and emitted the IDs 'my app:repo:my app', 'my app:dir:src', 'svc:v2:repo:svc:v2' and 'svc:v2:dir:src'.\n- Against the schema's NodeId pattern, 'my app:repo:my app' fails to match. 'svc:v2:dir:src' matches but splits as namespace 'svc', kind-short 'v2', key 'dir:src'.\n- NodeId::from_str (model.rs:32-35) refuses whitespace in the namespace and splits on the first ':', so the engine's own parser rejects or mis-parses IDs its scan emits.\n- Repos two levels down get the relative path as namespace: 'team-a/api:file:main.py' and 'team-b/api:file:main.py' (workspace.rs:83). DR-74 says the directory name, plus '-' and 4 hex characters of a hash for the later duplicate, fixed in meta.repos. meta.repos isn't built: no 'repos' key in migrations or app code.\n- Renaming team-b/api to team-b/api-svc and rescanning left 'team-b/api:repo:team-b/api' on the map and added 'team-b/api-svc:repo:team-b/api-svc'. The leftover node is correctness-3; I note it only because the namespace is the ID root.\n\nAssumed: M1's `map --focus`, edit targets and overrides will take IDs as arguments and parse them through NodeId, as contracts.md implies.",
+    "why": "Principle 2 asks for stable, typed IDs behind one versioned schema. Today the engine emits IDs that violate its own published pattern for ordinary inputs: a space in a folder name is common on macOS, as in a single-repo workspace named 'My Project'. Every person edit in M1 (regroup, rename, override) is keyed by node ID. So the namespace scheme and its escaping must be settled before M1 writes the first override. Changing it afterwards re-IDs every node in every store and needs the migration DR-74's id_stability test is meant to forbid. Neither the skeleton's findings section nor DR-74 lists this drift or the escaping gap.",
+    "fix": "Before M1's IDs slice:\n- Normalize the namespace to a safe slug: the directory name with whitespace and ':' replaced by '-' and percent-escaped bytes, keeping DR-74's hash suffix for collisions and on any lossy slug.\n- Record it in meta.repos as DR-74 says.\n- Add a contract test that every emitted NodeId parses with NodeId::from_str and matches the schema pattern, run on a fixture with 'my app' and 'svc:v2' repos.\n- Add the path-versus-DR-74 drift to 'What the walking skeleton found'."
+   },
+   {
+    "id": "unasked-r3-2",
+    "title": "correctness-15's no-fetch fix rests on GIT_NO_LAZY_FETCH alone: a repo-local protocol.<name>.allow=always overrides -c protocol.allow=never, so on a git that ignores the variable a scan runs the repo's configured command",
+    "severity": "material",
+    "where": [
+     "crates/extract/src/git.rs:68-79",
+     "crates/planroom/tests/git_hardening.rs:62-84",
+     "docs/contributing/architecture.md:837",
+     "docs/contributing/decisions.md (DR-86, 'A scan never fetches')"
+    ],
+    "evidence": "Verified with plain git 2.43.0:\n- I made a blob-less partial clone, set remote.origin.url to 'ext::sh -c touch% $S/pc/PWNED% >&2' and set `protocol.ext.allow always` in the clone's local config.\n- `env -i PATH HOME git -c protocol.allow=never cat-file -p <missing blob>` created PWNED: 'Could not read from remote repository', and the file exists.\n- The same command with GIT_NO_LAZY_FETCH=1 printed 'lazy fetching disabled' and created nothing.\n- The same command with an added `-c protocol.ext.allow=never` printed \"transport 'ext' not allowed\" and created nothing.\n- `planroom scan` on this clone, with this git, which honours the variable, created nothing and reported `partial_scan`.\n\nThe code comment (git.rs:68-70) says '`protocol.allow=never` refuses every transport on any version'. git-config gives protocol.<name>.allow precedence over protocol.allow, as the repro shows.\n\nThe documented floor is git 2.34.1 (architecture.md:837, A-21). Upstream git reads GIT_NO_LAZY_FETCH only from the 2024 security releases (2.39.4 and later maintenance lines) and from distro backports. `git_too_old` isn't built (no match in crates/*/src).\n\nThe hardening test plants only remote.origin.uploadpack (git_hardening.rs:66-67), not a per-protocol allow with an ext:: URL.\n\nAssumed, not run: an unpatched git between 2.34 and 2.39.3. I couldn't install one.",
+    "why": "This is the round-2 material defect correctness-15: a scan runs a command named in the scanned repo's local config. On any supported git that doesn't read GIT_NO_LAZY_FETCH, the fix doesn't hold, and the design text ('so no call fetches') and the code comment claim it holds on any version. It's a code-execution risk from scanning a directory copied from elsewhere, the threat model correctness-15 was rated material under.",
+    "fix": "In Git::command:\n- Also pass `-c protocol.<name>.allow=never` for ext, fd, file, git, ssh, http and https. Command-line config beats repo config for the same key, which I verified for ext.\n- Or refuse a repo whose config defines any `protocol.*.allow` or a non-file promisor URL with `repo_config_refused`.\n\nExtend git_hardening.rs with the ext:: plus protocol.ext.allow=always plant, run with GIT_NO_LAZY_FETCH unset to simulate an old git. Correct the comment and the architecture.md line."
+   },
+   {
+    "id": "unasked-r3-3",
+    "title": "With HOME unset, the data root is relative to the current directory: serve writes workspaces.json, logs and a login page holding a live code into the workspace tree",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/data.rs:33-42"
+    ],
+    "evidence": "data.rs:41 builds the root with `PathBuf::from(std::env::var_os(\"HOME\").unwrap_or_default()).join(\".local/share\")`, and an empty HOME gives a relative path.\n\nVerified: `env -u HOME -u PLANROOM_DATA -u XDG_DATA_HOME planroom serve --detach --json`, run in $S/nohome, replied with login_page '.local/share/planroom/open/<hex>.html'. It created $S/nohome/.local/share/planroom/{workspaces.json, workspaces.json.lock, open/<hex>.html, logs/<id>/serve.log}.\n\nRepeated serves also leave one open/*.html per start: 3 files after 3 starts in $S/data6/open.",
+    "why": "Duties, cron jobs, systemd units and some agent sandboxes run without HOME. When the cwd is a single repo, machine-wide state (the port registry, M2's spend ledger, event backups) lands as untracked files inside it. Each such directory is a different 'machine', so the port and ledger guarantees split. A login page with a code sits in a tree that may be committed or shared. It isn't material today, because the code expires in 60 s and the ledger isn't built.",
+    "fix": "Treat an empty or unset HOME (and a relative XDG_DATA_HOME, which the XDG spec says to ignore) as an error with a fix line naming PLANROOM_DATA. Remove each open/*.html page once its code is spent or expired."
+   },
+   {
+    "id": "unasked-r3-4",
+    "title": "workspaces.json is keyed by root path: a moved or renamed workspace gets a new canvas port, and stale entries keep their ports forever",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/server/mod.rs:115-144",
+     "crates/planroom/src/app/data.rs:64-80",
+     "docs/contributing/decisions.md (DR-78 'A canvas port that never moves')"
+    ],
+    "evidence": "bind() looks entries up by `root.display()` only (mod.rs:122-124). workspace_id is recorded but never used to find an entry.\n\nVerified: I served $S/mv1/worker (port 43817), stopped it, ran `mv $S/mv1 $S/mv2` and served again (port 33473). workspaces.json then held two entries with the same workspace_id 01a17902-\u2026, at ports 43817 and 33473. No code prunes entries whose root no longer exists.",
+    "why": "DR-78 promises a port that never moves, so a tab's pending edits (localStorage per origin, M1) never strand in another origin. Moving or renaming a checkout breaks that silently, and principle 1 says never lose what someone did. Dead entries also reserve ports for good. Rework lands in M1's canvas slice, which builds the pending edits.",
+    "fix": "Look up by workspace_id first and rewrite the root on a match. Keep the root lookup as the fallback, and treat two live roots with one workspace_id (a copied workspace) as a new workspace_id on the copy. Prune an entry whose root has no store, under the existing lock."
+   },
+   {
+    "id": "unasked-r3-5",
+    "title": "The DR-1 filesystem check covers only the state directory; its fallback, the data root, is never checked, though it will hold the spend ledger and event backups",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/architecture.md:559",
+     "docs/contributing/architecture.md:1460",
+     "docs/contributing/architecture.md:1633 (M1 backups slice)",
+     "crates/planroom/src/app/data.rs:33-42"
+    ],
+    "evidence": "architecture.md:559 checks 'the filesystem the state directory is on' and, on NFS, SMB, WSL /mnt, FUSE or a sync folder, moves the store to DATA_ROOT/stores/<workspace_id>/store.db. No text in architecture.md or decisions.md (grep for 'nfs', 'filesystem check', 'fs_check') checks the data root itself.\n\nThe data root is $HOME/.local/share/planroom (data.rs:33-42). Per AGENTS.md it holds the user-level SQLite ledger with the daily spend cap, event backups, workspaces.json and its flock.",
+    "why": "NFS-mounted home directories are common on corporate and university Linux machines. There, the fallback moves the store from one unsafe filesystem to another. The ledger that bounds real spend and the backups that implement 'never lose what someone did' sit on a multi-process WAL over NFS, the case DR-1 exists to avoid. The fix is cheap in M1's slice and costly after release, since stores would have to be relocated.",
+    "fix": "In M1's backups slice, run the same check on the data root at first use. When it's unsafe, choose a local fallback (for example $XDG_STATE_HOME on a local mount, or refuse with a fix line naming PLANROOM_DATA), and add an fs_check.rs case with the data root's filesystem type faked."
+   },
+   {
+    "id": "unasked-r3-6",
+    "title": "repo_skipped's fix tells a root agent to chown -R another user's tree, the usual devcontainer and bind-mount case",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/text/en.toml (repo_skipped other_owner fix line)",
+     "crates/planroom/src/app/scan.rs"
+    ],
+    "evidence": "Verified: a fixture repo copied and chowned to uid 1234, then scanned as root, gave the warning 'Another user owns alien \u2026 Make it yours with chown -R \"$(id -un)\" /\u2026/fx/alien, or scan as the user who owns it.' The same string is in details.fix. AGENTS.md says hints are exact commands, and agents act on them.",
+    "why": "In a container running as root over a host bind mount (uid 1000), the fix makes the host user's whole repo root-owned, and that user can no longer write to it. The narrower remedy is the one git itself prints: `git config --global --add safe.directory <path>`, which DR-78 keeps. This isn't data loss, but it's an exact command that damages the user's environment.",
+    "fix": "Make the fix line the safe.directory command, and give chown as an alternative only when the euid isn't 0. Add a details.reason test for the root case."
+   },
+   {
+    "id": "unasked-r3-7",
+    "title": "The 50,000-file cut drops whole top-level directories in sorted path order, and focus reports the scan as 'done'",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/decisions.md (DR-85 'Scan reads the commit': cut in sorted path order)",
+     "crates/extract/src/files.rs"
+    ],
+    "evidence": "Verified on a 55,000-file repo laid out as d000..d109, 500 files each:\n- scan warned `partial_scan` count 5000.\n- `map --level component` summary: '100 at the top: d000 \u2026 and 88 more'. d100 to d109 are absent entirely.\n- `focus --json` gives progress.scan 'done' and no warning.\n\nThe missing warning is unasked-r2-3, a known gap. What's new here is the cut policy: sorted order removes whole subtrees rather than thinning them.",
+    "why": "For a monorepo (apps/, libs/, services/, web/), the cut silently deletes the alphabetically last subsystems from every level of the map. That works against R1's 'faithful roll-ups' and 'no repo gets nothing'. Because the cut decides a snapshot's facts and IDs, changing the policy later re-keys every large repo's snapshots.",
+    "fix": "Decide the cut policy before M1's extractor slice:\n- Breadth-first by directory depth, so every top-level directory gets a node, with its uncovered count as a prop.\n- Or keep sorted order but always emit a node for each top-level directory.\n\nRecord the choice in DR-47's bounds."
+   },
+   {
+    "id": "unasked-r3-8",
+    "title": "The scan summary counts unborn and skipped repos as mapped and moved",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/scan.rs (summary)",
+     "crates/planroom/text/en.toml (scan summary line)"
+    ],
+    "evidence": "Verified: the fixture's 5 repos plus an unborn `fresh` and a skipped `alien` gave 'Mapped 6 repos, 6 of them moved: 9 containers, 135 nodes, 17 hints.' Only 5 repos have content. `fresh` maps nothing, per its own `repo_unborn` warning. On the 55k workspace with two empty repos added: 'Mapped 3 repos, 3 of them moved'.",
+    "why": "The summary is the line agents read first (DR-85), and it contradicts the warnings beside it. Token-efficient output only works if the summary is right without reading the details.",
+    "fix": "Count only repos whose snapshot holds content as mapped. Add 'and N skipped' or 'N with no commits' clauses from the per-repo outcomes, and add a budgets or summary test with one unborn and one skipped repo."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "unasked-r3-1",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. I ran target/debug/planroom on repos named `my app` and `svc:v2`: scan returned ok:true with IDs `my app:repo:my app` and `svc:v2:repo:svc:v2`. The first fails the schema's NodeId pattern ^[^:\\s]+:[^:\\s]+:.+$ (schema/planroom.v1.schema.json:2663), and the second splits wrongly under NodeId::from_str (crates/contract/src/model.rs:32-35). workspace.rs:59 and :83 use the raw directory name or relative path, which differs from DR-74 (architecture.md:312). Nothing in the tree builds meta.repos. The drift is also missing from the skeleton-found table (architecture.md:1607 lists only the state-directory drift). Downgraded to minor: no code path parses NodeId today (from_str is used only in its unit tests at model.rs:261-265), and no TS code validates the pattern at runtime. DR-74's namespace scheme is already M1 work (architecture.md:1634). No store or override has shipped, so fixing it before M1's IDs slice needs no migration. The fixture's tier A/B scenarios use safe names. The escaping gap in DR-74 itself is real: a directory name can contain whitespace or ':'. It should be recorded."
+  },
+  {
+   "id": "unasked-r3-2",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed with git 2.43.0. I built a blob-less partial clone, set remote.origin.url to an ext:: command and set `protocol.ext.allow always` in its local config. `env -i PATH HOME git -c protocol.allow=never cat-file -p <missing blob>` ran the command, and the PWNED file appeared. With GIT_NO_LAZY_FETCH=1, git printed 'lazy fetching disabled' and created nothing. So the repo-local per-protocol key beats the command-line protocol.allow, and the code comment at crates/extract/src/git.rs:68-70 ('protocol.allow=never refuses every transport on any version') is false. architecture.md:837 claims 'So no call fetches' for every version from the 2.34.1 floor. The hardening test (crates/planroom/tests/git_hardening.rs:62-84) plants only remote.origin.uploadpack over file://, which protocol.allow=never already blocks on old git, so it doesn't cover this bypass. Not verified: that a git between 2.34.1 and 2.39.3 without a backport ignores GIT_NO_LAZY_FETCH. That follows from upstream history and isn't contradicted by anything in the repo. Material: it's the same code-execution-on-scan threat that correctness-15 was rated material under, and the fix doesn't hold on part of the documented supported range."
+  },
+  {
+   "id": "unasked-r3-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. data.rs:41 falls back to PathBuf::from(HOME.unwrap_or_default()).join(\".local/share\"), which is relative when HOME is unset. In a temporary single repo, `env -i PATH=... planroom serve --detach --json` replied with login_page '.local/share/planroom/open/<hex>.html' and created repo/.local/share/planroom/{workspaces.json, workspaces.json.lock, open/<hex>.html, logs/<id>/serve.log} inside the working tree. I stopped the server afterwards. A plain scan wrote nothing there. Minor is right: the code expires in 60 s and the ledger isn't built yet."
+  },
+  {
+   "id": "unasked-r3-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by code; I didn't rerun the mv repro. bind() at crates/planroom/src/server/mod.rs:121-124 computes `recorded` and `others` only by `w.root == root.display()`. workspace_id is written by data::record but never used for lookup, so a moved root gets a fresh port and the old entry stays. Nothing prunes entries. DR-78 (decisions.md:1806) promises a port per workspace that never moves unasked. Minor: the pending edits in localStorage that a port move would strand belong to M1 and don't exist yet."
+  },
+  {
+   "id": "unasked-r3-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed as a design gap. architecture.md:559 and DR-1's amendment (decisions.md:150) check only the filesystem the state directory is on, and the fallback is DATA_ROOT/stores/... I found no text that checks the data root's own filesystem. I grepped architecture.md and decisions.md for 'data root' together with nfs, network, filesystem, mount or unsafe. The data root will also hold ledger.db and the backups (architecture.md:33, :1633). Nothing in the skeleton is affected yet, so minor is right."
+  },
+  {
+   "id": "unasked-r3-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed the text: crates/planroom/text/en.toml:72 reads 'Make it yours with chown -R \"$(id -un)\" {path}, or scan as the user who owns it.', and scan.rs:215 tags other_owner. Under euid 0 over a bind mount, that command would make the host user's tree root-owned. Minor is right. The proposed fix is partly contradicted by the design, though. DR-78 (architecture.md:837) has the engine itself refuse a repo whose git directory another user owns, comparing the owner with the euid, so `git config safe.directory` alone won't clear it once M1 builds that check. The safer change is to word the hint for the root or container case, or to drop the -R chown suggestion when the euid is 0."
+  },
+  {
+   "id": "unasked-r3-7",
+   "refuted": true,
+   "severity_after": "none",
+   "reason": "The cut policy is an explicit recorded decision. DR-85 says '50,000 files and 256 MiB a repo, cut in sorted path order' (decisions.md:2098), DR-47 says 'Each extractor takes files in sorted path order ... A cut is the same on every machine and reports partial_scan' (decisions.md:908), and architecture.md:632 says the same. The finding doesn't show that the code contradicts it, and it doesn't show a KICKOFF break. R1's 'no repo gets nothing' (KICKOFF.md:58) still holds: the cut repo gets its first 50,000 files, the roll-ups stay faithful to what was mapped, and scan warns partial_scan. Its other part, focus reporting 'done' without the warning, is unasked-r2-3, which the README logs as a minor known gap (README.md:194). Under the round's rules, this re-reports a DR-85 decision."
+  },
+  {
+   "id": "unasked-r3-8",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. summary() (crates/planroom/src/app/scan.rs:131-141) uses write.repos.len() for {repos}, while `moved` counts RepoOutcome::Recorded. I scanned a workspace with one committed repo `a` and an unborn repo `fresh`. It printed 'Mapped 2 repos, 2 of them moved: 0 containers, 2 nodes, 0 hints.' next to the warning repo_unborn 'fresh has no commits yet; it maps after its first commit.' The summary contradicts its own warning, which makes it a minor accuracy defect in agent-facing output."
+  }
+ ]
+}

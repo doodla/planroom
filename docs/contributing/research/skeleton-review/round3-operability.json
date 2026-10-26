@@ -1,0 +1,124 @@
+{
+ "lens": "operability",
+ "review": {
+  "summary": "Lens: operability and release, round 3, on b007ff3. HEAD is aaad29d, which changes only crates/xtask/src/main.rs, .claude/carry.md and a skill since b007ff3 (git diff --stat).\n\nFix checks, all verified by running or reading:\n- ops-2 (R1, material): HOLDS. I ran the resolver's `build` from a copy of plugin/ with a temp PLANROOM_DATA and shim git, cargo and pnpm. The call order was `git clone --depth 1 --branch main`, then `pnpm install --frozen-lockfile --offline`, then `cargo xtask gen --canvas`, then `cargo build --release --locked -p planroom`. The engine was then cached with `.ok` and `last_used`, the clone was removed, and `status --json` reported step `cache`.\n- ops-3 (R1, material): HOLDS. README.md:8-9 and plugin/README.md give `/plugin marketplace add doodla/planroom` then `/plugin install planroom@planroom`. No shipped doc uses `--marketplace`.\n- R2 material findings in this lens: none. The ops lens's round-2 findings were all minor.\n- The resolver half of GUARD2's security-r2-1 fix (DR-86, \"the resolver checks its cache\"): HOLDS. I swapped the cached binary for a script, and `status --json` no longer resolved from the cache. `installer (ubuntu-24.04)` and `installer (macos-15)` are green in run 40355961410, including a_swapped_cached_engine_is_refused.\n- drift-2's contract.sh (R1 spot check): HOLDS. The resolver sources it and spells no code itself.\n- The plugin.json stamp `0.1.0-dev.gc3281fc5` matches my recomputation of plugin_hash.\n- serve: `serve --detach` gives PGID = SID = pid with PPID 1. serve.json and the login page are 0600. After `kill -9`, a second `serve --detach` reuses the recorded port.\n- A store bumped to user_version 2: watch prints one schema_mismatch envelope and exits 7. serve logs \"the live loop stopped\" and exits. serve.json is left behind, as round 2 found (ops-r2-10, still minor).\n\nStill known gaps, no worse:\n- ops-7: no release.yml, CHANGELOG, `gen --version`, check-tag-version.sh, SECURITY.md or dependabot.yml; release-dry-run has `if: false`; the package.json files say 0.1.0 while Cargo says 0.1.0-dev. A release still can't be cut from this tree, and the path-dependency pins (`=0.1.0-dev`) have nothing to rewrite them.\n- ops-1 and security-7: the cache key is `$data/engine/$version`, while architecture.md states VERSION+HASH as if built.\n- ops-r2-1: the README line reads main's `./plugin` entry, and the layout check requires exactly that, so no published git-subdir entry can exist.\n- Also unchanged: ops-r2-2, -3, -4, -5, -7 and -8, ops-11 (data root created at 0755), and the empty serve.log (drift-11).\n\nNew and most important: CI has been red on every completed run since round 2's merges. macOS fails SCAN2's new test on every run, most likely from a non-physical temp path in the test. The Ubuntu job fails a different test each run. xtask's 80-line tail hides the assertion text, so CI logs can't show why.\n\nOn a clean machine, a first user installing from the marketplace still gets the dev-version source build. Its preflight can still promise \"about 4 minutes\" on toolchains that will fail.\n\nWhat I assumed rather than verified:\n- The exact macOS assertion that fails. The CI log doesn't print it; I reproduced the engine's physical-path output on Linux through a symlink.\n- The cause of the Ubuntu budgets failure. It doesn't reproduce on Linux here, with or without the Ruby pack.\n- Platform facts about Homebrew and Debian cargo versions, and Node or pnpm minimums.",
+  "findings": [
+   {
+    "id": "ops-r3-1",
+    "title": "CI is red on every completed run since round 2's merges: macOS fails SCAN2's new test every time, and Ubuntu fails a different test each run",
+    "severity": "material",
+    "where": [
+     ".github/workflows/ci.yml (test job)",
+     "crates/planroom/tests/scan.rs:470-531 (an_unborn_and_an_unreadable_repo_leave_the_rest_of_the_workspace_mapped, added in 22c5611)",
+     "crates/planroom/tests/scan.rs:509",
+     "crates/testkit/src/lib.rs:33-43",
+     "crates/planroom/tests/budgets.rs:240-291",
+     "docs/contributing/decisions.md (DR-86 Sources: 'the merged tree's cargo xtask check, test, ...')"
+    ],
+    "evidence": "VERIFIED (read-only gh calls).\n\n`gh run list --branch ccr-b124f0e3-xnzjca`: every completed run since the round-2 merge 2c01122 is `failure` (40349180778 on 2c01122, 40350501570 on 441eb1d, 40355961410 on aaad29d). Every other run since then was `cancelled`, including b007ff3's (40355613412), so the reviewed commit never got a finished run. aaad29d differs from b007ff3 only in xtask/main.rs, carry.md and a skill (`git diff --stat`).\n\n`gh run view --log-failed`:\n- test (macos-15) fails `planroom::scan an_unborn_and_an_unreadable_repo_leave_the_rest_of_the_workspace_mapped` in all three runs.\n- test (ubuntu-24.04) fails `FAIL + LEAK planroom::live watch_frames_every_commit_of_three_writers_and_a_rescan_within_1_s` in 40350501570 and `planroom::budgets every_built_leafs_reply_on_the_fixture_keeps_to_its_budget` in 40355961410.\n\nThe macOS cause is LIKELY a test bug:\n- `fixture()` returns `out.to_path_buf()` without canonicalizing (testkit/src/lib.rs:43).\n- scan.rs:509 asserts `fix.contains(\"git -C {root}/broken status\")`.\n- The engine reports physical paths. I scanned a workspace through a symlinked path (link/ws -> real/ws) holding a broken repo, and the fix read `Run git -C .../real/ws/broken status ...`.\n- macOS tempdirs are /var/folders/..., a link to /private/var/..., and DR-83 says the harnesses must take physical paths.\n\nThe Ubuntu budgets failure doesn't reproduce here. On a fixture I built with examples/build-fixture, with and without the Ruby pack config, every leaf stayed within budget (largest: schema --command focus at 1431/1500).",
+    "why": "KICKOFF S14 (tier A) requires 'CI is green on the pushed branch', and AGENTS.md requires `cargo xtask test` to pass before claiming success. DR-86 records that the merged tree's `cargo xtask test` passed, which holds only for the local Linux-as-root run, not macOS CI. While the job is red, a real regression on macOS (a supported platform) would be indistinguishable from this test bug. Two Ubuntu tests fail intermittently, one of them the 1 s live gate.",
+    "fix": "Canonicalize the fixture root in the test (or in `fixture()`), e.g. `let root = fixture(&dir.path().canonicalize().unwrap()).root;`. Rerun the Ubuntu job with full failure output (see ops-r3-2) to fix or deflake the budgets and live-watch tests. Don't let a merge's CI run be cancelled by the carry-note push that follows it."
+   },
+   {
+    "id": "ops-r3-2",
+    "title": "xtask keeps only the last 80 lines of a failed step, so CI logs never show why a Rust test failed",
+    "severity": "minor",
+    "where": [
+     "crates/xtask/src/report.rs:136-145",
+     "crates/xtask/src/main.rs:490-494"
+    ],
+    "evidence": "VERIFIED.\n- `Report::failed` prints `lines[len-80..]` of the step's captured output (report.rs:139-141).\n- nextest prints a failing test's stdout and stderr when the test finishes (`--failure-output` defaults to immediate), mid-run, so the tail holds only PASS lines and the summary.\n- The full job logs I saved: the macOS job (121688935311) and the Ubuntu job (121688935514) of run 40355961410 contain no `panicked`, `assertion`, `left:` or `STDERR` line. Only the `---- cargo nextest run ----` header and the FAIL line survive.",
+    "why": "The red CI in ops-r3-1 can't be diagnosed from CI at all, which is why its cause here is an inference. Platform-only failures (macOS paths, timing on runners) are exactly what local runs can't show.",
+    "fix": "For test steps, pass `--failure-output final` (or `immediate-final`) to nextest and print the step's whole output on failure, or at least everything from the first FAIL block. Alternatively, upload the full output as a job artifact."
+   },
+   {
+    "id": "ops-r3-3",
+    "title": "The source-build preflight checks the Rust version only in a checkout, and Node and pnpm only for presence, so the first user's card promises a 4-minute build that fails",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:326-356",
+     "plugin/scripts/planroom:359-366",
+     "docs/contributing/architecture.md (The source build: 'cargo at or above the workspace's rust-version')"
+    ],
+    "evidence": "VERIFIED by running. I ran a copy of plugin/ outside any checkout (the marketplace-install case) with `env -i PATH=<dir>`: a `cargo` that prints `cargo 1.75.0`, no rustup, and cc, git, node and pnpm linked in. `scripts/planroom version --json` answered `engine_unavailable`, reason `no_release`, 'Build it from source, about 4 minutes', `est_minutes: 4`, `canvas: true`.\n\nThe rust-version comparison sits inside `if ! command -v rustup ... && checkout=$(checkout_dir)` (:332). Outside a checkout there's no Cargo.toml to read, so it never runs. The clone's Cargo.toml says `rust-version = \"1.97\"`.\n\n`canvas=true` is set whenever `node` and `pnpm` are on PATH (:351-354). No version is checked, though the workspace pins Node 22.22.0 (.node-version) and pnpm 10.28.2 with a v9 lockfile.\n\nASSUMED from platform knowledge: distro and older Homebrew cargo builds are below 1.97, and an older Node or pnpm fails `vite build` or `--frozen-lockfile`.",
+    "why": "On the only install path that exists until a release (a -dev plugin, so the clone build), the person accepts a card that says it will work. The build then fails after cloning and partly compiling. It's a known class (ops-r2-7), but this gap isn't listed there, and it contradicts architecture.md's preflight, whose job is 'never a card for a build that will fail'.",
+    "fix": "Write the workspace's rust-version into engine.env with `gen` and compare against it whether or not there's a checkout. When rustup is absent, require that version; when it's present, the toolchain file decides. Check `node --version` against the major version in .node-version, and the pnpm major, before reporting `canvas: true`."
+   },
+   {
+    "id": "ops-r3-4",
+    "title": "A failed source build leaves its clone and partial target directory under the data root until the next build",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:402-419"
+    ],
+    "evidence": "VERIFIED with shims (a fake cargo that exits 101 on `build --release`). `scripts/planroom build` printed `error: boom` and exited 101. `ls data/src` still held `0.1.0-dev/`.\n\nThe script runs under `set -e`, so a failed `git clone`, canvas step or `cargo build` exits at once. The only `rm -rf \"$src\"` is after a successful install (:419) or at the start of the next build (:402). No trap removes it, and the mod's failure line (register.tsx:239-249) names none of this.",
+    "why": "A release build's target directory runs to gigabytes, as the resolver's own comment says (:418). After a failed build, or the mod's 600 s timeout killing one, that disk stays used under ~/.local/share/planroom/src/ with nothing telling the person. It's freed only if they press Build again.",
+    "fix": "Set a trap in build() that removes `$src` on any non-zero exit, as take_lock does for `$tmp`. Or keep the clone only for a retry the person starts, and say where it is in the failure line."
+   },
+   {
+    "id": "ops-r3-5",
+    "title": "`version --json` never reports git_commit, so nothing identifies which main commit a -dev engine was built from",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/version.rs:27",
+     "crates/planroom/build.rs",
+     "docs/contributing/contracts.md:344"
+    ],
+    "evidence": "VERIFIED.\n- `target/debug/planroom version --json` reports `\"version\":\"0.1.0-dev\",\"git_commit\":null`.\n- version.rs:27 reads `option_env!(\"PLANROOM_GIT_COMMIT\")`, but build.rs sets only `PLANROOM_TARGET` (`grep -rn PLANROOM_GIT_COMMIT crates/` finds only that read).\n- contracts.md:344 and DR-82 document `git_commit` in VersionInfo.\n- Every -dev engine reports the same version, and the resolver caches it under `engine/0.1.0-dev` with no hash (ops-1).",
+    "why": "Until a release, every user's engine is a clone build of some main commit (the resolver clones `--branch main`). With no commit in VersionInfo, and a version-only cache key, neither the person nor a bug report (doctor, M5) can tell which code is running after a plugin update. That makes ops-1's stale-engine problem undiagnosable.",
+    "fix": "In build.rs, set `PLANROOM_GIT_COMMIT` from `git rev-parse HEAD` when the build runs in a git checkout (with rerun-if-changed on .git/HEAD), and leave it null otherwise."
+   },
+   {
+    "id": "ops-r3-6",
+    "title": "A rebuild swaps the cached binary before rewriting its .ok stamp, so a resolve in that window treats the cache as missing",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:413-417",
+     "plugin/scripts/planroom:152-156",
+     "plugin/scripts/planroom:310-312"
+    ],
+    "evidence": "VERIFIED by reading.\n- build() runs `cp built planroom.new`, then `mv -f planroom.new planroom`, then `sha256_of planroom > .ok`, then touch_last_used (:413-417). The old `.ok` stays in place until the redirect truncates and rewrites it.\n- download() instead removes `.ok` first and writes `.ok.new` and renames it (:310-312).\n- cache_ok (round 2's GUARD2 fix) requires `.ok` to be non-empty and to match the binary's sha256.\n- Between the mv and the end of the hash write (a hash of a tens-of-MB binary), a concurrent resolve finds a mismatch. For a -dev version that falls through to `offer_build` with `engine_unavailable`/`no_release` (:480-481), so a skill's Bash call or a reloading mod is told to build again mid-rebuild.",
+    "why": "This is a narrow race the round-2 cache check introduced on the build path. It can't run a wrong binary, but it can send a second session into a second build, which deletes the first build's clone (ux-k).",
+    "fix": "Write the stamp the way download() does: `rm -f .ok`, hash `planroom.new` into `.ok.new`, `mv planroom.new planroom`, then `mv .ok.new .ok`. Also take the fetch lock around build()'s install step."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "ops-r3-1",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed with read-only gh calls. `gh run list` shows every completed run since round 2's merge failed: 40349180778, 40350501570 and 40355961410. Every other run in that period, including b007ff3's 40355613412, was cancelled, and the last success is 40343743319, from before the merges. `gh run view --log-failed` shows test (macos-15) failing `planroom::scan an_unborn_and_an_unreadable_repo_leave_the_rest_of_the_workspace_mapped` in all three runs. Ubuntu failed `live watch_frames_every_commit_of_three_writers_and_a_rescan_within_1_s` (FAIL + LEAK) in 40350501570 and `budgets every_built_leafs_reply_on_the_fixture_keeps_to_its_budget` in 40355961410. The test compares against a path that isn't canonicalized: scan.rs:474 calls `fixture(dir.path()).root`, testkit/src/lib.rs:43 returns `out.to_path_buf()`, and scan.rs:509 builds `git -C {root}/broken status`. decisions.md:2013 itself notes that macOS reports /private/var for /var temp paths. So the reviewer's likely cause is plausible, but it is an inference: the CI log holds no assertion text. KICKOFF.md:127 puts S14 in tier A, and :189 requires 'CI is green on the pushed branch'. The review README doesn't log this as a known gap. Material holds."
+  },
+  {
+   "id": "ops-r3-2",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. report.rs:136-145 prints only the last 80 lines of a failed step. main.rs:490-494 runs `nextest run --no-fail-fast` without `--failure-output`, and there is no `.config/nextest.toml`. Grepping run 40355961410's failed log for panicked, assertion, left:, STDERR or STDOUT finds 0 matches. The tail shows only PASS lines and the summary. This is a diagnosability gap, not a scenario failure, so minor is right."
+  },
+  {
+   "id": "ops-r3-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading plugin/scripts/planroom:325-356. The rust-version check sits inside `if ! command -v rustup ... && checkout=$(checkout_dir)`, so it never runs outside a checkout. `canvas=true` rests only on `command -v node` and `pnpm`, with no version checked. I didn't rerun the reviewer's shim test. ops-r2-7, a logged known gap, covers missing git, the macOS xcode shims and PATH after rustup, but not an old cargo outside a checkout or old Node and pnpm versions, so this is a distinct gap. It is the same class of preflight miss, and a failed build is visible and recoverable, so minor."
+  },
+  {
+   "id": "ops-r3-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading. The script runs under `set -eu` (:15). build() at :402-419 removes `$src` only before cloning and after a successful install. Its only traps are take_lock's (:212), which don't cover build(). The exit at :412, taken when main is newer than the plugin, also leaves the clone behind. The disk is reclaimed on the next build of the same version, so this is a disk-use problem, not data loss. Minor."
+  },
+  {
+   "id": "ops-r3-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. `target/debug/planroom version --json` returns `\"git_commit\":null`. version.rs:27 reads `option_env!(\"PLANROOM_GIT_COMMIT\")`, and grep finds nothing in crates/, plugin/ or .github/ that sets it, release.yml included. contract command.rs:593 types the field as Option, so null is a valid value, but no build path ever fills it. It's a diagnosability gap, so minor."
+  },
+  {
+   "id": "ops-r3-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading. build() at :413-417 runs `mv planroom.new planroom` and only then `sha256_of > .ok`. The redirect truncates `.ok` first, so `-s` fails, and until it is rewritten the old hash mismatches. cache_ok at :152-156 then fails, and a -dev resolve falls to offer_build (:480-481). download() at :310-312 uses the rm, .ok.new and mv order instead. The race only matters when a rebuild runs while the cache is valid, since resolve offers a build only when cache_ok fails. That rebuild is a documented path: architecture.md:1298 says 'Install Node 22 and pnpm, then run scripts/planroom build' for a canvas-less engine. The window lasts only as long as one hash, and it can't run a wrong binary. Minor."
+  }
+ ]
+}
