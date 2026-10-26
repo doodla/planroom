@@ -3,12 +3,13 @@
 Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `ccr-b124f0e3-xnzjca`; push with `git push -u origin ccr-b124f0e3-xnzjca`.
 
 ## Where I am
-- Phases 1-3 DONE. Phase 4 skeleton DONE and live (ws8-install.md, ws7-remote.md). CI green at 3e435fd+.
-- Skeleton review round 1 DONE: 94 findings, 18 material (index: docs/contributing/research/skeleton-review/README.md). Commit 20179de (local) also scheduled repo-1/unasked-4 in M1 (+4 h, M1 119 h) and set debug=line-tables-only.
-- Fixing: wf_8e14921b-8a3 (SCAN track/fix-scan, CONTRACT track/fix-contract) and wf_4d5fbffc-d36 (ENGINE track/fix-engine, SURFACES track/fix-surfaces). Me, main checkout: PLUGIN = ops-2 (source build runs the canvas build, prunes src), ops-3 (README install lines), repo-1 (`not built (M1)` lines in check).
-- Then: merge the 4 tracks with merge-track skill; write DR-85 (envelope `summary`, review fixes, doc conflicts); progress.md M1 119 h / total 380 h; round 2 review of the fixes (max 3 rounds); then M1.
-- M1 plan: tracks K (fold+IDs), X (extractors+linkers), P (packs+plan pack), A (actor/security, backups, .git/planroom, fs check), M (mod), C (canvas), G (S1 path, gates leftovers, serve/resolver). Add default excludes for fixture/test-data trees.
-- Lesson: chain `check && test && commit && push`; CI covers deny/busybox/macOS.
+- Phases 1-3 DONE. Phase 4 skeleton DONE and live. Skeleton review round 1: 94 findings, 18 material (docs/contributing/research/skeleton-review/README.md).
+- Round 1 fixes MERGED locally (not pushed yet): fix-engine, fix-surfaces, fix-scan (89c1bd4), fix-contract + DR-85 + layout.lock (90476d3). My own: resolver canvas build, README install lines, check's not-built lines (CI run 64 green).
+- Running: full suite on 90476d3 (bg task bfk2y75lh; status in scratchpad/m-status.log), and docs fold of DR-85 (wf_09ee2ebd-c73, branch track/docs-dr85 + checker).
+- Next: suite green -> push; merge docs fold; update review README rows to "fixed (commit)"; progress.md log; then round 2 review (review-round skill), max 3 rounds; then M1.
+- M1 plan: tracks K (fold+IDs), X (extractors+linkers, dirty signal with untracked files per DR-85), P (packs+plan pack), A (actor/security, backups, .git/planroom, fs check), M (mod), C (canvas), G (S1 path, gates incl. not-built ones, serve/resolver). Default excludes for fixture/test-data trees.
+- Skills: merge-track, review-round (eval: 5/5 both, non-discriminating; RESULTS.md).
+- Lesson: chain `check && test && commit && push`; CI covers deny/busybox/macOS. Don't pkill broadly: kill own PIDs.
 
 ## Gotchas
 - 4 CPUs -> workflow concurrency is 2. Prefer few, larger agents.
