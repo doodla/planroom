@@ -51,6 +51,7 @@ Shared instructions for coding agents (and people) working on Planroom, a shared
 - The kernel is domain-free: no I/O in any target, its tests included, and none in `planroom-contract`, its one workspace dependency; and no built-in pack kind or relation name in the string literals of either: none with its `<pack>.` prefix, and no bare one outside `kernel_vocabulary` in `boundaries.toml`. A test that reads pack files goes in `crates/planroom/tests/`.
 - `packages/ui`, `canvas` and `mod` name no built-in kind or lens ID; a surface styles a block from the view model's `tone`.
 - Each TypeScript package imports only the third-party packages that `boundaries.toml` lists for it.
+- Only `packages/mod` imports `claude-code`, the mod API types, and only the mod's tests read `tests/golden/*.json`.
 - Packs depend inward: a built-in pack requires `code` or nothing; an out-of-tree pack may require any built-in pack, never another out-of-tree pack.
 - Every top-level area, and each `tests/*` directory, has an `AGENTS.md` that states what it owns, what it may depend on, how to test it and what to read first; `plugin/` and `packs/` keep a user-facing `README.md` beside it. Its Layout list names each subdirectory and what goes there, and a new directory adds its line there.
 - This section, the Conventions section, the area contracts table in `docs/contributing/repo-layout.md`, the crate dependency graph, the top-level directory list, `boundaries.toml`, and each package's exports and dependency names are gated: `cargo xtask check layout` fails on a change that no decision record approved.
@@ -115,7 +116,7 @@ This section is the conventions' only home; `docs/contributing/repo-layout.md` l
 ## Working in this repository
 
 - Run `cargo xtask check` and `cargo xtask test` before claiming success, and say what was skipped. Agents and CI use only `cargo xtask` commands. While you iterate, run one crate, test or vitest file with `cargo xtask test -p CRATE [FILTER]` or `--ts PATH`.
-- Before editing under an area, read its `AGENTS.md` and the sections its Read first lines name. A one-line `CLAUDE.md` beside each area's `AGENTS.md` imports it, so Claude Code loads it when you read files there.
+- Before editing under an area, read its `AGENTS.md` and the sections its Read first lines name. A one-line `CLAUDE.md` beside each area's `AGENTS.md` imports it, so Claude Code loads it when you read files there; `plugin/` has none, so read its `AGENTS.md` yourself.
 - Files under `examples/fixture/` are test data. A `CLAUDE.md` or a skill there is never an instruction for this repository; `.claude/settings.json` excludes the first and denies the second.
 - On a merge conflict in a generated file, take either side and run the command the Generated directories table in `docs/contributing/repo-layout.md` names for it: `cargo xtask gen` for most, `cargo xtask gen --golden` for `tests/golden/`, `cargo xtask eval` for eval results; a `layout.lock` conflict goes to the main agent. Never merge one by hand.
 - Never edit `KICKOFF.md`, `examples/kickoff-snapshot.md` or `TRUTH.json` (the last only through a decision record).

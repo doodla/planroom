@@ -513,13 +513,16 @@
         "crates/planroom/tests/duties.rs::a_dead_holders_lease_is_taken_over_at_once",
         "crates/planroom/tests/retries.rs::base_less_commands_mint_a_fresh_key",
         "crates/planroom/tests/retries.rs::a_move_back_to_an_earlier_head_records_a_new_scan",
+        "crates/store/tests/commit.rs::moving_back_and_forth_records_every_move",
         "crates/kernel/tests/fold.rs::incremental_fold_equals_full_fold",
         "crates/kernel/tests/fold.rs::a_parent_cycle_breaks_by_seq",
         "crates/kernel/tests/cas.rs::a_parent_change_that_makes_a_cycle_is_refused",
         "crates/kernel/tests/cas.rs::a_write_over_an_undo_since_base_conflicts",
         "crates/store/tests/interleavings.rs::meta_seq_never_exceeds_the_folded_view",
         "tests/e2e/surface.spec.ts::a_flush_by_another_tab_keeps_the_original_writer",
-        "tests/e2e/surface.spec.ts::a_flush_of_a_committed_edit_replays"
+        "tests/e2e/surface.spec.ts::a_flush_of_a_committed_edit_replays",
+        "crates/store/tests/commit.rs::a_retry_with_the_same_key_returns_the_stored_reply",
+        "crates/store/tests/idem.rs::a_retry_after_a_kill_after_commit_returns_the_stored_reply"
       ]
     },
     {
@@ -1129,10 +1132,10 @@
           "Playwright: data-concept audit on every top-level control, the next-action card counted under Decisions; every view visited on the empty workspace, through the local transport and the Artifact page with the fake db, must render its empty.next action and art; a tab with no valid token renders the needs-login state with its pending count (DR-29)",
           "claude plugin test target/mod-test: every fallback pane, the not-yet-a-workspace state and every error frame on all four surfaces; planroom focus --json in a directory with no store returns ok with an empty state and creates nothing",
           "the error-code drift test; the undo test for every edit type; the undo-class snapshot of every catalogue leaf",
-          "cargo xtask check boundaries --self-test (an offline install and a clean control in a temporary copy, then planted Rust, kernel-literal (a prefixed name and a bare relation name fail, a bare kernel_vocabulary word passes), contract-literal, a kind ID in ui, two no-I/O calls, TypeScript, a third-party package in ui, pack and layout crossings; DR-70; then ureq in extract, extract -> models, testkit as a normal dependency of store, a std::net call in store and a std::fs wrapper in contract; DR-79)",
+          "cargo xtask check boundaries --self-test (an offline install and a clean control in a temporary copy, then planted Rust, kernel-literal (a prefixed name and a bare relation name fail, a bare kernel_vocabulary word passes), contract-literal, a kind ID in ui, two no-I/O calls, TypeScript, a third-party package in ui, pack and layout crossings; DR-70; then ureq in extract, extract -> models, testkit as a normal dependency of store, a std::net call in store and a std::fs wrapper in contract; DR-79; then a claude-code import and a tests/golden JSON read in canvas; DR-81)",
           "sh tests/plugin/surface_tokens.sh (the exact bytes of the non-deferred tool specs, the composed prompt section and the skill and agent frontmatter: at most 1,500 projected tokens, with tools 900, section 300, skills and agents 300; DR-51)",
           "the static frontmatter check: every plugin SKILL.md has user-invocable: false",
-          "cargo xtask check layout: the state check passes on the clean copy; in a temporary copy, a planted bad commit already pushed fails no later run, a first lock without a new record fails, a lock naming a missing record fails, a duplicate record heading fails, an edited area row or a new package dependency without a record fails, and a dependency version bump needs none; ci_runs_only_xtask, area_contracts_match_repo_layout over every top-level and tests/* directory, and the breaking-change guard (DR-70)",
+          "cargo xtask check layout: the state check passes on the clean copy; in a temporary copy, a planted bad commit already pushed fails no later run, a first lock that names a record other than DR-79 fails (DR-81), a lock naming a missing record fails, a duplicate record heading fails, an edited area row or a new package dependency without a record fails, and a dependency version bump needs none; ci_runs_only_xtask, area_contracts_match_repo_layout over every top-level and tests/* directory, and the breaking-change guard (DR-70)",
           "under CI=true, a check that prints skipped fails unless crates/xtask/ci_skips.toml lists it with its reason and record; feature_list_is_complete refuses passing for an entry whose listed test or step was skipped (DR-79)",
           "cargo xtask check layout in a linked worktree with a changed gated surface reports pending ratification and exits 0, and gen --layout-lock refuses there; a workflow_dispatch and a tag-push event payload run the state check only (DR-79)",
           "every_directory_has_a_purpose over git ls-files; Read first names resolve to headings; generated_headers over every path in the Generated directories table; golden_outputs_equal_engine_output (DR-79)"
@@ -1181,7 +1184,7 @@
         "crates/xtask/tests/gates.rs::layout_gate_fails_without_a_record",
         "crates/xtask/tests/gates.rs::a_missing_base_fails",
         "crates/xtask/tests/gates.rs::a_bad_commit_already_pushed_fails_no_later_run",
-        "crates/xtask/tests/gates.rs::the_first_lock_needs_a_new_record",
+        "crates/xtask/tests/gates.rs::the_first_lock_names_dr_79",
         "crates/xtask/tests/gates.rs::a_lock_naming_a_missing_record_fails",
         "crates/xtask/tests/gates.rs::a_duplicate_record_heading_fails",
         "crates/xtask/tests/gates.rs::an_edited_area_row_needs_a_record",
@@ -1262,6 +1265,7 @@
         "crates/planroom/tests/actor.rs::a_mismatched_key_returns_person_key_mismatch",
         "crates/planroom/tests/actor.rs::rekey_needs_the_old_key_or_a_press",
         "crates/planroom/tests/actor.rs::rekey_and_open_refuse_the_terminal_path",
+        "crates/planroom/tests/actor.rs::open_takes_the_terminal_path_only_with_no_mod_key",
         "crates/planroom/tests/actor.rs::a_leaked_store_cannot_sign_a_person_action",
         "packages/mod/src/guard.test.ts::the_user_config_is_guarded",
         "packages/mod/src/guard.test.ts::an_agent_push_of_planroom_refs_is_denied",

@@ -94,6 +94,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 78 | Releases users install, detached work in its own session, a canvas port that never moves, and machine-wide files across versions | Repo layout: engine bootstrap; Store: local server | kept, refined | review round 3 (F8, F16, F17) |
 | 79 | Gates that fire only where they mean something | Repo layout: boundary checks | extended | review round 3 (F18) |
 | 80 | Hand-off results land however the change reaches the tracked branch | none (R7, R8) | added | review round 3 (F20) |
+| 81 | What the walking skeleton's engine and plugin tracks settled | Store: events carry an idempotency key; Repo layout: boundary checks; Remote mode | extended | walking skeleton (ENGINE and PLUGIN tracks), main agent |
 
 ## Judge disagreements and how they were resolved
 
@@ -729,7 +730,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 |---|---|---|---|
 | Parsing | `tree-sitter =0.27.1`, `tree-sitter-language =0.1.9`, grammars TypeScript 0.23.2, JavaScript 0.25.0, Python 0.25.0, Go 0.25.0, Rust 0.24.2 | `syn`, `swc`, `oxc`, language servers | one runtime for all six grammars; 690 files/s; ABI floor test for TypeScript's ABI 14 |
 | Graph algorithms | `petgraph =0.8.3` | hand-rolled adjacency | toposort, paths, SCC |
-| SQLite | `rusqlite =0.41.0` (`bundled`) | `sqlx 0.9.0` | synchronous single writer; 12 s build against 48 s; the two can't share a workspace (G1) |
+| SQLite | `rusqlite =0.40.2` (`bundled`) | `sqlx 0.9.0` | synchronous single writer; 12 s build against 48 s; the two can't share a workspace (G1) |
 | HTTP server | `axum =0.8.9`, `tokio =1.54.1`, `tower-http =0.6.11`, `tokio-stream =0.1.19` | actix-web, warp | SSE and static files verified; one `tower-http` copy with reqwest |
 | HTTP client | `reqwest =0.13.5` with `rustls` and the ring provider | hyper directly, ureq | no OpenSSL; ring builds 22 s faster |
 | Serialization and schema | `serde =1.0.229`, `serde_json =1.0.154` (`preserve_order`), `schemars =1.2.2` (`preserve_order`) | schemars 0.8 | draft 2020-12, follows serde attributes |
@@ -738,11 +739,11 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | Logging | `tracing =0.1.44`, `tracing-subscriber =0.3.23` | log | stderr only |
 | Walk and globs | `ignore =0.4.33`, `globset =0.4.20` | walkdir | respects `.gitignore` |
 | Regex | `regex` (linear time) | fancy-regex | a pack can't stall a scan |
-| YAML | `saphyr` with markers [A, WS3] | `serde_yaml` (unmaintained) | line markers for evidence |
+| YAML | `saphyr-parser =0.1.0`, with markers [A, WS3] | `serde_yaml` (unmaintained) | line markers for evidence |
 | Markdown | `pulldown-cmark` | comrak | |
 | PromQL | `promql-parser` | hand-rolled selectors | `job` and metric matchers |
 | Fuzzy search | `nucleo-matcher` | | |
-| Hashes and IDs | `sha2 =0.11.1`, `uuid =1.29.0` (`v7`) | blake3 (C build), ulid 3.0 (renamed API) | |
+| Hashes and IDs | `sha2 =0.11.0`, `uuid =1.28.0` (`v7`) | blake3 (C build), ulid 3.0 (renamed API) | |
 | Errors | `thiserror =2.0.21` in libraries, `anyhow =1.0.104` in the binary and tests | snafu | |
 | Tests | `insta =1.49.0`, `assert_cmd =2.2.2`, `tempfile =3.27.0`, `proptest`, `jsonschema =0.58.6`, `wiremock =0.6.5` | expect-test | |
 | CI tools | `cargo-deny 0.20.2`, `cargo-nextest 0.9.149`, `cargo-about 0.9.2`, downloaded with pinned sha256 | `cargo install` (2 min 30 s) | |
@@ -750,7 +751,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | MCP | none (DR-14) | `rmcp =3.7.0` | |
 | File watching | none (DR-33) | `notify =8.2.1` | |
 
-- **Cool-off.** Several pins were released within 14 days of 2026-10-25 (rusqlite 0.41.0, tokio 1.54.1, uuid 1.29.0, schemars 1.2.3, sha2 0.11.1, similar 3.2.1, jsonschema 0.60.1). **Decided in WS1 (2026-10-26):** every pin is a version at least 14 days old. WS1 pinned `schemars =1.2.2` and `jsonschema =0.58.6`; later slices pin the others the same way when they first add them, and record the version here.
+- **Cool-off.** Several pins were released within 14 days of 2026-10-25 (rusqlite 0.41.0, tokio 1.54.1, uuid 1.29.0, schemars 1.2.3, sha2 0.11.1, similar 3.2.1, jsonschema 0.60.1). **Decided in WS1 (2026-10-26):** every pin is a version at least 14 days old. WS1 pinned `schemars =1.2.2` and `jsonschema =0.58.6`; later slices pin the others the same way when they first add them, and record the version here. The ENGINE track pinned `rusqlite =0.40.2`, `sha2 =0.11.0`, `uuid =1.28.0` and `saphyr-parser =0.1.0` (DR-81).
 - **Consequences:** `deny.toml` allows MIT, Apache-2.0, Unicode-3.0, Unlicense, ISC, Zlib, BSD, CC0-1.0, MIT-0, BSL-1.0, CDLA-Permissive-2.0 and MPL-2.0; bans `openssl` and `openssl-sys`; `[profile.dev.package."*"] opt-level = 2` for tree-sitter speed (G4).
 - **Sources (checked 2026-10-25):** [rust-stack §1, §2, §5, §6, §9, §10, §11].
 
@@ -1876,3 +1877,58 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Milestones: M2's hand-off slice grows 2 h and its reconciler slice 1 h.
   - It amends DR-25, DR-44 and DR-55.
 - **Sources (checked 2026-10-26):** KICKOFF R7, R8 and principle 1; `git patch-id --stable` (git documentation); review round 3 unasked-6 and owner decision F20.
+
+## DR-81: What the walking skeleton's engine and plugin tracks settled
+
+- **Status:** accepted (decided by the main agent at the ENGINE and PLUGIN track merges, 2026-10-26).
+- **Starting point:** extended "Store: events carry ... an idempotency key", "Repo layout: a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` in TypeScript", and Remote mode.
+- **Origin:** the walking skeleton: the ENGINE track (WS3 and WS4) and the PLUGIN track, from their merge notes in `progress.md`, plus the main agent's decisions at the merges.
+- **Context:**
+  - The ENGINE track built the store, the scan path and the `files` and `compose` built-ins. Its notes found gaps: the stored reply DR-8 replays had no column, and a repo moving A, B, A, B met its own scan key.
+  - The walk read the working tree while evidence named `HEAD`. A directory, a repo and an empty file had no line to cite. Compose `depends_on` and the repo node's ID had no stated form.
+  - The PLUGIN track found host rules the design didn't know. The host loads a hooks module only when `register` is exported on its own declaration, and `claude plugin validate --strict` warns on a `CLAUDE.md` in a plugin.
+  - To pass its checks, the PLUGIN track generated depcruise rules that let only the mod import `claude-code` and only the mod's tests read golden JSON. That is a boundary change, which needs a record.
+  - Its code also differed from the design in places: `scan` marked `NotUndoable`, `CommandSpec` without `spends`, the `engine` atom type held in xtask, and hand-written fallback strings.
+  - With mods off, `open` had no path at all, since DR-75 made it press-only. The cloud session's turn-start sync didn't say what its `ArtifactData` call asks of the person.
+- **Decision:**
+  - **Store and scan.**
+    - `events` gains `reply`: the writing command's whole reply, on its first event only, which a replay returns.
+    - A scan key whose event exists gets `#after:SEQ`, the `seq` of the scan event the repo moves away from. So every move records its own event.
+    - The walk reads the working tree, and verification checks every evidence item against the snapshot's commit. A line changed since then drops, with its fact when no evidence is left.
+    - A directory, the repo, and an empty or non-UTF-8 file carry `Evidence::Ref` with the commit and branch read.
+    - Compose `depends_on` becomes a `code.depends_on` hint, keyed by the service depended on, with the dependent service in `service`.
+    - A repo's own node is `<ns>:repo:<ns>`, such as `orders:repo:orders`.
+    - The pins are `rusqlite =0.40.2`, `sha2 =0.11.0`, `uuid =1.28.0` and `saphyr-parser =0.1.0`, each at least 14 days old, recorded in DR-39.
+    - `serde_json` in `store`, and `uuid` and `toml` in `planroom`, are already on the allow-lists DR-79 set, so they need no added rule.
+  - **Boundaries, ratified.** Only `packages/mod` imports `claude-code` and `claude-code/testing`, the mod API types. Only the mod's tests read `tests/golden/*.json`. `boundaries.toml` states both, as `host_types` and `golden_readers`, and `cargo xtask gen` writes them as depcruise rules.
+  - **The mod and its build.**
+    - `gen` rewrites esbuild's export list to `export function register`, so the host loads the bundle.
+    - Plain `gen` writes the bundle with every other output, and `gen --mod` writes the bundle alone.
+    - The fallback strings move from `packages/mod/src/fallback.ts` into `en.toml` with the string catalog.
+    - The atom types, `EngineState` and `EngineStatus` among them, move from a string in `crates/xtask/src/modgen.rs` to `crates/contract/src/view.rs`.
+    - Claude Code 2.1.310's `claude-code.d.ts` is vendored in `packages/mod/vendor/`, matching the Claude Code pin.
+    - eslint's `no-misused-promises` is off for `packages/mod/src/register.tsx` and `packages/mod/plugin-tests/` only. It took 11 minutes over the mod API types, and `tsc -b` still checks those files.
+    - `plugin/` carries `AGENTS.md` and no `CLAUDE.md`.
+  - **Catalogue and resolver.** The contract crate follows the design: `scan` is `Query`, so `share` stays the only leaf on DR-55's `NotUndoable` list, and `CommandSpec` has `spends`. `engine_unavailable` gains two reasons:
+    - `override_missing`: `PLANROOM_ENGINE` names no executable file; the fix is `unset PLANROOM_ENGINE`.
+    - `no_build`: `PLANROOM_RESOLVE=checkout` finds no build in the checkout; the resolver offers the source build.
+  - **`open` with mods off.** With mods off there is no mod to press. So in a workspace with no registered person key, `open` takes a `/dev/tty` confirmation that names the action. Once a mod registers its key, `open` is press-only again, as DR-75 set.
+  - **The turn-start sync's consent.** A cloud session's turn-start sync makes one `ArtifactData` call per turn. The first call's permission prompt is the person's chance to allow it for the session. Without that allow, the sync runs only on `/room sync`.
+  - **Generated files and the first lock.** `plugin/hooks/hooks.json` is generated with the bundle, and each crate's `AGENTS.md` contract block comes from the area table under `area_contracts_match_repo_layout`, as DR-79 set. The first `layout.lock` names DR-79 for every surface and needs no record of its own; every later lock change adds one in the same commit.
+- **Alternatives rejected:**
+  - Rebuilding a replayed reply from the fold: later events change the state, so a retry would get a different reply than the first call.
+  - Checking evidence against the working tree: a line nobody committed would reach snapshots and the Artifact, and differ on the next machine.
+  - Letting any package import `claude-code`: the canvas and `ui` would compile against a host API they never run in.
+  - Keeping `open` press-only with mods off: then a person with mods off can't open the canvas at all.
+  - Auto-allowing the turn-start `ArtifactData` call: DR-31 rejected a mod auto-allow, and the person's own allow is the consent.
+  - Exporting `register` by hand in the source: esbuild gathers every export into one list as it bundles, so only a rewrite after the build holds.
+  - A record for the first lock: the surfaces it hashes were set by DR-79 and ratified here, so a third record would approve nothing.
+- **Consequences:**
+  - Contracts: `events.reply`; `Evidence::Ref` on directories, repos and empty or non-UTF-8 files; the `code.depends_on` hint; the repo node ID; `EngineState` and `EngineStatus` in `crates/contract/src/view.rs`; `engine_unavailable` reasons `override_missing` and `no_build`; `open`'s actor rule.
+  - Layout: `host_types` and `golden_readers` in `boundaries.toml`; `packages/mod/vendor/claude-code.d.ts`; `plugin/` without `CLAUDE.md`; `gen --mod`; the eslint exception.
+  - Tests: `crates/store/tests/commit.rs::moving_back_and_forth_records_every_move`, `a_retry_with_the_same_key_returns_the_stored_reply`; `crates/store/tests/idem.rs::a_retry_after_a_kill_after_commit_returns_the_stored_reply`; `crates/extract/tests/contract.rs::files_emit_the_repo_its_directories_and_its_files`, `evidence_that_differs_from_the_commit_is_dropped`, `compose_emits_containers_aliases_and_hints_on_their_lines`; planned `actor.rs::open_takes_the_terminal_path_only_with_no_mod_key`, `gates.rs::the_first_lock_names_dr_79`, and the self-test's `claude-code` and golden-JSON plants in `packages/canvas`.
+  - Users: with mods off, a person at a terminal can open the canvas. In a cloud session, turn-start syncs run only after the person allows the first call.
+  - Security: a pty that confirms `/dev/tty` can open the canvas in a workspace no mod has run in. That is R-8's guardrail, as for the other terminal-path commands.
+  - It changes gated surfaces: `boundaries.toml`, the area contracts table (`packages/mod`, `tests/golden`) and the Boundaries section of `AGENTS.md`.
+  - It amends DR-8, DR-12, DR-39, DR-42, DR-57, DR-69, DR-70, DR-75, DR-77 and DR-79.
+- **Sources (checked 2026-10-26):** `progress.md`, the 2026-10-26 entries "ENGINE track merged" and "PLUGIN track merged"; `docs/contributing/research/ws4-concurrency.md`; `crates/store/migrations/0001_init.sql`; `crates/store/src/commit.rs`; `crates/extract/src/{files,compose,verify}.rs`; `.dependency-cruiser.cjs`; `crates/xtask/src/{modgen,generate}.rs`; `plugin/scripts/planroom`; `eslint.config.js`; the main agent's decisions at the merges.

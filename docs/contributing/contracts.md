@@ -27,7 +27,7 @@ contract::Command (catalogue) ──xtask──▶ packages/contract/src/generat
 contract::ErrorCode::ALL, WarningCode::ALL ──xtask──▶ docs/reference/errors.md (tables)
 crates/planroom/text/en.toml (the fallback panes) ──xtask──▶ catalogue.ts FALLBACK_PANES
 contract::ErrorCode and ResolverStatus ──xtask──▶ plugin/scripts/contract.sh (SCHEMA_VERSION, the resolver's two codes, printf templates)
-contract::PaneModel and $.state atoms ──xtask──▶ plugin/types/index.d.ts
+contract::PaneModel and the atom types (EngineState, PaneState) ──xtask──▶ plugin/types/index.d.ts
 crates/planroom/src/config/defaults.toml ──xtask──▶ docs/reference/configuration.md
 boundaries.toml ──xtask──▶ .dependency-cruiser.cjs
 repo-layout.md area contracts ──xtask──▶ each area's AGENTS.md contract block, with its Read first lines
@@ -58,7 +58,7 @@ repo-layout.md area contracts ──xtask──▶ each area's AGENTS.md contrac
 | Implementer run | `planroom.implementer-run/v1` | `crates/contract/src/handoff.rs` (matches `examples/README.md`) | schema `$defs` `ImplementerRun` | implementers (`result.json`), `handoff report`, `curate`, `import` | `examples/fixture/implementer-runs.jsonl` validates line by line; `fixture_format_is_unchanged` (required fields equal the README's) |
 | Review threads | `planroom.review-threads/v1` | `crates/contract/src/review.rs` (matches `examples/README.md`) | input schema `$defs` `ReviewThreads` | the `review_threads` extractor, people, exporters | `examples/fixture/reviews/*.json` validates |
 | Mod tool schemas | `mcp__planroom__room_query`, `room_change`, `room_handoff` | the catalogue | `catalogue.ts` (`TOOL_SPECS`) | the chat model, through the mod | `tool_schemas_equal_catalogue`; `surface_tokens` (at most 1,500 projected tokens from the exact bytes: tools 900, the prompt section 300, skills and agents 300); `tool_results_within_budget`; `error_envelopes_reach_the_model`; `handles_round_trip_after_redaction` |
-| Mod state contract | `planroom` atoms | `crates/contract/src/view.rs` and `packages/mod/src/state.ts` atom list | `plugin/types/index.d.ts` | the mod, `claude plugin validate` | drift check on `index.d.ts`; `tsc -p packages/mod` |
+| Mod state contract | `planroom` atoms | `crates/contract/src/view.rs`, which holds every atom's type, `EngineState` and `EngineStatus` included (DR-81), and `packages/mod/src/state.ts` atom list | `plugin/types/index.d.ts` | the mod, `claude plugin validate` | drift check on `index.d.ts`; `tsc -p packages/mod` |
 | `/room` command family | `ROOM_COMMANDS` | the catalogue | `catalogue.ts`; the mod's `/room help` | people in Claude Code | `room_commands_snapshot` (S15) |
 | Artifact `db` layout and event format | `planroom.snapshot/v1`, `planroom.live-head/v1`, `planroom.inbox/v1`, the `db` rules | `crates/contract/src/remote.rs` | schema `$defs` `Snapshot`, `LiveHead`, `InboxRow`; `output.ts`, `input.ts` | `share`, `import`, the Artifact page | the page's transport is type-checked against them; `s11_remote.rs` (validation at import, a forged actor is ignored, a signed owner row applies, rows come only from the mod, snapshot size under 1 MB, no `contains` by default) |
 | Configuration | `config.toml` in the workspace's state directory (`.planroom/` or a single repo's `.git/planroom/`, DR-74) and `${XDG_CONFIG_HOME:-$HOME/.config}/planroom/config.toml` (user-level) | `crates/planroom/src/config/defaults.toml` and `crates/contract/src/config.rs` | input schema `$defs` `Config`; `docs/reference/configuration.md` | people, the engine | `configuration_reference_equals_defaults`; `every_key_has_a_default`; `credential_settings_come_only_from_user_config` |
@@ -165,7 +165,7 @@ Redaction is by field [DR-64]. A field marked `#[redact]` in `crates/contract/sr
 | `idempotency_mismatch` | conflict | 4 | never | the same `idem` with a different request | `idem`, `stored_event` |
 | `already_resolved` | conflict | 4 | never | the card was already picked | `by`, `at`, `pick` |
 | `handoff_conflict` | conflict | 4 | never | the merge preflight failed; every repo untouched | `repo`, `files` |
-| `person_required` | permission | 5 | never | an agent ran a person-only command or input; a person token was missing, stale, spent or for another command; or `handoff start`, `merge`, `revert`, `person pair`, `open` or `person init --rekey` came through the terminal path (DR-64, DR-75) | `card` or `command` a person can run |
+| `person_required` | permission | 5 | never | an agent ran a person-only command or input; a person token was missing, stale, spent or for another command; or `handoff start`, `merge`, `revert`, `person pair`, `open` or `person init --rekey` came through the terminal path, except `open` where no mod key is registered (DR-64, DR-75, DR-81) | `card` or `command` a person can run |
 | `person_key_mismatch` | permission | 5 | never | `person init` found another key registered, such as after a reinstall or under another `CLAUDE_CONFIG_DIR`; the pane draws its fallback state (DR-60) | `registered_at`, `surface`; `hint` names the pane's Use this session's key button, which runs `person init --rekey` with a press (DR-75) |
 | `consent_required` | permission | 5 | never | a model-only command before the person allowed this provider for the workspace; only the person's pick on the consent card clears it (DR-66) | `provider`, `card`; `hint` names the card |
 | `path_refused` | permission | 5 | never | a read named a path outside the workspace's repos and scanned files, a non-person named a credential path, or a repo's git directory belongs to another user (DR-78) | `path`, `reason` (`outside_workspace`, `credential` or `other_owner`); `hint` names `planroom scan PATH` |
@@ -177,7 +177,7 @@ Redaction is by field [DR-64]. A field marked `#[redact]` in `crates/contract/sr
 | `port_in_use` | unavailable | 7 | never | another program holds the workspace's recorded canvas port; `serve` never moves unasked, so a tab's pending edits keep their origin (DR-78) | `port`, `fix` (stop that program and press `e`, or `planroom serve --port N`) |
 | `git_too_old` | unavailable | 7 | never | the `git` on `PATH` is older than 2.34.1, the oldest whose plumbing the adapter uses; `scan` and `doctor` return it (DR-78) | `found`, `minimum`, `fix` |
 | `engine_fetching` | unavailable | 7 | later | the resolver's envelope to a caller other than the mod, printed from the generated `contract.sh`: a prefetch held the fetch lock for 20 s (DR-69) | `progress`; `retry_after_ms` |
-| `engine_unavailable` | unavailable | 7 | never | the resolver's envelope, printed from the generated `contract.sh`, when it can't hand back an engine: the download failed, the version has no release, or a checkout's build is stale; it never starts a build for a caller other than the mod (DR-69) | `reason` (`download_failed`, `no_release`, `stale_build` or `no_toolchain`), `fix` (an exact command, such as `scripts/planroom build`), `est_minutes`, and for `download_failed` the archive's and `SHA256SUMS`'s URLs (DR-78) |
+| `engine_unavailable` | unavailable | 7 | never | the resolver's envelope, printed from the generated `contract.sh`, when it can't hand back an engine: the download failed, the version has no release, a checkout's build is stale, `PLANROOM_ENGINE` names no executable file, or `PLANROOM_RESOLVE=checkout` finds no build; it never starts a build for a caller other than the mod (DR-69) | `reason` (`download_failed`, `no_release`, `stale_build`, `no_toolchain`, `override_missing` with the fix `unset PLANROOM_ENGINE`, or `no_build` with the source build's offer, DR-81), `fix` (an exact command, such as `scripts/planroom build`), `est_minutes`, and for `download_failed` the archive's and `SHA256SUMS`'s URLs (DR-78) |
 | `schema_mismatch` | unavailable | 7 | never | the store or a file is from a newer version, or this process is older than the store, checked at open, again inside every commit and duty transaction (DR-73), and by a live `watch` whenever the store changes; or a data-root file's `min_reader_version` is above this engine's (DR-78) | `found`, `supported`, `writer_version` (the engine version that wrote the store, so the mod names the update or the restore, DR-69) |
 | `packs_mismatch` | unavailable | 7 | never | this process resolved another pack set than the one the store records; a write is refused. Packs load from their copies in the state directory, so only engine version skew causes it (DR-62) | `recorded`, `resolved`; `hint` names a restart for an older engine, or the update for a newer store |
 | `replay_missing` | unavailable | 7 | never | strict replay found no record (CI and tests) | `key`, `path` |
@@ -288,7 +288,7 @@ pub struct WriteCommon {                     // flattened into every write reque
 | `share` | Levels (DR-77) | any | handoff | `room_handoff` |
 | `pack add`, `pack remove` | Setup | person only | change | none |
 | `person init`, `person pair` | Setup | person only; the guard denies both to agents, and `pair` and `init --rekey` refuse the terminal path (DR-60, DR-67, DR-75) | change | none |
-| `open` | Levels (DR-77) | person only, from a mod press; refuses the terminal path (DR-75) | read | none |
+| `open` | Levels (DR-77) | person only, from a mod press; refuses the terminal path (DR-75), except in a workspace with no registered mod key, where a `/dev/tty` confirmation naming it serves (DR-81) | read | none |
 | `doctor` | Setup | mixed: `--restore` needs a person | read, change | none |
 | `serve`, `watch`, `export`, `schema`, `version` | Setup | any | read | none |
 
@@ -354,6 +354,7 @@ Every API request except `session`, `code` and `drain` carries the tab's `Author
 ```rust
 // crates/contract/src/model.rs
 pub struct NodeId(String);                   // "<namespace>:<kind-short>:<key>", such as "orders:pkg:internal/http"; a repo's
+                                             // own node is "<ns>:repo:<ns>", such as "orders:repo:orders" (DR-81); a repo's
                                              // namespace is its directory name, or for the later of two same-named repos the name,
                                              // "-" and 4 hex of sha256(its path from the workspace root), fixed in meta.repos (DR-74)
 pub struct EdgeId(String);                   // "e:" + 12 hex of sha256(kind ‖ from ‖ to ‖ via)
@@ -397,7 +398,8 @@ pub enum Evidence {
         commit: Option<String>,
         branch: Option<String>,
     },
-    Ref {                                    // a git-derived fact (tag, commit, co-change, ownership)
+    Ref {                                    // a git-derived fact (tag, commit, co-change, ownership); also a directory,
+                                             // a repo, and an empty or non-UTF-8 file, read at that commit (DR-81)
         commit: String,                      // verified with git cat-file -e
         #[serde(rename = "ref")] ref_name: Option<String>,   // "refs/tags/v1.5.0"; verified with git for-each-ref
     },
@@ -925,7 +927,7 @@ The mod's state (`plugin/types/index.d.ts`, generated) is a set of `$.state` ato
 
 | Atom | Type | Written by |
 |---|---|---|
-| `engine` | `{ path, version, catalogue_hash, backend, status }`; `status` is `fetching`, `build_offered`, `building`, `failed`, `unsupported_platform`, `version_mismatch`, `person_key_mismatch` or `ready`, and picks the fallback pane (DR-57, DR-60) | `session.start`, the resolver's `status --json` |
+| `engine` | `{ status, resolver, path, version, catalogue_hash, backend, line, fix }`, the contract's `EngineState` (DR-81); `line` is the one status line and `fix` the command that clears it; `status` is `resolving`, `fetching`, `build_offered`, `building`, `failed`, `unsupported_platform`, `version_mismatch`, `person_key_mismatch` or `ready`, and picks the fallback pane (DR-57, DR-60) | `session.start`, the resolver's `status --json` |
 | `pane` | `PaneModel` | the watch loop's scheduled `focus` (first frame, after 250 ms of quiet, and at least every 500 ms under load) |
 | `lastSeq` | `Seq` | the watch loop |
 | `outbox` | `{ idem, argv, env_names }[]` (never a token or the key) | each write, cleared on reply |
@@ -1035,8 +1037,8 @@ The resolver, `plugin/scripts/planroom`, reads no configuration file. It reads o
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PLANROOM_ENGINE` | unset | a binary to use as it is, never cached; agents may not set it |
-| `PLANROOM_RESOLVE` | `auto` | `auto` tries the checkout, the cache, the download, then the source build; `checkout` skips the cache and the download; `release` skips the checkout |
+| `PLANROOM_ENGINE` | unset | a binary to use as it is, never cached; one that isn't an executable file is `engine_unavailable` with reason `override_missing` (DR-81); agents may not set it |
+| `PLANROOM_RESOLVE` | `auto` | `auto` tries the checkout, the cache, the download, then the source build; `checkout` skips the cache and the download, and with no build in the checkout reports reason `no_build` (DR-81); `release` skips the checkout |
 | `PLANROOM_RELEASE_BASE_URL` | `https://github.com/$PLANROOM_REPO/releases/download`, from `engine.env` | where the archives and `SHA256SUMS` come from: `https` only, or plain `http` to `127.0.0.1`, `localhost` or `::1`. A download from any other base than the default is cached under `DATA_ROOT/engine-alt/<sha256 of the base>/` and used only while the same base is set, so it never becomes the binary later sessions run (DR-78); agents may not set it |
 | `PLANROOM_DATA` | `${XDG_DATA_HOME:-$HOME/.local/share}/planroom` | the data root the engine shares (DR-58) |
 
@@ -1070,12 +1072,12 @@ These aren't product contracts, but tools and reviewers read them, so their shap
 | `cli_reference_equals_help` | `docs/reference/cli.md` equals clap's rendered help |
 | `catalogue_has_one_handler_per_command` | every leaf has exactly one handler and every handler a leaf |
 | `tool_schemas_equal_catalogue` | the mod's tool schemas equal the generated ones |
-| `golden_outputs_type_check` | `tests/golden/*.json` type-check in `packages/*` |
+| `golden_outputs_type_check` | `tests/golden/*.json` type-check in the mod's tests, the only code that may read them (DR-81) |
 | `golden_outputs_equal_engine_output` | each Rust test that owns a golden file compares the engine's output with the committed file and fails on a difference; only `cargo xtask gen --golden` writes them, so the mod tests never run against a stale envelope (DR-79) |
 | `migrations_open_every_released_fixture` | each released store fixture opens, migrates and folds |
 | `fixture_format_is_unchanged` | `ImplementerRun` and `ReviewThreads` required fields equal `examples/README.md` |
 | `breaking_change_guard` | against `schema/baseline/` and the last `v*` tag's schema: no removed property, removed enum value or new required input without a version bump |
-| `undo_classes_snapshot` | every leaf's undo class; `NotUndoable` is only `share` (DR-55) |
+| `undo_classes_snapshot` | every leaf's undo class; `NotUndoable` is only `share`, and `scan` is `Query` (DR-55, DR-81) |
 | `area_contracts_match_repo_layout` | each area's `AGENTS.md` contract block, between its generated markers and its Read first lines included, equals its rows in `repo-layout.md`; every tracked top-level directory and each `tests/*` directory has an area row; each area row's "May depend on" cell lists exactly that crate's or package's allow-list in `boundaries.toml`; every Read first section name resolves to a heading of its page (DR-59, DR-70, DR-79) |
 | `every_directory_has_a_purpose` | every directory `git ls-files` holds, except under `examples/fixture/` and the generated directories, appears in the Directory map of `repo-layout.md` or in its area's Layout lines in `AGENTS.md` (DR-79) |
 | `generated_headers` | every path the Generated directories table in `repo-layout.md` names has the header, or its generated region its BEGIN and END GENERATED markers, and equals a fresh generation; `generated_read_only` and `.gitattributes` are generated from that table (DR-79) |
