@@ -65,7 +65,7 @@ A-23 fails. After later pushes to the branch the `git-subdir` install named, `cl
 
 ## The mod's `$.store` file [A-15] [V]
 
-The spike mod set a marker with `$.store.set`, and a search found it in `~/.claude/plugins/store/planroom-spike_inline-d70c18432e39.json` (mode 0600, the store as one JSON object): the host keeps every plugin's store at `<config>/plugins/store/<plugin>_<source>-<hash>.json`. MOD-2's interim guard exempted everything under `plugins/`, so it missed exactly this file; the guard now denies that folder and its `planroom_*` files (DR-82).
+The spike mod set a marker with `$.store.set`, and a search found it in `~/.claude/plugins/store/planroom-spike_inline-d70c18432e39.json` (mode 0600, the store as one JSON object): the host keeps every plugin's store at `<config>/plugins/store/<plugin>_<source>-<hash>.json`. The skeleton's interim guard exempted everything under `plugins/`, so it missed exactly this file; the guard now denies that folder and its `planroom_*` files (DR-82).
 
 ## The mod's plugin root and its children's environment [A-14] [V, D]
 
@@ -77,7 +77,7 @@ The spike mod set a marker with `$.store.set`, and a search found it in `~/.clau
 
 The spike mod hooked `tool.check` for `Bash` and recorded each call's `agentId`:
 
-- A Bash call from a subagent the Agent tool spawned carried that subagent's `agentId` (`af013627…`). So did the calls of this session's workflow agents (`a13d44ba…`), which pass through the same mod.
+- A Bash call from a subagent the Agent tool spawned carried that subagent's `agentId` (`af013627…`). So did the calls of other agents spawned in the same session, which pass through the same mod.
 - The main loop's own Bash calls carried `agentId: null`.
 
 So the guard can tell the implementer's calls from the session's own by `agentId`, as the design assumes.
@@ -86,7 +86,7 @@ From a tool handler, `$.tool.call({ tool: "ArtifactData", action: "list", url, c
 
 ## The real mod, live [V]
 
-`plugin/` was linked into this session's dev-mods folder, and this repository was scanned as a workspace (one repo, so the engine took its own working tree as the workspace root). The first two live loads failed, each on a seam the mocked harness couldn't show:
+`plugin/` was linked into this session's dev-mods folder, and this repository was scanned as a workspace (one repo, so the engine took its own working tree as the workspace root). Since DR-87, `plugin/` is then the guard's protected root, so an agent can't edit it while the mod is loaded ([plugin/AGENTS.md](../../../plugin/AGENTS.md)). The first two live loads failed, each on a seam the mocked harness couldn't show:
 
 1. Every tool answered `engine_unavailable`, "CLAUDE_PLUGIN_ROOT is unset": the mod read its root from that variable, which the host doesn't set for a mod (A-14). It now reads `$.plugin.root`, and a harness test starts the mod with no such variable.
 2. `session.start` threw: the host refused `$.command.register("room")` because the plugin's own `room` skill claims `/planroom:room`, and the refusal skipped the whole start. The skill is now `planroom`, and the plugin layout check refuses a skill named like a mod command (DR-84).
