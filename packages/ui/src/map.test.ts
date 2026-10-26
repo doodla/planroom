@@ -2,8 +2,8 @@ import type { MapNode, MapView } from "@planroom/contract";
 import { expect, test } from "vitest";
 
 import {
-  blockRows,
-  edgeRows,
+  blocksOf,
+  edgesOf,
   kindLabel,
   matchBlocks,
   structureHash,
@@ -68,7 +68,7 @@ test("a kind reads as words without its pack", () => {
 });
 
 test("blocks carry their tone, sanitized names and counts from the top level down", () => {
-  const [shop, db] = blockRows(view());
+  const [shop, db] = blocksOf(view());
   expect(shop).toMatchObject({
     tone: "service",
     holds: true,
@@ -86,11 +86,11 @@ test("blocks carry their tone, sanitized names and counts from the top level dow
 });
 
 test("a block with no tone keeps none, so it draws as a card", () => {
-  expect(blockRows(view({ nodes: [node("c:x:c")] }))[0]?.tone).toBeNull();
+  expect(blocksOf(view({ nodes: [node("c:x:c")] }))[0]?.tone).toBeNull();
 });
 
 test("edges keep their counts and drop an end that isn't on the map", () => {
-  expect(edgeRows(view())).toEqual([
+  expect(edgesOf(view())).toEqual([
     {
       id: "a:svc:shop>b:db:orders-db>pack.queue_publish",
       from: "a:svc:shop",
@@ -124,7 +124,7 @@ test("the view key names the level, lens and focus", () => {
 });
 
 test("search matches a block's name or kind, ignoring case", () => {
-  const rows = blockRows(view());
+  const rows = blocksOf(view());
   expect(matchBlocks(rows, "SHOP")).toEqual(new Set(["a:svc:shop"]));
   expect(matchBlocks(rows, "kind")).toEqual(
     new Set(["a:svc:shop", "b:db:orders-db"]),

@@ -62,7 +62,7 @@ function levelRank(level: string): number {
 }
 
 /** The view's blocks, in the engine's order. */
-export function blockRows(view: MapView): BlockRow[] {
+export function blocksOf(view: MapView): BlockRow[] {
   return view.nodes.map((node) => {
     const counts = Object.entries(node.counts)
       .filter(([, count]) => count > 0)
@@ -83,7 +83,7 @@ export function blockRows(view: MapView): BlockRow[] {
 }
 
 /** The view's lifted edges whose two ends are both on the map, one row per kind and pair. */
-export function edgeRows(view: MapView): EdgeRow[] {
+export function edgesOf(view: MapView): EdgeRow[] {
   const ids = new Set(view.nodes.map((n) => n.id));
   return view.edges
     .filter((e) => ids.has(e.from) && ids.has(e.to))

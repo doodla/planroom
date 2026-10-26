@@ -12,7 +12,7 @@ import type {
   PaneModel,
   Position,
 } from "@planroom/contract";
-import { blockRows, edgeRows, structureHash, viewKey } from "@planroom/ui";
+import { blocksOf, edgesOf, structureHash, viewKey } from "@planroom/ui";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 import {
@@ -94,13 +94,13 @@ export function createCanvasStore(
           return null;
         }),
       ]);
-      const blocks = blockRows(map);
+      const blocks = blocksOf(map);
       let positions = placed(blocks, {});
       let laidOut = false;
       if (map.empty === null && !hasLayout(blocks)) {
         positions = placed(
           blocks,
-          positionsOf(await layout(elkGraph(blocks, edgeRows(map)))),
+          positionsOf(await layout(elkGraph(blocks, edgesOf(map)))),
         );
         laidOut = true;
         if (transport.capabilities.layoutWriteBack) {

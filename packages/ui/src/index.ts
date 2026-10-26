@@ -5,8 +5,8 @@ export { sanitize } from "./display";
 export { BAND_KEYS, ROW_KEYS, rowKeys, type RowKey } from "./keys";
 export {
   LEVELS,
-  blockRows,
-  edgeRows,
+  blocksOf,
+  edgesOf,
   kindLabel,
   matchBlocks,
   structureHash,

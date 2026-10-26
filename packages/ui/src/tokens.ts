@@ -17,53 +17,56 @@ export interface Color {
   readonly alpha: number;
 }
 
-const solid = (hex: string): Color => ({ hex, alpha: 1 });
+/** The light palette, by CSS variable name without the leading `--`. */
+const LIGHT = {
+  table: { hex: "#cfe6dc", alpha: 1 },
+  card: { hex: "#e3f1ea", alpha: 1 },
+  ink: { hex: "#1b2a33", alpha: 1 },
+  muted: { hex: "#4c6170", alpha: 1 },
+  chalk: { hex: "#2d5a4a", alpha: 1 },
+  "block-service": { hex: "#e8492b", alpha: 1 },
+  "block-library": { hex: "#2f5bd3", alpha: 1 },
+  "block-store": { hex: "#f2b632", alpha: 1 },
+  "block-infra": { hex: "#6b8f71", alpha: 1 },
+  "block-service-border": { hex: "#bc2f14", alpha: 1 },
+  "block-library-border": { hex: "#1f43a8", alpha: 1 },
+  "block-store-border": { hex: "#835c08", alpha: 1 },
+  "block-infra-border": { hex: "#4f6953", alpha: 1 },
+  pass: { hex: "#1a6b43", alpha: 1 },
+  fail: { hex: "#b3261e", alpha: 1 },
+  wait: { hex: "#6b5c0c", alpha: 1 },
+} as const satisfies Record<string, Color>;
+
+/** The dark palette: designed, not inverted. */
+const DARK = {
+  table: { hex: "#10231d", alpha: 1 },
+  card: { hex: "#17312a", alpha: 1 },
+  ink: { hex: "#e4f1ea", alpha: 1 },
+  muted: { hex: "#9db8ab", alpha: 1 },
+  chalk: { hex: "#e4f1ea", alpha: 0.7 },
+  "block-service": { hex: "#ff7a5c", alpha: 1 },
+  "block-library": { hex: "#7f9dff", alpha: 1 },
+  "block-store": { hex: "#f5c95c", alpha: 1 },
+  "block-infra": { hex: "#8fb596", alpha: 1 },
+  "block-service-border": { hex: "#ffa48e", alpha: 1 },
+  "block-library-border": { hex: "#aabdff", alpha: 1 },
+  "block-store-border": { hex: "#f8dc96", alpha: 1 },
+  "block-infra-border": { hex: "#b4cfb8", alpha: 1 },
+  pass: { hex: "#5fd39a", alpha: 1 },
+  fail: { hex: "#ff8a80", alpha: 1 },
+  wait: { hex: "#e6cf6a", alpha: 1 },
+} as const satisfies Record<keyof typeof LIGHT, Color>;
 
 /** Every palette token, by its CSS variable name without the leading `--`. */
-export const PALETTE = {
-  light: {
-    table: solid("#cfe6dc"),
-    card: solid("#e3f1ea"),
-    ink: solid("#1b2a33"),
-    muted: solid("#4c6170"),
-    chalk: solid("#2d5a4a"),
-    "block-service": solid("#e8492b"),
-    "block-library": solid("#2f5bd3"),
-    "block-store": solid("#f2b632"),
-    "block-infra": solid("#6b8f71"),
-    "block-service-border": solid("#bc2f14"),
-    "block-library-border": solid("#1f43a8"),
-    "block-store-border": solid("#835c08"),
-    "block-infra-border": solid("#4f6953"),
-    pass: solid("#1a6b43"),
-    fail: solid("#b3261e"),
-    wait: solid("#6b5c0c"),
-  },
-  dark: {
-    table: solid("#10231d"),
-    card: solid("#17312a"),
-    ink: solid("#e4f1ea"),
-    muted: solid("#9db8ab"),
-    chalk: { hex: "#e4f1ea", alpha: 0.7 },
-    "block-service": solid("#ff7a5c"),
-    "block-library": solid("#7f9dff"),
-    "block-store": solid("#f5c95c"),
-    "block-infra": solid("#8fb596"),
-    "block-service-border": solid("#ffa48e"),
-    "block-library-border": solid("#aabdff"),
-    "block-store-border": solid("#f8dc96"),
-    "block-infra-border": solid("#b4cfb8"),
-    pass: solid("#5fd39a"),
-    fail: solid("#ff8a80"),
-    wait: solid("#e6cf6a"),
-  },
-} as const satisfies Record<Theme, Record<string, Color>>;
+export const PALETTE = { light: LIGHT, dark: DARK } as const;
 
 /** A palette token's name. */
 export type ColorToken = keyof (typeof PALETTE)["light"];
 
 /** The palette's names, in the order the design language lists them. */
-export const COLOR_TOKENS = Object.keys(PALETTE.light) as readonly ColorToken[];
+export const COLOR_TOKENS = /* @__PURE__ */ Object.keys(
+  LIGHT,
+) as readonly ColorToken[];
 
 /** The backgrounds every text and mark token is measured against. */
 export const SURFACES = [

@@ -13,7 +13,7 @@ import {
   type Edge,
   type NodeChange,
 } from "@xyflow/react";
-import { LEVELS, blockRows, edgeRows, matchBlocks } from "@planroom/ui";
+import { LEVELS, blocksOf, edgesOf, matchBlocks } from "@planroom/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BLOCK } from "../layout/graph";
@@ -52,8 +52,8 @@ function MapFlow({ moment }: { moment: Moment }) {
   const [ready, setReady] = useState(false);
   const measured = useRef(new Set<string>());
 
-  const rows = useMemo(() => (map ? blockRows(map) : []), [map]);
-  const lifted = useMemo(() => (map ? edgeRows(map) : []), [map]);
+  const rows = useMemo(() => (map ? blocksOf(map) : []), [map]);
+  const lifted = useMemo(() => (map ? edgesOf(map) : []), [map]);
   const matches = useMemo(() => matchBlocks(rows, query), [rows, query]);
   const near = useMemo(() => {
     if (selected === null) {

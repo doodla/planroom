@@ -4,7 +4,7 @@
  * shelf (Intent). On the phone it holds at most four targets and never wraps.
  */
 
-import { blockRows, matchBlocks, sanitize } from "@planroom/ui";
+import { blocksOf, matchBlocks, sanitize } from "@planroom/ui";
 import { useMemo, useRef, useState } from "react";
 
 import { STRINGS } from "../strings";
@@ -26,7 +26,7 @@ function Breadcrumb() {
   const phone = useMedia(PHONE);
   const [searching, setSearching] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  const rows = useMemo(() => (map ? blockRows(map) : []), [map]);
+  const rows = useMemo(() => (map ? blocksOf(map) : []), [map]);
 
   const crumbs = pane?.focus.breadcrumb ?? [];
   const current = crumbs.at(-1);
