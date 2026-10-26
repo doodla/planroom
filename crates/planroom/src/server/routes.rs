@@ -75,7 +75,8 @@ async fn secure(mut response: Response) -> Response {
 }
 
 /// The live loop on its own thread: it polls `data_version` and hears this process's own
-/// commits, and sends each frame to every stream client.
+/// commits, and sends each frame to every stream client. When a newer engine migrates the store,
+/// the whole server exits with `schema_mismatch`, as an older `watch` does (DR-73, DR-78).
 pub fn start_live(
     store_path: &Path,
     own: Receiver<Seq>,
@@ -92,6 +93,9 @@ pub fn start_live(
             };
             if let Err(e) = live.run(&mut emit) {
                 eprintln!("planroom serve: the live loop stopped: {e}");
+                if e.code() == ErrorCode::SchemaMismatch {
+                    std::process::exit(e.code().exit_code());
+                }
             }
         })
         .map_err(AppError::internal)?;

@@ -396,12 +396,16 @@ pub struct ScanReq {
     pub common: WriteCommon,
 }
 
-/// `planroom watch [--since SEQ]`: one `StreamFrame` per line on stdout until stopped.
+/// `planroom watch [--since SEQ] [--session ID]`: one `StreamFrame` per line on stdout until
+/// stopped.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct WatchReq {
     /// Stream the events after this `seq`; the store's latest when absent.
     #[arg(long)]
     pub since: Option<Seq>,
+    /// The Claude Code session this stream serves, as the mod starts it.
+    #[arg(long)]
+    pub session: Option<String>,
 }
 
 /// `planroom schema [--commands]`.

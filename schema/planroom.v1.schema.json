@@ -3069,12 +3069,20 @@
           "format": "uint64",
           "minimum": 0,
           "description": "Stream the events after this `seq`; the store's latest when absent."
+        },
+        "session": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The Claude Code session this stream serves, as the mod starts it."
         }
       },
       "required": [
-        "since"
+        "since",
+        "session"
       ],
-      "description": "`planroom watch [--since SEQ]`: one `StreamFrame` per line on stdout until stopped."
+      "description": "`planroom watch [--since SEQ] [--session ID]`: one `StreamFrame` per line on stdout until\nstopped."
     }
   }
 }

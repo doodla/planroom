@@ -13,7 +13,7 @@ use planroom_contract::{
     Command, CommandName, Envelope, FocusReq, MapReq, Meta, PersonInitReq, SCHEMA_VERSION, ScanReq,
     SchemaReq, Seq, ServeReq, Size, StreamFrame, VersionReq, Warning, WatchReq,
 };
-use planroom_store::Tail;
+use planroom_store::{Store, Tail};
 use serde::Serialize;
 
 use crate::app::actor::Caller;
@@ -168,13 +168,18 @@ pub(crate) fn envelope<T: Serialize>(
     line
 }
 
-/// `planroom watch`: frames until stdout closes.
+/// `planroom watch`: frames until stdout closes, or one error envelope when the stream can't
+/// start or a newer engine migrates the store under it (`schema_mismatch`, DR-78).
 fn watch(json: bool, req: &WatchReq, cwd: &Path) -> ExitCode {
     let started = Instant::now();
     let opened = workspace::find_root(cwd)
         .ok_or_else(|| AppError::workspace_not_found(cwd))
         .and_then(|root| {
-            Tail::open(&workspace::store_path(&root))?.ok_or_else(|| AppError::workspace_not_found(&root))
+            let path = workspace::store_path(&root);
+            // Opening the store migrates an older one and refuses a newer one, as every command
+            // does at open; the stream itself reads only through its read-only connection.
+            drop(Store::open_existing(&path)?.ok_or_else(|| AppError::workspace_not_found(&root))?);
+            Tail::open(&path)?.ok_or_else(|| AppError::workspace_not_found(&root))
         })
         .and_then(|tail| Ok(Live::new(tail, req.since, None)?));
     let mut live = match opened {

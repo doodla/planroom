@@ -3,9 +3,9 @@
 use std::path::Path;
 
 use planroom_contract::{Event, Seq};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
-use crate::{BUSY_TIMEOUT, StoreError, read};
+use crate::{BUSY_TIMEOUT, STORE_VERSION, StoreError, read};
 
 /// A read-only connection for polling `PRAGMA data_version`. It never writes, so its
 /// `data_version` changes on every commit by any other connection, in any process (DR-1).
@@ -28,6 +28,23 @@ impl Tail {
     /// `PRAGMA data_version`: it changes when another connection commits.
     pub fn data_version(&self) -> Result<i64, StoreError> {
         Ok(self.conn.pragma_query_value(None, "data_version", |r| r.get(0))?)
+    }
+
+    /// Refuse a store a newer engine migrated past this build's `STORE_VERSION`, with
+    /// `schema_mismatch` naming the version that wrote it. The live loop calls this whenever
+    /// `data_version` moves, so an older `watch` exits within one poll of a migration (DR-78).
+    pub fn check_version(&self) -> Result<(), StoreError> {
+        let found: u32 = self.conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if found <= STORE_VERSION {
+            return Ok(());
+        }
+        let writer_version = self
+            .conn
+            .query_row("SELECT value FROM meta WHERE key = 'engine_version'", [], |r| r.get(0))
+            .optional()
+            .ok()
+            .flatten();
+        Err(StoreError::SchemaMismatch { found, supported: STORE_VERSION, writer_version })
     }
 
     /// The latest committed `seq`.
