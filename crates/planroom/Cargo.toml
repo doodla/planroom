@@ -1,0 +1,15 @@
+[package]
+name = "planroom"
+description = "A shared, living map of a software system for people and agents."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "planroom"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true

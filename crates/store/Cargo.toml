@@ -1,0 +1,10 @@
+[package]
+name = "planroom-store"
+description = "The SQLite store: tables, commit, tail, leases, presence and migrations."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

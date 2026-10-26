@@ -1,0 +1,10 @@
+[package]
+name = "planroom-contract"
+description = "Every public Planroom type, the error and warning registries and the command catalogue."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

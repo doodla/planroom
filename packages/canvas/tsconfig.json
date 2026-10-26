@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": [],
+    "outDir": "../../target/tsc/canvas",
+    "tsBuildInfoFile": "../../target/tsc/canvas.tsbuildinfo"
+  },
+  "include": ["src"]
+}

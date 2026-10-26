@@ -1,0 +1,15 @@
+# Generated: the drift checks in `cargo xtask check` cover these.
+schema/
+packages/contract/src/generated/
+.dependency-cruiser.cjs
+pnpm-lock.yaml
+target/
+
+# Inputs that are frozen or edited only by their owners.
+KICKOFF.md
+progress.md
+feature_list.json
+README.md
+examples/
+docs/
+.claude/

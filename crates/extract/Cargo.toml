@@ -1,0 +1,10 @@
+[package]
+name = "planroom-extract"
+description = "Extraction: the git CLI, the file walk, formats, tree-sitter, the declarative runner and linkers."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

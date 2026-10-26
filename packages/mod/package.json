@@ -1,0 +1,10 @@
+{
+  "name": "@planroom/mod",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Claude Code mod: wiring, pane, band, /room, tools, guards, broker, agents.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
