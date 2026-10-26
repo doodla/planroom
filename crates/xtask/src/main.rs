@@ -22,7 +22,9 @@ usage: cargo xtask <command>
                               the state check of layout.lock, and the walk over RANGE's commits
   check audit                 cargo deny check advisories and pnpm audit --prod (network)
   check guardrails            the two guardrails test files alone
-  test [-p CRATE]             the canvas build, the Rust tests (nextest when installed) and vitest
+  test [-p CRATE [FILTER]]    the canvas build, the Rust tests (nextest when installed) and vitest;
+                              with -p, one crate's tests, those whose name holds FILTER
+  test --ts PATH              vitest on one file or folder
   test --installer            ShellCheck, then tests/installer/run.sh under sh, dash and (Linux) BusyBox
   gen                         write every generated file
   gen --mod                   write only the mod bundle, plugin/hooks/planroom-mod.js
@@ -47,8 +49,10 @@ fn main() -> ExitCode {
         ["check", "layout", "--commits", range] => layout_checks(&root, &mut report, Some(range)),
         ["check", "audit"] => audit(&root, &mut report),
         ["check", "guardrails"] => guardrails(&root, &mut report),
-        ["test"] => test(&root, &mut report, None),
-        ["test", "-p", krate] => test(&root, &mut report, Some(krate)),
+        ["test"] => test(&root, &mut report, None, None),
+        ["test", "-p", krate] => test(&root, &mut report, Some(krate), None),
+        ["test", "-p", krate, filter] => test(&root, &mut report, Some(krate), Some(filter)),
+        ["test", "--ts", path] => ts_test(&root, &mut report, path),
         ["test", "--installer"] => installer(&root, &mut report),
         ["gen"] | ["gen", "--mod"] => {
             match if args.len() == 1 { generate::write_all(&root) } else { generate::write_mod(&root) } {
@@ -464,11 +468,13 @@ fn plugin_checks(root: &Path, r: &mut Report) {
     }
 }
 
-fn test(root: &Path, r: &mut Report, krate: Option<&str>) {
-    let scope: Vec<&str> = match krate {
+fn test(root: &Path, r: &mut Report, krate: Option<&str>, filter: Option<&str>) {
+    let mut scope: Vec<&str> = match krate {
         Some(k) => vec!["-p", k],
         None => vec!["--workspace"],
     };
+    // cargo test and nextest both take a name filter after the package.
+    scope.extend(filter);
     // The engine embeds target/canvas/ when it builds (build.rs), and `share`'s tests publish it, so
     // the canvas builds first wherever the engine's tests run.
     if matches!(krate, None | Some("planroom")) {
@@ -507,6 +513,20 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>) {
         Some(k) => r.skipped("claude plugin test target/mod-test", &format!("only {k} was asked for")),
         None => mod_tests(root, r),
     }
+}
+
+/// vitest on one file or folder, while iterating on a TypeScript package.
+fn ts_test(root: &Path, r: &mut Report, path: &str) {
+    if !root.join("node_modules").is_dir() {
+        return r.failed("vitest run", "node_modules is missing", PNPM_FIX);
+    }
+    r.tool(
+        root,
+        &format!("vitest run {path}"),
+        "pnpm",
+        &["exec", "vitest", "run", path],
+        "fix the failing tests above",
+    )
 }
 
 /// Build the `target/mod-test/` harness and run `claude plugin test` on it (DR-59).
