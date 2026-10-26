@@ -3,6 +3,81 @@
 // src/register.tsx
 import { read as read2, update as update2 } from "claude-code";
 
+// ../ui/src/display.ts
+var INVISIBLE = /* @__PURE__ */ new Set([
+  1564,
+  8203,
+  8204,
+  8205,
+  8206,
+  8207,
+  8234,
+  8235,
+  8236,
+  8237,
+  8238,
+  8288,
+  8294,
+  8295,
+  8296,
+  8297,
+  65279
+]);
+function isControl(code) {
+  return code < 32 || code >= 127 && code <= 159;
+}
+function sanitize(text2) {
+  let out = "";
+  for (const ch of text2) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (isControl(code)) {
+      out += `\\x${code.toString(16).padStart(2, "0")}`;
+    } else if (INVISIBLE.has(code)) {
+      out += `⟨U+${code.toString(16).toUpperCase().padStart(4, "0")}⟩`;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+// ../ui/src/keys.ts
+var BAND_KEYS = {
+  primary: "1",
+  alternative: "2",
+  later: "3"
+};
+var ROW_KEYS = [
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "0",
+  "b",
+  "j",
+  "k",
+  "q",
+  "r",
+  "v"
+];
+function rowKeys(count) {
+  return Array.from({ length: Math.max(0, count) }, (_, i) => ROW_KEYS[i]);
+}
+
+// ../ui/src/text.ts
+var ELLIPSIS = "…";
+function truncate(text2, columns) {
+  const points = Array.from(text2);
+  if (points.length <= columns) {
+    return text2;
+  }
+  if (columns <= 0) {
+    return "";
+  }
+  return points.slice(0, columns - 1).join("") + ELLIPSIS;
+}
+
 // src/atoms.ts
 import { atom } from "claude-code";
 
@@ -423,7 +498,11 @@ function inStateDir(path) {
   return /(^|\/)(\.planroom|\.git\/planroom)(\/|$)/.test(path);
 }
 var STORE_FILE = /^(store|ledger)\.db(-wal|-shm|-journal)?$/;
+var PROC_SECRETS = /^\/proc\/[^/]+\/(task\/[^/]+\/)?(environ|mem)$/;
 function readDenied(path, places2) {
+  if (PROC_SECRETS.test(path)) {
+    return "Another process's environment and memory may hold a person token.";
+  }
   const name = basename(path);
   if (STORE_FILE.test(name) || name === "store.pointer") {
     return "Planroom's store is read through the planroom CLI, never directly.";
@@ -454,6 +533,9 @@ function writeDenied(path, places2) {
     return "The Planroom data root changes only through the planroom CLI.";
   }
   return readDenied(path, places2);
+}
+function unquote(command) {
+  return command.replace(/\\\n/g, " ").replace(/["'\\]/g, "");
 }
 function shellWords(command) {
   return command.replace(/\\\n/g, " ").split(/[\s;&|()<>`'"=$]+/).filter((w) => w !== "");
@@ -522,25 +604,160 @@ function personOnlyLine(line) {
   return null;
 }
 var GUARDED_VARIABLES = /\bPLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)\b\s*=|\b(export|declare|typeset|env|set)\b[^;&|\n]*\bPLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)\b/;
-function pathWords(words) {
-  return words.filter(
-    (w) => !w.startsWith("-") && (w.includes("/") || w.startsWith("~") || STORE_FILE.test(w) || w === "serve.json")
-  );
+var GLOB = /[*?[{]/;
+function isExpansion(word) {
+  return word.startsWith("$") || word.startsWith("`");
+}
+function simpleCommands(command) {
+  return unquote(command).split(/[;&|\n]+/).map((c) => c.split(/[\s<>]+/).filter((w) => w !== ""));
 }
 function bashDenied(command) {
-  if (GUARDED_VARIABLES.test(command)) {
+  const plain = unquote(command);
+  if (GUARDED_VARIABLES.test(plain)) {
     return "An agent never sets PLANROOM_PERSON_TOKEN, PLANROOM_RAW, PLANROOM_ENGINE or PLANROOM_RELEASE_BASE_URL.";
   }
-  const words = shellWords(command);
+  const words = shellWords(plain);
   for (const line of planroomLines(words)) {
     const reason = personOnlyLine(line);
     if (reason !== null) return reason;
+  }
+  for (const simple of simpleCommands(command)) {
+    for (const [i, word] of simple.entries()) {
+      if (!isExpansion(word)) continue;
+      for (const line of planroomLines(["planroom", ...simple.slice(i + 1)])) {
+        const reason = personOnlyLine(line);
+        if (reason !== null) return reason;
+      }
+    }
   }
   const push = words.findIndex(
     (w, i) => basename(w) === "git" && words[i + 1] === "push"
   );
   if (push >= 0 && words.slice(push).some((w) => w.includes("refs/planroom/"))) {
     return "Planroom's refs move only through the planroom CLI.";
+  }
+  return null;
+}
+function knownVariables(places2) {
+  const parent = (p) => p.slice(0, Math.max(1, p.lastIndexOf("/")));
+  return /* @__PURE__ */ new Map([
+    ["HOME", places2.home],
+    ["PWD", places2.cwd],
+    ["CLAUDE_CONFIG_DIR", places2.claudeConfig],
+    ["PLANROOM_DATA", places2.dataRoot],
+    ["XDG_DATA_HOME", parent(places2.dataRoot)],
+    ["XDG_CONFIG_HOME", parent(parent(places2.userConfig))]
+  ]);
+}
+function expand(word, vars) {
+  return word.replace(
+    /\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}|\$([A-Za-z_][A-Za-z0-9_]*)/g,
+    (_, braced, bare) => vars.get(braced ?? bare ?? "") ?? "*"
+  ).replace(/\$[^/]*|`[^/]*/g, "*");
+}
+function bashPaths(command, places2) {
+  const vars = knownVariables(places2);
+  const tokens = unquote(command).split(/[\s;&|()<>`]+/).filter((w) => w !== "");
+  const candidates = [];
+  let bases = [places2.cwd];
+  let moved = false;
+  for (const [i, raw] of tokens.entries()) {
+    const eq = raw.indexOf("=");
+    const assigned = eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(raw.slice(0, eq));
+    const value = eq >= 0 ? expand(raw.slice(eq + 1), vars) : null;
+    if (assigned && value !== null) vars.set(raw.slice(0, eq), value);
+    const word = expand(raw, vars);
+    if (value !== null && value !== "") candidates.push(value);
+    if (!assigned && !word.startsWith("-")) candidates.push(word);
+    if (raw === "cd" || raw === "pushd") {
+      const next = tokens[i + 1];
+      const target = next === void 0 || next.startsWith("-") || /^[;&|]/.test(next) ? "~" : expand(next, vars);
+      const moves = bases.map((b) => normalize(target, b, places2.home));
+      bases = [.../* @__PURE__ */ new Set([...bases, ...moves])].slice(0, 8);
+      moved = true;
+    }
+  }
+  const words = candidates.filter(
+    (w) => w !== "" && (moved || w.includes("/") || w.startsWith("~") || GLOB.test(w) || STORE_FILE.test(w) || w === "store.pointer" || w === "serve.json")
+  );
+  return { words: [...new Set(words)], bases };
+}
+function segmentPattern(segment) {
+  let out = "";
+  for (let i = 0; i < segment.length; i++) {
+    const ch = segment[i] ?? "";
+    if (ch === "*") out += "[^/]*";
+    else if (ch === "?") out += "[^/]";
+    else if (ch === "[") {
+      const end = segment.indexOf("]", i + 2);
+      if (end < 0) {
+        out += "\\[";
+        continue;
+      }
+      const set = segment.slice(i + 1, end).replace(/^!/, "^");
+      out += `[${set.replace(/\\/g, "\\\\")}]`;
+      i = end;
+    } else if (ch === "{") {
+      const end = segment.indexOf("}", i);
+      if (end < 0) {
+        out += "\\{";
+        continue;
+      }
+      const alternatives = segment.slice(i + 1, end).split(",");
+      out += `(?:${alternatives.map(segmentPattern).join("|")})`;
+      i = end;
+    } else out += ch.replace(/[.+^$()|\\\]}]/g, "\\$&");
+  }
+  return /^[*?[]/.test(segment) ? `(?!\\.)${out}` : out;
+}
+function segmentMatches(segment, name) {
+  if (segment === "**") return true;
+  try {
+    return new RegExp(`^${segmentPattern(segment)}$`).test(name);
+  } catch {
+    return true;
+  }
+}
+var STATE_SECRETS = [
+  "store.db",
+  "store.db-wal",
+  "store.db-shm",
+  "store.db-journal",
+  "ledger.db",
+  "store.pointer",
+  "serve.json"
+];
+function globDenied(pattern, places2) {
+  const direct = readDenied(pattern, places2);
+  if (direct !== null) return direct;
+  const segments = pattern.split("/").filter((s) => s !== "");
+  const first = segments.findIndex((s) => GLOB.test(s));
+  if (first < 0) return null;
+  const prefix = `/${segments.slice(0, first).join("/")}`;
+  const rest = segments.slice(first);
+  const data = places2.dataRoot;
+  const guarded = [
+    ...["stores", "backups", "open", "ledger.db"].map((s) => `${data}/${s}`),
+    places2.userConfig,
+    modStoreDir(places2)
+  ];
+  for (const dir of guarded) {
+    const why = readDenied(dir, places2) ?? "Planroom's private files are read through the planroom CLI, never directly.";
+    if (within(prefix, dir)) return why;
+    if (!within(dir, prefix)) continue;
+    const below = dir.slice(prefix.length).split("/").filter((s) => s !== "");
+    if (rest.includes("**")) return why;
+    if (rest.length >= below.length && below.every((name, i) => segmentMatches(rest[i] ?? "", name))) {
+      return why;
+    }
+  }
+  const folders = segments.slice(0, -1);
+  const last = segments.at(-1) ?? "";
+  const stateFolder = inStateDir(prefix) || folders.some(
+    (s, i) => segmentMatches(s, ".planroom") || segmentMatches(s, ".git") && i + 1 < folders.length && segmentMatches(folders[i + 1] ?? "", "planroom")
+  );
+  if (stateFolder && STATE_SECRETS.some((n) => segmentMatches(last, n))) {
+    return "Planroom's store is read through the planroom CLI, never directly.";
   }
   return null;
 }
@@ -576,9 +793,9 @@ function callPaths(tool, input) {
       return { reads: [], writes: [], bash: null };
   }
 }
-function namedPaths(tool, input) {
+function namedPaths(tool, input, places2) {
   const { reads, writes, bash } = callPaths(tool, input);
-  const fromBash = bash === null ? [] : pathWords(shellWords(bash));
+  const fromBash = bash === null ? [] : bashPaths(bash, places2).words;
   return [.../* @__PURE__ */ new Set([...reads, ...writes, ...fromBash])].slice(0, 32);
 }
 function guardCall(tool, input, resolved, places2) {
@@ -590,7 +807,7 @@ function guardCall(tool, input, resolved, places2) {
   ];
   for (const p of reads) {
     for (const s of spell(p)) {
-      const reason = readDenied(s, places2);
+      const reason = GLOB.test(s) ? globDenied(s, places2) : readDenied(s, places2);
       if (reason !== null) return deny(reason);
       if ((tool === "Grep" || tool === "Glob") && (inStateDir(s) || within(s, places2.dataRoot) || within(modStoreDir(places2), s))) {
         return deny(
@@ -613,9 +830,14 @@ function guardCall(tool, input, resolved, places2) {
   if (bash !== null) {
     const reason = bashDenied(bash);
     if (reason !== null) return deny(reason);
-    for (const p of pathWords(shellWords(bash))) {
-      for (const s of spell(p)) {
-        const why = readDenied(s, places2);
+    const { words, bases } = bashPaths(bash, places2);
+    for (const p of words) {
+      const spellings = [
+        ...bases.map((b) => normalize(p, b, places2.home)),
+        ...resolved(p)
+      ];
+      for (const s of spellings) {
+        const why = GLOB.test(s) ? globDenied(s, places2) : readDenied(s, places2);
         if (why !== null) return deny(why);
       }
     }
@@ -623,41 +845,155 @@ function guardCall(tool, input, resolved, places2) {
   return null;
 }
 
-// ../ui/src/keys.ts
-var BAND_KEYS = {
-  primary: "1",
-  alternative: "2",
-  later: "3"
-};
-var ROW_KEYS = [
-  "5",
-  "6",
-  "7",
-  "8",
-  "9",
-  "0",
-  "b",
-  "j",
-  "k",
-  "q",
-  "r",
-  "v"
-];
-function rowKeys(count) {
-  return Array.from({ length: Math.max(0, count) }, (_, i) => ROW_KEYS[i]);
+// src/room.ts
+function replySummary(reply) {
+  const summary = reply?.summary;
+  return typeof summary === "string" && summary.trim() !== "" ? summary : null;
 }
-
-// ../ui/src/text.ts
-var ELLIPSIS = "…";
-function truncate(text2, columns) {
-  const points = Array.from(text2);
-  if (points.length <= columns) {
-    return text2;
+function oneLine(text2) {
+  return sanitize(text2.trim().replace(/\s*[\r\n]+\s*/g, " · "));
+}
+function mapOf(result) {
+  const r = result;
+  return r !== null && typeof r === "object" && typeof r.level === "string" && Array.isArray(r.nodes) ? r : null;
+}
+function isHandle(value) {
+  const h2 = value;
+  return h2 !== null && typeof h2 === "object" && typeof h2.command === "string" && typeof h2.label === "string" && Array.isArray(h2.args) && h2.args.every((a) => typeof a === "string");
+}
+function lineFor(command, label2, ran) {
+  const { result } = ran;
+  if (!result.ok) {
+    const e = result.error;
+    const said = [e?.message, e?.hint ?? void 0].filter(
+      (s) => typeof s === "string" && s !== ""
+    );
+    return oneLine(said.length > 0 ? said.join(" · ") : `${label2} failed`);
   }
-  if (columns <= 0) {
-    return "";
+  if (ran.summary !== null) return oneLine(ran.summary);
+  const map = mapOf(result.result);
+  if (map !== null) {
+    const next = map.empty?.next;
+    if (map.nodes.length === 0) {
+      return oneLine(
+        isHandle(next) ? next.label : `No blocks at the ${map.level} level`
+      );
+    }
+    const n = map.nodes.length;
+    return oneLine(`${n} block${n === 1 ? "" : "s"} at the ${map.level} level`);
   }
-  return points.slice(0, columns - 1).join("") + ELLIPSIS;
+  return oneLine(`${label2 || command}: done`);
+}
+function handlesOf(result) {
+  const r = result.ok ? result.result : null;
+  const meta = result.meta["next"];
+  const found = [
+    ...Array.isArray(meta) ? meta : [meta],
+    r?.empty?.next,
+    r?.next
+  ].filter(isHandle);
+  const seen = /* @__PURE__ */ new Set();
+  return found.filter((h2) => {
+    const key = [h2.command, ...h2.args].join("\0");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+function shellWord(word) {
+  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, "'\\''")}'`;
+}
+function handleLine(h2) {
+  const run2 = leaf(h2.command)?.room === true ? "/room" : "planroom";
+  const line = [run2, h2.command, ...h2.args.map(shellWord)].join(" ");
+  return `${oneLine(h2.label)}: \`${sanitize(line)}\``;
+}
+var ROOM_TEXT_TOKENS = 300;
+var ROOM_TEXT_CHARS = ROOM_TEXT_TOKENS * 4;
+var SUMMARY_CHARS = 600;
+var HANDLES = 3;
+function roomText(command, ran) {
+  const lines = [truncate(lineFor(command, command, ran), SUMMARY_CHARS)];
+  for (const h2 of handlesOf(ran.result).slice(0, HANDLES)) {
+    const line = `→ ${handleLine(h2)}`;
+    if (lines.join("\n").length + 1 + line.length > ROOM_TEXT_CHARS) break;
+    lines.push(line);
+  }
+  return truncate(lines.join("\n"), ROOM_TEXT_CHARS);
+}
+var ROOM_BLOCKS = 200;
+var ROOM_JSON_CHARS = 2e4;
+function countsOf(counts) {
+  if (counts === null || typeof counts !== "object") return "";
+  const parts = Object.entries(counts).filter(([, n]) => typeof n === "number").map(([level, n]) => `${String(n)} ${level}`);
+  return parts.length === 0 ? "" : ` · ${parts.join(", ")}`;
+}
+function roomRows(command, ran) {
+  const rows = [
+    {
+      kind: "text",
+      key: "summary",
+      text: lineFor(command, command, ran),
+      tone: ran.result.ok ? "bold" : "warn"
+    }
+  ];
+  if (ran.result.ok) {
+    const map = mapOf(ran.result.result);
+    if (map !== null) {
+      map.nodes.slice(0, ROOM_BLOCKS).forEach((n, i) => {
+        const name = typeof n.name === "string" ? n.name : "";
+        rows.push({
+          kind: "text",
+          key: `block-${i}`,
+          text: oneLine(`□ ${name}${countsOf(n.counts)}`)
+        });
+      });
+      if (map.nodes.length > ROOM_BLOCKS) {
+        rows.push({
+          kind: "text",
+          key: "blocks-more",
+          text: `+${map.nodes.length - ROOM_BLOCKS} more`,
+          tone: "dim"
+        });
+      }
+    } else if (ran.result.result !== void 0 && ran.result.result !== null) {
+      const json = JSON.stringify(ran.result.result, null, 2);
+      rows.push({
+        kind: "code",
+        key: "result",
+        source: truncate(
+          json.split("\n").map(sanitize).join("\n"),
+          ROOM_JSON_CHARS
+        )
+      });
+    }
+  }
+  handlesOf(ran.result).forEach((h2, i) => {
+    rows.push({
+      kind: "text",
+      key: `handle-${i}`,
+      text: `→ ${handleLine(h2)}`,
+      tone: "dim"
+    });
+  });
+  return rows;
+}
+function shownFrom(handle, ran, seq) {
+  if (!ran.result.ok) return null;
+  const map = mapOf(ran.result.result);
+  return {
+    command: handle.command,
+    args: [...handle.args],
+    seq,
+    line: lineFor(handle.command, handle.label, ran),
+    level: map === null ? null : sanitize(map.level),
+    blocks: map === null ? [] : map.nodes.map(
+      (n) => oneLine(typeof n.name === "string" ? n.name : "")
+    )
+  };
+}
+function shows(shown2, handle, seq) {
+  return shown2 !== null && shown2.seq === seq && shown2.command === handle.command && shown2.args.length === handle.args.length && shown2.args.every((a, i) => a === handle.args[i]);
 }
 
 // src/layout.ts
@@ -667,7 +1003,11 @@ function rowHeight(row) {
   return row.kind === "diff" ? row.lines : 1;
 }
 function text(key, value, columns, tone) {
-  return tone === void 0 ? { kind: "text", key, text: truncate(value, columns) } : { kind: "text", key, text: truncate(value, columns), tone };
+  const shown2 = truncate(sanitize(value), columns);
+  return tone === void 0 ? { kind: "text", key, text: shown2 } : { kind: "text", key, text: shown2, tone };
+}
+function label(value, columns) {
+  return truncate(sanitize(value), columns);
 }
 function run(handle) {
   return {
@@ -707,10 +1047,36 @@ function focusRows(model, columns, compact) {
     )
   ];
 }
-function cardRows(model, columns) {
+function shownNext(model, shown2) {
+  const next = model.empty?.next ?? model.next;
+  return model.decision === null && shows(shown2, next, model.focus.seq) ? shown2 : null;
+}
+function cardRows(model, columns, shown2) {
   const card = model.decision;
   if (card === null) {
     const next = model.empty?.next ?? model.next;
+    if (shown2 !== null) {
+      return [
+        text("card-title", next.label, columns, "dim"),
+        text("card-result", shown2.line, columns, "accent"),
+        {
+          kind: "buttons",
+          key: "card-back",
+          buttons: [
+            {
+              key: "back",
+              label: label(
+                `Back to the ${model.minimap.level} level`,
+                columns - 3
+              ),
+              hotkey: "1",
+              primary: true,
+              action: { kind: "clear" }
+            }
+          ]
+        }
+      ];
+    }
     return [
       text("card-title", "Next", columns, "dim"),
       {
@@ -719,7 +1085,7 @@ function cardRows(model, columns) {
         buttons: [
           {
             key: "next",
-            label: truncate(next.label, columns - 3),
+            label: label(next.label, columns - 3),
             hotkey: "1",
             primary: true,
             action: run(next)
@@ -734,7 +1100,7 @@ function cardRows(model, columns) {
   ];
   const choices = card.choices.slice(0, 4).map((c, i) => ({
     key: `choice-${c.id}`,
-    label: truncate(c.label, CHOICE_COLUMNS),
+    label: label(c.label, CHOICE_COLUMNS),
     hotkey: String(i + 1),
     primary: c.preselected,
     action: {
@@ -778,7 +1144,7 @@ function diffRows(diffs, keys, columns, hunkLines) {
     const room = columns - (hotkey === void 0 ? 0 : hotkey.length + 2);
     const button = {
       key: `diff-${i}`,
-      label: truncate(d.summary, room),
+      label: label(d.summary, room),
       action: run(d.open)
     };
     if (hotkey !== void 0) button.hotkey = hotkey;
@@ -807,34 +1173,29 @@ function whoRow(model, columns) {
     "dim"
   );
 }
-function blockRows(model, keys, columns, room) {
-  const blocks = model.minimap.blocks;
+function blockRows(model, columns, room, shown2) {
+  const level = shown2?.level ?? model.minimap.level;
+  const blocks = shown2?.level != null ? shown2.blocks.map((name, i) => ({
+    key: `shown-${i}`,
+    name,
+    focused: false
+  })) : model.minimap.blocks.map((b) => ({
+    key: b.id,
+    name: b.name,
+    focused: b.focused
+  }));
   const rows = [
-    text("blocks-title", `Blocks · ${model.minimap.level}`, columns, "dim")
+    text("blocks-title", `Blocks · ${level}`, columns, "dim")
   ];
-  const shown = Math.max(0, Math.min(blocks.length, 9, room - 2));
-  blocks.slice(0, shown).forEach((b, i) => {
-    const hotkey = keys[i];
-    const label = truncate(
-      `${b.focused ? "▣" : "□"} ${b.name}`,
-      columns - (hotkey === void 0 ? 0 : hotkey.length + 2)
-    );
-    const button = {
-      key: `block-${b.id}`,
-      label,
-      action: {
-        kind: "run",
-        command: "map",
-        args: ["--focus", b.id],
-        label: b.name
-      }
-    };
-    if (hotkey !== void 0) button.hotkey = hotkey;
-    rows.push({ kind: "buttons", key: `block-row-${i}`, buttons: [button] });
-  });
-  if (blocks.length > shown)
+  const fit = Math.max(0, Math.min(blocks.length, 9, room - 2));
+  for (const b of blocks.slice(0, fit)) {
     rows.push(
-      text("blocks-more", `+${blocks.length - shown} more`, columns, "dim")
+      text(`block-${b.key}`, `${b.focused ? "▣" : "□"} ${b.name}`, columns)
+    );
+  }
+  if (blocks.length > fit)
+    rows.push(
+      text("blocks-more", `+${blocks.length - fit} more`, columns, "dim")
     );
   if (blocks.length === 0)
     rows.push(
@@ -842,11 +1203,12 @@ function blockRows(model, keys, columns, room) {
     );
   return rows;
 }
-function paneRows(model, columns, rows) {
+function paneRows(model, columns, rows, shown2 = null) {
   const compact = columns < DOCK.columns || rows < DOCK.rows;
+  const result = shownNext(model, shown2);
   const out = [
     ...focusRows(model, columns, compact),
-    ...cardRows(model, columns)
+    ...cardRows(model, columns, result)
   ];
   const keys = rowKeys(12);
   if (!compact) {
@@ -864,8 +1226,7 @@ function paneRows(model, columns, rows) {
     out.push(whoRow(model, columns));
   }
   const used = out.reduce((sum, r) => sum + rowHeight(r), 0);
-  const listKeys = compact ? keys : keys.slice(Math.min(3, model.diffs.length));
-  out.push(...blockRows(model, listKeys, columns, rows - used));
+  out.push(...blockRows(model, columns, rows - used, result));
   return out;
 }
 function fallbackRows(f, columns) {
@@ -882,7 +1243,7 @@ function fallbackRows(f, columns) {
       buttons: [
         {
           key: "fallback-action",
-          label: f.action.label,
+          label: label(f.action.label, columns - 3),
           hotkey: "1",
           primary: true,
           action: { kind: "fallback", run: f.action.run }
@@ -892,7 +1253,7 @@ function fallbackRows(f, columns) {
   }
   return rows;
 }
-function bandRow(source, columns) {
+function bandRow(source, columns, shown2 = null) {
   if ("fallback" in source) {
     const f = source.fallback;
     if (f.action === null) {
@@ -906,14 +1267,14 @@ function bandRow(source, columns) {
         "dim"
       );
     }
-    const label = truncate(`${f.headline} ${f.action.label}`, columns - 3);
+    const primary = label(`${f.headline} ${f.action.label}`, columns - 3);
     return {
       kind: "buttons",
       key: "band",
       buttons: [
         {
           key: "band-primary",
-          label,
+          label: primary,
           hotkey: BAND_KEYS.primary,
           primary: true,
           action: { kind: "fallback", run: f.action.run }
@@ -922,6 +1283,14 @@ function bandRow(source, columns) {
     };
   }
   const next = source.model.empty?.next ?? source.model.next;
+  if (shownNext(source.model, shown2) !== null) {
+    return text(
+      "band",
+      `${next.label}: ${shown2?.line ?? ""} · /room to open the pane`,
+      columns,
+      "dim"
+    );
+  }
   if (!bandMayRun(next.command)) {
     return text(
       "band",
@@ -936,7 +1305,7 @@ function bandRow(source, columns) {
     buttons: [
       {
         key: "band-primary",
-        label: truncate(next.label, columns - 3),
+        label: label(next.label, columns - 3),
         hotkey: BAND_KEYS.primary,
         primary: true,
         action: run(next)
@@ -1155,7 +1524,8 @@ async function watchLoop($, gen) {
     const code = refusal?.error?.code;
     if (refusal !== null && code !== void 0 && stopsTheLoop(code)) {
       if (code !== "workspace_not_found") {
-        $.ui.status(refusal.error?.hint ?? refusal.error?.message);
+        const said = refusal.error?.hint ?? refusal.error?.message;
+        $.ui.status(said === void 0 ? void 0 : sanitize(said));
       }
       return;
     }
@@ -1255,17 +1625,17 @@ function ahash(h2) {
   if (h2.outputLen < 1 || h2.blockLen < 1)
     throw new Error("hash blockLen / outputLen must be >= 1");
 }
-var aobject = (value, label) => {
+var aobject = (value, label2) => {
   if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new TypeError((label === "object" ? "" : `"${label}" `) + "expected object, got type=" + typeof value);
+    throw new TypeError((label2 === "object" ? "" : `"${label2}" `) + "expected object, got type=" + typeof value);
 };
-var aopts = (value, label) => {
-  aobject(value, label);
+var aopts = (value, label2) => {
+  aobject(value, label2);
   const proto = Object.getPrototypeOf(value);
   if (proto !== Object.prototype && proto !== null)
-    throw new TypeError(`"${label}" expected plain object`);
+    throw new TypeError(`"${label2}" expected plain object`);
   if (Object.hasOwn(value, "__proto__"))
-    throw new TypeError(`"${label}.__proto__" is not allowed`);
+    throw new TypeError(`"${label2}.__proto__" is not allowed`);
 };
 function aexists(instance, checkFinished = true) {
   if (instance.destroyed)
@@ -1831,16 +2201,16 @@ function validateObject(object, fields = {}, optFields = {}, title = "object") {
   aobject2(fields, "fields");
   aobject2(optFields, "optFields");
   function checkField(fieldName, expectedType, isOpt) {
-    const label = title === "object" ? `param "${String(fieldName)}"` : `"${title}.${String(fieldName)}"`;
+    const label2 = title === "object" ? `param "${String(fieldName)}"` : `"${title}.${String(fieldName)}"`;
     const val = object[fieldName];
     if (!Object.hasOwn(object, fieldName) && (isOpt ? val !== void 0 : expectedType !== "function")) {
-      throw new TypeError(`${label} is invalid: expected own property`);
+      throw new TypeError(`${label2} is invalid: expected own property`);
     }
     if (isOpt && val === void 0)
       return;
     const current = typeof val;
     if (current !== expectedType || val === null)
-      throw new TypeError(`${label} is invalid: expected ${expectedType}, got ${current}`);
+      throw new TypeError(`${label2} is invalid: expected ${expectedType}, got ${current}`);
   }
   const iter = (f, isOpt) => Object.entries(f).forEach(([k, v]) => checkField(k, v, isOpt));
   iter(fields, false);
@@ -3811,12 +4181,12 @@ function signToken(key, f) {
   });
   return `${f.at}.${base64url(sig)}`;
 }
-function lineFields(argv, pathWords2) {
-  const command = argv.slice(0, pathWords2).join(" ");
+function lineFields(argv, pathWords) {
+  const command = argv.slice(0, pathWords).join(" ");
   const args = [];
   let idem = "";
   let base = "";
-  for (let i = pathWords2; i < argv.length; i++) {
+  for (let i = pathWords; i < argv.length; i++) {
     const word = argv[i] ?? "";
     if (word === "--json") continue;
     args.push(word);
@@ -3840,10 +4210,10 @@ async function personKey($) {
   await $.store.set(KEY_STORE, key);
   return key;
 }
-async function personEnv($, argv, pathWords2) {
+async function personEnv($, argv, pathWords) {
   const key = await personKey($);
   const at = Math.floor(await $.clock.now() / 1e3);
-  const token = signToken(key, { ...lineFields(argv, pathWords2), at });
+  const token = signToken(key, { ...lineFields(argv, pathWords), at });
   return { ...await clientEnv($), PLANROOM_PERSON_TOKEN: token };
 }
 async function registerKey($, bin, workspace2, rekey = false) {
@@ -4060,11 +4430,6 @@ function changeNeedsNoPrompt(command) {
   const verb = command.split(" ")[0];
   return verb === "edit" || verb === "intent" || verb === "claim" || verb === "curate";
 }
-var ROOM_TEXT_CHARS = 1200;
-function roomText(result) {
-  const text2 = JSON.stringify(result);
-  return text2.length <= ROOM_TEXT_CHARS ? text2 : `${text2.slice(0, ROOM_TEXT_CHARS - 1)}…`;
-}
 function timeoutFor(argv) {
   return argv[0] === "scan" ? 6e5 : 3e4;
 }
@@ -4073,9 +4438,14 @@ function timeoutFor(argv) {
 var PANE = "planroom";
 var TITLE = "Planroom";
 var workspace = "";
+var shown = null;
+var drawn = /* @__PURE__ */ new Map();
+var DRAWN = 16;
 async function setEngine($, state) {
   await update2($, engineAtom, () => state);
-  $.ui.status(state.status === "ready" ? void 0 : state.line ?? void 0);
+  $.ui.status(
+    state.status === "ready" || state.line === null ? void 0 : sanitize(state.line)
+  );
 }
 async function registerOnce($, rekey = false) {
   const engine = await read2($, engineAtom);
@@ -4130,11 +4500,13 @@ async function runCommand($, argv, env, stdin) {
   const engine = await read2($, engineAtom);
   const bin = binary(engine);
   if (bin === null) {
-    return engineMissing(engine);
+    return { result: engineMissing(engine), summary: null };
   }
-  return toolResult(
-    await runProcess($, [bin, ...argv], env, timeoutFor(argv), stdin)
-  );
+  const run2 = await runProcess($, [bin, ...argv], env, timeoutFor(argv), stdin);
+  return {
+    result: toolResult(run2),
+    summary: replySummary(parseReply(run2.stdout))
+  };
 }
 async function personRun($, command, args) {
   const path = command.split(" ");
@@ -4151,6 +4523,11 @@ async function personRun($, command, args) {
   return runCommand($, argv, await personEnv($, argv, path.length));
 }
 async function act($, action) {
+  if (action.kind === "clear") {
+    shown = null;
+    $.ui.invalidate("ui.render");
+    return;
+  }
   if (action.kind === "fallback" && action.run === "rekey") {
     await registerOnce($, true);
     return;
@@ -4185,11 +4562,13 @@ async function act($, action) {
     await starting;
     return;
   }
-  const result = await personRun($, action.command, action.args);
-  $.ui.toast(
-    result.ok ? `${action.label}: done` : result.error?.message ?? `${action.label} failed`
-  );
+  const seq = (await read2($, paneAtom)).model?.focus.seq;
+  const ran = await personRun($, action.command, action.args);
+  const line = lineFor(action.command, action.label, ran);
+  $.ui.toast(ran.result.ok ? `${sanitize(action.label)}: ${line}` : line);
+  shown = seq === void 0 ? null : shownFrom(action, ran, seq);
   await refreshPane($);
+  $.ui.invalidate("ui.render");
   await registerOnce($);
 }
 function draw($, e, rows) {
@@ -4197,9 +4576,9 @@ function draw($, e, rows) {
   return /* @__PURE__ */ h(Box, { flexDirection: "column" }, rows.map((row) => {
     switch (row.kind) {
       case "text":
-        return row.tone === "dim" ? /* @__PURE__ */ h(Text, { dimColor: true, wrap: "truncate-end" }, row.text) : row.tone === "warn" ? /* @__PURE__ */ h(Text, { color: "warning", wrap: "truncate-end" }, row.text) : row.tone === "accent" ? /* @__PURE__ */ h(Text, { weight: "bold", wrap: "truncate-end" }, row.text) : /* @__PURE__ */ h(Text, { wrap: "truncate-end" }, row.text);
+        return row.tone === "dim" ? /* @__PURE__ */ h(Text, { key: row.key, dimColor: true, wrap: "truncate-end" }, row.text) : row.tone === "warn" ? /* @__PURE__ */ h(Text, { key: row.key, color: "warning", wrap: "truncate-end" }, row.text) : row.tone === "accent" ? /* @__PURE__ */ h(Text, { key: row.key, weight: "bold", wrap: "truncate-end" }, row.text) : /* @__PURE__ */ h(Text, { key: row.key, wrap: "truncate-end" }, row.text);
       case "buttons":
-        return /* @__PURE__ */ h(Box, { flexDirection: "row", gap: 2 }, row.buttons.map((b) => {
+        return /* @__PURE__ */ h(Box, { key: row.key, flexDirection: "row", gap: 2 }, row.buttons.map((b) => {
           const press = () => act($, b.action);
           return b.hotkey === void 0 ? /* @__PURE__ */ h(Button, { key: b.key, label: b.label, plain: true, onPress: press }) : b.primary === true ? /* @__PURE__ */ h(
             Button,
@@ -4223,9 +4602,15 @@ function draw($, e, rows) {
           );
         }));
       case "diff":
-        return /* @__PURE__ */ h(Code, { source: row.source, format: "diff" });
+        return /* @__PURE__ */ h(Code, { key: row.key, source: row.source, format: "diff" });
     }
   }));
+}
+function drawRoom($, e, rows) {
+  const { Box, Text, Code } = $.ui.resolve(e);
+  return /* @__PURE__ */ h(Box, { flexDirection: "column" }, rows.map(
+    (row) => row.kind === "code" ? /* @__PURE__ */ h(Code, { key: row.key, source: row.source, language: "json" }) : row.tone === "bold" ? /* @__PURE__ */ h(Text, { key: row.key, weight: "bold" }, row.text) : row.tone === "warn" ? /* @__PURE__ */ h(Text, { key: row.key, color: "warning" }, row.text) : row.tone === "dim" ? /* @__PURE__ */ h(Text, { key: row.key, dimColor: true }, row.text) : /* @__PURE__ */ h(Text, { key: row.key }, row.text)
+  ));
 }
 var HANDLER_FAILED = JSON.stringify({
   ok: false,
@@ -4261,7 +4646,7 @@ async function handleTool($, tool, input) {
     PLANROOM_CLIENT: `mod:${session}`
   };
   if (turn.turnId !== null) env["PLANROOM_CAUSE"] = `turn:${turn.turnId}`;
-  const result = await runCommand($, built.argv, env, built.stdin);
+  const { result } = await runCommand($, built.argv, env, built.stdin);
   const seq = result.meta["seq"];
   if (typeof seq === "number") {
     await update2($, turnSeqAtom, (held) => ({ ...held, seq }));
@@ -4295,7 +4680,7 @@ async function landing($, path) {
 async function guardVerdict($, tool, input) {
   const at = await guardPlacesFor($);
   const real = /* @__PURE__ */ new Map();
-  for (const p of namedPaths(tool, input)) {
+  for (const p of namedPaths(tool, input, at)) {
     real.set(p, await landing($, normalize(p, at.cwd, at.home)));
   }
   return guardCall(tool, input, (p) => real.get(p) ?? [], at);
@@ -4332,17 +4717,24 @@ export function register(on) {
       case "help":
         return { text: helpText(roomLeaves()) };
       case "error":
-        return { text: request.message };
+        return { text: sanitize(request.message) };
       case "run": {
         const typed = e.origin.kind === "composer" || e.origin.kind === "bridge";
-        const result = typed ? await personRun($, request.leaf.name, request.args) : await runCommand(
+        const ran = typed ? await personRun($, request.leaf.name, request.args) : await runCommand(
           $,
           [...request.leaf.name.split(" "), ...request.args, "--json"],
           await clientEnv($)
         );
         await refreshPane($);
         await registerOnce($);
-        return { text: roomText(result) };
+        const text2 = roomText(request.leaf.name, ran);
+        drawn.delete(text2);
+        drawn.set(text2, { command: request.leaf.name, ran });
+        for (const old of drawn.keys()) {
+          if (drawn.size <= DRAWN) break;
+          drawn.delete(old);
+        }
+        return { text: text2 };
       }
     }
   });
@@ -4392,9 +4784,17 @@ export function register(on) {
     const engine = await read2($, engineAtom);
     const pane2 = await read2($, paneAtom);
     const columns = e.props.bodyColumns;
-    const rows = engine.status === "ready" && pane2.model !== null ? paneRows(pane2.model, columns, e.props.scroll.bodyRows) : fallbackRows(fallbackFor(engine, pane2.error), columns);
+    const rows = engine.status === "ready" && pane2.model !== null ? paneRows(pane2.model, columns, e.props.scroll.bodyRows, shown) : fallbackRows(fallbackFor(engine, pane2.error), columns);
     return draw($, e, rows);
   });
+  on(
+    "ui.render",
+    { component: "CommandOutput", props: { command: "room" } },
+    ($, e, next) => {
+      const held = drawn.get(e.props.text);
+      return held === void 0 ? next(e) : drawRoom($, e, roomRows(held.command, held.ran));
+    }
+  );
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     if (e.props.hasSurvey) {
       return next(e);
@@ -4402,6 +4802,6 @@ export function register(on) {
     const engine = await read2($, engineAtom);
     const pane2 = await read2($, paneAtom);
     const source = engine.status === "ready" && pane2.model !== null ? { model: pane2.model } : { fallback: fallbackFor(engine, pane2.error) };
-    return draw($, e, [bandRow(source, e.props.bodyColumns)]);
+    return draw($, e, [bandRow(source, e.props.bodyColumns, shown)]);
   });
 }
