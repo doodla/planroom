@@ -9,7 +9,6 @@ use planroom_contract::{Command, CommandSpec, Tool, Undo};
 use serde_json::json;
 
 use crate::boundaries;
-use crate::golden;
 use crate::modgen;
 use crate::plugin;
 use crate::util;
@@ -31,7 +30,7 @@ type Generator = fn(&Path) -> Result<Group, String>;
 /// Every generator, in the order `gen` writes them: the mod bundle last, since esbuild reads the
 /// generated TypeScript from disk.
 const GENERATORS: &[Generator] =
-    &[|_| schemas(), typescript, catalogue, dependency_cruiser, engine_env, |_| goldens(), modgen::bundle];
+    &[|_| schemas(), typescript, catalogue, dependency_cruiser, engine_env, modgen::bundle];
 
 /// Every generated file, grouped by drift check.
 pub fn all(root: &Path) -> Vec<Result<Group, String>> {
@@ -228,14 +227,6 @@ fn engine_env(root: &Path) -> Result<Group, String> {
     Ok(Group {
         name: "plugin/scripts/engine.env",
         files: vec![Generated { path: "plugin/scripts/engine.env".into(), contents }],
-    })
-}
-
-/// `tests/golden/cli/`: the CLI outputs the mod's tests read.
-fn goldens() -> Result<Group, String> {
-    Ok(Group {
-        name: "tests/golden/cli/",
-        files: vec![Generated { path: "tests/golden/cli/focus.json".into(), contents: golden::focus()? }],
     })
 }
 

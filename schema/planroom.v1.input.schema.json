@@ -1427,6 +1427,24 @@
       ],
       "description": "Which layer a fact or edit belongs to."
     },
+    "LayoutKey": {
+      "type": "object",
+      "properties": {
+        "view_key": {
+          "type": "string",
+          "description": "Such as `map:system:all`."
+        },
+        "structure_hash": {
+          "type": "string",
+          "description": "sha256 of the view's block IDs and lifted edges; a changed structure misses the cache."
+        }
+      },
+      "required": [
+        "view_key",
+        "structure_hash"
+      ],
+      "description": "Where a view's layout is cached: the view and the hash of its structure."
+    },
     "LayoutPut": {
       "type": "object",
       "properties": {
@@ -1728,6 +1746,17 @@
               "type": "null"
             }
           ]
+        },
+        "layout": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LayoutKey"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With `--detail graph`: the key a layout of this view is cached under, which\n`PUT /api/v1/layout` takes back."
         }
       },
       "required": [

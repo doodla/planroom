@@ -6,7 +6,6 @@
 mod boundaries;
 mod fixture;
 mod generate;
-mod golden;
 mod modgen;
 mod plugin;
 mod rustlex;
@@ -25,6 +24,7 @@ usage: cargo xtask <command>
   test --installer            ShellCheck and BusyBox sh when installed, then tests/installer/run.sh
   gen                         write every generated file
   gen --mod                   write only the mod bundle, plugin/hooks/planroom-mod.js
+  gen --golden                rerun the Rust tests that write tests/golden/ from real engine runs
   fixture OUT [--no-packs]    build the fixture workspace into OUT, with a config loading the Ruby pack";
 
 fn main() -> ExitCode {
@@ -51,6 +51,18 @@ fn main() -> ExitCode {
                 }
             }
         }
+        ["gen", "--golden"] => {
+            return match golden(&root) {
+                Ok(written) => {
+                    written.iter().for_each(|p| println!("wrote {p}"));
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("cargo xtask gen --golden failed: {e}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
         ["fixture", out] | ["fixture", out, "--no-packs"] => {
             return match fixture::build(&root, Path::new(out), args.len() == 2) {
                 Ok(heads) => {
@@ -73,6 +85,32 @@ fn main() -> ExitCode {
         }
     }
     report.finish()
+}
+
+/// The Rust tests that own a file under `tests/golden/`, each run once with
+/// `PLANROOM_GOLDEN=write`; a plain test run only compares (DR-79).
+const GOLDEN_TESTS: &[(&str, &str, &[&str])] =
+    &[("planroom", "golden", &["tests/golden/cli/focus.json", "tests/golden/cli/map-graph.json"])];
+
+fn golden(root: &Path) -> Result<Vec<String>, String> {
+    let mut written = Vec::new();
+    for (krate, test, files) in GOLDEN_TESTS {
+        let out = std::process::Command::new("cargo")
+            .args(["test", "--locked", "-p", krate, "--test", test])
+            .current_dir(root)
+            .env("PLANROOM_GOLDEN", "write")
+            .output()
+            .map_err(|e| format!("could not run cargo test: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "cargo test -p {krate} --test {test} failed:\n{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        }
+        written.extend(files.iter().map(|f| (*f).to_owned()));
+    }
+    Ok(written)
 }
 
 fn repo_root() -> PathBuf {

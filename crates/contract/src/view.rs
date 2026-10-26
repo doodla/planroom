@@ -20,6 +20,19 @@ pub struct MapView {
     /// Nodes hidden by an override; a hide shows as a count, never as a silent loss.
     pub hidden: u32,
     pub empty: Option<Empty>,
+    /// With `--detail graph`: the key a layout of this view is cached under, which
+    /// `PUT /api/v1/layout` takes back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<LayoutKey>,
+}
+
+/// Where a view's layout is cached: the view and the hash of its structure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LayoutKey {
+    /// Such as `map:system:all`.
+    pub view_key: String,
+    /// sha256 of the view's block IDs and lifted edges; a changed structure misses the cache.
+    pub structure_hash: String,
 }
 
 /// One block on the map.

@@ -48,5 +48,5 @@ pub fn new_event_id() -> EventId {
 
 /// A map with no blocks.
 pub fn empty_view(level: Level, lens: String) -> MapView {
-    MapView { level, lens, focus: None, nodes: vec![], edges: vec![], hidden: 0, empty: None }
+    MapView { level, lens, focus: None, nodes: vec![], edges: vec![], hidden: 0, empty: None, layout: None }
 }

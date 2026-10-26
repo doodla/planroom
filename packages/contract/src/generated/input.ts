@@ -1207,6 +1207,22 @@ export interface HandoffStep1 {
   note?: string | null;
 }
 /**
+ * Where a view's layout is cached: the view and the hash of its structure.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "LayoutKey".
+ */
+export interface LayoutKey {
+  /**
+   * Such as `map:system:all`.
+   */
+  view_key: string;
+  /**
+   * sha256 of the view's block IDs and lifted edges; a changed structure misses the cache.
+   */
+  structure_hash: string;
+}
+/**
  * `PUT /api/v1/layout`: an auto-layout to cache, last writer wins.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
@@ -1315,6 +1331,11 @@ export interface MapView {
    */
   hidden: number;
   empty?: Empty | null;
+  /**
+   * With `--detail graph`: the key a layout of this view is cached under, which
+   * `PUT /api/v1/layout` takes back.
+   */
+  layout?: LayoutKey | null;
 }
 /**
  * One block on the mini-map.
