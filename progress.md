@@ -77,12 +77,12 @@ From the synthesized architecture, in agent-hours of one focused build agent. Pe
 | Milestone | Estimate | Twice | Actual |
 |---|---|---|---|
 | Walking skeleton | 26 h | 52 h | |
-| M1 kernel, store, code and plan packs, mod and canvas basics | 66 h | 132 h | |
-| M2 diffs, reconciliation, hand-off, Jev decisions | 68 h | 136 h | |
+| M1 kernel, store, code and plan packs, mod and canvas basics | 93 h | 186 h | |
+| M2 diffs, reconciliation, hand-off, Jev decisions | 82 h | 164 h | |
 | M3 multi-repo, observability, release | 30 h | 60 h | |
-| M4 artifacts, state machines, anatomy | 34 h | 68 h | |
-| M5 context curation, polish, release | 56 h | 112 h | |
-| Total | 280 h | | |
+| M4 artifacts, state machines, anatomy | 35 h | 70 h | |
+| M5 context curation, polish, release | 67 h | 134 h | |
+| Total | 333 h (280 h before the architecture review) | | |
 
 ## Spend log
 
