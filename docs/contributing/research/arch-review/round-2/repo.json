@@ -1,0 +1,187 @@
+{
+ "key": "repo",
+ "findings": [
+  {
+   "id": "repo-1",
+   "title": "The per-commit layout walk turns one bad commit, starting with the lock's own bootstrap commit, into CI that stays red",
+   "severity": "material",
+   "claim": "CI walks every commit in BASE..HEAD, with BASE as the fork point from main, and fails any commit that changes layout.lock without adding the `## DR-n` heading its entry names. On this branch BASE is the Initial commit, and main doesn't move until release. So every CI run re-checks the whole branch history. Once a non-conforming commit is pushed, no later commit can fix it. The commit that first creates layout.lock fails the rule as written, because the records that approve today's surfaces (DR-36, DR-59) were added in earlier commits.",
+   "evidence": "repo-layout.md, Decision-record gate, Per commit: \"each commit in BASE..HEAD, where BASE is the fork point from main ... A commit that changes layout.lock must add the ## DR-n heading the new entry names in the same commit ... a base it can't find fails the check, never skips it.\" Verified: `git merge-base origin/main HEAD` = 3227142 (Initial commit), 28 commits to walk today. `git log -S\"## DR-59\"` shows DR-59 landed in 36110b7. layout.lock doesn't exist yet. Nothing in repo-layout.md, contracts.md (layout.lock row) or DR-59 describes a bootstrap or ratification case. KICKOFF S14 (tier A) needs \"CI is green on the pushed branch\". KICKOFF also says only the main agent pushes, so rewriting pushed history is the only way out, and that is destructive.",
+   "failure_scenario": "WS1 finishes the gate. Its commit writes layout.lock naming DR-59 for boundaries.toml, which matches \"the record that approved each\". The commit adds no new heading, so `check layout --commits` fails on it. Or later a track agent changes the lock in one commit and adds the DR in the next. After the push, every later CI run walks from the Initial commit, hits that commit and fails `check`, so S14's green-CI step can't pass. The only remedies are a force-push or editing the gate.",
+   "proposed_fix": "Check per commit only over the commits this push or PR adds (`github.event.before..github.sha`, or the PR's base..head). Also run a history-independent state check: the lock matches the surfaces, and every DR the lock names exists. Allow a later commit to ratify an earlier one by naming its sha in the lock entry. State the bootstrap rule: the first lock is written together with a new record. Add a gates.rs case where a bad commit in already-pushed history doesn't fail a later run."
+  },
+  {
+   "id": "repo-2",
+   "title": "The decision-record gate misses most boundary statements: area contracts, AGENTS.md's Boundaries section and package dependencies",
+   "severity": "material",
+   "claim": "R16 requires a decision record for any change to a boundary or a convention. The gated surfaces are only boundaries.toml, the dependencies between workspace crates, the top-level directory list, each package's exports and the Conventions section of AGENTS.md. Three things outside that list state boundaries. (1) The area contracts table in repo-layout.md, which is the source of every area's AGENTS.md/README contract block, including its May-depend-on and Must-not columns. (2) The Boundaries section of root AGENTS.md. (3) Each package.json's dependencies. Several of these boundaries exist only as prose, so editing the prose removes them, with no record and no failing check.",
+   "evidence": "repo-layout.md, Decision-record gate: \"Gated surfaces: boundaries.toml, the [dependencies] between workspace crates, the top-level directory list, each package's exports, and the Conventions section of AGENTS.md\". The same list is in contracts.md:905. Prose-only boundaries in the area table include: extract \"Must not: running anything from a scanned repo except git with hooks off\"; canvas \"fetching any host but its own origin\"; models \"any network call without PLANROOM_LIVE_*\"; store \"business rules\". area_contracts_match_repo_layout only checks that the generated blocks equal the table, so editing the table and running gen passes. KICKOFF R16: \"Boundaries are enforced by tooling, not convention ... Changing the layout, a boundary or a convention needs a decision record from the main agent before it lands.\"",
+   "failure_scenario": "A track agent needs the canvas to call a CDN. It deletes \"fetching any host but its own origin\" from the canvas row in repo-layout.md, runs `cargo xtask gen` to refresh packages/canvas/AGENTS.md, and adds the fetch. check, check layout and the self-test all pass, and a security boundary is gone with no record. Another agent drops \"Must not: async\" from the kernel row the same way.",
+   "proposed_fix": "Add the area contracts table (as a parsed table hash), root AGENTS.md's Boundaries section, and each package.json's dependencies/peerDependencies to layout.lock's gated surfaces. Better still, move each prose boundary that can be checked into boundaries.toml so tooling enforces it, and mark the rest in the table as reviewed-only."
+  },
+  {
+   "id": "repo-3",
+   "title": "The kernel can depend on a domain through planroom-contract, which the domain-free scan doesn't cover",
+   "severity": "material",
+   "claim": "The domain-free literal scan covers only crates/kernel/src. The kernel's one workspace dependency, planroom-contract, has no domain-free rule: it may hold `pub const SERVICE: &str = \"code.service\"` or a domain enum, and the kernel can branch on it while every check passes. DR-45 rejected exactly this coupling for constants passed from app. The bare-name rule also bans common words as kernel literals (\"file\", \"url\", \"http\", \"db\", \"call\", \"def\", \"sql\", \"queue\", \"service\", \"thread\"). That pushes agents to move strings out of the kernel, and contract is the easy place to put them.",
+   "evidence": "repo-layout.md boundaries.toml: `domain_free = true # no string literal under crates/kernel/src equals a built-in pack kind or relation name`. The area table for crates/contract lists no domain rule, and boundaries.toml has `contract = { may_depend = [] }` with no domain_free. DR-45, Alternatives rejected: \"Names passed from app as constants: the kernel stays coupled while the check passes.\" Bare names come from architecture.md: code.file, code.url, code.http, code.db, code.call, code.def, code.sql, code.queue, code.service, artifacts.thread. KICKOFF R16: \"The kernel depends on no domain ... enforced by tooling, not convention.\"",
+   "failure_scenario": "An agent implementing impact radius wants services to weigh more. `\"code.service\"` in crates/kernel/src fails the scan, so it adds `pub mod kinds { pub const SERVICE: &str = \"code.service\"; }` to crates/contract/src and calls `contract::kinds::SERVICE` from the kernel. Boundaries, self-test and clippy all pass, and the kernel now depends on the code pack. S10's \"no core change\" property quietly erodes.",
+   "proposed_fix": "Apply domain_free to crates/contract/src as well. Doc comments are already outside the check because they aren't literals. Add a self-test plant: a contract constant equal to a kind, used from the kernel. Limit bare-name matching to names a pack declares as unique (or match only literals used in comparison or match positions), so generic words don't drive workarounds."
+  },
+  {
+   "id": "repo-4",
+   "title": "Any track can satisfy the decision-record gate itself, and parallel tracks collide on DR numbers",
+   "severity": "minor",
+   "claim": "The gate checks only that a `## DR-n` heading exists and is newer than every record the lock names. It can't tell a record written by the main agent from one a track agent wrote in its own worktree, so a track can approve its own structural change. Two parallel tracks will both pick the next number (DR-61). After a textual merge decisions.md can hold two `## DR-61` headings, and the gate accepts either one for either lock entry.",
+   "evidence": "repo-layout.md Decision-record gate: \"gen --layout-lock DR-n refuses unless ## DR-n is in decisions.md and is newer than every record the lock already names\". KICKOFF R16: \"needs a decision record from the main agent\". KICKOFF process: \"Build independent tracks in parallel worktrees ... The main agent merges tracks one at a time, sends structural deviations from R16 back to the track\". The repo already has .claude/guardrails hooks that could enforce this, but none does.",
+   "failure_scenario": "Track A (store) and track B (canvas) each add a dependency and write `## DR-61` plus a lock entry. Each track's CI is green. The main agent merges A, then B, and resolves decisions.md by keeping both headings. check layout passes, so the main agent never learns that two structural changes were self-approved.",
+   "proposed_fix": "Have the main agent assign DR numbers, for example by reserving them in .claude/carry.md or progress.md, and make check layout fail on a duplicate heading. Add a guardrails PreToolUse rule that denies subagent Edit/Write to layout.lock and to new `## DR-` headings. When tracks merge, `check layout --commits <track-fork>..<track-tip>` should list every gated-surface change and its DR, so the main agent ratifies it explicitly."
+  },
+  {
+   "id": "repo-5",
+   "title": "Area contracts don't cover every top-level area, and agents never auto-load the plugin and packs contracts",
+   "severity": "minor",
+   "claim": "R16 asks for a contract file per top-level area. Three gaps remain. (a) The existence check covers only areas named in boundaries.toml (crates and TS packages). scripts/, tests/replay, tests/golden, tests/installer, tests/plugin and schema/ have no contract file, and nothing checks them. (b) plugin/ and packs/ keep their contract in README.md with no CLAUDE.md shim, so unlike the other areas their contract isn't loaded when an agent reads files there. (c) The internal block (\"Must not: bin/; symlinks; hand-written copies of generated files\") becomes the shipped, user-facing plugin README, which plugin validate requires to say what the plugin is and how to start. scripts/ also contradicts DR-38, which rejected shell scripts as \"a second language for task logic\".",
+   "evidence": "repo-layout.md Area contracts intro: \"cargo xtask check fails when an area in boundaries.toml lacks either file\". The directory map lists scripts/ (\"package-release.sh, smoke-test-release.sh, check-tag-version.sh (POSIX sh, called by xtask and release CI)\") and tests/{replay,golden,installer,plugin}, none with a row in the area table. Verified: plugin/README.md and packs/README.md hold only the contract block. plugin-packaging.md:66: the README must have \"at least 40 words\". DR-38, Alternatives rejected: \"a scripts/check.sh (a second language for task logic)\".",
+   "failure_scenario": "An agent adding a release helper can't tell whether it goes in scripts/ or xtask, and DR-38 and the directory map disagree. An agent editing packs/observability never sees \"other packs except code\", because packs/README.md isn't auto-loaded, and it adds `requires = [\"code\", \"release\"]`. The loader catches that one late, but nothing equivalent covers plugin/. The shipped plugin README shows contributor rules to users.",
+   "proposed_fix": "Make the check cover every directory in the top-level list (and tests/*). Add rows for scripts/, tests/replay, tests/golden, tests/installer, tests/plugin and schema/. Give plugin/ and packs/ an AGENTS.md plus CLAUDE.md shim, excluded from packaging and embedding, and keep the README user-facing. Record in DR-38 why release scripts are sh, or move their logic into xtask."
+  },
+  {
+   "id": "repo-6",
+   "title": "The fixture's CLAUDE.md and skill are live agent context for this repo's own sessions",
+   "severity": "minor",
+   "claim": "examples/fixture holds a real CLAUDE.md and a .claude/skills/run-worker-tests/SKILL.md, which are fixture data for S5 and S12. When a build agent reads a fixture file, Claude Code loads that nested CLAUDE.md as instructions for this repo. Nested .claude/skills may surface as skills too. Their instructions (\"Run the tests with pytest -q and lint with ruff check . before you finish\") contradict root AGENTS.md (\"Agents and CI use only cargo xtask commands\"). Nothing in the layout or settings excludes them.",
+   "evidence": "Verified files: examples/fixture/repos/worker/05-tests/tree/CLAUDE.md and examples/fixture/repos/worker/07-run-tests-skill/tree/.claude/skills/run-worker-tests/SKILL.md. repo-layout.md, Area contracts: \"A one-line CLAUDE.md ... so Claude Code loads the contract when an agent reads files in that area\". The design relies on this nested loading, which applies equally to the fixture's file. examples/AGENTS.md and .claude/settings.json have no exclusion.",
+   "failure_scenario": "A track agent fixing the fixture's worker tests or the S12 seeded runs reads worker/tests/*.py, picks up the fixture CLAUDE.md, and runs pip install -e and pytest in the repo checkout instead of `cargo xtask test`, which pollutes the tree. Or it follows the fixture's Acme Shop conventions while editing Planroom.",
+   "proposed_fix": "Store agent-context fixture files under inert names (CLAUDE.md.fixture, dot-claude/) and have build-fixture rename them when it copies. Record this in a DR, since TRUTH.json and README.md are frozen and the built repos' paths stay the same. Alternatively, add the fixture glob to Claude Code's CLAUDE.md exclusion setting and say so in examples/AGENTS.md."
+  },
+  {
+   "id": "repo-7",
+   "title": "Navigation sends agents to about 115k tokens of design docs, with no pointers from each area to its sections",
+   "severity": "minor",
+   "claim": "Root AGENTS.md sends agents to architecture.md and repo-layout.md for anything descriptive. Each area's AGENTS.md has only the generated four-line contract and a link to the repo-layout table. Nothing maps an area to the architecture sections, DRs and feature entries that govern it. A track agent resuming after a compaction has to read or grep about 200 KB of architecture.md and 150 KB of decisions.md to find, for example, the store's commit rules. That works against principle 2's \"easy for agents to work in ... context that is kept current\" and its token-efficiency bar.",
+   "evidence": "Verified sizes: architecture.md 201,709 B, decisions.md 150,990 B, contracts.md 73,183 B, repo-layout.md 34,448 B. AGENTS.md line 3: \"read docs/contributing/architecture.md, docs/contributing/repo-layout.md and the source for that\". crates/kernel/AGENTS.md has only Owns/May depend/Must not/How to test. KICKOFF principle 2: \"never return a raw file when a pointer or slice will do\"; stance: \"what it makes harder ... for an agent resuming after a compaction\".",
+   "failure_scenario": "After a compaction, a store-track agent re-reads architecture.md to recover the CAS rules, about 50k tokens. That triggers another compaction mid-task, and the agent loses its place or misses DR-5's field-level revisions buried among 60 records.",
+   "proposed_fix": "Add a \"Read first\" column to the area contracts table, generated into each area's AGENTS.md, with anchors into architecture.md, the governing DRs and the feature IDs (for store: Data and event model#store-schema, DR-1/5/7/8/53, S8). Put an anchored section index at the top of architecture.md, and keep decisions.md's index table current with one-line effects."
+  },
+  {
+   "id": "repo-8",
+   "title": "The kernel's no-I/O lint is under-specified and conflicts with the kernel's file-driven tests",
+   "severity": "minor",
+   "claim": "The design says clippy.toml \"disallows std::fs, std::net, std::process, std::env and SystemTime::now\". clippy's disallowed-methods and disallowed-types match item paths, so (I assume, not verified here) each module has to be expanded into an enumerated list, and the design doesn't say who keeps that list complete. I/O that isn't under those modules isn't covered: Path::exists/read_dir/metadata/canonicalize, std::io::stdin, and println!/eprintln! (disallowed-macros). The self-test plants only std::fs::read_to_string, so a one-entry list passes it. clippy.toml applies to the crate's tests and benches too. A kernel/tests/evals.rs that reads packs/*/evals can't use std::fs, and an include_str! of ../../packs breaks no_path_escapes.",
+   "evidence": "repo-layout.md, Boundaries table: \"clippy's disallowed-methods and disallowed-types from crates/kernel/clippy.toml\". Self-test step 4 plants only `std::fs::read_to_string`. DR-19 Tests: `kernel/tests/evals.rs`. Area table, kernel: \"cargo bench fold\". boundaries.toml: `no_path_escapes = true # ... (every crate)`. The skeleton's check_path_escapes walks every .rs file in the crate, tests included (verified in crates/xtask/src/boundaries.rs).",
+   "failure_scenario": "gen writes `disallowed-methods = [\"std::fs::read_to_string\", ...]` with a handful of entries, and the self-test passes. Later kernel code calls `Path::new(p).exists()` or `std::fs::File::open` through a type not on the list, and CI stays green. Separately, an agent writing kernel/tests/evals.rs over the real eval cases gets blocked by both rules and moves the test or adds #[allow], undoing the lint.",
+   "proposed_fix": "Generate the list from rustdoc JSON, or commit an explicit list of every std::fs/net/process/env function and type plus the I/O methods on Path and the print macros. Plant a second, unlisted I/O call (Path::exists) in the self-test. Scope the lint to src/ with a cfg or a separate lint pass, and say where file-driven kernel tests live (crates/planroom/tests, or data passed in by testkit)."
+  },
+  {
+   "id": "repo-9",
+   "title": "TypeScript third-party bans are deny-lists that never look inside packages, so React, DOM and Node reach ui and mod transitively",
+   "severity": "minor",
+   "claim": "The generated depcruise config lets every package import any path under node_modules and forbids only the literal names listed (ui: react, react-dom, node:*; mod: react-dom, node:*). With doNotFollow on node_modules, the check passes when ui imports @xyflow/react, motion or a Radix component (React and DOM inside), or when mod imports a third-party package that requires fs or process. Which third-party packages each area may use isn't gated either (see repo-2).",
+   "evidence": ".dependency-cruiser.cjs (verified): allowed rule `\"to\": {\"path\": \"(^|/)node_modules/\"}` for every `from`; forbidden `ui-forbidden-packages` matches only `node_modules/(react|react-dom)/`; `\"doNotFollow\": {\"path\": \"node_modules\"}`. repo-layout.md area table: ui must not use \"React, the DOM, Node APIs\"; mod must not use \"the DOM or Node APIs\". mod-api.md:353: hooks environment has \"no fs, network or process\".",
+   "failure_scenario": "An agent adds @radix-ui/react-slot to packages/ui for a shared button. depcruise and tsc pass (skipLibCheck: true), and the mod, which imports @planroom/ui, now bundles React DOM code. Only the esbuild bundle or `claude plugin test` might catch it, late and with an unclear error. In the canvas the same import goes unnoticed, so the \"no React in ui\" boundary is gone.",
+   "proposed_fix": "Generate a per-package third-party allow-list from boundaries.toml (`third_party = [...]`) instead of a global node_modules allow. Gate each package.json's dependencies in layout.lock. Add a self-test plant of a React-based third-party package in ui."
+  },
+  {
+   "id": "repo-10",
+   "title": "The one entry point can't run a single test, and regeneration is split across flags and environment variables AGENTS.md doesn't mention",
+   "severity": "minor",
+   "claim": "AGENTS.md says agents use only `cargo xtask` commands. `cargo xtask test` takes 4 to 6 minutes and filters only by --scenario or --installer, with no crate, test-name or vitest-file filter. An agent fixing one unit test either pays the full suite on every iteration or breaks the rule with `cargo test foo`. Regeneration isn't one command either. AGENTS.md says \"run cargo xtask gen\", but the committed mod bundle needs `gen --mod`, the CLI reference needs PLANROOM_UPDATE_DOCS=1, and tests/golden needs PLANROOM_UPDATE_GOLDEN=1 on a test run. None of that is in AGENTS.md. Nothing says how to resolve merge conflicts in committed generated files (bundle, generated TS, schema, layout.lock), which happen on every track merge.",
+   "evidence": "repo-layout.md task table: `cargo xtask test [--scenario SNN] [--installer]`, \"4 to 6 min\". Generated-directories table: planroom-mod.js via `cargo xtask gen --mod`; CLI reference `PLANROOM_UPDATE_DOCS=1`; tests/golden \"the Rust tests with PLANROOM_UPDATE_GOLDEN=1\". AGENTS.md Compatibility: \"Change them there, then run cargo xtask gen\". A grep of AGENTS.md for golden or UPDATE_ finds nothing. KICKOFF principle 2: \"deterministic commands, fast tests\". Repo tooling: \"agents use only those commands\".",
+   "failure_scenario": "An agent changes a CLI output. The golden tests fail, and because nothing tells it about PLANROOM_UPDATE_GOLDEN it hand-edits tests/golden/*.json, which are generated files. Or the main agent merges two tracks that both touched packages/mod and gets a conflict in a minified planroom-mod.js, which it hand-merges.",
+   "proposed_fix": "Add `cargo xtask test [-p CRATE] [FILTER] [--ts PATH]`. Make plain `cargo xtask gen` run every committed generator, keeping the flags only for uncommitted outputs, and add `cargo xtask gen --golden`. Add an AGENTS.md bullet: \"on a conflict in a generated file, take either side and run cargo xtask gen\". Optionally add a .gitattributes merge driver for generated paths."
+  },
+  {
+   "id": "repo-11",
+   "title": "The dependency release-age rule has two values, and the Cargo side has no enforcement",
+   "severity": "minor",
+   "claim": "AGENTS.md requires every dependency to be pinned \"to a release at least 14 days old\" and says pnpm's minimumReleaseAge \"sets\" this. minimumReleaseAge is 10080 minutes (7 days), and Dependabot's cooldown is 7 days, test-pinned to match it. Nothing checks the age of Cargo dependencies. One fact has two values, and the tooling enforces the weaker one.",
+   "evidence": "AGENTS.md Dependencies: \"Pin every dependency exactly ... to a release at least 14 days old ... pnpm-workspace.yaml sets minimumReleaseAge for the rest.\" pnpm-workspace.yaml (verified): `minimumReleaseAge: 10080` (\"at least 7 days ago\"). repo-layout.md Toolchain pins: \"Dependabot cooldown of 7 days, equal to minimumReleaseAge / 1440\", with release_pins.rs::dependabot_cooldown_matches_minimum_release_age. KICKOFF release bar: \"docs ... with each fact in one place\".",
+   "failure_scenario": "Dependabot opens a grouped PR with an 8-day-old crate and npm package. CI is green, so an agent following AGENTS.md must reject it while the tooling accepts it, or it merges and breaks the stated invariant. A hand-added `=x.y.z` crate released yesterday passes every check.",
+   "proposed_fix": "Pick one age (7 days fits pnpm and Dependabot) and state it once, in AGENTS.md, with the pins table linking to it. Add a release_pins check that reads crates.io publish dates for new Cargo.lock entries (in `check audit`, which already uses the network), or drop the Cargo claim."
+  },
+  {
+   "id": "repo-12",
+   "title": "Most of R16's gate tests are in a tier C entry, so they can ship failing",
+   "severity": "minor",
+   "claim": "The per-commit layout walk, ci_runs_only_xtask (the one-entry-point constraint), area_contracts_match_repo_layout, the budgets ratchet and the breaking-change guard are listed only under C16, which is tier C. Under the definition of done, failing tier C entries are only listed as known gaps. S15 (tier A) covers the self-test's layout plant, but not those gates. So parts of R16 and the repo-tooling constraint are effectively optional.",
+   "evidence": "feature_list.json C16: \"tier\": \"C\", tests gates.rs::{layout_gate_fails_without_a_record, a_missing_base_fails, budgets_raise_needs_a_record, ci_runs_only_xtask, feature_list_is_complete, area_contracts_match_repo_layout}, envelope_schema.rs::breaking_change_guard. S15's tests include only `cargo xtask check boundaries --self-test` among them. KICKOFF definition of done: \"Failing tier C entries are listed as known gaps\". KICKOFF R16 and the repo-tooling constraint are binding requirements.",
+   "failure_scenario": "Time runs short in M5. C16 stays failing and becomes a known gap. v0.1 ships while CI still runs raw `cargo deny` and `python3` steps (as the current ci.yml does), and with no area-contract drift check. That contradicts R16 and the one-entry-point constraint while every tier A entry is green.",
+   "proposed_fix": "Move the C16 tests that enforce binding text (ci_runs_only_xtask, the layout gate, area_contracts_match_repo_layout, breaking_change_guard) into S15's tests, or make C16 tier A with a DR explaining that it serves R16. Leave only the budgets ratchet as tier C if that's intended."
+  }
+ ],
+ "verdicts": [
+  {
+   "id": "repo-1",
+   "verdict": "upheld",
+   "reason": "The rule as written walks every commit since the fork from main. On this branch that is the Initial commit, so each CI run re-checks all of history, and one bad commit stays red until history is rewritten. The bootstrap trap is real too. `gen --layout-lock DR-n` only needs the record to exist and be newer than records the lock already names, and a first lock names none. So the tool will write a first lock naming DR-59, and that commit then fails the per-commit rule because DR-59 was added earlier. No document mentions a bootstrap, a ratification or a pushed-range limit. Since S14 (tier A) needs green CI, and the only way out is a force-push, this is material.",
+   "evidence": "repo-layout.md:185-186: \"That command refuses unless `## DR-n` is in decisions.md and is newer than every record the lock already names\" / \"walks each commit in BASE..HEAD, where BASE is the fork point from main ... A commit that changes layout.lock must add the ## DR-n heading the new entry names in the same commit\". DR-59 (decisions.md:1127) says the same, with no bootstrap case. `git merge-base origin/main HEAD` = 3227142 (Initial commit). layout.lock is absent from the repo root. KICKOFF:189 S14: \"CI is green on the pushed branch\"; KICKOFF:359: the main agent \"is the only one who pushes\"."
+  },
+  {
+   "id": "repo-2",
+   "verdict": "upheld",
+   "reason": "The gated-surface list leaves out three things: the area contracts table (the source of every area's generated Must-not block), the Boundaries section of AGENTS.md, and each package.json's dependencies. area_contracts_match_repo_layout only compares the generated blocks with the table, so a track agent can edit the table, run gen, and pass. Some prose boundaries do have tooling elsewhere, which weakens the scenario. The server sets a strict CSP (architecture.md:1174/1303; a candidate note says default-src 'self'), git runs with hooks off and a hook fixture must never fire (architecture.md:1306), and live_gate.rs covers models. Others exist only as prose and are ungated: kernel \"async\", store \"business rules\", contract \"logic beyond validation\", and third-party package deps. R16 says boundaries are enforced by tooling and that changing one needs a record, so the gap stands.",
+   "evidence": "repo-layout.md:184: \"Gated surfaces: boundaries.toml, the [dependencies] between workspace crates, the top-level directory list, each package's exports, and the Conventions section of AGENTS.md\"; contracts.md:905 lists the same. contracts.md:929: area_contracts_match_repo_layout checks \"each area's AGENTS.md or README.md contract block equals its row in repo-layout.md\". boundaries.toml has no entries for those prose rules. KICKOFF R16 (lines 117-120)."
+  },
+  {
+   "id": "repo-3",
+   "verdict": "upheld",
+   "reason": "The domain_free scan covers only crates/kernel/src. Neither the contract crate's row in boundaries.toml nor its area contract forbids kind or relation names. A constant in planroom-contract that equals \"code.service\" and is read by the kernel passes every check. DR-45 itself names this pattern (\"names passed as constants: the kernel stays coupled while the check passes\") but only blocks the app route. The bare-name rule bans generic words, which pushes agents toward this workaround. A literal scan can always be bypassed, but this route goes through the one dependency the kernel is allowed, and the brief says this boundary is enforced by tooling. I was uncertain whether this is material and kept it upheld.",
+   "evidence": "repo-layout.md boundaries.toml: `domain_free = true # no string literal under crates/kernel/src equals a built-in pack kind or relation name`; `contract = { may_depend = [] }` has no domain rule. repo-layout.md:97, contract row Must-not: \"any other workspace crate; I/O; logic beyond validation\" (no domain rule). decisions.md:782,785 (DR-45). KICKOFF R16: \"The kernel depends on no domain.\""
+  },
+  {
+   "id": "repo-4",
+   "verdict": "upheld",
+   "reason": "The gate checks only that a heading exists and is newer than the records the lock already names. Nothing ties a record to the main agent or rejects duplicate DR numbers. Two parallel tracks can each self-approve with the same number. The main agent's one-at-a-time merge review (KICKOFF:359) lowers the risk but has no tool behind it. Minor is the right severity.",
+   "evidence": "repo-layout.md:185: \"refuses unless `## DR-n` is in decisions.md and is newer than every record the lock already names\". AGENTS.md: \"Changing the layout, a boundary or a convention in this file needs a decision record in docs/contributing/decisions.md first\" (says nothing about who writes it). .claude/settings.json hooks only match Agent|Task|Workflow and SessionStart."
+  },
+  {
+   "id": "repo-5",
+   "verdict": "upheld",
+   "reason": "The existence check covers only areas in boundaries.toml. scripts/, tests/replay, tests/golden, tests/installer and schema/ are in the directory map but have no area row. plugin/README.md and packs/README.md hold nothing but the contract block, and neither has a CLAUDE.md shim, so their contracts don't auto-load. The plugin layout calls for README.md to be user-facing (\"what it is, the first command, links\"). DR-38 rejects shell scripts for task logic, while scripts/ holds POSIX sh release helpers. All of this is real, and minor.",
+   "evidence": "repo-layout.md:92: \"cargo xtask check fails when an area in boundaries.toml lacks either file\"; repo-layout.md:78: \"scripts/ package-release.sh, smoke-test-release.sh, check-tag-version.sh (POSIX sh, called by xtask and release CI)\"; plugin layout: \"README.md what it is, the first command, links\". `cat plugin/README.md packs/README.md` shows only the contract blocks. decisions.md:652: \"a scripts/check.sh (a second language for task logic)\"."
+  },
+  {
+   "id": "repo-6",
+   "verdict": "upheld",
+   "reason": "Both fixture files exist in the repo tree. The design itself relies on Claude Code loading a nested CLAUDE.md when an agent reads files in that directory, and nothing excludes the fixture tree. Its instructions conflict with AGENTS.md. This is real and minor.",
+   "evidence": "`find examples -name CLAUDE.md -o -name SKILL.md` shows examples/fixture/repos/worker/05-tests/tree/CLAUDE.md and examples/fixture/repos/worker/07-run-tests-skill/tree/.claude/skills/run-worker-tests/SKILL.md. repo-layout.md:92: \"so Claude Code loads the contract when an agent reads files in that area\". .claude/settings.json has no exclusion, and examples/AGENTS.md has only the generated contract block."
+  },
+  {
+   "id": "repo-7",
+   "verdict": "upheld",
+   "reason": "The sizes check out. decisions.md has an Index section (line 12) and architecture.md has a \"How to read this page\" section, which softens the problem a little. Still, nothing maps an area to the architecture sections, DRs or feature IDs that govern it, and each area's AGENTS.md is only the four-line block. This is real and minor.",
+   "evidence": "`wc -c`: architecture.md 201709, decisions.md 150990, contracts.md 73183, repo-layout.md 34448. AGENTS.md opening: \"read docs/contributing/architecture.md, docs/contributing/repo-layout.md and the source for that\". examples/AGENTS.md and crates/contract/AGENTS.md hold only Owns/May depend/Must not/How to test. decisions.md:12 \"## Index\"."
+  },
+  {
+   "id": "repo-8",
+   "verdict": "upheld",
+   "reason": "The self-test plants only std::fs::read_to_string, so a short list passes it. The design doesn't say how the module-level bans become clippy entries, which match item paths. The kernel's own design asks for kernel/tests/evals.rs to recompute eval results byte for byte from pack files. That needs file I/O in the kernel crate's tests. kernel may_depend is only contract (dev deps are checked too), and no_path_escapes rules out include! of ../../packs. The two rules conflict. Real, and minor.",
+   "evidence": "repo-layout.md boundaries.toml: `no_io = true # ... disallowing std::fs, std::net, std::process, std::env, SystemTime::now`; self-test step 4 plants only `std::fs::read_to_string`. decisions.md:421 (DR-19): \"Tests: kernel/tests/evals.rs\"; traceability.md:34: `kernel/tests/evals.rs::evals_recompute_byte_for_byte`. The Adapters row of the boundaries table says external_forbid is read \"for normal, build and dev dependencies\". crates/xtask/src/boundaries.rs:205 check_path_escapes walks every crate."
+  },
+  {
+   "id": "repo-9",
+   "verdict": "upheld",
+   "reason": "The generated config forbids react and react-dom in ui only when the import path resolves to those exact package directories. Other node_modules paths are allowed, and node_modules isn't followed. So a React-based third-party package imported into ui passes depcruise. The mod's tsconfig lib/types limits help with Node and the DOM in the mod's own code, but not inside third-party bundles. Real, and minor.",
+   "evidence": ".dependency-cruiser.cjs: rule `ui-forbidden-packages` with `\"to\": {\"path\": \"(^|/)node_modules/(react|react-dom)/\"}`. repo-layout.md self-test step 5: \"The generated allow rule for third-party packages matches a resolved path under node_modules/\". The area table, ui Must-not: \"React, the DOM, Node APIs\"."
+  },
+  {
+   "id": "repo-10",
+   "verdict": "upheld",
+   "reason": "Partly overstated. A crate-level filter does exist: the xtask skeleton implements `test -p <crate>` (crates/xtask/src/main.rs:33), and the contract area cites `cargo xtask test -p planroom-contract`. But the task table leaves `-p` out, which is itself a discrepancy, and there is still no test-name or vitest-file filter. The rest stands. Regeneration is split across `gen --mod`, PLANROOM_UPDATE_DOCS and PLANROOM_UPDATE_GOLDEN, AGENTS.md mentions none of them, and nothing says how to resolve conflicts in generated files. Minor.",
+   "evidence": "repo-layout.md:222: `cargo xtask test [--scenario SNN] [--installer]` (no -p); repo-layout.md:97 and crates/contract/AGENTS.md:8: `cargo xtask test -p planroom-contract`; crates/xtask/src/main.rs:33: `[\"test\", \"-p\", krate] => test(...)`. repo-layout.md:199,204,205: `gen --mod`, `PLANROOM_UPDATE_DOCS=1`, `PLANROOM_UPDATE_GOLDEN=1`. AGENTS.md has no mention of golden or UPDATE_."
+  },
+  {
+   "id": "repo-11",
+   "verdict": "upheld",
+   "reason": "Partly mischaracterized. The two ages are deliberate. WS1 decided that direct pins are at least 14 days old (decisions.md:687), and AGENTS.md says minimumReleaseAge covers \"the rest\", meaning transitive packages, at 7 days. So it isn't one fact stated twice with different values. Two real gaps remain. Dependabot's 7-day cooldown lets it propose direct-pin updates that break the 14-day rule. Nothing checks the age of Cargo crates (toolchain.yml checks only the Rust, Node and Claude Code toolchains). Minor.",
+   "evidence": "decisions.md:687: \"Decided in WS1 (2026-10-26): every pin is a version at least 14 days old\"; AGENTS.md: \"to a release at least 14 days old ... pnpm-workspace.yaml sets minimumReleaseAge for the rest\"; repo-layout.md:239 and 292: \"Dependabot ... 7-day cooldown\"; repo-layout.md:292: \"toolchain.yml (weekly pin-age checks for Rust, Node and Claude Code)\"."
+  },
+  {
+   "id": "repo-12",
+   "verdict": "upheld",
+   "reason": "C16, which holds most of R16's gate tests, is tier C, and S15 lists only the self-test. One mitigation exists. `cargo xtask check` includes the layout gate, ci_runs_only_xtask and feature_list_is_complete, and S14 (tier A) needs every CI job green, so these gates block S14 once they exist. That only holds if they are implemented, and a gate that was never written stays green. Leaving C16 as a known gap would therefore remove R16 enforcement without any tier A failure. Minor, as filed.",
+   "evidence": "feature_list.json C16: \"tier\": \"C\", tests include gates.rs::{layout_gate_fails_without_a_record, ci_runs_only_xtask, area_contracts_match_repo_layout} and breaking_change_guard; S15 tests include only `cargo xtask check boundaries --self-test` among them. repo-layout.md:217: check runs \"the layout gate; ci_runs_only_xtask; feature_list_is_complete\". KICKOFF:227: \"Failing tier C entries are listed as known gaps.\""
+  }
+ ]
+}
