@@ -19,7 +19,7 @@ const NOT_FOUND = JSON.stringify({
     retry: "never",
     message: "No node matches worker2.",
     hint: "planroom find worker2",
-    details: { candidates: ["ws:repo:worker"] },
+    details: { candidates: ["worker:repo:worker"] },
   },
   meta: { seq: 412, took_ms: 1, size: { bytes: 300, tokens_est: 75 } },
 });
@@ -75,7 +75,7 @@ test("error_envelopes_reach_the_model: the whole error object, in the one JSON s
       retry: "never",
       message: "No node matches worker2.",
       hint: "planroom find worker2",
-      details: { candidates: ["ws:repo:worker"] },
+      details: { candidates: ["worker:repo:worker"] },
     },
     meta: { seq: 412 },
   });
