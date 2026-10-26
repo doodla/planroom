@@ -127,25 +127,22 @@ function engineFromVersion(resolver, run2) {
     };
   }
   if (reply.ok) {
-    const info = reply.result ?? {};
+    const info = reply.result;
     return {
       ...base,
       status: "ready",
-      version: info.version ?? null,
-      catalogue_hash: info.catalogue_hash ?? null
+      version: info?.version ?? null,
+      catalogue_hash: info?.catalogue_hash ?? null
     };
   }
-  const error = reply.error ?? {
-    code: "internal",
-    message: "The engine failed without an error."
-  };
-  const details = error.details ?? {};
-  const fix = details.fix ?? error.hint ?? null;
+  const error = reply.error ?? NO_ERROR;
+  const details = error.details;
+  const fix = details?.fix ?? error.hint ?? null;
   if (error.code === "engine_fetching") {
     return { ...base, status: "fetching", line: error.message };
   }
   if (error.code === "engine_unavailable") {
-    switch (details.reason) {
+    switch (details?.reason) {
       case "stale_build":
         return {
           ...base,
@@ -165,22 +162,33 @@ function engineFromVersion(resolver, run2) {
 }
 function pathFromStatus(run2) {
   try {
-    const value = JSON.parse(run2.stdout.trim());
-    return value.ok === true && typeof value.path === "string" ? value.path : null;
+    const value = JSON.parse(
+      run2.stdout.trim()
+    );
+    return value?.ok === true && typeof value.path === "string" ? value.path : null;
   } catch {
     return null;
   }
 }
+var NO_ERROR = {
+  code: "internal",
+  category: "internal",
+  retry: "never",
+  message: "The engine failed without an error.",
+  hint: null,
+  details: {}
+};
 function toolError(error) {
+  const sent = error;
   const out = {
     code: error.code,
-    retry: error.retry ?? "never",
+    retry: sent.retry ?? "never",
     message: error.message
   };
-  if (error.category !== void 0) {
-    out.category = error.category;
+  if (sent.category !== void 0) {
+    out.category = sent.category;
   }
-  if (error.retry_after_ms !== void 0) {
+  if (error.retry_after_ms !== void 0 && error.retry_after_ms !== null) {
     out.retry_after_ms = error.retry_after_ms;
   }
   if (error.hint !== void 0 && error.hint !== null) {
@@ -227,13 +235,7 @@ function toolResult(run2) {
   }
   return {
     ok: false,
-    error: toolError(
-      reply.error ?? {
-        code: "internal",
-        retry: "never",
-        message: "The engine failed without an error."
-      }
-    ),
+    error: toolError(reply.error ?? NO_ERROR),
     meta: agentMeta
   };
 }

@@ -462,6 +462,30 @@ print(doc["error"]["code"])'
   expect_eq "$out" '{"ok":false,"step":"download","version":"1.0.0"}'
 }
 
+# A binary swapped into the cache after the install doesn't match the sha256 its `.ok` recorded, so
+# the resolver treats the cache as empty: status names the download, and the next run fetches the
+# release again instead of running the swapped binary (security-r2-1).
+a_swapped_cached_engine_is_refused() {
+  d="$work/swapped"
+  make_plugin "$d" 2.1.0
+  publish 2.1.0 genuine
+  PLANROOM_DATA="$d/data" PLANROOM_RELEASE_BASE_URL="$base" run "$d/plugin/scripts/planroom" map --json
+  expect_eq "$out" "genuine: map --json" "$(cat "$work/stderr")"
+  fake_engine "$d/data/engine/2.1.0/planroom" 2.1.0 swapped
+  PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" status --json
+  expect_eq "$code" 1
+  expect_eq "$out" '{"ok":false,"step":"download","version":"2.1.0"}'
+  PLANROOM_DATA="$d/data" PLANROOM_RELEASE_BASE_URL="$base" run "$d/plugin/scripts/planroom" map --json
+  expect_eq "$code" 0 "$(cat "$work/stderr")"
+  expect_eq "$out" "genuine: map --json"
+  expect_eq "$(cat "$d/data/engine/2.1.0/.ok")" "$(sha256_of "$d/data/engine/2.1.0/planroom")"
+  # A link in the binary's place is no install either, even to a binary whose sum matches.
+  mv "$d/data/engine/2.1.0/planroom" "$d/genuine"
+  ln -s "$d/genuine" "$d/data/engine/2.1.0/planroom"
+  PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" status --json
+  expect_eq "$code" 1
+}
+
 # --- runner -------------------------------------------------------------------------------------
 
 start_server
@@ -475,7 +499,8 @@ for t in override_runs_the_named_binary a_missing_override_is_engine_unavailable
   a_stale_fetch_lock_is_broken prune_keeps_a_recently_used_version runs_with_no_claude_variables \
   a_checkout_build_builds_the_canvas_first a_build_without_node_has_no_canvas \
   a_clone_build_is_cached_and_its_clone_removed the_repo_checkout_resolves_its_own_build \
-  the_resolver_spells_no_code_or_reason_itself resolver_outputs_are_one_document_with_their_size; do
+  the_resolver_spells_no_code_or_reason_itself resolver_outputs_are_one_document_with_their_size \
+  a_swapped_cached_engine_is_refused; do
   case $t in *"$filter"*) ;; *) continue ;; esac
   # Not an `if` condition: there `set -e` would be off, and a failed assertion would go on.
   set +e
