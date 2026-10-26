@@ -23,7 +23,7 @@ import {
   type ElkGraphIn,
   type ElkGraphOut,
 } from "./layout/graph";
-import { requestOf } from "./transport/request";
+import { handleLevel } from "./levels";
 import {
   CommandError,
   TransportError,
@@ -238,13 +238,12 @@ export function createCanvasStore(
         await get().refresh();
       },
       async run(handle) {
-        // A map handle, such as the pane's "Open the containers", is a level to show.
-        if (handle.command === "map") {
-          const level = requestOf(handle).level;
-          if (typeof level === "string") {
-            await get().showLevel(level as Level);
-            return;
-          }
+        // A map handle, such as the pane's "Open the containers", is a level to show; one with
+        // no level, such as an empty level's way back, is the top-level map.
+        const level = handleLevel(handle);
+        if (level !== undefined) {
+          await (level === null ? get().back() : get().showLevel(level));
+          return;
         }
         try {
           await transport.run(handle);

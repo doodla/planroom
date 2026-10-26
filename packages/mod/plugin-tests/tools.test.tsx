@@ -128,7 +128,8 @@ test("/room help lists the commands; bare /room focuses the pane and returns no 
     args: "map --level system",
     ...typed,
   });
-  expect(JSON.parse(ran.text ?? "")).toMatchObject({ ok: true });
+  // The summary line the model reads, never the raw envelope (ux-2).
+  expect(ran.text).toBe("No blocks at the system level");
   expect(h.runs.find((r) => r.argv[1] === "map")?.argv).toEqual([
     ENGINE,
     "map",

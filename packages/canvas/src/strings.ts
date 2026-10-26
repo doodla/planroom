@@ -16,6 +16,11 @@ export const STRINGS = {
   openSearch: "Search",
   closeSearch: "Close search",
   ancestors: "Levels above",
+  // The top lid's name when the pane hasn't named the workspace.
+  top: "system",
+  backTo: (place: string) => `Back to ${place}`,
+  // An empty level's line when the engine sends no empty state of its own (ux-3).
+  emptyLevel: (level: string) => `Nothing at the ${level} level yet.`,
   lenses: "Lenses",
   projects: "Projects",
   noProject: "No project",

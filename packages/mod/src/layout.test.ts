@@ -15,6 +15,7 @@ import {
   rowWidth,
   type Row,
 } from "./layout";
+import type { Shown } from "./room";
 import type { EngineState } from "./state-types";
 
 const golden = (focusReply as unknown as { result: PaneModel }).result;
@@ -86,6 +87,16 @@ function buttons(rows: Row[]) {
   return rows.flatMap((r) => (r.kind === "buttons" ? r.buttons : []));
 }
 
+function texts(rows: Row[]): string[] {
+  return rows.flatMap((r) =>
+    r.kind === "text"
+      ? [r.text]
+      : r.kind === "buttons"
+        ? r.buttons.map((b) => b.label)
+        : [],
+  );
+}
+
 test("rows_fit_at_49x34: every section fits the narrowest dock with a four-choice card", () => {
   expect(busy.decision?.choices).toHaveLength(4);
   const rows = paneRows(busy, DOCK.columns, DOCK.rows);
@@ -98,7 +109,7 @@ test("rows_fit_at_49x34: every section fits the narrowest dock with a four-choic
   }
   // The list keeps its room: every block of the busy shows.
   for (const block of busy.minimap.blocks) {
-    expect(buttons(rows).some((b) => b.label.endsWith(block.name))).toBe(true);
+    expect(texts(rows).some((t) => t.endsWith(block.name))).toBe(true);
   }
 });
 
@@ -116,12 +127,118 @@ test("rows_fit_compact_at_80x24_and_100x30: inline panes keep the focus line, th
   }
 });
 
-test("keys: the card's choices take 1 to 4, rows take the row-key pool", () => {
+test("keys: the card's choices take 1 to 4, rows an action targets take the row-key pool", () => {
   const rows = paneRows(busy, DOCK.columns, DOCK.rows);
   const hotkeys = buttons(rows).map((b) => b.hotkey);
   expect(hotkeys.slice(0, 4)).toEqual(["1", "2", "3", "4"]);
-  expect(hotkeys.slice(4)).toEqual(["5", "6", "7", "8", "9", "0", "b"]);
+  // The two diffs; blocks run nothing until `map --focus` exists, so they take no key (ux-1).
+  expect(hotkeys.slice(4)).toEqual(["5", "6"]);
   expect(new Set(hotkeys).size).toBe(hotkeys.length);
+});
+
+test("ux-1: no Button runs map --focus, which the engine refuses until M1", () => {
+  for (const model of [golden, busy]) {
+    for (const [columns, rows] of [
+      [DOCK.columns, DOCK.rows],
+      [80, 8],
+    ] as const) {
+      for (const b of buttons(paneRows(model, columns, rows))) {
+        if (b.action.kind === "run") {
+          expect(b.action.args, b.key).not.toContain("--focus");
+        }
+      }
+    }
+  }
+  // The blocks still show, as plain rows.
+  const rows = paneRows(golden, DOCK.columns, DOCK.rows);
+  expect(
+    rows.some((r) => r.kind === "text" && r.key === "block-worker:repo:worker"),
+  ).toBe(true);
+});
+
+/** What pressing the golden pane's "Open the containers" showed. */
+const containers: Shown = {
+  command: "map",
+  args: ["--level", "container"],
+  seq: golden.focus.seq,
+  line: "12 blocks at the container level",
+  level: "container",
+  blocks: ["kit/lib", "orders/api", "worker/consumer"],
+};
+
+test("ux-1: a pressed next action shows its result, not the same press again", () => {
+  const rows = paneRows(golden, DOCK.columns, DOCK.rows, containers);
+  expect(buttons(rows).some((b) => b.key === "next")).toBe(false);
+  expect(rows.find((r) => r.key === "card-result")).toMatchObject({
+    text: "12 blocks at the container level",
+  });
+  // The list shows the level it opened, and a press puts the pane's own level back.
+  expect(rows.find((r) => r.key === "blocks-title")).toMatchObject({
+    text: "Blocks · container",
+  });
+  expect(texts(rows)).toContain("□ worker/consumer");
+  const back = buttons(rows).find((b) => b.key === "back");
+  expect(back?.action).toEqual({ kind: "clear" });
+  expect(back?.label).toBe("Back to the system level");
+  expect(height(rows)).toBeLessThanOrEqual(DOCK.rows);
+  expect(widest(rows)).toBeLessThanOrEqual(DOCK.columns);
+  // The band says what it showed instead of offering the press.
+  const band = bandRow({ model: golden }, 80, containers);
+  expect(band.kind).toBe("text");
+  expect(band.kind === "text" && band.text).toContain(
+    "12 blocks at the container level",
+  );
+  // A newer pane, or another next action, offers the press again.
+  for (const stale of [
+    { ...containers, seq: golden.focus.seq - 1 },
+    { ...containers, args: ["--level", "component"] },
+  ]) {
+    const again = paneRows(golden, DOCK.columns, DOCK.rows, stale);
+    expect(buttons(again).some((b) => b.key === "next")).toBe(true);
+    expect(bandRow({ model: golden }, 80, stale).kind).toBe("buttons");
+  }
+  // Compact panes fit too.
+  const compact = paneRows(golden, 80, 8, containers);
+  expect(height(compact)).toBeLessThanOrEqual(8);
+});
+
+test("security-5: an OSC 52 or RLO in a repo name never reaches the pane or the band raw", () => {
+  const evil = "evil\u001b]52;c;aGVsbG8=\u0007name\u202eabc";
+  const model: PaneModel = {
+    ...busy,
+    focus: {
+      ...busy.focus,
+      breadcrumb: [{ id: "ws:system:x", name: evil }],
+    },
+    next: { ...busy.next, label: evil },
+    drift: { ...busy.drift, summary: evil },
+    minimap: {
+      ...busy.minimap,
+      blocks: [{ id: "x:repo:x", name: evil, focused: false }],
+    },
+  };
+  const shown: Shown = { ...containers, line: evil, blocks: [evil] };
+  const all = [
+    ...paneRows(model, DOCK.columns, DOCK.rows),
+    ...paneRows({ ...model, decision: null }, DOCK.columns, DOCK.rows),
+    ...paneRows({ ...model, decision: null }, DOCK.columns, DOCK.rows, {
+      ...shown,
+      seq: model.focus.seq,
+    }),
+    bandRow({ model: { ...model, decision: null } }, 80),
+    bandRow({ model: { ...model, decision: null } }, 80, {
+      ...shown,
+      seq: model.focus.seq,
+    }),
+    ...fallbackRows(
+      fallbackFor({ ...INITIAL_ENGINE, status: "failed", line: evil }),
+      DOCK.columns,
+    ),
+  ];
+  const drawn = texts(all).join("\n");
+  expect(drawn).toContain("\\x1b]52");
+  expect(drawn).toContain("⟨U+202E⟩");
+  expect(hasRaw(drawn)).toBe(false);
 });
 
 test("no_decision_shows_next: with no open decision the card is the next action", () => {
@@ -229,3 +346,16 @@ test("a person key mismatch is a pane Button and never the band's", () => {
   });
   expect(bandRow({ fallback: f }, 80).kind).toBe("text");
 });
+
+/** Whether a control or bidi character other than a line break is left raw in `text`. */
+function hasRaw(text: string): boolean {
+  return [...text].some((c) => {
+    const n = c.codePointAt(0) ?? 0;
+    return (
+      (n < 0x20 && n !== 0x0a) ||
+      (n >= 0x7f && n <= 0x9f) ||
+      (n >= 0x202a && n <= 0x202e) ||
+      (n >= 0x2066 && n <= 0x2069)
+    );
+  });
+}

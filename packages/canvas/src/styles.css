@@ -218,6 +218,29 @@ input {
   color: var(--muted);
 }
 
+/* An ancestor's lid goes back up to its level; on the phone one `⋯` lid lists them. */
+button.lid {
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.lid-ancestor:hover {
+  color: var(--ink);
+}
+
+.lid-more .lid-more-button {
+  justify-content: center;
+  min-width: var(--target);
+  padding: 0 12px 0 10px;
+  font-size: 19px;
+}
+
+.lid-more .picker-sheet {
+  right: auto;
+  left: 0;
+}
+
 .lid-current {
   position: relative;
   flex: 0 1 560px;
@@ -253,6 +276,20 @@ input {
 .phone .lid-current {
   flex: 1 1 auto;
   justify-content: space-between;
+}
+
+/* Below the top the `⋯` lid shares the row, so the level's name keeps room for "component". */
+.phone .lid-more ~ .lid-current {
+  gap: 0;
+  padding-left: 10px;
+}
+
+.phone .lid-more ~ .lid-current .lid-name {
+  font-size: 16px;
+}
+
+.phone .lid-more .lid-more-button {
+  padding: 0 8px;
 }
 
 .phone .lid-current[data-searching] .lid-search {
@@ -757,6 +794,19 @@ input {
   .map[data-moment] {
     animation-name: crossfade;
   }
+}
+
+/* A level with no blocks (ux-3): its empty state centered in the stage, the map's place. */
+.level-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+}
+
+.level-empty .empty-art {
+  width: min(320px, 70vw);
 }
 
 /* The Artifact page's request state (DR-77): centered in the stage, the map's place. */

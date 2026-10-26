@@ -13,13 +13,16 @@ import {
   type Edge,
   type NodeChange,
 } from "@xyflow/react";
-import { LEVELS, blocksOf, edgesOf, matchBlocks } from "@planroom/ui";
+import { LEVELS, blocksOf, edgesOf, matchBlocks, sanitize } from "@planroom/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import emptyMap from "../assets/empty-map.webp";
 import { BLOCK } from "../layout/graph";
+import { useTopName } from "../shell/next-action";
 import { STRINGS } from "../strings";
 import { PHONE, useCanvas, useMedia } from "../use-canvas";
 import { BlockNodeComponent, type BlockNode } from "./block-node";
+import { EmptyState } from "./empty-state";
 import { Outline } from "./outline";
 
 const NODE_TYPES = { block: BlockNodeComponent };
@@ -174,8 +177,46 @@ function MapFlow({ moment }: { moment: Moment }) {
   );
 }
 
+/**
+ * A level with no blocks is never bare felt (design-language.md, "Empty states"; ux-3): the
+ * engine's empty state when it sends one, its next action as the button; otherwise a line, and
+ * the way back up to the top.
+ */
+function LevelEmpty() {
+  const map = useCanvas((s) => s.map);
+  const run = useCanvas((s) => s.run);
+  const back = useCanvas((s) => s.back);
+  const top = useTopName();
+  if (map === null) {
+    return null;
+  }
+  const next = map.empty?.next ?? null;
+  return (
+    <div className="level-empty">
+      <EmptyState
+        art={emptyMap}
+        concept="levels"
+        line={STRINGS.emptyLevel(sanitize(map.level))}
+        action={
+          next !== null
+            ? { label: sanitize(next.label), onPress: () => void run(next) }
+            : { label: STRINGS.backTo(top), onPress: () => void back() }
+        }
+      />
+    </div>
+  );
+}
+
 /** The map with its own React Flow provider, remounted with a level zoom for each new level. */
 export function MapCanvas() {
+  const blank = useCanvas((s) => s.map !== null && s.map.nodes.length === 0);
+  if (blank) {
+    return <LevelEmpty />;
+  }
+  return <LevelMap />;
+}
+
+function LevelMap() {
   const level = useCanvas((s) => s.map?.level ?? null);
   const [shown, setShown] = useState(level);
   const [moment, setMoment] = useState<Moment>(undefined);

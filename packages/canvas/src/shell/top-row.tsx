@@ -7,9 +7,11 @@
 import { blocksOf, matchBlocks, sanitize } from "@planroom/ui";
 import { useMemo, useRef, useState } from "react";
 
+import { crumbsAt, type LevelCrumb } from "../levels";
 import { STRINGS } from "../strings";
 import { PHONE, useCanvas, useMedia } from "../use-canvas";
 import { CloseIcon, SearchIcon, YarnIcon } from "./icons";
+import { useTopName } from "./next-action";
 import { Picker } from "./picker";
 
 /** The last part of an ID, `plan:checkout:retries` reads `retries`. */
@@ -17,9 +19,60 @@ function idKey(id: string): string {
   return sanitize(id.slice(id.lastIndexOf(":") + 1));
 }
 
+/**
+ * The lids above the current one. On the desktop each is a lid that goes back up; on the phone
+ * one `⋯` lid lists them, so the row keeps four targets (design-language.md, "Touch").
+ */
+function Ancestors({ crumbs }: { crumbs: readonly LevelCrumb[] }) {
+  const showLevel = useCanvas((s) => s.showLevel);
+  const back = useCanvas((s) => s.back);
+  const phone = useMedia(PHONE);
+  if (crumbs.length === 0) {
+    return null;
+  }
+  const go = (c: LevelCrumb) =>
+    void (c.level === null ? back() : showLevel(c.level));
+  if (phone) {
+    return (
+      <Picker
+        concept="levels"
+        label={STRINGS.ancestors}
+        className="lid-more"
+        buttonClass="lid lid-ancestor lid-more-button"
+        entries={crumbs.map((c) => ({
+          key: c.level ?? "",
+          label: c.label,
+          current: false,
+        }))}
+        onPick={(key) => {
+          const c = crumbs.find((x) => (x.level ?? "") === key);
+          if (c) go(c);
+        }}
+      >
+        <span aria-hidden="true">⋯</span>
+      </Picker>
+    );
+  }
+  return (
+    <>
+      {crumbs.map((c) => (
+        <button
+          key={c.level ?? ""}
+          type="button"
+          className="lid lid-ancestor"
+          onClick={() => go(c)}
+        >
+          {c.label}
+        </button>
+      ))}
+    </>
+  );
+}
+
 function Breadcrumb() {
-  const pane = useCanvas((s) => s.pane);
   const map = useCanvas((s) => s.map);
+  // The level asked for, even while its view waits on a request; the top when none was.
+  const level = useCanvas((s) => s.level);
   const query = useCanvas((s) => s.query);
   const search = useCanvas((s) => s.search);
   const reveal = useCanvas((s) => s.reveal);
@@ -27,10 +80,12 @@ function Breadcrumb() {
   const [searching, setSearching] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const rows = useMemo(() => (map ? blocksOf(map) : []), [map]);
+  const top = useTopName();
 
-  const crumbs = pane?.focus.breadcrumb ?? [];
+  // From the map's level, not the pane's crumb, which names the workspace at every level (ux-4).
+  const crumbs = crumbsAt(level, top);
   const current = crumbs.at(-1);
-  const ancestors = phone ? [] : crumbs.slice(0, -1);
+  const ancestors = crumbs.slice(0, -1);
   const showInput = !phone || searching;
 
   const submit = () => {
@@ -48,20 +103,14 @@ function Breadcrumb() {
       data-concept="levels"
       aria-label={STRINGS.levels}
     >
-      {ancestors.map((c) => (
-        <span key={c.id} className="lid lid-ancestor">
-          {sanitize(c.name)}
-        </span>
-      ))}
+      <Ancestors crumbs={ancestors} />
       <div
         className="lid lid-current"
         aria-current="location"
         data-searching={searching || undefined}
       >
         {!(phone && searching) && (
-          <span className="lid-name">
-            {current ? sanitize(current.name) : (map?.level ?? "")}
-          </span>
+          <span className="lid-name">{current?.label ?? ""}</span>
         )}
         {showInput && (
           <input

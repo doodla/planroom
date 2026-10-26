@@ -3,6 +3,8 @@
  * Pure: the hooks in register.tsx run the processes and write the atoms.
  */
 
+import type { Envelope } from "@planroom/contract";
+
 import type { EngineState } from "./state-types";
 
 /** What `$.process.run` resolves with, as far as the mod reads it. */
@@ -16,6 +18,8 @@ export interface RunResult {
 export interface Reply {
   ok: boolean;
   command?: string;
+  /** The line text mode prints first; absent on an error and from an older engine. */
+  summary?: Envelope["summary"];
   result?: unknown;
   error?: ReplyError;
   meta?: Record<string, unknown>;

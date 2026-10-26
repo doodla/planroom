@@ -271,6 +271,23 @@ test("a level from the rail asks the map for it, and a handle runs then refetche
   expect(f.queries.at(-2)?.command).toBe("map");
 });
 
+test("ux-3: a map handle with no level, an empty level's way back, shows the top-level map", async () => {
+  const f = fake({});
+  const store = createCanvasStore(f.transport, f.layout);
+  await store.getState().start();
+  await store.getState().showLevel("intent");
+  expect(store.getState().level).toBe("intent");
+  await store
+    .getState()
+    .run({ command: "map", args: [], label: "Back to the system level" });
+  expect(store.getState().level).toBeNull();
+  expect(f.ran).toEqual([]);
+  expect(f.queries.at(-2)).toEqual({
+    command: "map",
+    request: { detail: "graph", level: null },
+  });
+});
+
 describe("a transport that holds only some views", () => {
   function partialFake() {
     const f = fake({});

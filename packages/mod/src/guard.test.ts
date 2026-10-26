@@ -183,11 +183,9 @@ test("Bash that reads a guarded file by any spelling is refused", () => {
       },
     )?.decision,
   ).toBe("deny");
-  expect(namedPaths("Bash", { command: "cp a/b ~/c store.db" })).toEqual([
-    "a/b",
-    "~/c",
-    "store.db",
-  ]);
+  expect(
+    namedPaths("Bash", { command: "cp a/b ~/c store.db" }, places),
+  ).toEqual(["a/b", "~/c", "store.db"]);
 });
 
 test("shell words drop quotes and operators; planroom lines skip its own options", () => {
@@ -202,4 +200,74 @@ test("shell words drop quotes and operators; planroom lines skip its own options
   expect(planroomLines(["x", "planroom", "--workspace", "/w", "open"])).toEqual(
     [["--workspace", "open"]],
   );
+});
+
+/** The bypasses review round 1 found (security-3): everyday shell forms, each now denied. */
+const BYPASSES = [
+  // A glob into the mod's store, the user-level config, the login pages and the store.
+  "cat ~/.claude/plugins/st*/planroom_*",
+  "cat ~/.config/planroom/config.tom?",
+  "cat /home/u/.local/share/planroom/op*/*.html",
+  "sqlite3 .planroom/stor?.db .dump",
+  // `cd`, then a path relative to where it went.
+  "cd ~/.claude/plugins && cat store/planroom_x.json",
+  "cd ~/.claude/plugins/store; cat planroom_x.json",
+  "cd /home/u/.local/share/planroom && cat open/abc.html",
+  // A guarded variable's name split by quotes.
+  'env PLANROOM_PERSON"_TOKEN"=1 planroom map',
+  'env PLANROOM_RELEASE"_BASE_URL"=http://127.0.0.1:1 planroom map',
+  "PLANROOM_'RAW'=1 planroom map",
+  // A variable in command position before person-only words.
+  "p=planroom; $p person init",
+  'p=planroom; "$p" decide card_1 accept',
+  "${PR} handoff merge K1",
+  // Another process's environment or memory, which may hold a person token.
+  "cat /proc/*/environ",
+  "cat /proc/1234/mem",
+  "cat /proc/$PID/environ",
+  // $HOME spelled out.
+  "cat $HOME/.claude/plugins/store/planroom_x.json",
+  "cat ${HOME}/.config/planroom/config.toml",
+];
+
+test("security-3: the everyday shell forms that slipped past the guard are denied", () => {
+  for (const command of BYPASSES) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+});
+
+test("security-3: a Glob tool's pattern is held to the same rule as a Bash glob", () => {
+  expect(
+    verdict("Glob", { pattern: "/home/u/.claude/plugins/st*/planroom_*" })
+      ?.decision,
+  ).toBe("deny");
+  expect(
+    verdict("Glob", { pattern: "~/.config/planroom/*.toml" })?.decision,
+  ).toBe("deny");
+  expect(verdict("Glob", { pattern: "packages/*/src/*.ts" })).toBeNull();
+});
+
+test("security-3: everyday commands still pass", () => {
+  for (const command of [
+    "ls src/*.ts",
+    "cd packages && pnpm test",
+    "cd /work/packages/mod && pnpm exec vitest run src/*.test.ts",
+    "git status && git diff -- '*.rs'",
+    "rg -n 'fn main' crates/*/src",
+    "cat ~/.claude/settings.json",
+    "ls ~/.claude/plugins/cache",
+    "cat /proc/cpuinfo",
+    "echo $PATH && ls *.md",
+    "for f in packages/*/package.json; do cat $f; done",
+    "planroom map --level container --json",
+    "find . -name '*.ts' -not -path './node_modules/*'",
+    "cd ~ && ls",
+    "x=1; echo $x",
+    "cat ~/.claude/plugins/store/other_market-0123456789ab.json",
+    "ls ~/.local/share/planroom/engine/*/planroom",
+    "cat .planroom/*.toml",
+    "cd crates/kernel && cargo test -p planroom-kernel",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
 });

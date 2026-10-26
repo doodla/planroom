@@ -2,10 +2,14 @@
  * The walking skeleton's screenshots, written only by `cargo xtask e2e --screens`, at 1440x900
  * and 390x844, in both themes, into docs/screenshots/: the main view from the real
  * `planroom serve` on the scanned fixture, and the empty state from the stand-in's real
- * `map-empty.json`, since `serve` can't start in an unscanned workspace yet (M1).
+ * `map-empty.json`, since `serve` can't start in an unscanned workspace yet (M1). Two more show
+ * the way back up (ux-4) and a level with no blocks (ux-3): the container level the next action
+ * opens, its `⋯` lid open on the phone; and the intent level, which the desktop's rail reaches.
  */
 
 import { join } from "node:path";
+
+import type { Page } from "@playwright/test";
 
 import { startEngine } from "./engine";
 import { DESKTOP, PHONE, expect, test } from "./fixtures";
@@ -13,10 +17,52 @@ import { ROOT, standIn } from "./standin";
 
 const OUT = join(ROOT, "docs/screenshots");
 
-const VIEWS = [
+interface View {
+  name: string;
+  scanned: boolean;
+  ready: string;
+  /** Where the view goes after the map is ready, on each form factor. */
+  go?: (page: Page, phone: boolean) => Promise<void>;
+  /** Whether the phone can reach it; the intent level is the desktop rail's alone. */
+  phone?: boolean;
+}
+
+const VIEWS: readonly View[] = [
   { name: "main", scanned: true, ready: ".map[data-ready]" },
   { name: "empty", scanned: false, ready: "[data-empty] img" },
-] as const;
+  {
+    name: "container",
+    scanned: true,
+    ready: ".map[data-ready]",
+    go: async (page, phone) => {
+      await page
+        .locator(phone ? ".sheet" : "[data-concept=decisions]")
+        .getByRole("button", { name: "Open the containers" })
+        .first()
+        .click();
+      await page
+        .locator(".breadcrumb .lid-name", { hasText: "container" })
+        .waitFor();
+      await page.locator(".map[data-ready]").waitFor();
+      if (phone) {
+        await page.getByRole("button", { name: "Levels above" }).click();
+      }
+    },
+  },
+  {
+    name: "empty-level",
+    scanned: true,
+    ready: ".map[data-ready]",
+    phone: false,
+    go: async (page) => {
+      await page
+        .locator(".rail")
+        .getByRole("button", { name: "intent", exact: true })
+        .click();
+      await page.locator(".level-empty [data-empty] img").waitFor();
+    },
+  },
+];
 
 test.skip(
   process.env.PLANROOM_SCREENS !== "1",
@@ -24,7 +70,7 @@ test.skip(
 );
 
 for (const view of VIEWS) {
-  for (const viewport of [DESKTOP, PHONE]) {
+  for (const viewport of view.phone === false ? [DESKTOP] : [DESKTOP, PHONE]) {
     for (const colorScheme of ["light", "dark"] as const) {
       const file = `${view.name}-${viewport.width}x${viewport.height}-${colorScheme}.png`;
       test(file, async ({ browser }) => {
@@ -48,6 +94,7 @@ for (const view of VIEWS) {
         try {
           await page.goto(await server.loginUrl());
           await page.locator(view.ready).waitFor();
+          await view.go?.(page, phone);
           await page.evaluate(() => document.fonts.ready.then(() => undefined));
           await page.waitForTimeout(300);
           await page.screenshot({ path: join(OUT, file) });

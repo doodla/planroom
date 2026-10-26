@@ -18,6 +18,7 @@ import type {
   Timer,
 } from "claude-code";
 import type { PaneModel, StreamFrame } from "@planroom/contract";
+import { sanitize } from "@planroom/ui";
 
 import { engineAtom, lastSeqAtom, paneAtom } from "./atoms";
 import { parseReply, type Reply, type RunResult } from "./engine";
@@ -190,7 +191,8 @@ async function watchLoop($: $, gen: number): Promise<void> {
       // No store yet stays silent: the pane shows focus's not-yet-a-workspace state, and the first
       // scan starts the loop. Anything else is one status line, never a restart (DR-53).
       if (code !== "workspace_not_found") {
-        $.ui.status(refusal.error?.hint ?? refusal.error?.message);
+        const said = refusal.error?.hint ?? refusal.error?.message;
+        $.ui.status(said === undefined ? undefined : sanitize(said));
       }
       return;
     }

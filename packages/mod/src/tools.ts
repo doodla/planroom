@@ -139,17 +139,6 @@ export function changeNeedsNoPrompt(command: unknown): boolean {
   );
 }
 
-/** At most this many characters of a `/room` result go back as text the model reads (DR-65). */
-export const ROOM_TEXT_CHARS = 1_200;
-
-/** A `/room` result as the model's text: compact JSON, cut to about 300 tokens. */
-export function roomText(result: unknown): string {
-  const text = JSON.stringify(result);
-  return text.length <= ROOM_TEXT_CHARS
-    ? text
-    : `${text.slice(0, ROOM_TEXT_CHARS - 1)}…`;
-}
-
 /** How long a command may run: a first scan of a large repo takes minutes (DR-47). */
 export function timeoutFor(argv: readonly string[]): number {
   return argv[0] === "scan" ? 600_000 : 30_000;
