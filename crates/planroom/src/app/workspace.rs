@@ -58,7 +58,8 @@ pub fn discover(dir: &Path) -> Result<Workspace, AppError> {
     if is_repo(&root) {
         let name = root.file_name().and_then(|n| n.to_str()).unwrap_or("root").to_owned();
         repos.push(Repo { name, path: root.clone() });
-        let subs = Git::new(&root).submodules().map_err(|e| AppError::git(&repos[0].name, &e))?;
+        // A root repo git can't read leaves the repo set itself unknown, so this one fails whole.
+        let subs = Git::new(&root).submodules().map_err(|e| AppError::git(&repos[0].name, &root, &e))?;
         for sub in subs {
             let path = root.join(&sub);
             if is_repo(&path) {
@@ -89,6 +90,30 @@ pub fn discover(dir: &Path) -> Result<Workspace, AppError> {
     }
     repos.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(Workspace { root, repos, warnings })
+}
+
+/// The repos of the workspace `dir` belongs to, as a scan would find them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Scannable {
+    /// Repos git can read: with commits, or none yet (those map as a repo node).
+    pub readable: usize,
+    /// The names of the repos git refuses, which a scan skips, sorted.
+    pub unreadable: Vec<String>,
+}
+
+/// Which of `dir`'s workspace repos a scan can read: one `git rev-parse` each.
+pub fn scannable(dir: &Path) -> Scannable {
+    let Ok(ws) = discover(dir) else { return Scannable::default() };
+    let mut out = Scannable::default();
+    for repo in ws.repos {
+        let git = Git::new(&repo.path);
+        if git.head().is_ok() || git.unborn_branch().is_some() {
+            out.readable += 1;
+        } else {
+            out.unreadable.push(repo.name);
+        }
+    }
+    out
 }
 
 /// Directories exactly `depth` levels below `root`, sorted, skipping hidden ones.

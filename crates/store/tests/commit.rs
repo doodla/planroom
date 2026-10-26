@@ -38,7 +38,7 @@ fn version_event(n: u32) -> NewEvent {
 
 const RULES: ScanRules = ScanRules {
     scan_key: |k: &ScanKey<'_>| {
-        let key = format!("scan:{}:{}:{}:{:?}", k.repo, k.commit, k.packs_hash, k.previous);
+        let key = format!("scan:{}:{}:{}:{:?}", k.repo, k.commit, k.inputs, k.previous);
         (key.clone(), format!("hash:{key}"))
     },
     link_key: |members: &[u64], packs: &str| format!("link:{members:?}:{packs}"),
@@ -48,6 +48,7 @@ fn repo(name: &str, commit: &str, event: &str) -> RepoScan {
     RepoScan {
         repo: name.into(),
         commit: commit.into(),
+        inputs: "p".into(),
         branch: "main".into(),
         stats: ScanStats::default(),
         facts: vec![FactRow {
@@ -146,17 +147,23 @@ fn several_events_are_keyed_idem_n_and_replay_whole() {
 fn an_unchanged_rescan_writes_no_event_and_a_move_writes_one_with_a_link() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = open(dir.path());
-    let first = store.commit_scan(&scan(vec![repo("a", "c1", "e1"), repo("b", "c1", "e2")]), RULES).unwrap();
+    let first = store
+        .commit_scan(&scan(vec![repo("a", "c1", "e1"), repo("b", "c1", "e2")]), RULES, &mut |_| true)
+        .unwrap();
     assert!(matches!(first.repos[0].1, RepoOutcome::Recorded { .. }));
     assert!(matches!(first.repos[1].1, RepoOutcome::Recorded { .. }));
     let link = first.link.expect("a link snapshot");
     assert_eq!(first.seq, 2);
 
-    let same = store.commit_scan(&scan(vec![repo("a", "c1", "e3"), repo("b", "c1", "e4")]), RULES).unwrap();
+    let same = store
+        .commit_scan(&scan(vec![repo("a", "c1", "e3"), repo("b", "c1", "e4")]), RULES, &mut |_| true)
+        .unwrap();
     assert!(same.repos.iter().all(|(_, o)| matches!(o, RepoOutcome::Unchanged { .. })));
     assert_eq!((same.link, same.seq), (None, 2));
 
-    let moved = store.commit_scan(&scan(vec![repo("a", "c2", "e5"), repo("b", "c1", "e6")]), RULES).unwrap();
+    let moved = store
+        .commit_scan(&scan(vec![repo("a", "c2", "e5"), repo("b", "c1", "e6")]), RULES, &mut |_| true)
+        .unwrap();
     assert!(matches!(moved.repos[0].1, RepoOutcome::Recorded { seq: 3, .. }));
     assert!(matches!(moved.repos[1].1, RepoOutcome::Unchanged { .. }));
     assert_ne!(moved.link, Some(link));
@@ -171,10 +178,61 @@ fn moving_back_and_forth_records_every_move() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = open(dir.path());
     for (i, commit) in ["x", "a", "x", "a", "x"].iter().enumerate() {
-        let done = store.commit_scan(&scan(vec![repo("r", commit, &format!("e{i}"))]), RULES).unwrap();
+        let done = store
+            .commit_scan(&scan(vec![repo("r", commit, &format!("e{i}"))]), RULES, &mut |_| true)
+            .unwrap();
         assert!(matches!(done.repos[0].1, RepoOutcome::Recorded { .. }), "move {i} to {commit}");
     }
     assert_eq!(store.seq().unwrap(), 5);
+}
+
+#[test]
+fn a_scan_whose_commit_is_no_longer_head_never_moves_a_repo_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = open(dir.path());
+    // The slow scan read `old`; a newer scan of `new` lands first.
+    store.commit_scan(&scan(vec![repo("r", "old", "e1")]), RULES, &mut |_| true).unwrap();
+    let newer = store.commit_scan(&scan(vec![repo("r", "new", "e2")]), RULES, &mut |_| true).unwrap();
+    let RepoOutcome::Recorded { snapshot: current, .. } = newer.repos[0].1 else { panic!("{newer:?}") };
+    let mut asked = Vec::new();
+    let stale = store
+        .commit_scan(&scan(vec![repo("r", "old", "e3")]), RULES, &mut |r| {
+            asked.push(r.commit.clone());
+            r.commit == "new"
+        })
+        .unwrap();
+    assert_eq!(asked, ["old"], "HEAD is checked under the write lock, only for a repo that would move");
+    assert_eq!(stale.repos[0].1, RepoOutcome::Superseded { active: current });
+    assert_eq!((stale.link, stale.seq), (None, 2), "no event, no link");
+    assert_eq!(store.active_set().unwrap().repos["r"], current);
+}
+
+#[test]
+fn a_first_scan_records_its_commit_even_when_head_moved_since() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = open(dir.path());
+    // Nothing to move back from: the repo maps, and the next scan moves it forward.
+    let done = store.commit_scan(&scan(vec![repo("r", "old", "e1")]), RULES, &mut |_| false).unwrap();
+    assert!(matches!(done.repos[0].1, RepoOutcome::Recorded { .. }));
+}
+
+#[test]
+fn one_commit_under_other_inputs_is_another_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = open(dir.path());
+    let first = store.commit_scan(&scan(vec![repo("r", "c1", "e1")]), RULES, &mut |_| true).unwrap();
+    let mut other = repo("r", "c1", "e2");
+    other.inputs = "q".into();
+    let second = store.commit_scan(&scan(vec![other]), RULES, &mut |_| true).unwrap();
+    let (RepoOutcome::Recorded { snapshot: a, .. }, RepoOutcome::Recorded { snapshot: b, .. }) =
+        (first.repos[0].1, second.repos[0].1)
+    else {
+        panic!("{first:?} {second:?}")
+    };
+    assert_ne!(a, b);
+    // Back to the first inputs: the first snapshot again, not a third.
+    let back = store.commit_scan(&scan(vec![repo("r", "c1", "e3")]), RULES, &mut |_| true).unwrap();
+    assert!(matches!(back.repos[0].1, RepoOutcome::Recorded { snapshot, .. } if snapshot == a));
 }
 
 #[test]

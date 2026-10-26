@@ -62,10 +62,11 @@ pub fn request_hash(command: &str, args: &Value) -> String {
 }
 
 /// A repo's `scan` event key and request hash, both over
-/// `repo ‖ commit ‖ packs_hash ‖ previous active snapshot` (DR-8).
-pub fn scan_key(repo: &str, commit: &str, packs_hash: &str, previous: Option<u64>) -> (String, String) {
+/// `repo ‖ commit ‖ inputs ‖ previous active snapshot` (DR-8), where `inputs` hashes every
+/// extraction input besides the commit: the packs hash and the extractors' options.
+pub fn scan_key(repo: &str, commit: &str, inputs: &str, previous: Option<u64>) -> (String, String) {
     let previous = previous.map_or_else(|| "none".to_owned(), |p| p.to_string());
-    let parts = [repo, commit, packs_hash, previous.as_str()];
+    let parts = [repo, commit, inputs, previous.as_str()];
     (format!("scan:{}", sha256_hex(&parts)), sha256_hex(&parts))
 }
 

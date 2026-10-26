@@ -28,9 +28,9 @@ pub struct RepoView {
     /// Where the repo's git runs. An extractor never reads a file from here: the working tree
     /// isn't the commit. It reads contents with [`RepoView::read`].
     pub root: PathBuf,
+    /// The commit the facts are read at. No branch: a snapshot's facts are a function of its key,
+    /// and a branch can move or be deleted while the commit stays, so it isn't an input (DR-85).
     pub commit: String,
-    /// Empty when `HEAD` is detached.
-    pub branch: String,
     /// The contents of the commit's files the walk took ([`walk::Walked::blobs`]).
     pub blobs: walk::Blobs,
 }

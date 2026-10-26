@@ -51,7 +51,8 @@ pub struct Committed {
 pub struct ScanKey<'a> {
     pub repo: &'a str,
     pub commit: &'a str,
-    pub packs_hash: &'a str,
+    /// The repo's [`RepoScan::inputs`].
+    pub inputs: &'a str,
     /// The repo's active snapshot before this scan; `None` on its first scan.
     pub previous: Option<u64>,
 }
@@ -69,7 +70,13 @@ pub struct ScanRules {
 #[derive(Debug, Clone)]
 pub struct RepoScan {
     pub repo: String,
+    /// Empty while the repo has no commit yet.
     pub commit: String,
+    /// The hash of every extraction input besides the commit: the packs hash, the extractors'
+    /// options and anything else the facts depend on. With the repo and commit it keys the
+    /// snapshot (in its `packs_hash` column), so a snapshot's facts are a function of its key.
+    pub inputs: String,
+    /// The branch `HEAD` named, for the scan event only: it's no input of the facts.
     pub branch: String,
     pub stats: ScanStats,
     /// Sorted by ID, one row per ID.
@@ -84,6 +91,7 @@ pub struct ScanWrite {
     pub at: Timestamp,
     pub actor: Actor,
     pub client: Client,
+    /// Keys the link snapshot, with its member snapshots.
     pub packs_hash: String,
     pub repos: Vec<RepoScan>,
 }
@@ -95,6 +103,9 @@ pub enum RepoOutcome {
     Unchanged { snapshot: u64 },
     /// The active snapshot moved: a new `scan` event at `seq`.
     Recorded { snapshot: u64, seq: Seq },
+    /// The repo's `HEAD` no longer names the commit this scan read, so the active snapshot,
+    /// `active`, stays: a scan that read an older head never moves a repo back (R10).
+    Superseded { active: u64 },
 }
 
 /// What a scan commit did.
@@ -145,14 +156,24 @@ impl Store {
     /// already this one writes nothing, so two processes that rescan one head join on one event
     /// (DR-8). When any repo moved, the same transaction builds the workspace link snapshot of
     /// the new active set, and every new scan event names it (DR-12).
-    pub fn commit_scan(&mut self, scan: &ScanWrite, rules: ScanRules) -> Result<ScanCommitted, StoreError> {
+    ///
+    /// `is_head` re-reads a repo's `HEAD` under the write lock: a repo with an active snapshot
+    /// moves only when `HEAD` still names the commit this scan read. Otherwise a newer scan may
+    /// have landed, or will, so the repo is [`RepoOutcome::Superseded`] and nothing moves back.
+    pub fn commit_scan(
+        &mut self,
+        scan: &ScanWrite,
+        rules: ScanRules,
+        is_head: &mut dyn FnMut(&RepoScan) -> bool,
+    ) -> Result<ScanCommitted, StoreError> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut active = read::active_snapshots(&tx)?;
         let mut moved = Vec::new();
         let mut outcomes = Vec::with_capacity(scan.repos.len());
         for repo in &scan.repos {
-            let (snapshot, created) =
-                put_snapshot(&tx, &repo.repo, &repo.commit, &repo.branch, "head", &scan.packs_hash)?;
+            // The branch isn't part of the key, so a head snapshot records none: it's on the
+            // scan event that moved to it.
+            let (snapshot, created) = put_snapshot(&tx, &repo.repo, &repo.commit, "", "head", &repo.inputs)?;
             if created {
                 insert_facts(&tx, snapshot, &repo.facts)?;
             }
@@ -161,8 +182,11 @@ impl Store {
                 outcomes.push((repo.repo.clone(), RepoOutcome::Unchanged { snapshot }));
                 continue;
             }
-            let key =
-                ScanKey { repo: &repo.repo, commit: &repo.commit, packs_hash: &scan.packs_hash, previous };
+            if let Some(active) = previous.filter(|_| !is_head(repo)) {
+                outcomes.push((repo.repo.clone(), RepoOutcome::Superseded { active }));
+                continue;
+            }
+            let key = ScanKey { repo: &repo.repo, commit: &repo.commit, inputs: &repo.inputs, previous };
             let (mut idem, request_hash) = (rules.scan_key)(&key);
             // A repo that moves A -> B -> A -> B meets its own earlier key: that event is not the
             // active one, so this is a new move, keyed after the scan it moves away from.
