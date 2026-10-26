@@ -11,8 +11,8 @@ sha256 = "6864a0b0f915205522947f5205f5ecb717959d3d706258c719807fd1ceb53f51"
 record = "DR-79"
 
 ["area contracts table"]
-sha256 = "df58091cfbfcf6bcf21328e61fba461fc59ebb08b76728e7fd2291940a7e1a0b"
-record = "DR-79"
+sha256 = "39f4aea43a1f636fa70ad159adfccb71e2ceed71441dc6af4362e94c4ac436b5"
+record = "DR-88"
 
 ["boundaries.toml"]
 sha256 = "0d2a6611d0f6e0d6df7974d5d8e8ece053f66896a53f5483e520667f8d51f807"

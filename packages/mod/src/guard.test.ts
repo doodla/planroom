@@ -778,3 +778,301 @@ test("security-r3-3: the plugin's own files are never written by the Write tool 
     verdict("Read", { file_path: `${PLUGIN}/skills/planroom/SKILL.md` }),
   ).toBeNull();
 });
+
+// The residual risks the review left after round 3 that a local rule closes (accepted-risk.md,
+// "The guard's residual risks"). Each string below passed the guard before its rule.
+
+test("tests-3-1: with no usable HOME the guard asks before every call, never lets one pass unread", () => {
+  for (const env of [{}, { HOME: "" }, { HOME: "home/u" }]) {
+    const lost = guardPlaces("/work", env, { plugin: [PLUGIN] });
+    for (const [tool, input] of [
+      ["Read", { file_path: STORE }],
+      ["Read", { file_path: "/home/u/.config/planroom/config.toml" }],
+      ["Bash", { command: "cat ~/.claude/plugins/store/planroom_x.json" }],
+      ["Bash", { command: "ls" }],
+      ["mcp__other__upload", { attachment: STORE }],
+    ] as const) {
+      expect(
+        guardCall(tool, input, () => [], lost)?.decision,
+        `${JSON.stringify(env)} ${tool} ${JSON.stringify(input)}`,
+      ).toBe("ask");
+    }
+  }
+  // The XDG spec ignores a relative XDG_DATA_HOME or XDG_CONFIG_HOME, as the engine does.
+  expect(
+    guardPlaces("/w", {
+      HOME: "/h",
+      XDG_DATA_HOME: "rel",
+      XDG_CONFIG_HOME: "x",
+    }),
+  ).toMatchObject({
+    dataRoot: "/h/.local/share/planroom",
+    userConfig: "/h/.config/planroom/config.toml",
+  });
+});
+
+test("an unknown tool: file URLs, bare and spaced names, writes, and inputs past what the guard reads", () => {
+  const unknown = (input: unknown, links: Record<string, string> = {}) =>
+    verdict("mcp__other__tool", input, links)?.decision;
+  for (const uri of [
+    "file:///home/u/.claude/plugins/store/planroom_x.json",
+    "file://localhost/home/u/.config/planroom/config.toml",
+    "file:///home/u/.config/planroom/config%2Etoml",
+    "file:///work/.planroom/serve.json",
+  ]) {
+    expect(unknown({ uri }), uri).toBe("deny");
+  }
+  expect(
+    verdict("ReadMcpResourceTool", {
+      server: "fs",
+      uri: "file:///home/u/.config/planroom/config.toml",
+    })?.decision,
+  ).toBe("deny");
+  // A bare name or a path with a space that lands on the store, through a link.
+  expect(unknown({ path: "notes" }, { notes: STORE })).toBe("deny");
+  expect(
+    unknown({ path: "My Notes/k.json" }, { "My Notes/k.json": STORE }),
+  ).toBe("deny");
+  expect(
+    unknown({
+      path: "My Notes/../../home/u/.claude/plugins/store/planroom_x.json",
+    }),
+  ).toBe("deny");
+  // Prose that names a guarded file isn't a read of it.
+  expect(
+    unknown({ text: "check .planroom/store.db is guarded" }),
+  ).toBeUndefined();
+  // A tool that doesn't say it only reads is held to the write rule too. It may name a path that
+  // isn't local, such as a repo path it pushes, so the person decides: an ask, not a deny.
+  const engine = "~/.local/share/planroom/engine/0.1.0/planroom";
+  expect(unknown({ path: engine, content: "x" })).toBe("ask");
+  expect(unknown({ path: `${PLUGIN}/hooks/planroom-mod.js` })).toBe("ask");
+  expect(unknown({ path: ".planroom/config.toml", content: "x" })).toBe("ask");
+  expect(
+    unknown(
+      { path: "My Notes/x" },
+      { "My Notes/x": `${PLUGIN}/scripts/planroom` },
+    ),
+  ).toBe("ask");
+  expect(
+    guardCall("mcp__fs__read", { path: engine }, () => [], places, true),
+  ).toBeNull();
+  // Past what the guard reads, it asks: more strings, or deeper, than it checks.
+  const many = Array.from({ length: 1100 }, (_, i) => `s${i}`);
+  expect(unknown({ a: many })).toBe("ask");
+  let deep: unknown = "x";
+  for (let i = 0; i < 40; i++) deep = { x: deep };
+  expect(unknown(deep)).toBe("ask");
+  // Everyday inputs still pass.
+  for (const input of [
+    { query: "hello world" },
+    { path: "./dist/app.js", content: "x" },
+    { url: "https://example.com/.planroom/serve.json" },
+    { prompt: "Read ./src/main.rs and the serve.json docs." },
+    { files: Array.from({ length: 200 }, (_, i) => `src/f${i}.ts`) },
+  ]) {
+    expect(unknown(input), JSON.stringify(input).slice(0, 80)).toBeUndefined();
+  }
+});
+
+/** Bash forms that passed the guard after round 3, each now denied. */
+const SHELL_BYPASSES = [
+  // A cd through a command substitution, then a bare name where it went.
+  "cd $(echo ~/.config/planroom) && cat config.toml",
+  'cd "$(echo $HOME/.claude/plugins)" && cat store/planroom_x.json',
+  // A file URL, and another user's home spelled with ~name.
+  `curl -s file://${STORE}`,
+  "cat ~u/.claude/plugins/store/planroom_x.json",
+  "cat ~u/.config/planroom/config.toml",
+  // Quoted text the guard read as an operator, moving a tree read out of sight (DR-86's residual).
+  "grep -r key '>' ~/.claude",
+  "tar czf /tmp/x.tgz '>' ~/.claude",
+  "grep -r key ';' ~/.claude",
+  // security-r2-3: a command substitution inside a /proc path.
+  "cat /proc/$(pgrep planroom)/environ",
+  'cat "/proc/$(pidof planroom)/environ"',
+  "cat /proc/`pgrep planroom`/environ",
+  "cat /proc/$(pgrep planroom)/task/1/mem",
+  // dotglob on the line, in bash or zsh, lets a glob reach the hidden folders.
+  "shopt -s dotglob; grep -r key ~/*",
+  "shopt -s dotglob && rm -rf ./*",
+  "setopt globdots; tar czf /tmp/h.tgz ~/*",
+  "setopt GLOB_DOTS; zip -r /tmp/h.zip ~/*",
+  "GLOBIGNORE=x; rm -rf ./*",
+  "grep -r key ~/*(D)",
+  // A crafted tree unpacked or moved above the data root, the mod's store or the plugin.
+  "cd ~ && tar xzf /tmp/evil.tgz",
+  "unzip evil.zip -d ~/.local",
+  "cd ~/.local/share && unzip /tmp/evil.zip",
+  "7z x /tmp/evil.7z -o$HOME/.local/share",
+  "mv crafted/.local ~/",
+  "mv /tmp/x/planroom ~/.local/share/",
+  "mv /tmp/x/0.1.1 ~/.claude/plugins/cache/planroom/planroom/",
+  // tests-3-3: recursive readers outside the first list.
+  "git grep --no-index key ~/.claude",
+  "git -C ~ grep --no-index key .claude",
+  "git grep --untracked key -- ~/.config",
+  "ugrep -r key ~/.claude",
+  "ug -R key ~/.config",
+  "bsdtar cf /tmp/a ~/.claude",
+  "pax -w ~/.claude > /tmp/a",
+  "gzip -rc ~/.claude > /tmp/x",
+  "zstd -r ~/.config -o /tmp/x.zst",
+  "7z a /tmp/x ~/.config",
+  "7za a /tmp/x.7z ~/.claude/plugins",
+  // The plugin's other versions, its marketplace clone and the host's lists of plugins.
+  "cp evil.js ~/.claude/plugins/cache/planroom/planroom/0.0.9/hooks/planroom-mod.js",
+  "echo x > ~/.claude/plugins/marketplaces/planroom/plugin/scripts/planroom",
+  "sed -i s/a/b/ ~/.claude/plugins/installed_plugins.json",
+  "echo '{}' > ~/.claude/plugins/known_marketplaces.json",
+  "rm -rf ~/.claude/plugins/cache/planroom/planroom",
+  "rm -rf ~/.claude/plugins/marketplaces/planroom",
+];
+
+test("the shell forms left after round 3 are denied", () => {
+  for (const command of SHELL_BYPASSES) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const [tool, input] of [
+    [
+      "Write",
+      {
+        file_path:
+          "/home/u/.claude/plugins/cache/planroom/planroom/0.0.9/hooks/planroom-mod.js",
+      },
+    ],
+    ["Edit", { file_path: "/home/u/.claude/plugins/known_marketplaces.json" }],
+    [
+      "Write",
+      {
+        file_path:
+          "/home/u/.claude/plugins/marketplaces/planroom/.claude-plugin/marketplace.json",
+      },
+    ],
+  ] as const) {
+    expect(verdict(tool, input)?.decision, input.file_path).toBe("deny");
+  }
+});
+
+test("security-r2-4: xargs, an expanded command word, += and the other setters hide nothing", () => {
+  for (const command of [
+    "echo person init | xargs planroom",
+    "echo init | xargs -n1 planroom person",
+    "sh -c 'planroom \"$@\"' _ person init",
+    "find . -name k.pub -exec planroom person init {} ;",
+    "planroom $CMD",
+    "parallel planroom ::: decide",
+    "PLANROOM_PERSON_TOKEN+=x planroom import -",
+    "PLANROOM_ENGINE+=/tmp/x planroom map",
+    "printf -v PLANROOM_ENGINE %s /tmp/x; planroom map",
+    "read -r PLANROOM_ENGINE <<< /tmp/x; planroom map",
+    "local PLANROOM_RAW=1",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of [
+    "echo $PLANROOM_ENGINE",
+    "printf '%s\\n' \"$PLANROOM_ENGINE\"",
+    "grep -rn PLANROOM_ENGINE crates/",
+    "planroom map --json | jq .result",
+    "git ls-files | xargs wc -l",
+    'planroom map --workspace "$W" --json',
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+  // Every path is named for the caller to resolve, not the first 32 or 64.
+  const words = Array.from({ length: 200 }, (_, i) => `./f${i}`).join(" ");
+  expect(namedPaths("Bash", { command: `cat ${words}` }, places)).toHaveLength(
+    200,
+  );
+});
+
+test("security-r3-4: everyday clean-up forms never delete the state directory", () => {
+  for (const command of [
+    "find . -name .planroom -exec rm -rf {} +",
+    "find . -name '*.db' -delete",
+    "find . -type f -name '*.json' -exec rm {} +",
+    "find . -type f -delete",
+    "find . -name '*' -not -path '*/.planroom/*' -exec rm -rf {} +",
+    "find . \\( -name '*.db' -o -name '*.log' \\) -delete",
+    "find . -name '*.db' -exec mv {} /tmp ;",
+    "find . -name '*.db' | xargs rm",
+    "find ~ -name '*.json' -delete",
+    "ls -d .planroom | xargs rm -rf",
+    "echo .planroom | xargs rm -rf",
+    "rm -rf $(echo .planroom)",
+    "rm -rf `ls -d .p*`",
+    "git stash -a",
+    "git stash push --all",
+    "git stash save --include-untracked --all",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of [
+    "find . -name '*.orig' -delete",
+    "find . -type f -name '*.orig' -delete",
+    "find . -name '*.pyc' -exec rm -f {} +",
+    "find . -name '*.db' -not -path '*/.planroom/*' -not -path '*/.git/*' -delete",
+    "find . -path ./.planroom -prune -o -path ./.git -prune -o -name '*.db' -delete",
+    "find . -maxdepth 1 -name '*.db' -delete",
+    "find build -type f -delete",
+    "find . -name '*.orig' | xargs rm",
+    "rm -rf $(mktemp -d)",
+    "git stash",
+    "git stash -u",
+    "git stash push -a -- ':!.planroom'",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("a shell that sits in a protected folder runs nothing there but a cd out", () => {
+  for (const cwd of [
+    PLUGIN,
+    `${PLUGIN}/hooks`,
+    "/work/.planroom",
+    "/home/u/.local/share/planroom",
+    "/home/u/.local/share/planroom/engine/0.1.0",
+  ]) {
+    for (const command of ["make", "python3 gen.py", "ls"]) {
+      expect(
+        from(cwd)("Bash", { command })?.decision,
+        `${cwd}: ${command}`,
+      ).toBe("deny");
+    }
+    expect(from(cwd)("Bash", { command: "cd /work && make" }), cwd).toBeNull();
+  }
+});
+
+test("the forms closed after round 3 leave everyday commands passing", () => {
+  for (const command of [
+    "tar xzf deps.tgz",
+    "cd /tmp && tar xzf x.tgz",
+    "unzip -q dist.zip -d build",
+    "tar -xzf node.tgz -C ~/.local/bin",
+    "mv notes.md ~/",
+    "mv a.ts b.ts && mv c.ts .",
+    "git grep -n foo",
+    "git grep --no-index foo src",
+    "ugrep -r TODO src",
+    "gzip -k dist/app.js",
+    "7z a /tmp/src.7z src",
+    "shopt -s globstar; ls src/**/*.ts",
+    "rm -rf ./*",
+    "cat ~/.claude/plugins/installed_plugins.json",
+    "ls ~/.claude/plugins/cache",
+    "git commit -m 'a > b; c | d'",
+    'echo "$(date) > done"',
+    "cd $(git rev-parse --show-toplevel) && git status",
+    'cd "$(mktemp -d)" && git init && touch a && git add a',
+    "kill $(pgrep -f vite)",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+  expect(
+    verdict("Read", {
+      file_path:
+        "/home/u/.claude/plugins/cache/planroom/planroom/0.0.9/skills/planroom/SKILL.md",
+    }),
+  ).toBeNull();
+});

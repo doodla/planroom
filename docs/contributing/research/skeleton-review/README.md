@@ -166,8 +166,8 @@ tests-r2-1 was fixed in the plan: `map` paging moves into M1's S1 slice.
 | drift-r2-11 | import's summary counts a refused row as not refused | Minor: known gap |
 | security-r2-1 | The guard never applies its write rule to Bash, so an agent can overwrite the cached engine that every later session and every person press runs, and can rewrite or delete `.planroom/` | Material: fixed in `5501b69` (guard) |
 | security-r2-2 | Recursive reads of a guarded place's parent pass the guard: `grep -r`, `rg`, `find -exec cat`, `tar` and `cp -r`/`ln -s` on ~/.claude, ~/.config or ~/.local/share, and the Grep tool on ~/.config or ~/.local/share | Material: fixed in `5501b69` (guard) |
-| security-r2-3 | DR-85's `/proc/*/environ` denial misses the usual spelling, `/proc/$(pgrep planroom)/environ` | Minor: known gap |
-| security-r2-4 | Other guard misses: `xargs planroom` hides a person-only command, `VAR+=` hides a guarded variable, `~user/` paths aren't expanded, and only 32 paths are resolved | Minor: known gap |
+| security-r2-3 | DR-85's `/proc/*/environ` denial misses the usual spelling, `/proc/$(pgrep planroom)/environ` | Minor: fixed after round 3, with a regression test ([accepted risk](accepted-risk.md#the-guards-residual-risks-decided)) |
+| security-r2-4 | Other guard misses: `xargs planroom` hides a person-only command, `VAR+=` hides a guarded variable, `~user/` paths aren't expanded, and only 32 paths are resolved | Minor: fixed after round 3, with a regression test ([accepted risk](accepted-risk.md#the-guards-residual-risks-decided)) |
 | security-r2-5 | The guard now denies `Glob **/*` in the project itself | Minor: known gap |
 | security-r2-6 | The sanitizing pass leaves U+2028/U+2029 and Unicode tag characters raw, in both ports | Minor: known gap |
 | tests-r2-1 | DR-85's map cap makes S1's tier-A CI path unpassable in M1: the CLI map at --detail graph is truncated on the fixture, and paging waits for M2 | Material: fixed by milestone plan (M1's S1 slice) `71bd6ff` |
@@ -242,12 +242,12 @@ No fourth round runs. Round 3's own fixes had no reviewer; [the accepted risk](a
 | security-r3-1 | The guard resolves Bash paths against the session's start directory, so `cd` in one call and a relative path in the next pass every r2 rule | Material: fixed in `52d20bf` (guard) |
 | security-r3-2 | The guard sees file paths only in eight tools; Artifact, ArtifactData and SendUserFile read the person key, the gateway key and serve.json unchecked | Material: fixed in `52d20bf` (guard) |
 | security-r3-3 | The installed plugin's files, the mod bundle with the guard and person-key code and the resolver, are writable by Write and Bash: r2-1's threat with a different target | Material: fixed in `52d20bf` (guard) |
-| security-r3-4 | The current workspace's state directory can still be deleted through everyday forms the remove rule doesn't read | Minor: known gap |
-| security-r3-5 | The mod never re-registers its key once a workspace is in its `registered` list, even when the store lost the key | Minor: known gap |
-| security-r3-6 | Tool outputs aren't marked `untrusted: true`, as architecture.md's injection containment says they are | Minor: known gap |
-| tests-3-1 | The guard fails open when the host's $.env.get("HOME") gives nothing, and only mocked runs back it: the harness mocks HOME and fs.stat, and the last live run predates both guard rewrites | Minor: known gap |
+| security-r3-4 | The current workspace's state directory can still be deleted through everyday forms the remove rule doesn't read | Minor: fixed after round 3, with a regression test ([accepted risk](accepted-risk.md#the-guards-residual-risks-decided)) |
+| security-r3-5 | The mod never re-registers its key once a workspace is in its `registered` list, even when the store lost the key | Minor: fixed after round 3, with a regression test ([accepted risk](accepted-risk.md#the-guards-residual-risks-decided)) |
+| security-r3-6 | Tool outputs aren't marked `untrusted: true`, as architecture.md's injection containment says they are | Minor: fixed after round 3, with a regression test ([accepted risk](accepted-risk.md#the-guards-residual-risks-decided)) |
+| tests-3-1 | The guard fails open when the host's $.env.get("HOME") gives nothing, and only mocked runs back it: the harness mocks HOME and fs.stat, and the last live run predates both guard rewrites | Minor: fixed after round 3, with a regression test ([accepted risk](accepted-risk.md#the-guards-residual-risks-decided)) |
 | tests-3-2 | tests-r2-1's fix never reached feature_list.json: S1's tier-A ci_path still runs the capped map with no paging step | Minor: known gap |
-| tests-3-3 | The recursive-read rule and its bypass list cover a closed set of programs: git grep --no-index, ugrep -r, bsdtar, pax and gzip -r still read the person key's parent | Minor: known gap |
+| tests-3-3 | The recursive-read rule and its bypass list cover a closed set of programs: git grep --no-index, ugrep -r, bsdtar, pax and gzip -r still read the person key's parent | Minor: fixed after round 3, with a regression test ([accepted risk](accepted-risk.md#the-guards-residual-risks-decided)) |
 | tests-3-4 | The M1 stand-in overlay's evidence names no commit, contradicting DR-86 and what the engine stores | Minor: known gap |
 | tests-3-5 | budgets.rs claims to check the whole graph over HTTP but calls the app function in-process, so the route is never exercised | Minor: known gap |
 | ops-r3-1 | CI is red on every completed run since round 2's merges: macOS fails round 2's new scan test every time, and Ubuntu fails a different test each run | Material: macOS fixed in `a756f22` (CI); the intermittent Ubuntu failures are open in [the accepted risk](accepted-risk.md) |
@@ -262,7 +262,7 @@ No fourth round runs. Round 3's own fixes had no reviewer; [the accepted risk](a
 | repo3-4 | The review index's Files table still describes only round 1's files | Minor: fixed in this index |
 | unasked-r3-1 | Repo namespaces are the raw directory path: a directory with a space or colon yields node IDs the published NodeId contract rejects or splits wrongly, and the code differs from DR-74 | Minor: known gap |
 | unasked-r3-2 | correctness-15's no-fetch fix rests on GIT_NO_LAZY_FETCH alone: a repo-local protocol.<name>.allow=always overrides -c protocol.allow=never, so on a git that ignores the variable a scan runs the repo's configured command | Material: fixed in `e8f2a36` (engine) |
-| unasked-r3-3 | With HOME unset, the data root is relative to the current directory: serve writes workspaces.json, logs and a login page holding a live code into the workspace tree | Minor: known gap |
+| unasked-r3-3 | With HOME unset, the data root is relative to the current directory: serve writes workspaces.json, logs and a login page holding a live code into the workspace tree | Minor: fixed after round 3, with a regression test ([accepted risk](accepted-risk.md#the-guards-residual-risks-decided)) |
 | unasked-r3-4 | workspaces.json is keyed by root path: a moved or renamed workspace gets a new canvas port, and stale entries keep their ports forever | Minor: known gap |
 | unasked-r3-5 | The DR-1 filesystem check covers only the state directory; its fallback, the data root, is never checked, though it will hold the spend ledger and event backups | Minor: known gap |
 | unasked-r3-6 | repo_skipped's fix tells a root agent to chown -R another user's tree, the usual devcontainer and bind-mount case | Minor: known gap |

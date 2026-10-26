@@ -45,6 +45,7 @@ test("room_query runs the engine as the chat agent and returns one JSON string",
   expect(typeof called.result).toBe("string");
   expect(JSON.parse(called.result as string)).toEqual({
     ok: true,
+    untrusted: true,
     result: { level: "system", nodes: [] },
     meta: { seq: 412 },
   });
@@ -69,6 +70,7 @@ test("error_envelopes_reach_the_model: the whole error object, in the one JSON s
   });
   expect(JSON.parse(called.result as string)).toEqual({
     ok: false,
+    untrusted: true,
     error: {
       code: "not_found",
       category: "not_found",

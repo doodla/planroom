@@ -93,7 +93,7 @@ fn prepare(req: &ServeReq, cwd: &Path) -> Result<Prepared, AppError> {
         let store = Store::open_existing(&store_path)?.ok_or_else(|| AppError::workspace_not_found(&root))?;
         store.meta("workspace_id")?.ok_or_else(|| AppError::internal("the store has no workspace_id"))?
     };
-    let data_root = data::root();
+    let data_root = data::root()?;
     let (listener, port) = bind(&data_root, &root, &workspace_id, req.port)?;
     let mut auth = auth::Auth::new(port);
     let code = auth::random_hex(16).map_err(AppError::internal)?;
@@ -201,7 +201,7 @@ fn serve_json_path(root: &Path) -> PathBuf {
 
 /// `DATA_ROOT/logs/<workspace_id>/serve.log`, rotated once when it passes 1 MiB.
 fn log_path(workspace_id: &str) -> Option<PathBuf> {
-    let dir = data::root().join("logs").join(workspace_id);
+    let dir = data::root().ok()?.join("logs").join(workspace_id);
     data::ensure_dir(&dir).ok()?;
     let log = dir.join("serve.log");
     if fs::metadata(&log).is_ok_and(|m| m.len() > LOG_CAP) {

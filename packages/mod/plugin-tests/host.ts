@@ -177,12 +177,15 @@ export function host(
     watch?: (nth: number) => Piece[];
     /** Symbolic links: where `fs.stat` says each path lands; any other path is itself. */
     links?: Record<string, string>;
+    /** The session's HOME; null leaves it unset. */
+    home?: string | null;
   } = {},
 ): Host {
   const clock = mock.clock(on, { now: 1_800_000_000_000 });
   mock.store(on, options.store ?? {});
   // No CLAUDE_PLUGIN_ROOT: the host doesn't set it for a mod, which finds itself through $.plugin.root.
-  mock.env(on, { HOME: "/home/u" });
+  const home = options.home === undefined ? "/home/u" : options.home;
+  mock.env(on, home === null ? {} : { HOME: home });
   const runs: Run[] = [];
   const children: Child[] = [];
   const shell = { cwd: START.cwd as string };

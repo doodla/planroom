@@ -334,6 +334,59 @@ test("security-r3-2: Artifact, ArtifactData, SendUserFile, LS and unknown tools 
   expect(publish.decision).toBe("allow");
 });
 
+/** tests-3-1: with no usable HOME, every call the guard reads is asked, never let through unread. */
+const NO_HOME_CALLS = [
+  [
+    "Read",
+    {
+      file_path:
+        "/home/u/.claude/plugins/store/planroom_planroom-0123456789ab.json",
+    },
+  ],
+  ["Bash", { command: "cat ~/.config/planroom/config.toml" }],
+  ["Bash", { command: "ls" }],
+] as const;
+
+test("tests-3-1: a session whose HOME is unset has every call asked", async ($, on) => {
+  const h = host(on, undefined, { home: null });
+  allowBeneath(on);
+  await $.session.start(START);
+  await h.clock.settle();
+  for (const [tool, input] of NO_HOME_CALLS) {
+    const v = await $.tool.check({ tool, input });
+    expect(v.decision, tool).toBe("ask");
+  }
+});
+
+test("tests-3-1: a session whose HOME is empty has every call asked", async ($, on) => {
+  const h = host(on, undefined, { home: "" });
+  allowBeneath(on);
+  await $.session.start(START);
+  await h.clock.settle();
+  for (const [tool, input] of NO_HOME_CALLS) {
+    const v = await $.tool.check({ tool, input });
+    expect(v.decision, tool).toBe("ask");
+  }
+});
+
+test("security-r2-4: a call that names more paths than the guard resolves is asked, not let through", async ($, on) => {
+  const h = host(on);
+  allowBeneath(on);
+  await $.session.start(START);
+  await h.clock.settle();
+  const words = Array.from({ length: 1100 }, (_, i) => `./f${i}`).join(" ");
+  const many = await $.tool.check({
+    tool: "Bash",
+    input: { command: `cat ${words}` },
+  });
+  expect(many.decision).toBe("ask");
+  const few = await $.tool.check({
+    tool: "Bash",
+    input: { command: "cat ./a ./b" },
+  });
+  expect(few.decision).toBe("allow");
+});
+
 test("security-r3-3: the plugin's own files are never written, by the Write tool or by Bash", async ($, on) => {
   const h = host(on);
   allowBeneath(on);

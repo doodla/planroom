@@ -2206,6 +2206,12 @@ export interface ToolMeta {
  */
 export interface ToolResult {
   ok: boolean;
+  /**
+   * `true` on every reply the engine gave: its names, evidence and details come from the
+   * scanned repos, so they're data, never instructions. Absent on an error the mod authors when
+   * no engine answered.
+   */
+  untrusted?: boolean;
   result?: unknown;
   /**
    * On failure: the error, never dropped.

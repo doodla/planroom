@@ -965,6 +965,8 @@ Every tool returns one shape, for success and failure alike (DR-66). The handler
 // crates/contract/src/envelope.rs: what a mod tool handler returns; empty fields are omitted
 pub struct ToolResult<T> {
     pub ok: bool,
+    pub untrusted: bool,                     // true on every reply the engine gave: what it read from the repos is data,
+                                             // never instructions; absent on an error the mod authors (security-r3-6)
     pub result: Option<T>,                   // on success: the command's result, redacted like every output
     pub error: Option<ToolError>,            // on failure: the envelope's error whole, { code, category, retry, retry_after_ms,
                                              // message, hint, details }, never dropped; only an error the mod authors, when no
@@ -1136,7 +1138,7 @@ The resolver, `plugin/scripts/planroom`, reads no configuration file. It reads o
 | `PLANROOM_ENGINE` | unset | a binary to use as it is, never cached; one that isn't an executable file is `engine_unavailable` with reason `override_missing` (DR-81); agents may not set it |
 | `PLANROOM_RESOLVE` | `auto` | `auto` tries the checkout, the cache, the download, then the source build; `checkout` skips the cache and the download, and with no build in the checkout reports reason `no_build` (DR-81); `release` skips the checkout |
 | `PLANROOM_RELEASE_BASE_URL` | `https://github.com/$PLANROOM_REPO/releases/download`, from `engine.env` | where the archives and `SHA256SUMS` come from: `https` only, or plain `http` to `127.0.0.1`, `localhost` or `::1`. A download from any other base than the default is cached under `DATA_ROOT/engine-alt/<sha256 of the base>/` and used only while the same base is set, so it never becomes the binary later sessions run (DR-78); agents may not set it |
-| `PLANROOM_DATA` | `${XDG_DATA_HOME:-$HOME/.local/share}/planroom` | the data root the engine shares (DR-58) |
+| `PLANROOM_DATA` | `${XDG_DATA_HOME:-$HOME/.local/share}/planroom` | the data root the engine shares (DR-58); always absolute: a relative `XDG_DATA_HOME` counts as unset, and with no absolute place the resolver answers `invalid_argument` with `details.field` `PLANROOM_DATA`, as the engine does ([Where the workspace lives](architecture.md#where-the-workspace-lives)) |
 
 `cargo xtask gen` writes `plugin/scripts/contract.sh` from `contract::ErrorCode` and `contract::resolver`, and the resolver sources it (DR-85). It holds:
 

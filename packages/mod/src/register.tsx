@@ -33,6 +33,7 @@ import {
   guardPlaces,
   namedPaths,
   normalize,
+  RESOLVE_LIMIT,
   type Denial,
   type GuardPlaces,
 } from "./guard";
@@ -98,10 +99,19 @@ async function setEngine($: $, state: EngineState): Promise<void> {
 }
 
 /**
- * Once focus answers from a store, register the person key with it, once per workspace; a
- * workspace that knows another key turns the pane to its `person_key_mismatch` fallback.
+ * The workspaces whose store this module life has seen hold the person key. A new life checks
+ * again, since a store may lose the key, as when `.planroom/` is deleted and rescanned
+ * (security-r3-5); a press the store refuses as no person's drops its workspace from here.
+ */
+let checked = new Set<string>();
+
+/**
+ * Once focus answers from a store, register the person key with it, once per workspace in this
+ * module's life; a workspace that knows another key turns the pane to its `person_key_mismatch`
+ * fallback.
  */
 async function registerOnce($: $, rekey = false): Promise<void> {
+  if (!rekey && checked.has(workspace)) return;
   const engine = await read($, engineAtom);
   const pane = await read($, paneAtom);
   const bin = binary(engine);
@@ -109,6 +119,7 @@ async function registerOnce($: $, rekey = false): Promise<void> {
     return;
   }
   const outcome = await registerKey($, bin, workspace, rekey);
+  if (outcome.kind === "registered") checked.add(workspace);
   if (outcome.kind === "mismatch") {
     await setEngine($, {
       ...engine,
@@ -205,7 +216,10 @@ async function personRun(
     if (pane.model !== null) argv.push("--base", String(pane.model.focus.seq));
   }
   argv.push("--json");
-  return runCommand($, argv, await personEnv($, argv, path.length));
+  const ran = await runCommand($, argv, await personEnv($, argv, path.length));
+  // The store refused the person's own token: it may have lost the key, so check it again.
+  if (ran.result.error?.code === "person_required") checked.delete(workspace);
+  return ran;
 }
 
 /**
@@ -474,24 +488,35 @@ async function landing($: $, path: string): Promise<string[]> {
 
 /**
  * The guard's verdict on one call, every path it names resolved first (DR-52), from the directory
- * the shell is in for this call.
+ * the shell is in for this call. `readOnly` is the host's word that the tool only reads its input.
  */
 async function guardVerdict(
   $: $,
   tool: string,
   input: unknown,
+  readOnly: boolean,
 ): Promise<Denial | null> {
   const at = await guardPlacesFor($);
+  const named = namedPaths(tool, input, at);
+  // security-r2-4: every path is resolved, or the guard asks; none goes unchecked past a limit.
+  if (named.length > RESOLVE_LIMIT) {
+    return {
+      decision: "ask",
+      reason:
+        "This call names more paths than the Planroom guard resolves, so it can't check where they all lead.",
+    };
+  }
   const real = new Map<string, string[]>();
-  for (const p of namedPaths(tool, input, at)) {
+  for (const p of named) {
     real.set(p, await landing($, normalize(p, at.cwd, at.home)));
   }
-  return guardCall(tool, input, (p) => real.get(p) ?? [], at);
+  return guardCall(tool, input, (p) => real.get(p) ?? [], at, readOnly);
 }
 
 // The host reads `register` off the bundle's source: a function declared and exported at the top
 // level, its parameter spelled `on`. The bundle step keeps it that way (crates/xtask/src/modgen.rs).
 export function register(on: Parameters<Register>[0]): void {
+  checked = new Set();
   on("session.start", async ($, e, next) => {
     workspace = e.cwd;
     places = null;
@@ -599,7 +624,12 @@ export function register(on: Parameters<Register>[0]): void {
         ? { decision: "allow" as const }
         : next(e);
     }
-    const denial = await guardVerdict($, e.tool, e.input);
+    const denial = await guardVerdict(
+      $,
+      e.tool,
+      e.input,
+      e.isReadOnly === true,
+    );
     return denial ?? next(e);
   }).catch(($, e, next) =>
     next.called

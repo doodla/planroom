@@ -4,7 +4,7 @@
 
 This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#area-contracts).
 
-- **Owns:** the mod: the host check [DR-76], wiring, pane, band, fallback panes, `/room`, tools, action tokens, guards (touch set, stores, the user-level config and the mod's own `$.store`, person-only commands, the implementer's clones and approved commands, the curator's two calls), broker, agents and their usage, the implementer's installs and observed steps [DR-64, DR-75].
+- **Owns:** the mod: the host check [DR-76], wiring, pane, band, fallback panes, `/room`, tools, action tokens, guards (touch set, stores, the user-level config and the mod's own `$.store`, the plugin's own files, files sent off the machine, person-only commands, the implementer's clones and approved commands, the curator's two calls), broker, agents and their usage, the implementer's installs and observed steps [DR-64, DR-75, DR-87, DR-88].
 - **May depend on:** `@planroom/contract`, `@planroom/ui`, the `claude-code` mod types, its `host_types` [DR-81], and its `third_party` list: `@noble/curves`, which signs person tokens [DR-82].
 - **Must not:** `@planroom/canvas`; the DOM or Node APIs; `import()`; anything that changes by turn in the composed prompt section.
 - **How to test it:** vitest (pure logic); `claude plugin test target/mod-test`, the generated harness, on all four surfaces with golden CLI outputs, which only its tests read [DR-81]; eslint, with `no-misused-promises` off for `src/register.tsx` and `plugin-tests/` only, since the rule took 11 minutes over the mod API types and `tsc -b` still checks them [DR-81].

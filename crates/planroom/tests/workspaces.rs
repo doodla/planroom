@@ -160,6 +160,42 @@ fn an_engine_older_than_the_file_refuses_it_and_leaves_it_as_it_was() {
     }
 }
 
+/// unasked-r3-3: with no absolute PLANROOM_DATA, XDG_DATA_HOME or HOME, the data root has no
+/// place on this machine. serve refuses, naming PLANROOM_DATA, and writes nothing into the
+/// workspace: no `workspaces.json`, no log and no login page that holds a live code. The XDG spec
+/// says to ignore a relative XDG_DATA_HOME, so it falls back to HOME like an unset one.
+#[test]
+fn a_serve_with_no_home_writes_nothing_into_the_workspace() {
+    let (_tmp, root, _data) = workspace();
+    let cases: [(Option<&str>, Option<&str>, Option<&str>); 5] = [
+        (None, None, None),
+        (Some(""), None, None),
+        (Some("relative/home"), None, None),
+        (None, Some("relative/share"), None),
+        (None, None, Some("relative/data")),
+    ];
+    for (home, xdg, data) in cases {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planroom"));
+        cmd.current_dir(&root).env_remove("HOME").env_remove("XDG_DATA_HOME").env_remove("PLANROOM_DATA");
+        for (name, value) in [("HOME", home), ("XDG_DATA_HOME", xdg), ("PLANROOM_DATA", data)] {
+            if let Some(value) = value {
+                cmd.env(name, value);
+            }
+        }
+        let port = free_port().to_string();
+        let out = cmd.args(["serve", "--detach", "--json", "--port", &port]).output().unwrap();
+        let env: Value = serde_json::from_slice(&out.stdout).unwrap();
+        let case = format!("HOME={home:?} XDG_DATA_HOME={xdg:?} PLANROOM_DATA={data:?}");
+        assert_eq!(env["ok"], false, "{case}: {env}");
+        assert_eq!(env["error"]["code"], "invalid_argument", "{case}: {env}");
+        assert_eq!(env["error"]["details"]["field"], "PLANROOM_DATA", "{case}: {env}");
+        for leftover in [".local", "relative"] {
+            assert!(!root.join(leftover).exists(), "{case}: serve wrote {leftover} into the workspace");
+        }
+        assert!(!root.join(".planroom/serve.json").exists(), "{case}: no server started");
+    }
+}
+
 #[test]
 fn a_file_from_before_min_reader_version_loads_and_gains_it() {
     let tmp = tempfile::tempdir().unwrap();

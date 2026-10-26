@@ -19,7 +19,18 @@ self="$here/planroom"
 # The codes, exit codes and output templates, generated from the contract (DR-69).
 # shellcheck source=contract.sh
 . "$here/contract.sh"
-data="${PLANROOM_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/planroom}"
+# The data root, placed as the engine places it: PLANROOM_DATA, else XDG_DATA_HOME when it's
+# absolute (the XDG spec ignores a relative one), else HOME's. It's checked below to be absolute.
+case ${XDG_DATA_HOME:-} in
+  /*) data_home=$XDG_DATA_HOME ;;
+  *)
+    case ${HOME:-} in
+      /*) data_home=$HOME/.local/share ;;
+      *) data_home='' ;;
+    esac
+    ;;
+esac
+data="${PLANROOM_DATA:-${data_home:+$data_home/planroom}}"
 
 version=''
 catalogue=''
@@ -78,10 +89,11 @@ unavailable() {
   exit "$contract_engine_unavailable_exit"
 }
 
+# Stop with invalid_argument: message, fix, then the variable at fault (PLANROOM_RESOLVE by default).
 usage_error() {
   if [ "$json" = yes ]; then
     envelope_error "$contract_invalid_argument_template" "$(json_string "$command_name")" \
-      "$(json_string "$1")" "$(json_string "$2")" '{"field":"PLANROOM_RESOLVE"}'
+      "$(json_string "$1")" "$(json_string "$2")" "{\"field\":\"${3:-PLANROOM_RESOLVE}\"}"
   else
     printf 'planroom: %s\n  fix: %s\n' "$1" "$2" >&2
   fi
@@ -139,6 +151,16 @@ checkout_dir() {
   [ -f "$here/../../Cargo.toml" ] || return 1
   CDPATH='' cd -- "$here/../.." && pwd -P
 }
+
+# A relative data root would put the engine cache, which every press runs, inside whatever folder
+# the resolver runs in, out of the guard's reach (unasked-r3-3).
+case $data in
+  /*) ;;
+  *)
+    usage_error "Planroom's data root needs an absolute folder: PLANROOM_DATA isn't one, and neither XDG_DATA_HOME nor HOME gives one. Set PLANROOM_DATA to a folder outside your repos." \
+      "export PLANROOM_DATA=DIR" PLANROOM_DATA
+    ;;
+esac
 
 cache_dir="$data/engine/$version"
 

@@ -6,7 +6,7 @@
 
 import { expect, test } from "claude-code/testing";
 
-import { verifyToken } from "../src/actor";
+import { KEY_STORE, newPersonKey, verifyToken } from "../src/actor";
 import {
   BAND,
   ENGINE,
@@ -65,6 +65,52 @@ test("the first start makes a key and registers its public half once per workspa
   await $.session.start(START);
   await h.clock.settle();
   expect(inits(h.runs)).toHaveLength(1);
+});
+
+test("security-r3-5: a new mod checks its key with the store once, even one an earlier session registered", async ($, on) => {
+  // An earlier session registered this key in /work; the store may have lost it since, as after
+  // .planroom/ was deleted and rescanned. `person init` with the same key changes nothing.
+  const key = { ...newPersonKey(), registered: ["/work"] };
+  const h = host(on, readyEngine, { store: { [KEY_STORE]: key } });
+  await $.session.start(START);
+  await h.clock.settle();
+  expect(inits(h.runs)).toHaveLength(1);
+  expect(registered(h.runs)).toBe(key.public);
+});
+
+test("security-r3-5: a press the store refuses as no person's registers the key again", async ($, on) => {
+  let refused = false;
+  const h = host(on, (argv): Answer => {
+    if (argv[0] === ENGINE && argv[1] === "map" && !refused) {
+      refused = true;
+      return {
+        exitCode: 3,
+        stdout: JSON.stringify({
+          schema_version: 1,
+          ok: false,
+          command: "map",
+          error: {
+            code: "person_required",
+            category: "permission",
+            retry: "never",
+            message: "map needs the person.",
+            details: { reason: "bad_signature" },
+          },
+          meta: { seq: 412 },
+        }),
+      };
+    }
+    return readyEngine(argv);
+  });
+  await $.session.start(START);
+  await h.clock.settle();
+  expect(inits(h.runs)).toHaveLength(1);
+
+  const band = await $.ui.mount({ ...BAND, surface: "terminal" });
+  await band.press({ key: "band-primary" });
+  await band.unmount();
+  await h.clock.settle();
+  expect(inits(h.runs)).toHaveLength(2);
 });
 
 test("a_press_signs_a_token: the band's press runs as the person, with a token for that line alone", async ($, on) => {

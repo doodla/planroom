@@ -53,10 +53,12 @@ export type Registration =
   | { kind: "not_now" };
 
 /**
- * Register the key's public half with this workspace's store, once: `person init` reads it from
- * stdin. `rekey` replaces another registered key, which only the pane's press asks for (DR-75).
- * Until the engine has `person init`, or the workspace a store, this registers nothing and the
- * next start tries again.
+ * Register the key's public half with this workspace's store: `person init` reads it from stdin,
+ * and for a key the store already holds it changes nothing. The caller asks once per module life
+ * and again after a press the store refused, never trusting the `registered` list alone, since the
+ * store may have lost the key since (security-r3-5). `rekey` replaces another registered key,
+ * which only the pane's press asks for (DR-75). Until the engine has `person init`, or the
+ * workspace a store, this registers nothing and the next start tries again.
  */
 export async function registerKey(
   $: $,
@@ -65,9 +67,6 @@ export async function registerKey(
   rekey = false,
 ): Promise<Registration> {
   const key = await personKey($);
-  if (!rekey && key.registered.includes(workspace)) {
-    return { kind: "registered" };
-  }
   const argv = ["person", "init", ...(rekey ? ["--rekey"] : []), "--json"];
   const run = await runProcess(
     $,

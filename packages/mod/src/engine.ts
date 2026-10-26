@@ -240,11 +240,13 @@ export function toolResult(run: RunResult): ToolResult {
     }
   }
   const agentMeta = meta as ToolMeta;
+  // security-r3-6: what the engine answers holds what it read from the repos, so it's marked.
   if (reply.ok) {
-    return { ok: true, result: reply.result, meta: agentMeta };
+    return { ok: true, untrusted: true, result: reply.result, meta: agentMeta };
   }
   return {
     ok: false,
+    untrusted: true,
     error: toolError(reply.error ?? NO_ERROR),
     meta: agentMeta,
   };

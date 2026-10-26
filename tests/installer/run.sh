@@ -486,6 +486,33 @@ a_swapped_cached_engine_is_refused() {
   expect_eq "$code" 1
 }
 
+# The resolver places the data root as the engine does (unasked-r3-3): PLANROOM_DATA, else an
+# absolute XDG_DATA_HOME, else HOME's. With none absolute it refuses, naming PLANROOM_DATA, and
+# writes no engine cache into the folder it runs in.
+a_data_root_with_no_absolute_place_is_refused() {
+  d="$work/no-home"
+  make_plugin "$d" 1.0.0
+  mkdir -p "$d/cwd"
+  r="$d/plugin/scripts/planroom"
+  for case in unset empty relative-home relative-data relative-xdg; do
+    code=0
+    out=$(
+      cd "$d/cwd"
+      case $case in
+        unset) unset HOME && "$r" map --json ;;
+        empty) HOME='' "$r" map --json ;;
+        relative-home) HOME=home "$r" map --json ;;
+        relative-data) HOME="$d/home" PLANROOM_DATA=data "$r" map --json ;;
+        relative-xdg) unset HOME && XDG_DATA_HOME=share "$r" map --json ;;
+      esac 2>"$work/stderr"
+    ) || code=$?
+    expect_eq "$code" 2 "$case: $(cat "$work/stderr")"
+    expect_contains "$out" '"code":"invalid_argument"'
+    expect_contains "$out" '"field":"PLANROOM_DATA"'
+  done
+  [ -z "$(ls -A "$d/cwd")" ] || fail "the resolver wrote into the folder it ran in: $(ls -A "$d/cwd")"
+}
+
 # --- runner -------------------------------------------------------------------------------------
 
 start_server
@@ -500,7 +527,7 @@ for t in override_runs_the_named_binary a_missing_override_is_engine_unavailable
   a_checkout_build_builds_the_canvas_first a_build_without_node_has_no_canvas \
   a_clone_build_is_cached_and_its_clone_removed the_repo_checkout_resolves_its_own_build \
   the_resolver_spells_no_code_or_reason_itself resolver_outputs_are_one_document_with_their_size \
-  a_swapped_cached_engine_is_refused; do
+  a_swapped_cached_engine_is_refused a_data_root_with_no_absolute_place_is_refused; do
   case $t in *"$filter"*) ;; *) continue ;; esac
   # Not an `if` condition: there `set -e` would be off, and a failed assertion would go on.
   set +e

@@ -29,6 +29,7 @@ person_key_mismatch = "press Use this session's key in the Planroom pane"
 engine_fetching = "try again in a few seconds"
 engine_unavailable = "scripts/planroom build"
 git_failed = "git -C {path} status"
+data_root = "export PLANROOM_DATA=DIR"
 
 # The data root's shared files (DR-78).
 [data]
@@ -45,6 +46,7 @@ import_stdin = "import takes Artifact rows only on stdin: run planroom import -.
 share_out = "--out must name a directory Planroom can write: {why}"
 usage = "The command line isn't valid: {why}."
 schema_label = "The {leaf} command's arguments and result"
+data_root = "Planroom's data root needs an absolute folder: PLANROOM_DATA isn't one, and neither XDG_DATA_HOME nor HOME gives one. Set PLANROOM_DATA to a folder outside your repos."
 
 [warning]
 evidence_dropped = "{count} evidence items in {repo} didn't match commit {commit} and were dropped."

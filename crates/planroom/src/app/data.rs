@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Map;
 
 use crate::app::error::AppError;
+use crate::text;
 
 /// The oldest engine version that reads `workspaces.json` as this one writes it. A version that
 /// changes the file so that older engines would misread it raises this, and only then (DR-78).
@@ -30,16 +31,26 @@ pub const MIN_READER_VERSION: &str = "0.1.0-dev";
 /// This engine's version, which `min_reader_version` is compared with.
 const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// `${PLANROOM_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/planroom}`.
-pub fn root() -> PathBuf {
-    if let Some(dir) = std::env::var_os("PLANROOM_DATA").filter(|d| !d.is_empty()) {
-        return PathBuf::from(dir);
+/// `${PLANROOM_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/planroom}`, always absolute.
+///
+/// The XDG spec says to ignore a relative `XDG_DATA_HOME`, so it counts as unset. With no absolute
+/// value to start from, as under a duty, a cron job or a sandbox that runs with no `HOME`, the data
+/// root has no place on this machine: a relative one would land in whatever directory the process
+/// runs in, so the port registry, logs and login pages would land inside a workspace
+/// (unasked-r3-3). That's `invalid_argument` naming `PLANROOM_DATA`, the variable that fixes it.
+pub fn root() -> Result<PathBuf, AppError> {
+    let absolute = |name: &str| std::env::var_os(name).map(PathBuf::from).filter(|p| p.is_absolute());
+    if std::env::var_os("PLANROOM_DATA").is_some_and(|d| !d.is_empty()) {
+        return absolute("PLANROOM_DATA").ok_or_else(unplaced);
     }
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .filter(|d| !d.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share"));
-    base.join("planroom")
+    let base = absolute("XDG_DATA_HOME").or_else(|| absolute("HOME").map(|home| home.join(".local/share")));
+    base.map(|b| b.join("planroom")).ok_or_else(unplaced)
+}
+
+/// The data root has no absolute place: the fix sets `PLANROOM_DATA`.
+fn unplaced() -> AppError {
+    AppError::invalid_argument("PLANROOM_DATA", "argument.data_root")
+        .with_hint(text::get("hint.data_root", &[]))
 }
 
 /// Create `dir` and its missing parents with mode 0700.

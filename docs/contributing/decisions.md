@@ -101,6 +101,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 85 | What the walking skeleton's review settled | Extractors read the repo; One contract source; Surfaces read one contract; the release model | extended | walking skeleton review round 1 (scan, contract, engine and surfaces fixes) |
 | 86 | What the walking skeleton's review settled in round 2 | Extractors read the repo; Actors: agents never act as a person; Surfaces read one contract | extended | walking skeleton review round 2 (scan, budget, guard and canvas fixes) |
 | 87 | What the walking skeleton's review settled in round 3 | Extractors read the repo; Actors: agents never act as a person; Surfaces read one contract; Remote mode | extended | walking skeleton review round 3 (engine and guard fixes) |
+| 88 | The guard's residual risks, decided | Actors: agents never act as a person | extended | walking skeleton review round 3's residual risks |
 
 ## Where the design reviews disagreed
 
@@ -1183,7 +1184,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-58: One data root, a self-locating resolver, an embedded canvas and visible background work
 
-- **Status:** accepted (decided in review round 1, D16), verify A-14 in WS5. Amended in review rounds 2 and 3.
+- **Status:** accepted (decided in review round 1, D16), verify A-14 in WS5. Amended in review rounds 2 and 3. Amended by DR-88.
 - **Starting point:** kept and refined "plugin/ ... engine bootstrap"; extends the constraint "the local server serves the canvas's built assets".
 - **Origin:** review round 1: operability-1, operability-2 and operability-3; the minor findings operability-5, operability-6, operability-9, unasked-8 and unasked-11.
 - **Context:**
@@ -1214,6 +1215,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-1 and DR-28.
 - **Amended in review round 2:** `main` is the integration branch with `-dev` versions between releases, which replaces the departure from Iris above. Prefetch and build detach without a `setsid` command, and `serve` daemonizes in Rust. A cached install's build clones the tag, or `main` for a `-dev` version, instead of `cargo install --git`, so it embeds the canvas. Pruning keeps every version used in the last 7 days (E11, E12, E13) [DR-69].
 - **Amended in review round 3:** the engine cache and the source clone are keyed by version and catalogue hash, a non-default base's download is cached apart, and the checkout test needs `crates/planroom/Cargo.toml` outside Claude Code's plugins directory (operability-1, operability-3, operability-5) [DR-78].
+- **Amended by DR-88:** the data root is only ever absolute: `PLANROOM_DATA`, `XDG_DATA_HOME` or `HOME/.local/share`, each only when absolute, else `invalid_argument` naming `PLANROOM_DATA`.
 - **Sources (checked 2026-10-26):** [plugin-packaging §3, Design implications]; [mod-api §7]; [iris-release-bar §1, §3]; KICKOFF constraints on packaging, the release bar and pushing tags; review round 1 findings above and owner decision D16.
 
 ## DR-59: Repo gates that fire
@@ -1697,7 +1699,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-75: Authority stays with a person's own action
 
-- **Status:** accepted (decided in review round 3, F7, F11 and F15); verify A-18 in WS8.
+- **Status:** accepted (decided in review round 3, F7, F11 and F15); verify A-18 in WS8. Amended by DR-88.
 - **Starting point:** extended "Events carry the workspace, project, actor, cause and an idempotency key" (who counts as a person) and "Remote mode: ... Artifact edits land as events in a db collection; the session imports them".
 - **Origin:** review round 3: security-1 to security-4, principles-3 and unasked-3; the minor findings security-5 to security-9 and security-11, and part of security-10.
 - **Context:**
@@ -1732,6 +1734,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: phone edits are never lost; a phone's pick waits for one key at the desk; a hand-off's checks run offline in its clones; with mods off, `open` and a rekey aren't available.
   - Milestones: M1's actor slice, M2's hand-off and models slices and M5's remote slice grow by 5 h in all.
   - It amends DR-4, DR-18, DR-49, DR-52, DR-53, DR-57, DR-60, DR-64, DR-67 and DR-69.
+- **Amended by DR-88:** the mod registers the person key's public half once per mod life and again after a press the store refuses as no person's, not once per workspace for good.
 - **Sources (checked 2026-10-26):** KICKOFF R5, R8, S11 and principle 1; the Artifact tool's browser-storage rule (storage survives a republish to the same URL); [artifact §2]; review round 3 security-1 to security-11, principles-3 and unasked-3, and owner decisions F7, F11 and F15.
 
 ## DR-76: The mod checks its host
@@ -2167,7 +2170,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-87: What the walking skeleton's review settled in round 3
 
-- **Status:** accepted (decided at the merge of round 3's fixes, 2026-10-26).
+- **Status:** accepted (decided at the merge of round 3's fixes, 2026-10-26). Amended by DR-88.
 - **Starting point:** extended "Extractors read the repo", "Actors: agents never act as a person", "Surfaces read one contract" and Remote mode.
 - **Origin:** round 3, the last, of the walking skeleton's review. Its 9 material findings, 8 distinct defects, are in [the review's index](research/skeleton-review/README.md), with what stays open in [its accepted risk](research/skeleton-review/accepted-risk.md). One fix repaired CI, and two fix branches fixed the rest (the engine and guard fixes).
 - **Context:** Round 2's fixes held where they were aimed. Round 3 found their edges: a late scan could still move a repo back when the repo set changed rather than `HEAD`; a repo's own config could re-allow a transport on a git without `GIT_NO_LAZY_FETCH`; a workspace whose repos had no commit looped on a scan that mapped nothing; import's reply passed its budget with many rows; and the guard resolved paths against a directory the shell had left, checked only four tools' paths, and let an agent rewrite the mod that guards it.
@@ -2193,4 +2196,36 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `crates/planroom/tests/scan.rs` (a late scan over a changed repo set, an unborn-only workspace), `crates/store/tests/commit.rs`, `tests/git_hardening.rs` (an `ext::` partial clone, a valueless `promisor`), `crates/extract/src/git.rs`'s transport plants with their controls, `budgets.rs` (import with 40 rows), `s11_remote.rs` (a 63-line sync), the guard's shell-directory, every-tool and plugin-root tests in `packages/mod/src/guard.test.ts` and `packages/mod/plugin-tests/guard.test.tsx`, and `engine.test.ts`'s unknown reason.
   - `SECURITY.md` (M5) adds the guard's residual risks listed in the accepted risk.
   - It amends DR-86 (the late scan, the transports, `repo_unborn` in scan's summary, the guard's reach), DR-83 (import's result) and DR-85 (the resolver's reason types).
+- **Amended by DR-88:** a tool the guard doesn't know is held through every string it's given, not only strings that look like a path, and a string that reaches only a place the write rule holds is put to the person.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/round3-*.json`; the two fix branches' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
+
+## DR-88: The guard's residual risks, decided
+
+- **Status:** accepted (decided at round 3's close, 2026-10-26).
+- **Starting point:** extended "Actors: agents never act as a person".
+- **Origin:** the walking skeleton review's round 3: the guard's residual risks DR-85 to DR-87 left, and the minor security findings of rounds 2 and 3, each checked against the code before it was decided ([accepted risk](research/skeleton-review/accepted-risk.md#the-guards-residual-risks-decided)).
+- **Context:** Round 3 closed with a list of what the guard didn't cover. Checking each against the code confirmed them and found more: a deleting `find` (`find . -name '*.db' -delete`) removed the workspace's store, a quoted `'>'` turned a secret's parent into a redirect target and let a tree read pass, a tool the guard didn't know could write anywhere, and `cd $(...)` hid a guarded folder. With `HOME` unset the guard failed open, and the engine put its data root under the current directory.
+- **Decision:**
+  - **The guard sees every string a tool it doesn't know is given.** A `file:` URL is read as its path, a string with a space by the folder it spells and where it lands, a bare name where it lands. A string that reaches a guarded file is denied; one that only reaches a place the write rule holds is put to the person, unless the host calls the tool read-only. This replaces DR-87's "strings that look like a path, held to the read rule".
+  - **It asks where it can't see.** Past 1,024 strings or 32 levels in a tool's input, or 1,024 paths to resolve, and with no absolute `HOME`, it answers ask, which a session nobody can be asked in turns into a deny.
+  - **It reads a Bash line a second way,** with quoted or escaped operators as text and each command substitution as an unknown word, and denies what either reading denies. It follows `cd $(...)` by the words its substitution names, reads `~name` as this user's home, takes `dotglob` turned on in the line into account, and catches a `planroom` fed by `xargs`, `parallel`, `find -exec` or an expansion, and a guarded variable set by `+=`, `readonly`, `local`, `read` or `printf -v`.
+  - **The plugin's code stays the plugin's.** The write rule covers the other versions in the host's plugin cache, the marketplace clone, `installed_plugins.json` and `known_marketplaces.json`. Bash names those folders only to run what's in them. A shell that sits in a protected folder runs only a line that starts with `cd DIR &&` out of it. The mod's area contract names the plugin's own files and files sent off the machine among what its guards hold.
+  - **Clean-up never takes the state directory.** A deleting `find` is judged by what its tests may select; an `rm` or `mv` fed by `xargs` or a substitution by what feeds it; `git stash --all` is refused unless it keeps `.planroom`. Unpacking an archive, or a `mv`, onto the path to the data root, the mod's store, the user config or the plugin is refused.
+  - **More tree readers count:** `git grep --no-index` and `--untracked`, `ugrep -r`, `bsdtar`, `pax`, the compressors with `-r`, `7z a` and `ditto`.
+  - **Every engine reply to a tool call is marked untrusted.** `ToolResult` gains `untrusted: bool`, additive and omitted when false, so `schema_version` stays 1.
+  - **The data root is absolute or nothing.** It is `PLANROOM_DATA`, else `XDG_DATA_HOME`, else `HOME/.local/share`, each only when absolute. Otherwise the engine and the resolver answer `invalid_argument` naming `PLANROOM_DATA`, with the hint `export PLANROOM_DATA=DIR`.
+  - **The mod registers its key once per mod life,** and again after a press the store refuses as no person's, rather than trusting the list of workspaces it registered with.
+  - **What M1 does for the rest:** its actor slice checks whether the session's Bash sandbox can deny every command reads of the person key, the gateway key and `serve.json`, and writes to the plugin, the data root and the state directory; where it can, that's the boundary, and the pane says when person actions rest on the guard alone. Its mod slice checks live that `$.session.cwd()` follows a `cd`, and if it doesn't, the guard carries each call's `cd` forward. Its serve slice keeps the control token under the data root, not in `serve.json`, and removes a login page whose code expired unused.
+  - **Accepted, with what limits each:** a script run by path and a program that walks or writes files itself (the default permission mode asks before each, and every person action needs a token the person key signs); a variable or `dotglob` set outside the line; a tree read rooted at or above the workspace (until the control token moves); a crafted tree unpacked into the workspace and deleting a folder that holds another workspace (the engine trusts only a state directory it created, and M1's backups restore the store). `SECURITY.md` (M5) states them to users.
+- **Alternatives rejected:**
+  - The OS keychain as the person key's place: the mod reaches it only through `security` or `secret-tool`, which any command the agent runs can call too; macOS prompts on each read only when the item trusts no app, so every press would prompt; libsecret hands an unlocked item to any process of the user; and cloud sessions have no keychain, so the file would stay where the agent runs most on its own. A key that signs only with the person present, such as a passkey in the canvas, is left for a later record.
+  - Refusing `python -c`, scripts and build tools: it would block everyday work, and no pattern can see what they do.
+  - Refusing every recursive read rooted at the workspace: it would refuse `grep -rn foo src/`.
+  - Denying every tool the guard doesn't know: it would block MCP tools that never touch a secret.
+- **Consequences:**
+  - Contracts: `ToolResult.untrusted`; `invalid_argument` with `details.field` `PLANROOM_DATA`; the resolver's `usage_error` names the field.
+  - Layout: the mod's row in the area contracts table (gated; `layout.lock` names this record).
+  - Tests: `packages/mod/src/guard.test.ts` (the unknown-tool test, the shell forms left after round 3, the protected-folder shell, security-r2-4 and security-r3-4 cases, tests-3-1, and the everyday list beside them); `packages/mod/plugin-tests/guard.test.tsx` and `actor.test.tsx`; `packages/mod/src/engine.test.ts`; `crates/planroom/tests/workspaces.rs::a_serve_with_no_home_writes_nothing_into_the_workspace`; `tests/installer/run.sh::a_data_root_with_no_absolute_place_is_refused`.
+  - Milestones: the three M1 checks above join the actor, mod and serve slices.
+  - It amends DR-58 (an absolute data root), DR-75 (when the mod registers its key) and DR-87 (the guard's rule for tools it doesn't know).
+- **Sources (checked 2026-10-26):** `packages/mod/src/guard.ts`, `register.tsx` and `person.ts`; `crates/planroom/src/app/data.rs`; `crates/planroom/src/server/routes.rs` (what the control token unlocks); `plugin/scripts/planroom`; [accepted risk](research/skeleton-review/accepted-risk.md).
