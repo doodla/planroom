@@ -88,7 +88,8 @@ start_server() {
   tries=0
   while ! grep -q 'port [0-9]' "$work/server.log" 2>/dev/null; do
     tries=$((tries + 1))
-    if [ "$tries" -gt 50 ]; then
+    # Up to 30 s: a cold python3 on a busy macOS runner can take longer than a few seconds.
+    if [ "$tries" -gt 300 ]; then
       echo "the release server didn't start" >&2
       cat "$work/server.log" >&2
       exit 1
