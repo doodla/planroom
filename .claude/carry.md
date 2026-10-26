@@ -3,19 +3,9 @@
 Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `ccr-b124f0e3-xnzjca`; push with `git push -u origin ccr-b124f0e3-xnzjca`.
 
 ## Where I am
-- Phase 1 Understand: research workflow wf_310271b8-f10 -> `docs/contributing/research/*.md`.
-- Fixture: built (wf_18151f54-96a); review r1 had 4 material (rules ambiguous) -> README amended, fix+review r2 running (wf_f298299d-a7d). Max 3 rounds, then freeze TRUTH.json (after freeze: change only via decision record).
-- Phase 1 research done (findings table in progress.md). Phase 2 workflow wf_c692d467-171 running: candidates -> judges -> synthesis drafts docs/contributing/{architecture,decisions,contracts,repo-layout,traceability}.md + feature_list.json. Then I review/edit, then Phase 3 review workflow (9 lenses + refuters).
-- Spikes done: mod (research/mod-spike.md: dock 49x34 at 120x40; bare digit presses band Button; /room+hotkey = 2 keys). Artifact probe https://claude.ai/artifact/3U8hgkkX2Rp1ECATZCptXD (research/artifact-spike.md); page-side results land in db inbox/<uid>/probe/latest when someone opens it -> read back later.
-- Spike mod lives in ~/.claude/dev-mods/<session>/planroom-spike (consent question raised); delete it once the real mod loads.
-- TRUTH.json FROZEN (commit 8053725) after 3 review rounds; changes only via decision record. `examples/check-fixture` verifies it (CI it).
-- Art in docs/art/ (Iris $0.27); social preview needs wordmark overlay later.
-- Phase 3: rounds 1+2 fixed (DR-44..72; records in docs/contributing/research/arch-review/round-{1,2}/). Round 3 (LAST) done: 29 material; decisions F1-F20 in round-3/owner-decisions.md; fix pass wf_1d10b52b-40a running (writes accepted-risk.md). After it: Phase 3 closed; log in progress.md.
-- ENGINE (WS3+WS4) MERGED 47fb47f; its doc notes listed in progress.md log -> fold into docs (one DR) after round-3 fix pass. PLUGIN track still running. Verify each (xtask check/test myself), merge one at a time, push. Then WS5 wiring, WS6 serve+canvas, WS7 artifact (main session), WS8 install.
-- WS1+WS2 merged (3cd4e66): xtask check/test green (verified). Gaps: cargo-deny never run locally; e2e/installer/release jobs are if:false stubs; layout gate, release pins, secret scan, catalogue.ts not built yet.
-- CI green on run #6 (all jobs incl. macOS).
-- All WS assumptions A-1..A-4, A-8..A-11 settled (progress.md).
-- Docs style rules (bind README/docs/CONTRIBUTING/SECURITY): `docs/contributing/research/iris-release-bar.md` sec 4.
+- Phases 1-3 DONE (research, architecture, 3 review rounds; accepted risks in docs/contributing/research/arch-review/round-3/accepted-risk.md). Estimate 376 h.
+- Phase 4 walking skeleton: WS1-WS4 + PLUGIN shell merged. Running: wf_fb2eb3a8-670 (track/engine-2: version/focus/person tokens/serve/map graph; track/canvas: ui tokens + canvas app + e2e screenshots) and wf_c5faf8db-e42 (track/mod-2: mod<->engine wiring; docs DR-81 fold of build feedback, edits docs in main tree).
+- Merge order: engine-2 -> canvas -> mod-2 (each: verify xtask check/test myself, resolve, push). Then WS7 Artifact round trip in MAIN session (share/publish/import), WS8 install test (claude plugin marketplace add/install in temp HOME), then skeleton review + update architecture with findings, then M1.
 
 ## Gotchas
 - 4 CPUs -> workflow concurrency is 2. Prefer few, larger agents.
