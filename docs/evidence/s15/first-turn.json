@@ -1,0 +1,85 @@
+{
+ "what": "headless first turn, claude -p 'Reply with the single word ok.' --model haiku --max-turns 1, in the built fixture workspace, 2026-10-26",
+ "runs": [
+  {
+   "run": "ft-off-1",
+   "planroom_enabled": false,
+   "agents": 6,
+   "skills": 61,
+   "input_tokens_total": 40073,
+   "output_tokens": 4,
+   "cost_usd": 0.002755,
+   "claude_code": "2.1.310"
+  },
+  {
+   "run": "ft-off-2",
+   "planroom_enabled": false,
+   "agents": 6,
+   "skills": 61,
+   "input_tokens_total": 40073,
+   "output_tokens": 4,
+   "cost_usd": 0.000527,
+   "claude_code": "2.1.310"
+  },
+  {
+   "run": "ft-with-13401",
+   "planroom_enabled": true,
+   "agents": 8,
+   "skills": 61,
+   "input_tokens_total": 39871,
+   "output_tokens": 4,
+   "cost_usd": 0.002691,
+   "claude_code": "2.1.310"
+  },
+  {
+   "run": "ft-with-25104",
+   "planroom_enabled": true,
+   "agents": 8,
+   "skills": 61,
+   "input_tokens_total": 39765,
+   "output_tokens": 4,
+   "cost_usd": 0.00267,
+   "claude_code": "2.1.310"
+  },
+  {
+   "run": "ft-without-21550",
+   "planroom_enabled": false,
+   "agents": 6,
+   "skills": 61,
+   "input_tokens_total": 39890,
+   "output_tokens": 4,
+   "cost_usd": 0.000525,
+   "claude_code": "2.1.310"
+  },
+  {
+   "run": "ft-without-26429",
+   "planroom_enabled": false,
+   "agents": 6,
+   "skills": 61,
+   "input_tokens_total": 39890,
+   "output_tokens": 4,
+   "cost_usd": 0.002718,
+   "claude_code": "2.1.310"
+  },
+  {
+   "run": "first-turn-with",
+   "planroom_enabled": true,
+   "agents": 8,
+   "skills": 61,
+   "input_tokens_total": 39992,
+   "output_tokens": 4,
+   "cost_usd": 0.003288,
+   "claude_code": "2.1.310"
+  },
+  {
+   "run": "first-turn-without",
+   "planroom_enabled": false,
+   "agents": 6,
+   "skills": 61,
+   "input_tokens_total": 40117,
+   "output_tokens": 4,
+   "cost_usd": 0.003212,
+   "claude_code": "2.1.310"
+  }
+ ]
+}

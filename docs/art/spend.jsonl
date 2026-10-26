@@ -1,0 +1,7 @@
+{"at": "2026-10-25T00:00:00Z", "image": "logo.png", "model": "gpt-image-2.5-sunburst", "cost_usd": 0.05338, "prompt_path": "docs/art/logo.prompt.txt"}
+{"at": "2026-10-25T00:00:00Z", "image": "hero.png", "model": "gpt-image-2.5-sunburst", "cost_usd": 0.04211, "prompt_path": "docs/art/hero.prompt.txt"}
+{"at": "2026-10-25T00:00:00Z", "image": "social-base.png", "model": "gpt-image-2.5-sunburst", "cost_usd": 0.02521, "prompt_path": "docs/art/social.prompt.txt"}
+{"at": "2026-10-25T00:00:00Z", "image": "empty-map.png", "model": "gpt-image-2.5-flare", "cost_usd": 0.01378, "prompt_path": "docs/art/empty-map.prompt.txt"}
+{"at": "2026-10-25T00:00:00Z", "image": "empty-decisions.png", "model": "gpt-image-2.5-flare", "cost_usd": 0.01379, "prompt_path": "docs/art/empty-decisions.prompt.txt"}
+{"at": "2026-10-25T00:00:00Z", "image": "empty-diffs.png", "model": "gpt-image-2.5-flare", "cost_usd": 0.01378, "prompt_path": "docs/art/empty-diffs.prompt.txt"}
+{"at": "2026-10-25T00:00:00Z", "image": "drafts", "model": "gpt-image-2.5-flare", "cost_usd": 0.10795, "prompt_path": null, "note": "2 logo drafts, 1 hero draft and a first social and empty-state set, not kept; the day's total of about $0.27 less the kept images"}
