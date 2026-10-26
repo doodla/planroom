@@ -1625,6 +1625,18 @@
         "kind": {
           "$ref": "#/$defs/Kind"
         },
+        "tone": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Tone"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The kind's block color, which its pack declares; none draws as a plain card (DR-46).",
+          "default": null
+        },
         "name": {
           "type": "string"
         },
@@ -1679,6 +1691,7 @@
       "required": [
         "id",
         "kind",
+        "tone",
         "name",
         "level",
         "parent",
@@ -2923,6 +2936,16 @@
       "type": "string",
       "description": "An RFC 3339 UTC timestamp.",
       "format": "date-time"
+    },
+    "Tone": {
+      "type": "string",
+      "enum": [
+        "service",
+        "library",
+        "store",
+        "infra"
+      ],
+      "description": "A Container-level kind's block color: surfaces style a block from its tone, never from a kind\nID (DR-46)."
     },
     "Usage": {
       "type": "object",

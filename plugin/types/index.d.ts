@@ -408,6 +408,14 @@ export type Kind = string;
 export type HandoffState =
   "proposed" | "started" | "reported" | "failed" | "reviewing" | "merged" | "reconciled" | "dropped";
 /**
+ * A Container-level kind's block color: surfaces style a block from its tone, never from a kind
+ * ID (DR-46).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Tone".
+ */
+export type Tone = "service" | "library" | "store" | "infra";
+/**
  * Whether the workspace has been scanned.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -1296,6 +1304,10 @@ export interface LiftedEdge {
 export interface MapNode {
   id: NodeId;
   kind: Kind;
+  /**
+   * The kind's block color, which its pack declares; none draws as a plain card (DR-46).
+   */
+  tone: Tone | null;
   name: string;
   level: Level;
   parent: NodeId | null;

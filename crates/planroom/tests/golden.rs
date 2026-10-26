@@ -1,5 +1,6 @@
 //! Golden CLI outputs from real runs on the built fixture, which the mod's and the canvas's tests
-//! read (DR-6, DR-79): `tests/golden/cli/focus.json` and `tests/golden/cli/map-graph.json`.
+//! read (DR-6, DR-79): `tests/golden/cli/focus.json`, `tests/golden/cli/map-graph.json` and
+//! `tests/golden/cli/map-empty.json`.
 //!
 //! A plain run compares the engine's output with the committed files. `cargo xtask gen --golden`
 //! runs this test with `PLANROOM_GOLDEN=write`, which writes them instead. The one value a run
@@ -43,6 +44,17 @@ fn normalized(mut env: Value) -> String {
     line + "\n"
 }
 
+/// `value` with every string naming the temporary workspace root rewritten to `/home/you/shop`,
+/// so a golden doesn't carry the test's own temp path.
+fn rooted(value: Value, root: &Path) -> Value {
+    match value {
+        Value::String(s) => Value::String(s.replace(&*root.to_string_lossy(), "/home/you/shop")),
+        Value::Array(items) => Value::Array(items.into_iter().map(|v| rooted(v, root)).collect()),
+        Value::Object(map) => Value::Object(map.into_iter().map(|(k, v)| (k, rooted(v, root))).collect()),
+        other => other,
+    }
+}
+
 fn check(name: &str, output: String) {
     let path = repo_root().join("tests/golden/cli").join(name);
     if std::env::var("PLANROOM_GOLDEN").as_deref() == Ok("write") {
@@ -62,6 +74,11 @@ fn golden_outputs_equal_engine_output() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("shop");
     fixture(&root);
+    let empty = run(&root, &["map", "--detail", "graph", "--json"]);
+    let unscanned: MapView = serde_json::from_value(empty["result"].clone()).expect("map returns a MapView");
+    assert!(unscanned.nodes.is_empty() && unscanned.empty.is_some(), "an unscanned workspace maps empty");
+    check("map-empty.json", normalized(rooted(empty, &root)));
+
     run(&root, &["scan", "--json"]);
 
     let focus = run(&root, &["focus", "--json"]);

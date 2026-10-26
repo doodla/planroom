@@ -93,12 +93,23 @@ jobs:
       - run: python3 .claude/guardrails/tests/test_guardrails.py
       - run: python3 .claude/guardrails/tests/test_context_restore.py
 
-  # TODO: `cargo xtask e2e` doesn't exist yet (the canvas arrives in WS6). Remove `if: false` then.
+  # Builds the canvas, installs the pinned Playwright's Chromium, then runs the specs against the
+  # stand-in server; the 1 s interactive gate runs only here, on ubuntu-24.04 (DR-43).
   e2e:
     name: e2e
-    if: false
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
       - run: cargo xtask e2e
 
   # TODO: add the sha256-pinned ShellCheck and BusyBox downloads to xtask (repo-layout.md

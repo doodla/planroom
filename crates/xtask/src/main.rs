@@ -1,9 +1,11 @@
-//! The one task entry point: `cargo xtask check`, `cargo xtask test` and `cargo xtask gen`.
+//! The one task entry point: `cargo xtask check`, `cargo xtask test`, `cargo xtask gen` and
+//! `cargo xtask e2e`.
 //!
 //! Each command runs every step without stopping at the first failure, prints one `ok`, `FAILED`
 //! or `skipped (why)` line per step, and names the fix command on failure.
 
 mod boundaries;
+mod canvas;
 mod fixture;
 mod generate;
 mod modgen;
@@ -25,6 +27,9 @@ usage: cargo xtask <command>
   gen                         write every generated file
   gen --mod                   write only the mod bundle, plugin/hooks/planroom-mod.js
   gen --golden                rerun the Rust tests that write tests/golden/ from real engine runs
+  gen --canvas                build the canvas into target/canvas/ (not committed)
+  e2e [--screens]             build the canvas, then its Playwright specs; --screens also writes
+                              docs/screenshots/
   fixture OUT [--no-packs]    build the fixture workspace into OUT, with a config loading the Ruby pack";
 
 fn main() -> ExitCode {
@@ -63,6 +68,20 @@ fn main() -> ExitCode {
                 }
             };
         }
+        ["gen", "--canvas"] => {
+            return match canvas::build(&root) {
+                Ok(files) => {
+                    println!("wrote {}/ ({} files)", canvas::OUT, files.len());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("cargo xtask gen --canvas failed: {e}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
+        ["e2e"] => e2e(&root, &mut report, false),
+        ["e2e", "--screens"] => e2e(&root, &mut report, true),
         ["fixture", out] | ["fixture", out, "--no-packs"] => {
             return match fixture::build(&root, Path::new(out), args.len() == 2) {
                 Ok(heads) => {
@@ -89,8 +108,11 @@ fn main() -> ExitCode {
 
 /// The Rust tests that own a file under `tests/golden/`, each run once with
 /// `PLANROOM_GOLDEN=write`; a plain test run only compares (DR-79).
-const GOLDEN_TESTS: &[(&str, &str, &[&str])] =
-    &[("planroom", "golden", &["tests/golden/cli/focus.json", "tests/golden/cli/map-graph.json"])];
+const GOLDEN_TESTS: &[(&str, &str, &[&str])] = &[(
+    "planroom",
+    "golden",
+    &["tests/golden/cli/focus.json", "tests/golden/cli/map-graph.json", "tests/golden/cli/map-empty.json"],
+)];
 
 fn golden(root: &Path) -> Result<Vec<String>, String> {
     let mut written = Vec::new();
@@ -383,5 +405,48 @@ fn installer(root: &Path, r: &mut Report) {
         );
     } else {
         r.skipped("tests/installer/run.sh (busybox sh)", "busybox is not installed");
+    }
+}
+
+/// The canvas's end-to-end specs: build the canvas, then run Playwright over it against
+/// `tests/e2e`'s stand-in server, which answers from the golden CLI outputs.
+fn e2e(root: &Path, r: &mut Report, screens: bool) {
+    if !root.join("node_modules").is_dir() {
+        return r.failed("e2e", "node_modules is missing", PNPM_FIX);
+    }
+    let install = "playwright install chromium";
+    if std::env::var_os("CI").is_some() {
+        r.tool(
+            root,
+            install,
+            "pnpm",
+            &["--dir", "tests/e2e", "exec", "playwright", "install", "--with-deps", "chromium"],
+            "pnpm --dir tests/e2e exec playwright install --with-deps chromium",
+        );
+    } else {
+        r.skipped(install, "local runs use the Chromium already installed for the pinned Playwright");
+    }
+    match canvas::build(root) {
+        Ok(files) => r.ok(&format!("canvas build ({} files in {}/)", files.len(), canvas::OUT)),
+        Err(e) => return r.failed("canvas build", &e, "fix the build errors above"),
+    }
+    let name = if screens { "playwright test (with screenshots)" } else { "playwright test" };
+    let mut command = std::process::Command::new("pnpm");
+    command.args(["--dir", "tests/e2e", "exec", "playwright", "test"]).current_dir(root);
+    if screens {
+        command.env("PLANROOM_SCREENS", "1");
+    }
+    match command.stdin(std::process::Stdio::null()).output() {
+        Ok(out) => {
+            let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+            text.push_str(&String::from_utf8_lossy(&out.stderr));
+            if out.status.success() {
+                println!("{}", text.trim_end());
+                r.ok(name)
+            } else {
+                r.failed(name, &text, "fix the failing specs above")
+            }
+        }
+        Err(e) => r.failed(name, &format!("could not run pnpm: {e}"), PNPM_FIX),
     }
 }

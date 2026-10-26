@@ -1,10 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["es2023"],
-    "types": [],
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["node"],
     "outDir": "../../target/tsc/e2e",
     "tsBuildInfoFile": "../../target/tsc/e2e.tsbuildinfo"
   },
-  "include": ["src"]
+  "include": ["src", "playwright.config.ts"]
 }
