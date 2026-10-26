@@ -2,8 +2,9 @@
 //! from the schema. They stand in until the engine's own tests write `tests/golden/cli/` with
 //! `cargo xtask gen --golden`; then this module goes.
 
+use planroom_contract::StreamFrame;
 use planroom_contract::envelope::{CommandName, Envelope, Handle, Meta, Size};
-use planroom_contract::event::{Actor, Surface, Timestamp};
+use planroom_contract::event::{Actor, EventKind, Status, Surface, Timestamp};
 use planroom_contract::model::{Level, NodeId};
 use planroom_contract::view::{
     BatchInfo, Choice, Crumb, DecisionCard, DiffLine, DriftLine, Focus, MiniBlock, MiniEdge, MiniMap,
@@ -128,4 +129,25 @@ pub fn focus() -> Result<String, String> {
         text = serde_json::to_string(&sized).map_err(|e| e.to_string())?;
     }
     Ok(text + "\n")
+}
+
+/// `planroom watch --json --since 412`: one stream frame per NDJSON line, kept as a JSON array so
+/// the mod's tests can import it; they join it with newlines to answer `process.spawn`.
+pub fn watch_frames() -> Result<String, String> {
+    let event = |seq, kind, target: &str, summary: &str| StreamFrame::Event {
+        seq,
+        kind,
+        target: Some(target.into()),
+        project: None,
+        actor: Actor::Agent { session: "5e55i0n1".into(), role: "chat".into(), key: None },
+        status: Status::Ghost,
+        summary: summary.into(),
+    };
+    let frames = vec![
+        event(413, EventKind::Edit, "worker:mod:consumer", "Claude proposed moving consumer.py"),
+        StreamFrame::Ping,
+        event(414, EventKind::Edit, "ws:repo:worker", "Claude proposed renaming the group"),
+        event(415, EventKind::Claim, "ws:repo:worker", "Claude claimed worker for 30 min"),
+    ];
+    Ok(serde_json::to_string(&frames).map_err(|e| e.to_string())? + "\n")
 }

@@ -5,7 +5,7 @@
  * tested by `claude plugin test` through the target/mod-test harness.
  */
 
-import { atom, read, update } from "claude-code";
+import { read, update } from "claude-code";
 import type {
   EngineInterface,
   RenderInput,
@@ -13,17 +13,16 @@ import type {
   Register,
 } from "claude-code";
 
+import { engineAtom, paneAtom } from "./atoms";
 import { roomLeaves } from "./catalogue";
 import {
   engineFromVersion,
   engineMissing,
   INITIAL_ENGINE,
   isWindowsRoot,
-  parseReply,
   pathFromStatus,
   toolResult,
   unsupportedPlatform,
-  type RunResult,
   type ToolResult,
 } from "./engine";
 import { fallbackFor } from "./fallback";
@@ -34,61 +33,29 @@ import {
   type Action,
   type Row,
 } from "./layout";
+import { binary, clientEnv, refreshPane, runProcess, watchStop } from "./live";
 import { completions, helpText, parseRoom } from "./room-args";
-import type { EngineState, PaneState } from "./state-types";
+import type { EngineState } from "./state-types";
 import { timeoutFor, toolArgv, toolSpecs, type ToolInput } from "./tools";
 import type { ToolName } from "./catalogue";
-import type { PaneModel } from "@planroom/contract";
 
 const PANE = "planroom";
 const TITLE = "Planroom";
 
-const engineAtom = atom(
-  { plugin: "planroom", key: "engine" } as const,
-  INITIAL_ENGINE,
-  { shape: "engine-1" },
-);
-const INITIAL_PANE: PaneState = { model: null, error: null };
-const paneAtom = atom(
-  { plugin: "planroom", key: "pane" } as const,
-  INITIAL_PANE,
-  { shape: "pane-1" },
-);
-
 type $ = EngineInterface;
-
-async function runProcess(
-  $: $,
-  argv: string[],
-  env: Record<string, string>,
-  timeoutMs: number,
-  stdin?: string,
-): Promise<RunResult> {
-  try {
-    const init =
-      stdin === undefined ? { env, timeoutMs } : { env, timeoutMs, stdin };
-    const { exitCode, stdout, stderr } = await $.process.run(argv, init);
-    return { exitCode, stdout, stderr };
-  } catch (err) {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
-async function clientEnv($: $): Promise<Record<string, string>> {
-  return { PLANROOM_CLIENT: `mod:${await $.session.id()}` };
-}
 
 async function setEngine($: $, state: EngineState): Promise<void> {
   await update($, engineAtom, () => state);
   $.ui.status(state.status === "ready" ? undefined : (state.line ?? undefined));
 }
 
-/** Resolve the engine through the resolver, then draw the workspace's focus. Idempotent. */
+/**
+ * Resolve the engine through the resolver, then draw the workspace's focus, which starts the watch
+ * loop once the workspace has a store. Idempotent: a second start in one module's life (a retry,
+ * or session.start again) replaces the loop, which restarts from the `lastSeq` `$.state` kept.
+ */
 async function startEngine($: $): Promise<void> {
+  watchStop();
   const root = await $.env.get("CLAUDE_PLUGIN_ROOT");
   if (root === undefined) {
     await setEngine($, {
@@ -122,37 +89,6 @@ async function startEngine($: $): Promise<void> {
   if (state.status === "ready") {
     await refreshPane($);
   }
-}
-
-function binary(engine: EngineState): string | null {
-  return engine.status === "ready" ? (engine.path ?? engine.resolver) : null;
-}
-
-/** Run `focus --json` and keep its PaneModel, or its error, for the pane and the band. */
-async function refreshPane($: $): Promise<void> {
-  const bin = binary(await read($, engineAtom));
-  if (bin === null) {
-    return;
-  }
-  const session = await $.session.id();
-  const run = await runProcess(
-    $,
-    [bin, "focus", "--json", "--session", session],
-    await clientEnv($),
-    30_000,
-  );
-  const reply = parseReply(run.stdout);
-  const pane: PaneState =
-    reply?.ok === true
-      ? { model: reply.result as PaneModel, error: null }
-      : {
-          model: null,
-          error:
-            reply?.error?.message ??
-            (run.stderr.trim().split("\n")[0] ||
-              `focus exited ${run.exitCode}`),
-        };
-  await update($, paneAtom, () => pane);
 }
 
 /** The engine's start-up in this module's life; session.start sets it, a reload starts it again. */
