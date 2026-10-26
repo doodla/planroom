@@ -266,6 +266,30 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
         "format": "planroom.inbox/v1", "instance": "i1", "counter": 1, "command": "map",
         "request": {"level": "container"}, "base": 5, "at": "2026-10-26T00:00:00Z"}});
     run(&["import", "-"], &format!("{read}\n"), &[]);
+    // drift-3-1: import's reply keeps to its budget however many rows a sync brings: 40 read
+    // requests from two viewers, and 40 rows that are refused or left, each with its reason.
+    let row = |uid: &str, doc: usize, command: &str| {
+        json!({"path": format!("inbox/{uid}/events/doc{doc:03}"), "version": 1, "row": {
+            "format": "planroom.inbox/v1", "instance": format!("i-{uid}"), "counter": doc,
+            "command": command, "request": {"level": "container", "detail": "graph"}, "base": 5,
+            "at": "2026-10-26T00:00:00Z"}})
+        .to_string()
+    };
+    let reads: Vec<String> =
+        (0..40).map(|i| row(if i % 2 == 0 { "u_one" } else { "u_two" }, i, "map")).collect();
+    let head = json!({"path": "live/head", "version": 3}).to_string();
+    run(&["import", "-"], &format!("{}\n{head}\n", reads.join("\n")), &[]);
+    let others: Vec<String> = (0..40)
+        .map(|i| match i % 4 {
+            0 => row("u_one", 100 + i, "handoff merge"),
+            1 => row("u_two", 100 + i, "edit"),
+            2 => row("u_one", 100 + i, "find"),
+            _ => format!(
+                "{{\"path\": \"inbox/u_two/events/bad{i}\", \"row\": {{\"format\": \"planroom.inbox/v1\"}}}}"
+            ),
+        })
+        .collect();
+    run(&["import", "-"], &format!("{}\n", others.join("\n")), &[]);
     let key = key();
     let public = b64url(&key.verifying_key().to_sec1_point(false).to_bytes());
     run(&["person", "init"], &public, &[("PLANROOM_PERSON_TOKEN", &person_init_token(&key))]);

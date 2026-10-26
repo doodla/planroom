@@ -87,13 +87,19 @@ fn import(root: &Path, lines: &[String], env: &[(&str, &str)]) -> (i32, Value) {
     planroom(root, &["import", "-"], &(lines.join("\n") + "\n"), env)
 }
 
-/// Every write of every batch, in order.
+/// Every write of every batch file, in order; each file is one validated `DbBatch`.
 fn writes(result: &Value) -> Vec<Value> {
-    result["batches"]
+    let root = Path::new(result["root"].as_str().unwrap());
+    assert!(root.is_absolute(), "{result}");
+    result["batch_files"]
         .as_array()
         .unwrap()
         .iter()
-        .flat_map(|b| b["writes"].as_array().unwrap().clone())
+        .flat_map(|f| {
+            let batch = read_json(root.join(f.as_str().unwrap()).to_str().unwrap());
+            validate("DbBatch", &batch);
+            batch["writes"].as_array().unwrap().clone()
+        })
         .collect()
 }
 
@@ -349,6 +355,38 @@ fn a_malformed_row_is_refused_not_fatal() {
         read_json(ack["file_path"].as_str().unwrap())["rows"],
         json!({"bad": "refused", "newer": "refused", "good": "imported"})
     );
+}
+
+#[test]
+fn a_large_sync_counts_its_rows_and_its_batch_files_hold_every_write() {
+    // drift-3-1: the reply lists the first few rows and counts all; the acks and the batch files
+    // hold every one, so the reply keeps to its budget.
+    let (_tmp, root) = scanned();
+    let mut lines: Vec<String> =
+        (0..60).map(|i| line("u_test", &format!("d{i:02}"), 1, row("i1", i, "map", json!({})))).collect();
+    lines.push(line("u_test", "x", 1, row("i1", 99, "handoff merge", json!({}))));
+    lines.push(line("u_test", "e", 1, row("i1", 100, "edit", json!({}))));
+    lines.push("not json".to_owned());
+    let (code, env) = import(&root, &lines, &[]);
+    assert_eq!(code, 0, "{env}");
+    let result = &env["result"];
+    validate("ImportResult", result);
+    assert_eq!(
+        result["counts"],
+        json!({"imported": 60, "held": 0, "conflict": 0, "refused": 1, "left": 1, "skipped": 1})
+    );
+    assert_eq!(result["rows"].as_array().unwrap().len(), 5, "{result}");
+    assert!(env["meta"]["size"]["tokens_est"].as_u64().unwrap() <= 800, "{env}");
+    // 60 answers, one ack, 61 deletes and live/head: three calls of at most 50 writes.
+    let files = result["batch_files"].as_array().unwrap();
+    assert_eq!(files.len(), 3, "{result}");
+    let writes = writes(result);
+    assert_eq!(writes.len(), 123);
+    assert_eq!(writes.iter().filter(|w| w["op"] == "delete").count(), 61);
+    let last = writes.last().unwrap();
+    assert_eq!((last["collection"].as_str(), last["doc_id"].as_str()), (Some("live"), Some("head")));
+    let ack = writes.iter().find(|w| w["collection"] == "acks").unwrap();
+    assert_eq!(read_json(ack["file_path"].as_str().unwrap())["rows"].as_object().unwrap().len(), 61);
 }
 
 #[test]

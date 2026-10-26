@@ -179,6 +179,14 @@ export function inline(batch: DbBatch): SessionWrite[] {
   }));
 }
 
+/** `import -`'s batches, each read from the file its reply names, relative to its `root`. */
+export function batchesOf(result: ImportResult): DbBatch[] {
+  return result.batch_files.map(
+    (file) =>
+      JSON.parse(readFileSync(join(result.root, file), "utf8")) as DbBatch,
+  );
+}
+
 /** `import -`'s result, from the engine. */
 export function importRows(
   ws: SharedWorkspace,

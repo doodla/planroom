@@ -16,6 +16,7 @@ import type { InboxRow, MapView, Snapshot } from "@planroom/contract";
 import { installArtifactDb, type StoredDoc } from "../shims/artifact-db";
 import { installClaude } from "../shims/claude";
 import {
+  batchesOf,
   hostArtifact,
   importRows,
   inline,
@@ -117,7 +118,7 @@ test.describe("at 1440x900", () => {
     expect(result.rows).toEqual([
       { path: rows[0]!.path, command: "map", status: "imported", reason: null },
     ]);
-    for (const batch of result.batches) {
+    for (const batch of batchesOf(result)) {
       const writes = inline(batch);
       await page.evaluate((w) => window.__artifactDb!.session.batch(w), writes);
     }
