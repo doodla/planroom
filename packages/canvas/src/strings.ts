@@ -33,4 +33,6 @@ export const STRINGS = {
   snapshotOnly:
     "Snapshot only: this view can't reach live updates or ask your computer.",
   snapshotMissing: "This page's snapshot didn't load.",
+  newerDocument:
+    "A newer Planroom wrote this, so this page can't read it. Share the workspace again with /room share.",
 } as const;

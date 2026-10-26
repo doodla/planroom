@@ -96,6 +96,23 @@ function pathFromStatus(run2) {
     return null;
   }
 }
+function toolError(error) {
+  const out = {
+    code: error.code,
+    retry: error.retry ?? "never",
+    message: error.message
+  };
+  if (error.retry_after_ms !== void 0) {
+    out.retry_after_ms = error.retry_after_ms;
+  }
+  if (error.hint !== void 0 && error.hint !== null) {
+    out.hint = error.hint;
+  }
+  if (error.details !== void 0) {
+    out.details = error.details;
+  }
+  return out;
+}
 var AGENT_META = [
   "seq",
   "next",
@@ -126,7 +143,21 @@ function toolResult(run2) {
       meta[key] = value;
     }
   }
-  return reply.ok ? { ok: true, result: reply.result, meta } : { ok: false, error: reply.error, meta };
+  const agentMeta = meta;
+  if (reply.ok) {
+    return { ok: true, result: reply.result, meta: agentMeta };
+  }
+  return {
+    ok: false,
+    error: toolError(
+      reply.error ?? {
+        code: "internal",
+        retry: "never",
+        message: "The engine failed without an error."
+      }
+    ),
+    meta: agentMeta
+  };
 }
 function engineMissing(engine) {
   return {

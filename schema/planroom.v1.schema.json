@@ -31,6 +31,7 @@
         "imported_through",
         "rows"
       ],
+      "additionalProperties": true,
       "description": "`planroom.ack/v1`: `acks/<uid>`, one per viewer, which the page reads to clear its queued rows."
     },
     "AckStatus": {
@@ -187,6 +188,7 @@
         "seq",
         "result"
       ],
+      "additionalProperties": true,
       "description": "`planroom.answer/v1`: a read request's result, under `answers/<docId>`, or a view the snapshot\nprecomputed. Redacted, within the leaf's budget."
     },
     "Band": {
@@ -940,6 +942,86 @@
       "pattern": "^[a-z][a-z0-9_]*$",
       "description": "A snake_case code naming why something is empty."
     },
+    "EngineState": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/EngineStatus"
+        },
+        "resolver": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The resolver, `<plugin root>/scripts/planroom`, once the plugin root is known."
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The engine binary, once resolved."
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "catalogue_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "backend": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "line": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The one status line for this state: the resolver's message where it gave one."
+        },
+        "fix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The exact command that fixes this state, when there is one."
+        }
+      },
+      "required": [
+        "status",
+        "resolver",
+        "path",
+        "version",
+        "catalogue_hash",
+        "backend",
+        "line",
+        "fix"
+      ],
+      "description": "The mod's `engine` atom: written by `session.start` from the resolver's reply (DR-81)."
+    },
+    "EngineStatus": {
+      "type": "string",
+      "enum": [
+        "resolving",
+        "fetching",
+        "build_offered",
+        "building",
+        "failed",
+        "unsupported_platform",
+        "version_mismatch",
+        "person_key_mismatch",
+        "ready"
+      ],
+      "description": "Which pane the mod draws until the engine answers: `ready` draws the `PaneModel` (DR-57, DR-60)."
+    },
     "Envelope": {
       "type": "object",
       "properties": {
@@ -993,6 +1075,8 @@
             "idempotency_mismatch",
             "store_busy",
             "port_in_use",
+            "engine_fetching",
+            "engine_unavailable",
             "schema_mismatch",
             "pack_invalid",
             "git_failed",
@@ -1124,7 +1208,7 @@
       "description": "One appended change."
     },
     "EventBody": {
-      "oneOf": [
+      "anyOf": [
         {
           "$ref": "#/$defs/Edit",
           "type": "object",
@@ -1294,9 +1378,34 @@
           "required": [
             "kind"
           ]
+        },
+        {
+          "description": "A kind a later version added: the raw body, `kind` included, kept as it was read. The fold\nskips it; a read-modify-write or an export writes it back unchanged.",
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "not": {
+                "enum": [
+                  "edit",
+                  "review",
+                  "undo",
+                  "version",
+                  "decision",
+                  "claim",
+                  "scan",
+                  "handoff"
+                ]
+              }
+            }
+          }
         }
       ],
-      "description": "The eight event kinds."
+      "description": "An event's body, tagged by its kind. Event kinds are an open set: a body whose `kind` this\nversion doesn't know decodes as `Unknown`, which holds the raw object, `kind` included, and\nserializes it back unchanged, so an older reader neither fails nor drops it."
     },
     "EventId": {
       "type": "string",
@@ -1304,18 +1413,26 @@
       "format": "uuid"
     },
     "EventKind": {
-      "type": "string",
-      "enum": [
-        "edit",
-        "review",
-        "undo",
-        "version",
-        "decision",
-        "claim",
-        "scan",
-        "handoff"
-      ],
-      "description": "The eight event kinds, as the `kind` tag of an `EventBody` spells them."
+      "description": "An event's kind, as the `kind` tag of an `EventBody` spells it; an open set.",
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "edit",
+            "review",
+            "undo",
+            "version",
+            "decision",
+            "claim",
+            "scan",
+            "handoff"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        }
+      ]
     },
     "Evidence": {
       "oneOf": [
@@ -1839,12 +1956,30 @@
         "base",
         "at"
       ],
+      "additionalProperties": true,
       "description": "`planroom.inbox/v1`: one row a viewer's page writes to `inbox/{self}/events/{docId}`. Import\nvalidates it, and takes the author from the path, never from the body: a field the row doesn't\ndefine, such as a forged `actor`, is ignored."
     },
     "Kind": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
       "description": "A kind, `<pack>.<name>`, such as `code.service`, `kernel.group` or `kernel.external`."
+    },
+    "LastSeq": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "seq"
+      ],
+      "description": "The mod's `lastSeq` atom: the `seq` of the last frame the watch loop read, so the loop starts\nagain from it after a reload (DR-6); null before the first frame (DR-82)."
     },
     "Layer": {
       "type": "string",
@@ -2071,6 +2206,7 @@
         "changes",
         "conflicts"
       ],
+      "additionalProperties": true,
       "description": "`planroom.live-head/v1`: the small `db` document `live/head` the session writes last in each\nsync batch; at most 256 KiB."
     },
     "MapNode": {
@@ -2613,6 +2749,32 @@
       ],
       "description": "What `focus` returns: the pane, the band and the status line; at most 4 KB."
     },
+    "PaneState": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PaneModel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "model",
+        "error"
+      ],
+      "description": "The mod's `pane` atom: the last `focus --json`, its `PaneModel` or the error it returned."
+    },
     "PartialFile": {
       "type": "object",
       "properties": {
@@ -2959,6 +3121,60 @@
         }
       ],
       "description": "An edge end: a node ID, or an alias another extractor defines, such as `host:orders`."
+    },
+    "ResolverStatus": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "description": "Whether an engine resolved without a fetch."
+        },
+        "step": {
+          "$ref": "#/$defs/ResolverStep"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The engine binary; absent when the next run would fetch it."
+        },
+        "version": {
+          "type": "string",
+          "description": "The engine version this plugin names, from `engine.env`."
+        }
+      },
+      "required": [
+        "ok",
+        "step",
+        "version"
+      ],
+      "description": "What `scripts/planroom status --json` prints: the step that resolves the engine, and its path\nwhen one resolved without a fetch."
+    },
+    "ResolverStep": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "override",
+          "description": "`PLANROOM_ENGINE`, used as it is."
+        },
+        {
+          "type": "string",
+          "const": "checkout",
+          "description": "A build in the dev checkout."
+        },
+        {
+          "type": "string",
+          "const": "cache",
+          "description": "The data root's engine cache."
+        },
+        {
+          "type": "string",
+          "const": "download",
+          "description": "A verified download of the release; with `ok: false`, what the next run would do."
+        }
+      ],
+      "description": "The step that resolves the engine, in the order the resolver tries them."
     },
     "Retry": {
       "oneOf": [
@@ -3449,6 +3665,7 @@
         "capabilities",
         "unavailable"
       ],
+      "additionalProperties": true,
       "description": "`planroom.snapshot/v1`: what the Artifact page draws with no engine, published as\n`data/snapshot.json`. It passes `kernel::redact`, and holds no evidence `contains` unless\n`share --include-snippets`, and no presence unless `share --include-presence`."
     },
     "Stakes": {
@@ -3637,6 +3854,134 @@
         "infra"
       ],
       "description": "A Container-level kind's block color: surfaces style a block from its tone, never from a kind\nID (DR-46)."
+    },
+    "ToolError": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "retry": {
+          "$ref": "#/$defs/Retry"
+        },
+        "retry_after_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "message": {
+          "type": "string",
+          "description": "One line, engine-authored."
+        },
+        "hint": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "An exact command."
+        },
+        "details": true
+      },
+      "required": [
+        "code",
+        "retry",
+        "message"
+      ],
+      "description": "A tool result's error: the envelope's error less its category."
+    },
+    "ToolMeta": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "next": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Warning"
+          }
+        },
+        "model_requests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModelRequestRef"
+          }
+        }
+      },
+      "description": "The fields of `meta` an agent acts on; absent when empty. `seq` is absent only when the\nengine never answered."
+    },
+    "ToolResult": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "result": true,
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "On failure: the error, never dropped."
+        },
+        "meta": {
+          "$ref": "#/$defs/ToolMeta"
+        }
+      },
+      "required": [
+        "ok",
+        "meta"
+      ],
+      "description": "What a mod tool handler returns, for success and failure alike, as compact JSON text: the\nenvelope less what an agent doesn't act on. Empty fields are left out (DR-66)."
+    },
+    "TurnSeq": {
+      "type": "object",
+      "properties": {
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "seq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "turnId",
+        "seq"
+      ],
+      "description": "The mod's `turnSeq` atom: the main loop's current turn and the latest `meta.seq` a tool returned\nto the model in it, the default `base` of the tools' writes."
     },
     "Usage": {
       "type": "object",

@@ -3,6 +3,13 @@
  * Pure: the hooks in register.tsx run the processes and write the atoms.
  */
 
+import type {
+  Retry,
+  ToolError,
+  ToolMeta,
+  ToolResult,
+} from "@planroom/contract";
+
 import type { EngineState } from "./state-types";
 
 /** What `$.process.run` resolves with, as far as the mod reads it. */
@@ -148,12 +155,26 @@ export function pathFromStatus(run: RunResult): string | null {
   }
 }
 
-/** What a mod tool returns, for success and failure alike (contracts.md, DR-66). */
-export interface ToolResult {
-  ok: boolean;
-  result?: unknown;
-  error?: ReplyError;
-  meta: Record<string, unknown>;
+/** What a mod tool returns, for success and failure alike: the contract's type (contracts.md, DR-66). */
+export type { ToolResult };
+
+/** The envelope's error as a tool result carries it: everything but its category. */
+function toolError(error: ReplyError): ToolError {
+  const out: ToolError = {
+    code: error.code,
+    retry: (error.retry ?? "never") as Retry,
+    message: error.message,
+  };
+  if (error.retry_after_ms !== undefined) {
+    out.retry_after_ms = error.retry_after_ms;
+  }
+  if (error.hint !== undefined && error.hint !== null) {
+    out.hint = error.hint;
+  }
+  if (error.details !== undefined) {
+    out.details = error.details;
+  }
+  return out;
 }
 
 const AGENT_META = [
@@ -196,9 +217,21 @@ export function toolResult(run: RunResult): ToolResult {
       meta[key] = value;
     }
   }
-  return reply.ok
-    ? { ok: true, result: reply.result, meta }
-    : { ok: false, error: reply.error, meta };
+  const agentMeta = meta as ToolMeta;
+  if (reply.ok) {
+    return { ok: true, result: reply.result, meta: agentMeta };
+  }
+  return {
+    ok: false,
+    error: toolError(
+      reply.error ?? {
+        code: "internal",
+        retry: "never",
+        message: "The engine failed without an error.",
+      },
+    ),
+    meta: agentMeta,
+  };
 }
 
 /** The tool result when there is no engine to run: the engine's own state as the error. */

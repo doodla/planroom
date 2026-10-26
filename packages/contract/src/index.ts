@@ -4,6 +4,14 @@
 export type * from "./generated/output";
 /** What Planroom accepts (the deserialize view). */
 export type * as Input from "./generated/input";
+/** The one format check every reader of a persisted document uses (contracts.md, Versioning rules). */
+export {
+  SCHEMA_VERSION,
+  checkFormat,
+  formatTag,
+  type DocumentName,
+  type FormatCheck,
+} from "./generated/format";
 /** The command catalogue: every leaf with its idea, class, undo, tool and `/room` reach. */
 export {
   CATALOGUE,
