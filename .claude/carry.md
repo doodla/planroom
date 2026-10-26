@@ -11,6 +11,8 @@ Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `c
 - TRUTH.json FROZEN (commit 8053725) after 3 review rounds; changes only via decision record. `examples/check-fixture` verifies it (CI it).
 - Art done in docs/art/ (Iris, $0.27): logo, hero, social-base (wordmark overlay later), 3 empty states. Plugin icon = logo (512-2048 px PNG at plugin/.claude-plugin/icon.png).
 - Design language: docs/contributing/design-language.md (planning table).
+- Phase 3 review running: wf_2e8a8098-cd8 (correctness, unasked, principles, security, cost) + wf_15781df6-e95 (extensibility, repo, ux, operability). Then: dedupe unrefuted material findings, fix all homes, consistency check, round 2 if needed (max 3).
+- Pending spike: call mcp__planroom-spike__spike_probe what=run|spawn|model (A-10, A-9) after reload. Settled A-1..A-4, A-8, A-11 logged in progress.md; fold into architecture.md after review.
 - Docs style rules (bind README/docs/CONTRIBUTING/SECURITY): `docs/contributing/research/iris-release-bar.md` sec 4.
 
 ## Gotchas
