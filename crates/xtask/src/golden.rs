@@ -1,14 +1,17 @@
-//! Golden CLI outputs the mod's tests read, built from the contract types so they can't drift
-//! from the schema. They stand in until the engine's own tests write `tests/golden/cli/` with
-//! `cargo xtask gen --golden`; then this module goes.
+//! Golden CLI outputs the mod's tests and the canvas's e2e specs read, built from the contract
+//! types so they can't drift from the schema. They stand in until the engine's own tests write
+//! `tests/golden/cli/` with `cargo xtask gen --golden`; then this module goes.
 
-use planroom_contract::envelope::{CommandName, Envelope, Handle, Meta, Size};
+use std::collections::BTreeMap;
+
+use planroom_contract::envelope::{CommandName, Empty, EmptyReason, Envelope, Handle, Meta, Size};
 use planroom_contract::event::{Actor, Surface, Timestamp};
-use planroom_contract::model::{Level, NodeId};
+use planroom_contract::model::{EdgeId, Evidence, Kind, Level, NodeId};
 use planroom_contract::view::{
-    BatchInfo, Choice, Crumb, DecisionCard, DiffLine, DriftLine, Focus, MiniBlock, MiniEdge, MiniMap,
-    PaneModel, PresenceRow, Progress, ScanState, Stakes,
+    BatchInfo, Choice, Crumb, DecisionCard, DiffLine, DriftLine, Focus, LiftedEdge, MapNode, MapView,
+    MiniBlock, MiniEdge, MiniMap, PaneModel, PresenceRow, Progress, ScanState, Stakes, Tone,
 };
+use serde::Serialize;
 
 fn handle(command: &str, args: &[&str], label: &str) -> Handle {
     Handle {
@@ -100,14 +103,166 @@ pub fn focus() -> Result<String, String> {
         },
         empty: None,
     };
+    envelope("focus", pane, 412)
+}
+
+/// `planroom map --detail graph --json` at the top of the fixture workspace, before any layout is
+/// stored. A stand-in shaped by `examples/TRUTH.json`'s containers and relations, with the tones
+/// the packs will declare: the engine serves neither `--detail graph` nor tones yet.
+pub fn map_graph() -> Result<String, String> {
+    // name, namespace and kind-short, kind, tone, counts (component, code)
+    let blocks: [(&str, &str, &str, Tone, u32, u32); 10] = [
+        ("storefront", "storefront:svc", "code.service", Tone::Service, 7, 21),
+        ("orders", "orders:svc", "code.service", Tone::Service, 14, 23),
+        ("worker", "worker:svc", "code.service", Tone::Service, 5, 18),
+        ("kit", "kit:lib", "code.library", Tone::Library, 4, 11),
+        ("redis", "ws:queue", "code.queue", Tone::Store, 0, 0),
+        ("orders-db", "ws:db", "code.datastore", Tone::Store, 0, 0),
+        ("platform", "platform:tool", "code.tooling", Tone::Infra, 8, 10),
+        ("otel-collector", "ws:obs", "observability.collector", Tone::Infra, 0, 0),
+        ("prometheus", "ws:obs", "observability.collector", Tone::Infra, 0, 0),
+        ("grafana", "ws:obs", "observability.dashboard", Tone::Infra, 0, 0),
+    ];
+    let node_id = |name: &str| -> NodeId {
+        let ns = blocks.iter().find(|b| b.0 == name).map_or("ws:x", |b| b.1);
+        id(&format!("{ns}:{name}"))
+    };
+    let nodes = blocks
+        .iter()
+        .map(|&(name, _, kind, tone, components, code)| MapNode {
+            id: node_id(name),
+            kind: Kind(kind.into()),
+            tone: Some(tone),
+            name: name.into(),
+            level: Level::Container,
+            parent: None,
+            counts: [("component", components), ("code", code)]
+                .into_iter()
+                .filter(|&(_, n)| n > 0)
+                .map(|(level, n)| (level.to_owned(), n))
+                .collect::<BTreeMap<_, _>>(),
+            position: None,
+            ghost: false,
+            claimed_by: None,
+        })
+        .collect();
+    // from, to, kind, count, one evidence line (path, line)
+    let relations: [(&str, &str, &str, u32, &str, u32); 22] = [
+        ("storefront", "orders", "code.http", 3, "storefront/src/api/orders.ts", 26),
+        ("orders", "redis", "code.queue_publish", 2, "orders/internal/queue/publisher.go", 49),
+        ("worker", "redis", "code.queue_consume", 1, "worker/worker/consumer.py", 41),
+        ("orders", "orders-db", "code.db", 1, "orders/internal/store/postgres.go", 26),
+        ("worker", "orders-db", "code.db", 2, "worker/worker/db.py", 22),
+        ("storefront", "kit", "code.depends_on_package", 1, "storefront/package.json", 18),
+        ("platform", "storefront", "code.deploys", 1, "platform/docker-compose.yml", 6),
+        ("platform", "orders", "code.deploys", 1, "platform/docker-compose.yml", 16),
+        ("platform", "worker", "code.deploys", 1, "platform/docker-compose.yml", 28),
+        ("platform", "redis", "code.deploys", 1, "platform/docker-compose.yml", 38),
+        ("platform", "orders-db", "code.deploys", 1, "platform/docker-compose.yml", 41),
+        ("platform", "otel-collector", "code.deploys", 1, "platform/docker-compose.yml", 50),
+        ("platform", "prometheus", "code.deploys", 1, "platform/docker-compose.yml", 59),
+        ("platform", "grafana", "code.deploys", 1, "platform/docker-compose.yml", 68),
+        ("prometheus", "orders", "observability.scrapes", 1, "platform/prometheus/prometheus.yml", 11),
+        ("prometheus", "worker", "observability.scrapes", 1, "platform/prometheus/prometheus.yml", 14),
+        (
+            "prometheus",
+            "otel-collector",
+            "observability.scrapes",
+            1,
+            "platform/prometheus/prometheus.yml",
+            17,
+        ),
+        (
+            "storefront",
+            "otel-collector",
+            "observability.exports_telemetry",
+            1,
+            "storefront/src/app/telemetry.ts",
+            9,
+        ),
+        (
+            "orders",
+            "otel-collector",
+            "observability.exports_telemetry",
+            1,
+            "orders/internal/telemetry/otel.go",
+            32,
+        ),
+        ("worker", "otel-collector", "observability.exports_telemetry", 1, "worker/worker/telemetry.py", 22),
+        (
+            "grafana",
+            "prometheus",
+            "observability.queries",
+            1,
+            "platform/grafana/provisioning/datasources/prometheus.yml",
+            8,
+        ),
+        ("platform", "orders", "code.http", 2, "platform/tools/healthcheck.rb", 15),
+    ];
+    let mut child = 0u64;
+    let edges = relations
+        .iter()
+        .map(|&(from, to, kind, count, path, line)| LiftedEdge {
+            kind: Kind(kind.into()),
+            from: node_id(from),
+            to: node_id(to),
+            count,
+            evidence_sample: vec![Evidence::Line {
+                path: path.into(),
+                line,
+                contains: None,
+                commit: None,
+                branch: None,
+            }],
+            children: (0..count)
+                .map(|_| {
+                    child += 1;
+                    EdgeId(format!("e:{:012x}", 0x00a1_1ce0_0000 + child))
+                })
+                .collect(),
+        })
+        .collect();
+    let view = MapView {
+        level: Level::Container,
+        lens: "all".into(),
+        focus: None,
+        nodes,
+        edges,
+        hidden: 0,
+        empty: None,
+    };
+    envelope("map", view, 412)
+}
+
+/// `planroom map --detail graph --json` in a workspace whose repos have no scan yet: the empty map,
+/// whose next action is the scan, with the engine's text from `en.toml`.
+pub fn map_empty() -> Result<String, String> {
+    let view = MapView {
+        level: Level::System,
+        lens: "all".into(),
+        focus: None,
+        nodes: vec![],
+        edges: vec![],
+        hidden: 0,
+        empty: Some(Empty {
+            reason: EmptyReason("not_scanned".into()),
+            next: handle("scan", &["/home/you/shop"], "Map these 5 repos? About 2 s."),
+        }),
+    };
+    envelope("map", view, 0)
+}
+
+/// A successful envelope around `result`, its size counting the document itself as the engine's
+/// does.
+fn envelope<T: Serialize + Clone>(command: &str, result: T, seq: u64) -> Result<String, String> {
     let envelope = Envelope {
         schema_version: planroom_contract::SCHEMA_VERSION,
         ok: true,
-        command: CommandName("focus".into()),
-        result: Some(pane),
+        command: CommandName(command.into()),
+        result: Some(result),
         error: None,
         meta: Meta {
-            seq: 412,
+            seq,
             took_ms: 9,
             size: Size { bytes: 0, tokens_est: 0 },
             next: None,
@@ -120,7 +275,6 @@ pub fn focus() -> Result<String, String> {
         },
     };
     let mut text = serde_json::to_string(&envelope).map_err(|e| e.to_string())?;
-    // The size counts the document itself, as the engine's does.
     for _ in 0..3 {
         let bytes = u32::try_from(text.len()).map_err(|e| e.to_string())?;
         let mut sized = envelope.clone();

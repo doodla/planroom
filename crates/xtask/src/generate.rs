@@ -182,7 +182,11 @@ fn engine_env(root: &Path) -> Result<Group, String> {
 fn goldens() -> Result<Group, String> {
     Ok(Group {
         name: "tests/golden/cli/",
-        files: vec![Generated { path: "tests/golden/cli/focus.json".into(), contents: golden::focus()? }],
+        files: vec![
+            Generated { path: "tests/golden/cli/focus.json".into(), contents: golden::focus()? },
+            Generated { path: "tests/golden/cli/map-graph.json".into(), contents: golden::map_graph()? },
+            Generated { path: "tests/golden/cli/map-empty.json".into(), contents: golden::map_empty()? },
+        ],
     })
 }
 

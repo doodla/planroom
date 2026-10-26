@@ -1,0 +1,1 @@
+{"schema_version":1,"ok":true,"command":"map","result":{"level":"system","lens":"all","focus":null,"nodes":[],"edges":[],"hidden":0,"empty":{"reason":"not_scanned","next":{"command":"scan","args":["/home/you/shop"],"label":"Map these 5 repos? About 2 s."}}},"meta":{"seq":0,"took_ms":9,"size":{"bytes":324,"tokens_est":81}}}

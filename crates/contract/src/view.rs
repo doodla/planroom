@@ -27,6 +27,9 @@ pub struct MapView {
 pub struct MapNode {
     pub id: NodeId,
     pub kind: Kind,
+    /// The kind's block color, which its pack declares; none draws as a plain card (DR-46).
+    #[serde(default)]
+    pub tone: Option<Tone>,
     pub name: String,
     pub level: Level,
     pub parent: Option<NodeId>,
@@ -37,6 +40,17 @@ pub struct MapNode {
     /// Proposed by an agent or a model and not yet accepted by a person.
     pub ghost: bool,
     pub claimed_by: Option<Actor>,
+}
+
+/// A Container-level kind's block color: surfaces style a block from its tone, never from a kind
+/// ID (DR-46).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Tone {
+    Service,
+    Library,
+    Store,
+    Infra,
 }
 
 /// A layout position.

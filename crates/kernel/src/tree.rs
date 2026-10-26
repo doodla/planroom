@@ -61,6 +61,7 @@ fn blocks<'a>(
         .map(|n| MapNode {
             id: n.id.clone(),
             kind: n.kind.clone(),
+            tone: None,
             name: n.name.clone(),
             level: n.level,
             parent: n.parent.clone().filter(|p| index.contains_key(p.0.as_str())),
