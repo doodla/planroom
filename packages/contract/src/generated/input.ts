@@ -1353,6 +1353,84 @@ export interface Handle2 {
   label: string;
 }
 /**
+ * Every setting, resolved; in the input schema, one `config.toml` file.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Config".
+ */
+export interface Config {
+  /**
+   * Extra pack directories, after the built-ins: workspace state, set only in a workspace's
+   * file (DR-62).
+   */
+  packs?: string[];
+  /**
+   * `auto`, or `off` to turn every model call off.
+   */
+  models?: string;
+  scan?: ConfigScan;
+  claude?: ConfigClaude;
+  jev?: ConfigJev;
+  budget?: ConfigBudget;
+}
+/**
+ * `[scan]`.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ConfigScan".
+ */
+export interface ConfigScan {
+  /**
+   * Directories a scan skips, as globs relative to each repo's root (DR-89).
+   */
+  exclude?: string[];
+}
+/**
+ * `[claude]`. Its credential settings come only from the user-level file or the environment.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ConfigClaude".
+ */
+export interface ConfigClaude {
+  backend?: string;
+  /**
+   * The only host a credential goes to; never set by a variable.
+   */
+  base_url?: string;
+  /**
+   * The name of the variable that holds the gateway key.
+   */
+  api_key_env?: string;
+  /**
+   * The gateway key itself, honoured only from a user-level file of mode 0600.
+   */
+  api_key?: string;
+  model_cheap?: string;
+  model_capable?: string;
+  providers?: string[];
+}
+/**
+ * `[jev]`.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ConfigJev".
+ */
+export interface ConfigJev {
+  backend?: string;
+  model?: string;
+}
+/**
+ * `[budget]`, in dollars (DR-65).
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ConfigBudget".
+ */
+export interface ConfigBudget {
+  jev_per_scan_usd?: number;
+  claude_per_day_usd?: number;
+  live_tests_total_usd?: number;
+}
+/**
  * One step of the breadcrumb.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema

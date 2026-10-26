@@ -12,7 +12,8 @@
 //!   token they are acked `refused`; without one they stay in the inbox, unacked, for a person's
 //!   sync, as a tokenless sync leaves every row it can't apply.
 //!
-//! Import writes each document the session must write under `.planroom/share/sync/<seq>-<µs>/`,
+//! Import writes each document the session must write under the state directory's
+//! `share/sync/<seq>-<µs>/` (`.planroom/`, or a single repo's `.git/planroom/`),
 //! and each `ArtifactData batch` call's writes, which name those documents, to a batch file there,
 //! `live/head` last, so the session never retypes a document. The reply names the batch files and
 //! counts the rows' outcomes with the first few, so it keeps to its budget for any number of rows.
@@ -350,7 +351,7 @@ fn batch_files(
     head_version: Option<u64>,
     ack_versions: &BTreeMap<String, u64>,
 ) -> Result<(PathBuf, Vec<String>), AppError> {
-    let dir = root.join(workspace::DIR).join("share/sync").join(format!("{seq}-{}", clock::unix_micros()));
+    let dir = workspace::state_dir(root).join("share/sync").join(format!("{seq}-{}", clock::unix_micros()));
     data::ensure_dir(&dir)?;
     let mut writes: Vec<(DbWrite, usize)> = Vec::new();
     for o in outcomes {

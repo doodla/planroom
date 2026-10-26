@@ -6,6 +6,7 @@
 
 pub mod card;
 pub mod command;
+pub mod config;
 pub mod decision;
 pub mod envelope;
 pub mod errors;
@@ -29,6 +30,7 @@ pub use command::{
     SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken, ShareReq, Tool, Undo, VersionInfo,
     VersionReq, WatchReq, WriteCommon,
 };
+pub use config::Config;
 pub use decision::{
     Band, BoolCriteria, DecisionBudget, DecisionKind, DecisionRecord, Effect, EffectOp, OptionsFrom, Outcome,
     Policy, Predicate, Question, Role, SliceSpec, SubjectKind,

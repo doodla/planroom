@@ -4,6 +4,7 @@
 pub mod app;
 pub mod cli;
 pub mod clock;
+pub mod config;
 pub mod live;
 pub mod server;
 mod text;

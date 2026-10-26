@@ -47,6 +47,16 @@ pub fn root() -> Result<PathBuf, AppError> {
     base.map(|b| b.join("planroom")).ok_or_else(unplaced)
 }
 
+/// The user-level config, `${XDG_CONFIG_HOME:-$HOME/.config}/planroom/config.toml`, always
+/// absolute: a relative `XDG_CONFIG_HOME` counts as unset, as the XDG spec says. With neither
+/// giving an absolute place there's no user-level file, since a relative one would read whatever
+/// file sits in the directory the process runs in, such as one a repo commits.
+pub fn user_config() -> Option<PathBuf> {
+    let absolute = |name: &str| std::env::var_os(name).map(PathBuf::from).filter(|p| p.is_absolute());
+    let base = absolute("XDG_CONFIG_HOME").or_else(|| absolute("HOME").map(|home| home.join(".config")));
+    base.map(|b| b.join("planroom").join(crate::config::FILE))
+}
+
 /// The data root has no absolute place: the fix sets `PLANROOM_DATA`.
 fn unplaced() -> AppError {
     AppError::invalid_argument("PLANROOM_DATA", "argument.data_root")

@@ -74,12 +74,12 @@ fn repo(dir: &Path) -> RepoView {
 fn view(root: &Path) -> RepoView {
     let git = Git::new(root);
     let head = git.head().unwrap();
-    let blobs = walk::walk(&git, &head.commit).unwrap().blobs;
+    let blobs = walk::walk(&git, &head.commit, &walk::Exclude::none()).unwrap().blobs;
     RepoView { name: "deploy".into(), root: root.to_path_buf(), commit: head.commit, blobs }
 }
 
 fn walked(view: &RepoView) -> walk::Walked {
-    walk::walk(&Git::new(&view.root), &view.commit).unwrap()
+    walk::walk(&Git::new(&view.root), &view.commit, &walk::Exclude::none()).unwrap()
 }
 
 fn run(view: &RepoView, name: &str, files: &[RepoPath], opts: serde_json::Value) -> FactBatch {

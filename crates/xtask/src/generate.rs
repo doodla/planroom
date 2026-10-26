@@ -40,6 +40,7 @@ const GENERATORS: &[Generator] = &[
     clippy_tomls,
     engine_env,
     contract_sh,
+    configuration_reference,
     area_contracts,
     modgen::bundle,
     plugin_version,
@@ -597,4 +598,83 @@ pub fn missing_headers(root: &Path, globs: &[String]) -> Result<Vec<String>, Str
     }
     missing.sort();
     Ok(missing)
+}
+
+/// The configuration defaults file the engine compiles in, the one home of every key.
+pub const CONFIG_DEFAULTS: &str = "crates/planroom/src/config/defaults.toml";
+pub const CONFIG_REFERENCE: &str = "docs/reference/configuration.md";
+
+/// `docs/reference/configuration.md`: one row per key of the defaults file, with its default,
+/// where it may be set, the variable that overrides it and its meaning. Each key's comment there
+/// starts with its place in brackets, as the engine reads it (`config/schema.rs`).
+fn configuration_reference(root: &Path) -> Result<Group, String> {
+    let text =
+        fs::read_to_string(root.join(CONFIG_DEFAULTS)).map_err(|e| format!("{CONFIG_DEFAULTS}: {e}"))?;
+    let table: toml::Table = text.parse().map_err(|e| format!("{CONFIG_DEFAULTS}: {e}"))?;
+    let mut rows = Vec::new();
+    let mut section = String::new();
+    let mut comment: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        if let Some(c) = line.strip_prefix('#') {
+            comment.push(c.trim());
+            continue;
+        }
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            section = name.trim().to_owned();
+            comment.clear();
+            continue;
+        }
+        let key = match line.split_once('=') {
+            Some((key, _)) if line.starts_with(|c: char| c.is_ascii_lowercase()) => key.trim(),
+            _ => {
+                if line.trim().is_empty() {
+                    comment.clear();
+                }
+                continue;
+            }
+        };
+        let joined = comment.join(" ");
+        let (tag, meaning) =
+            joined.strip_prefix('[').and_then(|rest| rest.split_once(']')).ok_or_else(|| {
+                format!("{CONFIG_DEFAULTS}: {key} needs a `# [scope] meaning` comment above it")
+            })?;
+        let value =
+            if section.is_empty() { table.get(key) } else { table.get(&section).and_then(|s| s.get(key)) }
+                .ok_or_else(|| format!("{CONFIG_DEFAULTS}: no value for {key}"))?;
+        let default = match value {
+            toml::Value::String(s) if s.is_empty() => "none".to_owned(),
+            other => format!("`{other}`"),
+        };
+        let path = if section.is_empty() { key.to_owned() } else { format!("{section}.{key}") };
+        let shown = if section.is_empty() { format!("`{key}`") } else { format!("`[{section}] {key}`") };
+        let variable = if path == "packs" || tag.contains("mode 0600") || tag.contains("no variable") {
+            "none".to_owned()
+        } else {
+            format!("`PLANROOM_{}`", path.replace('.', "_").to_ascii_uppercase())
+        };
+        let cell = |s: &str| s.trim().replace('|', "\\|");
+        rows.push(format!("| {shown} | {} | {default} | {variable} | {} |", cell(tag), cell(meaning)));
+        comment.clear();
+    }
+    let contents = format!(
+        "<!-- {GENERATED_HEADER} Source: {CONFIG_DEFAULTS}. -->
+
+# Configuration
+
+Every key Planroom reads, with its default. You can set a key in two optional files of one schema:
+
+- your user-level `${{XDG_CONFIG_HOME:-$HOME/.config}}/planroom/config.toml`;
+- a workspace's `config.toml` in its state directory (`.planroom/`, or `.git/planroom/` when the workspace is one repo), which loads only once you trust the workspace.
+
+A workspace's file wins over yours, and a variable wins over both. A list variable takes TOML array syntax, `[\"a\", \"b\"]`, or comma-separated values.
+
+**Where** says which file may set the key. `user` keys are credential settings and limits across every workspace: a workspace's file never sets one, and Planroom ignores it there with the warning `config_key_ignored`. `api_key` counts only in a file of mode 0600.
+
+| Key | Where | Default | Variable | Meaning |
+|---|---|---|---|---|
+{}
+",
+        rows.join("\n")
+    );
+    Ok(Group { name: CONFIG_REFERENCE, files: vec![Generated { path: CONFIG_REFERENCE.into(), contents }] })
 }

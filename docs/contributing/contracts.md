@@ -1175,10 +1175,10 @@ Import rules [DR-52, DR-67]: importing inbox rows is person-only, except rows a 
 
 ## Configuration
 
-Two optional files share one schema, and every key has a default in `crates/planroom/src/config/defaults.toml`; `PLANROOM_*` environment variables override keys, except `packs`, which is workspace state (DR-62). A new key needs a decision record saying why no default works [DR-22].
+Two optional files share one schema, and every key has a default in `crates/planroom/src/config/defaults.toml`, from which `cargo xtask gen` writes [the configuration reference](../reference/configuration.md). A `PLANROOM_<SECTION>_<KEY>` environment variable overrides a key, such as `PLANROOM_SCAN_EXCLUDE`, except `packs`, which is workspace state (DR-62), `[claude] api_key`, whose variable is the one `api_key_env` names, and `[claude] base_url`, which only the user-level file sets, since it decides where a credential goes. A workspace's file wins over the user-level one. A new key needs a decision record saying why no default works [DR-22].
 
-- The workspace's `.planroom/config.toml` loads only when the workspace is trusted [DR-48].
-- The keys marked "user" below may appear only in the user-level `${XDG_CONFIG_HOME:-$HOME/.config}/planroom/config.toml`: the credential settings, and the limits that span every workspace. The engine ignores such a key in a workspace's file, and `api_key` in a user-level file that isn't mode 0600, with a `config_key_ignored` warning naming the file and key.
+- The workspace's `config.toml`, in its state directory, loads only when the workspace is trusted [DR-48]: `.planroom/config.toml` beside a directory of repos, or `planroom/config.toml` in the git directory of a workspace that is one repo, `.git/planroom/config.toml` in an ordinary clone [DR-74].
+- The keys marked "user" below may appear only in the user-level `${XDG_CONFIG_HOME:-$HOME/.config}/planroom/config.toml`: the credential settings, and the limits that span every workspace. The engine ignores such a key in a workspace's file, whatever its value, and `api_key` in a user-level file that isn't exactly mode 0600, with a `config_key_ignored` warning naming the file and key.
 
 | Key | Where | Default | Meaning |
 |---|---|---|---|

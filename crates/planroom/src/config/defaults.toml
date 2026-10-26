@@ -1,0 +1,60 @@
+# Every configuration key Planroom reads, with its default.
+#
+# Two optional files share this schema: a workspace's `config.toml` in its state directory, loaded
+# only when the workspace is trusted, and your user-level
+# `${XDG_CONFIG_HOME:-$HOME/.config}/planroom/config.toml`. A `PLANROOM_<SECTION>_<KEY>` variable
+# overrides a key, such as `PLANROOM_MODELS` or `PLANROOM_SCAN_EXCLUDE`, unless its tag says
+# `no variable` or `mode 0600`, or the key is `packs`.
+#
+# Each key's comment starts with where it may be set, in brackets, then says what it means:
+# `workspace` (the workspace's file only), `either` (either file), `user` (your user-level file
+# only, since it is a credential setting or a limit across every workspace). A user key in a
+# workspace's file is ignored with `config_key_ignored`. An empty string means no value.
+#
+# `cargo xtask gen` writes docs/reference/configuration.md from this file.
+
+# [workspace] Extra pack directories, after the built-ins. `planroom pack add` and `pack remove` write it, and no variable overrides it, since the pack set is workspace state (DR-62).
+packs = []
+
+# [either] `auto`, or `off` to turn every Jev and Claude call off: deterministic tiers, defaults and pre-selected cards.
+models = "auto"
+
+[scan]
+# [either] Directories a scan skips, as globs relative to each repo's root. Your value replaces this list, and the list is part of each snapshot's key (DR-89).
+exclude = [
+  "**/fixture/**",
+  "**/fixtures/**",
+  "**/__fixtures__/**",
+  "**/testdata/**",
+  "**/test-data/**",
+]
+
+[claude]
+# [user] `auto` (the gateway if a credential resolves, else your session if a mod is attached, else off), `gateway`, `session` or `off`.
+backend = "auto"
+# [user, no variable] The gateway's base URL. A credential goes only to this host, `ai-gateway.vercel.sh` or `api.typesafe.ai`. Only your user-level file sets it, never a variable, so a process that can set your environment can't send your key elsewhere.
+base_url = "https://ai-gateway.vercel.sh"
+# [user] The name of the variable that holds the gateway key: `AI_GATEWAY_API_KEY`, `VERCEL_OIDC_TOKEN` or `TYPESAFE_API_KEY`.
+api_key_env = "AI_GATEWAY_API_KEY"
+# [user, mode 0600] The gateway key itself, if you keep it in your user-level file rather than the environment. It is ignored unless the file is mode 0600, and no variable overrides it.
+api_key = ""
+# [either] The pinned model ID for cheap calls.
+model_cheap = "anthropic/claude-haiku-5.5"
+# [either] The pinned model ID for capable calls.
+model_capable = "anthropic/claude-sonnet-5.5"
+# [either] The gateway providers Claude calls may use (`providerOptions.gateway.only`).
+providers = ["anthropic"]
+
+[jev]
+# [user] `gateway` or `typesafe`.
+backend = "gateway"
+# [either] The pinned Jev model ID: `jev-1.14.0`, or `jev-latest` on the direct API.
+model = "typesafe-ai/jev-1.14.0"
+
+[budget]
+# [either] Dollars of Jev calls per `scan` event and per explicit `decide --run` (DR-65).
+jev_per_scan_usd = 0.001
+# [user] Real dollars of gateway and TypeSafe calls per day, across every workspace, from `DATA_ROOT/ledger.db` (DR-65).
+claude_per_day_usd = 1.00
+# [user] The cap on the total of `PLANROOM_SPEND_LOG`, less a $0.25 margin (DR-65).
+live_tests_total_usd = 3.00

@@ -1,7 +1,9 @@
 //! The file walk: the files of one commit's tree, never the working tree, so a snapshot's facts
 //! are a function of its commit alone. One `git ls-tree` lists the tree and one `cat-file --batch`
 //! reads the blobs. The tree's committed `.gitignore` files apply, symlinks and submodules are
-//! never followed, and the walk is bounded the same way on every machine (DR-47).
+//! never followed, and the walk is bounded the same way on every machine (DR-47). The workspace's
+//! `[scan] exclude` globs leave out whole trees, such as fixtures and test data, before any bound
+//! counts them (DR-89).
 //!
 //! A partial clone may not hold every blob of the commit. The walk never fetches one: it asks git
 //! which objects are missing, leaves those files out, and reports them as uncovered.
@@ -16,8 +18,8 @@ use std::sync::Arc;
 use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
-use crate::RepoPath;
 use crate::git::{Git, GitError, Objects};
+use crate::{ExtractError, RepoPath};
 
 /// Files larger than this are skipped.
 pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
@@ -27,6 +29,38 @@ pub const MAX_FILES: usize = 50_000;
 pub const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 /// A NUL byte in this many leading bytes marks a file as binary, as git decides.
 const BINARY_SNIFF: usize = 8000;
+
+/// The `[scan] exclude` globs, relative to the repo's root: a file a glob matches, or under a
+/// directory one matches, is never read. `**/fixture/**` leaves out every `fixture` directory at
+/// any depth, the root's own included.
+#[derive(Debug, Clone)]
+pub struct Exclude(globset::GlobSet);
+
+impl Exclude {
+    /// The globs as a set; a glob that doesn't parse names itself in the error.
+    pub fn new<S: AsRef<str>>(globs: &[S]) -> Result<Exclude, ExtractError> {
+        let mut set = globset::GlobSetBuilder::new();
+        for glob in globs {
+            let glob = glob.as_ref();
+            let built = globset::GlobBuilder::new(glob)
+                .literal_separator(true)
+                .build()
+                .map_err(|e| ExtractError::InvalidOptions(format!("exclude glob `{glob}`: {e}")))?;
+            set.add(built);
+        }
+        set.build().map(Exclude).map_err(|e| ExtractError::InvalidOptions(e.to_string()))
+    }
+
+    /// Nothing excluded.
+    pub fn none() -> Exclude {
+        Exclude(globset::GlobSet::empty())
+    }
+
+    /// Whether the repo-relative `path` is left out.
+    pub fn excludes(&self, path: &str) -> bool {
+        !self.0.is_empty() && self.0.is_match(path)
+    }
+}
 
 /// What one walk found.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -76,9 +110,9 @@ struct Entry {
 }
 
 /// Walk `commit`'s tree in the repo `git` runs in: every regular file a committed `.gitignore`
-/// doesn't ignore, hidden files included. A submodule is a repo of its own, and a symlink is
-/// never followed.
-pub fn walk(git: &Git, commit: &str) -> Result<Walked, GitError> {
+/// doesn't ignore and `exclude` doesn't leave out, hidden files included. A submodule is a repo of
+/// its own, and a symlink is never followed.
+pub fn walk(git: &Git, commit: &str, exclude: &Exclude) -> Result<Walked, GitError> {
     let partial = git.is_partial_clone()?;
     let listing = git.ls_tree(commit, !partial)?;
     let mut entries = parse(&listing).map_err(|stderr| GitError { argv: vec!["ls-tree".into()], stderr })?;
@@ -108,6 +142,10 @@ pub fn walk(git: &Git, commit: &str) -> Result<Walked, GitError> {
             skipped += 1;
             continue;
         };
+        // Left out whole: neither read, nor counted against a bound, nor reported as uncovered.
+        if exclude.excludes(rel) {
+            continue;
+        }
         let Some(size) = entry.size else {
             missing.push(rel.to_owned());
             continue;
@@ -297,7 +335,7 @@ mod tests {
 
         let git = Git::new(root);
         let commit = git.head().unwrap().commit;
-        let walked = walk(&git, &commit).unwrap();
+        let walked = walk(&git, &commit, &Exclude::none()).unwrap();
         let paths: Vec<&str> = walked.files.iter().map(|p| p.0.as_str()).collect();
         assert_eq!(paths, [".gitignore", "a.txt", "a/b/c.txt", "sub/.gitignore", "sub/keep.log"]);
         assert_eq!(walked.skipped, 1, "the binary");
@@ -305,5 +343,30 @@ mod tests {
         assert_eq!(walked.blobs.get("a.txt"), Some(&b"a"[..]), "the commit's contents");
         assert_eq!(walked.blobs.get("a/b/c.txt"), Some(&b"c"[..]));
         assert_eq!(walked.blobs.get("untracked.txt"), None);
+    }
+
+    #[test]
+    fn excluded_trees_are_left_out_at_any_depth_and_a_lookalike_name_is_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        git(root, &["init", "-q", "-b", "main"]);
+        for path in
+            ["fixture/a.yml", "src/fixture/b.yml", "src/fixtures.rs", "test-data/c.json", "src/main.rs"]
+        {
+            let file = root.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, path).unwrap();
+        }
+        git(root, &["add", "-A"]);
+        git(root, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"]);
+
+        let git = Git::new(root);
+        let commit = git.head().unwrap().commit;
+        let exclude = Exclude::new(&["**/fixture/**", "**/test-data/**"]).unwrap();
+        let walked = walk(&git, &commit, &exclude).unwrap();
+        let paths: Vec<&str> = walked.files.iter().map(|p| p.0.as_str()).collect();
+        assert_eq!(paths, ["src/fixtures.rs", "src/main.rs"]);
+        assert!(walked.uncovered.is_empty() && walked.skipped == 0, "left out, not skipped: {walked:?}");
+        assert!(Exclude::new(&["a/{b"]).is_err(), "a glob that doesn't parse is refused");
     }
 }

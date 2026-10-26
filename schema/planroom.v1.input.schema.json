@@ -751,6 +751,111 @@
         }
       ]
     },
+    "Config": {
+      "type": "object",
+      "description": "Every setting, resolved; in the input schema, one `config.toml` file.",
+      "properties": {
+        "packs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Extra pack directories, after the built-ins: workspace state, set only in a workspace's\nfile (DR-62)."
+        },
+        "models": {
+          "type": "string",
+          "description": "`auto`, or `off` to turn every model call off."
+        },
+        "scan": {
+          "$ref": "#/$defs/ConfigScan"
+        },
+        "claude": {
+          "$ref": "#/$defs/ConfigClaude"
+        },
+        "jev": {
+          "$ref": "#/$defs/ConfigJev"
+        },
+        "budget": {
+          "$ref": "#/$defs/ConfigBudget"
+        }
+      }
+    },
+    "ConfigBudget": {
+      "type": "object",
+      "description": "`[budget]`, in dollars (DR-65).",
+      "properties": {
+        "jev_per_scan_usd": {
+          "type": "number",
+          "format": "double"
+        },
+        "claude_per_day_usd": {
+          "type": "number",
+          "format": "double"
+        },
+        "live_tests_total_usd": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    },
+    "ConfigClaude": {
+      "type": "object",
+      "description": "`[claude]`. Its credential settings come only from the user-level file or the environment.",
+      "properties": {
+        "backend": {
+          "type": "string"
+        },
+        "base_url": {
+          "type": "string",
+          "description": "The only host a credential goes to; never set by a variable."
+        },
+        "api_key_env": {
+          "type": "string",
+          "description": "The name of the variable that holds the gateway key."
+        },
+        "api_key": {
+          "type": "string",
+          "description": "The gateway key itself, honoured only from a user-level file of mode 0600."
+        },
+        "model_cheap": {
+          "type": "string"
+        },
+        "model_capable": {
+          "type": "string"
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ConfigJev": {
+      "type": "object",
+      "description": "`[jev]`.",
+      "properties": {
+        "backend": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      }
+    },
+    "ConfigScan": {
+      "type": "object",
+      "description": "`[scan]`.",
+      "properties": {
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Directories a scan skips, as globs relative to each repo's root (DR-89)."
+        }
+      }
+    },
     "Crumb": {
       "type": "object",
       "properties": {

@@ -196,7 +196,7 @@ fn read_serve_json(path: &Path) -> Option<ServeFile> {
 }
 
 fn serve_json_path(root: &Path) -> PathBuf {
-    root.join(workspace::DIR).join("serve.json")
+    workspace::state_dir(root).join("serve.json")
 }
 
 /// `DATA_ROOT/logs/<workspace_id>/serve.log`, rotated once when it passes 1 MiB.

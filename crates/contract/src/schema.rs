@@ -10,7 +10,8 @@ use crate::{
     Snapshot,
 };
 use crate::{
-    AskReq, AskResult, EditReq, FindReq, FindResult, IntentNextReq, LintReq, PackFile, ProposeReq, ReviewReq,
+    AskReq, AskResult, Config, EditReq, FindReq, FindResult, IntentNextReq, LintReq, PackFile, ProposeReq,
+    ReviewReq,
 };
 use crate::{
     CodeReq, Command, CommandList, Edge, Envelope, ErrorCode, ErrorObject, Event, Evidence, FactBatch,
@@ -129,6 +130,10 @@ pub fn generate(view: View) -> Value {
         FindResult,
         PackFile,
     );
+    // Planroom reads a configuration file and never emits one.
+    if view == View::Input {
+        generator.subschema_for::<Config>();
+    }
     let mut defs: Vec<(String, Value)> = generator.take_definitions(true).into_iter().collect();
     defs.sort_by(|a, b| a.0.cmp(&b.0));
     let (title, description) = match view {

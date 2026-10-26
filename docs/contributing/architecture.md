@@ -1637,10 +1637,10 @@ Each side's own tests passed; the bug showed only when the parts ran together.
 
 This repository was scanned as a workspace.
 
-| Finding | Acts on it |
-|---|---|
-| The scan maps the fixture's compose services under `examples/fixture/` as this workspace's containers. Fixture and test-data trees need default excludes and a setting to change them, which [DR-89] decides (R14). | M1, extractors slice. Evidence: `progress.md`, the 2026-10-26 entry on the gates and remote-slice merges |
-| A single-repo workspace's store landed in `.planroom/` in the working tree, not in `.git/planroom/` as DR-74 requires. `crates/planroom/src/app/workspace.rs` names only `.planroom`. | M1, the slice with the single repo's state directory [DR-74] |
+| Finding | Fixed by | Evidence |
+|---|---|---|
+| The scan mapped the fixture's compose services under `examples/fixture/` as this workspace's containers. Fixture and test-data trees needed default excludes and a setting to change them (R14). | `[scan] exclude` defaults to the fixture and test-data trees, as globs relative to each repo's root; a person's value replaces the list, and the list joins the snapshot key [DR-89]. | `config.rs::fixture_and_test_data_trees_are_excluded_by_default`; `progress.md`, the 2026-10-26 entry on the gates and remote-slice merges |
+| A single-repo workspace's store landed in `.planroom/` in the working tree, not in `.git/planroom/`. `crates/planroom/src/app/workspace.rs` named only `.planroom`. | A workspace whose root is a git repo keeps its state in `planroom/` inside the git directory git names for it; a directory of repos keeps `.planroom/` [DR-74]. | `state_dir.rs::a_single_repo_workspace_keeps_its_state_in_the_git_dir` |
 
 ### Its review
 

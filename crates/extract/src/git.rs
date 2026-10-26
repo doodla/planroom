@@ -7,6 +7,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
@@ -124,6 +125,14 @@ impl Git {
         }
         args.extend(["--full-tree", tree.as_str()]);
         self.run_bytes(&args)
+    }
+
+    /// This working tree's git directory, as `git rev-parse --absolute-git-dir` names it: `.git`
+    /// itself, or the directory a submodule's or linked worktree's `.git` file points to.
+    pub fn absolute_git_dir(&self) -> Result<PathBuf, GitError> {
+        let out = self.run_bytes(&["rev-parse", "--absolute-git-dir"])?;
+        let line = out.strip_suffix(b"\n").unwrap_or(&out);
+        Ok(PathBuf::from(std::ffi::OsStr::from_bytes(line)))
     }
 
     /// The commit `HEAD` names and its branch.
@@ -357,7 +366,7 @@ mod tests {
         if let Ok(mut sizes) = adapter.object_sizes() {
             let _ = sizes.size(blob);
         }
-        let _ = crate::walk::walk(&adapter, commit);
+        let _ = crate::walk::walk(&adapter, commit, &crate::walk::Exclude::none());
         AS_OLD_GIT.with(|old| old.set(false));
     }
 

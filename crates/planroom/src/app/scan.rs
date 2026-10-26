@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 use crate::app::error::AppError;
 use crate::app::workspace::{self, Repo, Workspace};
 use crate::app::{Reply, map, new_event_id};
-use crate::{clock, text};
+use crate::{clock, config, text};
 
 /// The built-in extractors this build runs, as the code pack will declare them: each one's name
 /// and its `files` globs. The pack loader replaces this table.
@@ -44,6 +44,8 @@ pub fn packs_hash() -> String {
 pub struct Prepared {
     ws: Workspace,
     packs_hash: String,
+    /// The `[scan] exclude` globs this scan walked with.
+    exclude: Vec<String>,
     /// Every repo's extraction inputs besides its commit and a partial clone's missing blobs.
     inputs: String,
     /// The store's latest `seq` before any repo was read.
@@ -69,26 +71,32 @@ pub fn prepare(req: &ScanReq, cwd: &Path) -> Result<Prepared, AppError> {
         None => 0,
     };
     let mut warnings = ws.warnings.clone();
+    // A workspace's own config loads only once the workspace is trusted, and no workspace is
+    // recorded as trusted yet, so only the user-level file and the variables apply.
+    let loaded = config::for_workspace(&ws.state_dir(), false)?;
+    warnings.extend(loaded.warnings);
+    let exclude = loaded.config.scan.exclude;
+    let globs = walk::Exclude::new(&exclude)?;
     let names: BTreeSet<&str> = ws.repos.iter().map(|r| r.name.as_str()).collect();
     let options = options(&names);
     let packs_hash = packs_hash();
-    let inputs = inputs_hash(&packs_hash, &options);
+    let inputs = inputs_hash(&packs_hash, &options, &exclude);
     let mut repos = Vec::with_capacity(ws.repos.len());
     for repo in &ws.repos {
-        match extract(repo, &options, &inputs, &mut warnings) {
+        match extract(repo, &options, &globs, &inputs, &mut warnings) {
             Ok(scan) => repos.push(scan),
             Err(RepoError::Git(e)) => warnings.push(skipped(repo, &e)),
             Err(RepoError::App(e)) => return Err(e),
         }
     }
-    Ok(Prepared { ws, packs_hash, inputs, started, repos, warnings })
+    Ok(Prepared { ws, packs_hash, exclude, inputs, started, repos, warnings })
 }
 
 /// Commit a prepared scan. A repo stays where it is when its `HEAD` moved on since it was read, or
 /// when another scan moved it meanwhile and the workspace's repos changed since this scan read
 /// them: a late scan never moves a repo back, whatever input changed.
 pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
-    let Prepared { ws, packs_hash, inputs, started, repos, mut warnings } = prepared;
+    let Prepared { ws, packs_hash, exclude, inputs, started, repos, mut warnings } = prepared;
     // With nothing to write, a workspace with no store stays without one.
     let store = if repos.is_empty() {
         Store::open_existing(&ws.store_path())?.map(|mut store| {
@@ -125,7 +133,7 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
         }
         if newer_scan
             && !*same_repos.get_or_insert_with(|| {
-                current_inputs(&ws.root, &write.packs_hash).as_deref() == Some(&inputs)
+                current_inputs(&ws.root, &write.packs_hash, &exclude).as_deref() == Some(&inputs)
             })
         {
             why.insert(repo.repo.clone(), "repos_changed");
@@ -195,7 +203,7 @@ fn client() -> Client {
     Client { surface: Surface::Cli, id }
 }
 
-/// Open the workspace's store, creating `.planroom/` and the store on the first scan.
+/// Open the workspace's store, creating the state directory and the store on the first scan.
 pub fn open_store(ws: &Workspace) -> Result<Store, AppError> {
     workspace::ensure_dir(&ws.root)?;
     let init = Init {
@@ -223,22 +231,24 @@ fn options(names: &BTreeSet<&str>) -> Vec<(&'static str, Value)> {
         .collect()
 }
 
-/// The hash of every extraction input besides a repo's commit: the packs hash and each built-in's
-/// options. It keys the snapshot with the repo and the commit, as the packs hash alone did, so a
-/// snapshot's facts are a function of its key (DR-85): moving a repo out of the workspace and
-/// back gives the map a fresh store gives.
-fn inputs_hash(packs_hash: &str, options: &[(&str, Value)]) -> String {
+/// The hash of every extraction input besides a repo's commit: the packs hash, each built-in's
+/// options and the `[scan] exclude` globs. It keys the snapshot with the repo and the commit, as
+/// the packs hash alone did, so a snapshot's facts are a function of its key (DR-85, DR-89):
+/// moving a repo out of the workspace and back gives the map a fresh store gives, and so does
+/// changing the excludes and back.
+fn inputs_hash(packs_hash: &str, options: &[(&str, Value)], exclude: &[String]) -> String {
     let options: Vec<String> =
         options.iter().map(|(name, opts)| format!("{name}={}", keys::canonical(opts))).collect();
-    keys::sha256_hex(&["planroom.extract-inputs/v1", packs_hash, &options.join("\n")])
+    let exclude = keys::canonical(&json!(exclude));
+    keys::sha256_hex(&["planroom.extract-inputs/v1", packs_hash, &options.join("\n"), "exclude", &exclude])
 }
 
-/// The extraction inputs the workspace at `root` gives now, as [`prepare`] derives them: `None`
-/// when its repos can't be listed.
-fn current_inputs(root: &Path, packs_hash: &str) -> Option<String> {
+/// The extraction inputs the workspace at `root` gives now, with the excludes this scan read, as
+/// [`prepare`] derives them: `None` when its repos can't be listed.
+fn current_inputs(root: &Path, packs_hash: &str, exclude: &[String]) -> Option<String> {
     let ws = workspace::discover(root).ok()?;
     let names: BTreeSet<&str> = ws.repos.iter().map(|r| r.name.as_str()).collect();
-    Some(inputs_hash(packs_hash, &options(&names)))
+    Some(inputs_hash(packs_hash, &options(&names), exclude))
 }
 
 /// Whether `HEAD` in the repo at `path` still names `commit` (empty: still no commit).
@@ -315,6 +325,7 @@ fn unborn(
 fn extract(
     repo: &Repo,
     options: &[(&'static str, Value)],
+    exclude: &walk::Exclude,
     inputs: &str,
     warnings: &mut Vec<Warning>,
 ) -> Result<RepoScan, RepoError> {
@@ -328,7 +339,7 @@ fn extract(
             };
         }
     };
-    let walked = walk::walk(&git, &head.commit)?;
+    let walked = walk::walk(&git, &head.commit, exclude)?;
     // Which blobs a partial clone holds changes what the walk read, so it keys the snapshot too.
     let inputs = if walked.missing.is_empty() {
         inputs.to_owned()
