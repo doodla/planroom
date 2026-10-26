@@ -1,31 +1,62 @@
-[rust.crates]
-contract = { may_depend = [] }
+# The single source of the boundary rules for Rust, TypeScript and packs (repo-layout.md,
+# Boundaries and their enforcement). `cargo xtask check boundaries` reads it; `cargo xtask gen`
+# writes .dependency-cruiser.cjs and crates/{kernel,contract,store,extract}/clippy.toml from it.
+
+[rust.crates]   # external_allow covers normal and build dependencies; a crate not on its list fails the check [DR-79]
+contract = { may_depend = [],
+             external_allow = ["serde", "serde_json", "schemars", "clap", "uuid", "indexmap"] }
 kernel   = { may_depend = ["contract"],
              external_allow = ["serde", "serde_json", "petgraph", "similar", "nucleo-matcher", "sha2", "thiserror", "indexmap", "regex"] }
-store    = { may_depend = ["contract"] }
-extract  = { may_depend = ["contract"] }
-models   = { may_depend = ["contract"] }
-planroom = { may_depend = ["contract", "kernel", "store", "extract", "models"] }
+store    = { may_depend = ["contract"], external_allow = ["rusqlite", "serde", "serde_json", "sha2", "thiserror"] }
+extract  = { may_depend = ["contract"],
+             external_allow = ["tree-sitter", "tree-sitter-*", "ignore", "globset", "regex", "saphyr-parser", "toml",
+                               "pulldown-cmark", "promql-parser", "serde", "serde_json", "sha2", "thiserror"] }
+models   = { may_depend = ["contract"], net = true,
+             external_allow = ["reqwest", "tokio", "sha2", "serde", "serde_json", "thiserror"] }
+planroom = { may_depend = ["contract", "kernel", "store", "extract", "models"], net = true,
+             external_allow = ["axum", "tower-http", "tokio", "tokio-stream", "tracing", "anyhow", "clap", "serde", "serde_json",
+                               "toml", "uuid", "libc", "p256"] }
 testkit  = { may_depend = ["contract"], dev_only = true }
 xtask    = { may_depend = ["*"], ships = false }
+           # net: of the crates that ship, only models and planroom (the server) may open a socket. Every other shipped
+           # crate's generated clippy.toml disallows std::net, and no network crate is on its allow-list [DR-79]
 
 [rust.kernel]
-domain_free = true          # no built-in pack ID followed by "." in a string literal under crates/kernel/src
+domain_free = ["kernel", "contract"]   # no string literal under these crates' src/ equals a built-in pack kind or relation
+                                       # name with "<pack>.", or a bare one outside kernel_vocabulary; contract is the
+                                       # kernel's one workspace dependency [DR-45]
+kernel_vocabulary = ["person", "repo", "workspace", "commit", "file", "state", "step", "machine", "image", "tag"]
+                                       # bare names the kernel and contract spell for their own meaning: actor kinds, ID
+                                       # namespaces, version tags, and the machine shapes' states and steps
 no_path_escapes = true      # no #[path = "../"] or include! leaving a crate's directory (every crate)
+no_io_crates = ["kernel", "contract"]   # both get the list below; contract is the kernel's one workspace dependency [DR-79]
+no_io = { types = ["std::fs::*", "std::net::*", "std::process::*", "std::env::*"],   # cargo xtask gen expands each module to every
+          methods = ["std::path::Path::exists", "std::path::Path::try_exists", "std::path::Path::metadata",    # public function and type it
+                     "std::path::Path::read_dir", "std::path::Path::canonicalize", "std::path::Path::is_file",  # holds, then writes
+                     "std::path::Path::is_dir", "std::io::stdin", "std::io::stdout", "std::io::stderr",          # each crate's clippy.toml,
+                     "std::time::SystemTime::now"],                                                             # for every target
+          macros = ["std::println", "std::eprintln", "std::print", "std::eprint", "std::dbg"] }
 
 [ts.packages]
 contract = { may_import = [] }
-ui       = { may_import = ["contract"], forbid = ["react", "react-dom", "node:*"] }
-canvas   = { may_import = ["contract", "ui"] }
-mod      = { may_import = ["contract", "ui"], forbid = ["react-dom", "node:*"] }
-e2e      = { may_import = ["contract"] }
+ui       = { may_import = ["contract"], third_party = [], forbid = ["node:*"] }
+canvas   = { may_import = ["contract", "ui"], third_party = ["react", "react-dom", "@xyflow/react", "elkjs", "zustand", "motion", "radix-ui", "@fontsource/*"] }
+mod      = { may_import = ["contract", "ui"], third_party = ["@noble/curves"], forbid = ["node:*"],   # signs person tokens [DR-82]
+             host_types = ["claude-code", "claude-code/testing"] }   # only the mod imports them; external to the bundle [DR-81]
+e2e      = { may_import = ["contract"], third_party = ["@playwright/test", "@axe-core/playwright"] }
 
 [ts.rules]
 entry_only = true           # cross-package imports only through package.json "exports"
 no_circular = true
 not_to_unresolvable = true
 generated_read_only = ["packages/contract/src/generated/**", "plugin/types/index.d.ts", "plugin/hooks/planroom-mod.js"]
+golden_readers = ["packages/mod/plugin-tests/**", "packages/mod/src/**/*.test.ts"]   # only these read tests/golden/*.json [DR-81]
+domain_free = ["ui", "canvas", "mod"]   # no string literal equals a built-in kind or lens ID; surfaces style from MapNode.tone [DR-45, DR-46]
+test_tooling = { files = ["**/*.test.ts", "**/*.test.tsx", "packages/canvas/vite.config.js", "tests/e2e/playwright.config.ts"],
+                 third_party = ["vitest", "vite", "@vitejs/plugin-react"] }
+                            # the test runner and the build tool, imported only by tests and configs, which no bundle holds
 
 [packs]
-requires = [[], ["code"]]   # the only allowed values
+requires = [[], ["code"]]   # the only values for a built-in pack
+out_of_tree_requires = "built_in"   # an out-of-tree pack may require any built-in packs, never another out-of-tree pack
 no_executables = true

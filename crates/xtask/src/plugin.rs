@@ -104,10 +104,19 @@ pub fn layout_problems(root: &Path) -> Result<Vec<String>, String> {
         problems.push("plugin/.claude-plugin/plugin.json: name must be \"planroom\"".into());
     }
     let version = workspace_version(root)?;
-    if manifest["version"].as_str() != Some(version.as_str()) {
+    let stamped = manifest["version"].as_str().unwrap_or_default();
+    let matches = if version.ends_with("-dev") {
+        stamped.strip_prefix(&format!("{version}.g")).is_some_and(|h| h.len() == 8)
+    } else {
+        stamped == version
+    };
+    // `claude plugin validate --strict` accepts any string here, so the semver rule is ours.
+    if !is_semver(stamped) {
+        problems.push(format!("plugin/.claude-plugin/plugin.json: version {stamped:?} is not semver"));
+    }
+    if !matches {
         problems.push(format!(
-            "plugin/.claude-plugin/plugin.json: version {} is not the workspace version {version}",
-            manifest["version"]
+            "plugin/.claude-plugin/plugin.json: version {stamped:?} is not the workspace version {version} as cargo xtask gen stamps it"
         ));
     }
 
@@ -138,6 +147,75 @@ pub fn layout_problems(root: &Path) -> Result<Vec<String>, String> {
         None => problems.push("plugin/.claude-plugin/icon.png is missing or not a PNG".into()),
     }
     Ok(problems)
+}
+
+pub const MANIFEST: &str = "plugin/.claude-plugin/plugin.json";
+
+/// sha256 over every file under `plugin/` but the manifest, in sorted path order: each file's path
+/// from `plugin/`, a NUL, its length in decimal, a NUL, then its bytes.
+pub fn plugin_hash(root: &Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let listed = crate::util::capture(
+        root,
+        "git",
+        &["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "plugin"],
+    )?;
+    let mut files: Vec<&str> =
+        listed.split('\0').filter(|p| !p.is_empty() && *p != MANIFEST && root.join(p).is_file()).collect();
+    files.sort_unstable();
+    files.dedup();
+    let mut hash = Sha256::new();
+    for file in files {
+        let bytes = fs::read(root.join(file)).map_err(|e| format!("{file}: {e}"))?;
+        let name = file.strip_prefix("plugin/").unwrap_or(file);
+        hash.update(name.as_bytes());
+        hash.update([0]);
+        hash.update(bytes.len().to_string().as_bytes());
+        hash.update([0]);
+        hash.update(&bytes);
+    }
+    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// The plugin's version: `X.Y.Z-dev.g<first 8 hex of plugin_hash>` for a `-dev` workspace, so
+/// `/plugin update` sees every change between releases (A-23); a release version as is. The `g`
+/// keeps the prerelease identifier alphanumeric, as semver needs.
+pub fn stamped_version(root: &Path) -> Result<String, String> {
+    let version = workspace_version(root)?;
+    if version.ends_with("-dev") {
+        Ok(format!("{version}.g{}", &plugin_hash(root)?[..8]))
+    } else {
+        Ok(version)
+    }
+}
+
+/// Semver 2.0.0: `MAJOR.MINOR.PATCH`, numbers without leading zeros, then an optional
+/// `-prerelease` of dot-separated identifiers (a numeric one without leading zeros) and `+build`.
+pub fn is_semver(v: &str) -> bool {
+    let ident = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+    let number =
+        |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) && (s == "0" || !s.starts_with('0'));
+    let (rest, build) = v.split_once('+').map_or((v, None), |(r, b)| (r, Some(b)));
+    let (core, pre) = rest.split_once('-').map_or((rest, None), |(c, p)| (c, Some(p)));
+    let core_ok = {
+        let parts: Vec<&str> = core.split('.').collect();
+        parts.len() == 3 && parts.iter().all(|p| number(p))
+    };
+    let pre_ok = pre.is_none_or(|p| {
+        p.split('.').all(|i| ident(i) && (!i.bytes().all(|b| b.is_ascii_digit()) || number(i)))
+    });
+    let build_ok = build.is_none_or(|b| b.split('.').all(ident));
+    core_ok && pre_ok && build_ok
+}
+
+/// `plugin.json` with its `"version"` value stamped and every other byte as written.
+pub fn stamped_manifest(root: &Path) -> Result<crate::generate::Generated, String> {
+    let text = fs::read_to_string(root.join(MANIFEST)).map_err(|e| format!("{MANIFEST}: {e}"))?;
+    let key = "\"version\": \"";
+    let start = text.find(key).ok_or_else(|| format!("{MANIFEST} has no \"version\""))? + key.len();
+    let end = start + text[start..].find('"').ok_or_else(|| format!("{MANIFEST}: unterminated version"))?;
+    let contents = format!("{}{}{}", &text[..start], stamped_version(root)?, &text[end..]);
+    Ok(crate::generate::Generated { path: MANIFEST.into(), contents })
 }
 
 /// `[workspace.package] version` from the root `Cargo.toml`.
@@ -200,4 +278,20 @@ fn find_symlinks(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     }
     out.sort();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_dev_stamp_is_semver_and_a_bare_hash_may_not_be() {
+        assert!(is_semver("0.1.0"));
+        assert!(is_semver("0.1.0-dev.gf7573900"));
+        assert!(is_semver("0.1.0-dev.g00000000"));
+        assert!(!is_semver("0.1.0-dev.00012345"), "a numeric identifier with a leading zero");
+        assert!(!is_semver("0.1"));
+        assert!(!is_semver("not a version!"));
+        assert!(!is_semver("01.1.0"));
+    }
 }

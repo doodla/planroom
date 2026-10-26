@@ -9,18 +9,34 @@ module.exports = {
       "from": {},
       "to": {
         "couldNotResolve": true,
-        "pathNot": "^claude-code(/testing)?$"
+        "pathNot": "^(claude-code|claude-code/testing)$"
       }
     },
     {
       "name": "host-module-only-in-mod",
-      "comment": "only the mod imports claude-code, the mod API's types, which the bundle keeps external",
+      "comment": "only the packages with host_types import the mod API's types, which the bundle keeps external [DR-81]",
       "severity": "error",
       "from": {
-        "pathNot": "^packages/mod/"
+        "pathNot": [
+          "^packages/mod/"
+        ]
       },
       "to": {
-        "path": "^claude-code(/testing)?$"
+        "path": "^(claude-code|claude-code/testing)$"
+      }
+    },
+    {
+      "name": "golden-only-in-mod-tests",
+      "comment": "only golden_readers read the golden CLI outputs [DR-81]",
+      "severity": "error",
+      "from": {
+        "pathNot": [
+          "^packages/mod/plugin-tests/.*$",
+          "^packages/mod/src/(|.*/)[^/]*\\.test\\.ts$"
+        ]
+      },
+      "to": {
+        "path": "^tests/golden/.*\\.json$"
       }
     },
     {
@@ -29,17 +45,6 @@ module.exports = {
       "from": {},
       "to": {
         "circular": true
-      }
-    },
-    {
-      "name": "mod-forbidden-packages",
-      "comment": "mod must not import react-dom",
-      "severity": "error",
-      "from": {
-        "path": "^packages/mod/"
-      },
-      "to": {
-        "path": "(^|/)node_modules/(react-dom)/"
       }
     },
     {
@@ -53,17 +58,6 @@ module.exports = {
         "dependencyTypes": [
           "core"
         ]
-      }
-    },
-    {
-      "name": "ui-forbidden-packages",
-      "comment": "ui must not import react, react-dom",
-      "severity": "error",
-      "from": {
-        "path": "^packages/ui/"
-      },
-      "to": {
-        "path": "(^|/)node_modules/(react|react-dom)/"
       }
     },
     {
@@ -87,18 +81,12 @@ module.exports = {
         "path": "^((packages|tests)/[^/]+)/"
       },
       "to": {
-        "path": "^$1/"
+        "path": "^$1/",
+        "pathNot": "(^|/)node_modules/"
       }
     },
     {
-      "comment": "third-party packages",
-      "from": {},
-      "to": {
-        "path": "(^|/)node_modules/"
-      }
-    },
-    {
-      "comment": "Node built-ins (the forbidden rules narrow this)",
+      "comment": "Node built-ins (each package's forbid narrows this)",
       "from": {},
       "to": {
         "dependencyTypes": [
@@ -107,18 +95,23 @@ module.exports = {
       }
     },
     {
-      "comment": "mod -> the claude-code mod API (repo-layout.md, the mod's area contract)",
+      "comment": "host_types: the mod API's types",
       "from": {
-        "path": "^packages/mod/"
+        "path": [
+          "^packages/mod/"
+        ]
       },
       "to": {
-        "path": "^claude-code(/testing)?$"
+        "path": "^(claude-code|claude-code/testing)$"
       }
     },
     {
-      "comment": "mod tests -> the golden CLI outputs (DR-6)",
+      "comment": "golden_readers -> the golden CLI outputs",
       "from": {
-        "path": "^packages/mod/(plugin-tests/|src/.*\\.test\\.ts$)"
+        "path": [
+          "^packages/mod/plugin-tests/.*$",
+          "^packages/mod/src/(|.*/)[^/]*\\.test\\.ts$"
+        ]
       },
       "to": {
         "path": "^tests/golden/.*\\.json$"
@@ -137,6 +130,78 @@ module.exports = {
       }
     },
     {
+      "comment": "canvas -> react (third_party)",
+      "from": {
+        "path": "^packages/canvas/"
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?react/"
+      }
+    },
+    {
+      "comment": "canvas -> react-dom (third_party)",
+      "from": {
+        "path": "^packages/canvas/"
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?react-dom/"
+      }
+    },
+    {
+      "comment": "canvas -> @xyflow/react (third_party)",
+      "from": {
+        "path": "^packages/canvas/"
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?@xyflow/react/"
+      }
+    },
+    {
+      "comment": "canvas -> elkjs (third_party)",
+      "from": {
+        "path": "^packages/canvas/"
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?elkjs/"
+      }
+    },
+    {
+      "comment": "canvas -> zustand (third_party)",
+      "from": {
+        "path": "^packages/canvas/"
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?zustand/"
+      }
+    },
+    {
+      "comment": "canvas -> motion (third_party)",
+      "from": {
+        "path": "^packages/canvas/"
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?motion/"
+      }
+    },
+    {
+      "comment": "canvas -> radix-ui (third_party)",
+      "from": {
+        "path": "^packages/canvas/"
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?radix-ui/"
+      }
+    },
+    {
+      "comment": "canvas -> @fontsource/* (third_party)",
+      "from": {
+        "path": "^packages/canvas/"
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?@fontsource/[^/]+/"
+      }
+    },
+    {
       "comment": "e2e -> contract",
       "from": {
         "path": "^tests/e2e/"
@@ -145,6 +210,24 @@ module.exports = {
         "path": [
           "^packages/contract/src/index\\.ts$"
         ]
+      }
+    },
+    {
+      "comment": "e2e -> @playwright/test (third_party)",
+      "from": {
+        "path": "^tests/e2e/"
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?@playwright/test/"
+      }
+    },
+    {
+      "comment": "e2e -> @axe-core/playwright (third_party)",
+      "from": {
+        "path": "^tests/e2e/"
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?@axe-core/playwright/"
       }
     },
     {
@@ -160,6 +243,15 @@ module.exports = {
       }
     },
     {
+      "comment": "mod -> @noble/curves (third_party)",
+      "from": {
+        "path": "^packages/mod/"
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?@noble/curves/"
+      }
+    },
+    {
       "comment": "ui -> contract",
       "from": {
         "path": "^packages/ui/"
@@ -168,6 +260,48 @@ module.exports = {
         "path": [
           "^packages/contract/src/index\\.ts$"
         ]
+      }
+    },
+    {
+      "comment": "tests and configs -> vitest (test_tooling)",
+      "from": {
+        "path": [
+          "^(|.*/)[^/]*\\.test\\.ts$",
+          "^(|.*/)[^/]*\\.test\\.tsx$",
+          "^packages/canvas/vite\\.config\\.js$",
+          "^tests/e2e/playwright\\.config\\.ts$"
+        ]
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?vitest/"
+      }
+    },
+    {
+      "comment": "tests and configs -> vite (test_tooling)",
+      "from": {
+        "path": [
+          "^(|.*/)[^/]*\\.test\\.ts$",
+          "^(|.*/)[^/]*\\.test\\.tsx$",
+          "^packages/canvas/vite\\.config\\.js$",
+          "^tests/e2e/playwright\\.config\\.ts$"
+        ]
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?vite/"
+      }
+    },
+    {
+      "comment": "tests and configs -> @vitejs/plugin-react (test_tooling)",
+      "from": {
+        "path": [
+          "^(|.*/)[^/]*\\.test\\.ts$",
+          "^(|.*/)[^/]*\\.test\\.tsx$",
+          "^packages/canvas/vite\\.config\\.js$",
+          "^tests/e2e/playwright\\.config\\.ts$"
+        ]
+      },
+      "to": {
+        "path": "(^|/)node_modules/(@types/)?@vitejs/plugin-react/"
       }
     }
   ],

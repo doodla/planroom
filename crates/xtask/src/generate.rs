@@ -29,8 +29,19 @@ type Generator = fn(&Path) -> Result<Group, String>;
 
 /// Every generator, in the order `gen` writes them: the mod bundle last, since esbuild reads the
 /// generated TypeScript from disk.
-const GENERATORS: &[Generator] =
-    &[|_| schemas(), typescript, catalogue, dependency_cruiser, engine_env, modgen::bundle];
+/// The area blocks come before the plugin's version stamp, which hashes `plugin/AGENTS.md` and the
+/// bundle with every other file under `plugin/`.
+const GENERATORS: &[Generator] = &[
+    |_| schemas(),
+    typescript,
+    catalogue,
+    dependency_cruiser,
+    clippy_tomls,
+    engine_env,
+    area_contracts,
+    modgen::bundle,
+    plugin_version,
+];
 
 /// Every generated file, grouped by drift check.
 pub fn all(root: &Path) -> Vec<Result<Group, String>> {
@@ -216,6 +227,26 @@ fn dependency_cruiser(root: &Path) -> Result<Group, String> {
     })
 }
 
+/// Each shipped crate's `clippy.toml` from `boundaries.toml`: `no_io` for the kernel and contract,
+/// `std::net` for store and extract [DR-79].
+fn clippy_tomls(root: &Path) -> Result<Group, String> {
+    Ok(Group { name: "crates/*/clippy.toml", files: boundaries::clippy_tomls(root)? })
+}
+
+/// Each area's contract block and Read first lines in its `AGENTS.md`, from repo-layout.md.
+fn area_contracts(root: &Path) -> Result<Group, String> {
+    Ok(Group { name: "area contract blocks in AGENTS.md", files: crate::areas::generated(root)? })
+}
+
+/// `plugin/.claude-plugin/plugin.json`'s version: `X.Y.Z-dev.g<hash>` between releases, so
+/// `/plugin update` sees each change; a release version as is.
+fn plugin_version(root: &Path) -> Result<Group, String> {
+    Ok(Group {
+        name: "plugin/.claude-plugin/plugin.json version",
+        files: vec![plugin::stamped_manifest(root)?],
+    })
+}
+
 /// `plugin/scripts/engine.env`: the engine version the resolver fetches, the catalogue hash a checkout
 /// build must report, and the repo it comes from.
 fn engine_env(root: &Path) -> Result<Group, String> {
@@ -238,7 +269,7 @@ pub fn write_all(root: &Path) -> Result<Vec<String>, String> {
 
 /// Write only the mod bundle (`cargo xtask gen --mod`).
 pub fn write_mod(root: &Path) -> Result<Vec<String>, String> {
-    write_groups(root, &[modgen::bundle])
+    write_groups(root, &[modgen::bundle, plugin_version])
 }
 
 /// Generate and write each group in turn, so a later generator reads what an earlier one wrote.
