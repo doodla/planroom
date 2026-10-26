@@ -3,11 +3,11 @@
 Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `ccr-b124f0e3-xnzjca`; push with `git push -u origin ccr-b124f0e3-xnzjca`.
 
 ## Where I am
-- Phases 1-3 DONE. Phase 4 skeleton DONE and live. Review round 1 DONE: 18 material fixed and merged (DR-85; README rows name fix commits), docs folded + checked + fixed (30898ce, pushed, check ok).
-- Found after merge: canvas store load race (stale load overwrote a newer level's request; CI run 66 e2e) fixed with load generations (6e07f6a); scan --json map now capped to scan's budget.
-- Running: review ROUND 2 on 30898ce: wf_dc32e19d-2a4 (A: correctness, security, drift, tests) and wf_be838c9f-a82 (B: repo, ux, operability, unasked). Triage with .claude/skills/review-round/scripts/triage.py --round 2. Max 3 rounds; after round 3 write accepted-risk.md.
-- Then: context review + skills pass close-out (task #11), progress.md log, then M1 (task #12).
-- M1 plan: tracks K (fold+IDs), X (extractors+linkers, dirty signal with untracked files per DR-85), P (packs+plan pack), A (actor/security, backups, .git/planroom, fs check), M (mod; map --focus), C (canvas), G (S1 path, gates incl. not-built ones, serve/resolver). Default excludes for fixture/test-data trees.
+- Phases 1-3 DONE. Phase 4 skeleton DONE and live. Review round 1 DONE (DR-85, README). CI run 70 green.
+- Review ROUND 2 triaged: 16 material = 12 defects (round2-*.json committed). tests-r2-1 fixed in plan (map paging into M1 S1 slice, M1 121 h, 71bd6ff). Track map for README rows: scratchpad/tracks2.json.
+- Fixing round 2: wf_86ae4359-6d1 (SCAN2 track/r2-scan: key incl. repo set, no branch in facts, stale scan can't move back, no lazy fetch, per-repo outcomes; BUDGET2 track/r2-budget: warnings capped, whole-reply budget check, schema --command and share within budget) and wf_8b2a4ca7-639 (GUARD2 track/r2-guard: Bash writeDenied, recursive reads of guarded parents, generated Envelope/VersionInfo/ResolverStatus in mod, resolver sha check; CANVAS2 track/r2-canvas: 44px lid, no blank sheet).
+- Then: merge (merge-track skill), DR-86 (round 2 decisions; amends DR-85's "no meta.next until M2"), README round 2 section with fix commits, progress log, then ROUND 3 (last; then accepted-risk.md), then M1.
+- M1 plan: tracks K, X (dirty signal untracked; cross-repo join into linkers), P, A (fs check), M (map --focus), C, G (S1 path + map paging, gates incl. not-built ones). Default excludes for fixture/test-data trees.
 - Skills: merge-track, review-round. Lesson: chain check && test && push; kill own PIDs only.
 
 ## Gotchas
