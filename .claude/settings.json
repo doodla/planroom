@@ -27,7 +27,8 @@
     ]
   },
   "claudeMdExcludes": [
-    "**/examples/fixture/**/CLAUDE.md"
+    "**/examples/fixture/**/CLAUDE.md",
+    "**/target/**/CLAUDE.md"
   ],
   "permissions": {
     "deny": [
