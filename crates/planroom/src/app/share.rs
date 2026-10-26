@@ -121,7 +121,7 @@ pub fn run(req: &ShareReq, cwd: &Path) -> Result<Reply<ShareResult>, AppError> {
 /// The snapshot: the top-level map with its cached layout and the pane, redacted.
 fn snapshot(store: &Store, root: &Path, req: &ShareReq) -> Result<Snapshot, AppError> {
     let seq = store.seq()?;
-    let mut top = map::run(&MapReq { detail: Detail::Graph, ..MapReq::default() }, root)?.result;
+    let mut top = map::for_canvas(&MapReq { detail: Detail::Graph, ..MapReq::default() }, root)?.result;
     redact::map_view(&mut top, req.include_snippets);
     let mut pane = focus::run(&FocusReq::default(), root)?.result;
     let who = req.include_presence.then(|| pane.who.clone());

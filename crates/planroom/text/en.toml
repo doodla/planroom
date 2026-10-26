@@ -32,16 +32,22 @@ http_command = "command {command} on this server"
 unknown_leaf = "No command {leaf} in the catalogue; planroom schema --commands lists them."
 import_stdin = "import takes Artifact rows only on stdin: run planroom import -."
 share_out = "--out must name a directory Planroom can write: {why}"
+usage = "The command line isn't valid: {why}."
+schema_label = "The {leaf} command's arguments and result"
 
 [warning]
 evidence_dropped = "{count} evidence items in {repo} didn't match commit {commit} and were dropped."
 partial_scan = "{extractor} reached its bound in {repo}; {count} files weren't scanned."
 partial_parse = "{count} files in {repo} couldn't be read in full."
 workspace_nested = "Another workspace sits inside this one, at {other_root}; the two stay apart."
+truncated = "This map has {total} blocks; the first {kept} fit its {budget}-token budget. Next: {label}."
 
 [empty]
 not_scanned = "Map these {count} repos? About 2 s."
-no_repos = "No git repos here. Run planroom scan PATH on a directory that holds some."
+no_repos = "No git repos here. Open Planroom in a folder that holds your repos, or clone one here, then check again."
+no_intent = "No plans at the intent level yet. Show the top of the map."
+empty_level = "Nothing at the {level} level here. Show the top of the map."
+nothing_mapped = "The last scan found nothing to map. Scan again."
 
 [scan]
 summary = "Mapped {repos} repos, {moved} of them moved: {containers} containers, {nodes} nodes, {hints} hints."
@@ -81,6 +87,9 @@ no_focus_action = "Try again"
 
 [map]
 summary = "{count} at the top: {names}."
+more = "{names}; and {more} more"
+coarser = "Show the {level} level"
+pane = "Show where you are"
 
 [frame]
 scan = "Scanned {repo} at {commit}."

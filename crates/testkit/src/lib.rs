@@ -57,6 +57,33 @@ fn toml_string(s: &str) -> String {
     serde_json::to_string(s).expect("a string serializes")
 }
 
+/// A git repo at `dir` holding `files` (path, contents) in one commit, with a fixed author and
+/// date: a synthetic repo for tests the fixture can't cover, such as a large or a hostile one.
+pub fn git_repo(dir: &Path, files: &[(String, Vec<u8>)]) {
+    for (path, contents) in files {
+        let path = dir.join(path);
+        fs::create_dir_all(path.parent().expect("a file has a parent")).expect("the directory is created");
+        fs::write(&path, contents).expect("the file is written");
+    }
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.com")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.com")
+            .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
+            .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
+            .output()
+            .expect("git runs");
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "init"]);
+}
+
 /// `examples/TRUTH.json`, frozen.
 pub fn truth() -> Value {
     let text = fs::read_to_string(repo_root().join("examples/TRUTH.json")).expect("TRUTH.json reads");

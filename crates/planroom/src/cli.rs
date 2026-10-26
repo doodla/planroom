@@ -3,23 +3,29 @@
 //! With `--json`, every command prints exactly one JSON document on stdout, on one line, except
 //! `watch`, which prints one `StreamFrame` per line until stopped.
 
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
 use std::process::ExitCode;
 use std::time::Instant;
 
+use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
-    Command, CommandName, Envelope, FocusReq, ImportReq, MapReq, Meta, PersonInitReq, SCHEMA_VERSION,
-    ScanReq, SchemaReq, Seq, ServeReq, ShareReq, Size, StreamFrame, VersionReq, Warning, WatchReq,
+    Command, CommandName, Envelope, ErrorCode, FocusReq, Handle, ImportReq, MapReq, Meta, PersonInitReq,
+    SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq, ShareReq, Size, StreamFrame, VersionReq, Warning,
+    WarningCode, WatchReq,
 };
+use planroom_kernel::display::{sanitize, sanitize_lines};
 use planroom_store::{Store, Tail};
 use serde::Serialize;
+use serde_json::{Value, json};
 
 use crate::app::actor::Caller;
 use crate::app::error::AppError;
 use crate::app::{self, Reply, workspace};
 use crate::live::Live;
+use crate::text;
 
 /// A shared, living map of a software system for people and agents.
 #[derive(Parser)]
@@ -65,9 +71,15 @@ enum PersonCmd {
 
 pub fn main() -> ExitCode {
     let caller = Caller::from_env();
-    let cli = Cli::parse();
+    let args: Vec<OsString> = std::env::args_os().collect();
+    let cli = match Cli::try_parse_from(&args) {
+        Ok(cli) => cli,
+        Err(e) => return usage_error(&e, &args),
+    };
     let Some(command) = cli.command else {
-        Cli::command().print_help().expect("help is written to stdout");
+        // A closed pipe, as in `planroom | head`, isn't an error.
+        let mut out = std::io::stdout().lock();
+        let _ = write!(out, "{}", Cli::command().render_help()).and_then(|()| out.flush());
         return ExitCode::SUCCESS;
     };
     let cwd = match std::env::current_dir() {
@@ -115,7 +127,8 @@ pub fn main() -> ExitCode {
     }
 }
 
-/// Print a reply or an error, and exit with the error's category's code.
+/// Print a reply or an error, and exit with the error's category's code. Text mode and stderr
+/// are display-sanitized; `--json` stays data, but for its engine-authored `summary` line.
 pub(crate) fn finish<T: Serialize>(
     json: bool,
     command: &str,
@@ -126,31 +139,40 @@ pub(crate) fn finish<T: Serialize>(
     let (code, out) = match reply {
         Ok(reply) => {
             let line = if json {
-                envelope(command, Some(&reply.result), None, reply.seq, took_ms, reply.warnings)
+                let summary = summary_of(&reply.text);
+                envelope(command, Some(&reply.result), None, reply.seq, took_ms, reply.warnings, summary)
             } else {
-                reply.text
+                sanitize_lines(&reply.text)
             };
             (ExitCode::SUCCESS, line)
         }
         Err(e) => {
+            let exit = ExitCode::from(e.code.exit_code() as u8);
             let line = if json {
-                envelope::<T>(command, None, Some(&e), 0, took_ms, vec![])
+                let e = with_usage(e, command);
+                envelope::<T>(command, None, Some(&e), 0, took_ms, vec![], None)
             } else {
-                eprintln!(
-                    "{}{}",
-                    e.message,
-                    e.hint.as_deref().map(|h| format!("\n  {h}")).unwrap_or_default()
-                );
-                return ExitCode::from(e.code.exit_code() as u8);
+                let hint = e.hint.as_deref().map(|h| format!("\n  {}", sanitize(h))).unwrap_or_default();
+                let mut err = std::io::stderr().lock();
+                let _ = writeln!(err, "{}{hint}", sanitize(&e.message));
+                return exit;
             };
-            (ExitCode::from(e.code.exit_code() as u8), line)
+            (exit, line)
         }
     };
-    println!("{out}");
+    // A closed pipe, as in `planroom map | head`, isn't an error.
+    let mut stdout = std::io::stdout().lock();
+    let _ = writeln!(stdout, "{out}").and_then(|()| stdout.flush());
     code
 }
 
-/// The envelope as one line, with `meta.size` measuring the line itself.
+/// The envelope's `summary`: the first line text mode prints, display-sanitized.
+pub(crate) fn summary_of(text: &str) -> Option<String> {
+    text.lines().next().map(sanitize).filter(|line| !line.trim().is_empty())
+}
+
+/// The envelope as one line, with `meta.size` measuring the line itself. `meta.truncated` is set
+/// exactly when a `truncated` warning says what the budget cut.
 pub(crate) fn envelope<T: Serialize>(
     command: &str,
     result: Option<&T>,
@@ -158,14 +180,17 @@ pub(crate) fn envelope<T: Serialize>(
     seq: Seq,
     took_ms: u32,
     warnings: Vec<Warning>,
+    summary: Option<String>,
 ) -> String {
+    let truncated = warnings.iter().any(|w| w.code == WarningCode::Truncated);
     let mut env = Envelope {
         schema_version: SCHEMA_VERSION,
         ok: error.is_none(),
         command: CommandName(command.into()),
+        summary,
         result,
         error: error.map(AppError::object),
-        meta: Meta { seq, took_ms, size: Size::default(), warnings, ..Meta::default() },
+        meta: Meta { seq, took_ms, size: Size::default(), truncated, warnings, ..Meta::default() },
     };
     // The size counts its own digits, so settle it: at most a few rounds.
     let mut line = serde_json::to_string(&env).expect("an envelope serializes");
@@ -214,8 +239,142 @@ fn watch(json: bool, req: &WatchReq, cwd: &Path) -> ExitCode {
 
 fn frame_text(frame: &StreamFrame) -> String {
     match frame {
-        StreamFrame::Event { seq, summary, .. } => format!("{seq} {summary}"),
+        StreamFrame::Event { seq, summary, .. } => format!("{seq} {}", sanitize(summary)),
         StreamFrame::Reset { seq } => format!("{seq} reset"),
         StreamFrame::Ping => "ping".into(),
     }
+}
+
+/// A clap usage error. `--help` and `--version` print as clap prints them. Otherwise, with `--json`
+/// in argv, one `invalid_argument` envelope naming the leaf, with its synopsis and its `schema
+/// --command LEAF` handle (DR-21, DR-66); without it, clap's text on stderr, display-sanitized.
+/// Either way, exit 2.
+fn usage_error(e: &clap::Error, args: &[OsString]) -> ExitCode {
+    if matches!(e.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) {
+        e.exit();
+    }
+    let json = args.iter().skip(1).take_while(|a| *a != "--").any(|a| a == "--json");
+    let rendered = e.render().to_string();
+    if !json {
+        let mut err = std::io::stderr().lock();
+        let _ = write!(err, "{}", sanitize_lines(&rendered));
+        return ExitCode::from(ErrorCode::InvalidArgument.exit_code() as u8);
+    }
+    let path = leaf_path(args);
+    let command = if path.is_empty() { "planroom".to_owned() } else { path.join(" ") };
+    let why = rendered.lines().next().unwrap_or_default();
+    let why = why.strip_prefix("error: ").unwrap_or(why);
+    let what = text::get("argument.usage", &[("why", &why)]);
+    let error = AppError::new(ErrorCode::InvalidArgument, &[("what", &what)])
+        .details(json!({ "field": usage_field(e) }));
+    finish::<()>(true, &command, Err(error), Instant::now())
+}
+
+/// The subcommand path argv names, as far as it names one: `["person", "init"]`.
+fn leaf_path(args: &[OsString]) -> Vec<String> {
+    let mut cmd = Cli::command();
+    let mut path = Vec::new();
+    for arg in args.iter().skip(1).filter_map(|a| a.to_str()) {
+        if arg == "--" {
+            break;
+        }
+        if arg.starts_with('-') {
+            continue;
+        }
+        let Some(sub) = cmd.find_subcommand(arg).cloned() else { break };
+        path.push(sub.get_name().to_owned());
+        cmd = sub;
+    }
+    path
+}
+
+/// The argument a clap error names, as its request field: `--level <LEVEL>` is `level`.
+fn usage_field(e: &clap::Error) -> Value {
+    if e.kind() == ErrorKind::InvalidSubcommand {
+        return json!("command");
+    }
+    let named = match e.get(ContextKind::InvalidArg) {
+        Some(ContextValue::String(arg)) => Some(arg.as_str()),
+        Some(ContextValue::Strings(args)) => args.first().map(String::as_str),
+        _ => None,
+    };
+    let Some(named) = named else { return Value::Null };
+    let field = match named.strip_prefix("--") {
+        Some(long) => long.split([' ', '=']).next().unwrap_or_default().to_owned(),
+        None => named.trim_matches(['<', '>', '[', ']', '.']).to_lowercase(),
+    };
+    json!(sanitize(&field.replace('-', "_")))
+}
+
+/// An `invalid_argument` envelope carries the leaf's synopsis and its `schema --command LEAF`
+/// handle in `details`, and names that handle as the hint, so a wrong argument costs one small
+/// read. With no leaf to name, the handle is `schema --commands`.
+fn with_usage(e: AppError, command: &str) -> AppError {
+    if e.code != ErrorCode::InvalidArgument || e.details.get("synopsis").is_some() {
+        return e;
+    }
+    let leaf = Command::SPECS.iter().any(|s| s.name() == command);
+    let mut cmd = Cli::command();
+    if leaf {
+        for word in command.split(' ') {
+            if let Some(sub) = cmd.find_subcommand(word).cloned() {
+                cmd = sub;
+            }
+        }
+    }
+    let schema = if leaf {
+        Handle {
+            command: CommandName("schema".into()),
+            args: vec!["--command".into(), command.into()],
+            label: text::get("argument.schema_label", &[("leaf", &command)]),
+        }
+    } else {
+        Handle {
+            command: CommandName("schema".into()),
+            args: vec!["--commands".into()],
+            label: text::get("schema.commands_label", &[]),
+        }
+    };
+    let words: Vec<String> =
+        schema.args.iter().map(|a| if a.contains(' ') { format!("\"{a}\"") } else { a.clone() }).collect();
+    let hint = format!("planroom schema {}", words.join(" "));
+    let mut details = match e.details.clone() {
+        Value::Object(map) => map,
+        _ => serde_json::Map::new(),
+    };
+    details.insert("synopsis".into(), json!(synopsis(&cmd, if leaf { command } else { "" })));
+    details.insert("schema".into(), serde_json::to_value(&schema).unwrap_or(Value::Null));
+    e.details(Value::Object(details)).with_hint(hint)
+}
+
+/// A leaf's one-line synopsis from its clap arguments, long flags only, such as
+/// `planroom map [--level intent|system|container|component|code] [--lens LENS] ... [--json]`.
+fn synopsis(cmd: &clap::Command, path: &str) -> String {
+    let mut words =
+        vec!["planroom".to_owned(), if path.is_empty() { "COMMAND".into() } else { path.to_owned() }];
+    for arg in cmd.get_arguments() {
+        let id = arg.get_id().as_str();
+        if matches!(id, "help" | "version" | "json") || arg.is_hide_set() {
+            continue;
+        }
+        let value = || {
+            let values: Vec<String> =
+                arg.get_possible_values().iter().map(|v| v.get_name().to_owned()).collect();
+            if values.is_empty() {
+                arg.get_value_names()
+                    .and_then(|names| names.first())
+                    .map_or_else(|| id.to_uppercase(), |n| n.as_str().to_owned())
+            } else {
+                values.join("|")
+            }
+        };
+        let word = match arg.get_long() {
+            Some(long) if arg.get_action().takes_values() => format!("--{long} {}", value()),
+            Some(long) => format!("--{long}"),
+            None => value(),
+        };
+        words.push(if arg.is_required_set() { word } else { format!("[{word}]") });
+    }
+    words.push("[--json]".into());
+    words.join(" ")
 }
