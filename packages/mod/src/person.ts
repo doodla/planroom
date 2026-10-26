@@ -6,6 +6,7 @@
  */
 
 import type { EngineInterface } from "claude-code";
+import type { ErrorObject } from "@planroom/contract";
 
 import {
   isPersonKey,
@@ -15,7 +16,7 @@ import {
   signToken,
   type PersonKey,
 } from "./actor";
-import { parseReply, type ReplyError } from "./engine";
+import { parseReply } from "./engine";
 import { clientEnv, runProcess } from "./live";
 
 type $ = EngineInterface;
@@ -48,7 +49,7 @@ export async function personEnv(
 
 export type Registration =
   | { kind: "registered" }
-  | { kind: "mismatch"; error: ReplyError }
+  | { kind: "mismatch"; error: ErrorObject }
   | { kind: "not_now" };
 
 /**

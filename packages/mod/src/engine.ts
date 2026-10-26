@@ -4,12 +4,13 @@
  */
 
 import type {
-  Category,
   Envelope,
-  Retry,
+  ErrorObject,
+  ResolverStatus,
   ToolError,
   ToolMeta,
   ToolResult,
+  VersionInfo,
 } from "@planroom/contract";
 
 import type { EngineState } from "./state-types";
@@ -19,27 +20,6 @@ export interface RunResult {
   exitCode: number;
   stdout: string;
   stderr: string;
-}
-
-/** A `--json` envelope, as far as the mod reads it. */
-export interface Reply {
-  ok: boolean;
-  command?: string;
-  /** The line text mode prints first; absent on an error and from an older engine. */
-  summary?: Envelope["summary"];
-  result?: unknown;
-  error?: ReplyError;
-  meta?: Record<string, unknown>;
-}
-
-export interface ReplyError {
-  code: string;
-  category?: string;
-  retry?: string;
-  retry_after_ms?: number;
-  message: string;
-  hint?: string | null;
-  details?: unknown;
 }
 
 export const INITIAL_ENGINE: EngineState = {
@@ -53,16 +33,19 @@ export const INITIAL_ENGINE: EngineState = {
   fix: null,
 };
 
-/** The one JSON document a `--json` command printed, or null when it printed something else. */
-export function parseReply(stdout: string): Reply | null {
+/**
+ * The one envelope a `--json` command printed, or null when it printed something else. It's
+ * checked only as far as `ok`, so the readers below still guard what they take from it.
+ */
+export function parseReply(stdout: string): Envelope | null {
   try {
     const value: unknown = JSON.parse(stdout.trim());
     if (
       typeof value === "object" &&
       value !== null &&
-      typeof (value as Reply).ok === "boolean"
+      typeof (value as Partial<Envelope>).ok === "boolean"
     ) {
-      return value as Reply;
+      return value as Envelope;
     }
   } catch {
     // Not JSON: the caller reports the process's own output.
@@ -104,28 +87,24 @@ export function engineFromVersion(
     };
   }
   if (reply.ok) {
-    const info = (reply.result ?? {}) as {
-      version?: string;
-      catalogue_hash?: string;
-    };
+    const info = reply.result as Partial<VersionInfo> | null | undefined;
     return {
       ...base,
       status: "ready",
-      version: info.version ?? null,
-      catalogue_hash: info.catalogue_hash ?? null,
+      version: info?.version ?? null,
+      catalogue_hash: info?.catalogue_hash ?? null,
     };
   }
-  const error = reply.error ?? {
-    code: "internal",
-    message: "The engine failed without an error.",
-  };
-  const details = (error.details ?? {}) as { reason?: string; fix?: string };
-  const fix = details.fix ?? error.hint ?? null;
+  const error = reply.error ?? NO_ERROR;
+  // engine_unavailable's details, as the error registry documents them (contracts.md).
+  const details = error.details as
+    { reason?: string; fix?: string } | null | undefined;
+  const fix = details?.fix ?? error.hint ?? null;
   if (error.code === "engine_fetching") {
     return { ...base, status: "fetching", line: error.message };
   }
   if (error.code === "engine_unavailable") {
-    switch (details.reason) {
+    switch (details?.reason) {
       case "stale_build":
         return {
           ...base,
@@ -147,11 +126,10 @@ export function engineFromVersion(
 /** The binary path from `scripts/planroom status --json`, or null. */
 export function pathFromStatus(run: RunResult): string | null {
   try {
-    const value = JSON.parse(run.stdout.trim()) as {
-      ok?: boolean;
-      path?: unknown;
-    };
-    return value.ok === true && typeof value.path === "string"
+    const value = JSON.parse(
+      run.stdout.trim(),
+    ) as Partial<ResolverStatus> | null;
+    return value?.ok === true && typeof value.path === "string"
       ? value.path
       : null;
   } catch {
@@ -162,17 +140,31 @@ export function pathFromStatus(run: RunResult): string | null {
 /** What a mod tool returns, for success and failure alike: the contract's type (contracts.md, DR-66). */
 export type { ToolResult };
 
-/** The envelope's error as a tool result carries it: whole (DR-66). */
-function toolError(error: ReplyError): ToolError {
+/** The error of an envelope that carried none: the engine failed without saying why. */
+const NO_ERROR: ErrorObject = {
+  code: "internal",
+  category: "internal",
+  retry: "never",
+  message: "The engine failed without an error.",
+  hint: null,
+  details: {},
+};
+
+/**
+ * The envelope's error as a tool result carries it: whole (DR-66). A field an older engine left
+ * out stays out, and a missing retry class reads `never`.
+ */
+function toolError(error: ErrorObject): ToolError {
+  const sent = error as Partial<ErrorObject>;
   const out: ToolError = {
     code: error.code,
-    retry: (error.retry ?? "never") as Retry,
+    retry: sent.retry ?? "never",
     message: error.message,
   };
-  if (error.category !== undefined) {
-    out.category = error.category as Category;
+  if (sent.category !== undefined) {
+    out.category = sent.category;
   }
-  if (error.retry_after_ms !== undefined) {
+  if (error.retry_after_ms !== undefined && error.retry_after_ms !== null) {
     out.retry_after_ms = error.retry_after_ms;
   }
   if (error.hint !== undefined && error.hint !== null) {
@@ -230,13 +222,7 @@ export function toolResult(run: RunResult): ToolResult {
   }
   return {
     ok: false,
-    error: toolError(
-      reply.error ?? {
-        code: "internal",
-        retry: "never",
-        message: "The engine failed without an error.",
-      },
-    ),
+    error: toolError(reply.error ?? NO_ERROR),
     meta: agentMeta,
   };
 }

@@ -5,9 +5,12 @@
  * the clock and the refetch.
  */
 
-import type { PaneModel, StreamFrame } from "@planroom/contract";
-
-import type { Reply } from "./engine";
+import type {
+  Envelope,
+  ErrorCode,
+  PaneModel,
+  StreamFrame,
+} from "@planroom/contract";
 
 /** The mod refetches on the first frame of a burst, then after this much quiet... */
 export const QUIET_MS = 250;
@@ -17,7 +20,7 @@ export const MAX_WAIT_MS = 500;
 /** One line of `watch --json`: a stream frame, or the one error envelope a failed start prints. */
 export type WatchLine =
   | { kind: "frame"; frame: StreamFrame }
-  | { kind: "reply"; reply: Reply }
+  | { kind: "reply"; reply: Envelope }
   | { kind: "other" };
 
 /** Parse one NDJSON line. Anything that isn't a frame or an envelope is ignored, never fatal. */
@@ -36,7 +39,7 @@ export function parseLine(line: string): WatchLine {
     return { kind: "frame", frame: value as StreamFrame };
   }
   if (typeof v["ok"] === "boolean") {
-    return { kind: "reply", reply: value as Reply };
+    return { kind: "reply", reply: value as Envelope };
   }
   return { kind: "other" };
 }
@@ -168,7 +171,7 @@ export function hasStore(model: PaneModel): boolean {
 }
 
 /** Error codes after which the loop stops instead of starting the child again. */
-export function stopsTheLoop(code: string): boolean {
+export function stopsTheLoop(code: ErrorCode): boolean {
   // No store yet: the first scan starts the loop (DR-57). A newer engine migrated the store: the
   // mod shows one line and never restarts the old binary, so nothing crash-loops (DR-53).
   return code === "workspace_not_found" || code === "schema_mismatch";
