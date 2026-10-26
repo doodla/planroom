@@ -10,10 +10,26 @@ These rules apply to every contract below unless its row says otherwise [DR-37].
 - **One schema in two views.** `cargo xtask gen` runs schemars 1.2.3 (draft 2020-12, `preserve_order`) and writes `schema/planroom.v1.schema.json` (the serialize view: what Planroom emits) and `schema/planroom.v1.input.schema.json` (the deserialize view: what Planroom accepts). Every contract is a `$defs` entry in them. `$id` is the raw GitHub URL on `main`.
 - **One version.** `schema_version = 1` is the major version of the whole public contract: commands, flags, exit codes, the envelope, result types, the error object, events, files and the code tables. Additive changes keep it. A rename, a removal, a changed meaning, or a new required input field bumps it, and the schema file names with it.
 - **Format tags.** Every persisted or exchanged document carries `format: "planroom.<name>/v1"`, so a file read out of context says what it is. The `/v1` follows `schema_version`.
-- **Open sets.** Error codes, warning codes, node and relation kinds, event kinds, question IDs, hint kinds and command names are `anyOf: [{enum: [...]}, {pattern}]`, so an older reader still validates a newer value. Everything else is closed.
-- **Readers of persisted documents** accept `format` versions up to their own and refuse newer ones with `schema_mismatch`. Unknown fields are kept through `#[serde(flatten)] extra` and written back unchanged.
+- **Open sets.** Error codes, warning codes, node and relation kinds, event kinds, question IDs, hint kinds and command names are `anyOf: [{enum: [...]}, {pattern}]`, so an older reader still validates a newer value. Everything else is closed. An event body whose `kind` a reader doesn't know decodes as `EventBody::Unknown`, which keeps the raw body, `kind` included, and writes it back unchanged; the fold skips it (DR-85).
+- **One format check.** `contract::format` is the check every Rust reader of a persisted document uses: it loads a `format` version from 1 up to the reader's own `schema_version` and refuses a newer one with `schema_mismatch`. `cargo xtask gen` writes its TypeScript port, `checkFormat` in `packages/contract/src/generated/format.ts`, from the same constants, and the Artifact transport reads every document through it (DR-85).
+- **Unknown fields survive.** A persisted document keeps the fields it doesn't know in a flattened `extra` (`contract::format::Extra`) and writes them back unchanged. The types that do so are in [Persisted documents](#persisted-documents). These rules only loosen what a reader accepts, so they came before any release with `schema_version` still 1 (DR-85).
 - **Integers** stay below 2^53 (`seq`, counts, line numbers, byte sizes). Hashes and IDs are strings. A schema lint in `xtask` fails on a `uint64` without an annotation [rust-stack G8].
 - **Breaking-change guard.** `cargo xtask check` compares the generated schema with the committed baseline in `schema/baseline/`, and, once a release exists, with the schema at the last `v*` tag. It fails on a removed property, a removed enum value or a new required input field without a `schema_version` bump. The baseline moves only with a `schema_version` bump, through `cargo xtask gen --schema-baseline`, and a tag it needs and can't find fails the check, never skips it. So the result depends on no branch tip and no fetch timing [DR-59].
+
+### Persisted documents
+
+| Document | Format tag | Type | Unknown content kept |
+|---|---|---|---|
+| The Artifact snapshot | `planroom.snapshot/v1` | `contract::remote::Snapshot` | fields, in `extra` |
+| `live/head` | `planroom.live-head/v1` | `contract::remote::LiveHead` | fields, in `extra` |
+| An inbox row | `planroom.inbox/v1` | `contract::remote::InboxRow` | fields, in `extra`, read as data only, so a forged `actor` grants nothing |
+| An answer | `planroom.answer/v1` | `contract::remote::Answer` | fields, in `extra` |
+| An ack | `planroom.ack/v1` | `contract::remote::Ack` | fields, in `extra` |
+| An event export or backup | `planroom.event/v1` | `contract::event::Event` | an unknown kind's body, as `EventBody::Unknown` |
+| `workspaces.json` | `planroom.workspaces/v1` | `crates/planroom/src/app/data.rs` | fields, in `extra`, at the top level and in each entry |
+| `serve.json` | `planroom.serve/v1` | `ServeFile` in `crates/planroom/src/server/mod.rs` | fields, in `extra` |
+
+`workspaces.json` and `serve.json` are internal: no surface reads them, so their types live in `crates/planroom`, not the contract crate (DR-85). The rules for the data root's shared files are in [Store schema and migrations](#store-schema-and-migrations).
 
 ## Codegen flow
 
@@ -26,8 +42,9 @@ contract::Command (catalogue) ──xtask──▶ packages/contract/src/generat
                               ──clap───▶ docs/reference/cli.md
 contract::ErrorCode::ALL, WarningCode::ALL ──xtask──▶ docs/reference/errors.md (tables)
 crates/planroom/text/en.toml (the fallback panes) ──xtask──▶ catalogue.ts FALLBACK_PANES
-contract::ErrorCode and ResolverStatus ──xtask──▶ plugin/scripts/contract.sh (SCHEMA_VERSION, the resolver's two codes, printf templates)
-contract::PaneModel and the atom types (EngineState, PaneState) ──xtask──▶ plugin/types/index.d.ts
+contract::format ──xtask──▶ packages/contract/src/generated/format.ts (checkFormat)
+contract::ErrorCode and contract::resolver ──xtask──▶ plugin/scripts/contract.sh (the resolver's codes, reasons, steps and templates)
+contract::PaneModel and the atom types (EngineState, PaneState, LastSeq, TurnSeq) ──xtask──▶ plugin/types/index.d.ts
 crates/planroom/src/config/defaults.toml ──xtask──▶ docs/reference/configuration.md
 boundaries.toml ──xtask──▶ .dependency-cruiser.cjs
 repo-layout.md area contracts ──xtask──▶ each area's AGENTS.md contract block, with its Read first lines
@@ -58,7 +75,7 @@ repo-layout.md area contracts ──xtask──▶ each area's AGENTS.md contrac
 | Implementer run | `planroom.implementer-run/v1` | `crates/contract/src/handoff.rs` (matches `examples/README.md`) | schema `$defs` `ImplementerRun` | implementers (`result.json`), `handoff report`, `curate`, `import` | `examples/fixture/implementer-runs.jsonl` validates line by line; `fixture_format_is_unchanged` (required fields equal the README's) |
 | Review threads | `planroom.review-threads/v1` | `crates/contract/src/review.rs` (matches `examples/README.md`) | input schema `$defs` `ReviewThreads` | the `review_threads` extractor, people, exporters | `examples/fixture/reviews/*.json` validates |
 | Mod tool schemas | `mcp__planroom__room_query`, `room_change`, `room_handoff` | the catalogue | `catalogue.ts` (`TOOL_SPECS`) | the chat model, through the mod | `tool_schemas_equal_catalogue`; `surface_tokens` (at most 1,500 projected tokens from the exact bytes: tools 900, the prompt section 300, skills and agents 300); `tool_results_within_budget`; `error_envelopes_reach_the_model`; `handles_round_trip_after_redaction` |
-| Mod state contract | `planroom` atoms | `crates/contract/src/view.rs`, which holds every atom's type, `EngineState` and `EngineStatus` included (DR-81), and `packages/mod/src/state.ts` atom list | `plugin/types/index.d.ts` | the mod, `claude plugin validate` | drift check on `index.d.ts`; `tsc -p packages/mod` |
+| Mod state contract | `planroom` atoms | `crates/contract/src/view.rs`, which holds every atom's type: `EngineState`, `EngineStatus`, `PaneState`, `LastSeq` and `TurnSeq` (DR-81, DR-85); and `packages/mod/src/state.ts` atom list | `plugin/types/index.d.ts` | the mod, `claude plugin validate` | drift check on `index.d.ts`; `tsc -p packages/mod` |
 | `/room` command family | `ROOM_COMMANDS` | the catalogue | `catalogue.ts`; the mod's `/room help` | people in Claude Code | `room_commands_snapshot` (S15) |
 | Artifact `db` layout and event format | `planroom.snapshot/v1`, `planroom.live-head/v1`, `planroom.inbox/v1`, `planroom.answer/v1`, `planroom.ack/v1`, the `db` rules, `import -`'s stdin lines and result, the share page's transport marker (DR-83) | `crates/contract/src/remote.rs` | schema `$defs` `Snapshot`, `LiveHead`, `InboxRow`, `Answer`, `Ack`, `ImportLine`, `ImportResult`; `output.ts`, `input.ts` | `share`, `import`, the mod's `/room sync`, the Artifact page | the page's transport is type-checked against them; `s11_remote.rs` (validation at import, a forged actor is ignored, a signed owner row applies, rows come only from the mod, snapshot size under 1 MB, no `contains` by default) |
 | Configuration | `config.toml` in the workspace's state directory (`.planroom/` or a single repo's `.git/planroom/`, DR-74) and `${XDG_CONFIG_HOME:-$HOME/.config}/planroom/config.toml` (user-level) | `crates/planroom/src/config/defaults.toml` and `crates/contract/src/config.rs` | input schema `$defs` `Config`; `docs/reference/configuration.md` | people, the engine | `configuration_reference_equals_defaults`; `every_key_has_a_default`; `credential_settings_come_only_from_user_config` |
@@ -68,7 +85,7 @@ repo-layout.md area contracts ──xtask──▶ each area's AGENTS.md contrac
 | Art spend log | `docs/art/spend.jsonl` | one line per Iris run, appended by the recorded art step (DR-69), seeded with a row per committed image and one `drafts` row (DR-65) | none | the final report | `docs.rs::every_image_has_its_prompt_and_spend_row` (every image has a prompt and a row, a row may have no image, and the total stays under $5) |
 | Feature list | `feature_list.json` | hand-maintained by the main agent | none | the build process, reviewers | `feature_list_is_complete` (one entry per S1 to S15; every listed test exists and runs under a CI `cargo xtask` command with no `PLANROOM_LIVE_*` flag and no live session, DR-59) |
 | Layout lock | `layout.lock` | the gated surfaces' sha256 and the decision record that approved each | written by `cargo xtask gen --layout-lock DR-n` | `cargo xtask check layout` | the layout gate itself: a state check on every run, and a walk over the commits a push or pull request adds (DR-59, DR-70) |
-| Resolver environment and status | `PLANROOM_ENGINE`, `PLANROOM_RESOLVE`, `PLANROOM_RELEASE_BASE_URL`; `scripts/planroom status --json`; the `engine_fetching` and `engine_unavailable` envelopes | `crates/contract/src/resolver.rs` (`ResolverStatus`, and the two envelopes as `Envelope<()>` with their `ErrorObject`) for the outputs; the table in [The resolver's environment](#the-resolvers-environment) for the variables | schema `$defs` `ResolverStatus`; `output.ts`; `plugin/scripts/contract.sh`, which the resolver sources, so it spells no code and builds every output from a generated template | the mod, skills, agents' Bash, S14's evidence steps | `tests/installer/run.sh::every_resolver_output_validates` (each resolver stdout, for each reason, against the committed schema), `base_url_refuses_plain_http_to_a_non_loopback_host`, `resolve_release_skips_the_checkout`, `status_names_the_step_that_resolved`; the `contract.sh` drift check (DR-69) |
+| Resolver environment and status | `PLANROOM_ENGINE`, `PLANROOM_RESOLVE`, `PLANROOM_RELEASE_BASE_URL`; `scripts/planroom status --json`; the `engine_fetching` and `engine_unavailable` envelopes | `crates/contract/src/resolver.rs` (`ResolverStatus`, `ResolverStep`, `UnavailableReason`) and the error registry for the outputs, which are `Envelope`s with an `ErrorObject` (DR-85); the table in [The resolver's environment](#the-resolvers-environment) for the variables | schema `$defs` `ResolverStatus`; `output.ts`; `plugin/scripts/contract.sh`, which the resolver sources, so it spells no code or reason and builds every output from a generated template | the mod, skills, agents' Bash, S14's evidence steps | `tests/installer/run.sh::the_resolver_spells_no_code_or_reason_itself`, `resolver_outputs_are_one_document_with_their_size`, `base_url_refuses_plain_http_to_a_non_loopback_host`, `resolve_release_skips_the_checkout`; planned for M5: `every_resolver_output_validates` (each resolver stdout, for each reason, against the committed schema) and `status_names_the_step_that_resolved`; the `contract.sh` drift check (DR-69, DR-85) |
 
 `examples/TRUTH.json` (`planroom.truth/v1`) is a test input, not a Planroom contract. Its shape belongs to `examples/README.md`, and `crates/testkit/src/truth.rs` reads it.
 
@@ -83,7 +100,9 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub struct Envelope<T> {
     pub schema_version: u32,                 // const 1
     pub ok: bool,
-    pub command: CommandName,                // "ask", "handoff merge"
+    pub command: CommandName,                // "ask", "handoff merge"; "planroom" for a usage error that names no leaf
+    pub summary: Option<String>,             // optional, on success: the engine-authored line text mode prints first,
+                                             // display-sanitized; /room shows it with the reply's handles (DR-85)
     #[serde(skip_serializing_if = "Option::is_none")] pub result: Option<T>,
     #[serde(skip_serializing_if = "Option::is_none")] pub error: Option<ErrorObject>,
     pub meta: Meta,
@@ -100,7 +119,8 @@ pub struct Meta {                            // every field but seq and size is 
     pub replayed: bool,                      // an idempotent replay of a stored reply
     pub replayed_from: Option<Seq>,          // a replay of a derived idem: the original seq; the hint says to pass a new --idem
     pub stale_repos: Vec<String>,            // a refresh read skipped these rescans because a live process holds scan:REPO
-    pub dirty_repos: Vec<DirtyRepo>,         // focus and map only: { repo, files }, repos whose working tree has uncommitted changes (DR-71)
+    pub dirty_repos: Vec<DirtyRepo>,         // focus and map only (M1): { repo, files }, repos with uncommitted changes, untracked
+                                             // files included, which never reach the map (DR-71, DR-85)
     pub warnings: Vec<Warning>,
     pub models: Option<ModelUse>,            // { jev: Usage, claude: Usage } with calls, cache_hits, cost_usd; None when both call counts are 0
     pub model_requests: Vec<ModelRequestRef>,// session backend: { id, purpose, sha256, rerun: Handle }; rerun is the exact command the
@@ -128,12 +148,12 @@ pub struct Listing<T> { pub summary: String, pub items: Vec<T>, pub empty: Optio
 A successful reply, and a stale write:
 
 ```json
-{"schema_version":1,"ok":true,"command":"ask",
+{"schema_version":1,"ok":true,"command":"ask","summary":"4 runtime containers have no alert watching them directly",
  "result":{"question":"unmonitored","summary":"4 runtime containers have no alert watching them directly",
    "items":[{"id":"ws:container:redis","name":"redis","why":"no alert selects a metric it emits or that is scraped from it",
              "handles":[{"command":"ask","args":["why","ws:container:redis","platform:alert:OrdersHighErrorRate"],"label":"Why"}]}],
    "empty":null},
- "meta":{"seq":412,"took_ms":38,"size":{"bytes":475,"tokens_est":119}}}
+ "meta":{"seq":412,"took_ms":38,"size":{"bytes":545,"tokens_est":137}}}
 ```
 
 ```json
@@ -145,7 +165,18 @@ A successful reply, and a stale write:
  "meta":{"seq":412,"took_ms":12,"size":{"bytes":433,"tokens_est":109}}}
 ```
 
-`details.card` is present only for a person's stale write [DR-7].
+`details.card` is present only for a person's stale write [DR-7]. `summary` is absent on an error, whose `message` is its line.
+
+No level or view is blank: an empty one carries an `Empty`, whose `next` runs today. The reasons the engine sends:
+
+| `reason` | When | `next` |
+|---|---|---|
+| `not_scanned` | `focus` or `map` in a directory with repos and no store (DR-57) | `scan DIR`, "Map these N repos? About 2 s" |
+| `no_repos` | `focus` or `map` in a directory with no repos and no store; `map` returns it `ok`, not `workspace_not_found` | `focus`, "check again": no `scan` there could succeed (DR-85) |
+| `no_intent` | `map --level intent` before any plan | `map`, the top of the map (DR-85) |
+| `empty_level` | `map --level L` where the workspace has nothing at `L` | `map`, the top of the map (DR-85) |
+| `nothing_mapped` | the top of the map after a scan found nothing to map | `scan ROOT` (DR-85) |
+| `not_in_snapshot` | the Artifact's request state for a view the snapshot doesn't hold | the read request row (DR-77) |
 
 Redaction is by field [DR-64]. A field marked `#[redact]` in `crates/contract/src/` holds repo-derived free text: `Evidence.contains`, `Hint.value` and `Hint.attrs`, the string values of `Node.props` and `Edge.props`, `ContextExcerpt.excerpt`, `RunStep::Command.output_excerpt`, the `stderr` in `git_failed`'s `details`, and prompt text. `kernel::redact` masks secrets in those fields on every output path, CLI text and `--json` included. It never touches an ID, a handle, a cursor or a hash. `PLANROOM_RAW=1` turns it off for the truth comparator alone, and only on a read command's `--json` stdout: model requests, session request files, the snapshot, `live/head`, acks, tool results and logs stay redacted whatever it says. The mod's guard denies that variable to agents (DR-75).
 
@@ -155,11 +186,11 @@ Redaction is by field [DR-64]. A field marked `#[redact]` in `crates/contract/sr
 
 | Code | Category | Exit | Retry | Meaning | `details` |
 |---|---|---|---|---|---|
-| `invalid_argument` | usage | 2 | never | bad flags or request, a parent change that would make a cycle, or a relative `PLANROOM_SPEND_LOG` (DR-65) | `field`; `synopsis`, the leaf's one-line synopsis; `schema`, the `schema --command LEAF` handle, which `hint` also names (DR-66); `cycle`, the node IDs, for a parent cycle |
+| `invalid_argument` | usage | 2 | never | bad flags or request, a parent change that would make a cycle, or a relative `PLANROOM_SPEND_LOG` (DR-65). Under `--json` a bad flag or value is one envelope, never clap's text; one that names no leaf has `command: "planroom"` (DR-85) | `field`, the request field the error names; `synopsis`, the leaf's one-line synopsis, generated from clap; `schema`, the `schema --command LEAF` handle, or `schema --commands` with no leaf, which `hint` names as an exact command (DR-66, DR-85); `cycle`, the node IDs, for a parent cycle. Every CLI `invalid_argument` carries `field`, `synopsis` and `schema`; one over HTTP doesn't until M2's budgets slice, and the resolver's carries only `field` |
 | `ambiguous_ref` | usage | 2 | never | an ID suffix matched several records | `candidates` |
 | `base_required` | usage | 2 | never | a write to user-authored state without `base` | `hint` names `meta.seq` |
 | `actor_required` | usage | 2 | never | a write with no `PLANROOM_ACTOR`, no person token and no terminal | `hint` shows `PLANROOM_ACTOR=agent:<id>:<role>` |
-| `workspace_not_found` | not_found | 3 | never | no repos at the path, or a read's `--workspace` names a directory with no store; `focus` instead returns `ok` with the not-yet-a-workspace empty state (DR-57) | `path` |
+| `workspace_not_found` | not_found | 3 | never | `scan` found no repos at the path, or a command that needs a store found none, such as a read whose `--workspace` names a directory with no store; `focus` and `map` instead return `ok` with the not-yet-a-workspace empty state, `not_scanned` or `no_repos` (DR-57, DR-85) | `path` |
 | `not_found` | not_found | 3 | never | unknown ID, question or file | `closest` |
 | `stale_write` | conflict | 4 | after_reread | a field changed since `base`; stored as a conflict, never merged | `event`, `base`, `theirs`, `yours`, `card` |
 | `idempotency_mismatch` | conflict | 4 | never | the same `idem` with a different request | `idem`, `stored_event` |
@@ -176,9 +207,9 @@ Redaction is by field [DR-64]. A field marked `#[redact]` in `crates/contract/sr
 | `store_busy` | unavailable | 7 | now | still locked after the 5 s busy timeout | |
 | `port_in_use` | unavailable | 7 | never | another program holds the workspace's recorded canvas port; `serve` never moves unasked, so a tab's pending edits keep their origin (DR-78) | `port`, `fix` (stop that program and press `e`, or `planroom serve --port N`) |
 | `git_too_old` | unavailable | 7 | never | the `git` on `PATH` is older than 2.34.1, the oldest whose plumbing the adapter uses; `scan` and `doctor` return it (DR-78) | `found`, `minimum`, `fix` |
-| `engine_fetching` | unavailable | 7 | later | the resolver's envelope to a caller other than the mod, printed from the generated `contract.sh`: a prefetch held the fetch lock for 20 s (DR-69) | `progress`; `retry_after_ms` |
-| `engine_unavailable` | unavailable | 7 | never | the resolver's envelope, printed from the generated `contract.sh`, when it can't hand back an engine: the download failed, the version has no release, a checkout's build is stale, `PLANROOM_ENGINE` names no executable file, or `PLANROOM_RESOLVE=checkout` finds no build; it never starts a build for a caller other than the mod (DR-69) | `reason` (`download_failed`, `no_release`, `stale_build`, `no_toolchain`, `override_missing` with the fix `unset PLANROOM_ENGINE`, or `no_build` with the source build's offer, DR-81), `fix` (an exact command, such as `scripts/planroom build`), `est_minutes`, and for `download_failed` the archive's and `SHA256SUMS`'s URLs (DR-78) |
-| `schema_mismatch` | unavailable | 7 | never | the store or a file is from a newer version, or this process is older than the store, checked at open, again inside every commit and duty transaction (DR-73), and by a live `watch` whenever the store changes; or a data-root file's `min_reader_version` is above this engine's (DR-78) | `found`, `supported`, `writer_version` (the engine version that wrote the store, so the mod names the update or the restore, DR-69) |
+| `engine_fetching` | unavailable | 7 | later | the resolver's envelope to a caller other than the mod, printed from the generated `contract.sh`: a prefetch held the fetch lock for 20 s (DR-69, DR-85) | `progress`, one line on who holds the lock; `retry_after_ms` 5000 |
+| `engine_unavailable` | unavailable | 7 | never | the resolver's envelope, printed from the generated `contract.sh`, when it can't hand back an engine: the download failed, the version has no release, a checkout's build is stale, `PLANROOM_ENGINE` names no executable file, or `PLANROOM_RESOLVE=checkout` finds no build; it never starts a build for a caller other than the mod (DR-69) | `reason` (`download_failed`, `no_release`, `stale_build`, `no_toolchain`, `override_missing` with the fix `unset PLANROOM_ENGINE`, or `no_build` with the source build's offer, DR-81); `fix` (an exact command, such as `scripts/planroom build`); with the source build's offer, `est_minutes` and `canvas`, whether Node and pnpm are present to build it; for `no_toolchain`, `missing`, the tool. For `download_failed` the archive's and `SHA256SUMS`'s URLs are still owed, in M5 (DR-78, DR-85) |
+| `schema_mismatch` | unavailable | 7 | never | the store or a file is from a newer version, or this process is older than the store, checked at open, again inside every commit and duty transaction (DR-73), and by a live `watch` whenever the store changes; or a data-root file's `min_reader_version` is above this engine's (DR-78) | `found`, `supported`, `writer_version` (the engine version that wrote the store, so the mod names the update or the restore, DR-69); `file`, for a file other than the store, such as `workspaces.json` (DR-85) |
 | `packs_mismatch` | unavailable | 7 | never | this process resolved another pack set than the one the store records; a write is refused. Packs load from their copies in the state directory, so only engine version skew causes it (DR-62) | `recorded`, `resolved`; `hint` names a restart for an older engine, or the update for a newer store |
 | `replay_missing` | unavailable | 7 | never | strict replay found no record (CI and tests) | `key`, `path` |
 | `pack_invalid` | failed | 8 | never | a pack failed validation | `file`, `line`, `reference` |
@@ -192,7 +223,7 @@ A code that only a person can clear has retry `never` and names the card or comm
 | Code | Meaning |
 |---|---|
 | `claimed` | the target is claimed by someone else; `details {by, until}` |
-| `truncated` | the result hit its budget; the summary and first page are kept |
+| `truncated` | the result hit its budget; the summary and first page are kept. For `map`, `details {kept, total, budget_tokens, next}`, where `next` is the drill-down handle in [Token budgets](architecture.md#token-budgets-s7) (DR-85) |
 | `unresolved_ref` | an alias or a linker join had zero or several candidates; no edge was made |
 | `evidence_dropped` | an evidence item failed verification at ingest |
 | `partial_parse` | a file parsed with error nodes; its facts are weak |
@@ -354,7 +385,7 @@ Every response carries exactly this CSP, what the canvas needs and no more (Reac
 - `planroom export` writes NDJSON: a header line `{"format":"planroom.event/v1","workspace_id":...,"store_version":...}`, then one `Event` per line in `seq` order. A person's `planroom import` of that file replays it into a store with no authored events, keeping each event's recorded actor and stored status.
 - The automatic backup, `DATA_ROOT/backups/<workspace_id>/events.ndjson`, is the same format, written through after each person-authored commit: under a lock on the file, every event above `meta.backup_seq` is appended and fsynced, then the mark advances. A restore sorts by `seq`, dedupes by `idem` and keeps each event's stored status. It skips `scan` events and writes one `scan` event holding the last reconcile outcome with `snapshot` and `link` 0, which the fold reads as no snapshot; the next scan rescans every repo and keeps that outcome's classes (DR-73). On a temporary host the same step also commits the file to `refs/planroom/backup/<workspace_id>` in the repo `meta.backup_ref` names, with git plumbing and hooks off, and `scan` restores from that ref when the data root has no backup (DR-53).
 - The ledger isn't in the store. It's `DATA_ROOT/ledger.db`, one per user, with its own migrations in `crates/store/ledger/` [DR-51].
-- The data root's shared files, `ledger.db` and `workspaces.json`, serve every engine version on the machine at once, so they change only by additions: a new table, column or key, never a rename or a removal. Each records the oldest engine version that can read it, `min_reader_version`, which a migration raises only when old readers would misread it, and an engine older than that refuses with `schema_mismatch` naming the file. So an update in one workspace never stops older sessions in others. Before each ledger migration the engine writes `VACUUM INTO DATA_ROOT/backups/ledger-vN.db`, and `doctor --restore` takes that copy too, so a downgrade keeps the daily guard's history (DR-78).
+- The data root's shared files, `ledger.db` and `workspaces.json`, serve every engine version on the machine at once, so they change only by additions: a new table, column or key, never a rename or a removal. Each records the oldest engine version that can read it, `min_reader_version`, which a migration raises only when old readers would misread it, and an engine older than that refuses with `schema_mismatch` naming the file. So an update in one workspace never stops older sessions in others. A change to `workspaces.json` reads, edits and renames the file under an exclusive lock on `workspaces.json.lock` (the standard library's `File::lock`), so two engines recording at once lose no entry. A newer `format`, or a `min_reader_version` above the engine's version, is refused with `schema_mismatch` whose `details.file` names the file, and the file is never rewritten (DR-85). Before each ledger migration the engine writes `VACUUM INTO DATA_ROOT/backups/ledger-vN.db`, and `doctor --restore` takes that copy too, so a downgrade keeps the daily guard's history (DR-78).
 - A live `watch` re-reads `PRAGMA user_version` when it starts and whenever `PRAGMA data_version` changes, and an older one exits with `schema_mismatch` within one 200 ms poll of a migration plus its exit, under 400 ms (DR-78, DR-82). A client whose cursor is more than 5,000 events behind, or past the store's last `seq` (after a restore), gets one `reset` (DR-82).
 
 ## Graph model
@@ -699,7 +730,7 @@ pub trait Linker {                           // pure: the workspace's hints and 
 pub struct RepoView { pub name: String, pub root: PathBuf, pub commit: String, pub branch: String }
 ```
 
-Rules checked by `extract/tests/contract.rs`: deterministic and sorted output; tolerant of error nodes; files over 1 MiB, binaries and ignored paths skipped; at most 50,000 files and 256 MiB per extractor per repo, in sorted path order, with `partial_scan` on a cut; unchanged blobs reuse cached facts; every fact has evidence, a `Line` whose `contains` verifies against the blob or a `Ref` that verifies against git; nodes, edges and joinable hints come from syntax nodes, never comments or docstrings, and only `metric_mentions` reads comments, for evidence; emit props coerce to the prop schema; cross-file targets go out as aliases or hints; nothing from the repo runs.
+Rules checked by `extract/tests/contract.rs`: deterministic and sorted output; tolerant of error nodes; only the commit's tree read, never the working tree (DR-85); files over 1 MiB, binaries and paths a committed `.gitignore` ignores skipped; at most 50,000 files and 256 MiB per extractor per repo, in sorted path order, with `partial_scan` on a cut; unchanged blobs reuse cached facts; every fact has evidence, a `Line` whose `contains` verifies against the blob or a `Ref` that verifies against git; nodes, edges and joinable hints come from syntax nodes, never comments or docstrings, and only `metric_mentions` reads comments, for evidence; emit props coerce to the prop schema; cross-file targets go out as aliases or hints; nothing from the repo runs.
 
 ## Decision kind, policy and record
 
@@ -922,10 +953,15 @@ Every tool returns one shape, for success and failure alike (DR-66). The handler
 pub struct ToolResult<T> {
     pub ok: bool,
     pub result: Option<T>,                   // on success: the command's result, redacted like every output
-    pub error: Option<ToolError>,            // on failure: { code, retry, retry_after_ms, message, hint, details }, never dropped
-    pub meta: ToolMeta,                      // { seq, next, truncated, warnings, model_requests }: the fields an agent acts on
+    pub error: Option<ToolError>,            // on failure: the envelope's error whole, { code, category, retry, retry_after_ms,
+                                             // message, hint, details }, never dropped; only an error the mod authors, when no
+                                             // engine answered, may leave out category and details (DR-66, DR-85)
+    pub meta: ToolMeta,                      // { seq, next, truncated, warnings, model_requests }: the fields an agent acts on;
+                                             // seq is absent only when no engine answered
 }
 ```
+
+`ToolResult`, `ToolError` and `ToolMeta` live in `crates/contract/src/envelope.rs`, so the mod's handler serializes a generated type (DR-85).
 
 `tools.test.ts::error_envelopes_reach_the_model` sends a golden of every error code through it, and `tool_results_within_budget` gates the error results too. `handles_round_trip_after_redaction` re-issues every handle in every golden tool result and expects `ok`.
 
@@ -935,17 +971,17 @@ The mod's state (`plugin/types/index.d.ts`, generated) is a set of `$.state` ato
 
 | Atom | Type | Written by |
 |---|---|---|
-| `engine` | `{ status, resolver, path, version, catalogue_hash, backend, line, fix }`, the contract's `EngineState` (DR-81); `line` is the one status line and `fix` the command that clears it; `status` is `resolving`, `fetching`, `build_offered`, `building`, `failed`, `unsupported_platform`, `version_mismatch`, `person_key_mismatch` or `ready`, and picks the fallback pane (DR-57, DR-60) | `session.start`, the resolver's `status --json` |
-| `pane` | `PaneModel` | the watch loop's scheduled `focus` (first frame, after 250 ms of quiet, and at least every 500 ms under load) |
-| `lastSeq` | `{ seq: Seq \| null }`, null before the first frame (DR-82) | the watch loop |
+| `engine` | `{ status, resolver, path, version, catalogue_hash, backend, line, fix }`, the contract's `EngineState` (DR-81, DR-85); `line` is the one status line and `fix` the command that clears it; `status` is `resolving`, `fetching`, `build_offered`, `building`, `failed`, `unsupported_platform`, `version_mismatch`, `person_key_mismatch` or `ready`, and picks the fallback pane (DR-57, DR-60) | `session.start`, the resolver's `status --json` |
+| `pane` | `{ model, error }`, the contract's `PaneState`: the last `focus --json`'s `PaneModel`, or the error it returned (DR-85) | the watch loop's scheduled `focus` (first frame, after 250 ms of quiet, and at least every 500 ms under load) |
+| `lastSeq` | `{ seq: Seq \| null }`, the contract's `LastSeq`, null before the first frame (DR-82, DR-85) | the watch loop |
 | `outbox` | `{ idem, argv, env_names }[]` (never a token or the key) | each write, cleared on reply |
 | `agents` | `{ agentId, role, key, clones, commands, denied, started_at }[]`: the hand-off's clones and approved commands, which the guard reads, and the commands it denied (DR-64) | spawns, `turn.complete`, the guard |
 | `remote` | `{ url, last_published_seq, last_sync_at }` | `/room share`, `/room sync` |
-| `turnSeq` | `{ turnId, seq }` | `room_query` replies, for the default `base` |
+| `turnSeq` | `{ turnId, seq }`, the contract's `TurnSeq` (DR-85) | `room_query` replies, for the default `base` |
 
 ### The room family
 
-`ROOM_COMMANDS` in `catalogue.ts` lists every leaf with `room: true`, plus `/room` alone (focus the pane), `/room share` and `/room sync`. `/room help` prints it, and `room_commands_snapshot` pins it. `room` is registered with `immediate: true`, so it runs mid-turn (DR-77). Bare `/room` returns no `text` and starts no sync. Every other `/room` result is drawn in full through the `CommandOutput` site. Its `text`, which the model reads on every later turn, is only its summary line and handles, at most 300 tokens. `room.test.ts::room_text_within_budget` gates it as `budgets.json` `room_text` (DR-65).
+`ROOM_COMMANDS` in `catalogue.ts` lists every leaf with `room: true`, plus `/room` alone (focus the pane), `/room share` and `/room sync`. `/room help` prints it, and `room_commands_snapshot` pins it. `room` is registered with `immediate: true`, so it runs mid-turn (DR-77). Bare `/room` returns no `text` and starts no sync. Every other `/room` result is drawn in full through the `CommandOutput` site. Its `text`, which the model reads on every later turn, is only the envelope's `summary` and the reply's handles, never JSON, at most 300 tokens (DR-85). `room.test.ts::room_text_within_budget` gates it as `budgets.json` `room_text` (DR-65).
 
 ## Artifact db layout and event format
 
@@ -1064,6 +1100,15 @@ The resolver, `plugin/scripts/planroom`, reads no configuration file. It reads o
 | `PLANROOM_RELEASE_BASE_URL` | `https://github.com/$PLANROOM_REPO/releases/download`, from `engine.env` | where the archives and `SHA256SUMS` come from: `https` only, or plain `http` to `127.0.0.1`, `localhost` or `::1`. A download from any other base than the default is cached under `DATA_ROOT/engine-alt/<sha256 of the base>/` and used only while the same base is set, so it never becomes the binary later sessions run (DR-78); agents may not set it |
 | `PLANROOM_DATA` | `${XDG_DATA_HOME:-$HOME/.local/share}/planroom` | the data root the engine shares (DR-58) |
 
+`cargo xtask gen` writes `plugin/scripts/contract.sh` from `contract::ErrorCode` and `contract::resolver`, and the resolver sources it (DR-85). It holds:
+
+- the schema version;
+- for each code the resolver prints, `engine_unavailable`, `engine_fetching` and `invalid_argument`, its exit code and a printf template of its whole envelope, category and retry class included, with the list of the template's arguments;
+- `engine_unavailable`'s reasons, from `UnavailableReason`;
+- the steps, from `ResolverStep`, and the two `status --json` templates, resolved and unresolved.
+
+The resolver spells no code or reason itself, which `tests/installer/run.sh::the_resolver_spells_no_code_or_reason_itself` checks, and `boundaries.toml` lists the file among the generated read-only files.
+
 ## Plugin manifests
 
 Owned by Claude Code. Users install from the release line the README names: a marketplace entry whose `git-subdir` source names `path: "plugin"` and the release tag as its `ref` (DR-78, DR-83; A-20 in [Architecture](architecture.md#assumptions-to-verify)). Planroom's tests check only what it relies on: `marketplace.json` names one plugin `planroom` with source `./plugin` on `main`, for the local-path flow; `plugin.json`'s `name` equals the marketplace entry; its `version` is semver, which `claude plugin validate` doesn't check, and equals the Cargo workspace version, every `package.json` version and `plugin/scripts/engine.env`, except that a `-dev` version carries the stamp `.g<8 hex>` of the plugin's own files, which the resolver and `engine.env` leave out when they compare (DR-83); `plugin/` holds no `bin/` and no symlinks; the icon is a square PNG of 512 to 2,048 px [mod-spike].
@@ -1084,12 +1129,12 @@ These aren't product contracts, but tools and reviewers read them, so their shap
 |---|---|
 | `committed_schema_matches_the_generated_schema` | both schema views equal a fresh generation byte for byte |
 | `generated_ts_matches_the_schema` | `json2ts` into a temp dir equals `packages/contract/src/generated/` |
-| `the_schema_is_valid_and_enumerates_the_stable_codes` | valid draft 2020-12; `$id`; `schema_version` const; enums equal `ErrorCode::ALL`, `WarningCode::ALL`, `EventKind::ALL` and the command list |
+| `the_schema_is_valid_and_enumerates_the_stable_codes` | valid draft 2020-12; `$id`; `schema_version` const; enums equal `ErrorCode::ALL`, `WarningCode::ALL`, `EventKind::KNOWN` and the command list |
 | `open_sets_accept_later_values_of_the_documented_form_only` | future codes of the right form validate; malformed ones and other `schema_version`s don't |
 | `every_cli_json_output_validates` | every envelope the test suite produces validates against `Envelope` and its command's result |
 | `the_documented_error_table_is_the_error_codes` | `docs/reference/errors.md` tables equal the registry both ways, retry class included; a code only a person can clear has retry `never` (DR-66) |
 | `errors_are_only_built_from_the_registry` | source scan: no code string outside the registry and its generated files |
-| `every_resolver_output_validates` | `tests/installer/run.sh`: the resolver's `status --json`, `engine_fetching` and each `engine_unavailable` reason validate against the committed schema (DR-69) |
+| `every_resolver_output_validates` | `tests/installer/run.sh`, planned for M5: the resolver's `status --json`, `engine_fetching` and each `engine_unavailable` reason validate against the committed schema (DR-69). Today `resolver_outputs_are_one_document_with_their_size` checks each is one document whose `meta.size` counts its own bytes, and `the_resolver_spells_no_code_or_reason_itself` that every code and reason comes from `contract.sh` (DR-85) |
 | `every_leaf_has_a_budget_or_streams` | `catalogue.rs`: every leaf has a token budget, or is `watch`, `serve` or `export`; a pack question's budget is at most 3,000 (DR-21) |
 | `cli_reference_equals_help` | `docs/reference/cli.md` equals clap's rendered help |
 | `catalogue_has_one_handler_per_command` | every leaf has exactly one handler and every handler a leaf |
