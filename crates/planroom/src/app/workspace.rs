@@ -95,7 +95,7 @@ pub fn discover(dir: &Path) -> Result<Workspace, AppError> {
 /// The repos of the workspace `dir` belongs to, as a scan would find them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Scannable {
-    /// Repos git can read: with commits, or none yet (those map as a repo node).
+    /// Repos git can read: with commits, or none yet (those map nothing until their first commit).
     pub readable: usize,
     /// The names of the repos git refuses, which a scan skips, sorted.
     pub unreadable: Vec<String>,

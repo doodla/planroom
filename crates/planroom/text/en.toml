@@ -48,7 +48,7 @@ schema_label = "The {leaf} command's arguments and result"
 
 [warning]
 evidence_dropped = "{count} evidence items in {repo} didn't match commit {commit} and were dropped."
-partial_scan = "{extractor} reached its bound in {repo}; {count} files weren't scanned."
+partial_scan = "{count} files in {repo} weren't scanned by {extractor}: past its bound, or missing from a partial clone."
 partial_parse = "{count} files in {repo} couldn't be read in full."
 workspace_nested = "Another workspace sits inside this one, at {other_root}; the two stay apart."
 repo_unborn = "{repo} has no commits yet; it maps after its first commit."
