@@ -85,6 +85,8 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 70 | Repo gates over the pushed commits and every boundary statement | Repo layout: boundary checks; `justfile` or `cargo xtask` | extended | review round 2 (E14) |
 | 71 | Everyday git moves: a tracked branch, the working tree and every repo layout | none (R1, R7, principle 1) | added | review round 2 (E17) |
 | 72 | Owner follow-ups after review round 2: signed person tokens, Git LFS filters, S7's fast-forward | DR-64; DR-71 | amended | main agent |
+| 73 | A person's work outlasts automatic writes, flushes and restores | Store: optimistic concurrency on entity versions; Jev policy | extended | review round 3 (F1, F3, F4) |
+| 74 | Repo namespaces that survive duplicates and renames, and a single repo's state in its git directory | Kernel: stable, namespaced IDs | kept, extended | review round 3 (F5, F6) |
 
 ## Judge disagreements and how they were resolved
 
@@ -1570,3 +1572,62 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Consequences:** `planroom-models` is untouched; `planroom` gains the `p256` crate (RustCrypto, Apache-2.0 or MIT); A-17 for WS8: `crypto.subtle` in the mod supports ECDSA P-256 sign; tests `actor.rs::a_leaked_store_cannot_sign_a_person_action`, `git_safety.rs::a_standard_lfs_install_is_allowed`, `git_safety.rs::a_custom_filter_is_refused`; S7's step and `s07_decisions.rs::routine_rescan_*` run on the fast-forward.
 - **Sources:** `docs/contributing/research/arch-review/round-2/fixes.md`, checked 2026-10-26.
 
+## DR-73: A person's work outlasts automatic writes, flushes and restores
+
+- **Status:** accepted (decided by the main agent in review round 3, F1, F3 and F4).
+- **Starting point:** extended "Optimistic concurrency on entity versions" and "Jev policy. Each decision kind declares its question, thresholds and escalation."
+- **Origin:** review round 3: correctness-1, correctness-3 and correctness-4; the minor findings correctness-7, correctness-8 and correctness-9.
+- **Context:**
+  - A prefill, an auto-enabled effect or an `infer` output went through the same compare-and-set as any write, with the runner's read as its base. A person's edit made before that read sat at or below the base, so the model's write replaced it with no card.
+  - A tab that flushed another tab's pending canvas edit sent its own tab ID. The stale edit then looked like the flusher's own write and overwrote the flusher's newer value.
+  - A restore's replay set kept its bases from the abandoned timeline, while the restored store reused those seqs, so a set-aside edit could overwrite an edit made after the restore. A restore also replayed `scan` events whose snapshot IDs mean nothing in a rebuilt store.
+  - An older process waiting on the lock could commit into a store a newer one had just migrated. A one-shot read could return a `meta.seq` above the view it folded. Two decide runs with different pending sets held two leases and asked Jev twice.
+- **Decision:**
+  - A person's field wins over any automatic write. A person holds a field when its current value comes from a person's edit, and a target a person retracted is held whole. An auto-enabled effect, a prefill or an `infer` output never sets a held field, whatever its base. `store::commit` checks it before compare-and-set, records the decision with outcome `Superseded`, lists it in Diffs and deals no card. The runner skips subjects whose effect fields a person holds.
+  - A pending canvas edit keeps the client ID of the tab that minted it, and whichever tab flushes it sends that ID. A request hash covers the command, its canonical arguments, `base`, the actor and the client, never transport fields.
+  - A replay set's edits take the restored copy's last `seq`, the head both timelines share, as their base, and pass the normal compare-and-set. Any field written after the restore conflicts with them, whoever wrote it, and the conflict is a person card.
+  - A restore into an empty store keeps each event's stored status and skips `scan` events. It keeps the last reconcile outcome in one `scan` event with snapshot and link 0, and the next scan rescans every repo, classifies no change unit and carries the restored classes forward.
+  - Every commit and duty transaction reads `PRAGMA user_version` after `BEGIN IMMEDIATE` and aborts with `schema_mismatch` when it isn't the process's own.
+  - A read folds inside one read transaction, at N, the highest `seq` in it, and returns `meta.seq = N`. A cursor whose snapshot was pruned folds at the current `seq` and carries `stale_page`.
+  - The decision runner holds one `decide` lease per workspace. A decision event's request hash covers its inputs, never the pick, and the runner skips a subject whose decision event already exists.
+- **Alternatives rejected:**
+  - A conflict card when a model write meets a person's field: the person already decided, and a card asks again.
+  - A model write that waits for the person's edit to age: a timer decides what a person said.
+  - Letting the flushing tab's ID stand: it hides a conflict between two tabs.
+  - Replaying with the original bases: they count in another timeline.
+  - A `decide` lease per subject: more rows for a run that is already batched per slice.
+- **Consequences:**
+  - Contracts: `Outcome::Superseded`; the client a flush sends; the request hash's fields; `Meta.seq` from one read transaction; `stale_page` for a pruned page; a restored `scan` event with snapshot 0.
+  - Tests: `kernel/tests/policy.rs::a_prefill_never_overwrites_a_person_field`, `a_kind_version_bump_keeps_person_overrides`, `an_infer_rerun_keeps_hand_edited_parts`; `tests/e2e/surface.spec.ts::a_flush_by_another_tab_keeps_the_original_writer`, `a_flush_of_a_committed_edit_replays`; `backup.rs::a_replayed_edit_conflicts_with_a_post_restore_edit`, `a_restore_keeps_done_classes`; `store/tests/migrations.rs::an_older_writer_refuses_after_a_concurrent_migration`; `store/tests/interleavings.rs::meta_seq_never_exceeds_the_folded_view`; `duties.rs::concurrent_decide_runs_ask_each_subject_once`.
+  - Users: a correction a person made stays made, whatever a model decides later.
+  - Milestones: M1's fold and backup slices and M2's decision runner grow by 4 h in all.
+  - It amends DR-5, DR-8, DR-24, DR-50 and DR-53.
+- **Sources (checked 2026-10-26):** KICKOFF R6, R10 and principle 1; review round 3 correctness-1, correctness-3, correctness-4, correctness-7 to correctness-9 and owner decisions F1, F3 and F4.
+
+## DR-74: Repo namespaces that survive duplicates and renames, and a single repo's state in its git directory
+
+- **Status:** accepted (decided by the main agent in review round 3, F5 and F6).
+- **Starting point:** kept "Stable, namespaced IDs such as `<repo>:<kind>:<key>`" and extended DR-53's backups.
+- **Origin:** review round 3: unasked-1, unasked-2 and unasked-4.
+- **Context:**
+  - The namespace was the bare repo name. Discovery reaches repos two levels down for `~/src/<org>/<repo>` trees, so two repos named `api` merged into one set of nodes, and an override in one applied to the other.
+  - A `git mv` of a directory a person regrouped detached the regroup, and a card asked for a pick git already knew. Nothing checked that a release kept IDs stable.
+  - For a single-repo workspace, `.planroom/` sat in the working tree behind a `.gitignore`. Build contexts, `rsync` and archive uploads ignore that file, so the store could ship in an image.
+- **Decision:**
+  - A repo's namespace is its directory name. Of two repos with one name, the later in path order adds `-` and 4 hex characters of the sha256 of its path from the workspace root. `meta.repos` fixes each root's namespace at its first scan, and `doctor` lists every suffixed one.
+  - A rescan runs `git diff -M --name-status -z OLD NEW`. The `scan` event records each file rename, and each directory whose files all moved into one new directory. The fold resolves a vanished edit target through those renames, and Diffs lists the move once. Anything else that vanishes goes through the `rescan.retarget` role as before, a renamed repo directory included.
+  - `id_stability.rs` compares the fixture's IDs with the list the last release committed, and a release that changes one needs a record saying how overrides carry over.
+  - The state directory of a single-repo workspace is `planroom/` inside the repo's git directory, as `git rev-parse --absolute-git-dir` names it. A directory of repos keeps `.planroom/` at its root. Discovery finds either, and the guard covers both.
+- **Alternatives rejected:**
+  - The shortest unique path suffix as the namespace: a third repo with the same name can change an existing namespace.
+  - A namespace keyed by the first commit or remote URL: two clones of one repo share both.
+  - Every store under the data root: on a temporary host the data root goes with the container, and a store beside its repo keeps the workspace self-contained.
+  - Retargeting renames by a card: git already knows the answer.
+- **Consequences:**
+  - Contracts: `meta.repos`; `EventBody::Scan.renames`; the `NodeId` namespace rule; the state directory's two forms in Configuration.
+  - Tests: `first_run.rs::same_named_repos_get_distinct_namespaces`, `a_single_repo_workspace_keeps_its_state_in_the_git_dir`; `kernel/tests/fold.rs::an_override_follows_a_git_rename`, `a_moved_directory_carries_its_regroup`; `crates/planroom/tests/id_stability.rs::fixture_ids_match_the_last_release`; `store/tests/fs_check.rs::a_single_repo_keeps_its_state_in_the_git_dir`; `backup.rs::git_clean_leaves_a_single_repos_state_alone`.
+  - Security: a build context that copies `.git` still copies the store, and `SECURITY.md` says so.
+  - Users: same-named repos map apart, a renamed file keeps its corrections, and `git clean -x` in a single repo leaves Planroom's state alone.
+  - Milestones: M1's IDs and backup slices grow by 3 h.
+  - It amends DR-42, DR-48 and DR-53.
+- **Sources (checked 2026-10-26):** KICKOFF R1, R6, R15 and principle 1; `git-diff(1)` (`-M`), `git-rev-parse(1)` (`--absolute-git-dir`); review round 3 unasked-1, unasked-2, unasked-4 and owner decisions F5 and F6.

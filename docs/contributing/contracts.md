@@ -26,6 +26,7 @@ contract::Command (catalogue) ──xtask──▶ packages/contract/src/generat
                               ──clap───▶ docs/reference/cli.md
 contract::ErrorCode::ALL, WarningCode::ALL ──xtask──▶ docs/reference/errors.md (tables)
 crates/planroom/text/en.toml (the fallback panes) ──xtask──▶ catalogue.ts FALLBACK_PANES
+contract::ErrorCode and ResolverStatus ──xtask──▶ plugin/scripts/contract.sh (SCHEMA_VERSION, the resolver's two codes, printf templates)
 contract::PaneModel and $.state atoms ──xtask──▶ plugin/types/index.d.ts
 crates/planroom/src/config/defaults.toml ──xtask──▶ docs/reference/configuration.md
 boundaries.toml ──xtask──▶ .dependency-cruiser.cjs
@@ -60,14 +61,14 @@ repo-layout.md area contracts ──xtask──▶ each area's AGENTS.md contrac
 | Mod state contract | `planroom` atoms | `crates/contract/src/view.rs` and `packages/mod/src/state.ts` atom list | `plugin/types/index.d.ts` | the mod, `claude plugin validate` | drift check on `index.d.ts`; `tsc -p packages/mod` |
 | `/room` command family | `ROOM_COMMANDS` | the catalogue | `catalogue.ts`; the mod's `/room help` | people in Claude Code | `room_commands_snapshot` (S15) |
 | Artifact `db` layout and event format | `planroom.snapshot/v1`, `planroom.live-head/v1`, `planroom.inbox/v1`, the `db` rules | `crates/contract/src/remote.rs` | schema `$defs` `Snapshot`, `LiveHead`, `InboxRow`; `output.ts`, `input.ts` | `share`, `import`, the Artifact page | the page's transport is type-checked against them; `s11_remote.rs` (validation at import, a forged actor is ignored, a signed owner row applies, rows come only from the mod, snapshot size under 1 MB, no `contains` by default) |
-| Configuration | `.planroom/config.toml` (workspace) and `${XDG_CONFIG_HOME:-$HOME/.config}/planroom/config.toml` (user-level) | `crates/planroom/src/config/defaults.toml` and `crates/contract/src/config.rs` | input schema `$defs` `Config`; `docs/reference/configuration.md` | people, the engine | `configuration_reference_equals_defaults`; `every_key_has_a_default`; `credential_settings_come_only_from_user_config` |
+| Configuration | `config.toml` in the workspace's state directory (`.planroom/` or a single repo's `.git/planroom/`, DR-74) and `${XDG_CONFIG_HOME:-$HOME/.config}/planroom/config.toml` (user-level) | `crates/planroom/src/config/defaults.toml` and `crates/contract/src/config.rs` | input schema `$defs` `Config`; `docs/reference/configuration.md` | people, the engine | `configuration_reference_equals_defaults`; `every_key_has_a_default`; `credential_settings_come_only_from_user_config` |
 | Plugin and marketplace manifests | Claude Code's `plugin.json` and `marketplace.json` | `plugin/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | none (external formats) | Claude Code | `claude plugin validate --strict` on `.` and `plugin/`; `plugin_versions_agree` (plugin, Cargo workspace, `package.json`, `engine.env`); `no_bin_no_symlinks` |
 | Budgets file | `budgets.json` | hand-ratcheted: `cargo xtask gen --budgets` writes measurements to `target/budgets.measured.json` and prints the diff, and a person edits the file; plus a `recorded` section from evidence runs | none | `crates/planroom/tests/budgets.rs` | the budget test itself (20% growth fails, the S2 chat proxy and skill bodies included; the S3 cache-hit floor on gateway recordings); `cargo xtask check layout` (a commit that raises a gated number adds a decision record, DR-59) |
 | Spend log | `docs/evidence/spend.jsonl` in the main checkout | every live call, appended by the engine under a lock when `PLANROOM_SPEND_LOG` names it by an absolute path, which `cargo xtask` resolves through `git rev-parse --git-common-dir` (DR-65) | none | `cargo xtask live`, the final report | `the_spend_log_stops_live_calls_at_the_cap`; `the_spend_log_is_shared_across_worktrees_and_cwds`; `a_relative_spend_log_is_refused` |
 | Art spend log | `docs/art/spend.jsonl` | one line per Iris run, appended by the recorded art step (DR-69) | none | the final report | `docs.rs::every_image_has_its_prompt_and_spend_row` (every image has a prompt and a row; the total stays under $5) |
 | Feature list | `feature_list.json` | hand-maintained by the main agent | none | the build process, reviewers | `feature_list_is_complete` (one entry per S1 to S15; every listed test exists and runs under a CI `cargo xtask` command with no `PLANROOM_LIVE_*` flag and no live session, DR-59) |
 | Layout lock | `layout.lock` | the gated surfaces' sha256 and the decision record that approved each | written by `cargo xtask gen --layout-lock DR-n` | `cargo xtask check layout` | the layout gate itself: a state check on every run, and a walk over the commits a push or pull request adds (DR-59, DR-70) |
-| Resolver environment and status | `PLANROOM_ENGINE`, `PLANROOM_RESOLVE`, `PLANROOM_RELEASE_BASE_URL`; `scripts/planroom status --json` | `plugin/scripts/planroom` and the table in [The resolver's environment](#the-resolvers-environment) | none | the mod, skills, agents' Bash, S14's evidence steps | `tests/installer/run.sh` (`base_url_refuses_plain_http_to_a_non_loopback_host`, `resolve_release_skips_the_checkout`, `status_names_the_step_that_resolved`) (DR-69) |
+| Resolver environment and status | `PLANROOM_ENGINE`, `PLANROOM_RESOLVE`, `PLANROOM_RELEASE_BASE_URL`; `scripts/planroom status --json`; the `engine_fetching` and `engine_unavailable` envelopes | `crates/contract/src/resolver.rs` (`ResolverStatus`, and the two envelopes as `Envelope<()>` with their `ErrorObject`) for the outputs; the table in [The resolver's environment](#the-resolvers-environment) for the variables | schema `$defs` `ResolverStatus`; `output.ts`; `plugin/scripts/contract.sh`, which the resolver sources, so it spells no code and builds every output from a generated template | the mod, skills, agents' Bash, S14's evidence steps | `tests/installer/run.sh::every_resolver_output_validates` (each resolver stdout, for each reason, against the committed schema), `base_url_refuses_plain_http_to_a_non_loopback_host`, `resolve_release_skips_the_checkout`, `status_names_the_step_that_resolved`; the `contract.sh` drift check (DR-69) |
 
 `examples/TRUTH.json` (`planroom.truth/v1`) is a test input, not a Planroom contract. Its shape belongs to `examples/README.md`, and `crates/testkit/src/truth.rs` reads it.
 
@@ -90,7 +91,8 @@ pub struct Envelope<T> {
 
 pub struct Meta {                            // every field but seq and size is skipped when empty, false, null or zero, and the
                                              // schema gives each its default, so readers stay typed (DR-66)
-    pub seq: Seq,                            // the store version this reply reflects; pass it back as `base`
+    pub seq: Seq,                            // the store version this reply reflects: the highest seq inside the one read
+                                             // transaction its fold ran in (DR-73); pass it back as `base`
     pub took_ms: u32,
     pub size: Size,                          // { bytes, tokens_est = ceil(bytes / 4) }
     pub next: Option<Cursor>,                // opaque: (seq, last_id, filter hash)
@@ -101,7 +103,8 @@ pub struct Meta {                            // every field but seq and size is 
     pub dirty_repos: Vec<DirtyRepo>,         // focus and map only: { repo, files }, repos whose working tree has uncommitted changes (DR-71)
     pub warnings: Vec<Warning>,
     pub models: Option<ModelUse>,            // { jev: Usage, claude: Usage } with calls, cache_hits, cost_usd; None when both call counts are 0
-    pub model_requests: Vec<ModelRequestRef>,// session backend: { id, purpose, rerun: Handle }, the exact command to re-run once the mod fulfils it
+    pub model_requests: Vec<ModelRequestRef>,// session backend: { id, purpose, rerun: Handle }, the exact command the mod's broker
+                                             // re-runs itself once it fulfils the request (DR-18)
 }
 
 pub struct ErrorObject {
@@ -147,11 +150,11 @@ Redaction is by field [DR-64]. A field marked `#[redact]` in `crates/contract/sr
 
 ### Error codes
 
-`contract::ErrorCode` is the only place a code is spelled; a source scan fails on a code string anywhere else. Exit codes follow the category.
+`contract::ErrorCode` is the only place a code is spelled; a source scan fails on a code string anywhere else but a generated file, such as `plugin/scripts/contract.sh` (DR-69). Exit codes follow the category.
 
 | Code | Category | Exit | Retry | Meaning | `details` |
 |---|---|---|---|---|---|
-| `invalid_argument` | usage | 2 | never | bad flags or request, a parent change that would make a cycle, or a relative `PLANROOM_SPEND_LOG` (DR-65) | `field`; `cycle`, the node IDs, for a parent cycle |
+| `invalid_argument` | usage | 2 | never | bad flags or request, a parent change that would make a cycle, or a relative `PLANROOM_SPEND_LOG` (DR-65) | `field`; `synopsis`, the leaf's one-line synopsis; `schema`, the `schema --command LEAF` handle, which `hint` also names (DR-66); `cycle`, the node IDs, for a parent cycle |
 | `ambiguous_ref` | usage | 2 | never | an ID suffix matched several records | `candidates` |
 | `base_required` | usage | 2 | never | a write to user-authored state without `base` | `hint` names `meta.seq` |
 | `actor_required` | usage | 2 | never | a write with no `PLANROOM_ACTOR`, no person token and no terminal | `hint` shows `PLANROOM_ACTOR=agent:<id>:<role>` |
@@ -170,10 +173,10 @@ Redaction is by field [DR-64]. A field marked `#[redact]` in `crates/contract/sr
 | `budget_exceeded` | budget | 6 | later | a spend or size guard stopped a model-only command; decisions keep their default instead | `guard`, `limit`, `spent` |
 | `model_unavailable` | unavailable | 7 | later | a model-only command found Jev or Claude unreachable; other commands return the deterministic result with the `deterministic_fallback` warning | `provider` |
 | `store_busy` | unavailable | 7 | now | still locked after the 5 s busy timeout | |
-| `engine_fetching` | unavailable | 7 | later | the resolver's envelope to a caller other than the mod: a prefetch held the fetch lock for 20 s (DR-69) | `progress`; `retry_after_ms` |
-| `engine_unavailable` | unavailable | 7 | never | the resolver's envelope when it can't hand back an engine: the download failed, the version has no release, or a checkout's build is stale; it never starts a build for a caller other than the mod (DR-69) | `reason` (`download_failed`, `no_release`, `stale_build` or `no_toolchain`), `fix` (an exact command, such as `scripts/planroom build`), `est_minutes` |
-| `schema_mismatch` | unavailable | 7 | never | the store or a file is from a newer version, or this process is older than the store | `found`, `supported`, `writer_version` (the engine version that wrote the store, so the mod names the update or the restore, DR-69) |
-| `packs_mismatch` | unavailable | 7 | never | this process resolved another pack set than the one the store records; a write is refused (DR-62) | `recorded`, `resolved`; `hint` names `planroom pack add` or `pack remove`, or a restart for an older engine |
+| `engine_fetching` | unavailable | 7 | later | the resolver's envelope to a caller other than the mod, printed from the generated `contract.sh`: a prefetch held the fetch lock for 20 s (DR-69) | `progress`; `retry_after_ms` |
+| `engine_unavailable` | unavailable | 7 | never | the resolver's envelope, printed from the generated `contract.sh`, when it can't hand back an engine: the download failed, the version has no release, or a checkout's build is stale; it never starts a build for a caller other than the mod (DR-69) | `reason` (`download_failed`, `no_release`, `stale_build` or `no_toolchain`), `fix` (an exact command, such as `scripts/planroom build`), `est_minutes` |
+| `schema_mismatch` | unavailable | 7 | never | the store or a file is from a newer version, or this process is older than the store, checked at open and again inside every commit and duty transaction (DR-73) | `found`, `supported`, `writer_version` (the engine version that wrote the store, so the mod names the update or the restore, DR-69) |
+| `packs_mismatch` | unavailable | 7 | never | this process resolved another pack set than the one the store records; a write is refused. Packs load from their copies in the state directory, so only engine version skew causes it (DR-62) | `recorded`, `resolved`; `hint` names a restart for an older engine, or the update for a newer store |
 | `replay_missing` | unavailable | 7 | never | strict replay found no record (CI and tests) | `key`, `path` |
 | `pack_invalid` | failed | 8 | never | a pack failed validation | `file`, `line`, `reference` |
 | `git_failed` | failed | 8 | never | git exited non-zero; stderr redacted | `argv`, `stderr` |
@@ -199,7 +202,7 @@ A code that only a person can clear has retry `never` and names the card or comm
 | `cache_not_applied` | a marked Claude prefix reported no cache write and no cache read, so it is below the model's minimum (DR-65) |
 | `hidden_characters` | a diff hunk holds bidi controls or zero-width characters, which surfaces show as markers; `details {path, lines}` (DR-64) |
 | `scan_changed_under_edit` | a fact under a person's override changed; see Diffs |
-| `stale_page` | a page cursor's `seq` is behind; unchanged rows have no gaps or duplicates |
+| `stale_page` | a page cursor's `seq` is behind, or its snapshot was pruned so the page folds at the current `seq` (DR-73); unchanged rows have no gaps or duplicates |
 | `model_request_pending` | the session backend is waiting for the mod |
 | `store_migrated` | this command migrated the store; `details {from, to, backup}`, the `VACUUM INTO` copy (DR-53) |
 | `temporary_host` | this host loses its files with its container, so the backup is also kept at a ref; `details {repo, ref, push}`, the exact push command; the status line shows it once (DR-53) |
@@ -217,7 +220,8 @@ pub struct CommandSpec {
     pub summary: &'static str,               // one line: help, tool description, docs
     pub actor: ActorRule,                    // Any | PersonOnly | Mixed: the leaf table names the inputs that need a person
     pub class: Class,                        // Read | Change | Handoff
-    pub budget_tokens: u32,                  // default output budget
+    pub budget: Budget,                      // Tokens(u32), the default output budget, or Stream for watch, serve and export;
+                                             // every other agent-facing leaf has one, schema and doctor included (DR-21)
     pub needs_base: bool,                    // writes to user-authored state; the only commands whose missing idem is derived
     pub spends: bool,                        // can make a paid model call (intent next, decide --run, curate); no band names it (DR-66)
     pub errors: &'static [ErrorCode],
@@ -251,7 +255,8 @@ pub struct WriteCommon {                     // flattened into every write reque
     pub idem: Option<String>,                // when absent: derived for a needs_base command, else a fresh uuid v7 per invocation;
                                              // a one-transaction command keys its events idem#1, idem#2, ...; a multi-step one
                                              // (handoff merge, revert) keys each step idem#<step> and resumes from the last one
-    pub client: Option<String>,              // the client ID of the writer instance: a canvas tab, a mod session; else an agent's own
+    pub client: Option<String>,              // the client ID of the writer instance: a canvas tab, a mod session; a flush from a tab's
+                                             // pending store sends the minting tab's ID, never the flusher's (DR-73); else an agent's own
                                              // ID from PLANROOM_ACTOR, or cli:<pid> for a person at a terminal (DR-60)
     pub project: Option<NodeId>,
 }
@@ -282,7 +287,7 @@ pub struct WriteCommon {                     // flattened into every write reque
 | `doctor` | Setup | mixed: `--restore` needs a person | read, change | none |
 | `serve`, `watch`, `export`, `schema`, `version` | Setup | any | read | none |
 
-`planroom schema --commands` prints the catalogue as JSON: each leaf's path, idea, actor rule, budget, undo class and the `$ref` of its request and result types.
+`planroom schema --commands` prints the catalogue as JSON, paged under 1,500 tokens: each leaf's path, idea, actor rule, budget, undo class and its `schema --command LEAF` handle. `schema --command LEAF` returns that leaf's request and result types with the closure of their `$defs`, summary first, and `schema --def NAME` one type the same way, each under 1,500 tokens. `schema` alone returns a summary with the schema's `$id`, version and those handles, and `schema --out DIR` writes both views to files. `catalogue.rs::every_leaf_has_a_budget_or_streams` checks the budgets (DR-21).
 
 `PaneModel.next`, every band Button and every pack `[[suggestions]]` action name only a leaf whose undo class isn't `NotUndoable`, whose class isn't `Handoff`, and whose `spends` is false; the pack loader refuses any other with `pack_invalid` (DR-54, DR-66).
 
@@ -290,7 +295,7 @@ A person action carries `PLANROOM_PERSON_TOKEN=<at>.<hex>`, where the hex is `HM
 
 `planroom open --json` returns `OpenResult { opened: bool, empty: Option<Empty> }`: `opened` is false where no browser can be seen, and `empty.next` then names `share`, which the pane offers as `/room share` (DR-29).
 
-`planroom version --json` returns `VersionInfo { version, git_commit, schema_version, catalogue_hash }`. The catalogue hash is the sha256 of `planroom schema --commands`, which `cargo xtask gen` also writes into `catalogue.ts`, so the mod and `serve` detect a mismatched engine (DR-58).
+`planroom version --json` returns `VersionInfo { version, git_commit, schema_version, catalogue_hash }`. The catalogue hash is the sha256 of the whole catalogue as `planroom schema --commands` lists it across its pages, which `cargo xtask gen` also writes into `catalogue.ts`, so the mod and `serve` detect a mismatched engine (DR-58).
 
 ## HTTP API and live stream
 
@@ -324,23 +329,26 @@ pub struct PresenceRow { pub actor: Actor, pub surface: Surface, pub client_id: 
 
 Every API request except `session`, `code` and `drain` carries the tab's `Authorization: Bearer <token>`. Every API request carries an exact `Origin` of `http://127.0.0.1:PORT` or `http://localhost:PORT`; a missing or foreign one is `unauthorized` [DR-29].
 
-`serve.json` (internal, mode 0600 in a 0700 `.planroom/`): `{format: "planroom.serve/v1", port, pid, version, catalogue_hash, control_token, started_at}`. `serve --detach` reuses a server only when `version` and `catalogue_hash` both match its own (DR-58).
+`serve.json` (internal, mode 0600 in the 0700 state directory): `{format: "planroom.serve/v1", port, pid, version, catalogue_hash, control_token, started_at}`. `serve --detach` reuses a server only when `version` and `catalogue_hash` both match its own (DR-58).
 
 ## Store schema and migrations
 
 - The DDL is in [Architecture](architecture.md#store-schema). The source is `crates/store/migrations/NNNN_name.sql`, applied in order by `PRAGMA user_version`, which equals `meta.store_version`.
 - The store isn't a public contract: only `planroom-store` reads it. It's versioned because people keep stores across upgrades.
 - A migration that touches `events` ships with `crates/store/tests/fixtures/store-vN.db` from the previous release and a test that opens it, migrates it and folds it.
-- A binary that finds a newer `store_version` refuses with `schema_mismatch` naming the version that wrote the store, and the mod shows one line once instead of restarting it: the update commands when a release wrote the store, or `planroom doctor --restore` when a `-dev` build did (DR-69). One that finds an older one asks any older `serve` to drain, writes `VACUUM INTO DATA_ROOT/backups/<workspace_id>/store-vN.db` and checks it with `PRAGMA integrity_check` (the last 3 are kept), then migrates and folds in one transaction, rolling back on any failure, and reports `store_migrated` [DR-53]. `planroom doctor --restore BACKUP` (person only) puts a copy back, the downgrade path. It first writes `store-pre-restore-<at>.db` the same way, so restoring that copy undoes it, and sets the person-authored events above the restored copy's last `seq` aside as a replay set, `replay-<at>.ndjson`, named in `meta.replay_set`. The next successful migration replays the set through `store::commit` with each event's actor and `idem` (DR-53).
-- `planroom export` writes NDJSON: a header line `{"format":"planroom.event/v1","workspace_id":...,"store_version":...}`, then one `Event` per line in `seq` order. A person's `planroom import` of that file replays it into a store with no authored events, keeping each event's recorded actor.
-- The automatic backup, `DATA_ROOT/backups/<workspace_id>/events.ndjson`, is the same format, written through after each person-authored commit: under a lock on the file, every event above `meta.backup_seq` is appended and fsynced, then the mark advances. A restore sorts by `seq` and dedupes by `idem`. On a temporary host the same step also commits the file to `refs/planroom/backup/<workspace_id>` in the repo `meta.backup_ref` names, with git plumbing and hooks off, and `scan` restores from that ref when the data root has no backup (DR-53).
+- Every `store::commit` and duty transaction reads `PRAGMA user_version` after `BEGIN IMMEDIATE` and aborts with `schema_mismatch` when it isn't the process's own version, so an older process never writes into a store a newer one migrated while it waited (DR-73).
+- A binary that finds a newer `store_version` refuses with `schema_mismatch` naming the version that wrote the store, and the mod shows one line once instead of restarting it: the update commands when a release wrote the store, or `planroom doctor --restore` when a `-dev` build did (DR-69). One that finds an older one asks any older `serve` to drain, writes `VACUUM INTO DATA_ROOT/backups/<workspace_id>/store-vN.db` and checks it with `PRAGMA integrity_check` (the last 3 are kept), then migrates and folds in one transaction, rolling back on any failure, and reports `store_migrated` [DR-53]. `planroom doctor --restore BACKUP` (person only) puts a copy back, the downgrade path. It first writes `store-pre-restore-<at>.db` the same way, so restoring that copy undoes it, and sets the person-authored events above the restored copy's last `seq` aside as a replay set, `replay-<at>.ndjson`, named in `meta.replay_set`. The next successful migration replays the set through `store::commit` with each event's actor and `idem`, and with the restored copy's last `seq` as each edit's base, so a field written after the restore conflicts with it, whoever wrote it, and becomes a person card (DR-53, DR-73).
+- `planroom export` writes NDJSON: a header line `{"format":"planroom.event/v1","workspace_id":...,"store_version":...}`, then one `Event` per line in `seq` order. A person's `planroom import` of that file replays it into a store with no authored events, keeping each event's recorded actor and stored status.
+- The automatic backup, `DATA_ROOT/backups/<workspace_id>/events.ndjson`, is the same format, written through after each person-authored commit: under a lock on the file, every event above `meta.backup_seq` is appended and fsynced, then the mark advances. A restore sorts by `seq`, dedupes by `idem` and keeps each event's stored status. It skips `scan` events and writes one `scan` event holding the last reconcile outcome with `snapshot` and `link` 0, which the fold reads as no snapshot; the next scan rescans every repo and keeps that outcome's classes (DR-73). On a temporary host the same step also commits the file to `refs/planroom/backup/<workspace_id>` in the repo `meta.backup_ref` names, with git plumbing and hooks off, and `scan` restores from that ref when the data root has no backup (DR-53).
 - The ledger isn't in the store. It's `DATA_ROOT/ledger.db`, one per user, with its own migrations in `crates/store/ledger/` [DR-51].
 
 ## Graph model
 
 ```rust
 // crates/contract/src/model.rs
-pub struct NodeId(String);                   // "<namespace>:<kind-short>:<key>", such as "orders:pkg:internal/http"
+pub struct NodeId(String);                   // "<namespace>:<kind-short>:<key>", such as "orders:pkg:internal/http"; a repo's
+                                             // namespace is its directory name, or for the later of two same-named repos the name,
+                                             // "-" and 4 hex of sha256(its path from the workspace root), fixed in meta.repos (DR-74)
 pub struct EdgeId(String);                   // "e:" + 12 hex of sha256(kind ‖ from ‖ to ‖ via)
 pub struct Kind(String);                     // "<pack>.<name>", such as "code.service"; the kernel's own: "kernel.group",
                                              // "kernel.external", "kernel.project", "kernel.item", and the relation "kernel.touches"
@@ -451,7 +459,8 @@ pub enum Actor {
 pub enum Surface { Cli, Mod, Canvas, Artifact, Test }
 pub struct Client { pub surface: Surface, pub id: String }       // "tab_01J...", "mod:<sessionId>", "artifact:u_123:<instance>", "cli:4242"
 pub enum Cause { Event(EventId), Turn(String), Duty(String) }        // a chat turn batches ghosts into one card
-pub enum Status { Applied, Ghost, Conflict, Open, Closed }       // stored; the fold derives Superseded and Accepted for a ghost
+pub enum Status { Applied, Ghost, Conflict, Open, Closed }       // stored; the fold derives Superseded and Accepted for a ghost;
+                                                                 // a restore keeps each event's stored status (DR-73)
 
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EventBody {
@@ -463,8 +472,12 @@ pub enum EventBody {
     Version { project: Option<NodeId>, label: String },     // a tag on seq
     Decision(DecisionRecord),
     Claim { target: Target, until: Timestamp, release: bool },
-    Scan { repo: String, commit: String, branch: String, snapshot: u64,
+    Scan { repo: String, commit: String, branch: String,
+           snapshot: u64,                                   // 0 only in the outcome-holding event a restore writes (DR-73)
            link: u64,                                       // the workspace link snapshot of the active set this scan committed
+           renames: Vec<Rename>,                            // { from: NodeId, to: NodeId }: git's renames since the last
+                                                            // snapshot, files and wholly moved directories; the fold
+                                                            // resolves a vanished edit target through them (DR-74)
            stats: ScanStats,
            reconcile: Option<ReconcileOutcome> },          // on the last scan event of a scan's transaction
     Handoff(HandoffStep),
@@ -529,7 +542,9 @@ pub struct DecisionCard {
 
 pub struct MapView {
     pub level: Level, pub lens: String, pub focus: Option<NodeId>,
-    pub nodes: Vec<MapNode>,                 // id, kind, name, level, parent, counts, position, ghost, claimed_by
+    pub nodes: Vec<MapNode>,                 // id, kind, tone (the kind's, so surfaces style from the view model, DR-46), name,
+                                             // level, parent, counts, position, ghost, claimed_by; under a lens with kinds, its
+                                             // kinds' nodes come first (DR-15)
     pub edges: Vec<LiftedEdge>,
     pub hidden: u32,
     pub empty: Option<Empty>,
@@ -567,7 +582,7 @@ pub struct PackFile {
                                                          // pack_invalid, and overlapping globs take the first match in load order
     #[serde(default)] pub kinds: Vec<KindDecl>,
     #[serde(default)] pub relations: Vec<RelationDecl>,
-    #[serde(default)] pub hints: Vec<HintDecl>,
+    #[serde(default)] pub hints: Vec<HintDecl>,        // a hint kind no loaded linker consumes is pack_invalid (DR-9)
     #[serde(default)] pub extractors: Vec<ExtractorDecl>,
     #[serde(default)] pub linkers: Vec<LinkerDecl>,
     #[serde(default)] pub lenses: Vec<LensDecl>,
@@ -585,6 +600,8 @@ pub struct KindDecl { pub id: String, pub id_prefix: String /* the ID's kind-sho
                                                                   "container", which every Container-level kind uses */,
                       pub level: Level, pub label: String, pub parents: Vec<String>,
                       pub props: Value /* JSON Schema fragment */, pub icon: Option<String>,
+                      pub tone: Option<Tone> /* Service | Library | Store | Infra: a Container-level kind's block color;
+                                                surfaces style from MapNode.tone, never from a kind ID (DR-46) */,
                       pub empty_text: Option<String>, pub empty_action: Option<String> }
 pub struct RelationDecl { pub id: String, pub from: Vec<String>, pub to: Vec<String>, pub label: String,
                           pub props: Value /* JSON Schema fragment */, pub inferred: bool }
@@ -602,12 +619,16 @@ pub enum EmitTemplate {                      // values may use $file, $stem, $re
 }                                            // a bare path such as "$file" in a ref is pack_invalid: write "@id:code.file:$file"
 pub struct LinkerDecl { pub builtin: String, pub options: Value }
 pub struct LensDecl { pub id: String, pub label: String, pub relations: Vec<String>,
-                      pub flow: BTreeMap<String, Flow> /* Forward | Backward */, pub level: Level,
+                      pub flow: BTreeMap<String, Flow> /* Forward | Backward */,
+                      pub kinds: Vec<String> /* the node kinds the lens is about: its map shows their nodes first, edges
+                                                or none, and `map --lens` alone takes the lens's level (DR-15) */,
+                      pub level: Level,
                       pub default: bool /* two defaults are pack_invalid unless one is the code pack's, which wins */,
                       pub empty_text: Option<String>, pub empty_action: Option<String> }
 pub struct QuestionDecl { pub id: String, pub args: Vec<ArgDecl>, pub steps: Vec<ShapeStep> /* 1 to 3 */,
-                          pub summary: String, pub budget_tokens: Option<u32> }
+                          pub summary: String, pub budget_tokens: Option<u32> /* clamped to 3,000; None takes ask's 1,500 (DR-21) */ }
 pub enum Shape { Node, Find, Neighbors, Path, Why, Filter, Compare, Order, Subgraph, Tree, Machine, Checks }
+// kinds, stage, lint, missing and drift are built-in questions the engine serves, not shapes; no pack declares one (DR-15)
 pub struct RuleDecl { pub id: String, pub kind: RuleType /* RequiresProp | RequiresEdge | MinChildren | Covers */,
                       pub subject: String, pub params: Value, pub message: String }
 pub struct StageDecl { pub id: String, pub method: String, pub items: Vec<ItemType>,
@@ -649,15 +670,18 @@ Rules checked by `extract/tests/contract.rs`: deterministic and sorted output; t
 pub struct DecisionKind {                    // [[decisions]] in a pack
     pub id: String, pub version: u32,
     pub subject: SubjectKind,                // Kind("code.file"): a node or edge kind | Role(Role): subjects the role's raiser supplies
-    pub when: Predicate,                     // the deterministic precheck: { field = value } or { field = { lt | gt | in = ... } },
-                                             // over fields and props built-in extractors precompute: placed_by_rule, touched_after_anchor
+    pub when: Predicate,                     // the deterministic precheck, the filter shape's predicate, evaluated by the kernel over
+                                             // the folded model: { field = value }, { field = { lt | gt | in = ... } }, and
+                                             // with_edge or without_edge = { relation, direction, layer? }; a prop only an extractor
+                                             // can compute is precomputed: placed_by_rule, touched_after_anchor (DR-63)
     pub group: Option<String>,               // kinds with the same group and subject share one Jev request
     pub question: Question,
     pub slice: SliceSpec,                    // { query, relations, fields, max_tokens }; evidence goes in as path and contains, with an
                                              // occurrence index for a repeated line, never line (DR-65)
     pub effect: Effect,                      // { on, do: None | Lint | SetProp | PutEdge | RetractEdge | Retarget, ... }: closed, six
                                              // SetProp sets a prop or `parent`; a value of "$pick" is the chosen candidate;
-                                             // Retarget only on a Role(RescanRetarget) subject in a Person-stakes kind (DR-63)
+                                             // Retarget only on a Role(RescanRetarget) subject in a Person-stakes kind (DR-63);
+                                             // no effect sets a field a person holds (DR-73)
     pub stakes: Stakes,                      // Low: prefill and list in one batch per kind | Person: deal a card
     pub default: Value,                      // the answer that leaves the deterministic result as it is
     pub policy: Policy,
@@ -683,7 +707,8 @@ pub struct DecisionRecord {                  // the body of a decision event
     pub backend: String, pub model_requested: String, pub model_reported: Option<String>,
     pub scores: Value,                       // the normalized Jev or Claude result
     pub pick: Option<String>, pub band: Band, // Auto | Card | Escalate
-    pub outcome: Outcome,                    // Acted | Prefilled | Card | Escalated | Picked | Overridden
+    pub outcome: Outcome,                    // Acted | Prefilled | Card | Escalated | Picked | Overridden | Superseded: a person
+                                             // held a field the effect would set, so nothing applied and no card (DR-73)
     pub cost_usd: f64, pub cache_hit: bool, pub request_id: Option<String>,
 }
 ```
@@ -836,7 +861,7 @@ The three tools come from the catalogue. Typed unions of each leaf's request, wi
     "idem":    { "type": "string" } } }
 ```
 
-`room_change` adds one optional property, `payload`: an object the handler passes on stdin to a leaf run with `--file -`, such as `intent propose` or `edit propose`, so a proposal needs no file and no Write call (DR-66). The engine parses `command` and `args` with the same clap tree as the CLI, so validation and errors are the CLI's. The description holds one generated synopsis line per leaf, and `room help` or `planroom schema --commands` gives the full request types.
+`room_change` adds one optional property, `payload`: an object the handler passes on stdin to a leaf run with `--file -`, such as `intent propose` or `edit propose`, so a proposal needs no file and no Write call (DR-66). The engine parses `command` and `args` with the same clap tree as the CLI, so validation and errors are the CLI's. The description holds one generated synopsis line per leaf. `planroom schema --command LEAF` gives one leaf's full request and result types, and an `invalid_argument` from a tool carries the leaf's synopsis and that handle, so a wrong argument costs one small read (DR-21, DR-66). `tools.test.ts::a_wrong_argument_returns_the_leaf_synopsis` checks each leaf within the error budget.
 
 | Tool | Deferred | Leaves | Result |
 |---|---|---|---|
@@ -947,7 +972,7 @@ Two optional files share one schema, and every key has a default in `crates/plan
 
 | Key | Where | Default | Meaning |
 |---|---|---|---|
-| `packs` | workspace | `[]` | extra pack directories, after the built-ins; written by the person-only `planroom pack add` and `pack remove`, recorded in the store with the resolved set, and never overridden from the environment: `PLANROOM_PACKS` only names directories for `doctor --pack` (DR-62) |
+| `packs` | workspace | `[]` | extra pack directories, after the built-ins; written by the person-only `planroom pack add` and `pack remove`, which copies each pack into the state directory's `packs/` for every process to load from there, and recorded in the store with the resolved set (DR-62), and never overridden from the environment: `PLANROOM_PACKS` only names directories for `doctor --pack` (DR-62) |
 | `models` | either | `auto` | `off` turns every Jev and Claude call off: deterministic tiers, defaults and pre-selected cards (privacy, offline work, the models-off test path) |
 | `[claude] backend` | user | `auto` | `auto` (gateway if a credential resolves, else session if a mod is attached, else off), `gateway`, `session`, `off` |
 | `[claude] base_url` | user | `https://ai-gateway.vercel.sh` | a credential goes only to this host, `ai-gateway.vercel.sh` or `api.typesafe.ai` |
@@ -963,7 +988,7 @@ Two optional files share one schema, and every key has a default in `crates/plan
 
 ### The resolver's environment
 
-The resolver, `plugin/scripts/planroom`, reads no configuration file. It reads only these variables, and `scripts/planroom status --json` reports the step that resolved and where the binary came from (DR-69). The mod's guard denies agents the two that choose a binary.
+The resolver, `plugin/scripts/planroom`, reads no configuration file. It reads only these variables, and `scripts/planroom status --json` reports the step that resolved and where the binary came from, as a `ResolverStatus` built from the generated `contract.sh` (DR-69). The mod's guard denies agents the two that choose a binary.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -980,7 +1005,7 @@ Owned by Claude Code; Planroom's tests check only what it relies on: `marketplac
 
 These aren't product contracts, but tools and reviewers read them, so their shape is fixed here.
 
-- **`budgets.json`** (hand-ratcheted): `{ "<scenario>.<question>": { "tool_tokens": N, "tool_result_tokens": N, "chat_proxy": N, "claude": { "prompt_total": N, "output": N, "cache_hit_rate": F } }, "fold.20k": { "ms": N }, "surface": { "tools": N, "section": N, "skills_and_agents": N, "skill_bodies": { "<skill>": N } }, "recorded": { "<scenario>.<question>": { "chat_prompt": N, "chat_output": N, "chat_cache_hit_rate": F, "measured_by": "cargo xtask live evidence S02" }, "token_ratio": F } }`. CI gates every number outside `recorded`; `chat_proxy`, an S2 question's projected chat input (the always-on surface, the skill bodies its path loads and its tool results), is one of them. `recorded` changes only with the command it names [DR-51], and that command refuses a value more than 20% above the old one, or a hit rate more than 0.1 lower, unless the commit adds a decision record (DR-65). `cargo xtask gen --budgets` never writes this file: it writes `target/budgets.measured.json` and prints the diff. A person lowers a number by hand; a commit that raises a gated one must add a decision record (DR-59).
+- **`budgets.json`** (hand-ratcheted): `{ "<scenario>.<question>": { "tool_tokens": N, "tool_result_tokens": N, "chat_proxy": N, "claude": { "prompt_total": N, "output": N, "cache_hit_rate": F } }, "fold.20k": { "ms": N }, "fold.50k": { "ms": N }, "surface": { "tools": N, "section": N, "skills_and_agents": N, "skill_bodies": { "<skill>": N } }, "recorded": { "<scenario>.<question>": { "chat_prompt": N, "chat_output": N, "chat_cache_hit_rate": F, "measured_by": "cargo xtask live evidence S02" }, "token_ratio": F } }`. CI gates every number outside `recorded`; `chat_proxy`, an S2 question's projected chat input (the always-on surface, the skill bodies its path loads and its tool results), is one of them. `recorded` changes only with the command it names [DR-51], and that command refuses a value more than 20% above the old one, or a hit rate more than 0.1 lower, unless the commit adds a decision record (DR-65). `cargo xtask gen --budgets` never writes this file: it writes `target/budgets.measured.json` and prints the diff. A person lowers a number by hand; a commit that raises a gated one must add a decision record (DR-59).
 - **`layout.lock`** (written by `cargo xtask gen --layout-lock DR-n`): `{ "format": "planroom.layout-lock/v1", "surfaces": { "<surface>": { "sha256": "...", "dr": "DR-n" } } }`, one entry per gated surface: `boundaries.toml`, the workspace-crate dependency graph, the top-level directory list, each package's `exports` and its dependency names (never their versions, so a Dependabot bump needs no record), the area contracts table in `repo-layout.md`, parsed so formatting doesn't count, and the Boundaries and Conventions sections of `AGENTS.md` (DR-59, DR-70). Each `dr` names a record heading that appears once in `decisions.md`.
 - **`schema/baseline/`**: copies of both schema views at the last `schema_version` bump, or before any, at the commit that added them. `cargo xtask gen --schema-baseline` writes them, and the breaking-change guard reads them (DR-59).
 - **`docs/evidence/spend.jsonl`** (appended, committed): one line per live call, the `sample` calls an import prices included, `{ "at", "generation_id", "provider", "model", "cost_usd", "scenario" }`, where `provider` is `jev`, `gateway`, `typesafe` or `sample`. It is written only through the absolute path `cargo xtask` sets, under `spend.jsonl.lock` (DR-65).
@@ -996,7 +1021,9 @@ These aren't product contracts, but tools and reviewers read them, so their shap
 | `open_sets_accept_later_values_of_the_documented_form_only` | future codes of the right form validate; malformed ones and other `schema_version`s don't |
 | `every_cli_json_output_validates` | every envelope the test suite produces validates against `Envelope` and its command's result |
 | `the_documented_error_table_is_the_error_codes` | `docs/reference/errors.md` tables equal the registry both ways, retry class included; a code only a person can clear has retry `never` (DR-66) |
-| `errors_are_only_built_from_the_registry` | source scan: no code string outside the registry |
+| `errors_are_only_built_from_the_registry` | source scan: no code string outside the registry and its generated files |
+| `every_resolver_output_validates` | `tests/installer/run.sh`: the resolver's `status --json`, `engine_fetching` and each `engine_unavailable` reason validate against the committed schema (DR-69) |
+| `every_leaf_has_a_budget_or_streams` | `catalogue.rs`: every leaf has a token budget, or is `watch`, `serve` or `export`; a pack question's budget is at most 3,000 (DR-21) |
 | `cli_reference_equals_help` | `docs/reference/cli.md` equals clap's rendered help |
 | `catalogue_has_one_handler_per_command` | every leaf has exactly one handler and every handler a leaf |
 | `tool_schemas_equal_catalogue` | the mod's tool schemas equal the generated ones |
