@@ -12,8 +12,9 @@ You fix every material finding that survives refutation. You log each minor one 
 
 | File | What it holds |
 | --- | --- |
-| `round1-<lens>.json` | One lens's findings (`id`, `title`, `severity`, `where`, `evidence`, `why`, `fix`) and its verifier's verdicts (`refuted`, `severity_after`, `reason`) |
-| `README.md` | This index: each finding's outcome |
+| `round<N>-<lens>.json` | One lens's findings in round N (1 to 3): `id`, `title`, `severity`, `where`, `evidence`, `why` and `fix`, and its verifier's verdicts: `refuted`, `severity_after` and `reason` |
+| `README.md` | This index: each finding's outcome, round by round |
+| `accepted-risk.md` | What stays open after round 3, why it's accepted, what checks round 3's fixes, and who signed it off |
 
 ## Round 1
 
@@ -208,3 +209,69 @@ tests-r2-1 was fixed in the plan: `map` paging moves into M1's S1 slice.
 | ux-j | `/room share` returns no publish arguments to the model, so the documented publish can't follow it | Minor: known gap |
 | ux-k | During a source build, the fallback's only button ("Check again", also band key 1) flips the pane back to "Build it", and a second press starts a build that deletes the first one's clone | Minor: known gap |
 | ux-l | Some fix lines and hints can't be run from where the person is, and the no-canvas fix page is a bare white page | Minor: known gap |
+
+## Round 3
+
+Round 3, the last, ran on commit `b007ff3` with the same eight lenses, each refuted by a separate verifier. Each reviewer first checked that round 2's material fixes in its area held; they did, at the cases they were aimed at. Round 3 found their edges. There were 51 findings: 9 material, covering 8 distinct defects, 40 minor known gaps, and 2 refuted. The main agent fixed CI, and two fix tracks fixed the rest, merged on 2026-10-26 and recorded in [DR-87](../../decisions.md#dr-87-what-the-walking-skeletons-review-settled-in-round-3):
+
+| Track | Findings it fixes |
+| --- | --- |
+| ENGINE3 (merge `c9ae578`) | correctness-r3-1, unasked-r3-2, ux-r3-1 and drift-3-1, with correctness-r3-2 and -3 and unasked-r3-8 on the way: a late scan over a changed repo set, each transport refused by name, a workspace with no commits, import within its budget |
+| GUARD3 (merge `5210c3b`) | security-r3-1 to -3 and drift-3-2: the shell's directory per call, every tool's paths and uploads, the plugin's own files, the resolver's reason from the contract |
+| main agent | ops-r3-1 and ops-r3-2: the fixture's physical root on macOS, and a failed step's last 400 lines in the log |
+
+No fourth round runs. Round 3's own fixes had no reviewer; [the accepted risk](accepted-risk.md) says what checks them instead, and lists what stays open.
+
+| ID | Finding | Outcome |
+| --- | --- | --- |
+| correctness-r3-1 | A late scan still moves repos back when its repo set (extraction inputs) changed meanwhile: DR-86's 'a late scan never moves a repo back' holds only for HEAD moves | Material: fixed by ENGINE3 `1aa5349` |
+| correctness-r3-2 | A workspace whose only repos have no commits loops: 'Map these N repos?', then a scan that maps nothing, then 'Scan again' forever, while focus offers an empty containers level | Minor: fixed with ux-r3-1 by ENGINE3 `8e11441` |
+| correctness-r3-3 | The no-fetch defence is weaker than documented: a repo-local `protocol.<name>.allow=always` overrides `-c protocol.allow=never`, and partial-clone detection misses a valueless or integer `promisor` key | Minor: fixed with unasked-r3-2 by ENGINE3 `e8f2a36` |
+| correctness-r3-4 | An unborn repo writes a scan event with an empty commit, so stream frames read 'Scanned newrepo at .' and the event log carries a commit that isn't a SHA | Minor: the frame line fixed by ENGINE3 `8e11441`; the event's empty commit is a known gap |
+| correctness-r3-5 | The branch DR-86 moved onto the scan event goes stale: a branch switch or delete at the same commit writes no event, so the store keeps naming a branch that no longer exists | Refuted |
+| correctness-r3-6 | A superseded repo still stores a full snapshot of facts, and its warning tells the person to rescan a HEAD that is already mapped | Minor: known gap |
+| drift-3-1 | import's reply passes its 800-token budget from 5 read rows (5x at 40), the same defect drift-r2-1 fixed for share but not for import | Material: fixed by ENGINE3 `ec9a99d` |
+| drift-3-2 | drift-r2-2's fix holds only for the four shapes DR-86 named: room.ts still hand-copies MapView as MapLike, and engine.ts types engine_unavailable's details by hand | Material: fixed by GUARD3 `01c0f4a` |
+| drift-3-3 | focus's two budgets disagree: the PaneModel is fit to 4,096 bytes, but the envelope's catalogue budget is 1,000 tokens, so a large workspace's focus tells the agent its reply is a bug | Minor: known gap |
+| drift-3-4 | An unborn repo writes a scan event and snapshot with an empty commit, counts as mapped and moved, and the empty map's next action loops on the same scan | Minor: the count and the loop fixed by ENGINE3 `8e11441`; the empty-commit event is a known gap |
+| drift-3-5 | share's 'what will be shared' line is a fixed template, not generated from the snapshot's sections: it claims paths and line numbers, and with --include-snippets 'code lines', which the snapshot never holds | Minor: known gap |
+| drift-3-6 | Public contract types trail contracts.md with no record accepting the lag, including persisted event fields | Minor: known gap |
+| drift-3-7 | The docs cite WS7's live publish as proof of share's exact arguments, but DR-86 changed those arguments (root plus relative files) and the new form was never published live | Minor: known gap |
+| drift-3-8 | scan's text mode prints only the summary line and drops every warning, so a person at a terminal never sees repo_skipped, repo_unborn or partial_scan | Minor: known gap |
+| drift-3-9 | The docs disagree on where live/head goes in a multi-batch sync; the code follows one of them | Minor: known gap |
+| security-r3-1 | The guard resolves Bash paths against the session's start directory, so `cd` in one call and a relative path in the next pass every r2 rule | Material: fixed by GUARD3 `52d20bf` |
+| security-r3-2 | The guard sees file paths only in eight tools; Artifact, ArtifactData and SendUserFile read the person key, the gateway key and serve.json unchecked | Material: fixed by GUARD3 `52d20bf` |
+| security-r3-3 | The installed plugin's files, the mod bundle with the guard and person-key code and the resolver, are writable by Write and Bash: r2-1's threat with a different target | Material: fixed by GUARD3 `52d20bf` |
+| security-r3-4 | The current workspace's state directory can still be deleted through everyday forms the remove rule doesn't read | Minor: known gap |
+| security-r3-5 | The mod never re-registers its key once a workspace is in its `registered` list, even when the store lost the key | Minor: known gap |
+| security-r3-6 | Tool outputs aren't marked `untrusted: true`, as architecture.md's injection containment says they are | Minor: known gap |
+| tests-3-1 | The guard fails open when the host's $.env.get("HOME") gives nothing, and only mocked runs back it: the harness mocks HOME and fs.stat, and the last live run predates both guard rewrites | Minor: known gap |
+| tests-3-2 | tests-r2-1's fix never reached feature_list.json: S1's tier-A ci_path still runs the capped map with no paging step | Minor: known gap |
+| tests-3-3 | The recursive-read rule and its bypass list cover a closed set of programs: git grep --no-index, ugrep -r, bsdtar, pax and gzip -r still read the person key's parent | Minor: known gap |
+| tests-3-4 | The M1 stand-in overlay's evidence names no commit, contradicting DR-86 and what the engine stores | Minor: known gap |
+| tests-3-5 | budgets.rs claims to check the whole graph over HTTP but calls the app function in-process, so the route is never exercised | Minor: known gap |
+| ops-r3-1 | CI is red on every completed run since round 2's merges: macOS fails SCAN2's new test every time, and Ubuntu fails a different test each run | Material: macOS fixed by the main agent `a756f22`; the intermittent Ubuntu failures are open in [the accepted risk](accepted-risk.md) |
+| ops-r3-2 | xtask keeps only the last 80 lines of a failed step, so CI logs never show why a Rust test failed | Minor: fixed by the main agent `a756f22` (the last 400 lines) |
+| ops-r3-3 | The source-build preflight checks the Rust version only in a checkout, and Node and pnpm only for presence, so the first user's card promises a 4-minute build that fails | Minor: known gap |
+| ops-r3-4 | A failed source build leaves its clone and partial target directory under the data root until the next build | Minor: known gap |
+| ops-r3-5 | `version --json` never reports git_commit, so nothing identifies which main commit a -dev engine was built from | Minor: known gap |
+| ops-r3-6 | A rebuild swaps the cached binary before rewriting its .ok stamp, so a resolve in that window treats the cache as missing | Minor: known gap |
+| repo3-1 | The fixture copy that `cargo xtask e2e` builds inside the repo escapes `claudeMdExcludes`, so its planted CLAUDE.md is no longer excluded | Minor: known gap |
+| repo3-2 | repo2-1's test-filter fix (e447235, after b007ff3) doesn't match repo-layout's `test` row, and a mistyped FILTER reports `ok` | Minor: known gap |
+| repo3-3 | `.cargo/`, which makes `cargo xtask` exist at all, has no stated purpose, and its alias builds xtask without `--locked` | Minor: known gap |
+| repo3-4 | The review index's Files table still describes only round 1's files | Minor: fixed in this index |
+| unasked-r3-1 | Repo namespaces are the raw directory path: a directory with a space or colon yields node IDs the published NodeId contract rejects or splits wrongly, and the code differs from DR-74 | Minor: known gap |
+| unasked-r3-2 | correctness-15's no-fetch fix rests on GIT_NO_LAZY_FETCH alone: a repo-local protocol.<name>.allow=always overrides -c protocol.allow=never, so on a git that ignores the variable a scan runs the repo's configured command | Material: fixed by ENGINE3 `e8f2a36` |
+| unasked-r3-3 | With HOME unset, the data root is relative to the current directory: serve writes workspaces.json, logs and a login page holding a live code into the workspace tree | Minor: known gap |
+| unasked-r3-4 | workspaces.json is keyed by root path: a moved or renamed workspace gets a new canvas port, and stale entries keep their ports forever | Minor: known gap |
+| unasked-r3-5 | The DR-1 filesystem check covers only the state directory; its fallback, the data root, is never checked, though it will hold the spend ledger and event backups | Minor: known gap |
+| unasked-r3-6 | repo_skipped's fix tells a root agent to chown -R another user's tree, the usual devcontainer and bind-mount case | Minor: known gap |
+| unasked-r3-7 | The 50,000-file cut drops whole top-level directories in sorted path order, and focus reports the scan as 'done' | Refuted |
+| unasked-r3-8 | The scan summary counts unborn and skipped repos as mapped and moved | Minor: fixed by ENGINE3 `8e11441` |
+| ux-r3-1 | A workspace whose only repos have no commits gets a blank map and a loop: "0 at the top: .", then "Open the containers", an empty level, "Scan again", and back; the line saying it maps after its first commit reaches no person | Material: fixed by ENGINE3 `8e11441` |
+| ux-r3-2 | DR-86's per-repo warnings never reach a person: CLI text, the pane's toast, /room rows and text, and the canvas drop repo_skipped and repo_unborn, so a partly mapped workspace reads as whole | Minor: known gap |
+| ux-r3-3 | Two of DR-86's new fix lines can't be run as written: `chown` to yourself needs root, and paths go into commands unquoted | Minor: known gap |
+| ux-r3-4 | person_required tells you to press a pane button or type the command after /room, but neither command that raises it is a pane button or a /room leaf | Minor: known gap |
+| ux-r3-5 | On the phone, no control reaches the component, code or intent levels: there's no zoom rail, the ⋯ lid only goes up, and the next action only opens containers | Minor: known gap |
+| ux-r3-6 | A picker with nothing to pick still looks like a button: a bordered 44 px box with a button radius, not "flat on the felt" | Minor: known gap |
+| ux-r3-7 | Code-level text lists blocks by bare file name, so a person can't tell them apart: ".gitignore; .gitignore; .gitignore; .gitignore" | Minor: known gap |

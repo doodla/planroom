@@ -100,6 +100,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 84 | The umbrella skill is `planroom`, so the mod can own `/room` | Plugin: skills, agents and the mod ship as one plugin | extended | walking skeleton (live mod run), main agent |
 | 85 | What the walking skeleton's review settled | Extractors read the repo; One contract source; Surfaces read one contract; the release model | extended | walking skeleton review round 1 (SCAN, CONTRACT, ENGINE, SURFACES tracks), main agent |
 | 86 | What the walking skeleton's review settled in round 2 | Extractors read the repo; Actors: agents never act as a person; Surfaces read one contract | extended | walking skeleton review round 2 (SCAN2, BUDGET2, GUARD2, CANVAS2 tracks), main agent |
+| 87 | What the walking skeleton's review settled in round 3 | Extractors read the repo; Actors: agents never act as a person; Surfaces read one contract; Remote mode | extended | walking skeleton review round 3 (ENGINE3, GUARD3 tracks), main agent |
 
 ## Judge disagreements and how they were resolved
 
@@ -1999,7 +2000,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-83: What the walking skeleton's gates, remote slice and platform checks settled
 
-- **Status:** accepted (decided by the main agent at the GATES and REMOTE merges, the CI repairs and the WS7 and WS8 checks, 2026-10-26).
+- **Status:** accepted (decided by the main agent at the GATES and REMOTE merges, the CI repairs and the WS7 and WS8 checks, 2026-10-26). Amended by DR-87.
 - **Starting point:** extended "Repo layout: a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` in TypeScript", Remote mode, and the release model.
 - **Origin:** the walking skeleton's GATES and REMOTE tracks, CI's first runs on the merged tree, and the platform checks in `research/ws7-remote.md` and `research/ws8-install.md`.
 - **Context:**
@@ -2067,6 +2068,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Release: `gen --version V` rewrites the path-dependency pins; the published marketplace entry names the tag through `git-subdir` [A-20].
   - It changes no gated surface beyond what the first lock records.
   - It amends DR-39, DR-52, DR-55, DR-56, DR-67, DR-70, DR-75, DR-78, DR-79 and DR-81.
+- **Amended by DR-87:** import's result carries `counts`, the first 5 rows' outcomes, `root` and `batch_files`, one file per `ArtifactData batch` call, in place of the batches inline; each batch keeps at most 50 writes and 1 MiB, with `live/head` last.
 - **Sources (checked 2026-10-26):** `research/ws7-remote.md`, `research/ws8-install.md`; the GATES and REMOTE merge notes in `progress.md`; CI runs 36 to 46 on `ccr-b124f0e3-xnzjca`; RUSTSEC-2026-0386; `crates/planroom/src/app/{share,import}.rs`; `crates/xtask/src/{layout,tools,plugin}.rs`.
 
 ## DR-84: The umbrella skill is `planroom`, so the mod can own `/room`
@@ -2090,7 +2092,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-85: What the walking skeleton's review settled
 
-- **Status:** accepted (decided by the main agent at the merge of the review's fix tracks, 2026-10-26). Amended by DR-86.
+- **Status:** accepted (decided by the main agent at the merge of the review's fix tracks, 2026-10-26). Amended by DR-86 and DR-87.
 - **Starting point:** extended "Extractors read the repo", "One contract source", "Surfaces read one contract" and the release model.
 - **Origin:** the walking skeleton's review, round 1. Eight lenses, each refuted by a separate verifier, found 18 material findings ([the review's index](research/skeleton-review/README.md)). Four tracks fixed them (SCAN, CONTRACT, ENGINE, SURFACES), and the main agent fixed the resolver and `check` items. This record settles each doc conflict the fixes raised.
 - **Context:** The skeleton's slice worked end to end, live. Its review still found that a dirty first scan froze a wrong map, persisted documents dropped unknown fields, surfaces offered buttons that failed, the guard missed everyday shell forms, and some documented gates and checks had no milestone. Each fix met a place where the docs were silent or said something else.
@@ -2125,11 +2127,12 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - The CLI checks every `--json` success reply against its leaf's budget, warnings included, not only `map`'s and `scan`'s. Replies over HTTP still aren't checked.
   - The guard also holds Bash to the Write tool's rule and refuses whole-tree reads of a secret's parents. Any word in the engine cache is denied, so listing it is no longer one of the everyday commands that pass. Its residual risks in `SECURITY.md` add programs that walk or write files themselves, a tree read rooted at or above the workspace root, a crafted tree copied above the data root, and quoted text that reads as a redirection.
   - `share`'s publish arguments name `root`, with `files` relative to it, and its result lists only the files it built from the workspace.
+- **Amended by DR-87:** `UnavailableReason` is also a schema root, so the mod reads it from the generated types and its switch over reasons is checked at build time.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/` (round 1's findings and verdicts); the four tracks' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
 
 ## DR-86: What the walking skeleton's review settled in round 2
 
-- **Status:** accepted (decided by the main agent at the merge of round 2's fix tracks, 2026-10-26).
+- **Status:** accepted (decided by the main agent at the merge of round 2's fix tracks, 2026-10-26). Amended by DR-87.
 - **Starting point:** extended "Extractors read the repo", "Actors: agents never act as a person" and "Surfaces read one contract".
 - **Origin:** round 2 of the walking skeleton's review. Its 16 material findings, 12 distinct defects, are in [the review's index](research/skeleton-review/README.md). Four tracks fixed them (SCAN2, BUDGET2, GUARD2, CANVAS2), and the main agent fixed one in the plan.
 - **Context:** Round 1's fixes held. Round 2 found what they left: inputs outside a snapshot's key, a late scan that could move a repo back, a partial clone that fetched, one unreadable repo failing a whole scan, warnings and two leaves over budget, a guard with no write rule for Bash and no rule for recursive reads, and two canvas controls that led nowhere.
@@ -2155,4 +2158,39 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: warnings `repo_unborn`, `repo_skipped`, `scan_superseded`; the empty reason `repos_unreadable`; `partial_scan` and `partial_parse` details; the envelope-level `truncated` details; `PublishArgs.root`.
   - Tests: `crates/planroom/tests/scan.rs` (moving a repo out and back, a deleted branch, a late scan, unborn and unreadable repos), `tests/git_hardening.rs`, `budgets.rs` (every built leaf on the fixture, a scan past the file bound), the guard's write, recursive-read and Grep/Glob bypass lists, `a_swapped_cached_engine_is_refused`, and the canvas's 44 px and offers-only-what-works specs.
   - It amends DR-85 (paging moves to M1; the guard's everyday list and residual risks; share's publish arguments), DR-81 (`Ref` evidence and the branch), DR-8 (a scan's key) and DR-47 (the per-blob cache's key).
+- **Amended by DR-87:**
+  - A late scan also leaves a repo unchanged when another scan moved it after this one began and the repo set changed, not only when `HEAD` moved; `scan_superseded` names which.
+  - Every git call also refuses each transport by name, so no call fetches even on a git without `GIT_NO_LAZY_FETCH`; a partial clone is told by reading its keys as git reads a boolean.
+  - A workspace whose repos have no commits returns `repos_unborn`, and scan's summary counts no unborn or skipped repo.
+  - The guard reads the shell's directory per call, checks every tool's paths and uploads, and protects the plugin's root.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/round2-*.json`; the four tracks' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
+
+## DR-87: What the walking skeleton's review settled in round 3
+
+- **Status:** accepted (decided by the main agent at the merge of round 3's fix tracks, 2026-10-26).
+- **Starting point:** extended "Extractors read the repo", "Actors: agents never act as a person", "Surfaces read one contract" and Remote mode.
+- **Origin:** round 3, the last, of the walking skeleton's review. Its 9 material findings, 8 distinct defects, are in [the review's index](research/skeleton-review/README.md), with what stays open in [its accepted risk](research/skeleton-review/accepted-risk.md). The main agent fixed CI, and two tracks fixed the rest (ENGINE3, GUARD3).
+- **Context:** Round 2's fixes held where they were aimed. Round 3 found their edges: a late scan could still move a repo back when the repo set changed rather than `HEAD`; a repo's own config could re-allow a transport on a git without `GIT_NO_LAZY_FETCH`; a workspace whose repos had no commit looped on a scan that mapped nothing; import's reply passed its budget with many rows; and the guard resolved paths against a directory the shell had left, checked only four tools' paths, and let an agent rewrite the mod that guards it.
+- **Decision:**
+  - **A late scan never moves a repo back, whatever moved.** A scan records the store's latest `seq` before it reads any repo (`ScanWrite.started`). Inside its transaction, `commit_scan` tells the caller when another scan moved the repo since then; the scan then re-derives its inputs under the write lock and leaves the repo unchanged unless they still match. `scan_superseded` gains `details.reason`: `head_moved` (round 2's case) or `repos_changed`, each with its own line. A late scan whose inputs are stale with no competing scan still commits; that isn't a move back, and the next scan corrects it.
+  - **Every transport is refused by name.** Every git call through the adapter also passes `-c protocol.<name>.allow=never` for `ext`, `fd`, `file`, `git`, `ssh`, `http`, `https`, `ftp` and `ftps` (`extract::git::TRANSPORTS`), so a repo's own per-protocol allow can't beat `protocol.allow=never`, and "no call fetches" holds without `GIT_NO_LAZY_FETCH`. A partial clone is told by reading `promisor` and `extensions.partialclone` as git reads a boolean (`git config --type=bool`); only git's exit 1 means no key, and any other failure is `git_failed`, never "not partial". M2's local clone and fetch take their exception for `file` alone.
+  - **A workspace with no commits says to commit.** `focus` counts only repos with a commit as scannable. When none has one, `focus` and `map` return the empty reason `repos_unborn`, which names the repos and whose next action is `focus`, never a scan that maps nothing. When the top level is empty, every level takes the top's empty state. `scan`'s summary counts neither an unborn nor a skipped repo as mapped or moved, and names the unborn ones; an unborn repo's live frame says it maps after its first commit.
+  - **Import's reply keeps to its budget.** `ImportResult` carries `counts` (`imported`, `held`, `conflict`, `refused`, `left`, `skipped`), the first 5 rows' outcomes (`IMPORT_ROWS_SAMPLE`), `root` (the sync's absolute directory) and `batch_files`: one `batch-N.json` per `ArtifactData batch` call, relative to `root`, each a `DbBatch` whose `file_path`s are absolute. `batches` is removed. Every row is still acked in `acks/<uid>`. This removes a field, which the versioning rules make a `schema_version` bump; no release has shipped, so it stays 1, as DR-86 did.
+  - **The guard reads where the shell is.** It takes the shell's directory from `$.session.cwd()` on every call, and resolves relative words and its landing test against it; the places it derives from the environment stay cached. A `cd` or `pushd` into a guarded place is refused, so a host that didn't report the move still can't reach one through a relative word. When the shell is outside the workspace root, every word on the line is checked as a path.
+  - **The guard checks every tool's paths.** Beyond Read, Grep, Glob, Edit, Write and Bash, it reads the path fields of Artifact (`file_path`, `file_paths`, `files` joined to `root`, `root`; `out_dir` as a write), ArtifactData (`file_path`, `writes[].file_path`; `out_dir` as a write), SendUserFile, LS, NotebookRead, LSP and Monitor (whose `command` is read as Bash). For a tool it doesn't know, every string that looks like a path is held to the read rule. A file sent off the machine must pass the read rule too, and from a state directory only `share/` may leave, where `share` and `import` write; nothing leaves from the data root.
+  - **The guard protects the mod's own files.** The write and delete rules also cover the plugin's root (`$.plugin.root` and the real path it resolves to) and any folder above it. A Bash word that lands there is denied unless it's the program a command runs, so the `planroom` skill's `"<plugin>/scripts/planroom" map --json` still runs, and the Read tool can still read the plugin's files.
+  - **Developing Planroom with its own mod loaded.** When this repository's `plugin/` is loaded live as a mod, as `ws8-install.md` describes, it is the protected root: an agent can't edit `plugin/` until the mod is unloaded or a person makes the change. `plugin/AGENTS.md` says so.
+  - **The mod reads the resolver's reason from the contract.** `UnavailableReason` becomes a schema root, and the mod switches on the generated type with a `never` default, so a reason the mod doesn't handle fails its build.
+- **Alternatives rejected:**
+  - Re-reading the whole workspace's inputs at every commit: the re-check runs only when another scan landed in between, which keeps a lone scan's cost unchanged.
+  - Setting `GIT_ALLOW_PROTOCOL` instead of per-protocol flags: the flags are checked per call by a test that plants each transport, and the variable's interaction with the flags wasn't verified on every supported git.
+  - Raising import's budget, or a `root` with relative paths inline: 40 rows still produce about 82 writes, near 1,500 tokens.
+  - Denying every unknown tool: it would block MCP tools that have nothing to do with a secret.
+  - Leaving the plugin root writable in dev mode: the guard can't tell a developer's agent from any other, and the person can still edit there.
+- **Consequences:**
+  - Contracts: `scan_superseded` `details.reason`; the empty reason `repos_unborn`; `ImportResult` loses `batches` and gains `counts`, `root` and `batch_files`, with the new type `ImportCounts`; `UnavailableReason` is a schema root. Schemas, TypeScript and the plugin's types are regenerated; `schema_version` stays 1.
+  - Strings: `warning.scan_superseded_head_moved` and `_repos_changed`, `empty.repos_unborn`, `scan.unborn` and `frame.scan_unborn` in `en.toml`.
+  - Tests: `crates/planroom/tests/scan.rs` (a late scan over a changed repo set, an unborn-only workspace), `crates/store/tests/commit.rs`, `tests/git_hardening.rs` (an `ext::` partial clone, a valueless `promisor`), `crates/extract/src/git.rs`'s transport plants with their controls, `budgets.rs` (import with 40 rows), `s11_remote.rs` (a 63-line sync), the guard's shell-directory, every-tool and plugin-root tests in `packages/mod/src/guard.test.ts` and `packages/mod/plugin-tests/guard.test.tsx`, and `engine.test.ts`'s unknown reason.
+  - `SECURITY.md` (M5) adds the guard's residual risks listed in the accepted risk.
+  - It amends DR-86 (the late scan, the transports, `repo_unborn` in scan's summary, the guard's reach), DR-83 (import's result) and DR-85 (the resolver's reason types).
+- **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/round3-*.json`; the two tracks' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
