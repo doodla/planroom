@@ -205,6 +205,62 @@ test("no run the mod starts takes its engine from the environment it inherited",
   }
 });
 
+test("every run the mod starts names the data root the session started with", async ($, on) => {
+  const h = host(on, readyEngine, { env: { PLANROOM_DATA: "/data/pr" } });
+  await $.session.start(START);
+  await h.clock.settle();
+  // The environment changes under the session, as a settings file's `env` may change it: the
+  // resolver would then pick its engine cache from a data root the agent chose.
+  h.env["PLANROOM_DATA"] = "/tmp/planted";
+  h.env["XDG_DATA_HOME"] = "/tmp/planted-xdg";
+  h.env["HOME"] = "/tmp/planted-home";
+  const band = await $.ui.mount({ ...BAND, surface: "terminal" });
+  await band.press({ key: "band-primary" });
+  await band.unmount();
+  await $.command.run({
+    command: "room",
+    args: "map --level system",
+    origin: { kind: "composer" },
+    presentation: { isFullscreen: true, columns: 120 },
+  });
+  await $.tool.call({
+    tool: "mcp__planroom__room_query",
+    command: "map",
+    args: ["--level", "system"],
+  });
+  await h.clock.settle();
+
+  const started = [...h.runs, ...h.children];
+  expect(started.filter((r) => r.argv[1] === "map").length).toBeGreaterThan(2);
+  for (const run of started) {
+    expect(run.env["PLANROOM_DATA"], run.argv.join(" ")).toBe("/data/pr");
+  }
+});
+
+test("with no place in the environment, every run names a data root the resolver refuses", async ($, on) => {
+  const h = host(on, readyEngine, { home: null });
+  await $.session.start(START);
+  await h.clock.settle();
+  h.env["HOME"] = "/tmp/planted-home";
+  await h.clock.settle();
+  expect(h.runs.length).toBeGreaterThan(0);
+  for (const run of h.runs) {
+    expect(run.env["PLANROOM_DATA"], run.argv.join(" ")).toBe("unplaced");
+  }
+});
+
+test("with no PLANROOM_DATA, the pinned data root is HOME's, as the resolver places it", async ($, on) => {
+  const h = host(on);
+  await $.session.start(START);
+  await h.clock.settle();
+  expect(h.runs.length).toBeGreaterThan(0);
+  for (const run of h.runs) {
+    expect(run.env["PLANROOM_DATA"], run.argv.join(" ")).toBe(
+      "/home/u/.local/share/planroom",
+    );
+  }
+});
+
 test("a workspace that knows another key shows the rekey pane, and its press re-registers", async ($, on) => {
   let known = false;
   const h = host(on, (argv): Answer => {

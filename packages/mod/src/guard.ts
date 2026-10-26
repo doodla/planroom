@@ -14,11 +14,13 @@
  * absolute HOME it can't place what it guards, so it asks before every call (tests-3-1).
  *
  * A Bash line is read the way a shell would spell it out: quotes taken out, `$HOME`, `~name` and
- * the line's own assignments put in, each path word from every directory a `cd` on the line may
- * move to, and a glob by every guarded place its literal prefix and segments may reach, `**` as any
- * number of folders, and hidden names only when the line turns dotglob on (security-3). It's read a second way too, with quoted
- * or escaped operators as text and each command substitution as an unknown word, and the guard
- * denies what either reading denies. Bash is held to the Write tool's rule: a redirection's file
+ * the line's own assignments put in, each path word from every directory a `cd` (or `env -C`,
+ * `sudo -D`) on the line may move to, and a glob by every guarded place its literal prefix and
+ * segments may reach, `**` as any number of folders, and hidden names only when the line turns
+ * dotglob on (security-3). It's read other ways too: with quoted or escaped operators as text and
+ * each command substitution as an unknown word, with each `${X:-word}` as its `word`, and with
+ * every backslash-newline a quoted `sh -c` script would drop dropped; the guard denies what any
+ * reading denies. Bash is held to the Write tool's rule: a redirection's file
  * and what `cp`, `mv`, `rm`, `tee`, `ln`, `install`, `curl -o`, `sed -i` and the like write or
  * delete are checked as writes, and a word in the engine cache is denied whatever the command
  * (security-r2-1). A command that reads, archives, copies or links a whole tree (`grep -r`,
@@ -59,6 +61,8 @@ export interface GuardPlaces {
   dataRoot: string;
   /** `${XDG_CONFIG_HOME:-$HOME/.config}/planroom/config.toml`, which may hold the gateway key. */
   userConfig: string;
+  /** `$ZDOTDIR`, where zsh reads its start-up files, when the environment sets an absolute one. */
+  zdotdir?: string;
   /**
    * Why the guard can't place what it guards, when the environment gives no absolute `HOME`: it
    * then asks before every call rather than check against the wrong folders (tests-3-1).
@@ -90,6 +94,7 @@ export function guardPlaces(
     PLANROOM_DATA?: string | undefined;
     XDG_DATA_HOME?: string | undefined;
     XDG_CONFIG_HOME?: string | undefined;
+    ZDOTDIR?: string | undefined;
   },
   more: { workspace?: string; plugin?: readonly string[] } = {},
 ): GuardPlaces {
@@ -103,6 +108,7 @@ export function guardPlaces(
     const a = absolute(v);
     return a === undefined ? undefined : normalize(a, "/", h);
   };
+  const zdotdir = xdg(env.ZDOTDIR);
   return {
     cwd,
     workspace: more.workspace ?? cwd,
@@ -117,6 +123,7 @@ export function guardPlaces(
       xdg(env.XDG_CONFIG_HOME) ?? `${h}/.config`,
       h,
     ),
+    ...(zdotdir === undefined ? {} : { zdotdir }),
     ...(home === undefined
       ? {
           unplaced:
@@ -125,6 +132,32 @@ export function guardPlaces(
       : {}),
   };
 }
+
+/**
+ * The data root as the resolver (plugin/scripts/planroom) places it from this environment, for the
+ * mod to pin on every run it starts, so a value that changes later, such as a settings file's
+ * `env`, can't move the engine cache a press runs: `PLANROOM_DATA` as given (a relative one stays
+ * relative, and the resolver refuses it), else an absolute `XDG_DATA_HOME`'s, else an absolute
+ * `HOME`'s. When none gives one, the relative `unplaced`, which the resolver refuses as it refuses
+ * no place at all, rather than follow a value the environment takes on later.
+ */
+export function pinnedDataRoot(env: {
+  HOME?: string | undefined;
+  PLANROOM_DATA?: string | undefined;
+  XDG_DATA_HOME?: string | undefined;
+}): string {
+  if (env.PLANROOM_DATA !== undefined && env.PLANROOM_DATA !== "") {
+    return env.PLANROOM_DATA;
+  }
+  const home = absolute(env.HOME);
+  const base =
+    absolute(env.XDG_DATA_HOME) ??
+    (home === undefined ? undefined : `${home}/.local/share`);
+  return base === undefined ? UNPLACED : `${base}/planroom`;
+}
+
+/** The data root pinned when the environment gives none: relative, so the resolver refuses it. */
+export const UNPLACED = "unplaced";
 
 /**
  * An absolute, lexically normal path: `~`, `~+` and `~name` expanded, relative to `cwd`, `.` and
@@ -527,19 +560,30 @@ function treeDenied(
 }
 
 /**
+ * A line with each backslash-newline the shell drops taken out: one whose backslash isn't itself
+ * escaped, so `x\\` then a newline still ends the command. It reads quotes as nothing: Bash keeps a
+ * backslash-newline inside single quotes as text, but a quoted `sh -c` script's own shell drops it,
+ * so the text-only checks, which can't tell the two apart, read it dropped.
+ */
+function joinLines(text: string): string {
+  return text.replace(/(?<!\\)((?:\\\\)*)\\\n/g, "$1");
+}
+
+/**
  * A shell command with its quotes and backslash escapes taken out, so a name split by quotes
  * (`PLANROOM_PERSON"_TOKEN"`, `plan'room'`) or by a backslash-newline reads as the shell joins it.
  */
 export function unquote(command: string): string {
-  return command.replace(/\\\n/g, "").replace(/["'\\]/g, "");
+  return joinLines(command).replace(/["'\\]/g, "");
 }
 
 /**
  * `unquote(command)`, with whether the shell reads each of its characters inside quotes or after a
- * backslash, so a quoted space can be told from one that ends a word.
+ * backslash, so a quoted space can be told from one that ends a word. A backslash-newline is
+ * dropped as the shell drops it: outside single quotes, and only when the backslash isn't escaped.
  */
 function unquoteMarked(command: string): { text: string; quoted: boolean[] } {
-  const source = command.replace(/\\\n/g, "");
+  const source = command;
   let text = "";
   const quoted: boolean[] = [];
   let state: "'" | '"' | null = null;
@@ -547,6 +591,15 @@ function unquoteMarked(command: string): { text: string; quoted: boolean[] } {
   // By UTF-16 unit, as shellCommands reads `text`.
   for (let i = 0; i < source.length; i++) {
     const ch = source.charAt(i);
+    if (
+      ch === "\\" &&
+      !escaped &&
+      state !== "'" &&
+      source.charAt(i + 1) === "\n"
+    ) {
+      i++;
+      continue;
+    }
     if (ch === '"' || ch === "'" || ch === "\\") {
       // unquote drops every one of these; only the shell's own reading moves the state.
       if (escaped) escaped = false;
@@ -564,8 +617,7 @@ function unquoteMarked(command: string): { text: string; quoted: boolean[] } {
 
 /** The words of a shell command, quotes and operators taken away, so `sh -c '...'` shows through. */
 export function shellWords(command: string): string[] {
-  return command
-    .replace(/\\\n/g, "")
+  return joinLines(command)
     .split(/[\s;&|()<>`'"=$]+/)
     .filter((w) => w !== "");
 }
@@ -646,10 +698,42 @@ export function personOnlyLine(line: readonly string[]): string | null {
 
 /**
  * Variables an agent never sets: the person's token, raw output, and the two that choose the
- * binary every later session runs (DR-64, DR-69).
+ * binary every later session runs (DR-64, DR-69). Every rule and message that names them reads
+ * this list.
  */
-const GUARDED_VARIABLES =
-  /\bPLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)\b\s*\+?=|\b(export|declare|typeset|env|set|readonly|local|read)\b[^;&|\n]*\bPLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)\b|\bprintf\b[^;&|\n]*-v\s*PLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)\b/;
+const GUARDED_VARIABLES = [
+  "PLANROOM_PERSON_TOKEN",
+  "PLANROOM_RAW",
+  "PLANROOM_ENGINE",
+  "PLANROOM_RELEASE_BASE_URL",
+] as const;
+
+/**
+ * Variables that place the data root, and with it the engine cache the resolver runs a press
+ * from (plugin/scripts/planroom): no shell start-up or settings file an agent writes sets them,
+ * though a line may use them.
+ */
+const PLACE_VARIABLES = ["PLANROOM_DATA", "XDG_DATA_HOME", "HOME"] as const;
+
+/** Names as prose: `A, B or C`. */
+function spelled(names: readonly string[]): string {
+  return names.length < 2
+    ? names.join("")
+    : `${names.slice(0, -1).join(", ")} or ${names.at(-1) ?? ""}`;
+}
+
+const GUARDED_ALTERNATIVES = GUARDED_VARIABLES.join("|");
+
+/** A Bash line that sets one of `GUARDED_VARIABLES`, by assignment or by a builtin that sets. */
+const GUARDED_SET = new RegExp(
+  [
+    `\\b(${GUARDED_ALTERNATIVES})\\b\\s*\\+?=`,
+    `\\b(export|declare|typeset|env|set|readonly|local|read)\\b[^;&|\\n]*\\b(${GUARDED_ALTERNATIVES})\\b`,
+    `\\bprintf\\b[^;&|\\n]*-v\\s*(${GUARDED_ALTERNATIVES})\\b`,
+  ].join("|"),
+);
+
+const GUARDED_SET_REASON = `An agent never sets ${spelled(GUARDED_VARIABLES)}.`;
 
 /** Glob metacharacters: a word holding one expands to whatever paths match it. */
 const GLOB = /[*?[{]/;
@@ -672,9 +756,7 @@ function simpleCommands(command: string): string[][] {
 /** The guard's verdict on a Bash command's text alone, before its paths are resolved. */
 export function bashDenied(command: string): string | null {
   const plain = unquote(command);
-  if (GUARDED_VARIABLES.test(plain)) {
-    return "An agent never sets PLANROOM_PERSON_TOKEN, PLANROOM_RAW, PLANROOM_ENGINE or PLANROOM_RELEASE_BASE_URL.";
-  }
+  if (GUARDED_SET.test(plain)) return GUARDED_SET_REASON;
   const words = shellWords(plain);
   for (const line of planroomLines(words)) {
     const reason = personOnlyLine(line);
@@ -736,6 +818,9 @@ function knownVariables(places: GuardPlaces): Map<string, string> {
     ["PLANROOM_DATA", places.dataRoot],
     ["XDG_DATA_HOME", parent(places.dataRoot)],
     ["XDG_CONFIG_HOME", parent(parent(places.userConfig))],
+    ...(places.zdotdir === undefined
+      ? []
+      : [["ZDOTDIR", places.zdotdir] as [string, string]]),
     // The planroom skill names the resolver through it; a shell that has it set has this plugin's.
     ...places.plugin
       .slice(0, 1)
@@ -744,17 +829,125 @@ function knownVariables(places: GuardPlaces): Map<string, string> {
 }
 
 /**
+ * What unknown expansions joined in one name stand for, to each other (`$A$B`) or to other text
+ * (`.$A`): any name, a hidden one too, as the dotglob form spells it, and never `**`, which `**`'s
+ * own rules would keep out of hidden folders. `fnmatch` reads its `{,}` as nothing.
+ */
+const ANY_JOINED = "{,}*{,}";
+
+/**
+ * A glob (Bash's pattern in `${X#pat}` and `${X/pat/rep}`) as an anchored test of a whole string.
+ */
+function globTest(pattern: string): (text: string) => boolean {
+  return (text) => fnmatch(pattern, text, false);
+}
+
+/**
+ * A known value with a Bash pattern operator applied: `#`/`##` and `%`/`%%` remove the shortest or
+ * longest matching prefix or suffix, and `/`, `//`, `/#` and `/%` replace the longest match, all
+ * of them, the prefix or the suffix. Undefined for any other operator, or a value too long to try.
+ */
+function applyOperator(value: string, op: string): string | undefined {
+  if (value.length > 256) return undefined;
+  const removal = /^(##?|%%?)(.*)$/s.exec(op);
+  if (removal !== null) {
+    const [, kind = "", pattern = ""] = removal;
+    const test = globTest(pattern);
+    const n = value.length;
+    const cuts = [...Array(n + 1).keys()];
+    const longest = kind.length === 2;
+    if (kind.startsWith("#")) {
+      const at = (longest ? cuts.reverse() : cuts).find((i) =>
+        test(value.slice(0, i)),
+      );
+      return at === undefined ? value : value.slice(at);
+    }
+    const at = (longest ? cuts : cuts.reverse()).find((i) =>
+      test(value.slice(i)),
+    );
+    return at === undefined ? value : value.slice(0, at);
+  }
+  // `/pat/rep`: an escaped `/` in the pattern is gone with its backslash by now, so a remainder
+  // with more than one `/` can't be split as Bash splits it.
+  const swap = /^\/(\/|#|%)?([^/]*)(?:\/([^/]*))?$/s.exec(op);
+  if (swap === null) return undefined;
+  const [, mode = "", pattern = "", rep = ""] = swap;
+  const test = globTest(pattern);
+  /** Where the longest match from `start` ends, if one does and isn't empty. */
+  const longestAt = (start: number): number | undefined => {
+    for (let end = value.length; end > start; end--) {
+      if (test(value.slice(start, end))) return end;
+    }
+    return undefined;
+  };
+  if (mode === "#") {
+    const end = longestAt(0);
+    return end === undefined ? value : rep + value.slice(end);
+  }
+  if (mode === "%") {
+    for (let start = 0; start < value.length; start++) {
+      if (test(value.slice(start))) return value.slice(0, start) + rep;
+    }
+    return value;
+  }
+  let out = "";
+  let i = 0;
+  while (i < value.length) {
+    const end = longestAt(i);
+    if (end === undefined) {
+      out += value.charAt(i);
+      i++;
+      continue;
+    }
+    out += rep;
+    i = end;
+    if (mode !== "/") return out + value.slice(i);
+  }
+  return out;
+}
+
+/**
  * `word` with each variable it names put in: a known one's value, one the line assigned before
- * its value, and any other expansion as `*`, since it could hold anything.
+ * its value, and any other expansion, since it could hold anything, as `*` when it is a whole name
+ * on its own (a variable set outside the line, which architecture.md's "Actors" says the guard
+ * doesn't read), and as `ANY_JOINED` when it's joined to another in one name. A known value
+ * stands in only plain (`$N`, `${N}`) or behind a default (`${N:-word}`), which a set variable
+ * ignores; a pattern operator on it (`${PWD/*\/.planroom}`) is applied, and any other operator
+ * (`${PWD:0:0}`) gives `ANY_JOINED`, even as a whole name.
  */
 function expand(word: string, vars: ReadonlyMap<string, string>): string {
-  return word
+  // Characters no word holds, noncharacters a shell line never spells: an unknown expansion, and
+  // one that may be any name even on its own.
+  const unknown = "\uffff";
+  const anyName = "\ufffe";
+  const put = word
     .replace(
-      /\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}|\$([A-Za-z_][A-Za-z0-9_]*)/g,
-      (_, braced: string | undefined, bare: string | undefined) =>
-        vars.get(braced ?? bare ?? "") ?? "*",
+      /\$\{([A-Za-z_][A-Za-z0-9_]*)([^}]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g,
+      (
+        _,
+        braced: string | undefined,
+        op: string | undefined,
+        bare: string | undefined,
+      ) => {
+        const value = vars.get(braced ?? bare ?? "");
+        if (op === undefined || op === "" || /^:?[-=?]/.test(op)) {
+          return value ?? unknown;
+        }
+        const applied =
+          value === undefined || GLOB.test(value)
+            ? undefined
+            : applyOperator(value, op);
+        return applied ?? anyName;
+      },
     )
-    .replace(/\$[^/]*|`[^/]*/g, "*");
+    .replace(/\$[^/]*|`[^/]*/g, unknown);
+  if (!put.includes(unknown) && !put.includes(anyName)) return put;
+  return put
+    .split("/")
+    .map((s) =>
+      s === unknown ? "*" : s.replace(/[\uffff\ufffe]+/g, ANY_JOINED),
+    )
+    .join("/");
 }
 
 /** One simple command of a Bash line: its words, and the files its redirections name. */
@@ -869,21 +1062,178 @@ function shellCommands(command: string): SimpleCommand[] {
 
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
-/** Commands that run the command after them, with each one's options that take a value. */
-const WRAPPERS = new Map<string, readonly string[]>([
-  ["sudo", ["-u", "-g", "-C", "-h", "-p", "-U", "-D", "-r", "-t"]],
-  ["doas", ["-u", "-C"]],
-  ["env", ["-u", "-C", "-S"]],
-  ["xargs", ["-I", "-n", "-P", "-L", "-s", "-E", "-d", "-a"]],
-  ["timeout", ["-s", "-k"]],
-  ["nice", ["-n"]],
-  ["command", []],
-  ["builtin", []],
-  ["exec", ["-a"]],
-  ["nohup", []],
-  ["time", []],
-  ["stdbuf", []],
+/**
+ * A command that runs the command after it: its options that take a value, by letter and by long
+ * name, its long options that take none (so an abbreviation is read as getopt reads it), the one
+ * that runs that command in another folder, as a `cd` would, and env's `-S`, whose value is the
+ * command line itself.
+ */
+interface Wrapper {
+  short: string;
+  long: readonly string[];
+  plain?: readonly string[];
+  chdir?: { short: string; long: string };
+  split?: { short: string; long: string };
+}
+
+const WRAPPERS = new Map<string, Wrapper>([
+  [
+    "sudo",
+    {
+      short: "ugChpUDrtTR",
+      long: [
+        "--user",
+        "--group",
+        "--close-from",
+        "--host",
+        "--prompt",
+        "--other-user",
+        "--chdir",
+        "--role",
+        "--type",
+        "--command-timeout",
+        "--chroot",
+      ],
+      plain: [
+        "--askpass",
+        "--background",
+        "--bell",
+        "--edit",
+        "--help",
+        "--login",
+        "--list",
+        "--non-interactive",
+        "--preserve-groups",
+        "--preserve-env",
+        "--remove-timestamp",
+        "--reset-timestamp",
+        "--shell",
+        "--stdin",
+        "--validate",
+        "--version",
+      ],
+      chdir: { short: "D", long: "--chdir" },
+    },
+  ],
+  ["doas", { short: "uC", long: [] }],
+  [
+    "env",
+    {
+      short: "uCS",
+      long: ["--unset", "--chdir", "--split-string"],
+      plain: [
+        "--ignore-environment",
+        "--null",
+        "--debug",
+        "--help",
+        "--version",
+        "--block-signal",
+        "--default-signal",
+        "--ignore-signal",
+        "--list-signal-handling",
+      ],
+      chdir: { short: "C", long: "--chdir" },
+      split: { short: "S", long: "--split-string" },
+    },
+  ],
+  [
+    "xargs",
+    {
+      short: "InPLsEda",
+      long: [
+        "--max-args",
+        "--max-procs",
+        "--max-lines",
+        "--max-chars",
+        "--eof",
+        "--delimiter",
+        "--arg-file",
+      ],
+    },
+  ],
+  ["timeout", { short: "sk", long: ["--signal", "--kill-after"] }],
+  ["nice", { short: "n", long: ["--adjustment"] }],
+  ["command", { short: "", long: [] }],
+  ["builtin", { short: "", long: [] }],
+  ["exec", { short: "a", long: [] }],
+  ["nohup", { short: "", long: [] }],
+  ["time", { short: "", long: [] }],
+  ["stdbuf", { short: "ioe", long: ["--input", "--output", "--error"] }],
 ]);
+
+/**
+ * A long option's full name, as getopt takes it: the name itself, or the one known name it
+ * abbreviates past two letters (`--chd` for `--chdir`). An ambiguous or unknown one is itself.
+ */
+function longOption(name: string, wrapper: Wrapper): string {
+  const known = [...wrapper.long, ...(wrapper.plain ?? [])];
+  if (known.includes(name) || name.length <= 4) return name;
+  const matches = known.filter((k) => k.startsWith(name));
+  return matches.length === 1 ? (matches[0] ?? name) : name;
+}
+
+/**
+ * A wrapper's own words from `from` on: where the command it runs starts, each folder an option
+ * (`env -C DIR`, `sudo --chdir=DIR`) has it run there, and whether `env -S` came with its line
+ * attached (`-S'rm x'`), which the shell's words no longer show as the line env splits.
+ */
+function wrapperOptions(
+  words: readonly string[],
+  from: number,
+  wrapper: Wrapper,
+): { at: number; dirs: string[]; attachedSplit: boolean } {
+  const dirs: string[] = [];
+  let attachedSplit = false;
+  let i = from;
+  for (; i < words.length; i++) {
+    const a = words[i] ?? "";
+    if (a === "--") {
+      i++;
+      break;
+    }
+    // `env -` is `env -i`: it clears the environment and starts no command.
+    if (a === "-") continue;
+    if (a.startsWith("--")) {
+      const eq = a.indexOf("=");
+      const name = longOption(eq < 0 ? a : a.slice(0, eq), wrapper);
+      if (name === wrapper.split?.long) {
+        // `--split-string LINE`: the command starts at its value, which the shell split already.
+        if (eq >= 0) attachedSplit = true;
+        else i++;
+        break;
+      }
+      const valued = wrapper.long.includes(name);
+      const value =
+        eq >= 0 ? a.slice(eq + 1) : valued ? words[i + 1] : undefined;
+      if (valued && eq < 0) i++;
+      if (name === wrapper.chdir?.long && value !== undefined) dirs.push(value);
+    } else if (a.length > 1 && a.startsWith("-")) {
+      // A cluster (`-iC DIR`, `-iCDIR`): a letter that takes a value takes the rest, or the next word.
+      let split = false;
+      for (let c = 1; c < a.length; c++) {
+        const letter = a.charAt(c);
+        if (!wrapper.short.includes(letter)) continue;
+        const last = c === a.length - 1;
+        if (letter === wrapper.split?.short) {
+          split = true;
+          if (!last) attachedSplit = true;
+          break;
+        }
+        const value = last ? words[i + 1] : a.slice(c + 1);
+        if (last) i++;
+        if (letter === wrapper.chdir?.short && value !== undefined) {
+          dirs.push(value);
+        }
+        break;
+      }
+      if (split) {
+        i++;
+        break;
+      }
+    } else if (!ASSIGNMENT.test(a)) break;
+  }
+  return { at: i, dirs, attachedSplit };
+}
 
 /** Shell words that come before a command without being one. */
 const KEYWORDS = new Set([
@@ -901,22 +1251,29 @@ const KEYWORDS = new Set([
 
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
 
-/** Where the command itself starts in a simple command's words: after assignments and wrappers. */
-function commandStart(words: readonly string[]): number {
+/**
+ * Where the command itself starts in a simple command's words, after assignments and wrappers,
+ * each folder a wrapper runs it in, and whether `env -S` hid its line in one word.
+ */
+function commandParts(words: readonly string[]): {
+  start: number;
+  dirs: string[];
+  attachedSplit: boolean;
+} {
+  const dirs: string[] = [];
+  let attachedSplit = false;
   let i = 0;
   while (i < words.length) {
     const word = words[i] ?? "";
     const name = basename(word);
-    const valued = WRAPPERS.get(name);
+    const wrapper = WRAPPERS.get(name);
     if (ASSIGNMENT.test(word) || KEYWORDS.has(word)) {
       i++;
-    } else if (valued !== undefined) {
-      i++;
-      for (; i < words.length; i++) {
-        const w = words[i] ?? "";
-        if (valued.includes(w)) i++;
-        else if (!w.startsWith("-") && !ASSIGNMENT.test(w)) break;
-      }
+    } else if (wrapper !== undefined) {
+      const own = wrapperOptions(words, i + 1, wrapper);
+      i = own.at;
+      dirs.push(...own.dirs);
+      attachedSplit ||= own.attachedSplit;
       // timeout's duration
       if (name === "timeout" && /^\d/.test(words[i] ?? "")) i++;
     } else if (
@@ -926,10 +1283,15 @@ function commandStart(words: readonly string[]): number {
       // `sh -c '...'`: its quotes are gone, so the words after `-c` are the command.
       i += 2;
     } else {
-      return i;
+      break;
     }
   }
-  return i;
+  return { start: i, dirs, attachedSplit };
+}
+
+/** Where the command itself starts in a simple command's words: after assignments and wrappers. */
+function commandStart(words: readonly string[]): number {
+  return commandParts(words).start;
 }
 
 /** A tree a command reads, copies or links as a whole, and whether it reaches hidden names in it. */
@@ -942,9 +1304,19 @@ export interface Tree {
 /** A `find` that deletes or moves away what it selects: its roots as written, and its selection. */
 export interface FindDelete {
   roots: string[];
-  /** Whether it selects this path, as find spells it under one of its roots, `depth` below it. */
-  selects: (path: string, dir: boolean, depth: number) => boolean;
+  /**
+   * Whether it selects this path, as find spells it under one of its roots, `depth` below it, a
+   * folder or not, empty or not.
+   */
+  selects: Selection;
 }
+
+type Selection = (
+  path: string,
+  dir: boolean,
+  depth: number,
+  empty: boolean,
+) => boolean;
 
 /** What a Bash line's commands do to the paths they name, beyond reading them (security-r2-1, -2). */
 export interface BashEffects {
@@ -962,6 +1334,8 @@ export interface BashEffects {
   finds: FindDelete[];
   /** Why the line is denied outright, whatever its paths, or null. */
   refusal: string | null;
+  /** Why the person decides the line, whatever its paths, when nothing denies it, or null. */
+  question: string | null;
 }
 
 function noEffects(): BashEffects {
@@ -973,8 +1347,12 @@ function noEffects(): BashEffects {
     arrivals: [],
     finds: [],
     refusal: null,
+    question: null,
   };
 }
+
+const SPLIT_ATTACHED =
+  "env -S with its command line in the same word runs a line the Planroom guard can't read as env splits it, so you decide whether it runs.";
 
 const REMOVERS = new Set([
   "rm",
@@ -1045,22 +1423,38 @@ const COMPRESSORS = new Set([
 ]);
 const SEVEN_ZIP = new Set(["7z", "7za", "7zz", "7zr"]);
 
-/** Whether `git clean`'s words ask for a dry run, `-n` or `--dry-run`, that deletes nothing. */
+/**
+ * Whether `git clean`'s words ask for a dry run that deletes nothing: its options up to `--`, the
+ * last of `-n`, `--dry-run` and `--no-dry-run` winning, each long one also as git takes it
+ * abbreviated (`--dry`, `--no-d`).
+ */
 function dryRun(rest: readonly string[]): boolean {
+  /** Whether `word` is `--NAME`, or git's abbreviation of it. */
+  const abbreviates = (word: string, prefix: string, name: string): boolean =>
+    word.length > prefix.length &&
+    word.startsWith(prefix) &&
+    name.startsWith(word.slice(prefix.length));
+  let dry = false;
   for (let k = 0; k < rest.length; k++) {
     const a = rest[k] ?? "";
-    if (a === "--") return false;
-    if (a === "--dry-run") return true;
-    if (a === "-e" || a === "--exclude") k++;
+    if (a === "--") break;
+    if (a === "-e") k++;
+    else if (abbreviates(a, "--no-", "dry-run")) dry = false;
+    else if (abbreviates(a, "--", "dry-run")) dry = true;
+    // `--exclude PATTERN`, abbreviated or not; `--exclude=PATTERN` is one word.
+    else if (abbreviates(a, "--", "exclude")) k++;
     else if (/^-[^-]/.test(a)) {
-      // `-e` takes the rest of its cluster as a pattern.
-      for (const c of a.slice(1)) {
-        if (c === "e") break;
-        if (c === "n") return true;
+      // `-e` takes the rest of its cluster as a pattern, else the next word.
+      for (let c = 1; c < a.length; c++) {
+        if (a.charAt(c) === "e") {
+          if (c === a.length - 1) k++;
+          break;
+        }
+        if (a.charAt(c) === "n") dry = true;
       }
     }
   }
-  return false;
+  return dry;
 }
 
 /** `git`'s own `-C` folder, its subcommand, and the words after it. */
@@ -1088,9 +1482,10 @@ function gitParts(args: readonly string[]): {
 }
 
 /** A shell glob (`find`'s `-name` and `-path`) as a test: `*` matches a leading dot and, in a path, a `/`. */
-function fnmatch(pattern: string, text: string, ci: boolean): boolean {
+function fnmatch(glob: string, text: string, ci: boolean): boolean {
   const escape = (c: string): string =>
     c.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  const pattern = glob.split("{,}").join("");
   let re = "";
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern.charAt(i);
@@ -1118,21 +1513,19 @@ function fnmatch(pattern: string, text: string, ci: boolean): boolean {
 }
 
 interface FindTest {
-  test: (path: string, dir: boolean) => boolean;
+  test: (path: string, dir: boolean, empty: boolean) => boolean;
   negated: boolean;
 }
 
 /**
  * What a `find` expression selects, read the safe way: its `-o` groups, each the tests it ANDs,
  * `!`/`-not` turning one over, `-prune` keeping what its group matches out with all below it,
- * and `-maxdepth`/`-mindepth`. `-empty` and `-size 0` select none of the protected places; a test
- * the guard doesn't read restricts nothing.
+ * and `-maxdepth`/`-mindepth`. `-empty` selects an empty file, and `-size 0` an empty file or a
+ * folder, which may report a size of 0; a test the guard doesn't read restricts nothing.
  */
-function findSelection(
-  expr: readonly string[],
-): (path: string, dir: boolean, depth: number) => boolean {
-  const groups: { tests: FindTest[]; prune: boolean }[] = [
-    { tests: [], prune: false },
+function findSelection(expr: readonly string[]): Selection {
+  const groups: { tests: FindTest[]; prune: boolean; acts: boolean }[] = [
+    { tests: [], prune: false, acts: false },
   ];
   let negate = false;
   let max = Infinity;
@@ -1140,15 +1533,15 @@ function findSelection(
   for (let i = 0; i < expr.length; i++) {
     const a = expr[i] ?? "";
     const value = expr[i + 1] ?? "";
-    const group = groups.at(-1) ?? { tests: [], prune: false };
-    const add = (test: (path: string, dir: boolean) => boolean): void => {
+    const group = groups.at(-1) ?? { tests: [], prune: false, acts: false };
+    const add = (test: FindTest["test"]): void => {
       group.tests.push({ test, negated: negate });
       negate = false;
       i++;
     };
     if (a === "!" || a === "-not") negate = !negate;
     else if (a === "-o" || a === "-or") {
-      groups.push({ tests: [], prune: false });
+      groups.push({ tests: [], prune: false, acts: false });
       negate = false;
     } else if (a === "-name" || a === "-iname") {
       add((p) => fnmatch(value, basename(p), a === "-iname"));
@@ -1156,6 +1549,8 @@ function findSelection(
       add((p) => fnmatch(value, p, a.startsWith("-i")));
     } else if (a === "-regex" || a === "-iregex") {
       add((p) => {
+        // An expansion in it may be any pattern.
+        if (value.includes(ANY_JOINED) || value === "*") return true;
         try {
           return new RegExp(`^(?:${value})$`, a === "-iregex" ? "i" : "").test(
             p,
@@ -1167,13 +1562,19 @@ function findSelection(
     } else if (a === "-type") {
       add((_, dir) => (value === "f" ? !dir : value === "d" ? dir : true));
     } else if (a === "-empty") {
-      // Each protected place is a folder with something in it or a file with data in it.
-      group.tests.push({ test: () => false, negated: negate });
+      // A protected folder holds something; a protected file may be empty, such as the data
+      // root's lock or a checkpointed WAL.
+      group.tests.push({
+        test: (_, dir, empty) => !dir && empty,
+        negated: negate,
+      });
       negate = false;
     } else if (a === "-size") {
-      // `-size 0`, `-size -1k`: find rounds up, so only an empty file is that small.
-      if (/^(-?0|-1)[bcwkMG]?$/.test(value)) add(() => false);
-      else i++;
+      // `-size 0`, `-size -1k`: find rounds up, so only an empty file is that small, or a folder
+      // whose file system reports 0.
+      if (/^(-?0|-1)[bcwkMG]?$/.test(value)) {
+        add((_, dir, empty) => dir || empty);
+      } else i++;
     } else if (a === "-maxdepth" || a === "-mindepth") {
       const n = Number(value);
       if (Number.isFinite(n)) {
@@ -1182,22 +1583,41 @@ function findSelection(
       }
       i++;
     } else if (a === "-prune") group.prune = true;
-    else if (FIND_ACTIONS.has(a)) break;
+    else if (a === "-delete") group.acts = true;
+    else if (FIND_ACTIONS.has(a)) {
+      group.acts = true;
+      break;
+    }
   }
-  const holds = (tests: FindTest[], path: string, dir: boolean): boolean =>
-    tests.every((t) => t.test(path, dir) !== t.negated);
+  const holds = (
+    tests: FindTest[],
+    path: string,
+    dir: boolean,
+    empty: boolean,
+  ): boolean => tests.every((t) => t.test(path, dir, empty) !== t.negated);
   const pruned = groups.filter((g) => g.prune);
-  const selecting = groups.filter((g) => !g.prune);
-  return (path, dir, depth) => {
+  // An action binds to its own `-o` branch (`-empty -o -name '*.orig' -delete` deletes only
+  // `.orig` files), unless parentheses group the branches, which this reading doesn't follow.
+  const grouped = expr.some((a) => a === "(" || a === ")" || a === LITERAL);
+  const acting = groups.filter((g) => !g.prune && g.acts);
+  const selecting =
+    !grouped && acting.length > 0 ? acting : groups.filter((g) => !g.prune);
+  return (path, dir, depth, empty) => {
     if (depth > max || depth < min) return false;
-    // A pruned folder keeps itself and all below it out.
+    // A pruned folder keeps itself and all below it out; a folder above a path holds it.
     const parts = path.split("/");
     for (let k = parts.length; k > 0; k--) {
       const above = parts.slice(0, k).join("/");
-      const isDir = k < parts.length || dir;
-      if (pruned.some((g) => holds(g.tests, above, isDir))) return false;
+      const own = k === parts.length;
+      if (
+        pruned.some((g) =>
+          holds(g.tests, above, own ? dir : true, own ? empty : false),
+        )
+      ) {
+        return false;
+      }
     }
-    return selecting.some((g) => holds(g.tests, path, dir));
+    return selecting.some((g) => holds(g.tests, path, dir, empty));
   };
 }
 
@@ -1246,19 +1666,64 @@ const SED_LONG = new Set([
 ]);
 
 /**
- * Which of an in-place editor's arguments name no file it writes: its options, with their values,
- * and its script, which for sed is each `-e`/`--expression` and `-f`/`--file` value, else its
- * first operand, and for perl and ruby each `-e` value. An option the guard doesn't know leaves
- * every word a file it writes.
+ * An in-place editor's short options, each its own: those that take nothing, those whose value is
+ * its script, those that take a value (the rest of the cluster, else the next word), those whose
+ * value can only be the rest of the cluster, and those that run it in another folder.
+ */
+interface Editor {
+  plain: string;
+  scripts: string;
+  valued: string;
+  attached: string;
+  chdir: string;
+}
+
+const EDITORS = new Map<string, Editor>([
+  [
+    "sed",
+    { plain: "nErsuz", scripts: "ef", valued: "l", attached: "", chdir: "" },
+  ],
+  [
+    "perl",
+    {
+      plain: "pnalswWXtTcuUvy0123456789",
+      scripts: "eE",
+      valued: "",
+      attached: "",
+      chdir: "",
+    },
+  ],
+  [
+    // `-E` is an encoding, `-C DIR` and `-X DIR` run it in DIR, and `-x[DIR]` may too.
+    "ruby",
+    {
+      plain: "acdlnpsSvwyUh",
+      scripts: "e",
+      valued: "CEFIrX",
+      attached: "0WxTK",
+      chdir: "CXx",
+    },
+  ],
+]);
+
+/**
+ * Which of an in-place editor's arguments name no file it writes, and the folder it runs in when
+ * an option moves it there: its options, with their values, and its script, which for sed is each
+ * `-e`/`--expression` and `-f`/`--file` value, else its first operand, and for perl and ruby each
+ * `-e` value. An option the guard doesn't know leaves every word a file it writes.
  */
 function inPlaceScripts(
   name: string,
   args: readonly string[],
   joined: readonly boolean[],
-): Set<number> {
+): { notFiles: Set<number>; dir: string | undefined } {
   const words = shellWordsOf(args, joined);
   const notFiles = new Set<number>();
   const sed = name === "sed";
+  const editor = EDITORS.get(name);
+  const unknown = { notFiles: new Set<number>(), dir: undefined };
+  if (editor === undefined) return unknown;
+  let dir: string | undefined;
   let given = false;
   let ended = false;
   const operands: number[] = [];
@@ -1278,7 +1743,7 @@ function inPlaceScripts(
     if (word === "--") {
       ended = true;
     } else if (word.startsWith("--")) {
-      if (!sed) return new Set();
+      if (!sed) return unknown;
       const eq = word.indexOf("=");
       const option = eq < 0 ? word : word.slice(0, eq);
       if (option === "--expression" || option === "--file") {
@@ -1286,27 +1751,34 @@ function inPlaceScripts(
         if (eq < 0) value();
       } else if (option === "--line-length") {
         if (eq < 0) value();
-      } else if (!SED_LONG.has(option)) return new Set();
+      } else if (!SED_LONG.has(option)) return unknown;
     } else {
-      const flags = sed ? "nErsuz" : "pnalswWXtTcuUvy0123456789";
       for (let c = 1; c < word.length; c++) {
         const letter = word.charAt(c);
+        const rest = word.slice(c + 1);
         // `-i.bak`: the rest is the backup's suffix.
         if (letter === "i") break;
-        const script =
-          letter === "e" || (sed ? letter === "f" : letter === "E");
-        if (script || (sed && letter === "l")) {
-          if (script) given = true;
+        if (editor.scripts.includes(letter) || editor.valued.includes(letter)) {
+          if (editor.scripts.includes(letter)) given = true;
           // The rest of the cluster is its value, else the next word is.
-          if (c + 1 === word.length) value();
+          const held = rest === "" ? words[g + 1]?.text : rest;
+          if (rest === "") value();
+          if (editor.chdir.includes(letter)) dir = held;
           break;
         }
-        if (!flags.includes(letter)) return new Set();
+        if (editor.attached.includes(letter)) {
+          if (editor.chdir.includes(letter) && rest !== "") dir = rest;
+          break;
+        }
+        if (!editor.plain.includes(letter)) return unknown;
       }
     }
   }
   if (sed && !given && operands[0] !== undefined) notFiles.add(operands[0]);
-  return new Set([...notFiles].flatMap((g) => words[g]?.parts ?? []));
+  return {
+    notFiles: new Set([...notFiles].flatMap((g) => words[g]?.parts ?? [])),
+    dir,
+  };
 }
 
 /** What one simple command does to the paths it names, its words expanded. */
@@ -1408,10 +1880,19 @@ function commandEffects(
     }
   } else if (IN_PLACE.has(name)) {
     if (short("i") || long("--in-place")) {
-      // A script names no file it writes: `sed -i 's/^v = .*/v = 1/' f` writes only `f`.
-      const notFiles = inPlaceScripts(name, args, joined.slice(start + 1));
+      // A script names no file it writes: `sed -i 's/^v = .*/v = 1/' f` writes only `f`, and
+      // `ruby -C DIR -pi` writes it in DIR.
+      const { notFiles, dir } = inPlaceScripts(
+        name,
+        args,
+        joined.slice(start + 1),
+      );
       effects.writes.push(
-        ...args.filter((a, k) => !a.startsWith("-") && !notFiles.has(k)),
+        ...args
+          .filter((a, k) => !a.startsWith("-") && !notFiles.has(k))
+          .map((f) =>
+            dir === undefined || /^[/~]/.test(f) ? f : `${dir}/${f}`,
+          ),
       );
     }
   } else if (name === "dd") {
@@ -1540,12 +2021,16 @@ const LITERAL = "§";
 /** The characters the first reading splits a line on. */
 const OPERATORS = ";|&<>()\n";
 
+/** What the second reading writes for a command substitution: a variable no line sets. */
+const SUBSTITUTED = "${__}";
+
 /**
  * A Bash line read the second way (DR-86's quoted redirection; security-r2-3). The first reading
  * splits on every operator, quoted or not. This one keeps an operator inside quotes or after a
- * backslash as text, and reads each command substitution, `$(...)` or backticks, as one unknown
- * word, so `/proc/$(pgrep planroom)/environ` reads as any process's environment. The guard checks
- * both readings and denies what either denies.
+ * backslash as text, and reads each command substitution, `$(...)` or backticks, as an unknown
+ * variable, so `/proc/$(pgrep planroom)/environ` reads as any process's environment, and two of
+ * them in one name may be a hidden one, never `**`. The guard checks both readings and denies
+ * what either denies.
  */
 export function literalReading(command: string): string {
   let out = "";
@@ -1571,13 +2056,13 @@ export function literalReading(command: string): string {
         if (c === "(") depth++;
         else if (c === ")" && --depth === 0) break;
       }
-      out += "*";
+      out += SUBSTITUTED;
       i = j;
       continue;
     }
     if (ch === "`") {
       const end = command.indexOf("`", i + 1);
-      out += "*";
+      out += SUBSTITUTED;
       i = end < 0 ? command.length : end;
       continue;
     }
@@ -1592,9 +2077,51 @@ export function literalReading(command: string): string {
   return out;
 }
 
-/** The line as written, then as the second reading takes it, when that differs. */
+/**
+ * A Bash line with each `${X:-word}`, `${X-word}`, `${X:=word}`, `${X=word}` and `${X:+word}` as
+ * its `word`, and each `${X/pat/rep}` (`//`, `/#`, `/%`) as its `rep`, innermost first: the other
+ * reading puts an unknown `X` in as any name, but the shell puts in `word` when `X` is unset, so
+ * `${A:-.planroom}` may be the state directory, and `${PWD/*\/.planroom}` is it.
+ */
+function withDefaults(command: string): string {
+  const word = "((?:[^{}$]|\\$(?!\\{))*)";
+  const defaults = new RegExp(
+    `\\$\\{[A-Za-z_][A-Za-z0-9_]*:?[-=+]${word}\\}`,
+    "g",
+  );
+  const swaps = new RegExp(
+    `\\$\\{[A-Za-z_][A-Za-z0-9_]*\\/[/#%]?(?:\\\\.|[^/}\\\\])*\\/${word}\\}`,
+    "g",
+  );
+  let out = command;
+  for (let k = 0; k < 16; k++) {
+    const next = out.replace(defaults, "$1").replace(swaps, "$1");
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+
+/**
+ * The line as written, and the other ways the guard reads it, each once: with every
+ * backslash-newline a quoted `sh -c` script drops dropped (the first reading keeps one inside
+ * single quotes, as Bash does), with each one as a plain newline (a comment ends there, so
+ * `true #\` then a newline hides nothing), with each expansion's default or replacement put in,
+ * and each of those as the second reading takes it.
+ */
 function readings(command: string): string[] {
-  return [...new Set([command, literalReading(command)])];
+  const forms = new Set<string>();
+  for (const line of [
+    command,
+    joinLines(command),
+    command.replace(/\\\n/g, "\n"),
+  ]) {
+    for (const form of [line, withDefaults(line)]) {
+      forms.add(form);
+      forms.add(literalReading(form));
+    }
+  }
+  return [...forms];
 }
 
 /** `shopt -s dotglob`, zsh's `setopt globdots` or a set `GLOBIGNORE`: `*` then matches hidden names. */
@@ -1649,7 +2176,31 @@ export function bashPaths(command: string, places: GuardPlaces): BashPaths {
   let moved = places.cwd !== places.workspace;
   /** Each simple command's words, expanded. */
   const expanded: string[][] = [];
-  for (const simple of commands) {
+  /** A `cd` to `target` (expanded), from every place the line may be by then. */
+  const moveTo = (target: string): void => {
+    cds.push(target);
+    const moves = bases.map((b) => normalize(target, b, places.home));
+    bases = [...new Set([...bases, ...moves])].slice(0, 8);
+    moved = true;
+  };
+  /**
+   * Whether the command substitution that starts after command `k` gives its command a word to
+   * print (`$(echo .config)`), rather than printing what the line doesn't spell (`$(mktemp -d)`).
+   */
+  const substitutionNames = (k: number): boolean => {
+    for (let j = k + 1; j < commands.length; j++) {
+      const words = commands[j]?.words ?? [];
+      if (
+        words.slice(commandStart(words) + 1).some((w) => !w.startsWith("-"))
+      ) {
+        return true;
+      }
+      const end = commands[j]?.sep;
+      if (end === ")" || end === "`") break;
+    }
+    return false;
+  };
+  for (const [k, simple] of commands.entries()) {
     const words: string[] = [];
     const values: (string | null)[] = [];
     const assignments: boolean[] = [];
@@ -1659,21 +2210,64 @@ export function bashPaths(command: string, places: GuardPlaces): BashPaths {
       const assigned =
         eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(raw.slice(0, eq));
       const value = eq >= 0 ? shown(expand(raw.slice(eq + 1), vars)) : null;
-      if (assigned && value !== null) vars.set(raw.slice(0, eq), value);
+      // `A=$(echo .config)`: what the substitution prints may be any name, a hidden one too.
+      const substituted =
+        assigned &&
+        i === simple.words.length - 1 &&
+        ((simple.sep === "(" && raw.endsWith("$")) || simple.sep === "`");
+      if (assigned && value !== null) {
+        vars.set(
+          raw.slice(0, eq),
+          !substituted
+            ? value
+            : substitutionNames(k)
+              ? ANY_JOINED
+              : `${value}*`.replace(/\*+$/, "*"),
+        );
+      }
       words.push(shown(expand(raw, vars)));
       values.push(value);
       assignments.push(assigned);
       if (raw === "cd" || raw === "pushd") {
         const next = simple.words[i + 1];
-        const target =
+        moveTo(
           next === undefined || next.startsWith("-")
             ? "~"
-            : shown(expand(next, vars));
-        cds.push(target);
-        const moves = bases.map((b) => normalize(target, b, places.home));
-        bases = [...new Set([...bases, ...moves])].slice(0, 8);
-        moved = true;
+            : shown(expand(next, vars)),
+        );
       }
+    }
+    // Names the command sets from what the line doesn't spell (`read`, `mapfile`, `printf -v`)
+    // may be any name, a hidden one too; a `for` loop's from its list.
+    const ident = /^[A-Za-z_][A-Za-z0-9_]*$/;
+    const head = simple.words[0] ?? "";
+    const loopVar = simple.words[1] ?? "";
+    if (head === "for" && ident.test(loopVar)) {
+      const list = simple.words[2] === "in" ? words.slice(3) : [];
+      vars.set(
+        loopVar,
+        list.length === 1
+          ? (list[0] ?? ANY_JOINED)
+          : list.length > 1 && !list.some((w) => /[/{},]/.test(w))
+            ? `{${list.join(",")}}`
+            : ANY_JOINED,
+      );
+    }
+    const at = commandStart(simple.words);
+    const program = basename(simple.words[at] ?? "");
+    const after = simple.words.slice(at + 1);
+    if (["read", "mapfile", "readarray"].includes(program)) {
+      for (const w of after) if (ident.test(w)) vars.set(w, ANY_JOINED);
+    }
+    if (program === "printf") {
+      after.forEach((w, j) => {
+        const name = w === "-v" ? after[j + 1] : /^-v(.+)$/.exec(w)?.[1];
+        if (name !== undefined && ident.test(name)) vars.set(name, ANY_JOINED);
+      });
+    }
+    // `env -C DIR`, `sudo -D DIR`: the command runs there, as after a `cd`.
+    for (const dir of commandParts(simple.words).dirs) {
+      moveTo(shown(expand(dir, vars)));
     }
     // A find's excluding pattern (`-not -path '*/.planroom/*'`) keeps a place out; it names none.
     const finding = basename(words[commandStart(words)] ?? "") === "find";
@@ -1701,6 +2295,9 @@ export function bashPaths(command: string, places: GuardPlaces): BashPaths {
     effects.arrivals.push(...own.arrivals);
     effects.finds.push(...own.finds);
     effects.refusal ??= own.refusal;
+    if (commandParts(simple.words).attachedSplit) {
+      effects.question ??= SPLIT_ATTACHED;
+    }
     expanded.push(words);
   }
   /** The commands whose output a command substitution right after command `k` hands it. */
@@ -1857,6 +2454,19 @@ const STATE_SECRETS = [
   "store.pointer",
   "serve.json",
 ];
+
+/**
+ * Whether a name, maybe a glob, singles out a file Planroom keeps in a state directory: it may be
+ * one, and its stem, before the first `.`, is no bare wildcard (`*`, `**` or the dotglob form),
+ * as `*.db` and `*.json` are, which match any name of that kind.
+ */
+function namesStateFile(segment: string): boolean {
+  const stem = segment.split(".")[0] ?? "";
+  if (["*", "**", "{,}*", DOT_GLOBSTAR, ANY_JOINED].includes(stem)) {
+    return false;
+  }
+  return STATE_SECRETS.some((n) => segmentMatches(segment, n));
+}
 
 /**
  * Why a glob (absolute and normal) may expand into a place an agent may not read, or null: it
@@ -2124,11 +2734,18 @@ export function namedPaths(
   ];
 }
 
-/** One place a `find` under some root may reach, and whether it's a folder. */
+/** One place a `find` under some root may reach, whether it's a folder, and whether it may be empty. */
 interface Sample {
   path: string;
   dir: boolean;
+  empty: boolean;
 }
+
+/**
+ * The files Planroom keeps that may be empty: a WAL a checkpoint truncated, a rollback journal,
+ * and the data root's lock, which `planroom` creates and never writes (app/data.rs `lock`).
+ */
+const EMPTY_STATE = ["store.db-wal", "store.db-journal"];
 
 /**
  * The protected places at or below `root` (absolute and normal) that a deleting `find` there must
@@ -2138,16 +2755,19 @@ interface Sample {
  */
 function protectedSamples(root: string, places: GuardPlaces): Sample[] {
   const out: Sample[] = [];
-  const add = (path: string, dir: boolean): void => {
-    if (path !== root && within(path, root)) out.push({ path, dir });
+  const add = (path: string, dir: boolean, empty = false): void => {
+    if (path !== root && within(path, root)) out.push({ path, dir, empty });
+  };
+  /** A folder that holds a store, its files with data in them and those that may be empty. */
+  const store = (folder: string, names: readonly string[]): void => {
+    add(folder, true);
+    for (const n of names) add(`${folder}/${n}`, false);
+    for (const n of EMPTY_STATE) add(`${folder}/${n}`, false, true);
   };
   const state = (w: string): void => {
-    add(`${w}/.planroom`, true);
     add(`${w}/.git`, true);
-    add(`${w}/.git/planroom`, true);
-    for (const n of [...STATE_SECRETS, "config.toml"]) {
-      add(`${w}/.planroom/${n}`, false);
-      add(`${w}/.git/planroom/${n}`, false);
+    for (const folder of [`${w}/.planroom`, `${w}/.git/planroom`]) {
+      store(folder, [...STATE_SECRETS, "config.toml"]);
     }
   };
   for (const w of new Set([places.workspace, places.cwd])) state(w);
@@ -2157,9 +2777,11 @@ function protectedSamples(root: string, places: GuardPlaces): Sample[] {
   for (const n of ["stores", "backups", "open", "engine", "logs"]) {
     add(`${data}/${n}`, true);
   }
+  store(`${data}/stores/0`, ["store.db"]);
   for (const n of ["ledger.db", "workspaces.json", "engine/0/planroom"]) {
     add(`${data}/${n}`, false);
   }
+  add(`${data}/workspaces.json.lock`, false, true);
   add(modStoreDir(places), true);
   add(`${modStoreDir(places)}/planroom_planroom-0.json`, false);
   add(places.userConfig, false);
@@ -2174,54 +2796,130 @@ function protectedSamples(root: string, places: GuardPlaces): Sample[] {
 const FIND_DELETE =
   "This find deletes or moves what it selects, which may include Planroom's state, its data root, the person key, the gateway key or the plugin. Keep them out, such as with -not -path '*/.planroom/*' -not -path '*/.git/*', or name a folder that holds none of them.";
 
-/** Variables an agent never sets, by name alone: a start-up file or settings file only sets them. */
-const GUARDED_NAME =
-  /(?<![A-Za-z0-9_])PLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)(?![A-Za-z0-9_])/;
+/** A guarded variable named anywhere: a start-up or settings file only sets it. */
+const GUARDED_NAME = new RegExp(
+  `(?<![A-Za-z0-9_])(${GUARDED_ALTERNATIVES})(?![A-Za-z0-9_])`,
+);
 
-const STARTUP_SET =
-  "An agent never sets PLANROOM_PERSON_TOKEN, PLANROOM_RAW, PLANROOM_ENGINE or PLANROOM_RELEASE_BASE_URL, in a shell's start-up file or Claude Code's settings either.";
+/**
+ * A place variable named as a setting names it (`HOME=`, `export HOME`, `"HOME":`, and
+ * `${HOME:=x}` or `${HOME=x}`, which assign), not as a line uses it (`$HOME`, `${HOME}`,
+ * `${HOME:-x}`), which start-up files do every day.
+ */
+const PLACE_NAME = new RegExp(
+  [
+    `(?<![A-Za-z0-9_$])(?<!\\$\\{)(${PLACE_VARIABLES.join("|")})(?![A-Za-z0-9_])`,
+    `\\$\\{(${PLACE_VARIABLES.join("|")}):?=`,
+  ].join("|"),
+);
 
-/** Whether text names a guarded variable, its quotes taken out and JSON's `\uXXXX` escapes put in. */
+const STARTUP_SET = `An agent never sets ${spelled(GUARDED_VARIABLES)}, in a shell's start-up file or Claude Code's settings either, nor ${spelled(PLACE_VARIABLES)} there, which place the engine cache a press runs.`;
+
+/**
+ * Whether text names a variable no start-up or settings file an agent writes sets, its quotes
+ * taken out and JSON's `\uXXXX` escapes put in.
+ */
 function namesGuardedVariable(text: string): boolean {
   const decoded = text.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) =>
     String.fromCharCode(parseInt(hex, 16)),
   );
-  return [text, decoded].some((t) => GUARDED_NAME.test(unquote(t)));
+  return [text, decoded].some((t) => {
+    const plain = unquote(t);
+    return GUARDED_NAME.test(plain) || PLACE_NAME.test(plain);
+  });
+}
+
+/** A shell's start-up files in the home folder; zsh's also in `$ZDOTDIR`. */
+const STARTUP_FILES = [
+  ".bashrc",
+  ".bash_profile",
+  ".bash_login",
+  ".profile",
+  ".zshrc",
+  ".zshenv",
+  ".zprofile",
+  ".zlogin",
+];
+
+/**
+ * The files, and the folders whose files (by suffix), that set the environment of a later shell
+ * or session for these places: a shell's start-up files, `~/.bashrc.d/`, fish's config, systemd's
+ * `environment.d/`, and Claude Code's user settings. Its project and managed settings, which may
+ * be anywhere, `setsEnvironment` knows by name.
+ */
+function environmentFiles(places: GuardPlaces): {
+  files: string[];
+  folders: { dir: string; suffix: string }[];
+} {
+  const home = places.home.replace(/\/+$/, "");
+  const files = STARTUP_FILES.map((n) => `${home}/${n}`);
+  if (places.zdotdir !== undefined) {
+    files.push(
+      ...STARTUP_FILES.filter((n) => n.startsWith(".z")).map(
+        (n) => `${places.zdotdir ?? ""}/${n}`,
+      ),
+    );
+  }
+  const folders = [{ dir: `${home}/.bashrc.d`, suffix: "" }];
+  // `${XDG_CONFIG_HOME:-$HOME/.config}`, the folder above the user config's, and the default.
+  const xdg = places.userConfig.split("/").slice(0, -2).join("/");
+  for (const config of new Set([xdg, `${home}/.config`])) {
+    files.push(`${config}/fish/config.fish`);
+    folders.push(
+      { dir: `${config}/fish/conf.d`, suffix: ".fish" },
+      { dir: `${config}/environment.d`, suffix: ".conf" },
+    );
+  }
+  files.push(
+    `${places.claudeConfig}/settings.json`,
+    `${places.claudeConfig}/settings.local.json`,
+  );
+  return { files, folders };
 }
 
 /**
- * Whether a file (absolute and normal) sets the environment of a later shell or session: a
- * shell's start-up file in the home folder, fish's config, or a Claude Code settings file, whose
- * `env` every session and its tools inherit.
+ * Whether a file (absolute and normal, maybe a glob) sets the environment of a later shell or
+ * session: a start-up file, or a Claude Code settings file, whose `env` every session and its
+ * tools inherit. A glob counts when it may name one, as the guard's other globs do.
  */
 function setsEnvironment(path: string, places: GuardPlaces): boolean {
-  const home = places.home.replace(/\/+$/, "");
-  const startup = [
-    ".bashrc",
-    ".bash_profile",
-    ".bash_login",
-    ".profile",
-    ".zshrc",
-    ".zshenv",
-    ".zprofile",
-    ".zlogin",
-  ];
-  if (startup.some((n) => path === `${home}/${n}`)) return true;
-  // `${XDG_CONFIG_HOME:-$HOME/.config}`, the folder above the user config's.
-  const xdg = places.userConfig.split("/").slice(0, -2).join("/");
-  for (const fish of new Set([`${xdg}/fish`, `${home}/.config/fish`])) {
-    if (path === `${fish}/config.fish`) return true;
-    if (within(path, `${fish}/conf.d`) && path.endsWith(".fish")) return true;
+  const { files, folders } = environmentFiles(places);
+  const p = segmentsOf(path);
+  const last = p.at(-1) ?? "";
+  const parent = p.at(-2) ?? "";
+  // Project and local settings, wherever they are: a glob's folder must name `.claude`.
+  if (
+    segmentMay(parent, ".claude") &&
+    ["settings.json", "settings.local.json"].some((n) => segmentMay(last, n))
+  ) {
+    return true;
   }
-  const config = places.claudeConfig;
+  if (!GLOB.test(path)) {
+    return (
+      files.includes(path) ||
+      folders.some(
+        (f) => path !== f.dir && within(path, f.dir) && path.endsWith(f.suffix),
+      ) ||
+      // Managed settings by name, wherever they are.
+      last === "managed-settings.json" ||
+      parent === "managed-settings.d"
+    );
+  }
+  // A glob may name a managed settings file only along its full path, else `out/*.json` would.
   return (
-    /\/\.claude\/settings(\.local)?\.json$/.test(path) ||
-    path === `${config}/settings.json` ||
-    path === `${config}/settings.local.json` ||
-    basename(path) === "managed-settings.json" ||
-    /\/managed-settings\.d\/[^/]+$/.test(path)
+    [...files, ...MANAGED_SETTINGS].some((f) => mayName(path, f, "within")) ||
+    [
+      ...folders.map((f) => f.dir),
+      ...MANAGED_SETTINGS.map((f) => f.replace(/\.json$/, ".d")),
+    ].some((d) => mayName(path, d, "within"))
   );
 }
+
+/** Where Claude Code keeps managed settings: Linux, then macOS. */
+const MANAGED_SETTINGS = [
+  "/etc/claude-code/managed-settings.json",
+  "/Library/Application Support/ClaudeCode/managed-settings.json",
+];
 
 /** The text a Write, Edit or MultiEdit puts in its file, or null for another tool. */
 function writtenText(tool: string, input: unknown): string | null {
@@ -2254,7 +2952,15 @@ function elsewhere(input: unknown): string | null {
   if (i["_host"] !== undefined && i["_host"] !== null) {
     return "This call runs on another attached machine, where the Planroom guard can't tell where Planroom's files are, so it can't check what the call reaches.";
   }
-  if (i["dangerouslyDisableSandbox"] === true) {
+  // Any value the host may read as true: `"true"` as well as `true`.
+  const sandbox = i["dangerouslyDisableSandbox"];
+  const inside =
+    sandbox === undefined ||
+    sandbox === null ||
+    sandbox === false ||
+    sandbox === 0 ||
+    sandbox === "";
+  if (!inside) {
     return "This command asks to run outside the sandbox, so you decide whether it runs.";
   }
   return null;
@@ -2344,7 +3050,7 @@ function localVerdict(
   if (
     (tool === "Grep" || tool === "Glob") &&
     typeof filter === "string" &&
-    /store\.db|serve\.json/.test(filter)
+    (segmentsOf(filter).some(namesStateFile) || mayBeInStateDir(filter))
   ) {
     return deny(
       "Planroom's store is read through the planroom CLI, never directly.",
@@ -2418,12 +3124,40 @@ function localVerdict(
       at = { ...places, cwd: target };
       if (line.trim() === "") return null;
     }
-    for (const reading of readings(line)) {
+    const forms = readings(line);
+    for (const reading of forms) {
       const why = bashLineDenied(reading, resolved, at);
       if (why !== null) return deny(why);
     }
+    for (const reading of forms) {
+      const why = bashLineAsked(reading, resolved, at);
+      if (why !== null) return { decision: "ask", reason: why };
+    }
   }
   return null;
+}
+
+const STARTUP_WRITE =
+  "This writes a shell's start-up file or a Claude Code settings file, which sets what later shells and sessions run with, so you decide whether it runs.";
+
+/**
+ * Why the person decides one reading of a Bash line nothing denies, or null: any write to a
+ * start-up or settings file, whose content a staged copy or a `printf` doesn't show, and an
+ * `env -S` whose line the guard can't split.
+ */
+function bashLineAsked(
+  line: string,
+  resolved: (path: string) => readonly string[],
+  places: GuardPlaces,
+): string | null {
+  const { bases, effects } = bashPaths(line, places);
+  if (effects.question !== null) return effects.question;
+  const startup = effects.writes.some((p) =>
+    [...bases.map((b) => normalize(p, b, places.home)), ...resolved(p)].some(
+      (s) => setsEnvironment(s, places),
+    ),
+  );
+  return startup ? STARTUP_WRITE : null;
 }
 
 /** Why one reading of a Bash line is denied, or null. */
@@ -2454,16 +3188,18 @@ function bashLineDenied(
     return null;
   };
   /** Whether a deleting find under this root (as written) selects a protected place. */
-  const findReaches = (
-    selects: (path: string, dir: boolean, depth: number) => boolean,
-    root: string,
-  ): string | null =>
+  const findReaches = (selects: Selection, root: string): string | null =>
     first([root], (s) =>
       protectedSamples(s, places).some((sample) => {
         const rel = sample.path.slice(s.replace(/\/+$/, "").length);
         const written =
           root === "/" ? rel : `${root.replace(/\/+$/, "")}${rel}`;
-        return selects(written, sample.dir, segmentsOf(rel).length);
+        return selects(
+          written,
+          sample.dir,
+          segmentsOf(rel).length,
+          sample.empty,
+        );
       })
         ? FIND_DELETE
         : null,

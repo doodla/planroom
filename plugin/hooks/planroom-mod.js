@@ -519,6 +519,7 @@ function guardPlaces(cwd, env, more = {}) {
     const a = absolute(v);
     return a === void 0 ? void 0 : normalize(a, "/", h2);
   };
+  const zdotdir = xdg(env.ZDOTDIR);
   return {
     cwd,
     workspace: more.workspace ?? cwd,
@@ -531,11 +532,21 @@ function guardPlaces(cwd, env, more = {}) {
       xdg(env.XDG_CONFIG_HOME) ?? `${h2}/.config`,
       h2
     ),
+    ...zdotdir === void 0 ? {} : { zdotdir },
     ...home === void 0 ? {
       unplaced: "The Planroom guard can't tell where your home folder is (HOME is unset or not absolute), so it can't check what this call reaches."
     } : {}
   };
 }
+function pinnedDataRoot(env) {
+  if (env.PLANROOM_DATA !== void 0 && env.PLANROOM_DATA !== "") {
+    return env.PLANROOM_DATA;
+  }
+  const home = absolute(env.HOME);
+  const base = absolute(env.XDG_DATA_HOME) ?? (home === void 0 ? void 0 : `${home}/.local/share`);
+  return base === void 0 ? UNPLACED : `${base}/planroom`;
+}
+var UNPLACED = "unplaced";
 function normalize(path, cwd, home) {
   let p = path.trim();
   const tilde = /^~([^/]*)(\/|$)/.exec(p);
@@ -760,17 +771,24 @@ function treeDenied(path, hidden, places2) {
   const state = segmentMay(last, ".planroom") || segmentMay(last, ".git") || segmentMay(p.at(-2) ?? "", ".git") && segmentMay(last, "planroom");
   return state || secretPlaces(places2).some(reaches) ? "This reads, copies or links a whole folder that holds Planroom's private files: the person key, the gateway key, the stores, login pages or serve's token. Name a folder inside it that holds none of them." : null;
 }
+function joinLines(text2) {
+  return text2.replace(/(?<!\\)((?:\\\\)*)\\\n/g, "$1");
+}
 function unquote(command) {
-  return command.replace(/\\\n/g, "").replace(/["'\\]/g, "");
+  return joinLines(command).replace(/["'\\]/g, "");
 }
 function unquoteMarked(command) {
-  const source = command.replace(/\\\n/g, "");
+  const source = command;
   let text2 = "";
   const quoted = [];
   let state = null;
   let escaped = false;
   for (let i = 0; i < source.length; i++) {
     const ch = source.charAt(i);
+    if (ch === "\\" && !escaped && state !== "'" && source.charAt(i + 1) === "\n") {
+      i++;
+      continue;
+    }
     if (ch === '"' || ch === "'" || ch === "\\") {
       if (escaped) escaped = false;
       else if (ch === "\\" && state !== "'") escaped = true;
@@ -785,7 +803,7 @@ function unquoteMarked(command) {
   return { text: text2, quoted };
 }
 function shellWords(command) {
-  return command.replace(/\\\n/g, "").split(/[\s;&|()<>`'"=$]+/).filter((w) => w !== "");
+  return joinLines(command).split(/[\s;&|()<>`'"=$]+/).filter((w) => w !== "");
 }
 var PERSON_ONLY = [
   ["intent", "version"],
@@ -850,7 +868,25 @@ function personOnlyLine(line) {
   }
   return null;
 }
-var GUARDED_VARIABLES = /\bPLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)\b\s*\+?=|\b(export|declare|typeset|env|set|readonly|local|read)\b[^;&|\n]*\bPLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)\b|\bprintf\b[^;&|\n]*-v\s*PLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)\b/;
+var GUARDED_VARIABLES = [
+  "PLANROOM_PERSON_TOKEN",
+  "PLANROOM_RAW",
+  "PLANROOM_ENGINE",
+  "PLANROOM_RELEASE_BASE_URL"
+];
+var PLACE_VARIABLES = ["PLANROOM_DATA", "XDG_DATA_HOME", "HOME"];
+function spelled(names) {
+  return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} or ${names.at(-1) ?? ""}`;
+}
+var GUARDED_ALTERNATIVES = GUARDED_VARIABLES.join("|");
+var GUARDED_SET = new RegExp(
+  [
+    `\\b(${GUARDED_ALTERNATIVES})\\b\\s*\\+?=`,
+    `\\b(export|declare|typeset|env|set|readonly|local|read)\\b[^;&|\\n]*\\b(${GUARDED_ALTERNATIVES})\\b`,
+    `\\bprintf\\b[^;&|\\n]*-v\\s*(${GUARDED_ALTERNATIVES})\\b`
+  ].join("|")
+);
+var GUARDED_SET_REASON = `An agent never sets ${spelled(GUARDED_VARIABLES)}.`;
 var GLOB = /[*?[{]/;
 function isExpansion(word) {
   return word.startsWith("$") || word.startsWith("`");
@@ -860,9 +896,7 @@ function simpleCommands(command) {
 }
 function bashDenied(command) {
   const plain = unquote(command);
-  if (GUARDED_VARIABLES.test(plain)) {
-    return "An agent never sets PLANROOM_PERSON_TOKEN, PLANROOM_RAW, PLANROOM_ENGINE or PLANROOM_RELEASE_BASE_URL.";
-  }
+  if (GUARDED_SET.test(plain)) return GUARDED_SET_REASON;
   const words = shellWords(plain);
   for (const line of planroomLines(words)) {
     const reason = personOnlyLine(line);
@@ -912,15 +946,88 @@ function knownVariables(places2) {
     ["PLANROOM_DATA", places2.dataRoot],
     ["XDG_DATA_HOME", parent(places2.dataRoot)],
     ["XDG_CONFIG_HOME", parent(parent(places2.userConfig))],
+    ...places2.zdotdir === void 0 ? [] : [["ZDOTDIR", places2.zdotdir]],
     // The planroom skill names the resolver through it; a shell that has it set has this plugin's.
     ...places2.plugin.slice(0, 1).map((p) => ["CLAUDE_PLUGIN_ROOT", p])
   ]);
 }
+var ANY_JOINED = "{,}*{,}";
+function globTest(pattern) {
+  return (text2) => fnmatch(pattern, text2, false);
+}
+function applyOperator(value, op) {
+  if (value.length > 256) return void 0;
+  const removal = /^(##?|%%?)(.*)$/s.exec(op);
+  if (removal !== null) {
+    const [, kind = "", pattern2 = ""] = removal;
+    const test2 = globTest(pattern2);
+    const n = value.length;
+    const cuts = [...Array(n + 1).keys()];
+    const longest = kind.length === 2;
+    if (kind.startsWith("#")) {
+      const at2 = (longest ? cuts.reverse() : cuts).find(
+        (i2) => test2(value.slice(0, i2))
+      );
+      return at2 === void 0 ? value : value.slice(at2);
+    }
+    const at = (longest ? cuts : cuts.reverse()).find(
+      (i2) => test2(value.slice(i2))
+    );
+    return at === void 0 ? value : value.slice(0, at);
+  }
+  const swap = /^\/(\/|#|%)?([^/]*)(?:\/([^/]*))?$/s.exec(op);
+  if (swap === null) return void 0;
+  const [, mode = "", pattern = "", rep = ""] = swap;
+  const test = globTest(pattern);
+  const longestAt = (start) => {
+    for (let end = value.length; end > start; end--) {
+      if (test(value.slice(start, end))) return end;
+    }
+    return void 0;
+  };
+  if (mode === "#") {
+    const end = longestAt(0);
+    return end === void 0 ? value : rep + value.slice(end);
+  }
+  if (mode === "%") {
+    for (let start = 0; start < value.length; start++) {
+      if (test(value.slice(start))) return value.slice(0, start) + rep;
+    }
+    return value;
+  }
+  let out = "";
+  let i = 0;
+  while (i < value.length) {
+    const end = longestAt(i);
+    if (end === void 0) {
+      out += value.charAt(i);
+      i++;
+      continue;
+    }
+    out += rep;
+    i = end;
+    if (mode !== "/") return out + value.slice(i);
+  }
+  return out;
+}
 function expand(word, vars) {
-  return word.replace(
-    /\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}|\$([A-Za-z_][A-Za-z0-9_]*)/g,
-    (_, braced, bare) => vars.get(braced ?? bare ?? "") ?? "*"
-  ).replace(/\$[^/]*|`[^/]*/g, "*");
+  const unknown = "￿";
+  const anyName = "￾";
+  const put = word.replace(
+    /\$\{([A-Za-z_][A-Za-z0-9_]*)([^}]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g,
+    (_, braced, op, bare) => {
+      const value = vars.get(braced ?? bare ?? "");
+      if (op === void 0 || op === "" || /^:?[-=?]/.test(op)) {
+        return value ?? unknown;
+      }
+      const applied = value === void 0 || GLOB.test(value) ? void 0 : applyOperator(value, op);
+      return applied ?? anyName;
+    }
+  ).replace(/\$[^/]*|`[^/]*/g, unknown);
+  if (!put.includes(unknown) && !put.includes(anyName)) return put;
+  return put.split("/").map(
+    (s) => s === unknown ? "*" : s.replace(/[\uffff\ufffe]+/g, ANY_JOINED)
+  ).join("/");
 }
 function shellCommands(command) {
   const { text: text2, quoted } = unquoteMarked(command);
@@ -1010,19 +1117,144 @@ function shellCommands(command) {
 }
 var ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 var WRAPPERS = /* @__PURE__ */ new Map([
-  ["sudo", ["-u", "-g", "-C", "-h", "-p", "-U", "-D", "-r", "-t"]],
-  ["doas", ["-u", "-C"]],
-  ["env", ["-u", "-C", "-S"]],
-  ["xargs", ["-I", "-n", "-P", "-L", "-s", "-E", "-d", "-a"]],
-  ["timeout", ["-s", "-k"]],
-  ["nice", ["-n"]],
-  ["command", []],
-  ["builtin", []],
-  ["exec", ["-a"]],
-  ["nohup", []],
-  ["time", []],
-  ["stdbuf", []]
+  [
+    "sudo",
+    {
+      short: "ugChpUDrtTR",
+      long: [
+        "--user",
+        "--group",
+        "--close-from",
+        "--host",
+        "--prompt",
+        "--other-user",
+        "--chdir",
+        "--role",
+        "--type",
+        "--command-timeout",
+        "--chroot"
+      ],
+      plain: [
+        "--askpass",
+        "--background",
+        "--bell",
+        "--edit",
+        "--help",
+        "--login",
+        "--list",
+        "--non-interactive",
+        "--preserve-groups",
+        "--preserve-env",
+        "--remove-timestamp",
+        "--reset-timestamp",
+        "--shell",
+        "--stdin",
+        "--validate",
+        "--version"
+      ],
+      chdir: { short: "D", long: "--chdir" }
+    }
+  ],
+  ["doas", { short: "uC", long: [] }],
+  [
+    "env",
+    {
+      short: "uCS",
+      long: ["--unset", "--chdir", "--split-string"],
+      plain: [
+        "--ignore-environment",
+        "--null",
+        "--debug",
+        "--help",
+        "--version",
+        "--block-signal",
+        "--default-signal",
+        "--ignore-signal",
+        "--list-signal-handling"
+      ],
+      chdir: { short: "C", long: "--chdir" },
+      split: { short: "S", long: "--split-string" }
+    }
+  ],
+  [
+    "xargs",
+    {
+      short: "InPLsEda",
+      long: [
+        "--max-args",
+        "--max-procs",
+        "--max-lines",
+        "--max-chars",
+        "--eof",
+        "--delimiter",
+        "--arg-file"
+      ]
+    }
+  ],
+  ["timeout", { short: "sk", long: ["--signal", "--kill-after"] }],
+  ["nice", { short: "n", long: ["--adjustment"] }],
+  ["command", { short: "", long: [] }],
+  ["builtin", { short: "", long: [] }],
+  ["exec", { short: "a", long: [] }],
+  ["nohup", { short: "", long: [] }],
+  ["time", { short: "", long: [] }],
+  ["stdbuf", { short: "ioe", long: ["--input", "--output", "--error"] }]
 ]);
+function longOption(name, wrapper) {
+  const known = [...wrapper.long, ...wrapper.plain ?? []];
+  if (known.includes(name) || name.length <= 4) return name;
+  const matches = known.filter((k) => k.startsWith(name));
+  return matches.length === 1 ? matches[0] ?? name : name;
+}
+function wrapperOptions(words, from, wrapper) {
+  const dirs = [];
+  let attachedSplit = false;
+  let i = from;
+  for (; i < words.length; i++) {
+    const a = words[i] ?? "";
+    if (a === "--") {
+      i++;
+      break;
+    }
+    if (a === "-") continue;
+    if (a.startsWith("--")) {
+      const eq = a.indexOf("=");
+      const name = longOption(eq < 0 ? a : a.slice(0, eq), wrapper);
+      if (name === wrapper.split?.long) {
+        if (eq >= 0) attachedSplit = true;
+        else i++;
+        break;
+      }
+      const valued = wrapper.long.includes(name);
+      const value = eq >= 0 ? a.slice(eq + 1) : valued ? words[i + 1] : void 0;
+      if (valued && eq < 0) i++;
+      if (name === wrapper.chdir?.long && value !== void 0) dirs.push(value);
+    } else if (a.length > 1 && a.startsWith("-")) {
+      let split = false;
+      for (let c = 1; c < a.length; c++) {
+        const letter = a.charAt(c);
+        if (!wrapper.short.includes(letter)) continue;
+        const last = c === a.length - 1;
+        if (letter === wrapper.split?.short) {
+          split = true;
+          if (!last) attachedSplit = true;
+          break;
+        }
+        const value = last ? words[i + 1] : a.slice(c + 1);
+        if (last) i++;
+        if (letter === wrapper.chdir?.short && value !== void 0) {
+          dirs.push(value);
+        }
+        break;
+      }
+      if (split) {
+        i++;
+        break;
+      }
+    } else if (!ASSIGNMENT.test(a)) break;
+  }
+  return { at: i, dirs, attachedSplit };
+}
 var KEYWORDS = /* @__PURE__ */ new Set([
   "!",
   "{",
@@ -1036,29 +1268,32 @@ var KEYWORDS = /* @__PURE__ */ new Set([
   "until"
 ]);
 var SHELLS = /* @__PURE__ */ new Set(["sh", "bash", "zsh", "dash", "ksh"]);
-function commandStart(words) {
+function commandParts(words) {
+  const dirs = [];
+  let attachedSplit = false;
   let i = 0;
   while (i < words.length) {
     const word = words[i] ?? "";
     const name = basename(word);
-    const valued = WRAPPERS.get(name);
+    const wrapper = WRAPPERS.get(name);
     if (ASSIGNMENT.test(word) || KEYWORDS.has(word)) {
       i++;
-    } else if (valued !== void 0) {
-      i++;
-      for (; i < words.length; i++) {
-        const w = words[i] ?? "";
-        if (valued.includes(w)) i++;
-        else if (!w.startsWith("-") && !ASSIGNMENT.test(w)) break;
-      }
+    } else if (wrapper !== void 0) {
+      const own = wrapperOptions(words, i + 1, wrapper);
+      i = own.at;
+      dirs.push(...own.dirs);
+      attachedSplit ||= own.attachedSplit;
       if (name === "timeout" && /^\d/.test(words[i] ?? "")) i++;
     } else if (SHELLS.has(name) && /^-[a-z]*c[a-z]*$/.test(words[i + 1] ?? "")) {
       i += 2;
     } else {
-      return i;
+      break;
     }
   }
-  return i;
+  return { start: i, dirs, attachedSplit };
+}
+function commandStart(words) {
+  return commandParts(words).start;
 }
 function noEffects() {
   return {
@@ -1068,9 +1303,11 @@ function noEffects() {
     unpacks: [],
     arrivals: [],
     finds: [],
-    refusal: null
+    refusal: null,
+    question: null
   };
 }
+var SPLIT_ATTACHED = "env -S with its command line in the same word runs a line the Planroom guard can't read as env splits it, so you decide whether it runs.";
 var REMOVERS = /* @__PURE__ */ new Set([
   "rm",
   "rmdir",
@@ -1133,19 +1370,26 @@ var COMPRESSORS = /* @__PURE__ */ new Set([
 ]);
 var SEVEN_ZIP = /* @__PURE__ */ new Set(["7z", "7za", "7zz", "7zr"]);
 function dryRun(rest) {
+  const abbreviates = (word, prefix, name) => word.length > prefix.length && word.startsWith(prefix) && name.startsWith(word.slice(prefix.length));
+  let dry = false;
   for (let k = 0; k < rest.length; k++) {
     const a = rest[k] ?? "";
-    if (a === "--") return false;
-    if (a === "--dry-run") return true;
-    if (a === "-e" || a === "--exclude") k++;
+    if (a === "--") break;
+    if (a === "-e") k++;
+    else if (abbreviates(a, "--no-", "dry-run")) dry = false;
+    else if (abbreviates(a, "--", "dry-run")) dry = true;
+    else if (abbreviates(a, "--", "exclude")) k++;
     else if (/^-[^-]/.test(a)) {
-      for (const c of a.slice(1)) {
-        if (c === "e") break;
-        if (c === "n") return true;
+      for (let c = 1; c < a.length; c++) {
+        if (a.charAt(c) === "e") {
+          if (c === a.length - 1) k++;
+          break;
+        }
+        if (a.charAt(c) === "n") dry = true;
       }
     }
   }
-  return false;
+  return dry;
 }
 function gitParts(args) {
   let dir;
@@ -1165,8 +1409,9 @@ function gitParts(args) {
   }
   return { dir, sub: "", rest: [] };
 }
-function fnmatch(pattern, text2, ci) {
+function fnmatch(glob, text2, ci) {
   const escape = (c) => c.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  const pattern = glob.split("{,}").join("");
   let re = "";
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern.charAt(i);
@@ -1194,7 +1439,7 @@ function fnmatch(pattern, text2, ci) {
 }
 function findSelection(expr) {
   const groups = [
-    { tests: [], prune: false }
+    { tests: [], prune: false, acts: false }
   ];
   let negate = false;
   let max = Infinity;
@@ -1202,7 +1447,7 @@ function findSelection(expr) {
   for (let i = 0; i < expr.length; i++) {
     const a = expr[i] ?? "";
     const value = expr[i + 1] ?? "";
-    const group = groups.at(-1) ?? { tests: [], prune: false };
+    const group = groups.at(-1) ?? { tests: [], prune: false, acts: false };
     const add = (test) => {
       group.tests.push({ test, negated: negate });
       negate = false;
@@ -1210,7 +1455,7 @@ function findSelection(expr) {
     };
     if (a === "!" || a === "-not") negate = !negate;
     else if (a === "-o" || a === "-or") {
-      groups.push({ tests: [], prune: false });
+      groups.push({ tests: [], prune: false, acts: false });
       negate = false;
     } else if (a === "-name" || a === "-iname") {
       add((p) => fnmatch(value, basename(p), a === "-iname"));
@@ -1218,6 +1463,7 @@ function findSelection(expr) {
       add((p) => fnmatch(value, p, a.startsWith("-i")));
     } else if (a === "-regex" || a === "-iregex") {
       add((p) => {
+        if (value.includes(ANY_JOINED) || value === "*") return true;
         try {
           return new RegExp(`^(?:${value})$`, a === "-iregex" ? "i" : "").test(
             p
@@ -1229,11 +1475,15 @@ function findSelection(expr) {
     } else if (a === "-type") {
       add((_, dir) => value === "f" ? !dir : value === "d" ? dir : true);
     } else if (a === "-empty") {
-      group.tests.push({ test: () => false, negated: negate });
+      group.tests.push({
+        test: (_, dir, empty) => !dir && empty,
+        negated: negate
+      });
       negate = false;
     } else if (a === "-size") {
-      if (/^(-?0|-1)[bcwkMG]?$/.test(value)) add(() => false);
-      else i++;
+      if (/^(-?0|-1)[bcwkMG]?$/.test(value)) {
+        add((_, dir, empty) => dir || empty);
+      } else i++;
     } else if (a === "-maxdepth" || a === "-mindepth") {
       const n = Number(value);
       if (Number.isFinite(n)) {
@@ -1242,20 +1492,30 @@ function findSelection(expr) {
       }
       i++;
     } else if (a === "-prune") group.prune = true;
-    else if (FIND_ACTIONS.has(a)) break;
+    else if (a === "-delete") group.acts = true;
+    else if (FIND_ACTIONS.has(a)) {
+      group.acts = true;
+      break;
+    }
   }
-  const holds = (tests, path, dir) => tests.every((t) => t.test(path, dir) !== t.negated);
+  const holds = (tests, path, dir, empty) => tests.every((t) => t.test(path, dir, empty) !== t.negated);
   const pruned = groups.filter((g) => g.prune);
-  const selecting = groups.filter((g) => !g.prune);
-  return (path, dir, depth) => {
+  const grouped = expr.some((a) => a === "(" || a === ")" || a === LITERAL);
+  const acting = groups.filter((g) => !g.prune && g.acts);
+  const selecting = !grouped && acting.length > 0 ? acting : groups.filter((g) => !g.prune);
+  return (path, dir, depth, empty) => {
     if (depth > max || depth < min) return false;
     const parts = path.split("/");
     for (let k = parts.length; k > 0; k--) {
       const above = parts.slice(0, k).join("/");
-      const isDir = k < parts.length || dir;
-      if (pruned.some((g) => holds(g.tests, above, isDir))) return false;
+      const own = k === parts.length;
+      if (pruned.some(
+        (g) => holds(g.tests, above, own ? dir : true, own ? empty : false)
+      )) {
+        return false;
+      }
     }
-    return selecting.some((g) => holds(g.tests, path, dir));
+    return selecting.some((g) => holds(g.tests, path, dir, empty));
   };
 }
 function findDisposes(expr) {
@@ -1293,10 +1553,41 @@ var SED_LONG = /* @__PURE__ */ new Set([
   "--sandbox",
   "--follow-symlinks"
 ]);
+var EDITORS = /* @__PURE__ */ new Map([
+  [
+    "sed",
+    { plain: "nErsuz", scripts: "ef", valued: "l", attached: "", chdir: "" }
+  ],
+  [
+    "perl",
+    {
+      plain: "pnalswWXtTcuUvy0123456789",
+      scripts: "eE",
+      valued: "",
+      attached: "",
+      chdir: ""
+    }
+  ],
+  [
+    // `-E` is an encoding, `-C DIR` and `-X DIR` run it in DIR, and `-x[DIR]` may too.
+    "ruby",
+    {
+      plain: "acdlnpsSvwyUh",
+      scripts: "e",
+      valued: "CEFIrX",
+      attached: "0WxTK",
+      chdir: "CXx"
+    }
+  ]
+]);
 function inPlaceScripts(name, args, joined) {
   const words = shellWordsOf(args, joined);
   const notFiles = /* @__PURE__ */ new Set();
   const sed = name === "sed";
+  const editor = EDITORS.get(name);
+  const unknown = { notFiles: /* @__PURE__ */ new Set(), dir: void 0 };
+  if (editor === void 0) return unknown;
+  let dir;
   let given = false;
   let ended = false;
   const operands = [];
@@ -1314,7 +1605,7 @@ function inPlaceScripts(name, args, joined) {
     if (word === "--") {
       ended = true;
     } else if (word.startsWith("--")) {
-      if (!sed) return /* @__PURE__ */ new Set();
+      if (!sed) return unknown;
       const eq = word.indexOf("=");
       const option = eq < 0 ? word : word.slice(0, eq);
       if (option === "--expression" || option === "--file") {
@@ -1322,24 +1613,32 @@ function inPlaceScripts(name, args, joined) {
         if (eq < 0) value();
       } else if (option === "--line-length") {
         if (eq < 0) value();
-      } else if (!SED_LONG.has(option)) return /* @__PURE__ */ new Set();
+      } else if (!SED_LONG.has(option)) return unknown;
     } else {
-      const flags = sed ? "nErsuz" : "pnalswWXtTcuUvy0123456789";
       for (let c = 1; c < word.length; c++) {
         const letter = word.charAt(c);
+        const rest = word.slice(c + 1);
         if (letter === "i") break;
-        const script = letter === "e" || (sed ? letter === "f" : letter === "E");
-        if (script || sed && letter === "l") {
-          if (script) given = true;
-          if (c + 1 === word.length) value();
+        if (editor.scripts.includes(letter) || editor.valued.includes(letter)) {
+          if (editor.scripts.includes(letter)) given = true;
+          const held = rest === "" ? words[g + 1]?.text : rest;
+          if (rest === "") value();
+          if (editor.chdir.includes(letter)) dir = held;
           break;
         }
-        if (!flags.includes(letter)) return /* @__PURE__ */ new Set();
+        if (editor.attached.includes(letter)) {
+          if (editor.chdir.includes(letter) && rest !== "") dir = rest;
+          break;
+        }
+        if (!editor.plain.includes(letter)) return unknown;
       }
     }
   }
   if (sed && !given && operands[0] !== void 0) notFiles.add(operands[0]);
-  return new Set([...notFiles].flatMap((g) => words[g]?.parts ?? []));
+  return {
+    notFiles: new Set([...notFiles].flatMap((g) => words[g]?.parts ?? [])),
+    dir
+  };
 }
 function commandEffects(all, piped, joined = []) {
   const effects = noEffects();
@@ -1417,9 +1716,15 @@ function commandEffects(all, piped, joined = []) {
     }
   } else if (IN_PLACE.has(name)) {
     if (short("i") || long("--in-place")) {
-      const notFiles = inPlaceScripts(name, args, joined.slice(start + 1));
+      const { notFiles, dir } = inPlaceScripts(
+        name,
+        args,
+        joined.slice(start + 1)
+      );
       effects.writes.push(
-        ...args.filter((a, k) => !a.startsWith("-") && !notFiles.has(k))
+        ...args.filter((a, k) => !a.startsWith("-") && !notFiles.has(k)).map(
+          (f) => dir === void 0 || /^[/~]/.test(f) ? f : `${dir}/${f}`
+        )
       );
     }
   } else if (name === "dd") {
@@ -1506,6 +1811,7 @@ function commandEffects(all, piped, joined = []) {
 }
 var LITERAL = "§";
 var OPERATORS = ";|&<>()\n";
+var SUBSTITUTED = "${__}";
 function literalReading(command) {
   let out = "";
   let quote = null;
@@ -1530,13 +1836,13 @@ function literalReading(command) {
         if (c === "(") depth++;
         else if (c === ")" && --depth === 0) break;
       }
-      out += "*";
+      out += SUBSTITUTED;
       i = j;
       continue;
     }
     if (ch === "`") {
       const end = command.indexOf("`", i + 1);
-      out += "*";
+      out += SUBSTITUTED;
       i = end < 0 ? command.length : end;
       continue;
     }
@@ -1550,8 +1856,37 @@ function literalReading(command) {
   }
   return out;
 }
+function withDefaults(command) {
+  const word = "((?:[^{}$]|\\$(?!\\{))*)";
+  const defaults = new RegExp(
+    `\\$\\{[A-Za-z_][A-Za-z0-9_]*:?[-=+]${word}\\}`,
+    "g"
+  );
+  const swaps = new RegExp(
+    `\\$\\{[A-Za-z_][A-Za-z0-9_]*\\/[/#%]?(?:\\\\.|[^/}\\\\])*\\/${word}\\}`,
+    "g"
+  );
+  let out = command;
+  for (let k = 0; k < 16; k++) {
+    const next = out.replace(defaults, "$1").replace(swaps, "$1");
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
 function readings(command) {
-  return [.../* @__PURE__ */ new Set([command, literalReading(command)])];
+  const forms = /* @__PURE__ */ new Set();
+  for (const line of [
+    command,
+    joinLines(command),
+    command.replace(/\\\n/g, "\n")
+  ]) {
+    for (const form of [line, withDefaults(line)]) {
+      forms.add(form);
+      forms.add(literalReading(form));
+    }
+  }
+  return [...forms];
 }
 var DOTGLOB = /\b(shopt|setopt)\b[^;&|\n]*\b(dotglob|glob_?dots)\b|\bGLOBIGNORE\s*=/i;
 var DOT_QUALIFIER = /[*?\]]\([^)]*D[^)]*\)/;
@@ -1585,7 +1920,24 @@ function bashPaths(command, places2) {
   const cds = [];
   let moved = places2.cwd !== places2.workspace;
   const expanded = [];
-  for (const simple of commands) {
+  const moveTo = (target) => {
+    cds.push(target);
+    const moves = bases.map((b) => normalize(target, b, places2.home));
+    bases = [.../* @__PURE__ */ new Set([...bases, ...moves])].slice(0, 8);
+    moved = true;
+  };
+  const substitutionNames = (k) => {
+    for (let j = k + 1; j < commands.length; j++) {
+      const words2 = commands[j]?.words ?? [];
+      if (words2.slice(commandStart(words2) + 1).some((w) => !w.startsWith("-"))) {
+        return true;
+      }
+      const end = commands[j]?.sep;
+      if (end === ")" || end === "`") break;
+    }
+    return false;
+  };
+  for (const [k, simple] of commands.entries()) {
     const words2 = [];
     const values = [];
     const assignments = [];
@@ -1593,18 +1945,47 @@ function bashPaths(command, places2) {
       const eq = raw.indexOf("=");
       const assigned = eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(raw.slice(0, eq));
       const value = eq >= 0 ? shown2(expand(raw.slice(eq + 1), vars)) : null;
-      if (assigned && value !== null) vars.set(raw.slice(0, eq), value);
+      const substituted2 = assigned && i === simple.words.length - 1 && (simple.sep === "(" && raw.endsWith("$") || simple.sep === "`");
+      if (assigned && value !== null) {
+        vars.set(
+          raw.slice(0, eq),
+          !substituted2 ? value : substitutionNames(k) ? ANY_JOINED : `${value}*`.replace(/\*+$/, "*")
+        );
+      }
       words2.push(shown2(expand(raw, vars)));
       values.push(value);
       assignments.push(assigned);
       if (raw === "cd" || raw === "pushd") {
         const next = simple.words[i + 1];
-        const target = next === void 0 || next.startsWith("-") ? "~" : shown2(expand(next, vars));
-        cds.push(target);
-        const moves = bases.map((b) => normalize(target, b, places2.home));
-        bases = [.../* @__PURE__ */ new Set([...bases, ...moves])].slice(0, 8);
-        moved = true;
+        moveTo(
+          next === void 0 || next.startsWith("-") ? "~" : shown2(expand(next, vars))
+        );
       }
+    }
+    const ident = /^[A-Za-z_][A-Za-z0-9_]*$/;
+    const head = simple.words[0] ?? "";
+    const loopVar = simple.words[1] ?? "";
+    if (head === "for" && ident.test(loopVar)) {
+      const list = simple.words[2] === "in" ? words2.slice(3) : [];
+      vars.set(
+        loopVar,
+        list.length === 1 ? list[0] ?? ANY_JOINED : list.length > 1 && !list.some((w) => /[/{},]/.test(w)) ? `{${list.join(",")}}` : ANY_JOINED
+      );
+    }
+    const at = commandStart(simple.words);
+    const program = basename(simple.words[at] ?? "");
+    const after = simple.words.slice(at + 1);
+    if (["read", "mapfile", "readarray"].includes(program)) {
+      for (const w of after) if (ident.test(w)) vars.set(w, ANY_JOINED);
+    }
+    if (program === "printf") {
+      after.forEach((w, j) => {
+        const name = w === "-v" ? after[j + 1] : /^-v(.+)$/.exec(w)?.[1];
+        if (name !== void 0 && ident.test(name)) vars.set(name, ANY_JOINED);
+      });
+    }
+    for (const dir of commandParts(simple.words).dirs) {
+      moveTo(shown2(expand(dir, vars)));
     }
     const finding = basename(words2[commandStart(words2)] ?? "") === "find";
     words2.forEach((word, i) => {
@@ -1628,6 +2009,9 @@ function bashPaths(command, places2) {
     effects.arrivals.push(...own.arrivals);
     effects.finds.push(...own.finds);
     effects.refusal ??= own.refusal;
+    if (commandParts(simple.words).attachedSplit) {
+      effects.question ??= SPLIT_ATTACHED;
+    }
     expanded.push(words2);
   }
   const substituted = (k) => {
@@ -1759,6 +2143,13 @@ var STATE_SECRETS = [
   "store.pointer",
   "serve.json"
 ];
+function namesStateFile(segment) {
+  const stem = segment.split(".")[0] ?? "";
+  if (["*", "**", "{,}*", DOT_GLOBSTAR, ANY_JOINED].includes(stem)) {
+    return false;
+  }
+  return STATE_SECRETS.some((n) => segmentMatches(segment, n));
+}
 function globDenied(pattern, places2) {
   const direct = readDenied(pattern, places2);
   if (direct !== null) return direct;
@@ -1931,18 +2322,21 @@ function namedPaths(tool, input, places2) {
     ])
   ];
 }
+var EMPTY_STATE = ["store.db-wal", "store.db-journal"];
 function protectedSamples(root, places2) {
   const out = [];
-  const add = (path, dir) => {
-    if (path !== root && within(path, root)) out.push({ path, dir });
+  const add = (path, dir, empty = false) => {
+    if (path !== root && within(path, root)) out.push({ path, dir, empty });
+  };
+  const store = (folder, names) => {
+    add(folder, true);
+    for (const n of names) add(`${folder}/${n}`, false);
+    for (const n of EMPTY_STATE) add(`${folder}/${n}`, false, true);
   };
   const state = (w) => {
-    add(`${w}/.planroom`, true);
     add(`${w}/.git`, true);
-    add(`${w}/.git/planroom`, true);
-    for (const n of [...STATE_SECRETS, "config.toml"]) {
-      add(`${w}/.planroom/${n}`, false);
-      add(`${w}/.git/planroom/${n}`, false);
+    for (const folder of [`${w}/.planroom`, `${w}/.git/planroom`]) {
+      store(folder, [...STATE_SECRETS, "config.toml"]);
     }
   };
   for (const w of /* @__PURE__ */ new Set([places2.workspace, places2.cwd])) state(w);
@@ -1952,9 +2346,11 @@ function protectedSamples(root, places2) {
   for (const n of ["stores", "backups", "open", "engine", "logs"]) {
     add(`${data}/${n}`, true);
   }
+  store(`${data}/stores/0`, ["store.db"]);
   for (const n of ["ledger.db", "workspaces.json", "engine/0/planroom"]) {
     add(`${data}/${n}`, false);
   }
+  add(`${data}/workspaces.json.lock`, false, true);
   add(modStoreDir(places2), true);
   add(`${modStoreDir(places2)}/planroom_planroom-0.json`, false);
   add(places2.userConfig, false);
@@ -1966,36 +2362,84 @@ function protectedSamples(root, places2) {
   return out;
 }
 var FIND_DELETE = "This find deletes or moves what it selects, which may include Planroom's state, its data root, the person key, the gateway key or the plugin. Keep them out, such as with -not -path '*/.planroom/*' -not -path '*/.git/*', or name a folder that holds none of them.";
-var GUARDED_NAME = /(?<![A-Za-z0-9_])PLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)(?![A-Za-z0-9_])/;
-var STARTUP_SET = "An agent never sets PLANROOM_PERSON_TOKEN, PLANROOM_RAW, PLANROOM_ENGINE or PLANROOM_RELEASE_BASE_URL, in a shell's start-up file or Claude Code's settings either.";
+var GUARDED_NAME = new RegExp(
+  `(?<![A-Za-z0-9_])(${GUARDED_ALTERNATIVES})(?![A-Za-z0-9_])`
+);
+var PLACE_NAME = new RegExp(
+  [
+    `(?<![A-Za-z0-9_$])(?<!\\$\\{)(${PLACE_VARIABLES.join("|")})(?![A-Za-z0-9_])`,
+    `\\$\\{(${PLACE_VARIABLES.join("|")}):?=`
+  ].join("|")
+);
+var STARTUP_SET = `An agent never sets ${spelled(GUARDED_VARIABLES)}, in a shell's start-up file or Claude Code's settings either, nor ${spelled(PLACE_VARIABLES)} there, which place the engine cache a press runs.`;
 function namesGuardedVariable(text2) {
   const decoded = text2.replace(
     /\\u([0-9a-fA-F]{4})/g,
     (_, hex) => String.fromCharCode(parseInt(hex, 16))
   );
-  return [text2, decoded].some((t) => GUARDED_NAME.test(unquote(t)));
+  return [text2, decoded].some((t) => {
+    const plain = unquote(t);
+    return GUARDED_NAME.test(plain) || PLACE_NAME.test(plain);
+  });
+}
+var STARTUP_FILES = [
+  ".bashrc",
+  ".bash_profile",
+  ".bash_login",
+  ".profile",
+  ".zshrc",
+  ".zshenv",
+  ".zprofile",
+  ".zlogin"
+];
+function environmentFiles(places2) {
+  const home = places2.home.replace(/\/+$/, "");
+  const files = STARTUP_FILES.map((n) => `${home}/${n}`);
+  if (places2.zdotdir !== void 0) {
+    files.push(
+      ...STARTUP_FILES.filter((n) => n.startsWith(".z")).map(
+        (n) => `${places2.zdotdir ?? ""}/${n}`
+      )
+    );
+  }
+  const folders = [{ dir: `${home}/.bashrc.d`, suffix: "" }];
+  const xdg = places2.userConfig.split("/").slice(0, -2).join("/");
+  for (const config of /* @__PURE__ */ new Set([xdg, `${home}/.config`])) {
+    files.push(`${config}/fish/config.fish`);
+    folders.push(
+      { dir: `${config}/fish/conf.d`, suffix: ".fish" },
+      { dir: `${config}/environment.d`, suffix: ".conf" }
+    );
+  }
+  files.push(
+    `${places2.claudeConfig}/settings.json`,
+    `${places2.claudeConfig}/settings.local.json`
+  );
+  return { files, folders };
 }
 function setsEnvironment(path, places2) {
-  const home = places2.home.replace(/\/+$/, "");
-  const startup = [
-    ".bashrc",
-    ".bash_profile",
-    ".bash_login",
-    ".profile",
-    ".zshrc",
-    ".zshenv",
-    ".zprofile",
-    ".zlogin"
-  ];
-  if (startup.some((n) => path === `${home}/${n}`)) return true;
-  const xdg = places2.userConfig.split("/").slice(0, -2).join("/");
-  for (const fish of /* @__PURE__ */ new Set([`${xdg}/fish`, `${home}/.config/fish`])) {
-    if (path === `${fish}/config.fish`) return true;
-    if (within(path, `${fish}/conf.d`) && path.endsWith(".fish")) return true;
+  const { files, folders } = environmentFiles(places2);
+  const p = segmentsOf(path);
+  const last = p.at(-1) ?? "";
+  const parent = p.at(-2) ?? "";
+  if (segmentMay(parent, ".claude") && ["settings.json", "settings.local.json"].some((n) => segmentMay(last, n))) {
+    return true;
   }
-  const config = places2.claudeConfig;
-  return /\/\.claude\/settings(\.local)?\.json$/.test(path) || path === `${config}/settings.json` || path === `${config}/settings.local.json` || basename(path) === "managed-settings.json" || /\/managed-settings\.d\/[^/]+$/.test(path);
+  if (!GLOB.test(path)) {
+    return files.includes(path) || folders.some(
+      (f) => path !== f.dir && within(path, f.dir) && path.endsWith(f.suffix)
+    ) || // Managed settings by name, wherever they are.
+    last === "managed-settings.json" || parent === "managed-settings.d";
+  }
+  return [...files, ...MANAGED_SETTINGS].some((f) => mayName(path, f, "within")) || [
+    ...folders.map((f) => f.dir),
+    ...MANAGED_SETTINGS.map((f) => f.replace(/\.json$/, ".d"))
+  ].some((d) => mayName(path, d, "within"));
 }
+var MANAGED_SETTINGS = [
+  "/etc/claude-code/managed-settings.json",
+  "/Library/Application Support/ClaudeCode/managed-settings.json"
+];
 function writtenText(tool, input) {
   const i = typeof input === "object" && input !== null ? input : {};
   const text2 = (v) => typeof v === "string" ? v : "";
@@ -2015,7 +2459,9 @@ function elsewhere(input) {
   if (i["_host"] !== void 0 && i["_host"] !== null) {
     return "This call runs on another attached machine, where the Planroom guard can't tell where Planroom's files are, so it can't check what the call reaches.";
   }
-  if (i["dangerouslyDisableSandbox"] === true) {
+  const sandbox = i["dangerouslyDisableSandbox"];
+  const inside = sandbox === void 0 || sandbox === null || sandbox === false || sandbox === 0 || sandbox === "";
+  if (!inside) {
     return "This command asks to run outside the sandbox, so you decide whether it runs.";
   }
   return null;
@@ -2064,7 +2510,7 @@ function localVerdict(tool, input, resolved, places2, readOnly) {
     }
   }
   const filter = input?.[tool === "Grep" ? "glob" : "pattern"];
-  if ((tool === "Grep" || tool === "Glob") && typeof filter === "string" && /store\.db|serve\.json/.test(filter)) {
+  if ((tool === "Grep" || tool === "Glob") && typeof filter === "string" && (segmentsOf(filter).some(namesStateFile) || mayBeInStateDir(filter))) {
     return deny(
       "Planroom's store is read through the planroom CLI, never directly."
     );
@@ -2122,12 +2568,28 @@ function localVerdict(tool, input, resolved, places2, readOnly) {
       at = { ...places2, cwd: target };
       if (line.trim() === "") return null;
     }
-    for (const reading of readings(line)) {
+    const forms = readings(line);
+    for (const reading of forms) {
       const why = bashLineDenied(reading, resolved, at);
       if (why !== null) return deny(why);
     }
+    for (const reading of forms) {
+      const why = bashLineAsked(reading, resolved, at);
+      if (why !== null) return { decision: "ask", reason: why };
+    }
   }
   return null;
+}
+var STARTUP_WRITE = "This writes a shell's start-up file or a Claude Code settings file, which sets what later shells and sessions run with, so you decide whether it runs.";
+function bashLineAsked(line, resolved, places2) {
+  const { bases, effects } = bashPaths(line, places2);
+  if (effects.question !== null) return effects.question;
+  const startup = effects.writes.some(
+    (p) => [...bases.map((b) => normalize(p, b, places2.home)), ...resolved(p)].some(
+      (s) => setsEnvironment(s, places2)
+    )
+  );
+  return startup ? STARTUP_WRITE : null;
 }
 function bashLineDenied(line, resolved, places2) {
   const reason = bashDenied(line);
@@ -2152,7 +2614,12 @@ function bashLineDenied(line, resolved, places2) {
     (s) => protectedSamples(s, places2).some((sample) => {
       const rel = sample.path.slice(s.replace(/\/+$/, "").length);
       const written = root === "/" ? rel : `${root.replace(/\/+$/, "")}${rel}`;
-      return selects(written, sample.dir, segmentsOf(rel).length);
+      return selects(
+        written,
+        sample.dir,
+        segmentsOf(rel).length,
+        sample.empty
+      );
     }) ? FIND_DELETE : null
   );
   return first(
@@ -2765,8 +3232,18 @@ var ENGINE_UNPICKED = {
   PLANROOM_ENGINE: "",
   PLANROOM_RELEASE_BASE_URL: ""
 };
+var pinnedData = Promise.resolve(UNPLACED);
+function pinDataRoot(root) {
+  pinnedData = root;
+}
+async function engineEnv() {
+  return { ...ENGINE_UNPICKED, PLANROOM_DATA: await pinnedData };
+}
 async function clientEnv($) {
-  return { ...ENGINE_UNPICKED, PLANROOM_CLIENT: `mod:${await $.session.id()}` };
+  return {
+    ...await engineEnv(),
+    PLANROOM_CLIENT: `mod:${await $.session.id()}`
+  };
 }
 function binary(engine) {
   return engine.status === "ready" || engine.status === "person_key_mismatch" ? engine.path ?? engine.resolver : null;
@@ -5979,7 +6456,7 @@ async function handleTool($, tool, input) {
   }
   const session = await $.session.id();
   const env = {
-    ...ENGINE_UNPICKED,
+    ...await engineEnv(),
     PLANROOM_ACTOR: `agent:${session.slice(0, 8)}:chat`,
     PLANROOM_CLIENT: `mod:${session}`
   };
@@ -5996,30 +6473,32 @@ async function handleTool($, tool, input) {
   return { result: JSON.stringify(result) };
 }
 var places = null;
+var startEnv = null;
+async function placeEnv($) {
+  startEnv ??= {
+    HOME: await $.env.get("HOME"),
+    CLAUDE_CONFIG_DIR: await $.env.get("CLAUDE_CONFIG_DIR"),
+    PLANROOM_DATA: await $.env.get("PLANROOM_DATA"),
+    XDG_DATA_HOME: await $.env.get("XDG_DATA_HOME"),
+    XDG_CONFIG_HOME: await $.env.get("XDG_CONFIG_HOME"),
+    ZDOTDIR: await $.env.get("ZDOTDIR")
+  };
+  return startEnv;
+}
 async function guardPlacesFor($) {
   const cwd = await $.session.cwd();
   if (places === null) {
     const plugin = $.plugin.root;
     const real = await $.fs.stat(plugin, { resolve: true }).then((s) => s.realPath).catch(() => void 0);
-    places = guardPlaces(
-      cwd,
-      {
-        HOME: await $.env.get("HOME"),
-        CLAUDE_CONFIG_DIR: await $.env.get("CLAUDE_CONFIG_DIR"),
-        PLANROOM_DATA: await $.env.get("PLANROOM_DATA"),
-        XDG_DATA_HOME: await $.env.get("XDG_DATA_HOME"),
-        XDG_CONFIG_HOME: await $.env.get("XDG_CONFIG_HOME")
-      },
-      {
-        workspace: workspace === "" ? await $.session.root() : workspace,
-        // security-r3-3: the mod bundle, its guard and the resolver are never an agent's to write.
-        plugin: [
-          ...new Set(
-            [plugin, real].filter((p) => p !== void 0).map((p) => p.replace(/\/+$/, ""))
-          )
-        ]
-      }
-    );
+    places = guardPlaces(cwd, await placeEnv($), {
+      workspace: workspace === "" ? await $.session.root() : workspace,
+      // security-r3-3: the mod bundle, its guard and the resolver are never an agent's to write.
+      plugin: [
+        ...new Set(
+          [plugin, real].filter((p) => p !== void 0).map((p) => p.replace(/\/+$/, ""))
+        )
+      ]
+    });
   }
   return { ...places, cwd };
 }
@@ -6050,6 +6529,8 @@ export function register(on) {
   on("session.start", async ($, e, next) => {
     workspace = e.cwd;
     places = null;
+    startEnv = null;
+    pinDataRoot(placeEnv($).then(pinnedDataRoot));
     await $.command.register({
       name: "room",
       description: "Planroom: focus the pane, or run a map command (/room help lists them)",

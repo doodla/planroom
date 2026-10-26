@@ -22,6 +22,7 @@ import { sanitize } from "@planroom/ui";
 
 import { engineAtom, lastSeqAtom, paneAtom } from "./atoms";
 import { parseReply, type RunResult } from "./engine";
+import { UNPLACED } from "./guard";
 import type { EngineState, PaneState } from "./state-types";
 import {
   advanceCursor,
@@ -70,14 +71,37 @@ export async function runProcess(
  * inherited, such as one a shell's start-up file or a settings file set, never picks what a
  * person's press runs (DR-64, DR-69).
  */
-export const ENGINE_UNPICKED: Readonly<Record<string, string>> = {
+const ENGINE_UNPICKED: Readonly<Record<string, string>> = {
   PLANROOM_ENGINE: "",
   PLANROOM_RELEASE_BASE_URL: "",
 };
 
+/**
+ * The data root this session placed at its start (guard.ts `pinnedDataRoot`), as a promise the
+ * session's start sets before anything else runs, so no run can read it before it's placed.
+ */
+let pinnedData: Promise<string> = Promise.resolve(UNPLACED);
+
+/**
+ * Pin the data root every run the mod starts names from now on: the resolver picks the engine
+ * cache in it, so a `PLANROOM_DATA`, `XDG_DATA_HOME` or `HOME` the session's environment takes on
+ * later, such as from a settings file's `env`, never moves what a person's press runs.
+ */
+export function pinDataRoot(root: Promise<string>): void {
+  pinnedData = root;
+}
+
+/** What every run the mod starts sets, the resolver's and the engine's alike, so it picks the engine itself. */
+export async function engineEnv(): Promise<Record<string, string>> {
+  return { ...ENGINE_UNPICKED, PLANROOM_DATA: await pinnedData };
+}
+
 /** The writer instance every engine run names: this mod session (DR-60). */
 export async function clientEnv($: $): Promise<Record<string, string>> {
-  return { ...ENGINE_UNPICKED, PLANROOM_CLIENT: `mod:${await $.session.id()}` };
+  return {
+    ...(await engineEnv()),
+    PLANROOM_CLIENT: `mod:${await $.session.id()}`,
+  };
 }
 
 /**

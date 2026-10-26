@@ -6,6 +6,7 @@ import {
   guardPlaces,
   namedPaths,
   normalize,
+  pinnedDataRoot,
   planroomLines,
   shellWords,
 } from "./guard";
@@ -1544,13 +1545,14 @@ test("an in-place editor's script is no file it writes", () => {
   }
 });
 
-test("a deleting find that selects only empty files and folders passes", () => {
+test("a deleting find that selects only empty folders, or empty files outside Planroom's state, passes", () => {
+  // An empty file may be Planroom's (review-4): a checkpointed WAL, or the data root's lock.
   for (const command of [
     "find . -empty -type d -delete",
-    "find . -empty -delete",
-    "find . -type f -size 0 -delete",
-    "find . -size -1k -delete",
-    "find . -empty -o -name '*.orig' -delete",
+    "find src -empty -delete",
+    "find . -type f -size 0 -not -path './.planroom/*' -not -path './.git/*' -delete",
+    "find src -size -1k -delete",
+    "find src -empty -o -name '*.orig' -delete",
   ]) {
     expect(verdict("Bash", { command }), command).toBeNull();
   }
@@ -1798,4 +1800,533 @@ test("a backslash-newline joins a word, as the shell joins it", () => {
   expect(
     verdict("Bash", { command: "cargo build \\\n  --release" }),
   ).toBeNull();
+});
+
+// The review of the usability round (DR-90): each test below failed before its fix.
+
+test("review-1: a backslash-newline joins only when its backslash isn't escaped", () => {
+  // `x\\` then a newline: an escaped backslash, and the newline ends the command.
+  for (const tail of [
+    "planroom person init",
+    "PLANROOM_RAW=1 planroom map",
+    "planroom decide c1 a",
+    "git push origin HEAD:refs/planroom/x",
+    "rm -rf .planroom",
+  ]) {
+    for (const command of [
+      `echo x\\\\\n${tail}`,
+      `echo x\\\\\\\\\n${tail}`,
+      // A quoted script's own shell reads it the same way.
+      `sh -c 'echo x\\\\\n${tail}'`,
+    ]) {
+      expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+    }
+  }
+  // An unescaped one still joins, as Bash joins it; inside a `sh -c` script too.
+  for (const command of [
+    "bash -c 'cat .plan\\\nroom/serve.json'",
+    "bash -c 'planroom per\\\nson init'",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  // Inside single quotes Bash keeps it as text.
+  for (const command of [
+    "printf '%s\\\n' a b",
+    "echo 'a\\\nb' > notes.txt",
+    "cargo build \\\n  --release",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("review-2: --no-dry-run after -n turns git clean's dry run off", () => {
+  for (const command of [
+    "git clean -n --no-dry-run -dx",
+    "git clean -n --no-dry -fdx",
+    "git clean --dry-run --no-d -fdx",
+    "git clean -ndx --no-dry-run",
+    "git clean -fdx --exclude -n",
+    "git clean -fdx --excl -n",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of [
+    "git clean -n --no-dry-run -n -dx",
+    "git clean --no-dry-run --dry -dx",
+    "git clean -fdx -e build -n",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("review-3: env -C and sudo -D move the command as a cd does", () => {
+  for (const command of [
+    "env -C .planroom rm -f store.db",
+    "env --chdir .planroom rm -f config.toml",
+    "env --chdir=.planroom rm -f config.toml",
+    "env -i -C .planroom rm -f config.toml",
+    "env -iC.planroom rm -f config.toml",
+    "sudo -D .planroom rm -f ledger.db",
+    "sudo --chdir=/home/u/.local/share/planroom rm -rf engine",
+    "sudo -n -D ~/.config/planroom tee config.toml",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of [
+    "env -C packages/web pnpm test",
+    "env --chdir=src ls",
+    "sudo -D /tmp ls",
+    "env -u FOO make",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("review-4: an empty lock, WAL or journal is something -empty and -size 0 select", () => {
+  for (const command of [
+    "find ~ -empty -delete",
+    "find ~/.local/share -empty -delete",
+    "find /home/u/.local/share/planroom -size 0 -delete",
+    "find ~ -type f -size 0 -delete",
+    "find . -empty -delete",
+    "find . -type f -size 0 -delete",
+    "find . -size -1k -delete",
+    // A folder may report a size of 0.
+    "find . -type d -size 0 -delete",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of [
+    "find . -empty -type d -delete",
+    "find src -empty -delete",
+    "find . -empty -not -path './.planroom/*' -not -path './.git/*' -delete",
+    "find ~/Downloads -empty -delete",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("review-5: a glob that may name a start-up or settings file is one", () => {
+  // Spelled so the line itself sets nothing: only the file it writes does.
+  for (const command of [
+    `printf '{"en%s":{"PLANROOM_RAW":"1"}}' v | tee .claude/settings.js?n`,
+    "printf 'export %s=/x\\n' PLANROOM_ENGINE | tee ~/.bash?c",
+    `printf '{"en%s":{"PLANROOM_ENGINE":"/x"}}' v > .claude/settings.js[o]n`,
+    `printf '{"en%s":{"PLANROOM_RAW":"1"}}' v > ~/.claude/settings.*`,
+    "printf 'export %s=1\\n' PLANROOM_RAW >> ~/.z{shrc,shenv}",
+    "printf 'se%s -gx PLANROOM_RAW 1' t > ~/.config/fish/conf.d/*",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of ["echo PLANROOM_RAW > notes/*.md"]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("review-6: adjacent expansions never make a globstar, and a default is read too", () => {
+  for (const command of [
+    "rm -rf ~/${A:-.loc}${B:-al}/share/planroom",
+    "cat ~/${A:-.con}${B:-fig}/planroom/config.toml",
+    "cat ~/${A:-.config}/planroom/config.toml",
+    "rm -rf ${A:-.planroom}",
+    "rm -rf ${A-.planroom}",
+    "rm -rf ${A:=.planroom}",
+    "rm -rf ${A=.planroom}",
+    "cat ${A:-${B:-.planroom}}/serve.json",
+    "rm -rf ~/$A$B/share/planroom",
+    "cat ~/$A$B/planroom/config.toml",
+    "cat ~/.$A/planroom/config.toml",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of [
+    "rm -rf ${BUILD:-dist}",
+    "cd ${DIR:-src} && ls",
+    "echo ${A:-x}${B:-y}",
+    'rm -rf "$TMPDIR/scratch"',
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("review-7: a Grep or Glob filter naming any state file is refused", () => {
+  for (const [tool, input] of [
+    ["Grep", { pattern: "x", glob: "ledger.db" }],
+    ["Grep", { pattern: "x", glob: "store.pointer" }],
+    ["Grep", { pattern: "x", glob: "store.db-wal" }],
+    ["Grep", { pattern: "x", glob: "serve.*" }],
+    ["Grep", { pattern: "x", glob: "{ledger,x}.db" }],
+    ["Glob", { pattern: "**/ledger.db" }],
+    ["Glob", { pattern: "**/store.pointer" }],
+  ] as const) {
+    expect(
+      verdict(tool, input)?.decision,
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBe("deny");
+  }
+  for (const [tool, input] of [
+    ["Grep", { pattern: "x", glob: "*.db" }],
+    ["Grep", { pattern: "x", glob: "*.json" }],
+    ["Grep", { pattern: "x", glob: "*.{ts,tsx}" }],
+    ["Glob", { pattern: "**/*.db" }],
+  ] as const) {
+    expect(verdict(tool, input), `${tool} ${JSON.stringify(input)}`).toBeNull();
+  }
+});
+
+test("review-8: any truthy dangerouslyDisableSandbox is the person's to decide", () => {
+  for (const value of [true, "true", 1, "yes", {}]) {
+    expect(
+      verdict("Bash", { command: "ls", dangerouslyDisableSandbox: value })
+        ?.decision,
+      JSON.stringify(value),
+    ).toBe("ask");
+  }
+  for (const value of [false, 0, "", null, undefined]) {
+    expect(
+      verdict("Bash", { command: "ls", dangerouslyDisableSandbox: value }),
+      JSON.stringify(value),
+    ).toBeNull();
+  }
+});
+
+test("review-9: no start-up or settings file moves the data root, whose engine cache a press runs", () => {
+  for (const [tool, input] of [
+    [
+      "Write",
+      {
+        file_path: ".claude/settings.json",
+        content: '{"env":{"PLANROOM_DATA":"/tmp/d"}}',
+      },
+    ],
+    [
+      "Write",
+      {
+        file_path: ".claude/settings.local.json",
+        content: '{"env":{"XDG_DATA_HOME":"/tmp/d"}}',
+      },
+    ],
+    [
+      "Edit",
+      {
+        file_path: "/home/u/.claude/settings.json",
+        old_string: "{",
+        new_string: '{"env":{"HOME":"/tmp/h"},',
+      },
+    ],
+    ["Write", { file_path: "~/.profile", content: "export HOME=/tmp/h\n" }],
+    ["Write", { file_path: "~/.zshenv", content: "XDG_DATA_HOME=/tmp/d" }],
+    [
+      "Bash",
+      {
+        command: `echo '{"env":{"PLANROOM_DATA":"/x"}}' > .claude/settings.json`,
+      },
+    ],
+  ] as const) {
+    expect(
+      verdict(tool, input)?.decision,
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBe("deny");
+  }
+  // Using them is everyday: only setting them is refused.
+  for (const [tool, input] of [
+    [
+      "Write",
+      {
+        file_path: "/home/u/.bashrc",
+        content: 'export PATH="$HOME/.cargo/bin:${HOME}/bin:$PATH"\n',
+      },
+    ],
+    ["Write", { file_path: "src/paths.ts", content: "process.env.HOME = x" }],
+  ] as const) {
+    expect(verdict(tool, input), `${tool} ${JSON.stringify(input)}`).toBeNull();
+  }
+});
+
+test("review-10: ~/.bashrc.d, $ZDOTDIR's files and environment.d are start-up files too", () => {
+  const zsh = guardPlaces(
+    "/work",
+    { HOME: "/home/u", ZDOTDIR: "/home/u/.config/zsh" },
+    { plugin: [PLUGIN] },
+  );
+  const check = (tool: string, input: unknown) =>
+    guardCall(tool, input, () => [], zsh);
+  for (const [tool, input] of [
+    ["Write", { file_path: "~/.bashrc.d/env.sh", content: "PLANROOM_RAW=1" }],
+    [
+      "Write",
+      { file_path: "/home/u/.config/zsh/.zshrc", content: "PLANROOM_RAW=1" },
+    ],
+    [
+      "Write",
+      { file_path: "/home/u/.config/zsh/.zshenv", content: "PLANROOM_RAW=1" },
+    ],
+    [
+      "Write",
+      {
+        file_path: "~/.config/environment.d/50-planroom.conf",
+        content: "PLANROOM_ENGINE=/x",
+      },
+    ],
+    ["Bash", { command: "echo PLANROOM_RAW=1 > $ZDOTDIR/.zprofile" }],
+    ["Bash", { command: "echo PLANROOM_RAW=1 > ~/.bashrc.d/x" }],
+  ] as const) {
+    expect(
+      check(tool, input)?.decision,
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBe("deny");
+  }
+  expect(
+    check("Write", {
+      file_path: "~/.config/environment.d/50-path.conf",
+      content: "PATH=$HOME/bin:$PATH",
+    }),
+  ).toBeNull();
+});
+
+test("review: ruby's -C and -X move the files it edits in place", () => {
+  for (const command of [
+    "ruby -X.planroom -pi -e 'x' config.toml",
+    "ruby -C .planroom -pi -e 'x' config.toml",
+    "ruby -i -C/home/u/.config/planroom -pe 'x' config.toml",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of [
+    "ruby -r json -pi -e 'gsub(/ .*/, %q())' src/x.rb",
+    "ruby -E UTF-8 -pi -e 'gsub(/ .*/, %q())' src/x.rb",
+    "ruby -C src -pi -e 'gsub(/ .*/, %q())' x.rb",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("review-9: the mod pins the data root as the resolver places it", () => {
+  expect(pinnedDataRoot({ HOME: "/home/u" })).toBe(
+    "/home/u/.local/share/planroom",
+  );
+  expect(pinnedDataRoot({ HOME: "/home/u", XDG_DATA_HOME: "/xdg/data" })).toBe(
+    "/xdg/data/planroom",
+  );
+  // A relative XDG_DATA_HOME is ignored, as the XDG spec and the resolver ignore it.
+  expect(pinnedDataRoot({ HOME: "/home/u", XDG_DATA_HOME: "rel" })).toBe(
+    "/home/u/.local/share/planroom",
+  );
+  expect(
+    pinnedDataRoot({
+      HOME: "/home/u",
+      XDG_DATA_HOME: "/xdg",
+      PLANROOM_DATA: "/data/pr",
+    }),
+  ).toBe("/data/pr");
+  // A relative PLANROOM_DATA goes through as given, so the resolver still refuses it.
+  expect(pinnedDataRoot({ HOME: "/home/u", PLANROOM_DATA: "rel" })).toBe("rel");
+  expect(pinnedDataRoot({ HOME: "/home/u", PLANROOM_DATA: "" })).toBe(
+    "/home/u/.local/share/planroom",
+  );
+  // With no place, a relative placeholder: the resolver refuses it rather than follow a later value.
+  expect(pinnedDataRoot({})).toBe("unplaced");
+  expect(pinnedDataRoot({ HOME: "rel" })).toBe("unplaced");
+});
+
+// The second review of the guard: each test below failed before its fix.
+
+test("review2-1: env's lone - and -i start no command", () => {
+  for (const command of [
+    "env - rm -rf .planroom",
+    "env -i rm -rf .planroom",
+    "env --ignore-environment rm -rf .planroom",
+    "env - -C .planroom rm -f config.toml",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  expect(verdict("Bash", { command: "env - PATH=/usr/bin make" })).toBeNull();
+});
+
+test("review2-2: a wrapper's long options count abbreviated, and env -S runs its value", () => {
+  for (const command of [
+    "env --chd .planroom rm -f store.db",
+    "env --chd=.planroom rm -f config.toml",
+    "sudo --chd=.planroom rm -f config.toml",
+    "sudo --chdi .planroom rm -f config.toml",
+    "env -S 'rm -rf .planroom'",
+    "env --split-string 'rm -rf .planroom'",
+    "env -i -S 'rm -rf .planroom'",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  // A value attached to -S is a line the guard can't split as the shell would: the person decides.
+  for (const command of [
+    "env -S'rm -rf build' x",
+    "env --split-string='make clean'",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("ask");
+  }
+  for (const command of [
+    "env -S 'make test'",
+    "env --chd=src ls",
+    "sudo --use root make",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("review2-3: command substitutions joined in one name are no globstar in the second reading", () => {
+  for (const command of [
+    "rm -rf ~/$(echo .loc)$(echo al)/share/planroom",
+    "cat ~/`echo .con``echo fig`/planroom/config.toml",
+    "cat ~/.$(echo config)/planroom/config.toml",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of [
+    "kill $(lsof -t -i:3000)",
+    'echo "$(date) > done"',
+    "cat /tmp/$(date +%F).log",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("review2-4: a filter singles out a state file unless its stem is a bare wildcard", () => {
+  for (const [tool, input] of [
+    ["Grep", { pattern: "x", glob: "{ledger,zzzzzz}.db" }],
+    ["Grep", { pattern: "x", glob: "[lz]*.db" }],
+    ["Grep", { pattern: "x", glob: "s*" }],
+    ["Grep", { pattern: "x", glob: ".planroom/*" }],
+    ["Grep", { pattern: "x", glob: "**/.planroom/**" }],
+    ["Glob", { pattern: "**/.git/planroom/*" }],
+  ] as const) {
+    expect(
+      verdict(tool, input)?.decision,
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBe("deny");
+  }
+  for (const [tool, input] of [
+    ["Grep", { pattern: "x", glob: "*.db" }],
+    ["Grep", { pattern: "x", glob: "**/*.json" }],
+    ["Grep", { pattern: "x", glob: "*" }],
+    ["Grep", { pattern: "x", glob: "src/**/*.{ts,tsx}" }],
+    ["Glob", { pattern: "**/*.db" }],
+    ["Glob", { pattern: "**/package.json" }],
+  ] as const) {
+    expect(verdict(tool, input), `${tool} ${JSON.stringify(input)}`).toBeNull();
+  }
+});
+
+test("review2-5: an operator on a known variable gives any name", () => {
+  for (const command of [
+    "cat ${PWD/*/.planroom}/store.db",
+    "cat ${PWD:0:0}.planroom/store.db",
+    "cat ${PWD#/work}.planroom/serve.json",
+    "rm -rf ${HOME//u/u}/.local/share/planroom",
+    "cat ${HOME/#\\/home\\/u/~}/.config/planroom/config.toml",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of [
+    'ls "${PWD}"',
+    'cp a "${HOME}/notes/"',
+    'echo "${HOME:-/tmp}/x"',
+    "echo ${PWD##*/}",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("review2-6: a comment ends at a newline, backslash or not", () => {
+  for (const command of [
+    "true #\\\nplanroom person init",
+    "ls # \\\nPLANROOM_RAW=1 planroom map",
+    "echo hi #\\\nrm -rf .planroom",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  expect(
+    verdict("Bash", { command: "cargo build \\\n  --release" }),
+  ).toBeNull();
+});
+
+test("review2-7: a variable the line sets from what it can't read may be any name", () => {
+  for (const command of [
+    "for d in .local; do rm -rf ~/$d/share/planroom; done",
+    "for d in a .config; do cat ~/$d/planroom/config.toml; done",
+    "A=$(echo .config); cat ~/$A/planroom/config.toml",
+    "A=`echo .config`; cat ~/$A/planroom/config.toml",
+    "read d; rm -rf ~/$d/share/planroom",
+    "read -r a d; cat ~/$d/planroom/config.toml",
+    "mapfile d; rm -rf ~/$d/share/planroom",
+    "readarray -t d; rm -rf ~/$d/share/planroom",
+    "printf -v d %s .local; rm -rf ~/$d/share/planroom",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of [
+    "for f in packages/*/package.json; do cat $f; done",
+    "for f in *.log; do rm $f; done",
+    "for f in a.txt b.txt; do rm $f; done",
+    'tmp=$(mktemp -d) && cd "$tmp" && rm -rf "$tmp"',
+    'root=$(git rev-parse --show-toplevel); ls "$root"',
+    "X=build; rm -rf $X",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("review2-8: any Bash write to a start-up or settings file is the person's to decide", () => {
+  for (const command of [
+    "cp staged ~/.bashrc",
+    "echo 'export PATH=$HOME/bin:$PATH' >> ~/.bashrc",
+    "printf 'export %s=1\\n' PLANROOM_X >> ~/.zshrc",
+    "tee -a ~/.bash?c < snippet",
+    "mv /tmp/s.json .claude/settings.json",
+    "install -m 644 s.json ~/.claude/settings.local.json",
+    "ln -sf /tmp/s .claude/settings.json",
+    "sed -i 's/a/b/' ~/.profile",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("ask");
+  }
+  // A Write's content is read, so a settings file the agent edits for the project still passes.
+  expect(
+    verdict("Write", {
+      file_path: ".claude/settings.json",
+      content: '{"env":{"RUST_LOG":"info"}}',
+    }),
+  ).toBeNull();
+  // `${HOME:=x}` and `${HOME=x}` assign.
+  for (const content of [
+    ': "${HOME:=/tmp/h}"\n',
+    ": ${PLANROOM_DATA=/tmp/d}\n",
+  ]) {
+    expect(
+      verdict("Write", { file_path: "~/.profile", content })?.decision,
+      content,
+    ).toBe("deny");
+  }
+  expect(
+    verdict("Write", {
+      file_path: "~/.profile",
+      content: 'export PATH="${HOME}/bin:${HOME:-/root}/x:$PATH"\n',
+    }),
+  ).toBeNull();
+});
+
+test("review2-10: a glob names a managed settings file only by its full path; -delete binds to its branch", () => {
+  for (const command of [
+    "echo 'uses HOME' > out/*.json",
+    "echo x > out/*/x.json",
+    "find . -empty -o -name '*.orig' -delete",
+    "find . -name '*.orig' -delete -o -empty",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+  for (const command of [
+    "echo x > /etc/claude-code/managed-settings.*",
+    "echo x > /etc/claude-code/managed-settings.d/*",
+    "find . -empty -delete -o -name '*.orig'",
+    "find . -name '*.orig' -o -empty -delete",
+    "find . \\( -empty -o -name '*.orig' \\) -delete",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).not.toBeUndefined();
+  }
 });

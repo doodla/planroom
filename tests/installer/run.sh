@@ -462,9 +462,6 @@ print(doc["error"]["code"])'
   expect_eq "$out" '{"ok":false,"step":"download","version":"1.0.0"}'
 }
 
-# A binary swapped into the cache after the install doesn't match the sha256 its `.ok` recorded, so
-# the resolver treats the cache as empty: status names the download, and the next run fetches the
-# release again instead of running the swapped binary (security-r2-1).
 # The mod sets PLANROOM_ENGINE and PLANROOM_RELEASE_BASE_URL empty on every run it starts, so an
 # inherited value never picks the engine a press runs: the resolver reads an empty one as unset.
 empty_overrides_count_as_unset() {
@@ -489,6 +486,9 @@ empty_overrides_count_as_unset() {
   expect_contains "$out" '"reason":"no_release"'
 }
 
+# A binary swapped into the cache after the install doesn't match the sha256 its `.ok` recorded, so
+# the resolver treats the cache as empty: status names the download, and the next run fetches the
+# release again instead of running the swapped binary (security-r2-1).
 a_swapped_cached_engine_is_refused() {
   d="$work/swapped"
   make_plugin "$d" 2.1.0

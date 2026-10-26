@@ -33,6 +33,7 @@ import {
   guardPlaces,
   namedPaths,
   normalize,
+  pinnedDataRoot,
   RESOLVE_LIMIT,
   type Denial,
   type GuardPlaces,
@@ -47,7 +48,8 @@ import {
 import {
   binary,
   clientEnv,
-  ENGINE_UNPICKED,
+  engineEnv,
+  pinDataRoot,
   refreshPane,
   runProcess,
   watchStop,
@@ -421,7 +423,7 @@ async function handleTool(
   }
   const session = await $.session.id();
   const env: Record<string, string> = {
-    ...ENGINE_UNPICKED,
+    ...(await engineEnv()),
     PLANROOM_ACTOR: `agent:${session.slice(0, 8)}:chat`,
     PLANROOM_CLIENT: `mod:${session}`,
   };
@@ -445,6 +447,35 @@ async function handleTool(
  */
 let places: GuardPlaces | null = null;
 
+/** The variables that place Planroom's files, as the session started with them. */
+interface PlaceEnv {
+  HOME: string | undefined;
+  CLAUDE_CONFIG_DIR: string | undefined;
+  PLANROOM_DATA: string | undefined;
+  XDG_DATA_HOME: string | undefined;
+  XDG_CONFIG_HOME: string | undefined;
+  ZDOTDIR: string | undefined;
+}
+
+let startEnv: PlaceEnv | null = null;
+
+/**
+ * The session's environment, read once per start: the guard places what it holds from it, and
+ * every run the mod starts names the data root it gives (`pinDataRoot`), so the two agree however
+ * the environment changes later.
+ */
+async function placeEnv($: $): Promise<PlaceEnv> {
+  startEnv ??= {
+    HOME: await $.env.get("HOME"),
+    CLAUDE_CONFIG_DIR: await $.env.get("CLAUDE_CONFIG_DIR"),
+    PLANROOM_DATA: await $.env.get("PLANROOM_DATA"),
+    XDG_DATA_HOME: await $.env.get("XDG_DATA_HOME"),
+    XDG_CONFIG_HOME: await $.env.get("XDG_CONFIG_HOME"),
+    ZDOTDIR: await $.env.get("ZDOTDIR"),
+  };
+  return startEnv;
+}
+
 async function guardPlacesFor($: $): Promise<GuardPlaces> {
   // security-r3-1: the Bash tool keeps a `cd` between calls, and the host reports where the shell
   // is now (`$.session.cwd()`, which a shell `cd` moves, unlike `root()`), so every call's relative
@@ -456,27 +487,17 @@ async function guardPlacesFor($: $): Promise<GuardPlaces> {
       .stat(plugin, { resolve: true })
       .then((s) => s.realPath)
       .catch(() => undefined);
-    places = guardPlaces(
-      cwd,
-      {
-        HOME: await $.env.get("HOME"),
-        CLAUDE_CONFIG_DIR: await $.env.get("CLAUDE_CONFIG_DIR"),
-        PLANROOM_DATA: await $.env.get("PLANROOM_DATA"),
-        XDG_DATA_HOME: await $.env.get("XDG_DATA_HOME"),
-        XDG_CONFIG_HOME: await $.env.get("XDG_CONFIG_HOME"),
-      },
-      {
-        workspace: workspace === "" ? await $.session.root() : workspace,
-        // security-r3-3: the mod bundle, its guard and the resolver are never an agent's to write.
-        plugin: [
-          ...new Set(
-            [plugin, real]
-              .filter((p): p is string => p !== undefined)
-              .map((p) => p.replace(/\/+$/, "")),
-          ),
-        ],
-      },
-    );
+    places = guardPlaces(cwd, await placeEnv($), {
+      workspace: workspace === "" ? await $.session.root() : workspace,
+      // security-r3-3: the mod bundle, its guard and the resolver are never an agent's to write.
+      plugin: [
+        ...new Set(
+          [plugin, real]
+            .filter((p): p is string => p !== undefined)
+            .map((p) => p.replace(/\/+$/, "")),
+        ),
+      ],
+    });
   }
   return { ...places, cwd };
 }
@@ -528,6 +549,10 @@ export function register(on: Parameters<Register>[0]): void {
   on("session.start", async ($, e, next) => {
     workspace = e.cwd;
     places = null;
+    startEnv = null;
+    // First, before any run can start: each names the data root the session starts with, the one
+    // the guard holds, and waits for it to be read.
+    pinDataRoot(placeEnv($).then(pinnedDataRoot));
     // Immediate, so /room focuses the pane mid-turn, while the model is still working (A-22).
     await $.command.register({
       name: "room",

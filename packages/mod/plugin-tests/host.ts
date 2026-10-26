@@ -126,6 +126,8 @@ export interface Host {
   children: Child[];
   /** The shell's directory, as `$.session.cwd()` reports it: a test moves it the way a Bash `cd` does. */
   shell: { cwd: string };
+  /** The session's environment, as `$.env.get` reads it now. */
+  env: Record<string, string>;
 }
 
 /** An engine that resolves and answers focus with the golden PaneModel. */
@@ -179,13 +181,20 @@ export function host(
     links?: Record<string, string>;
     /** The session's HOME; null leaves it unset. */
     home?: string | null;
+    /** More of the session's environment, beside HOME. */
+    env?: Record<string, string>;
   } = {},
 ): Host {
   const clock = mock.clock(on, { now: 1_800_000_000_000 });
   mock.store(on, options.store ?? {});
   // No CLAUDE_PLUGIN_ROOT: the host doesn't set it for a mod, which finds itself through $.plugin.root.
   const home = options.home === undefined ? "/home/u" : options.home;
-  mock.env(on, home === null ? {} : { HOME: home });
+  const env: Record<string, string> = {
+    ...(home === null ? {} : { HOME: home }),
+    ...options.env,
+  };
+  // A record the test may change mid-session, as a settings file's `env` changes the host's.
+  on("env.get", (_$, e) => ({ value: env[e.name] }));
   const runs: Run[] = [];
   const children: Child[] = [];
   const shell = { cwd: START.cwd as string };
@@ -238,7 +247,7 @@ export function host(
     children.push(child);
     return { value: yield* child.run(next.signal) };
   });
-  return { clock, runs, children, shell };
+  return { clock, runs, children, shell, env };
 }
 
 /** The focus runs so far, as the clock read when each started. */
