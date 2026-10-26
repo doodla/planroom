@@ -8,7 +8,9 @@ Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `c
 - Phase 1 research done (findings table in progress.md). Phase 2 workflow wf_c692d467-171 running: candidates -> judges -> synthesis drafts docs/contributing/{architecture,decisions,contracts,repo-layout,traceability}.md + feature_list.json. Then I review/edit, then Phase 3 review workflow (9 lenses + refuters).
 - Spikes done: mod (research/mod-spike.md: dock 49x34 at 120x40; bare digit presses band Button; /room+hotkey = 2 keys). Artifact probe https://claude.ai/artifact/3U8hgkkX2Rp1ECATZCptXD (research/artifact-spike.md); page-side results land in db inbox/<uid>/probe/latest when someone opens it -> read back later.
 - Spike mod lives in ~/.claude/dev-mods/<session>/planroom-spike (consent question raised); delete it once the real mod loads.
-- Truth review round 3 (final) running: wf_21e50927-45d. After it: freeze TRUTH.json (decision record).
+- TRUTH.json FROZEN (commit 8053725) after 3 review rounds; changes only via decision record. `examples/check-fixture` verifies it (CI it).
+- Art done in docs/art/ (Iris, $0.27): logo, hero, social-base (wordmark overlay later), 3 empty states. Plugin icon = logo (512-2048 px PNG at plugin/.claude-plugin/icon.png).
+- Design language: docs/contributing/design-language.md (planning table).
 - Docs style rules (bind README/docs/CONTRIBUTING/SECURITY): `docs/contributing/research/iris-release-bar.md` sec 4.
 
 ## Gotchas
