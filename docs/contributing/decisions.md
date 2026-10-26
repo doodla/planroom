@@ -96,6 +96,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 80 | Hand-off results land however the change reaches the tracked branch | none (R7, R8) | added | review round 3 (F20) |
 | 81 | What the walking skeleton's engine and plugin tracks settled | Store: events carry an idempotency key; Repo layout: boundary checks; Remote mode | extended | walking skeleton (ENGINE and PLUGIN tracks), main agent |
 | 82 | What the walking skeleton's serve, canvas and mod tracks settled | Actors: person actions are signed; Surfaces read one contract; Repo layout: package dependencies | extended | walking skeleton (ENGINE-2, CANVAS and MOD-2 tracks), main agent |
+| 83 | What the walking skeleton's gates, remote slice and platform checks settled | Repo layout: boundary checks; Remote mode; the release model | extended | walking skeleton (GATES and REMOTE tracks, CI, WS7, WS8), main agent |
 
 ## Judge disagreements and how they were resolved
 
@@ -1986,3 +1987,75 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It changes a gated surface: the mod's dependency names.
   - It amends DR-58, DR-64, DR-70, DR-72 and DR-75.
 - **Sources (checked 2026-10-26):** `progress.md`, the 2026-10-26 entries for the ENGINE-2, CANVAS and MOD-2 merges; `crates/kernel/src/keys.rs`; `crates/planroom/src/app/{actor,person,version}.rs`; `packages/mod/src/{actor,person,atoms}.ts`; `packages/canvas/src/layout/elk.ts`; `crates/planroom/tests/golden.rs`; `docs/contributing/research/ts-stack.md` §8.
+
+## DR-83: What the walking skeleton's gates, remote slice and platform checks settled
+
+- **Status:** accepted (decided by the main agent at the GATES and REMOTE merges, the CI repairs and the WS7 and WS8 checks, 2026-10-26).
+- **Starting point:** extended "Repo layout: a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` in TypeScript", Remote mode, and the release model.
+- **Origin:** the walking skeleton's GATES and REMOTE tracks, CI's first runs on the merged tree, and the platform checks in `research/ws7-remote.md` and `research/ws8-install.md`.
+- **Context:**
+  - **A-13 fails.** As the owner, the session wrote under a made-up viewer's `inbox/{self}`. The same write at `interact` level was refused. So only the owner, and the owner's model session with it, can write any viewer's inbox.
+  - **Rows arrive in the text block.** `ArtifactData list` returns each document's data in its text block. The structured result the mod sees through `$.tool.call` carried `data: {}`.
+  - **CI caught what local runs couldn't:**
+    - cargo-deny failed on tokio 1.53.2's RUSTSEC-2026-0386, fixed in 1.53.3, which was 13 days old.
+    - `subtle` and `matchit` carry BSD-3-Clause.
+    - The workspace path dependencies had no `version`, which cargo-deny counts as wildcards in publishable crates.
+    - A BusyBox built to prefer its applets broke the installer harness.
+    - macOS reports `/private/var` for `/var` temp paths, and puts a trailing slash on `$TMPDIR`.
+  - **`/plugin update` keys on the version string** (A-23 fails). `claude plugin validate` accepts any version string at all.
+  - **GATES** built the documented gates and reported where the documents left a choice open.
+  - **REMOTE** built the thinnest remote slice and named what each part defers.
+  - DR-81 settled `scan` as a `Query`, but the code still said `NotUndoable` until this merge.
+- **Decision:**
+  - **Unsigned inbox rows wait for the desk, whoever's inbox holds them** [A-13 fallback]. An inbox path no longer proves its author against the owner's own session. Every imported row that no paired device signed is held exactly as the owner's unsigned rows are:
+    - an edit becomes a ghost on the one Apply card;
+    - a pick waits pre-selected on its card.
+    The actor is still `person:artifact:<uid>` from the path, named for display, never as authority. Read requests need no person and are answered either way. A paired device's signed reversible edits still apply directly.
+  - **`/room sync` reads the rows from the text block.** The mod takes each JSON line between `BEGIN ARTIFACT DB` and `END ARTIFACT DB` as data, checks it against `InboxRow`, and passes `{path, version, row}` to `import -`.
+  - **`import -` and its pins.**
+    - Each stdin line may carry the document's `version`, and lines with no `row` give the versions of documents the session wrote earlier.
+    - Import returns batches of at most 50 writes and 1 MiB, with `live/head` last. Each batch names its files under `.planroom/share/sync/<seq>-<µs>/` and pins every write to an existing document with `if_version`.
+    - `Answer` carries `format` and an optional `error`. `acks/<uid>` is `planroom.ack/v1`, with `imported_through`, and an existing ack is written as an `update` so its rows merge.
+    - Unknown fields in an inbox row are ignored, so a forged `actor` is ignored.
+  - **`share`** writes the canvas built for the Artifact, with relative paths, and marks its root `data-transport="artifact"`, which `main.tsx` reads to pick the transport.
+    - `Snapshot.capabilities` names view keys (`map:system:all`, `pane`).
+    - Positions come from the layout cache when one exists; otherwise the page lays out with ELK.
+    - `meta.share_snapshot_seq` records what the snapshot holds, for `live/head.snapshot_seq`.
+    - The publish declares `db` and `user` until Ask Claude and Send to Claude land, which add `sample` and `comments` (M4).
+  - **A release that fixes a RustSec advisory in the tree may be pinned before it is 14 days old.** The commit and the record name the advisory. tokio 1.53.3 for RUSTSEC-2026-0386 is the first, at 13 days. `cargo xtask check audit`'s age check reads the exceptions from this record's list. `deny.toml` allows BSD-3-Clause, which DR-39 already named.
+  - **Path dependencies carry their version.** Each workspace path dependency names `version = "=X.Y.Z[-dev]"`, so the crates can be published and cargo-deny keeps denying wildcards. The release step (`gen --version V`, M5) rewrites these pins with the workspace version.
+  - **The plugin's version is stamped from its own files** [A-23 fallback, refined]. Plain `gen` writes `plugin.json`'s version as `X.Y.Z-dev.g<first 8 hex of a sha256 over every file under plugin/ but plugin.json, in sorted path order>`. A release version is written as is. The `g` keeps the identifier alphanumeric, as semver requires. The resolver and `engine.env` compare the engine against `X.Y.Z-dev`, without the stamp. The plugin layout check holds the version to semver, since `claude plugin validate` doesn't. This replaces the catalogue-hash stamp the A-23 row named, which missed a change to a skill, an agent, the resolver or the mod alone.
+  - **The gates, as built:**
+    - `layout.lock` is TOML, one table per surface with `sha256` and `record`. The first lock names DR-79.
+    - `[ts.rules] test_tooling` lets tests and configs import vitest, vite and `@vitejs/plugin-react` under the default-deny allow-lists.
+    - `libc` is exempt from the socket scan, which finds callers through `libc::socket` instead.
+    - CI installs its tools in xtask under `CI=true`:
+      - cargo-deny from its sha256-pinned release archive;
+      - nextest with `cargo install --locked` at an exact version;
+      - ShellCheck, BusyBox and dash from the runner's package manager.
+      A tool fetched as a release binary is sha256-pinned; one from a package manager or `cargo install --locked` is pinned by version.
+    - The bare-name scan and the pack `requires` plants print as "not built", not as skips, until packs land in M1, which builds them.
+  - **The test harnesses take paths as the engine reports them:** physical (`pwd -P`, `canonicalize`), and found by walking `PATH` rather than `command -v`. `cargo test` runs every binary (`--no-fail-fast`), so one failure doesn't hide the next.
+  - **Code that trails the docs keeps to the docs,** by milestone:
+    - `Snapshot` gains layouts, diffs, plans, machines, every level and lens, cards and the precomputed answers (M4).
+    - `LiveHead` gains its `delta` with `Diff` (M2).
+    - Read requests beyond `map` (M4); edits (M1) and decisions (M2) from inbox rows.
+    - A republish's `if_version` and clearing `answers/` (M4).
+    - `#[redact]` marks replace `kernel::redact`'s hand-written field list (M1).
+    - `every_directory_has_a_purpose` and the pin-age audit (M1).
+    - The testkit row's allow-list (M1).
+- **Alternatives rejected:**
+  - **Trusting another viewer's unsigned row:** the owner's session can write any inbox with no prompt, so the path proves nothing against a model.
+  - **Ignoring the advisory until 1.53.3 turned 14 days old:** the age rule guards against new, untested releases, not against a fix to a known flaw. Holding a known unsound version for a day buys nothing.
+  - **`publish = false` on the library crates:** `planroom` couldn't then be published to crates.io, which the release keeps open.
+  - **Stamping the catalogue hash:** it misses plugin-only changes.
+- **Consequences:**
+  - Contracts: import's stdin and result shapes; `Answer` and the ack format; the share page's transport marker; the plugin version stamp.
+  - Layout: `layout.lock`; `[ts.rules] test_tooling`; `crates/xtask/ci_skips.toml`; the generated `clippy.toml` per crate.
+  - Tests: `crates/xtask/tests/{gates,skips,docs}.rs`; `crates/planroom/tests/s11_remote.rs`; `tests/e2e/src/artifact.spec.ts`; the installer suite under sh, dash and BusyBox.
+  - Users: on a shared Artifact, a collaborator's edit waits for the owner's one Apply card unless the owner paired that device. Read requests from anyone are answered on the next sync.
+  - Security: the A-13 fallback closes the path a model-written row would otherwise have to a person's authority.
+  - Release: `gen --version V` rewrites the path-dependency pins; the published marketplace entry names the tag through `git-subdir` [A-20].
+  - It changes no gated surface beyond what the first lock records.
+  - It amends DR-39, DR-52, DR-55, DR-56, DR-67, DR-70, DR-75, DR-78, DR-79 and DR-81.
+- **Sources (checked 2026-10-26):** `research/ws7-remote.md`, `research/ws8-install.md`; the GATES and REMOTE merge notes in `progress.md`; CI runs 36 to 46 on `ccr-b124f0e3-xnzjca`; RUSTSEC-2026-0386; `crates/planroom/src/app/{share,import}.rs`; `crates/xtask/src/{layout,tools,plugin}.rs`.

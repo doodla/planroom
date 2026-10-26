@@ -25,7 +25,7 @@ Shared instructions for coding agents (and people) working on Planroom, a shared
 ## Dependencies
 
 - Prefer stable, maintained crates and packages over hand-rolled code; hand-roll only trivial code, and say why in the commit message.
-- Pin every dependency exactly (`=x.y.z` in `Cargo.toml`, an exact version in `package.json`) to a release at least 14 days old, and commit `Cargo.lock` and `pnpm-lock.yaml`. `pnpm-workspace.yaml` sets `minimumReleaseAge` (7 days) for the transitive rest. Dependabot waits the same 14 days, and `cargo xtask check audit` checks each direct pin's age.
+- Pin every dependency exactly (`=x.y.z` in `Cargo.toml`, an exact version in `package.json`) to a release at least 14 days old, and commit `Cargo.lock` and `pnpm-lock.yaml`. A release that fixes a RustSec or npm advisory in the tree may be pinned sooner; its commit names the advisory and DR-83's list records it. `pnpm-workspace.yaml` sets `minimumReleaseAge` (7 days) for the transitive rest. Dependabot waits the same 14 days, and `cargo xtask check audit` checks each direct pin's age.
 - Dependencies must pass `cargo deny check` (`deny.toml`: MIT-compatible licenses, no OpenSSL, no unknown sources).
 
 ## Tests
