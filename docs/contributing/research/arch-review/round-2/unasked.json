@@ -1,0 +1,187 @@
+{
+ "key": "unasked",
+ "findings": [
+  {
+   "id": "unasked-1",
+   "title": "Ephemeral environments (cloud sessions, devcontainers, Codespaces) silently lose every person-authored event",
+   "severity": "material",
+   "claim": "The only durable copies of person-authored state are `.planroom/store.db` (inside the working tree, gitignored) and `DATA_ROOT/backups/<workspace_id>/events.ndjson` (under `$HOME`). In an ephemeral container both go away together when the container is recycled. No design element detects this, warns about it, or offers a sink that outlives the container. The design does treat cloud sessions as a supported surface: A-9 to A-11 were settled in one, and the mod opens its pane on `session.attach`.",
+   "evidence": "architecture.md:486 says \"After each person-authored commit ... appends the new events to DATA_ROOT/backups/...\". architecture.md 'Where the workspace lives' puts DATA_ROOT at `${XDG_DATA_HOME:-$HOME/.local/share}/planroom`, and `.planroom/` holds a `.gitignore` of `*`. DR-34 rejects any per-repo export (\"a shared export is a later feature\"). architecture.md:1193 and A-11 open the pane for cloud sessions that start with no surface. This conflicts with KICKOFF principle 1, \"Never lose or overwrite what someone did\", and with stance item \"for someone using it on a phone\". A Claude Code cloud session is the usual way to drive a repo from a phone. Assumed, not verified: cloud containers don't persist untracked files or $HOME across container recycling.",
+   "failure_scenario": "From a phone, the person opens a Claude Code cloud session on their repo. They run `/room intent \"Add retries to the worker\"`, accept a plan through every stage (version 2), regroup components and set intended rules. Days later the container is reclaimed. The next session starts with no `.planroom/` and an empty DATA_ROOT. `scan` finds no backup, so no restore card appears, and every plan, override, decision and intended rule is gone without a word.",
+   "proposed_fix": "Detect ephemeral hosts at store open: `CLAUDE_CODE_REMOTE`, `CODESPACES`, `REMOTE_CONTAINERS`, or a `/.dockerenv` with a tmpfs or overlay `$HOME`. In that case also write the event backup as a git ref outside the working tree, for example an orphan commit at `refs/planroom/backup/<workspace_id>` in the root repo, appended on the same 5 s debounce. Show one status line: \"This environment is temporary. Your Planroom edits are kept in refs/planroom/backup; push it to keep them\", with the exact `git push origin refs/planroom/backup/*` as the next action. `scan` already offers a restore card from a backup, so let it read that ref too. Add `backup.rs::ephemeral_host_writes_the_backup_ref` and a restore-from-ref test."
+  },
+  {
+   "id": "unasked-2",
+   "title": "Everyday git moves (branch switch, old-tag checkout, rebase, bisect) feed the reconciler and freshness path with no defined semantics",
+   "severity": "material",
+   "claim": "Facts, freshness and reconciliation all follow each repo's checked-out `HEAD`. The reconciler's window is `git log --no-merges prev..head` from the last reconciled head, and its outcome is stored and sticky. Nothing defines what happens when the new head is not a descendant of `prev`: a checkout of an older commit or tag, a switch to a sibling branch, a rebase or force-push, or a `git bisect` walk. Then the change-unit range is empty or wrong while the fact delta is large, so the delta goes to no unit. The result is `reconcile.residual` cards (`mismatch_class`, person stakes) or spurious regressions, written into the persisted outcome. `handoff merge` also merges into whatever branch is checked out at merge time, and its preflight doesn't check that this is the branch the spec was cut from.",
+   "evidence": "architecture.md:243: \"Each command first checks freshness: it compares each repo's HEAD and refs ... and rescans what moved\". architecture.md:1030: \"Change units are each repo's non-merge commits since its reconciled head, from git log --no-merges prev..head\". Rule 6 there: \"Anything the rules can't place raises the reconcile.residual role's card\". The decision-kinds table gives `mismatch_class` person stakes. DR-44 says \"The next scan starts from it\" (the stored outcome) and \"stays done\". architecture.md:1087 preflights only \"clean working tree, branch merges cleanly\". architecture.md:1003 assumes \"actual at main\". S7's CI path depends on this machinery: feature_list.json:366 runs \"git -C $OUT/storefront checkout routine (the commit-triggered head move)\". KICKOFF principle 1: \"Interrupt a person only for decisions only they can make\" and \"Never ... overwrite what someone did\".",
+   "failure_scenario": "The person runs `git checkout v0.3.0` in `orders` to reproduce a bug. The next `/room` read sees HEAD move, rescans, and reconciles over an empty `prev..head`. The rules that held at main now break, with no change unit to blame, so `mismatch_class` cards are dealt and the stored outcome records the reconciled head as v0.3.0. Back on `main`, every commit since v0.3.0 becomes a new change unit, and they are classified `unplanned`, or `regression` where the delta breaks a rule. Separately, after `handoff start` the person checks out a feature branch, and `handoff merge` merges `planroom/KEY` into that feature branch instead of main.",
+   "proposed_fix": "Give each repo a tracked branch, recorded at first scan: the branch checked out then, or `origin/HEAD`'s target. Reconcile only along fast-forward moves of that branch, which keeps S7's `routine` move working. When the new head is not a descendant of the reconciled head, re-anchor instead: rescan for the map, skip the reconciler, deal no card, and add one line to `focus` (\"Map shows orders at v0.3.0, detached from main; reconciliation paused\"). Resume when the tracked branch's head is a descendant again. A rebase or force-push of the tracked branch re-anchors at the merge-base with a one-line notice. Record the target branch in `spec.repos[]` at `handoff start`. The merge preflight then requires that branch to be checked out, else fails with `handoff_conflict` naming it. Tests: `reconcile.rs::a_backward_checkout_deals_no_card`, `a_sibling_branch_pauses_reconciliation`, `handoff_preflight.rs::merge_refuses_a_different_checked_out_branch`."
+  },
+  {
+   "id": "unasked-3",
+   "title": "Large repos: unbounded history walk and an all-or-nothing synchronous scan under process.run's timeout can leave a repo with nothing",
+   "severity": "material",
+   "claim": "DR-47 bounds file count and bytes, but the `git` extractor walks full history (log, numstat, co-change, owners) with no commit bound. It isn't a per-file extractor, so the blob cache doesn't spare it on each head move. A cold `scan` writes every repo's snapshot, the link snapshot and every scan event \"all in one transaction\" at the end. The mod runs `scan` (through `room_change`) with `$.process.run`, whose default timeout is 30 s, and the design names no timeout and no detach for this path. Only `serve` detaches a long command into a duty, at 8 s. A scan killed partway commits nothing.",
+   "evidence": "architecture.md:242: \"...writes one snapshot of facts per repo plus a workspace link snapshot, and appends one scan event per repo, all in one transaction\". architecture.md:547 bounds files and bytes only. architecture.md:1432 lists \"git (log, numstat, tags, branches, co-change, owners)\" with no depth. DR-24: \"a command still running at 8 s detaches into its duty\" (server only). research/mod-api.md \u00a77: \"process.run ... a 30 s default timeout and a 10 min maximum\". Measured throughput is 690 files/s on one thread [rust-stack \u00a74], so the 50,000-file bound alone is about 72 s per repo before any history work. KICKOFF R1: \"It works on any language. Precision may vary, but no repo gets nothing\". Risk R-2 acknowledges only fold cost, not scan or history.",
+   "failure_scenario": "The person opens a session in a 12-year-old monorepo with 40,000 files and 150,000 commits and accepts \"Map this repo? About 2 s\". `scan` runs under process.run. Tree-sitter plus `git log --numstat` over full history passes 30 s, the child is killed, and nothing commits. `focus` again offers the same scan, which fails the same way: the repo gets nothing, and every later head move would repeat the full history walk.",
+   "proposed_fix": "Bound history deterministically: the last N commits on the tracked branch (for example 5,000), reported as `partial_scan` with `{extractor: git, uncovered: \"history before <sha>\"}`. Make the walk incremental from the previous snapshot's head, cached by commit. Commit each repo's snapshot as soon as it's done, then the link snapshot, so a cut keeps the repos that finished. Run any scan the mod starts (and any CLI scan past 8 s, as `serve` does) as a detached `scan` duty that returns `{running: DUTY}`, and show progress (\"Scanning orders: 18,000/40,000 files\") through `duty` frames in the pane. Add a generated 50k-file, 100k-commit repo to `first_run.rs` that asserts a first map within a stated budget."
+  },
+  {
+   "id": "unasked-4",
+   "title": "Person authority hangs on one mod-held key with no recovery surface; with mods off, person-only flows are unreachable in-session",
+   "severity": "material",
+   "claim": "Every person-only action in the session goes through `PLANROOM_PERSON_KEY` in the mod's `$.store`: deciding a card, `handoff start`, `merge` and `revert`, `intent version`, `/room sync` import, and `open`, which gates the canvas. Re-registering a lost or mismatched key needs the old key or a `/dev/tty` confirmation. The mod's `process.run` has no TTY (A-3, A-10), no `planroom` is on PATH for a human terminal, and no fallback pane or error code exists for a key mismatch. A press with a non-matching key only yields `person_required`, whose details point back to \"a card a person can tap\". With mods off the design says only \"the pane, the band, /room and the three tools are missing\". In fact every person-only command becomes unreachable from the session.",
+   "evidence": "architecture.md:397: \"The person key is 32 random bytes in the mod's $.store\". DR-60: \"succeeds only when no hash is registered. Re-registering needs the old key or a /dev/tty confirmation.\" The fallback panes (architecture.md:1195) are fetching, build_offered, building, failed, unsupported_platform, version_mismatch and store_busy, with no key state. The error table in contracts.md has no key-mismatch code. architecture.md:1231 and DR-58 say \"no planroom is on PATH\". architecture.md:1196 is the mods-off paragraph. research/mod-api.md \u00a77 says `$.store` is \"a file under the user's Claude config dir\", so a different `CLAUDE_CONFIG_DIR`, a reinstall that clears plugin data, or a wiped config breaks the match. KICKOFF principle 1: decisions only a person can make must be \"cheap: ... one tap to confirm\".",
+   "failure_scenario": "The person reinstalls the plugin, or starts Claude Code with another `CLAUDE_CONFIG_DIR`, in a workspace with plans in flight. The mod makes a fresh key, and `person init` refuses because a hash is registered. Pressing `1` on a decision card, `g` to merge, or `e` to open the canvas each returns `person_required`, and the card it names fails again. Nothing on screen tells the person to run a TTY command, or where the binary lives. The approval, merge and canvas loops of S4 and S9 are now blocked for this user.",
+   "proposed_fix": "Add a `person_key_mismatch` fallback pane and error code, authored in en.toml. Its one action prints a copyable line in the pane, which is drawn and not sent to the model: `<resolver abs path> person init --rekey`, run in any terminal, confirmed on `/dev/tty`, and recorded in `doctor`. Add an opt-in `scripts/planroom link`, offered once in the guides and doctor, that puts a `planroom` shim in `~/.local/bin`, so a human terminal path exists. Correct the mods-off text to list the person-only actions that need mods or a terminal. Tests: `actor.rs::a_mismatched_key_shows_the_rekey_pane`, `rekey_needs_tty`."
+  },
+  {
+   "id": "unasked-5",
+   "title": "The downgrade path (`doctor --restore`) drops every edit made since the upgrade from the live store, and isn't reversible as claimed",
+   "severity": "material",
+   "claim": "`doctor --restore BACKUP` puts back a pre-migration `VACUUM INTO` copy after appending the current events to the NDJSON backup. Person-authored events committed after the migration are therefore gone from the live store. The only re-entry path, `import`, accepts an export only into \"a store with no authored events\", and re-upgrading migrates the restored copy without them. The undo table calls `doctor --restore` `Compensate` \"by another restore, since it backs up the current events first\". But no store copy of the current (post-migration) state is taken, so another restore can't bring it back.",
+   "evidence": "DR-53: \"planroom doctor --restore BACKUP (person only) is the downgrade path. It appends the current events to the backup first.\" contracts.md 'Store schema and migrations': \"A person's planroom import of that file replays it into a store with no authored events\". The architecture.md undo-class table: \"doctor --restore (by another restore, since it backs up the current events first)\". VACUUM INTO happens only \"Before any migration\" (architecture.md:484). KICKOFF principle 1: \"Never lose or overwrite what someone did. Everything is reversible.\"",
+   "failure_scenario": "The person upgrades to v0.2, which migrates the store, and works for a week: 40 overrides, a plan version and decisions. A v0.2 bug pushes them back to v0.1 with `doctor --restore store-v1.db`. The v0.1 store comes back without those 40 edits. When v0.2.1 ships and re-migrates, the edits are still missing, because they live only in events.ndjson, which can't be imported into a non-empty store.",
+   "proposed_fix": "Before a restore, also `VACUUM INTO backups/<ws>/store-pre-restore-<ts>.db`, so the restore really is compensable. Count the person-authored events beyond the copy's last `seq` and put the number in the confirmation (\"Set aside 40 edits made on v0.2? They come back when you upgrade\"). Record those events as a pending replay set, and on the next successful migration replay them through `store::commit`. They keep their actors and idem keys, and a stale one turns into a conflict card. Tests: `backup.rs::restore_then_upgrade_replays_set_aside_edits`, `a_restore_is_undone_by_restoring_the_pre_restore_copy`."
+  },
+  {
+   "id": "unasked-6",
+   "title": "The background implementer's Bash calls (tests, git commit, installs) fall to the normal permission flow and stream prompts at the person",
+   "severity": "material",
+   "claim": "The only implementer-specific permission rule lets Edit and Write in its worktrees and denies a few Bash patterns. Nothing auto-allows the Bash an implementation needs: running checks, `git add` and `git commit` on its branch, installing dependencies in a fresh worktree. In default permission mode each such call asks the person while a background agent works. In a headless or unattended session each one is denied and the hand-off fails. Either way \"an approved change ... handed to a separate implementer agent working in isolation\" doesn't run unattended.",
+   "evidence": "architecture.md:403: \"For a spawned planroom:implementer, the guard also allows Edit and Write only inside its own worktrees, and denies Bash that names sqlite3, script, git push or planroom handoff.\" architecture.md:1231 gives the implementer the tools `Read, Edit, Write, Bash, Grep, Glob`. The spec's `checks` are commands it must run (architecture.md 'The change spec'). A-2 records that `ask` becomes deny where nobody can be asked. KICKOFF R8: \"handed to a separate implementer agent working in isolation\". KICKOFF principle 1: \"Interrupt a person only for decisions only they can make ... batched\".",
+   "failure_scenario": "The person approves S4's hand-off with `h`. The implementer starts in its worktrees and runs `pytest` in `worker`, then `npm ci`, then `git commit`, and each needs a permission prompt. The person, mid-conversation with the planning partner, gets a dozen prompts they can't meaningfully judge. In a session started with `-p` or from a phone with no attached surface, the first Bash call is denied and the hand-off goes to `failed`.",
+   "proposed_fix": "Treat `handoff start` as the person's one batched approval of a bounded command set. The spec lists its `checks` commands, plus `git add`, `git commit` and the dependency installs it declares. In `tool.check`, return allow for an implementer's Bash only when its resolved cwd is inside one of its worktrees and its argv matches that list. Anything else gets one batched card per hand-off. Show the allowed list on the `handoff start` card (\"Will run: pytest, npm ci, git commit in worker, platform\"). Tests: `guard.test.ts::implementer_runs_spec_checks_without_prompts`, `implementer_unlisted_bash_asks_once`."
+  },
+  {
+   "id": "unasked-7",
+   "title": "`planroom open` has no path on WSL 2, SSH remotes, cloud sessions or headless Linux, and still says \"opened in browser\"",
+   "severity": "minor",
+   "claim": "`open` launches a browser itself and, by design, never prints the URL or code. On WSL 2, a platform the design says it supports, `xdg-open` is usually not set up to reach the Windows browser. Over SSH, in a devcontainer or in a cloud session there is no local browser at all. The person gets \"opened in browser\" with nothing opened, and no other way to log a tab in, because the code is never shown.",
+   "evidence": "architecture.md:1172: \"It opens http://127.0.0.1:PORT/#code=... in the browser itself ... It prints \\\"opened in browser\\\", never the URL\". architecture.md:1188 shows the win32 line \"Planroom v0.1 runs on macOS, Linux and WSL 2\". No browser-launch fallback appears anywhere: there are no hits for wslview, explorer.exe or a no-DISPLAY check. KICKOFF R13: the canvas \"runs locally\". The S9 evidence run in this cloud container would hit the same gap for the `e` key.",
+   "failure_scenario": "On WSL 2, the person presses `e`. `serve` starts, the opener fails silently or opens nothing, and the status reads \"opened in browser\". Trying again does the same.",
+   "proposed_fix": "Detect the host. On WSL (`/proc/version` contains microsoft), open with `wslview` or `cmd.exe /c start`. When no opener or display exists, draw the URL in the pane only (the mod UI, not model-visible text), or write it to `/dev/tty` for a person at a terminal. Over SSH, add a one-line hint to forward the port, or offer `/room share`. Return a distinct result (`not_opened`, with that next action) instead of \"opened in browser\"."
+  },
+  {
+   "id": "unasked-8",
+   "title": "Workspace discovery misses common multi-repo layouts and allows silently nested workspaces",
+   "severity": "minor",
+   "claim": "Discovery takes the root if it's a git repo, else only its immediate children. So a meta-repo of git submodules maps only the parent: submodules are gitlinks at the commit, so their code never reaches a blob-based extractor. A `~/src/<org>/<repo>` tree (depth 2) finds no repos. Scanning one repo and later its parent creates two independent workspaces, and the nearest-ancestor rule then splits the person's edits between them with no warning.",
+   "evidence": "architecture.md:490 and :491: \"The nearest ancestor of the working directory with .planroom/ is the workspace root\" and \"The repos are the root itself if it's a git repo, else its immediate child directories that are git repos\". No hits for submodule in any design doc. KICKOFF R1: \"Point Planroom at a repo, or a workspace of several ... no repo gets nothing\".",
+   "failure_scenario": "A person's polyglot system is a meta-repo with five submodules. `scan` maps one System node with no services, so the five component repos get nothing. Another person scans `~/code/orders`, later `~/code`. Sessions started in `orders` keep writing to the inner store, so the outer workspace's plan never sees those edits.",
+   "proposed_fix": "Treat initialized submodules (`git submodule status`) as workspace repos. Search two levels for repos when the root holds none, and say so in the empty state. At `scan` of a directory that contains or sits inside another workspace, deal one card: \"orders already has its own Planroom workspace. Merge it into this one?\". It imports the inner store's events and leaves a pointer behind."
+  },
+  {
+   "id": "unasked-9",
+   "title": "Hand-off merge is local-only with hooks off, which collides with PR-based and hook-enforced repos",
+   "severity": "minor",
+   "claim": "`handoff merge` runs `git merge --no-ff planroom/KEY` locally with hooks off, and the implementer never pushes. In a repo whose main is protected, or where policy runs in pre-commit and commit-msg hooks (secret scanners, DCO sign-off, lint), the merged commit skips that policy, and the local main diverges from the remote with no way to push. A PR route (push the branch, open a PR) isn't offered.",
+   "evidence": "architecture.md:1087: \"run git merge --no-ff planroom/KEY in each with hooks off\". DR-16: `core.hooksPath=/dev/null`. The spec's `boundaries` say \"don't push\". KICKOFF R8: \"Its result comes back as a diff for review, and reconciliation closes the loop after merge\".",
+   "failure_scenario": "The person's `orders` repo requires PRs into main and a DCO sign-off hook. After `handoff merge`, local main holds an unsigned merge, and `git push` is rejected by branch protection. The person has to reset by hand, and the reconciler has already recorded the item as done.",
+   "proposed_fix": "Keep hooks off for scans, but run the person's own hooks on the merge commit unless the person opts out. Add a `--via pr` mode to `handoff merge`: push `planroom/KEY` with the person's credentials, using a person-only command, then print the PR URL. The reconciler closes the item when the tracked branch contains the merge, which needs no change to the reconciler's rules."
+  },
+  {
+   "id": "unasked-10",
+   "title": "Canvas accessibility stops at contrast, touch and reduced motion: no keyboard model, screen-reader semantics or automated a11y audit",
+   "severity": "minor",
+   "claim": "The design language checks contrast, encodes kind beyond color, and specifies touch gestures. The canvas has no keyboard navigation for blocks and levels, though the mod is keyboard-first. It has no accessible structure for the xyflow graph (roles and labels, or an outline view) and no axe-style check in e2e. For a public v0.1 desktop web app, keyboard and screen-reader users can't move through the map.",
+   "evidence": "design-language.md 'Palette' (the contrast bar and its test) and 'Touch' (the gesture table only). architecture.md:1257 'Mobile first' and the motion section. The word accessibility appears only once, in M5 scope at architecture.md:1485, and no keyboard, ARIA or axe test is named in traceability.md or feature_list.json.",
+   "failure_scenario": "A keyboard-only user opens the canvas. Tab reaches the breadcrumb and card buttons, but no key moves between blocks, dives a level, or opens evidence. A screen reader announces an unlabeled SVG or div soup for the map.",
+   "proposed_fix": "Reuse the pane's model. Arrow keys move selection between sibling blocks, Enter dives, Esc goes up, and row keys act as in the pane, with visible focus rings. Render a visually hidden outline of `MapView` rows from `@planroom/ui` with `role=tree` for screen readers. Add `@axe-core/playwright` to `tests/e2e/quality.spec.ts` on every view, failing on serious violations."
+  },
+  {
+   "id": "unasked-11",
+   "title": "\"Remove Planroom\" misses registered git worktrees, the person key and user-level config; nothing automates removal",
+   "severity": "minor",
+   "claim": "Hand-off worktrees are registered in each repo's `.git/worktrees`. Deleting the data root leaves stale entries that keep the `planroom/KEY` branches checked out, until `git worktree prune` runs. The removal list also omits the mod's `$.store` key, the user-level `~/.config/planroom/config.toml`, which may hold the gateway key at mode 0600, and the plugin uninstall itself. There's no `doctor`-style command that lists or removes these.",
+   "evidence": "architecture.md:1379: \"lists everything Planroom creates: each workspace's .planroom/, the data root, planroom/* branches and refs/planroom/archive/*, and a detached serve\". Worktrees come from `git worktree add` under `DATA_ROOT/handoffs/...` (architecture.md:1054 and DR-25). Credential settings are in the user-level config (architecture.md 'Where the workspace lives').",
+   "failure_scenario": "The person follows the guide: `rm -rf ~/.local/share/planroom`, then `git branch -D planroom/worker-status-via-api`. Git refuses, because the branch is checked out at a worktree path that no longer exists. A gateway key also stays on disk in `~/.config/planroom`.",
+   "proposed_fix": "Add the missing items to the guide, in order: `handoff cancel` or `git worktree prune`, the config dir, `/plugin uninstall`. Add `planroom doctor --uninstall-plan`, which prints the exact paths, refs and worktrees for this machine as copyable commands, so the guide stays accurate as Planroom grows."
+  },
+  {
+   "id": "unasked-12",
+   "title": "The map shows only committed state, with no sign that the working tree differs",
+   "severity": "minor",
+   "claim": "Facts come only from `HEAD` at a commit, and freshness compares only `HEAD` and refs. The chat session and the person edit files in the working tree all the time, yet no surface says the map is behind uncommitted changes. Someone looking at the map after an edit can wrongly conclude a dependency is or isn't there.",
+   "evidence": "architecture.md:243 compares \"each repo's HEAD and refs ... with its active snapshot\". DR-33: \"scans are of committed state\". No hits for uncommitted, dirty or working-tree state in the freshness path. KICKOFF principle 1 (understanding at a glance) and R2 (every inferred fact shows its evidence).",
+   "failure_scenario": "The planning partner's session has just added an HTTP call from `worker` to `orders` in an uncommitted file. The person asks \"how does the worker reach orders?\" and gets the old path with no caveat. The map stays wrong until a commit, and nothing hints why.",
+   "proposed_fix": "In the freshness check, add a cheap `git status --porcelain -z --untracked-files=no` per repo, and report `meta.dirty_repos {repo, files}` in every envelope. `focus` and the canvas show one line, \"orders: 3 uncommitted files not on the map\", with no rescan and no card."
+  }
+ ],
+ "verdicts": [
+  {
+   "id": "unasked-1",
+   "verdict": "upheld",
+   "reason": "Both durable copies of person-authored events sit on the same host, and no design element detects an ephemeral host or writes a sink that outlives it. The design does treat cloud sessions as a supported surface. The S11 Artifact share is not a backup: it's a snapshot, and a viewer-row import isn't a restore path for the owner's own events. This is a data-loss risk, so it is material. One assumption is not verified: that cloud containers drop gitignored files and $HOME when recycled.",
+   "evidence": "architecture.md:486 puts the backup at DATA_ROOT/backups/<workspace_id>/events.ndjson. architecture.md:495 sets DATA_ROOT to ${XDG_DATA_HOME:-$HOME/.local/share}/planroom. DR-53 rejects 'A backup inside .planroom/: deleted with it' but doesn't consider losing the host. architecture.md:1193 and A-11 open the pane on session.attach for cloud sessions. No design doc mentions ephemeral hosts, CODESPACES or CLAUDE_CODE_REMOTE (grep found nothing)."
+  },
+  {
+   "id": "unasked-2",
+   "verdict": "upheld",
+   "reason": "The reconciler's window is prev..head from the stored reconciled head. Nothing handles a head that isn't a descendant of it: no is-ancestor or merge-base check, and no tracked branch. A checkout of an older tag gives an empty unit range but a large fact delta, and that delta falls to rule 6 (the residual card), so the stored outcome is wrong. The merge preflight checks only a clean tree and a clean merge, not which branch is checked out. Yet the design claims these are the only commands that change a repo's default branch. Spurious person-stakes cards go against 'Interrupt a person only for decisions only they can make', and the stored outcome is then wrong. Material.",
+   "evidence": "architecture.md:1029-1030 ('prev is the last committed outcome', 'git log --no-merges prev..head'). Rule 6 at architecture.md:1039 sends anything unplaced to a reconcile.residual card. architecture.md:1087 preflights 'clean working tree, branch merges cleanly'. architecture.md:1091 says 'the only commands that change a repo's default branch are handoff merge and handoff revert', with no branch check. A grep for descendant, merge-base, rebase, detached and force-push found nothing that covers this."
+  },
+  {
+   "id": "unasked-3",
+   "verdict": "downgraded",
+   "reason": "The gap is real. The git extractor's history has no bound (DR-47 bounds only files and bytes), a cold scan commits everything in one transaction, and the mod's process.run has a 30 s default with no timeoutMs set for scan. But by the stated definition it isn't material. The fixture's tier A/B scenarios (S1's under-5 s cold scan) aren't affected. It isn't a principle or constraint violation: R1 is a requirement, and the material definition lists principles and constraints. No data is lost, because a killed scan commits nothing and leaves the earlier state intact. The CLI path also stays open: an agent's Bash can run `planroom scan` with a longer timeout, and duties in watch run with no process.run timeout.",
+   "evidence": "architecture.md:242 says 'all in one transaction'. architecture.md:547 bounds 'up to 50,000 files and 256 MiB per repo' and says nothing about history depth. research/mod-api.md:296 gives process.run 'a 30 s default timeout and a 10 min maximum'. A grep for timeoutMs in the design docs found nothing. architecture.md:1224 runs `scan` through room_change. architecture.md:164 runs duties in live processes such as watch, which is a process.spawn with no timeout."
+  },
+  {
+   "id": "unasked-4",
+   "verdict": "downgraded",
+   "reason": "The discoverability gap is real. There's no key-mismatch fallback pane or error code, and the mods-off text understates what goes missing. But a recovery path exists, so the claim that there's 'no recovery surface' and that person-only flows are 'unreachable' overstates it. DR-60 lets a person re-register through a /dev/tty confirmation. Every person-only command can also be run from a terminal through a /dev/tty confirmation. The failure needs a precondition (a lost or mismatched $.store key) and doesn't touch a tier A/B scenario on a normal install. It also isn't a security or data-loss risk. So it is minor.",
+   "evidence": "architecture.md:408: 'A person at a terminal runs one through a confirmation read from /dev/tty that names the action, or through the mod's press.' architecture.md:389 lists person:<os-user> as granted by 'a terminal write the person confirms on /dev/tty'. decisions.md:1156: 'Re-registering needs the old key or a /dev/tty confirmation ... planroom doctor shows when the key was registered and from which surface.' The fallback list at architecture.md:1195 has no key state, so that part of the claim is true."
+  },
+  {
+   "id": "unasked-5",
+   "verdict": "upheld",
+   "reason": "doctor --restore puts back a pre-migration store copy. Events committed after the migration are appended to events.ndjson, but they're gone from the live store. import accepts only a store with no authored events, and a later re-migration starts from the restored copy. The undo table says the restore is compensated 'by another restore', but no copy of the post-migration store is taken, so there's nothing to restore back to. A manual way out exists in principle (delete .planroom/ so that scan offers to restore the whole NDJSON), but it's undocumented and depends on the older engine reading newer events. The design's claim that a restore is reversible doesn't hold, which goes against 'Everything is reversible' and 'Never lose ... what someone did'. Material.",
+   "evidence": "decisions.md:974 (DR-53): 'doctor --restore BACKUP ... It appends the current events to the backup first.' architecture.md:1121: 'doctor --restore (by another restore, since it backs up the current events first)'. contracts.md:310: import 'replays it into a store with no authored events'. VACUUM INTO happens only before a migration (contracts.md:309, architecture.md:484), and no pre-restore copy is taken."
+  },
+  {
+   "id": "unasked-6",
+   "verdict": "upheld",
+   "reason": "The implementer guard only restricts Edit and Write to the worktrees and denies a few Bash patterns. Nothing auto-allows the Bash the spec needs: its checks commands, git add and commit, and installs. A-2 records that `ask` turns into a deny where nobody can be asked. So a background implementer either streams prompts the person can't judge, against 'Interrupt a person only for decisions only they can make ... batched', or gets denied and fails, which would break S9's 'implementer hand-off runs once for real' (tier B). The design specifies no permission mode for the spawned agent. Material.",
+   "evidence": "architecture.md:403: 'the guard also allows Edit and Write only inside its own worktrees, and denies Bash that names sqlite3, script, git push or planroom handoff'. architecture.md:1046 lists `checks` (commands) and `boundaries` ('commit on the branch'). architecture.md:1231 gives the implementer the tools Read, Edit, Write, Bash, Grep, Glob. A-2 at architecture.md:1516. A grep for permission mode, acceptEdits, bypass and allowedTools on the implementer found nothing."
+  },
+  {
+   "id": "unasked-7",
+   "verdict": "upheld",
+   "reason": "`open` launches the browser itself and never prints the URL. The design has no host detection (WSL, SSH, no display) and no not-opened result. S11's Artifact covers 'when localhost isn't reachable' for viewing, but `e` and `/room open` still report a false success. The finding is real and correctly rated minor.",
+   "evidence": "architecture.md:1172: 'It opens http://127.0.0.1:PORT/#code=... in the browser itself ... It prints \"opened in browser\", never the URL'. architecture.md:1188 supports WSL 2. A grep for xdg-open, wslview and DISPLAY found nothing."
+  },
+  {
+   "id": "unasked-8",
+   "verdict": "upheld",
+   "reason": "Discovery takes the root repo or its immediate child repos only. Nothing handles submodules, deeper layouts or nested workspaces. The finding is real and correctly rated minor.",
+   "evidence": "architecture.md:490-491: 'The nearest ancestor of the working directory with .planroom/ is the workspace root' and 'The repos are the root itself if it's a git repo, else its immediate child directories that are git repos'. A grep for submodule and nested workspace found nothing."
+  },
+  {
+   "id": "unasked-9",
+   "verdict": "upheld",
+   "reason": "The merge runs locally with hooks off, the spec says don't push, and there's no PR route. The finding is real and correctly rated minor.",
+   "evidence": "architecture.md:1087: 'run git merge --no-ff planroom/KEY in each with hooks off'. architecture.md:743 and DR-16 list merge --no-ff among the git writes run with core.hooksPath=/dev/null. architecture.md:1046 boundaries: 'don't push'."
+  },
+  {
+   "id": "unasked-10",
+   "verdict": "upheld",
+   "reason": "Beyond one line in the M5 scope, the design specifies no keyboard model, ARIA structure or automated accessibility audit for the canvas. The finding is real and correctly rated minor.",
+   "evidence": "A grep for aria, axe, screen reader, keyboard and a11y across the docs under review and feature_list.json found only architecture.md:1485: 'Mobile, touch, accessibility, reduced motion, empty states'."
+  },
+  {
+   "id": "unasked-11",
+   "verdict": "upheld",
+   "reason": "The removal list leaves out registered worktrees of in-flight hand-offs, the user-level config that may hold credentials, the mod's $.store key and the plugin uninstall. Worktrees are removed on merge and cancel, but any started or reviewing hand-off still has them. The finding is real and correctly rated minor.",
+   "evidence": "architecture.md:1379: 'lists everything Planroom creates: each workspace's .planroom/, the data root, planroom/* branches and refs/planroom/archive/*, and a detached serve'. architecture.md:1087-1089 removes worktrees only on merge, cancel or drop."
+  },
+  {
+   "id": "unasked-12",
+   "verdict": "upheld",
+   "reason": "Scans cover committed state only, and freshness compares HEAD and refs. No surface signals uncommitted changes. The finding is real and correctly rated minor.",
+   "evidence": "architecture.md:243 compares 'each repo's HEAD and refs ... with its active snapshot'. decisions.md:596: 'scans are of committed state'. A grep for uncommitted, dirty and porcelain status in the freshness path found nothing."
+  }
+ ]
+}

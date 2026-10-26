@@ -1,0 +1,187 @@
+{
+ "key": "correctness",
+ "findings": [
+  {
+   "id": "correctness-1",
+   "title": "Derived idempotency keys turn legitimate repeats into replays, and multi-step commands cannot both replay and resume",
+   "severity": "material",
+   "claim": "An idem derived as sha256(actor \u2016 command \u2016 canonical(args) \u2016 base) is identical for every repeat of a command that has no base: scan, decide --run, claim renewal, intent next, handoff collect, and a handoff merge or revert retry. The second run therefore returns the first run's stored reply and writes nothing. Commands that commit in several transactions (handoff merge: a `merging` step, git merges, then `merged`) cannot follow the rule 'store the whole reply on idem#1 and replay it' and also 'a retry resumes from the merging step'. The two rules contradict each other.",
+   "evidence": "architecture.md Idempotency and retries: 'If the caller gives none, the engine derives sha256(actor \u2016 command \u2016 canonical(args) \u2016 base)'; 'A command that writes several events (a regroup, a scan, a decision and its effects) keys them idem#1... and stores the whole reply on the first, so a replay returns it whole'. Scans are system writes with no base (Actors, DR-60). The hand-off loop: 'A process that dies mid-merge leaves the merging step, and a retry resumes from it'. A long HTTP command 'detaches into its duty' (Local server, Limits). feature_list.json S4 ci_path runs `planroom scan --json` twice with identical argv (after the hand-off merge, then after the teammates merges). S7 runs `planroom decide --run --json` twice. This conflicts with KICKOFF R10 'retries are safe' and S4 step 4.",
+   "failure_scenario": "S4 CI path: the second `planroom scan --json` (after `git merge teammates`) has the same actor, command, args and empty base as the first. The commit step finds that idem with the same request hash and returns the earlier reply marked replayed. No new scan event and no reconcile outcome are written, so worker-audit-db-write is never classified as a regression. A second case: `handoff merge` crashes after committing `merging` and merging the worker repo. The person's retry carries the same derived idem, finds idem#1, and replays a partial reply. The platform merge never happens, and the hand-off stays half-merged.",
+   "proposed_fix": "Derive idem only for writes with needs_base, where base pins the intent. Every other command mints a fresh key per invocation (uuid v7), and the mod, canvas and Artifact page mint one per user action. Key system scans by (repo, commit, packs_hash, previous active snapshot id), so A\u2192B\u2192A head moves still write new scan events. Give multi-transaction commands an explicit step protocol: a retry with the same idem resumes from the last committed step, a replay only follows a terminal step, and an in-flight detached duty is joined rather than rerun. Add tests: scan, change HEAD, scan again with identical argv and expect a new scan event; crash between the repos of a merge, retry with the same idem, and expect it to resume."
+  },
+  {
+   "id": "correctness-2",
+   "title": "PRAGMA data_version does not see a connection's own commits: serve's fold and its stream miss the writes serve itself makes",
+   "severity": "material",
+   "claim": "Live updates and read-your-writes both rely on polling PRAGMA data_version. SQLite leaves that value unchanged for commits made on the same connection. serve commits every canvas write and its duties, and watch commits presence and duty rescans. A process that polls on its own write connection never sees its own commits. Its in-memory fold goes stale, and other clients get no frame until some other process commits.",
+   "evidence": "architecture.md: 'Read-your-writes needs no token: ... serve checks data_version before serving from its in-memory fold'; Live within 1 s: 'The stream polls PRAGMA data_version every 200 ms, reads events WHERE seq > cursor'; 'serve: store::commit, in-memory fold'. research/rust-stack.md:197 recommends 'one owned Connection on a dedicated thread', which is exactly the same-connection setup. No document separates the poll connection from the write connection. KICKOFF R10: 'every surface updates live'; S8: 'live updates arrive within 1 s'.",
+   "failure_scenario": "Two canvas tabs on one serve, and no mod session. Tab A renames a block. serve commits the rename on its own connection, so data_version on that connection does not change. Tab B gets no event frame. serve's next read, including tab A's own refetch, comes from the stale in-memory fold, so A's confirmed edit vanishes from its own view. Nothing corrects this until another process commits, which is up to 10 s later when a watch writes presence, or never if no watch runs. The S8 harness hides the bug because agent CLI writers commit constantly. A commit-triggered rescan run as a watch duty (S7) likewise produces no frame from that watch.",
+   "proposed_fix": "Poll data_version on a dedicated read-only connection that never writes; data_version does change for commits from another connection in the same process. After every store::commit, also notify the process's own live loop directly. serve applies its own committed seq to its fold before it replies. Add tests: two SSE clients on one serve with no other writer, where client B must render A's write within 1 s; and a serve write followed by a serve read that must show the write."
+  },
+  {
+   "id": "correctness-3",
+   "title": "Per-repo scan leases race on the workspace-wide link snapshot, which no event names",
+   "severity": "material",
+   "claim": "Cross-repo edges (http, queue, db, deploys, scrapes, watches) live in one workspace link snapshot that is 'rebuilt whenever any repo's snapshot changes'. Rescans take per-repo leases, so two processes can rescan two repos at the same time. Each process builds the link from its own stale view of the other repo's active snapshot. The link snapshot's identity is also unspecified: the UNIQUE key (repo, commit_id, purpose, packs_hash) does not capture the set of member snapshots, and Scan events record only the repo snapshot. So fold(at) cannot find the link that matches the active set. The reconciler's 'recompute if another outcome landed' covers the outcome, not the link it diffs.",
+   "evidence": "architecture.md The fold step 1: 'The workspace link snapshot is the one built from those'; Store schema: snapshots UNIQUE (repo, commit_id, purpose, packs_hash) 'insert ON CONFLICT DO NOTHING, then select'; Hints and linkers: 'output is the workspace link snapshot, rebuilt whenever any repo's snapshot changes'; Duties: leases 'scan:orders' per repo; contracts.md EventBody::Scan { repo, commit, snapshot, ... } holds no link reference; DR-44: 'A scan that finds a newer outcome recomputes before it commits'.",
+   "failure_scenario": "In a live session (S9, or the S4 evidence path), `handoff merge` moves the worker and platform heads. The mod's watch duty takes scan:worker and links {worker@new, platform@old}. A CLI freshness check takes scan:platform and links {worker@old, platform@new}. Both commit, and the active set {worker@new, platform@new} has no link snapshot. Depending on the implementation, every cross-repo edge disappears or a stale link wins. The reconciler then sees the required worker\u2192orders http edge vanish, attributes the deltas to the implementer's commits, and reports a regression or residual cards instead of 'done'.",
+   "proposed_fix": "Build the link snapshot inside the committing IMMEDIATE transaction from the then-active per-repo snapshots' stored hints; linking is pure and fast. Alternatively, serialize link building and reconciling under one workspace `link` lease. Key link snapshots by sha256 of the sorted member snapshot IDs and packs_hash, and record that ID on the Scan event and in ReconcileOutcome.heads. Add a test where two processes rescan two repos concurrently and the final link must equal the link built from the final active set."
+  },
+  {
+   "id": "correctness-4",
+   "title": "Field-level compare-and-set does not protect the one-parent tree; concurrent or self-nested regroups create parent cycles",
+   "severity": "material",
+   "claim": "Each `set parent` is checked only against its own target's revision. Two writers can each apply a valid-looking edit whose combination is a cycle, for example A moved under B and B moved under A, or a node moved under its own descendant. No document defines cycle detection at commit time or in the fold, while roll-up lifts edges to 'the nearest ancestor', which never terminates on a cycle.",
+   "evidence": "architecture.md Levels and roll-ups: 'One parent per node. A regroup is a set parent edit'; Conflicts: 'A write conflicts when a field it sets has rev > base'; Roll-up: 'lifted to the nearest ancestor of each end at or above level'; The fold step 2 'attach parents' names no cycle check. A search of architecture.md, decisions.md and contracts.md finds no cycle handling. KICKOFF S4 step 1 and S8 (concurrent writers).",
+   "failure_scenario": "In the canvas, a person drags storefront:dir:src/checkout under the new `purchase` group while their mod session moves `purchase` under src/checkout (or an agent's ghost doing so is accepted). The two edits touch different targets, so both apply. Every later fold and every map command loops or panics in lift() or in breadcrumb building, so every surface fails on every read until someone finds and undoes the edit by event ID.",
+   "proposed_fix": "Inside store::commit's IMMEDIATE transaction, fold the parent chain of the new parent and refuse a `set parent` (or `put` with a parent) that would create a cycle; return `invalid_argument`, or store it as a conflict and raise a card. In the fold, also break any cycle deterministically: the edit with the higher seq loses and is listed in Diffs, which covers older stores and imported events. Add cycle cases to writer_interleavings and kernel/tests/fold.rs."
+  },
+  {
+   "id": "correctness-5",
+   "title": "Undo neither bumps authored revisions nor covers whole commands, so undos can be silently overwritten or leave dangling parents",
+   "severity": "material",
+   "claim": "(a) rev(target, field) is the seq of the last applied event that set a field. An `undo` changes the field's effective value but sets nothing, so a writer whose base predates the undo overwrites it without a conflict. That is last-writer-wins on user-authored state. (b) Undo targets one event, but a regroup writes several (a `put` of the group plus a `set parent` per member, keyed idem#1..#n), as do batch accepts and decision effects. Undoing one of them leaves members parented to a missing group, or a batch half reverted.",
+   "evidence": "architecture.md Versions and revisions: 'rev(target, field) is the seq of the last applied event that set it'; The fold step 3: 'undone and rejected edits are skipped'; Events: `Undo { of: EventId }` (contracts.md); Idempotency: 'a regroup ... keys them idem#1, idem#2'. KICKOFF R10 'User-authored state is never last-writer-wins'; principle 'Never lose or overwrite what someone did'; S15 'Every edit type has an undo test'.",
+   "failure_scenario": "(a) Bob renames cart to Basket (seq 12), then undoes it (seq 13), so the name is back to cart. A tab that rendered seq 12 renames to Bag with base 12. rev(name) is still the pre-12 revision, so no conflict is raised and Bob's undo is silently lost. (b) A person presses `u` after the S4 regroup. The pane undoes the last event, the put of `purchase`. src/cart and src/checkout now have a parent that doesn't resolve, so the fold either drops them or attaches them nowhere.",
+   "proposed_fix": "Treat an applied undo as a write. It records, for every field it changes, rev = its own seq and writer instance; it is CAS-checked with a base; and it is listed in conflicts. Define undo per command: `edit undo` takes the command's root idem or cause and reverses every event it wrote, in one transaction. Define what the fold does with an unresolvable parent (fall back to the fact parent and list the item in Diffs). Add cas.rs::a_write_over_an_undo_since_base_conflicts and undo.rs::regroup_undo_is_atomic."
+  },
+  {
+   "id": "correctness-6",
+   "title": "The incremental fold's scan path is under-specified and untested",
+   "severity": "material",
+   "claim": "serve and watch apply only events after their seq, and 'a scan event refolds only the affected repo's subtree'. A scan of one repo changes the workspace link snapshot: cross-repo edges, workspace-level containers such as redis and orders-db, deploys and watches. It can also change ScanChangedUnderEdit items on other repos' overrides. Undo and review events after seq change the effective status of edits before seq, which applying events forward cannot express. The only equality check, incremental_fold_equals_full_fold, runs inside the S8 harness, whose steps contain no scans and no undos.",
+   "evidence": "architecture.md The fold: '`serve` and `watch` keep (Model, seq) and apply only events after seq; a scan event refolds only the affected repo's subtree'; the S8 harness and feature_list.json S8 steps (edits, proposals, a claim; no scan or undo); DR-2 'serve and watch keep the fold in memory and apply new events incrementally'.",
+   "failure_scenario": "The canvas is open on serve during S4. After `handoff merge` a rescan of worker refolds only worker's subtree. The worker\u2192orders-db db edge, whose `to` end sits under the workspace, and the worker\u2192orders http edge, which comes from the link snapshot, are not updated. The canvas diff tray and reconcile view show the pre-merge state while the CLI shows the truth; the evidence path's same_output check and the S4 screenshots disagree. An undo after seq is applied as a no-op, so the undone rename still shows on the canvas.",
+   "proposed_fix": "On a scan event, or an undo or review whose target precedes the cached seq, refold from scratch; the fold budget is under 50 ms. Keep subtree refolds out of v0.1. Extend incremental_fold_equals_full_fold into a kernel proptest that interleaves scans of random repos, link changes, undos and reviews of older events, and run it outside S8."
+  },
+  {
+   "id": "correctness-7",
+   "title": "An Artifact viewer's devices are one writer instance, and the import order of a viewer's rows is undefined",
+   "severity": "material",
+   "claim": "An imported inbox row's client is `artifact:<uid>`, so a viewer's phone and laptop, or two tabs, form one writer instance. 'A writer instance never conflicts with its own later writes', so concurrent edits from them are last-writer-wins. Import also defines no order for one viewer's rows: rows are listed from `db` and the page uses last-writer-wins. An earlier edit can be applied after a later one, and as the same writer it overwrites it without a conflict.",
+   "evidence": "contracts.md Artifact db layout: 'the client is artifact:<uid>; idem is artifact:<uid>:<docId>'; architecture.md Conflicts: 'So two tabs of one person conflict like two people ... A writer instance never conflicts with its own later writes'; Remote mode step 5 states no ordering; DR-5. KICKOFF R10 'User-authored state is never last-writer-wins' and S11.",
+   "failure_scenario": "On a phone the viewer renames cart to Basket, then renames it again to Bag. The two rows have random docIds. `/room sync` lists the inbox and imports in docId order, Bag then Basket. The second import has the same writer instance, so no conflict is raised, and the block ends up named Basket, losing the viewer's last edit. Similarly, edits from the viewer's laptop and phone to one field never raise the three-way card that two canvas tabs would.",
+   "proposed_fix": "The page mints an instance ID per load and a monotonic per-instance counter, stored in each row. The client becomes `artifact:<uid>:<instance>`. Import applies rows sorted by (instance, counter), then by `at`. Add s11 tests for two rows from one instance applied in counter order, and for two instances of one viewer conflicting."
+  },
+  {
+   "id": "correctness-8",
+   "title": "The debounced event backup can drop the last person-authored events, and concurrent appends are unordered",
+   "severity": "material",
+   "claim": "The backup that makes a lost `.planroom/` recoverable is 'debounced to one write per 5 s' after a person-authored commit. Most writers are one-shot CLI processes, so a debounce can only skip writes. The trailing events of a burst reach the backup only when a later person commit happens to land outside the window. Several processes appending 'the new events' with no shared high-water mark or lock can also duplicate or interleave lines.",
+   "evidence": "architecture.md Store schema: 'After each person-authored commit, debounced to one write per 5 s, the engine appends the new events to DATA_ROOT/backups/<workspace_id>/events.ndjson'; DR-53 (same); 'Nothing a person authored lives only in store.db'. KICKOFF principle 'Never lose or overwrite what someone did'; a data-loss risk under the review's materiality rule.",
+   "failure_scenario": "A person makes the S4 regroup and the two intended edits within 3 s, so the second and third commits are debounced away. They then run `git clean -xfd` in a single-repo workspace, which deletes `.planroom/`. The restore card brings back only the regroup, and both intended-architecture edits are lost. In another case, the mod and the canvas append concurrently; the restore sees duplicate or out-of-order lines and either refuses them or replays them in the wrong order.",
+   "proposed_fix": "Append synchronously at the end of every person-authored commit. That costs one NDJSON append and an fsync, outside the SQLite transaction, with a flock on the backup file and a sidecar high-water seq. Any later process, including watch, flushes events above the high-water mark. Restore sorts by the original seq and dedupes by idem. Add backup.rs::a_burst_of_three_edits_is_fully_backed_up and concurrent_appenders_keep_order."
+  },
+  {
+   "id": "correctness-9",
+   "title": "Roll-up of repo-less containers lifts edges into an ancestor of the other end",
+   "severity": "minor",
+   "claim": "redis and orders-db sit directly under the workspace node, which is at System level, as are the repos beneath it. Lifting to the System level sends each end to 'the nearest ancestor at or above level', so orders\u2192redis becomes orders-repo\u2192workspace: an edge from a node to its own parent. That is neither an internal edge of one ancestor nor a peer edge. The System map either drops these edges or draws them to the frame, so orders and worker look unconnected at the top. That falls short of R1's 'faithful roll-up', even though the count property still holds.",
+   "evidence": "architecture.md Levels: 'the workspace and repos sit at System'; Roll-ups across levels: 'Services with no repo (redis, orders-db) sit under the workspace'; Roll-up: 'lifted to the nearest ancestor of each end at or above level'; 'Edges inside one ancestor become that ancestor's internal count'. KICKOFF R1 and S1 ('Zooming to code and back shows faithful roll-ups').",
+   "failure_scenario": "S1 first look: the top-level map shows storefront\u2192orders, but the order-jobs path orders\u2192redis\u2192worker and both db edges lift to repo\u2192workspace. The person sees no relation between orders and worker at the top level, while the Container level shows two.",
+   "proposed_fix": "Lift each end to the highest ancestor at or above the level that isn't an ancestor of the other end, or give repo-less containers a System-level 'shared infrastructure' lane node. Add a rollup.rs case: no lifted edge may join a node to its own ancestor."
+  },
+  {
+   "id": "correctness-10",
+   "title": "Reconcile classes depend on where scan windows fall, and handoff merge doesn't reconcile itself",
+   "severity": "minor",
+   "claim": "Regression needs a rule that 'held at the previous reconciled snapshot', and done needs 'rules all hold' at head. Both depend on where the window boundaries fall. handoff merge doesn't rescan and reconcile at its recorded merge commits; the S4 CI path relies on an explicit scan in between. If another commit lands on main before the first post-merge scan, the item never becomes done, and the breaking commit can't be a regression because the forbid rule never held at the window start. The window for the very first scan, with no previous outcome, is also unspecified.",
+   "evidence": "architecture.md The reconciler, rules 1 and 2; DR-44 ('so classes and stays done don't depend on when a scan ran'); The hand-off loop 'merged --> reconciled: rescan, then reconcile' (not specified as part of the merge command); feature_list.json S4 inserts `planroom scan --json` between the merge and the teammates merges.",
+   "failure_scenario": "After `handoff merge`, an automation agent merges `teammates` in worker before any Planroom command runs. The next scan's window contains both the implementer's commit and the audit commit. forbid worker\u2192orders-db didn't hold at the window start and doesn't hold at head, so the item isn't done and the audit commit isn't a regression. It falls to rule 6 and becomes a mismatch_class card, contradicting TRUTH reconciliation_after_merges.",
+   "proposed_fix": "Make `handoff merge` rescan and reconcile at exactly the recorded merge commits, under the repos' scan leases, before it commits `merged`. More generally, evaluate rules per change unit in topological order (state at the unit's parent plus its delta), so classes don't depend on window boundaries. Define the first window as empty, a baseline with no units."
+  },
+  {
+   "id": "correctness-11",
+   "title": "The cross-repo merge is not atomic after the preflight, and it merges into whatever branch is checked out",
+   "severity": "minor",
+   "claim": "The preflight runs `git merge --no-commit` then `--abort` per repo, and the real merges happen afterwards. A commit landing in repo 2 between the preflight and its merge, or a branch switch, can make the real merge conflict after repo 1 is already merged. The design doesn't say to abort that merge or what state follows; without an abort, conflict markers stay in the person's working tree. Nothing checks that HEAD is on the spec's base branch, so the merge can land on a feature branch the person has checked out.",
+   "evidence": "architecture.md The hand-off loop: 'commit a merging step with each repo's head before the merge and its planned target commit, run git merge --no-ff planroom/KEY in each'; 'So no hand-off stays half-merged across repos'; tests cover only a preflight failure (handoff_preflight.rs::a_conflict_in_the_second_repo_leaves_both_untouched).",
+   "failure_scenario": "The person merges worker-status-via-api while another session commits to platform's compose file. worker merges cleanly; platform's merge conflicts and leaves conflict markers in docker-compose.yml. A retry resumes and conflicts again. The hand-off stays `merging`, half merged, with the person's tree dirty.",
+   "proposed_fix": "Before each merge, check that HEAD is still the recorded `before` commit on the spec's base branch; otherwise stop with handoff_conflict. On any merge failure run `git merge --abort` and deal one card: 'Revert worker's merge, or retry?' with revert pre-selected. Add handoff_preflight.rs::a_commit_after_preflight_aborts_cleanly."
+  },
+  {
+   "id": "correctness-12",
+   "title": "Liveness bookkeeping is too coarse: dead watch processes keep leases, and presence is keyed by actor alone",
+   "severity": "minor",
+   "claim": "A watch dies on every mod hot reload by design, but a lease it held stays valid until its 30 s expiry. Meanwhile non-refresh commands wait 5 s each and reuse a stale snapshot, and the restarted watch can't take the lease. Separately, the presence table's primary key is `actor`, so one person's mod session and canvas tab overwrite each other's row; `who` can show only one of a person's surfaces.",
+   "evidence": "architecture.md Processes: watch 'dies on reload or session end by design'; Duties: 'a row in leases with a 30 s expiry', 'A command that finds the lease held waits up to 5 s'; Store schema: `presence (actor TEXT PRIMARY KEY, surface, ...)`; Claims and presence: rows written by 'each watch (for its session ...), each SSE client'. KICKOFF S8: 'claims and presence are visible'; R10: 'everyone sees who ... is working on what'.",
+   "failure_scenario": "The person runs /reload-plugins during a commit-triggered rescan. For the next 30 s every key press that writes waits 5 s, and the pane shows stale_repos. In the S8 evidence run, the person's live mod session and canvas tab both write person presence, so `who` lists only whichever wrote last, and the 'tab is looking at orders' line flickers away.",
+   "proposed_fix": "Store the holder as (pid, process start time, host) and let a contender take over a lease immediately, with an epoch bump, when the holder isn't alive; watch also releases its leases on SIGTERM. Key presence by (actor, surface, client_id) and merge rows per actor only for display."
+  }
+ ],
+ "verdicts": [
+  {
+   "id": "correctness-1",
+   "verdict": "upheld",
+   "reason": "Nothing exempts scans or other base-less commands from the derived key. Two runs of `planroom scan --json` with the same argv derive the same idem, so the second run replays the first reply. The merge's resume rule also conflicts with storing the whole reply on idem#1: the documents never say how a multi-transaction command both replays and resumes from `merging`.",
+   "evidence": "architecture.md, Idempotency and retries: 'If the caller gives none, the engine derives sha256(actor \u2016 command \u2016 canonical(args) \u2016 base)' and 'A command that writes several events (a regroup, a scan, ...) keys them idem#1 ... and stores the whole reply on the first'. Actors: scans are `system:<part>` writes that need no actor or base. The hand-off loop: 'A process that dies mid-merge leaves the merging step, and a retry resumes from it'. feature_list.json:201 and :203 both run 'planroom scan --json' with no arguments, the S4 rescans after the hand-off merge and after the teammates merges. Only snapshot inserts are keyed by commit, not the scan event's idem. DR-8's amendment does not cover this."
+  },
+  {
+   "id": "correctness-2",
+   "verdict": "upheld",
+   "reason": "SQLite's data_version does not change for commits made on the same connection. No document says that serve or watch polls on a connection separate from the one it writes on, or that serve applies its own commits to its in-memory fold. rust-stack.md mentions read-only Connections only as an option, next to a single owned writer Connection. Built the naive way, S8 live updates and serve's read-your-writes fail.",
+   "evidence": "architecture.md:440 'serve checks data_version before serving from its in-memory fold'; architecture.md:1177 'The stream polls PRAGMA data_version every 200 ms'; research/rust-stack.md:197 'one owned Connection on a dedicated thread ... A readers pool is optional'. No text separates the poll connection from the write connection, and none feeds a process's own commit into its live loop."
+  },
+  {
+   "id": "correctness-3",
+   "verdict": "upheld",
+   "reason": "The link snapshot is described only as 'the one built from those'. Its key reuses the per-repo UNIQUE key, which has no defined repo or commit for a workspace link, and the Scan event names only a repo snapshot. The documents don't say whether linking runs inside the committing IMMEDIATE transaction or under a shared lease, while rescans take per-repo leases. DR-44's recompute covers the reconcile outcome, not the link.",
+   "evidence": "architecture.md:363 'The workspace link snapshot is the one built from those'; schema 'UNIQUE (repo, commit_id, purpose, packs_hash)' with purpose 'link'; Hints and linkers: 'rebuilt whenever any repo's snapshot changes'; Duties: leases such as 'scan:orders' per repo; contracts.md:440 'Scan { repo, commit, branch, snapshot, stats, reconcile }' has no link reference; The reconciler: 'If another scan committed an outcome in between, the scan recomputes'."
+  },
+  {
+   "id": "correctness-4",
+   "verdict": "upheld",
+   "reason": "None of the documents under review mentions cycles. The compare-and-set is per field, and the fold's 'attach parents' has no cycle check. Two concurrent regroups on different targets, or a single move of a node under its own descendant, can create a parent cycle. Roll-up's lift to 'the nearest ancestor' would then never terminate, which breaks every read.",
+   "evidence": "A grep for cycle, acyclic and descendant across architecture.md, contracts.md and decisions.md finds no cycle handling. architecture.md:318 'One parent per node. A regroup is a set parent edit'; :320 'lifted to the nearest ancestor of each end'; :364 'attach parents'; Conflicts: 'A write conflicts when a field it sets has rev > base'."
+  },
+  {
+   "id": "correctness-5",
+   "verdict": "upheld",
+   "reason": "rev is the seq of the last applied event that set a field. Once an edit is undone it no longer applies, so rev falls back to the earlier revision. A write whose base was read before the undo then passes the compare-and-set and silently overwrites the undo, which R10 forbids. `edit undo EVENT` takes one event, but the Edit undo class is also assigned to leaves that write several events (`intent propose`, `decide --run`, `curate`, `import`), and the regroup writes idem#1..#n. The documents don't define undo per command or what happens to a parent that no longer resolves.",
+   "evidence": "architecture.md:376 'rev(target, field) is the seq of the last applied event that set it'; :365 'undone and rejected edits are skipped'; :1120 'Edit | edit undo EVENT reverses it | edit, intent new, intent next, intent propose, ..., decide --run, curate, import'; :436 'keys them idem#1, idem#2'; contracts.md:436 'Undo { of: EventId }'. KICKOFF R10: 'User-authored state is never last-writer-wins'."
+  },
+  {
+   "id": "correctness-6",
+   "verdict": "upheld",
+   "reason": "The incremental rule refolds only the affected repo's subtree on a scan. The documents never say how a link snapshot change (cross-repo edges, containers that sit under the workspace) or an undo or review of an event before the cached seq is handled. The only equality test runs in S8, whose steps have no scans or undos.",
+   "evidence": "architecture.md:372 'serve and watch keep (Model, seq) and apply only events after seq; a scan event refolds only the affected repo's subtree'; :1348 the S8 harness steps (writes, retries, a claim, renames; no scan or undo) with 'incremental_fold_equals_full_fold checks serve's fold'; feature_list.json:433 and :453 place that test only in S8; DR-2 (decisions.md:132, :139)."
+  },
+  {
+   "id": "correctness-7",
+   "verdict": "upheld",
+   "reason": "The import sets client to `artifact:<uid>`, so all of a viewer's devices and tabs form one writer instance. 'A writer instance never conflicts with its own later writes' then makes their edits to the same field last-writer-wins, which goes against R10 ('canvas tabs on several devices ... never last-writer-wins') and the rule that two tabs of one person conflict. InboxRow does carry a per-viewer counter (`seq`), but the documents never say that import orders rows by it, and they don't say whether the counter is per device.",
+   "evidence": "contracts.md:871 'the client is artifact:<uid>; idem is artifact:<uid>:<docId>'; contracts.md InboxRow 'pub seq: u64, // the viewer's own counter' with no import ordering stated; architecture.md Conflicts: 'So two tabs of one person conflict like two people ... A writer instance never conflicts with its own later writes'; Remote mode step 5 names no order; KICKOFF.md:89 (R10)."
+  },
+  {
+   "id": "correctness-8",
+   "verdict": "upheld",
+   "reason": "Under 'debounced to one write per 5 s', most writers are one-shot CLI processes and none is left running to flush a skipped write. The last person edits in a burst stay only in store.db until another person commit lands. That breaks 'Nothing a person authored lives only in store.db' and is a data-loss risk, the case feature_list's own git clean -xfd restore test checks. No lock or high-water mark is given for concurrent appenders. `doctor` warning about a stale backup detects the gap but does not prevent it.",
+   "evidence": "architecture.md:486 'Nothing a person authored lives only in store.db [DR-53]. After each person-authored commit, debounced to one write per 5 s, the engine appends the new events'; decisions.md:970 (same); feature_list.json:1331 'git clean -xfd; planroom scan --json deals one restore card ... brings every edit back'."
+  },
+  {
+   "id": "correctness-9",
+   "verdict": "upheld",
+   "reason": "The finding is real and already rated minor. redis and orders-db have the workspace, a System-level node, as their parent, so lifting to System sends orders\u2192redis to orders-repo\u2192workspace, an edge to the repo's own ancestor. The internal-count rule covers only edges inside one ancestor. The count invariant still holds, so the effect is confined to how the top-level map reads.",
+   "evidence": "architecture.md:314 'the workspace and repos sit at System'; :670 'Services with no repo (redis, orders-db) sit under the workspace'; :320 'lifted to the nearest ancestor of each end at or above level'; :322 'Edges inside one ancestor become that ancestor's internal count'."
+  },
+  {
+   "id": "correctness-10",
+   "verdict": "upheld",
+   "reason": "The finding is real and stays minor. handoff merge does not itself rescan at the recorded merge commits, so if a teammate's commit lands before the next scan, the window holds both units and the regression rule ('held at the previous reconciled snapshot') can't fire. The acceptance CI path puts an explicit scan in between, so S4 as specified still passes.",
+   "evidence": "architecture.md, The reconciler, rule 1: 'breaks an intended rule that held at the previous reconciled snapshot'; the hand-off loop: 'merged --> reconciled: rescan, then reconcile', which the merge command's description does not include; feature_list.json:201 has an explicit 'planroom scan --json' after the merge."
+  },
+  {
+   "id": "correctness-11",
+   "verdict": "upheld",
+   "reason": "The finding is real and stays minor. The design covers a preflight failure and a crash during the merge, but not a real merge that conflicts after the preflight passed. It also never checks that HEAD is on the spec's base branch. The S4 fixture path is unaffected.",
+   "evidence": "architecture.md:1087 'A preflight failure leaves every repo as it was ... A process that dies mid-merge leaves the merging step'. There is no abort rule for a merge failure after the preflight and no check of the base branch. The listed tests cover only the preflight and crash cases (decisions.md:505, :1028)."
+  },
+  {
+   "id": "correctness-12",
+   "verdict": "upheld",
+   "reason": "The finding is real and stays minor. The presence table's primary key is actor alone, so one person's mod session and canvas tab overwrite each other's row. A watch killed on reload keeps its leases until the 30 s expiry, and nothing releases or takes over a lease whose holder is dead.",
+   "evidence": "architecture.md:471 'presence (actor TEXT PRIMARY KEY, surface ...)'; :444 rows written by 'each watch ..., each SSE client'; :155 watch 'dies on reload or session end by design'; :164 'a row in leases with a 30 s expiry ... A command that finds the lease held waits up to 5 s'; research/mod-api.md:370 'process.spawn children die on reload'."
+  }
+ ]
+}

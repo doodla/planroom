@@ -1,0 +1,42 @@
+# Architecture review round 2: owner decisions
+
+Round 2 ran the same nine lenses with fresh reviewers and refuters on the documents as fixed after round 1. The principles refuter returned a broken verdict list, so it was run again alone (`principles-refuter.json`). These decisions cover the cross-cutting questions. Where no decision below overrides it, apply each upheld material finding's own proposed fix, adapted to fit the rest of the design. Apply minor and downgraded findings when the fix is small and clearly right; list the rest in `known-gaps.md` here with a one-line reason each.
+
+## Store, writes and live updates
+
+- **E1. Idempotency keys** (correctness-1). Derive a key only for writes that carry a base, where the base pins the intent. Every other command mints a fresh key per invocation (uuid v7); the mod, canvas and Artifact page mint one per user action. Scans key on `(repo, commit, packs_hash, previous active snapshot)`, so a move back to an earlier head still records a new scan. Commands that commit in several steps (`handoff merge`, `handoff revert`) follow a step protocol: a retry with the same key resumes from the last committed step, a replay happens only after a terminal step, and a running detached duty is joined, never run twice.
+- **E2. Live updates see every commit** (correctness-2). Poll `data_version` on a dedicated read-only connection that never writes, and after each `store::commit` notify the process's own live loop directly. `serve` applies its own committed `seq` to its fold before it replies.
+- **E3. One link snapshot per active set** (correctness-3). Build the workspace link snapshot inside the committing transaction from the then-active per-repo snapshots' stored hints, key it by the sha256 of the sorted member snapshot IDs and `packs_hash`, and record its ID on the scan event and in the reconcile outcome.
+- **E4. Tree and undo integrity** (correctness-4 to correctness-7). `store::commit` refuses a parent change that would make a cycle, and the fold breaks any cycle deterministically (the higher `seq` loses and is listed in Diffs). An undo is a write: compare-and-set checked, recorded in revisions, and per command (it reverses every event the command wrote). A scan, or an undo or review of an event older than the cached `seq`, refolds from scratch; subtree refolds stay out of v0.1. An Artifact page mints an instance ID per load and a counter per row, and import applies rows in counter order.
+- **E5. Backups are written through, not debounced** (operability-3, correctness-8, unasked-1). Every person-authored commit appends its events to the backup under a lock, fsyncs, and advances a high-water `seq` kept in the store; any later process catches up a gap. On an ephemeral host (`CLAUDE_CODE_REMOTE`, Codespaces, dev containers) the backup is also written as a git ref outside the working tree, and the status line says once that the environment is temporary and where the backup is. Restore takes a pre-restore copy first and keeps the events made since the backup as a replay set (unasked-5).
+
+## Packs and decisions
+
+- **E6. The pack set is workspace state** (extensibility-1). Packs come only from the trusted workspace config. `PLANROOM_PACKS` is limited to `planroom doctor --pack`. A person adds or removes an out-of-tree pack with `planroom pack add DIR` or `pack remove`, which are person-only (a press or a `/dev/tty` confirmation) and write the config. The store records the resolved pack list and its hash; a process whose set differs refuses writes with `packs_mismatch`. S10's CI path adds its packs through `pack add` from a directory outside the tree.
+- **E7. Decision kinds can express v0.1's kinds as data** (extensibility-2): `options_from` gives a choice its candidates from a query, typed role subjects, `when` predicates over props that built-in extractors precompute, and a `retarget` effect. A test checks that every v0.1 kind validates against the contract.
+
+## Surfaces
+
+- **E8. The owner's phone works without a second desk confirmation** (ux-1, security-3, principles-8). The pane or the local canvas shows a short pairing code once. The page keeps it in its own storage and signs each inbox row with an HMAC keyed from it. Import checks the signature against a hash kept with the person key, so paired owner rows apply directly as `person:artifact:<uid>`. Unpaired rows join the one confirming card. The mod hands import the rows it fetched itself, never an on-disk folder another process could write.
+- **E9. The canvas edits by hand** (ux-2): a selection action tray (rename, group with, hide, pin) that runs catalogue `edit` leaves; on desktop, dropping a block on another's lid regroups and a drag on felt pins; drawing chalk from block to block makes an intended relation whose popover offers Forbid; on the phone, a long press opens the tray and drag needs the tray's Move. Add this to `design-language.md` and `architecture.md`.
+- **E10. A reload keeps its login and its pending edits** (ux-3, principles-4): the bearer token lives in `sessionStorage` (scoped by origin and port); `serve` prefers a stable port per workspace recorded in `serve.json`; pending edits live in `localStorage` keyed by workspace and are flushed by any signed-in tab with their original keys.
+
+## Operations and repo gates
+
+- **E11. Branch model** (operability-1): `main` is the default and integration branch, as in Iris. Between releases `main` carries `X.Y.Z-dev`; the resolver treats a `-dev` version as having no release asset and goes straight to the source-build preflight. Releases are tagged on a green `main`.
+- **E12. Portable detach** (operability-2): the engine daemonizes itself in Rust (fork and `setsid` through `libc`), and the resolver launches it with stdio closed, so nothing depends on `setsid(1)`, which macOS lacks. Test it on macOS in the installer job.
+- **E13. The resolver's environment is a contract** (operability-4): `PLANROOM_RELEASE_BASE_URL` (https, or http only to loopback) and `PLANROOM_RESOLVE=release|checkout|auto`, reported by `status --json`, and used by S14's evidence steps.
+- **E14. Gates that hold** (repo-1 to repo-3): the per-commit check covers only the commits a push or PR adds, plus a history-independent state check; the first lock is written with a new record. The gated surfaces add the area contracts table, the Boundaries section of `AGENTS.md` and each package's dependencies. The domain-free scan also covers `crates/contract/src`, with a self-test plant.
+
+## Security and cost
+
+- **E15. Agents never hold the person's authority** (security-1, security-2, security-4 to security-7, unasked-6):
+  - The mod passes a one-time action token, an HMAC of the command, key and base under the person key, never the raw key, and the guard denies reads of the mod's store file.
+  - The implementer works in separate local clones under the data root, not linked worktrees; `handoff collect` fetches only its `HEAD` into `planroom/KEY` in the real repo.
+  - The login code never appears in an argv: `open` writes a 0600 redirect file in the data root and opens that.
+  - Redaction is on by default on every output path; only the truth comparator opts out, with a flag the guard denies to agents.
+  - Git runs with `--no-ext-diff --no-textconv`; before a checkout or merge, a repo whose local config defines a filter, diff command, merge driver or similar is refused with one card; the minimum git is 2.35.2.
+  - One display-sanitizing pass escapes control, bidi and zero-width characters in every human-facing text.
+  - `handoff start` is the person's one approval of the spec's bounded command list; the implementer's matching Bash calls inside its clone are allowed, and anything else becomes one batched card per hand-off.
+- **E16. Cost gates that can fail** (cost-1 to cost-5): the spend log's path is absolute, resolved through `git rev-parse --git-common-dir`, and locked across sum, check and append; S2's Claude budgets get a CI proxy and a live comparison; S7 runs with the per-scan guard above the bound and asserts zero budget deferrals; Jev's cache key uses path and line content, not line numbers.
+- **E17. Everyday git moves** (unasked-2): each repo has a tracked branch recorded at first scan; reconciliation follows only fast-forward moves of it; any other head move re-anchors the map, skips the reconciler, deals no card, and adds one line to `focus`.

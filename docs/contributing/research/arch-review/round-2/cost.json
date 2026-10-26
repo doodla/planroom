@@ -1,0 +1,157 @@
+{
+ "key": "cost",
+ "findings": [
+  {
+   "id": "cost-1",
+   "title": "The $3 spend guard is a relative path, so it can be bypassed and lose records",
+   "severity": "material",
+   "claim": "`PLANROOM_SPEND_LOG=docs/evidence/spend.jsonl` is a relative path. The engine resolves it against its own working directory, and every parallel worktree holds its own copy of the file. So the check \"sum the file before each live call and refuse past $2.75\" reads a partial total or an empty one. Live calls made from a fixture directory, a nested plugin session or a track worktree either go uncounted or land in a temporary file that is then deleted. The $3 build cap is not actually enforced, and the final report's spend figures come out incomplete.",
+   "evidence": "architecture.md \"Spend guards\": \"`cargo xtask` and `.claude/settings.json` set `PLANROOM_SPEND_LOG=docs/evidence/spend.jsonl`... sums the file before each live call\". repo-layout.md:213: \"Every command sets ... `PLANROOM_SPEND_LOG=docs/evidence/spend.jsonl`\". Nothing anywhere makes the path absolute or shares it across worktrees. Evidence runs drive the engine inside the fixture: feature_list S02 evidence is \"a live Claude Code session with the plugin installed asks the five questions\", and the plugin engine runs with its cwd in the fixture workspace. KICKOFF `<process>` 5: \"Build independent tracks in parallel worktrees\". KICKOFF `<constraints>` Spend: \"Live Jev, gateway and `sample` calls ... stay under $3 in total during the build.\" Definition of done: report \"Iris and Jev spend\". Nothing covers two processes appending and summing at the same time either, for example two `live eval KIND` runs.",
+   "failure_scenario": "Track A records S03 on the gateway from its worktree and appends $0.45 to its own copy of the file. Track B, in another worktree, re-records S03 twice and S06, and its own copy shows about $0.10. Meanwhile `cargo xtask live evidence S02` starts a nested session whose engine runs in /tmp/fixture, so it writes /tmp/fixture/docs/evidence/spend.jsonl with a starting sum of $0, and that file is deleted with the fixture. Every guard passes. The merged spend.jsonl undercounts real spend, and the cap could be passed without any guard firing.",
+   "proposed_fix": "Have xtask export an absolute path to the main checkout's file, resolved through `git rev-parse --git-common-dir`, so every worktree shares one file. Make the engine refuse a relative `PLANROOM_SPEND_LOG` with a stable error. Hold an flock across sum-check-append so concurrent callers serialize. Have `cargo xtask live` pass the absolute variable into nested sessions explicitly, and assert after each evidence run that the session's calls reached the file. Add `the_spend_log_is_shared_across_worktrees_and_cwds` to `live_gate.rs`."
+  },
+  {
+   "id": "cost-2",
+   "title": "The S2 Claude-token budgets are recorded but never regression-tested",
+   "severity": "material",
+   "claim": "S7 requires the Claude tokens and cache-hit rate of each S2 question to be committed as budgets, with a regression test that fails on more than 20% growth. In the design the engine makes no Claude call for S2. The only S2 Claude numbers are the chat-model usage stored under `budgets.json` `recorded`, and that section is explicitly excluded from CI gating. No re-measuring command compares against it either. On-demand skill bodies (`room`, `room-plan`), which every S2 or S3 agent session loads, have no budget at all.",
+   "evidence": "contracts.md:904: \"CI gates every number outside `recorded`; `recorded` changes only with the command it names\". architecture.md \"Token budgets (S7)\": \"Its `recorded` section holds numbers CI can't measure ... the S02 evidence run's chat usage per question\". DR-51: \"`budgets.json` `recorded` holds what only evidence runs measure: S02 chat usage\". KICKOFF S7 (tier A): \"For each S2 question and the S3 plan, record ... the Claude tokens with their cache-hit rate. Commit those as budgets. A regression test fails if any of them grows by more than 20%.\" The surface gate covers frontmatter only (\"skills' and agents' frontmatter\"), not skill bodies.",
+   "failure_scenario": "A later change doubles the `room` skill body and makes `ask path` return a page that leads the agent into three follow-up `show` calls. S02 chat prompt tokens grow by 60%. CI stays green, because `recorded` isn't gated and the per-envelope budgets still hold. Re-running `cargo xtask live evidence S02` simply overwrites `recorded`. S7's regression clause was never tested for S2.",
+   "proposed_fix": "(a) Make `cargo xtask live evidence S02` compare each question's chat prompt, output and hit rate against `recorded`. It should fail, and refuse to write, on more than 20% growth or a hit-rate drop over 0.1, unless a decision record is added (reuse DR-59's check). (b) Add a deterministic CI proxy to `budgets.rs`: per S2 question, the projected chat input is the always-on surface plus the bodies of the skills it loads plus the sum of the tool-result tokens along the scripted tool path, gated at 20%. Give each skill body a size budget in `surface_tokens.sh`."
+  },
+  {
+   "id": "cost-3",
+   "title": "S7's \"under $0.001 on Jev\" can't fail, because the guard equals the bound",
+   "severity": "material",
+   "claim": "The default `jev_per_scan_usd` is 0.001, and a request past the guard is quietly deferred as pending. The S7 assertion is \"Jev cost over the rescan under 0.001\", so the guard makes it true by construction. A broken cache key, a missing cache or a slice regression would turn into deferred decisions rather than a failing test. \"Per scan\" is also undefined for `decide --run` and for the `decide` duty, so leftover requests from the cold scan can be drained during the routine rescan.",
+   "evidence": "contracts.md:892: `[budget] jev_per_scan_usd` default `0.001`. architecture.md \"Spend guards\": \"A decision past a limit keeps its kind's default and stays pending\". feature_list S7 asserts: \"sum of meta.models.jev.cost_usd over the rescan is under 0.001\". Decision kinds also carry `budget = { max_calls_per_scan = 20 }`. Nothing says whether a duty run or `decide --run` counts as a scan. jev.md \u00a74: the $0.001 target is comfortable \"*if* the cache works and requests are grouped per item\". KICKOFF `<acceptance_scenarios>`: \"Never weaken or delete a scenario, test or entry any other way.\"",
+   "failure_scenario": "A refactor adds `seq` to the slice serialization, so every input hash changes on every scan. On the routine rescan about 180 requests miss the cache. The guard lets about 50 through at about $0.00095, defers the rest as pending, and S7 goes green. In real use the map stops updating as decisions pile up pending. Separately, a cold-scan `decide --run` capped at 20 calls per kind leaves requests pending on main. The rescan then spends Jev on old leftovers instead of the commit, and can deal leftover person-stakes cards.",
+   "proposed_fix": "Run the S7 test with the per-scan guard raised well above the bound, for example $0.01, so the $0.001 assertion measures real spend. Also assert zero `budget_exceeded` or deferred-by-budget requests and zero pending requests after the rescan, and assert Jev cache misses at or below the requests derived from the touched file (0 on this fixture). Define the budget scope precisely: per `scan` event and per duty run. Also assert that `decide --run` on main drains completely before the head moves."
+  },
+  {
+   "id": "cost-4",
+   "title": "Token sizing assumes 4 bytes per token, but Planroom's JSON measures about 2.2",
+   "severity": "material",
+   "claim": "Every agent-facing budget is set and checked in `tokens_est = ceil(bytes/4)` units. The design also sized the always-on tool surface at 4 bytes per token. Measured with the gateway's free `count_tokens`, a contract envelope runs about 2.2 bytes per token, so real tokens are about 1.8 times the estimate. The \"1,500-token\" summary budget is therefore about 2,700 real tokens. The flat tool design, sized at bytes/4 to fit the 900-token tools budget, is likely to exceed that budget once the measured ratio is applied, and that gate is part of tier A S15's CI path.",
+   "evidence": "I measured this live. The success envelope from contracts.md:122-130 (701 bytes, compact JSON) counts 327 input tokens on `anthropic/claude-haiku-5.5` through `/v1/messages/count_tokens`, against 9 for a one-character message: about 318 tokens of content, so 2.2 bytes per token, while `tokens_est` would say 176. The spike's filler (38,289 bytes) counts 14,417 tokens, 2.66 bytes per token. architecture.md \"Token budgets\": \"typed `oneOf` unions ... about 5 KB, about 1,300 tokens\", which is bytes/4 sizing, while the gate in the same section projects \"`ceil(bytes / 4)` times the real-token ratio\". The flat design is justified only as \"about 900 characters\" of descriptions, with no total byte count. S15's CI path runs `surface_tokens.sh` (tools 900). Principle 2: \"every agent-facing output has a size budget\".",
+   "failure_scenario": "Two non-deferred flat tools come to about 900 bytes of synopsis lines, plus command enums, `args`, `base` and `idem` schemas and purpose text, about 2,200 bytes in all. That projects to about 1,000 real tokens, so the tools gate fails late in M5 and blocks S15. Separately, S2 and S3 tool-output budgets in `budgets.json` are reported as \"tokens an agent consumes\" while understating the real number by about 1.8 times.",
+   "proposed_fix": "Measure the ratio now, in WS8 or the walking skeleton, over real tool specs, envelopes and prose. Size every design budget in real tokens, which means 900 real tokens is about 2,000 bytes for both tools. Either express `meta.size` and `Command::budget()` in real tokens (`tokens_est = ceil(bytes / measured_bytes_per_token)`, with the ratio pinned in `budgets.json` and re-measured by a named command) or rename the unit to bytes. Re-derive the flat-tool estimate in bytes against 2,000, and trim synopsis lines before M1 ends."
+  },
+  {
+   "id": "cost-5",
+   "title": "Line numbers in Jev's cache key make ordinary commits miss the cache and re-ask decided items",
+   "severity": "material",
+   "claim": "The decision input hash serializes each piece of evidence's `line`. An ordinary commit that adds or removes lines above existing evidence changes the line of every item below it. That changes the input hash of every decision whose slice cites that file, including neighbor slices. The result is cache misses, new Jev spend with \u00b10.05 drift that can flip prefills, and person-stakes cards dealt again for subjects a person already picked. S7 passes only because the fixture's routine commit edits a constant in place.",
+   "evidence": "architecture.md \"Cache, records and overrides\": \"A slice serializes only its declared `fields` plus evidence `path`, `line` and `contains` ... So a commit that doesn't touch a subject leaves its input hash unchanged.\" The \"Decisions\" section: requests are \"subjects ... with no `decision` event for their current input hash ... asked again only when its inputs change.\" TRUTH.scenarios.S7: the commit is `export const PAGE_SIZE = 24;` at line 17, a one-line value change. R9: \"Keeping the map and plan current must be nearly free, or it rots.\" Principle 1: \"Interrupt a person only for decisions only they can make\". jev.md \u00a75.6: answers drift between identical calls.",
+   "failure_scenario": "A person picks `override_retarget` for an orphaned override whose evidence is in `orders/internal/http/middleware.go`. A later commit adds an import line at the top of that file. Every evidence line below shifts by one, the hash changes, the request is derived again, and the same card comes back. Low-stakes prefills over edges citing that file re-run Jev, and one flips from kept to doubted. On a busy repo, every rescan re-asks dozens of subjects.",
+   "proposed_fix": "Key the slice on `path` plus `contains` (with an occurrence index, or a hash of a few lines of context) and leave out `line`. Make line numbers display-only. Carry a person's pick forward when only evidence positions moved. Add `s07_decisions.rs::a_line_shift_above_evidence_hits_the_cache`, using a fixture commit that inserts a line above existing evidence."
+  },
+  {
+   "id": "cost-6",
+   "title": "`sample` spend is neither guarded nor written to the spend log",
+   "severity": "minor",
+   "claim": "KICKOFF names `sample` inside the $3. The page makes `sample` calls directly, so the engine's check before each call can't see them. Afterwards they are only priced into the user-level ledger on import, from character counts. Nothing appends them to `docs/evidence/spend.jsonl`, yet the design says the final report reads `sample` spend from that file.",
+   "evidence": "architecture.md \"Spend guards\": \"The page logs each `sample` call's prompt and response sizes in its `inbox/<uid>` document, and import prices them\" (into the ledger), and \"the engine appends every live call there ... the final report reads Jev, gateway and `sample` spend from it.\" contracts.md:835 logs `{at, prompt_chars, response_chars}` with no model or tier. KICKOFF Spend: \"Live Jev, gateway and `sample` calls ... stay under $3\".",
+   "failure_scenario": "In the S11 evidence run and Playwright-on-real-page checks, a few Ask Claude taps happen. The final report shows a $0.00 `sample` line, because spend.jsonl never received those calls, even though real usage was spent.",
+   "proposed_fix": "When `PLANROOM_SPEND_LOG` is set, `import` appends each logged `sample` call to it with `provider = sample`, the tier the page reports (`modelTierApplied`/`modelApplied`) and a priced cost. The page logs that applied model. The live plan gets an S11 `sample` row. Ask Claude stays disabled on the page during live evidence unless the remaining spend-log balance, published in `live/head`, covers it."
+  },
+  {
+   "id": "cost-7",
+   "title": "A prefix that silently isn't cached goes undetected, and curation caches prefixes it never reuses",
+   "severity": "minor",
+   "claim": "The only cache alarm is `cache_regression`, a write on an unchanged prefix. A marked prefix that is never cached at all (below the model's minimum, which the research says is undocumented and fails silently) shows write 0 and read 0, and no gate outside S3's hit-rate floor catches it. Curation puts each draft's target file in the cached prefix with a 1-hour TTL. Each prefix is used once, so it pays the write premium (2 times input on a 1-hour write) and is never read. Re-recording within the TTL can also replay a warm first call and inflate the baseline.",
+   "evidence": "claude-gateway.md \u00a74: \"A prefix below the minimum fails **silently** (`cache_creation_input_tokens: 0`)\", and the minimum is 512 per [S] against 1024 per [D]. architecture.md: \"a cheap-tier Claude call refines each draft with the target file in its cached prefix\"; \"Person-paced prompts (plan, curate) declare `ttl = \\\"1h\\\"`\". repo-layout `prompts/*.md` says \"each at least 1,024 tokens\" without saying how that is measured. Principle 2: \"Claude calls keep a stable, cached prefix.\"",
+   "failure_scenario": "The S06 `infer` or segmentation prefix comes in at about 900 real tokens. It never caches, and CI passes because no `cache_regression` fires. Each curation call writes a 1-hour cache for `worker/CLAUDE.md` that nothing reads. A re-record started within an hour of the last one shows a high first-stage hit rate, and a later cold re-record then fails the drop-over-0.1 gate.",
+   "proposed_fix": "Add a `cache_not_applied` warning, gated in `budgets.rs`, when a marked prefix reports write 0 and read 0. Measure each `prompts/*.md` prefix with `count_tokens` at record time and require at least 1,200 real tokens or `uncached`. Put the curation target file in the tail, after the shared pack prefix, and use the 5-minute TTL for curate. Have `xtask live record` start cold, for example by waiting out the TTL or checking that the first call wrote, before saving a baseline."
+  },
+  {
+   "id": "cost-8",
+   "title": "One $1 daily cap mixes notional session and agent usage with real gateway dollars",
+   "severity": "minor",
+   "claim": "`claude_per_day_usd = 1.00` covers gateway spend, which is real money, together with session-backend and spawned-agent usage priced from a table, which is notional on a subscription. One implementer run (Sonnet, effort high) can use up the day's $1 and then block gateway Claude calls for the rest of the day. The design never says whether the cap also blocks `$.agent.spawn`, which S9's live hand-off depends on.",
+   "evidence": "contracts.md:893: \"covers gateway, session and spawned agents' usage across every workspace\". architecture.md: the implementer is `model: sonnet`, `effort: high`, and the mod \"sums their usage into the ledger\". \"A model-only command past a limit returns `budget_exceeded`\" defines nothing for agent spawns.",
+   "failure_scenario": "A person runs one hand-off ($0.80 notional) and curation refinement ($0.15), then asks the canvas for `intent next`. The gateway call returns `budget_exceeded` although they have spent only cents of real gateway money. Or, if spawns are capped, the second hand-off of the day is refused with no clear rule.",
+   "proposed_fix": "Keep separate caps for gateway or TypeSafe dollars and for notional session and agent usage, or report agent usage without gating it. State and test whether a spawn is ever refused by a cap (`agents.test.ts::spawn_respects_or_ignores_cap`)."
+  },
+  {
+   "id": "cost-9",
+   "title": "Cost disclosures disagree with each other and with the cap",
+   "severity": "minor",
+   "claim": "The Jev consent card says \"About $0.001 per scan\". The Jev setup card says \"180 small choices, about $0.002 a scan\", which is twice the default per-scan cap, so that scan can't decide all 180 anyway. The session card says \"About 3,000 tokens per plan stage\", while the live plan's own numbers come to about 4,500 or more per stage.",
+   "evidence": "architecture.md \"What leaves the machine\": \"About $0.001 per scan\". \"When no model is reachable\": \"Let Jev pre-decide 180 small choices, about $0.002 a scan?\". contracts.md: `jev_per_scan_usd` 0.001. The Claude section: \"About 3,000 tokens per plan stage\". The live spend plan: \"about 1.5k tail and 2k output each\" plus a prefix of at least 1,024. Principle 1: decisions \"explained in one line\".",
+   "failure_scenario": "A person accepts on the strength of \"$0.002 a scan\". Their first scan then decides about 50 of 180 items and leaves the rest pending, which contradicts the card. The session-backend card understates usage by about 1.5 times.",
+   "proposed_fix": "Have the engine fill every cost figure in card copy from the same estimator the live plan uses (request count \u00d7 measured per-request cost, capped by `jev_per_scan_usd`), with a snapshot test that the card text and the config agree."
+  },
+  {
+   "id": "cost-10",
+   "title": "The 1-hour cache for plan stages doesn't apply on the session backend, the default for most users",
+   "severity": "minor",
+   "claim": "Plan stages are person-paced and declare a 1-hour TTL, but the session backend's `cache: true` is always 5 minutes. Most plugin users run on the session backend. When stages are more than 5 minutes apart, each one rewrites the prefix, and the S3 session-backend evidence can't meet the 0.6 prefix-read floor that A-9 says \"applies to it\".",
+   "evidence": "architecture.md: \"Person-paced prompts (plan, curate) declare `ttl = \\\"1h\\\"` ... The session backend's `cache: true` is always 5 minutes [mod-api \u00a76].\" A-9: \"the budget test's hit-rate floor applies to it\". DR-18: \"most plugin users won't set `AI_GATEWAY_API_KEY`\". feature_list S3 evidence: \"once with the session backend\".",
+   "failure_scenario": "In the S3 session-backend evidence run, the person reviews each stage's ghosts for about 6 minutes. Every stage writes the prefix again, the recorded hit rate is about 0, and either the evidence contradicts the claimed floor or the floor is quietly limited to the gateway.",
+   "proposed_fix": "Scope the 0.6 floor to the gateway backend, and record the session backend's hit rate separately as evidence. Or, for the session backend, batch the stage calls of one `intent next --all` within 5 minutes. Say in the consent card or the docs that session caching lasts 5 minutes."
+  }
+ ],
+ "verdicts": [
+  {
+   "id": "cost-1",
+   "verdict": "upheld",
+   "reason": "The spend log is set only as a relative path. Nothing anchors it to the main checkout, shares it across worktrees, passes it into nested sessions or locks it. KICKOFF requires parallel worktrees, so each track sums its own committed copy of the file. A nested evidence session running in a fixture directory either doesn't get this repo's `.claude/settings.json` at all or resolves the path against the fixture. Either way, live calls can go unlogged and the guard reads a partial total. The planned spend is about $1 against a $3 cap, so actually passing $3 is unlikely. But the design names this guard as how it enforces a hard KICKOFF constraint, and the definition of done needs complete spend figures. Since it's uncertain, I keep it material.",
+   "evidence": "architecture.md:932 \"`cargo xtask` and `.claude/settings.json` set `PLANROOM_SPEND_LOG=docs/evidence/spend.jsonl`... sums the file before each live call\"; repo-layout.md:213 and :30 say the same. Searching for worktree, absolute and lock in the docs finds nothing about the spend log; every worktree mention is about hand-off worktrees under DATA_ROOT. KICKOFF:359 \"Build independent tracks in parallel worktrees\"; KICKOFF:266 \"stay under $3 in total during the build\"; feature_list S02 evidence is a live plugin session; architecture.md:1343 says evidence runs append to spend.jsonl but doesn't say how a nested session's engine gets the variable."
+  },
+  {
+   "id": "cost-2",
+   "verdict": "upheld",
+   "reason": "The design defines the S2 Claude tokens as the chat model's usage and stores them in `recorded`, which CI explicitly doesn't gate. The command that re-measures them, `live evidence S02`, is never described as comparing against the old value. It only 'changes' it. The gated per-question `claude` block holds the engine's own replayed Claude calls, which are zero or near zero for S2, so that part of the gate tests nothing. Skill bodies have no budget; only frontmatter is gated. S7 is tier A and requires a regression test that fails on more than 20% growth of 'the Claude tokens with their cache-hit rate' for each S2 question, so this is material.",
+   "evidence": "contracts.md:904 \"CI gates every number outside `recorded`; `recorded` changes only with the command it names\"; architecture.md:920 \"Its `recorded` section holds numbers CI can't measure... the S02 evidence run's chat usage per question\"; decisions.md:924 likewise; architecture.md:923, the surface gate covers only \"the skills' and agents' frontmatter\"; KICKOFF:168."
+  },
+  {
+   "id": "cost-3",
+   "verdict": "upheld",
+   "reason": "The per-scan guard and the S7 bound are the same number, and a decision past the guard is deferred silently instead of failing. No assertion checks for zero pending or zero budget-deferred requests after the rescan. So `routine_rescan_jev_under_a_tenth_of_a_cent` holds by construction, apart from a strict-equality edge case. One mitigation exists. The example failure, adding `seq` to the slice, changes the request bodies, so strict replay would fail with `replay_missing`, because replay is keyed by sha256 of the body. Other regressions still pass silently, such as a cache lookup that is skipped or broken while the bodies stay the same, or cold-scan leftovers being drained during the rescan, because replay serves the recorded cost and the guard then defers. S7 is tier A, and a test that can't fail weakens it.",
+   "evidence": "contracts.md:892 `jev_per_scan_usd` default `0.001`; architecture.md:930 \"A decision past a limit keeps its kind's default and stays pending\"; feature_list S7 asserts \"sum of meta.models.jev.cost_usd over the rescan is under 0.001\". That assert list has no pending or deferred count. architecture.md:813 `max_calls_per_scan = 20`. Partial mitigation at architecture.md:867: replay is \"keyed by sha256(path \u2016 canonical body); a missing record fails with replay_missing\"."
+  },
+  {
+   "id": "cost-4",
+   "verdict": "downgraded",
+   "reason": "The ratio problem is real: tokens_est is bytes/4, and the 5 KB to 1,300 estimate is bytes/4 sizing. But the gate that matters already corrects for it. surface_tokens.sh projects `ceil(bytes/4)` times a real-token ratio measured with count_tokens over the same bytes, so S15's always-on gate measures real tokens rather than understating them. The 900 and 1,500 sub-budgets are the design's own numbers, not KICKOFF's. KICKOFF asks only that each output has some size budget and that S2/S3 numbers don't grow more than 20%, and a 20% relative gate doesn't depend on the unit. The worst case is that the flat-tool estimate comes out somewhat over the design's own 900. A measuring gate would catch that early, and trimming synopsis lines or adding a DR fixes it. That makes it a sizing risk, not a scenario failure or a constraint violation.",
+   "evidence": "architecture.md:923 \"It projects tokens as `ceil(bytes / 4)` times the real-token ratio... The ratio comes from `/v1/messages/count_tokens` over the same bytes\"; architecture.md:918 the ratio is \"measured once with `/v1/messages/count_tokens`\"; KICKOFF:44-45 \"every agent-facing output has a size budget\" names no number; KICKOFF:197-203, S15's text sets no token number."
+  },
+  {
+   "id": "cost-5",
+   "verdict": "upheld",
+   "reason": "The input hash includes evidence `line`. Requests are re-derived whenever no decision exists for the current hash, and nothing carries a decision forward when only positions moved. So an ordinary commit that inserts lines above evidence turns every affected subject into a cache miss. That re-runs Jev, with drift that can flip prefills, and re-deals person-stakes cards whose subject still matches `when`, for example an override kept detached. S7 passes only because the fixture commit edits a constant in place. This undercuts R9 ('nearly free, or it rots') and Principle 1 (interrupt a person only when needed). The design's claim that 'a commit that doesn't touch a subject leaves its input hash unchanged' is false for line shifts.",
+   "evidence": "architecture.md:900 \"A slice serializes only its declared `fields` plus evidence `path`, `line` and `contains`... So a commit that doesn't touch a subject leaves its input hash unchanged\"; architecture.md:787 \"A decision is asked again only when its inputs change\"; architecture.md:246 \"no decision recorded for their current input hash\". No doc describes carrying a pick forward when lines move."
+  },
+  {
+   "id": "cost-6",
+   "verdict": "upheld",
+   "reason": "Real, and minor as reported. `sample` calls are priced into the user ledger at import, but only the engine's live calls are appended to spend.jsonl. Yet the design says the final report reads `sample` spend from that file. The inbox log also has no model or tier.",
+   "evidence": "architecture.md:928 \"The page logs each `sample` call's prompt and response sizes in its `inbox/<uid>` document, and import prices them\" into the ledger; architecture.md:932 \"the engine appends every live call there... the final report reads Jev, gateway and `sample` spend from it\"; contracts.md:835 `sample: [{ at, prompt_chars, response_chars }]`."
+  },
+  {
+   "id": "cost-7",
+   "verdict": "upheld",
+   "reason": "Real, and minor as reported. The only cache alarm fires on a write within the TTL. A prefix below the undocumented minimum reports 0 write and 0 read, and nothing flags it outside the S3 floor. Curation puts the target file in the cached prefix, so each draft writes a 1-hour cache that nothing reads. The 1,024-token minimum is stated with no measurement method.",
+   "evidence": "architecture.md:869 \"A `cache_write > 0` on an unchanged prefix within the TTL is a `cache_regression` warning\"; architecture.md:1105 \"refines each draft with the target file in its cached prefix\"; architecture.md:870 \"Person-paced prompts (plan, curate) declare `ttl = \\\"1h\\\"`\"; claude-gateway.md:123 \"A prefix below the minimum fails **silently**\"."
+  },
+  {
+   "id": "cost-8",
+   "verdict": "upheld",
+   "reason": "Real, and minor as reported. One $1 daily cap covers real gateway dollars together with session and agent usage priced from a table. The spend guards define behavior past a limit only for decisions and model-only commands, not for `$.agent.spawn`.",
+   "evidence": "contracts.md:893 \"covers gateway, session and spawned agents' usage across every workspace\"; architecture.md:930 \"A decision past a limit keeps its kind's default... A model-only command past a limit returns `budget_exceeded`\"; architecture.md:1231 the implementer is sonnet, effort high, and the mod \"sums their usage into the ledger\"."
+  },
+  {
+   "id": "cost-9",
+   "verdict": "upheld",
+   "reason": "Real, and minor. The setup card's \"$0.002 a scan\" is twice the 0.001 per-scan default and contradicts the consent card's \"$0.001 per scan\". The session card's 3,000 tokens per stage is below the live plan's own figures of about 1.5k tail plus 2k output, before the prefix.",
+   "evidence": "architecture.md:880 \"About $0.001 per scan\"; architecture.md:958 \"about $0.002 a scan\"; contracts.md:892 `0.001`; architecture.md:873 \"About 3,000 tokens per plan stage\"; architecture.md live spend plan \"about 1.5k tail and 2k output each\"."
+  },
+  {
+   "id": "cost-10",
+   "verdict": "upheld",
+   "reason": "Real, and minor. The design itself says the session backend caches for 5 minutes only, yet A-9 says the 0.6 hit-rate floor applies to the session backend, and stages are person-paced. Person-paced stages more than 5 minutes apart would miss the cache in the session-backend S3 evidence run. The CI gate replays recordings, so this affects evidence consistency, not a CI failure.",
+   "evidence": "architecture.md:870 \"The session backend's `cache: true` is always 5 minutes [mod-api \u00a76]\"; architecture.md:1523 A-9 \"the budget test's hit-rate floor applies to it\"; feature_list S3 evidence \"once with the session backend ($.model.complete)\"."
+  }
+ ]
+}
