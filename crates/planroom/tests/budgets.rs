@@ -2,13 +2,23 @@
 //! 20 directories of 100 `.ts` files each (unasked-8). Over the budget it keeps the blocks that
 //! fit, sets `meta.truncated` with a `truncated` warning, and hands a drill-down that works today.
 //! The canvas's layout input, `--detail graph` over `serve`, takes the whole graph.
+//!
+//! Every other reply an agent reads keeps to its leaf's budget too, warnings included (DR-85):
+//! `scan` on a repo past the walk's 50,000-file bound, and every built leaf's `--json` reply on the
+//! fixture, each `schema --command LEAF` among them (correctness-17, drift-r2-1).
 
+use std::collections::BTreeSet;
+use std::io::Write;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use p256::ecdsa::signature::Signer;
+use p256::ecdsa::{Signature, SigningKey};
 use planroom_contract::{Command as Leaf, Detail, Level, MapReq};
-use planroom_testkit::git_repo;
-use serde_json::Value;
+use planroom_kernel::keys::person_token_message;
+use planroom_testkit::{fixture, git_repo};
+use serde_json::{Value, json};
 
 fn planroom(cwd: &Path, args: &[&str]) -> Value {
     let out = Command::new(env!("CARGO_BIN_EXE_planroom"))
@@ -118,4 +128,164 @@ fn scan_keeps_its_top_level_map_to_its_budget() {
     let kept = env["result"]["map"]["nodes"].as_array().unwrap().len() as u64;
     assert!(kept > 0 && kept < 201, "the first page is kept: {kept}");
     assert_eq!(warning["details"]["kept"], kept);
+}
+
+/// A leaf's catalogue budget, by its name.
+fn budget(name: &str) -> u64 {
+    let spec = Leaf::SPECS.iter().find(|s| s.name() == name).unwrap_or_else(|| panic!("no leaf {name}"));
+    u64::from(spec.budget_tokens)
+}
+
+/// `planroom ARGS --json` in `cwd` with `stdin` and the environment `env`; the one envelope.
+fn reply(cwd: &Path, args: &[&str], stdin: &str, env: &[(&str, &str)]) -> Value {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_planroom"));
+    cmd.args(args).arg("--json").current_dir(cwd).env("PLANROOM_DATA", cwd.join(".data"));
+    for name in ["PLANROOM_PERSON_TOKEN", "PLANROOM_ACTOR", "PLANROOM_CLIENT"] {
+        cmd.env_remove(name);
+    }
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(stdout.lines().count(), 1, "{args:?}: one JSON line: {stdout}");
+    serde_json::from_str(&stdout).unwrap()
+}
+
+/// One repo of 520 directories of 100 committed one-line files, 52,000 in all, written with
+/// `git fast-import` so the test needn't write them to disk: 2,000 files past the walk's bound.
+fn repo_past_the_file_bound(dir: &Path) {
+    std::fs::create_dir_all(dir).unwrap();
+    let git = |args: &[&str], stdin: &[u8]| {
+        let mut child = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(stdin).unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    };
+    let mut stream = String::from("blob\nmark :1\ndata 2\nx\n\n");
+    stream.push_str(
+        "commit refs/heads/main\ncommitter Test <test@example.com> 1767225600 +0000\ndata 5\ninit\n",
+    );
+    for d in 0..520 {
+        for f in 0..100 {
+            stream.push_str(&format!("M 100644 :1 d{d:03}/f{f:03}.txt\n"));
+        }
+    }
+    stream.push('\n');
+    git(&["init", "-q", "-b", "main"], b"");
+    git(&["fast-import", "--quiet"], stream.as_bytes());
+}
+
+#[test]
+fn a_scan_past_the_file_bound_keeps_its_reply_to_its_budget() {
+    let tmp = tempfile::tempdir().unwrap();
+    repo_past_the_file_bound(&tmp.path().join("app"));
+    let env = reply(tmp.path(), &["scan"], "", &[]);
+    assert_eq!(env["ok"], true, "{env}");
+    let meta = &env["meta"];
+    assert!(meta["size"]["tokens_est"].as_u64().unwrap() <= budget("scan"), "{meta}");
+    let warnings = meta["warnings"].as_array().unwrap();
+    let partial = warnings.iter().find(|w| w["code"] == "partial_scan").unwrap();
+    let details = &partial["details"];
+    assert_eq!(details["repo"], "app");
+    assert_eq!(details["count"], 2_000, "{details}");
+    // The first 10 uncovered paths, in sorted order.
+    let sample: Vec<String> = (0..10).map(|f| format!("d500/f{f:03}.txt")).collect();
+    assert_eq!(details["uncovered"], json!(sample));
+    assert!(partial["message"].as_str().unwrap().contains("2000 files"), "{partial}");
+}
+
+/// A test key pair from a fixed scalar, as `actor.rs` makes them.
+fn key() -> SigningKey {
+    let mut bytes = [0u8; 32];
+    bytes[0] = 1;
+    bytes[31] = 7;
+    SigningKey::from_slice(&bytes).unwrap()
+}
+
+fn b64url(bytes: &[u8]) -> String {
+    const ABC: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let n = chunk.iter().enumerate().fold(0u32, |acc, (i, b)| acc | (u32::from(*b) << (16 - 8 * i)));
+        for i in 0..=chunk.len() {
+            out.push(ABC[(n >> (18 - 6 * i) & 63) as usize] as char);
+        }
+    }
+    out
+}
+
+/// A person token over `person init` with no arguments, made now.
+fn person_init_token(key: &SigningKey) -> String {
+    let at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let sig: Signature = key.sign(&person_token_message("person init", &[], "", "", at));
+    format!("{at}.{}", b64url(&sig.to_bytes()))
+}
+
+/// One run: its arguments, its stdin and its environment.
+type Run = (Vec<String>, String, Vec<(String, String)>);
+
+/// Every built leaf with a budget, run on the scanned fixture as an agent or a person would: each
+/// `--json` reply keeps to its catalogue budget. Only the stream leaves, budget 0, are left out.
+#[test]
+fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("shop");
+    fixture(&root);
+    let mut runs: Vec<Run> = Vec::new();
+    let mut run = |args: &[&str], stdin: &str, env: &[(&str, &str)]| {
+        let owned = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect();
+        runs.push((args.iter().map(|a| (*a).to_owned()).collect(), stdin.to_owned(), owned(env)));
+    };
+    run(&["scan"], "", &[]);
+    for level in ["intent", "system", "container", "component", "code"] {
+        for detail in ["summary", "graph"] {
+            run(&["map", "--level", level, "--detail", detail], "", &[]);
+        }
+    }
+    run(&["map"], "", &[]);
+    run(&["focus"], "", &[]);
+    run(&["schema"], "", &[]);
+    run(&["schema", "--commands"], "", &[]);
+    let leaves: Vec<String> = Leaf::SPECS.iter().map(|s| s.name()).collect();
+    for leaf in &leaves {
+        run(&["schema", "--command", leaf], "", &[]);
+    }
+    run(&["version"], "", &[]);
+    run(&["share", "--out", ".planroom/share"], "", &[]);
+    let read = json!({"path": "inbox/u_test/events/d1", "version": 1, "row": {
+        "format": "planroom.inbox/v1", "instance": "i1", "counter": 1, "command": "map",
+        "request": {"level": "container"}, "base": 5, "at": "2026-10-26T00:00:00Z"}});
+    run(&["import", "-"], &format!("{read}\n"), &[]);
+    let key = key();
+    let public = b64url(&key.verifying_key().to_sec1_point(false).to_bytes());
+    run(&["person", "init"], &public, &[("PLANROOM_PERSON_TOKEN", &person_init_token(&key))]);
+
+    let mut covered = BTreeSet::new();
+    for (args, stdin, env) in &runs {
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let reply = reply(&root, &args, stdin, &env);
+        assert_eq!(reply["ok"], true, "{args:?}: {reply}");
+        let name = reply["command"].as_str().unwrap().to_owned();
+        let tokens = reply["meta"]["size"]["tokens_est"].as_u64().unwrap();
+        assert!(tokens <= budget(&name), "{args:?}: {tokens} tokens over {name}'s {}", budget(&name));
+        // Only a leaf's own cut marks a reply truncated; no reply here passes its budget.
+        for warning in reply["meta"]["warnings"].as_array().into_iter().flatten() {
+            assert!(warning["details"].get("left_out").is_none(), "{args:?}: {warning}");
+        }
+        covered.insert(name);
+    }
+    let budgeted: BTreeSet<String> =
+        Leaf::SPECS.iter().filter(|s| s.budget_tokens > 0).map(|s| s.name()).collect();
+    assert_eq!(covered, budgeted, "every built leaf with a budget is run");
 }

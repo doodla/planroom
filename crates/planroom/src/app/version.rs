@@ -87,8 +87,44 @@ fn leaf(name: &str) -> Result<LeafSchema, AppError> {
         .to_owned();
     let result =
         RESULTS.iter().find(|(leaf, _)| *leaf == name).map(|(_, r)| (*r).to_owned()).ok_or_else(unknown)?;
+    let asks = closure(defs, &request)?;
+    let mut leaf = LeafSchema {
+        summary: text::get("schema.leaf", &[("leaf", &name), ("request", &request), ("result", &result)]),
+        defs: closure(defs, &result)?.into_iter().chain(asks.clone()).collect(),
+        request,
+        result,
+    };
+    // Within `schema`'s budget (DR-21): the shapes stay whole, and the descriptions go first from
+    // the result's types, then from the request's, which a wrong argument's reader needs most.
+    let budget = Command::Schema(SchemaReq::default()).spec().budget_tokens as usize;
+    let size = |leaf: &LeafSchema| serde_json::to_string(leaf).map_or(usize::MAX, |s| s.len());
+    // The envelope repeats the summary line; its other fields take the reserve.
+    let fits = |leaf: &LeafSchema| size(leaf) + leaf.summary.len() + ENVELOPE_RESERVE_BYTES <= budget * 4;
+    let brief = |key: &str, leaf: &LeafSchema| {
+        text::get(key, &[("leaf", &name), ("request", &leaf.request), ("result", &leaf.result)])
+    };
+    if !fits(&leaf) {
+        leaf.summary = brief("schema.leaf_brief", &leaf);
+        for (def, body) in leaf.defs.iter_mut() {
+            if !asks.contains_key(def) {
+                undescribe(body);
+            }
+        }
+    }
+    if !fits(&leaf) {
+        leaf.summary = brief("schema.leaf_bare", &leaf);
+        leaf.defs.values_mut().for_each(undescribe);
+    }
+    Ok(leaf)
+}
+
+/// What the envelope around a leaf's schema takes besides the result and its summary line.
+const ENVELOPE_RESERVE_BYTES: usize = 512;
+
+/// `def` and every definition it references, by name.
+fn closure(defs: &Map<String, Value>, def: &str) -> Result<Map<String, Value>, AppError> {
     let mut closure = Map::new();
-    let mut todo = vec![request.clone(), result.clone()];
+    let mut todo = vec![def.to_owned()];
     while let Some(def) = todo.pop() {
         if closure.contains_key(&def) {
             continue;
@@ -98,8 +134,28 @@ fn leaf(name: &str) -> Result<LeafSchema, AppError> {
         refs(&body, &mut todo);
         closure.insert(def, body);
     }
-    let summary = text::get("schema.leaf", &[("leaf", &name), ("request", &request), ("result", &result)]);
-    Ok(LeafSchema { summary, request, result, defs: closure })
+    Ok(closure)
+}
+
+/// A schema without its descriptions. Property names stay, even one named `description`.
+fn undescribe(schema: &mut Value) {
+    match schema {
+        Value::Object(map) => {
+            if map.get("description").is_some_and(Value::is_string) {
+                map.remove("description");
+            }
+            for (key, value) in map.iter_mut() {
+                match (key.as_str(), value) {
+                    ("properties" | "$defs" | "patternProperties", Value::Object(named)) => {
+                        named.values_mut().for_each(undescribe)
+                    }
+                    (_, value) => undescribe(value),
+                }
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(undescribe),
+        _ => {}
+    }
 }
 
 /// Every `#/$defs/NAME` a schema value references.
@@ -149,6 +205,20 @@ pub fn schema(req: &SchemaReq) -> Result<Reply<SchemaReply>, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn undescribe_keeps_a_property_named_description() {
+        let mut schema = serde_json::json!({
+            "description": "A type.",
+            "properties": {"description": {"type": "string", "description": "Its text."}},
+            "anyOf": [{"description": "One arm.", "type": "null"}],
+        });
+        undescribe(&mut schema);
+        assert_eq!(
+            schema,
+            serde_json::json!({"properties": {"description": {"type": "string"}}, "anyOf": [{"type": "null"}]})
+        );
+    }
 
     #[test]
     fn a_schema_handle_resolves_for_every_leaf() {

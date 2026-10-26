@@ -4,8 +4,9 @@
 //! It writes the embedded canvas build with a page fragment that selects the artifact transport,
 //! `DIR/data/snapshot.json` (`planroom.snapshot/v1`: the top-level map with its layout positions
 //! and the pane, redacted, with no evidence text unless `--include-snippets`), and the first
-//! `live/head` document. Its result is the publish's exact arguments and the `db` batch that seeds
-//! `live/head`. It records the snapshot's `seq` in `meta.share_snapshot_seq`, which `import`'s
+//! `live/head` document. Its result is the publish's exact arguments, whose `files` are relative to
+//! one `root` so the reply keeps to the leaf's budget, and the `db` batch that seeds `live/head`.
+//! It records the snapshot's `seq` in `meta.share_snapshot_seq`, which `import`'s
 //! `live/head` extends.
 //!
 //! This slice precomputes only the top-level map. What the full snapshot adds in M4 (every level
@@ -59,25 +60,29 @@ pub fn run(req: &ShareReq, cwd: &Path) -> Result<Reply<ShareResult>, AppError> {
     let out = out_dir(cwd, &req.out)?;
     let mut files = BTreeMap::new();
     let mut written = Vec::new();
-    let mut put = |rel: &str, body: &[u8], publish: bool| -> Result<(), AppError> {
+    // The result lists, with their sizes, only the files made from this workspace: the canvas
+    // build's assets are the same for every share, and listing each twice would pass the budget.
+    let mut put = |rel: &str, body: &[u8], publish: bool, made: bool| -> Result<(), AppError> {
         let path = out.join(rel);
         if let Some(parent) = path.parent() {
             data::ensure_dir(parent)?;
         }
         data::write_private(&path, body)?;
-        written.push(SharedFile { path: rel.to_owned(), bytes: body.len() as u64 });
+        if made {
+            written.push(SharedFile { path: rel.to_owned(), bytes: body.len() as u64 });
+        }
         if publish {
-            files.insert(rel.to_owned(), path.display().to_string());
+            files.insert(rel.to_owned(), rel.to_owned());
         }
         Ok(())
     };
-    put(PAGE, page.as_bytes(), false)?;
+    put(PAGE, page.as_bytes(), false, true)?;
     for (rel, body) in canvas::files().filter(|(rel, _)| *rel != "index.html") {
-        put(rel, body, true)?;
+        put(rel, body, true, false)?;
     }
-    put(SNAPSHOT_PATH, &bytes, true)?;
+    put(SNAPSHOT_PATH, &bytes, true, true)?;
     let head_bytes = serde_json::to_vec(&head).map_err(AppError::internal)?;
-    put(LIVE_HEAD_FILE, &head_bytes, false)?;
+    put(LIVE_HEAD_FILE, &head_bytes, false, true)?;
 
     let held = store.meta(SNAPSHOT_SEQ_META)?;
     store.meta_swap(SNAPSHOT_SEQ_META, held.as_deref(), &snapshot.seq.to_string(), &[])?;
@@ -99,6 +104,7 @@ pub fn run(req: &ShareReq, cwd: &Path) -> Result<Reply<ShareResult>, AppError> {
     );
     let publish = PublishArgs {
         file_path: out.join(PAGE).display().to_string(),
+        root: out.display().to_string(),
         files,
         capabilities: capabilities(),
         title: text::get("share.title", &[]),

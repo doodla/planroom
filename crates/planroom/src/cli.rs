@@ -140,7 +140,8 @@ pub(crate) fn finish<T: Serialize>(
         Ok(reply) => {
             let line = if json {
                 let summary = summary_of(&reply.text);
-                envelope(command, Some(&reply.result), None, reply.seq, took_ms, reply.warnings, summary)
+                let budget = budget_of(command);
+                envelope_within(command, &reply.result, reply.seq, took_ms, reply.warnings, summary, budget)
             } else {
                 sanitize_lines(&reply.text)
             };
@@ -204,6 +205,77 @@ pub(crate) fn envelope<T: Serialize>(
         line = serde_json::to_string(&env).expect("an envelope serializes");
     }
     line
+}
+
+/// A leaf's catalogue budget in tokens; none for a stream leaf, or for no leaf.
+fn budget_of(command: &str) -> Option<u32> {
+    Command::SPECS.iter().find(|s| s.name() == command).map(|s| s.budget_tokens).filter(|b| *b > 0)
+}
+
+/// The success envelope of a reply an agent reads, within its leaf's budget (DR-85: everything an
+/// agent can reach is capped). Over the budget, the warnings that don't fit are left out, in their
+/// order, and one `truncated` warning counts them by code, so no reply passes its budget
+/// silently. A `truncated` warning the leaf added itself, such as `map`'s fit, is always kept. A
+/// result that passes the budget on its own keeps only those, and its `truncated` warning says so;
+/// HTTP replies don't come here, since `--detail graph` over `serve` is the canvas's whole graph.
+pub(crate) fn envelope_within<T: Serialize>(
+    command: &str,
+    result: &T,
+    seq: Seq,
+    took_ms: u32,
+    warnings: Vec<Warning>,
+    summary: Option<String>,
+    budget: Option<u32>,
+) -> String {
+    let whole = envelope(command, Some(result), None, seq, took_ms, warnings.clone(), summary.clone());
+    let Some(budget) = budget else { return whole };
+    let tokens = |line: &str| line.len().div_ceil(4);
+    if tokens(&whole) <= budget as usize {
+        return whole;
+    }
+    let optional: Vec<usize> =
+        (0..warnings.len()).filter(|i| warnings[*i].code != WarningCode::Truncated).collect();
+    // Keep the first `n` optional warnings and summarise the rest.
+    let build = |n: usize, over: bool| {
+        let left: Vec<&Warning> = optional[n..].iter().map(|i| &warnings[*i]).collect();
+        let mut kept: Vec<Warning> = warnings
+            .iter()
+            .enumerate()
+            .filter(|(i, w)| w.code == WarningCode::Truncated || optional[..n].contains(i))
+            .map(|(_, w)| w.clone())
+            .collect();
+        kept.push(left_out(&left, budget, over));
+        envelope(command, Some(result), None, seq, took_ms, kept, summary.clone())
+    };
+    let (mut fits, mut over) = (0, optional.len().saturating_sub(1));
+    while fits < over {
+        let mid = (fits + over).div_ceil(2);
+        if tokens(&build(mid, false)) <= budget as usize { fits = mid } else { over = mid - 1 }
+    }
+    let line = build(fits, false);
+    if tokens(&line) <= budget as usize { line } else { build(fits, true) }
+}
+
+/// The `truncated` warning that counts the warnings a reply left out to keep to its budget.
+fn left_out(left: &[&Warning], budget: u32, over: bool) -> Warning {
+    let mut codes: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for w in left {
+        *codes.entry(w.code.as_str()).or_default() += 1;
+    }
+    let message = if over || left.is_empty() {
+        text::get("warning.reply_over_budget", &[("budget", &budget)])
+    } else {
+        let names: Vec<&str> = codes.keys().copied().collect();
+        text::get(
+            "warning.warnings_left_out",
+            &[("count", &left.len()), ("budget", &budget), ("codes", &names.join(", "))],
+        )
+    };
+    Warning {
+        code: WarningCode::Truncated,
+        message,
+        details: json!({"budget_tokens": budget, "left_out": left.len(), "codes": codes}),
+    }
 }
 
 /// `planroom watch`: frames until stdout closes, or one error envelope when the stream can't
@@ -377,4 +449,71 @@ fn synopsis(cmd: &clap::Command, path: &str) -> String {
     }
     words.push("[--json]".into());
     words.join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn warning(code: WarningCode, n: usize) -> Warning {
+        Warning { code, message: format!("warning {n}"), details: json!({"paths": vec!["p".repeat(40); 10]}) }
+    }
+
+    fn parse(line: &str) -> Value {
+        serde_json::from_str(line).unwrap()
+    }
+
+    #[test]
+    fn a_reply_within_its_budget_is_untouched() {
+        let warnings = vec![warning(WarningCode::PartialScan, 1)];
+        let line = envelope_within("scan", &json!({}), 1, 0, warnings.clone(), None, Some(1_500));
+        assert_eq!(line, envelope("scan", Some(&json!({})), None, 1, 0, warnings, None));
+    }
+
+    #[test]
+    fn warnings_past_the_budget_are_counted_in_one_truncated_warning() {
+        let mut warnings: Vec<Warning> = (0..40).map(|n| warning(WarningCode::PartialScan, n)).collect();
+        warnings.insert(3, warning(WarningCode::PartialParse, 99));
+        // The leaf's own cut is always kept.
+        warnings.push(Warning {
+            code: WarningCode::Truncated,
+            message: "map cut".into(),
+            details: json!({}),
+        });
+        let env = parse(&envelope_within("scan", &json!({}), 1, 0, warnings, None, Some(1_500)));
+        let meta = &env["meta"];
+        assert!(meta["size"]["tokens_est"].as_u64().unwrap() <= 1_500, "{meta}");
+        assert_eq!(meta["truncated"], true);
+        let kept = meta["warnings"].as_array().unwrap();
+        assert!(kept.iter().any(|w| w["message"] == "map cut"));
+        let summary = kept.last().unwrap();
+        assert_eq!(summary["code"], "truncated");
+        let left = summary["details"]["left_out"].as_u64().unwrap();
+        assert_eq!(kept.len() as u64 - 2 + left, 41, "every warning is kept or counted");
+        assert_eq!(summary["details"]["budget_tokens"], 1_500);
+        assert!(summary["details"]["codes"]["partial_scan"].as_u64().unwrap() > 0);
+        // The first ones are kept, in their order.
+        assert_eq!(kept[0]["message"], "warning 0");
+    }
+
+    #[test]
+    fn a_result_past_the_budget_on_its_own_says_so() {
+        let result = json!({"text": "x".repeat(8_000)});
+        let env = parse(&envelope_within("scan", &result, 1, 0, vec![], None, Some(1_500)));
+        assert_eq!(env["meta"]["truncated"], true);
+        let warning = &env["meta"]["warnings"][0];
+        assert_eq!(
+            (warning["code"].as_str(), &warning["details"]["left_out"]),
+            (Some("truncated"), &json!(0))
+        );
+    }
+
+    #[test]
+    fn a_stream_leaf_and_no_leaf_have_no_budget() {
+        assert_eq!(budget_of("watch"), None);
+        assert_eq!(budget_of("serve"), None);
+        assert_eq!(budget_of("planroom"), None);
+        assert_eq!(budget_of("share"), Some(800));
+        assert_eq!(budget_of("person init"), Some(400));
+    }
 }

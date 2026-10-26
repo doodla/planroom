@@ -51,6 +51,14 @@ fn share(root: &Path, extra: &[&str]) -> Value {
     env["result"].clone()
 }
 
+/// The local file a share's publish names for the published `path`: its `files` source, under
+/// its `root`.
+fn published(result: &Value, path: &str) -> String {
+    let publish = &result["publish"];
+    let source = publish["files"][path].as_str().unwrap_or_else(|| panic!("{path} isn't published"));
+    Path::new(publish["root"].as_str().unwrap()).join(source).display().to_string()
+}
+
 fn read_json(path: &str) -> Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
@@ -110,10 +118,10 @@ fn snapshot_validates_and_is_under_1_mb() {
     let result = share(&root, &[]);
     validate("ShareResult", &result);
     let publish = &result["publish"];
-    let snapshot_path = publish["files"]["data/snapshot.json"].as_str().unwrap();
-    let bytes = std::fs::metadata(snapshot_path).unwrap().len();
+    let snapshot_path = published(&result, "data/snapshot.json");
+    let bytes = std::fs::metadata(&snapshot_path).unwrap().len();
     assert!(bytes < 1_000_000, "{bytes} bytes");
-    let snapshot = read_json(snapshot_path);
+    let snapshot = read_json(&snapshot_path);
     validate("Snapshot", &snapshot);
     assert_eq!(snapshot["format"], "planroom.snapshot/v1");
     assert_eq!(snapshot["maps"][0]["level"], "system");
@@ -130,9 +138,18 @@ fn snapshot_validates_and_is_under_1_mb() {
     assert!(!page.contains("<!doctype") && !page.contains("<body"));
     let files = publish["files"].as_object().unwrap();
     assert!(files.contains_key("assets/index.js") && files.contains_key("assets/elk-worker.min.js"));
-    for (published, source) in files {
-        assert!(!published.starts_with('/') && Path::new(source.as_str().unwrap()).is_file(), "{published}");
+    // Each source is relative to the one absolute `root`, so the reply keeps to share's budget.
+    let root_dir = Path::new(publish["root"].as_str().unwrap());
+    assert!(root_dir.is_absolute(), "{publish}");
+    for (path, source) in files {
+        let source = source.as_str().unwrap();
+        assert!(!path.starts_with('/') && !source.starts_with('/'), "{path}");
+        assert!(root_dir.join(source).is_file(), "{path}");
     }
+    // The result lists only the files made from this workspace, with their sizes.
+    let made: Vec<&str> =
+        result["files"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap()).collect();
+    assert_eq!(made, ["page.html", "data/snapshot.json", "db/live-head.json"]);
     assert_eq!(
         publish["capabilities"],
         json!({"db": {"rules": [
@@ -158,7 +175,7 @@ fn snapshot_validates_and_is_under_1_mb() {
 fn no_contains_by_default() {
     let (_tmp, root) = scanned();
     let result = share(&root, &[]);
-    let snapshot = read_json(result["publish"]["files"]["data/snapshot.json"].as_str().unwrap());
+    let snapshot = read_json(&published(&result, "data/snapshot.json"));
     assert_eq!(snapshot["snippets"], false);
     let mut found = 0;
     keys_named(&snapshot, "contains", &mut found);
@@ -166,7 +183,7 @@ fn no_contains_by_default() {
     // Presence is left out unless asked for.
     assert_eq!(snapshot["who"], Value::Null);
     let with = share(&root, &["--include-presence"]);
-    let snapshot = read_json(with["publish"]["files"]["data/snapshot.json"].as_str().unwrap());
+    let snapshot = read_json(&published(&with, "data/snapshot.json"));
     assert!(snapshot["who"].is_array());
 }
 
@@ -197,7 +214,7 @@ fn the_snapshot_is_redacted() {
     let (code, env) = planroom(&root, &["scan"], "", &[]);
     assert_eq!(code, 0, "{env}");
     let result = share(&root, &[]);
-    let snapshot = read_json(result["publish"]["files"]["data/snapshot.json"].as_str().unwrap());
+    let snapshot = read_json(&published(&result, "data/snapshot.json"));
     let nodes = snapshot["maps"][0]["nodes"].as_array().unwrap();
     assert!(!nodes.is_empty());
     for node in nodes {
@@ -267,7 +284,7 @@ fn a_read_request_is_answered_by_a_tokenless_sync() {
     assert_eq!(writes[3]["if_version"], 4);
     let head = read_json(writes[3]["file_path"].as_str().unwrap());
     validate("LiveHead", &head);
-    let snapshot = read_json(shared["publish"]["files"]["data/snapshot.json"].as_str().unwrap());
+    let snapshot = read_json(&published(&shared, "data/snapshot.json"));
     assert_eq!(head["snapshot_seq"], snapshot["seq"]);
 }
 

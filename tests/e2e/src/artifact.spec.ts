@@ -8,6 +8,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import type { Page } from "@playwright/test";
 import type { InboxRow, MapView, Snapshot } from "@planroom/contract";
@@ -65,7 +66,8 @@ const session = {
 
 /** The snapshot `share` published. */
 function snapshot(): Snapshot {
-  const path = ws.share.publish.files["data/snapshot.json"]!;
+  const publish = ws.share.publish;
+  const path = join(publish.root, publish.files["data/snapshot.json"]!);
   return JSON.parse(readFileSync(path, "utf8")) as Snapshot;
 }
 

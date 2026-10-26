@@ -56,6 +56,8 @@ repo_skipped_other_owner = "Another user owns {repo}, so git won't read it and t
 repo_skipped_git_failed = "git can't read {repo}, so this scan left it out. {fix}"
 scan_superseded = "{repo}'s HEAD moved on while this scan read {commit}, so its map stays as it was. Scan again to map HEAD."
 truncated = "This map has {total} blocks; the first {kept} fit its {budget}-token budget. Next: {label}."
+warnings_left_out = "{count} more warnings ({codes}) were left out to keep this reply to its {budget}-token budget."
+reply_over_budget = "This reply passes its {budget}-token budget; that's a bug, so please report it."
 
 [empty]
 not_scanned = "Map these {count} repos? About 2 s."
@@ -139,6 +141,8 @@ summary = "Planroom contract schema version {version}: {id}"
 commands = "{count} commands in the catalogue."
 commands_label = "List every command"
 leaf = "{leaf} takes {request} and returns {result}."
+leaf_brief = "{leaf} takes {request} and returns {result}; to keep to the budget, only the request's types keep their descriptions."
+leaf_bare = "{leaf} takes {request} and returns {result}; to keep to the budget, the types leave out their descriptions."
 
 # share and import: the Artifact bundle and the inbox (architecture.md, Remote mode).
 [share]
