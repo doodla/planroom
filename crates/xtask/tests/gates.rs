@@ -498,3 +498,20 @@ fn a_mistyped_filter_fails() {
     assert_eq!(testrun::no_tests(Some("f")), "fail");
     assert_eq!(testrun::no_tests(None), "pass");
 }
+
+#[test]
+fn every_test_that_runs_alone_exists() {
+    use xtask::testrun;
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let config = fs::read_to_string(repo.join(testrun::NEXTEST_CONFIG)).unwrap();
+    let alone = testrun::alone(&config);
+    assert!(alone.len() >= 8, "{alone:?}");
+    // A renamed test would drop out of the group silently, and run beside the rest again.
+    for (binary, name) in alone {
+        let (krate, file) = binary.split_once("::").unwrap_or_else(|| panic!("{binary}"));
+        let dir = krate.strip_prefix("planroom-").unwrap_or(krate);
+        let path = repo.join(format!("crates/{dir}/tests/{file}.rs"));
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        assert!(text.contains(&format!("#[test]\nfn {name}(")), "{binary} has no test {name}");
+    }
+}

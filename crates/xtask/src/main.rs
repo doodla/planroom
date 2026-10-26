@@ -525,6 +525,8 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>, filter: Option<&str>) 
             testrun::no_tests(filter),
             "--failure-output",
             "final",
+            "--config-file",
+            testrun::NEXTEST_CONFIG,
         ];
         args.extend(&scope);
         r.tool(root, "cargo nextest run", "cargo", &args, "fix the failing tests above");

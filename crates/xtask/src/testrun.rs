@@ -2,6 +2,34 @@
 //! `ok` over nothing run, so a mistyped name never reads as a pass (repo-layout.md, The one task
 //! entry point).
 
+/// nextest's configuration, passed with `--config-file`. It runs each test that asserts a
+/// wall-clock budget with no other test beside it.
+pub const NEXTEST_CONFIG: &str = "crates/xtask/nextest.toml";
+
+/// The tests `config` runs alone, as `(binary_id, test name)`: each `test(=NAME)` with the
+/// `binary_id(...)` that opens its group.
+pub fn alone(config: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut binary = String::new();
+    let mut rest = config;
+    while let Some(at) = rest.find("(") {
+        let word = rest[..at].rsplit(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).next().unwrap_or("");
+        let Some(end) = rest[at..].find(')') else { break };
+        let arg = &rest[at + 1..at + end];
+        match word {
+            "binary_id" => binary = arg.to_owned(),
+            "test" => {
+                if let Some(name) = arg.strip_prefix('=') {
+                    out.push((binary.clone(), name.to_owned()));
+                }
+            }
+            _ => {}
+        }
+        rest = &rest[at + 1..];
+    }
+    out
+}
+
 /// What nextest does when no test matches: with a filter, a match was asked for, so none fails;
 /// a whole crate or the workspace with no test passes.
 pub fn no_tests(filter: Option<&str>) -> &'static str {
