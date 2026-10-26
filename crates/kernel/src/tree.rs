@@ -20,19 +20,34 @@ pub fn level_name(level: Level) -> &'static str {
 pub fn top_level(nodes: &[Node]) -> Vec<MapNode> {
     let index: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.0.as_str(), n)).collect();
     let is_root = |n: &Node| n.parent.as_ref().is_none_or(|p| !index.contains_key(p.0.as_str()));
+    blocks(nodes, &index, is_root)
+}
+
+/// Every node at `level`, each with its descendants counted by level, sorted like `top_level`.
+pub fn at_level(nodes: &[Node], level: Level) -> Vec<MapNode> {
+    let index: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.0.as_str(), n)).collect();
+    blocks(nodes, &index, |n| n.level == level)
+}
+
+/// The nodes `is_block` selects, each counting every descendant whose nearest selected ancestor
+/// it is. A parent cycle, which only bad facts can hold, counts nowhere.
+fn blocks<'a>(
+    nodes: &'a [Node],
+    index: &HashMap<&str, &'a Node>,
+    is_block: impl Fn(&Node) -> bool,
+) -> Vec<MapNode> {
     let mut counts: HashMap<&str, BTreeMap<String, u32>> = HashMap::new();
-    for node in nodes.iter().filter(|n| !is_root(n)) {
-        // Walk up to the root; a parent cycle, which only bad facts can hold, counts nowhere.
+    for node in nodes {
         let mut at = node;
         let mut steps = 0;
         while let Some(parent) = at.parent.as_ref().and_then(|p| index.get(p.0.as_str())) {
             at = parent;
             steps += 1;
-            if steps > nodes.len() {
+            if steps > nodes.len() || is_block(at) {
                 break;
             }
         }
-        if steps <= nodes.len() && is_root(at) {
+        if steps > 0 && steps <= nodes.len() && is_block(at) {
             *counts
                 .entry(at.id.0.as_str())
                 .or_default()
@@ -42,13 +57,13 @@ pub fn top_level(nodes: &[Node]) -> Vec<MapNode> {
     }
     let mut top: Vec<MapNode> = nodes
         .iter()
-        .filter(|n| is_root(n))
+        .filter(|n| is_block(n))
         .map(|n| MapNode {
             id: n.id.clone(),
             kind: n.kind.clone(),
             name: n.name.clone(),
             level: n.level,
-            parent: None,
+            parent: n.parent.clone().filter(|p| index.contains_key(p.0.as_str())),
             counts: counts.remove(n.id.0.as_str()).unwrap_or_default(),
             position: None,
             ghost: false,
@@ -97,5 +112,20 @@ mod tests {
             BTreeMap::from([("code".into(), 1), ("component".into(), 1), ("container".into(), 1)])
         );
         assert!(top[1].counts.is_empty());
+        let dirs = at_level(&nodes, Level::Component);
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(dirs[0].counts, BTreeMap::from([("code".into(), 1)]));
+    }
+
+    #[test]
+    fn a_parent_cycle_counts_nowhere() {
+        let nodes = vec![
+            node("r:x:a", Level::Code, Some("r:x:b")),
+            node("r:x:b", Level::Code, Some("r:x:a")),
+            node("r:repo:r", Level::System, None),
+        ];
+        let top = top_level(&nodes);
+        assert_eq!(top.len(), 1);
+        assert!(top[0].counts.is_empty());
     }
 }

@@ -61,6 +61,21 @@ pub trait Extractor {
     fn run(&self, repo: &RepoView, files: &[RepoPath], opts: &Value) -> Result<FactBatch, ExtractError>;
 }
 
+/// The files an extractor declared with `files` globs takes, in their sorted order. A glob
+/// matches at any depth when it starts with `**/`.
+pub fn select(files: &[RepoPath], globs: &[&str]) -> Result<Vec<RepoPath>, ExtractError> {
+    let mut set = globset::GlobSetBuilder::new();
+    for glob in globs {
+        let glob = globset::GlobBuilder::new(glob)
+            .literal_separator(true)
+            .build()
+            .map_err(|e| ExtractError::InvalidOptions(format!("files glob `{glob}`: {e}")))?;
+        set.add(glob);
+    }
+    let set = set.build().map_err(|e| ExtractError::InvalidOptions(e.to_string()))?;
+    Ok(files.iter().filter(|f| set.is_match(&f.0)).cloned().collect())
+}
+
 /// The built-in extractor a pack names with `builtin = NAME`.
 pub fn builtin(name: &str) -> Option<&'static dyn Extractor> {
     match name {

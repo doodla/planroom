@@ -1,0 +1,41 @@
+# Every user-facing string the engine authors. `{name}` is replaced by the value of that name.
+
+[error]
+invalid_argument = "{what}"
+workspace_not_found = "No Planroom workspace or git repos at {path}."
+idempotency_mismatch = "The key {idem} was already used for another request."
+store_busy = "The store is still locked by another Planroom process after 5 s."
+schema_mismatch = "This store is version {found}, newer than this engine reads ({supported})."
+git_failed = "git failed in {repo}: {what}"
+internal = "Planroom hit a bug: {what}"
+
+[hint]
+workspace_not_found = "planroom scan DIR"
+idempotency_mismatch = "pass a new --idem to make another write"
+store_busy = "retry the same command"
+schema_mismatch = "update Planroom, then retry"
+
+[argument]
+focus_unsupported = "--focus isn't available yet; run map without it."
+
+[warning]
+evidence_dropped = "{count} evidence items in {repo} didn't match commit {commit} and were dropped."
+partial_scan = "{extractor} reached its bound in {repo}; {count} files weren't scanned."
+partial_parse = "{count} files in {repo} couldn't be read in full."
+workspace_nested = "Another workspace sits inside this one, at {other_root}; the two stay apart."
+
+[empty]
+not_scanned = "Map these {count} repos? About 2 s."
+no_repos = "No git repos here. Run planroom scan PATH on a directory that holds some."
+
+[scan]
+summary = "Mapped {repos} repos, {moved} of them moved: {containers} containers, {nodes} nodes, {hints} hints."
+next_label = "Show the map"
+
+[map]
+summary = "{count} at the top: {names}."
+
+[frame]
+scan = "Scanned {repo} at {commit}."
+version = "Tagged {label}."
+other = "A {kind} event."

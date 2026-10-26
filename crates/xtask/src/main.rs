@@ -4,6 +4,7 @@
 //! or `skipped (why)` line per step, and names the fix command on failure.
 
 mod boundaries;
+mod fixture;
 mod generate;
 mod rustlex;
 mod util;
@@ -18,7 +19,8 @@ usage: cargo xtask <command>
   check boundaries [--self-test]
                               the boundary rules alone, or with the planted crossings
   test [-p CRATE]             the Rust tests (nextest when installed) and vitest
-  gen                         write every generated file";
+  gen                         write every generated file
+  fixture OUT [--no-packs]    build the fixture workspace into OUT, with a config loading the Ruby pack";
 
 fn main() -> ExitCode {
     let root = repo_root();
@@ -41,6 +43,18 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         },
+        ["fixture", out] | ["fixture", out, "--no-packs"] => {
+            return match fixture::build(&root, Path::new(out), args.len() == 2) {
+                Ok(heads) => {
+                    print!("{heads}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("cargo xtask fixture failed: {e}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
         ["help" | "--help" | "-h"] => {
             println!("{USAGE}");
             return ExitCode::SUCCESS;
