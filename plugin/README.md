@@ -4,13 +4,14 @@ Planroom is a shared, living map of your software system that you and Claude pla
 
 ## Install
 
-At the prompt of a Claude Code session:
+At the prompt of a Claude Code session, add Planroom's marketplace, then install the plugin from it:
 
 ```text
-/plugin install planroom --marketplace doodla/planroom
+/plugin marketplace add doodla/planroom
+/plugin install planroom@planroom
 ```
 
-The first time Planroom runs, it fetches its engine for your platform, checked against the release's `SHA256SUMS`, or offers to build it from source. It runs on macOS, Linux and WSL 2.
+The first time Planroom runs, it needs its engine. Until the first release, it offers to build the engine from source, which takes about 4 minutes and needs Rust and a C compiler. With Node 22 and pnpm installed too, the build includes the canvas. From the first release on, it fetches the engine for your platform instead, checked against the release's `SHA256SUMS`. It runs on macOS, Linux and WSL 2.
 
 ## First steps
 

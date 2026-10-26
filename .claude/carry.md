@@ -3,10 +3,11 @@
 Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `ccr-b124f0e3-xnzjca`; push with `git push -u origin ccr-b124f0e3-xnzjca`.
 
 ## Where I am
-- Phases 1-3 DONE. Phase 4 skeleton: all tracks merged, DR-81..84, docs fold done, real mod ran LIVE (research/ws8-install.md), Artifact round trip on real platform (ws7-remote.md). CI green at 3e435fd+. Dev mods unloaded.
-- Skill: .claude/skills/merge-track (use it for every track merge; eval 7/7 vs 6/7).
-- Running: skeleton review wf_5ee442c6-106 (correctness, security, drift, tests) + wf_dc8e7240-2fc (repo, ux, operability, unasked), each lens with a refuter. Next: fix every unrefuted MATERIAL finding (round 2 if needed, max 3), log minor as known gaps (docs/contributing/research/skeleton-review/), then M1.
-- M1 plan (115 h): tracks K (fold+IDs, kernel/store), X (extractors+linkers), P (packs+plan pack, after K/X), A (actor/security+backups/.git/planroom), M (mod), C (canvas), G (S1 path, gates leftovers, serve/resolver). Add default excludes for fixture/test-data trees. Shrink disk: [profile.dev]/[profile.test] debug="line-tables-only" before parallel worktrees (~9 GB free).
+- Phases 1-3 DONE. Phase 4 skeleton DONE and live (ws8-install.md, ws7-remote.md). CI green at 3e435fd+.
+- Skeleton review round 1 DONE: 94 findings, 18 material (index: docs/contributing/research/skeleton-review/README.md). Commit 20179de (local) also scheduled repo-1/unasked-4 in M1 (+4 h, M1 119 h) and set debug=line-tables-only.
+- Fixing: wf_8e14921b-8a3 (SCAN track/fix-scan, CONTRACT track/fix-contract) and wf_4d5fbffc-d36 (ENGINE track/fix-engine, SURFACES track/fix-surfaces). Me, main checkout: PLUGIN = ops-2 (source build runs the canvas build, prunes src), ops-3 (README install lines), repo-1 (`not built (M1)` lines in check).
+- Then: merge the 4 tracks with merge-track skill; write DR-85 (envelope `summary`, review fixes, doc conflicts); progress.md M1 119 h / total 380 h; round 2 review of the fixes (max 3 rounds); then M1.
+- M1 plan: tracks K (fold+IDs), X (extractors+linkers), P (packs+plan pack), A (actor/security, backups, .git/planroom, fs check), M (mod), C (canvas), G (S1 path, gates leftovers, serve/resolver). Add default excludes for fixture/test-data trees.
 - Lesson: chain `check && test && commit && push`; CI covers deny/busybox/macOS.
 
 ## Gotchas

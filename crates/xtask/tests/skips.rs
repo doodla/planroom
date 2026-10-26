@@ -40,6 +40,14 @@ fn a_local_skip_is_only_a_line() {
 }
 
 #[test]
+fn a_gate_not_built_is_a_line_that_neither_passes_nor_fails() {
+    let mut r = Report::with(true, CiSkips::default());
+    r.not_built("release_pins", "M1");
+    assert!(!r.has_failed());
+    assert_eq!(r.lines()[0], "not built release_pins (M1)");
+}
+
+#[test]
 fn the_committed_declarations_each_name_a_record_that_exists() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     CiSkips::load(&root).expect("crates/xtask/ci_skips.toml loads, and each record it names has a heading");

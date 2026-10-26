@@ -137,6 +137,36 @@ fake_tool() {
   chmod 755 "$1/bin/$2"
 }
 
+# A build toolchain in $1/bin that records each call in $1/calls, apart from version checks:
+# `cargo build` writes a stand-in engine of version $2, and `git clone` makes its target directory.
+# With $3 = canvas, node and pnpm are installed too.
+fake_build_tools() {
+  fake_engine "$1/built-engine" "$2" built
+  for tool in cargo git pnpm; do
+    cat >"$1/bin/$tool" <<EOF
+#!/bin/sh
+case "\$*" in *--version*) echo "$tool 1.97.0"; exit 0 ;; esac
+echo "$tool \$*" >>"$1/calls"
+case "$tool \${1:-}" in
+  "cargo build") mkdir -p target/release && cp "$1/built-engine" target/release/planroom ;;
+  "git -c") for arg; do dest=\$arg; done; mkdir -p "\$dest" ;;
+esac
+EOF
+    chmod 755 "$1/bin/$tool"
+  done
+  fake_tool "$1" cc
+  if [ "${3:-}" = canvas ]; then
+    fake_tool "$1" node
+  else
+    rm "$1/bin/pnpm"
+  fi
+}
+
+# The calls fake_build_tools recorded, one line joined by |.
+calls() {
+  tr '\n' '|' <"$1/calls"
+}
+
 # --- assertions ---------------------------------------------------------------------------------
 
 fail() {
@@ -349,6 +379,40 @@ runs_with_no_claude_variables() {
   expect_eq "$out" "bare: focus --json"
 }
 
+a_checkout_build_builds_the_canvas_first() {
+  d="$work/build-canvas"
+  make_plugin "$d" 3.0.0-dev checkout
+  path=$(sandbox_path "$d")
+  fake_build_tools "$d" 3.0.0-dev canvas
+  PATH=$path PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" build
+  expect_eq "$code" 0 "$(cat "$work/stderr")"
+  expect_eq "$(calls "$d")" \
+    "pnpm install --frozen-lockfile --offline|cargo xtask gen --canvas|cargo build --release --locked -p planroom|"
+}
+
+a_build_without_node_has_no_canvas() {
+  d="$work/build-no-node"
+  make_plugin "$d" 3.1.0-dev checkout
+  path=$(sandbox_path "$d")
+  fake_build_tools "$d" 3.1.0-dev
+  PATH=$path PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" build
+  expect_eq "$code" 0 "$(cat "$work/stderr")"
+  expect_eq "$(calls "$d")" "cargo build --release --locked -p planroom|"
+  expect_contains "$(cat "$work/stderr")" "this engine has no canvas"
+}
+
+a_clone_build_is_cached_and_its_clone_removed() {
+  d="$work/build-clone"
+  make_plugin "$d" 3.2.0-dev
+  path=$(sandbox_path "$d")
+  fake_build_tools "$d" 3.2.0-dev canvas
+  PATH=$path PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" build
+  expect_eq "$code" 0 "$(cat "$work/stderr")"
+  expect_contains "$(calls "$d")" "|pnpm install --frozen-lockfile --offline|cargo xtask gen --canvas|cargo build"
+  [ -x "$d/data/engine/3.2.0-dev/planroom" ] || fail "the built engine wasn't cached"
+  [ ! -e "$d/data/src/3.2.0-dev" ] || fail "the clone was left in the data root"
+}
+
 the_repo_checkout_resolves_its_own_build() {
   want=$(sed -n 's/^PLANROOM_ENGINE_VERSION=//p' "$repo/plugin/scripts/engine.env")
   if [ ! -x "$repo/target/debug/planroom" ] && [ ! -x "$repo/target/release/planroom" ]; then
@@ -372,7 +436,8 @@ for t in override_runs_the_named_binary a_missing_override_is_engine_unavailable
   base_url_refuses_plain_http_to_a_non_loopback_host a_dev_version_goes_straight_to_the_build_card \
   a_missing_toolchain_names_its_install resolve_checkout_skips_the_cache_and_the_download \
   a_stale_fetch_lock_is_broken prune_keeps_a_recently_used_version runs_with_no_claude_variables \
-  the_repo_checkout_resolves_its_own_build; do
+  a_checkout_build_builds_the_canvas_first a_build_without_node_has_no_canvas \
+  a_clone_build_is_cached_and_its_clone_removed the_repo_checkout_resolves_its_own_build; do
   case $t in *"$filter"*) ;; *) continue ;; esac
   # Not an `if` condition: there `set -e` would be off, and a failed assertion would go on.
   set +e

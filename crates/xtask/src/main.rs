@@ -175,6 +175,17 @@ const PNPM_FIX: &str = "pnpm install --frozen-lockfile, then fix what the output
 /// The unscanned fixture workspace `cargo xtask e2e` builds for the specs to copy.
 const E2E_FIXTURE: &str = "target/e2e/fixture/shop";
 
+/// The steps repo-layout.md puts in `check` that nobody has built yet, with the milestone that
+/// builds each (architecture.md, Milestones; DR-85).
+const CHECK_NOT_BUILT: [(&str, &str); 6] = [
+    ("breaking-change guard over schema/baseline/", "M1"),
+    ("feature_list_is_complete", "M1"),
+    ("secret scan over tests/replay/ and docs/evidence/", "M1"),
+    ("release_pins", "M1"),
+    ("docs tests (links, prose rules, CLI reference)", "M5"),
+    ("scripts/check-tag-version.sh", "M5"),
+];
+
 fn check(root: &Path, r: &mut Report) {
     r.tool(root, "cargo fmt --check", "cargo", &["fmt", "--all", "--check"], "cargo fmt --all");
     r.tool(
@@ -217,6 +228,9 @@ fn check(root: &Path, r: &mut Report) {
             "run the step through cargo xtask, or install the tool from xtask (crates/xtask/src/tools.rs)",
         ),
         Err(e) => r.failed("ci_runs_only_xtask", &e, "fix the error above"),
+    }
+    for (name, milestone) in CHECK_NOT_BUILT {
+        r.not_built(name, milestone);
     }
 }
 

@@ -351,8 +351,28 @@ offer_build() {
     "\"missing\":\"$missing\""
 }
 
+# The engine embeds the canvas when it builds (build.rs), so the canvas builds first, in $1, when
+# Node and pnpm are here. Without them, or if that build fails, the engine still builds and its
+# fix page names what's missing.
+build_canvas() {
+  if [ "$canvas" != true ]; then
+    say "Node 22 and pnpm aren't installed, so this engine has no canvas"
+    return 0
+  fi
+  say "building the canvas in $1"
+  if ! (cd "$1" && { pnpm install --frozen-lockfile --offline || pnpm install --frozen-lockfile; } \
+    && cargo xtask gen --canvas) >&2; then
+    say "the canvas build failed, so this engine has no canvas"
+  fi
+}
+
 build() {
+  if ! build_preflight; then
+    unavailable no_toolchain "Building the engine from source needs $missing. $fix" "$fix" \
+      "\"missing\":\"$missing\""
+  fi
   if checkout=$(checkout_dir); then
+    build_canvas "$checkout"
     say "building the engine in $checkout"
     (cd "$checkout" && cargo build --release --locked -p planroom) >&2
     exit $?
@@ -369,6 +389,7 @@ build() {
   mkdir -p "$data/src"
   git -c core.hooksPath=/dev/null clone --quiet --depth 1 --branch "$ref" \
     "https://github.com/$repo" "$src" >&2
+  build_canvas "$src"
   (cd "$src" && cargo build --release --locked -p planroom) >&2
   built="$src/target/release/planroom"
   if [ "$(engine_version "$built")" != "$version" ]; then
@@ -380,6 +401,8 @@ build() {
   mv -f "$cache_dir/planroom.new" "$cache_dir/planroom"
   sha256_of "$cache_dir/planroom" >"$cache_dir/.ok"
   touch_last_used
+  # The clone and its build directory run to gigabytes, and the cache now holds the engine.
+  rm -rf "$src"
   exit 0
 }
 

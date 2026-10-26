@@ -127,6 +127,12 @@ impl Report {
         }
     }
 
+    /// A documented step that no code runs yet, with the milestone that builds it. It neither
+    /// passes nor fails, so a green run never reads as one that ran it.
+    pub fn not_built(&mut self, name: &str, milestone: &str) {
+        self.line(format!("not built {name} ({milestone})"));
+    }
+
     pub fn failed(&mut self, name: &str, output: &str, fix: &str) {
         let output = output.trim_end();
         if !output.is_empty() {
