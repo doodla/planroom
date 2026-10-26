@@ -73,9 +73,20 @@ The spike mod set a marker with `$.store.set`, and a search found it in `~/.clau
 
 `CLAUDE_CODE_VERSION` in that environment said `2.1.42` while `$.session.version()` answered `{ version: "2.1.310", base: "2.1.310", builtAt: "2026-10-23T17:43:32Z" }` [A-19, V]: the variable names something else, so the host check reads the API, never the environment.
 
+## The mod's view of spawned agents and of `ArtifactData` [V]
+
+The spike mod hooked `tool.check` for `Bash` and recorded each call's `agentId`:
+
+- A Bash call from a subagent the Agent tool spawned carried that subagent's `agentId` (`af013627…`). So did the calls of this session's workflow agents (`a13d44ba…`), which pass through the same mod.
+- The main loop's own Bash calls carried `agentId: null`.
+
+So the guard can tell the implementer's calls from the session's own by `agentId`, as the design assumes.
+
+From a tool handler, `$.tool.call({ tool: "ArtifactData", action: "list", url, collection: "inbox" })` reached the Phase 1 probe Artifact and returned its one inbox document. The structured `result.db_read.docs[].data` came back as `{}`, while the result's `text` carried each document's data, one JSON object per line, between `=== BEGIN ARTIFACT DB … ===` and `=== END ARTIFACT DB … ===` markers. So `/room sync` reads the rows from that text block, treating it as data, and checks every line against `InboxRow` before passing it to `import -`. The call ran from a tool handler, not a press; a press uses the same `$.tool.call`.
+
 ## Still open in WS8
 - A-21: the git adapter's tests on git 2.34.1, in a CI job with that git.
-- The live-mod spikes: `tool.check` seeing a spawned agent's `agentId`, `$.tool.call` on `ArtifactData` from a press, and `comments.sendToClaude` waking the session's watch.
+- `$.tool.call` on `ArtifactData` from a press (run here from a tool handler, below) and `comments.sendToClaude` waking the session's watch: both need a person's tap on a page or the pane, so they run with the WS7 publish.
 
 ## Spend logs seeded [DR-65]
 
