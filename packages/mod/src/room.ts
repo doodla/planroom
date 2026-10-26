@@ -99,7 +99,7 @@ export function handlesOf(result: ToolResult): Handle[] {
   } | null;
   const meta = result.meta["next"];
   const found = [
-    ...(Array.isArray(meta) ? meta : [meta]),
+    ...(Array.isArray(meta) ? (meta as unknown[]) : [meta]),
     r?.empty?.next,
     r?.next,
   ].filter(isHandle);

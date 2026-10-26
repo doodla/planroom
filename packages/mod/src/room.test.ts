@@ -23,12 +23,24 @@ function ran(stdout: string): Ran {
 
 const MAP = JSON.stringify(mapReply);
 const OSC52 = "\u001b]52;c;aGVsbG8=\u0007";
-const RLO = "‮";
+const RLO = String.fromCodePoint(0x202e);
 
 /** No control or bidi character survives into what the person sees. */
 function clean(text: string): boolean {
-  // eslint-disable-next-line no-control-regex
-  return !/[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/.test(text.replace(/\n/g, " "));
+  return !hasRaw(text);
+}
+
+/** Whether a control or bidi character other than a line break is left raw in `text`. */
+function hasRaw(text: string): boolean {
+  return [...text].some((c) => {
+    const n = c.codePointAt(0) ?? 0;
+    return (
+      (n < 0x20 && n !== 0x0a) ||
+      (n >= 0x7f && n <= 0x9f) ||
+      (n >= 0x202a && n <= 0x202e) ||
+      (n >= 0x2066 && n <= 0x2069)
+    );
+  });
 }
 
 test("room_text_within_budget: /room text is the summary line and handles, never JSON, within 300 tokens", () => {

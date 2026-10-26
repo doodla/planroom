@@ -206,6 +206,65 @@ test.describe("at 1440x900", () => {
     expect((await ran).status()).toBe(200);
   });
 
+  test("the_breadcrumb_names_the_level_and_each_ancestor_goes_back_up", async ({
+    page,
+    engine,
+  }) => {
+    await openMap(page, await engine.loginUrl());
+    const crumbs = page.locator(".breadcrumb");
+    await expect(crumbs.locator(".lid-name")).toHaveText("shop");
+    await page
+      .locator(".rail")
+      .getByRole("button", { name: "component", exact: true })
+      .click();
+    await expect(crumbs.locator(".lid-name")).toHaveText("component");
+    await crumbs
+      .getByRole("button", { name: "container", exact: true })
+      .click();
+    await expect(crumbs.locator(".lid-name")).toHaveText("container");
+    await crumbs.getByRole("button", { name: "shop", exact: true }).click();
+    await expect(crumbs.locator(".lid-name")).toHaveText("shop");
+    await expect(page.locator(".map[data-ready]")).toBeVisible();
+  });
+
+  test("once_its_level_shows_the_next_action_turns_into_the_way_back", async ({
+    page,
+    engine,
+  }) => {
+    await openMap(page, await engine.loginUrl());
+    const card = page.locator("[data-concept=decisions] .face-up");
+    await card.getByRole("button", { name: "Open the containers" }).click();
+    await expect(page.locator(".breadcrumb .lid-name")).toHaveText("container");
+    await expect(
+      card.getByRole("button", { name: "Open the containers" }),
+    ).toHaveCount(0);
+    await card.getByRole("button", { name: "Back to shop" }).click();
+    await expect(page.locator(".breadcrumb .lid-name")).toHaveText("shop");
+    await expect(
+      card.getByRole("button", { name: "Open the containers" }),
+    ).toBeVisible();
+  });
+
+  test("a_level_with_no_blocks_draws_an_empty_state_with_a_way_back", async ({
+    page,
+    engine,
+  }) => {
+    await openMap(page, await engine.loginUrl());
+    await page
+      .locator(".rail")
+      .getByRole("button", { name: "intent", exact: true })
+      .click();
+    const empty = page.locator(".level-empty [data-empty]");
+    await expect(empty.locator("img")).toBeVisible();
+    await expect(empty.getByRole("button")).toHaveCount(1);
+    await expect(page.locator(".breadcrumb .lid-name")).toHaveText("intent");
+    await page
+      .locator(".breadcrumb")
+      .getByRole("button", { name: "shop", exact: true })
+      .click();
+    await expect(page.locator(".map[data-ready]")).toBeVisible();
+  });
+
   test("an_empty_tray_shows_its_art_and_the_next_action", async ({
     page,
     engine,
@@ -356,6 +415,38 @@ test.describe("at 390x844 with touch", () => {
     await sheet.locator("[data-concept=diffs]").tap();
     await expect(sheet).toHaveAttribute("data-detent", "half");
     await expect(sheet.locator("[data-empty] img")).toBeVisible();
+  });
+
+  test("the_phone_always_goes_back_up_through_the_ancestors_lid", async ({
+    page,
+    engine,
+  }) => {
+    await openMap(page, await engine.loginUrl());
+    const sheet = page.locator(".sheet");
+    const lid = page.locator(".breadcrumb .lid-name");
+    await expect(lid).toHaveText("shop");
+    // No lid above the top.
+    await expect(
+      page.getByRole("button", { name: "Levels above" }),
+    ).toHaveCount(0);
+    await sheet.getByRole("button", { name: "Open the containers" }).tap();
+    await expect(lid).toHaveText("container");
+    // The sheet stops offering what it just did, and the row keeps four targets.
+    await expect(
+      sheet.getByRole("button", { name: "Open the containers" }),
+    ).toHaveCount(0);
+    expect(
+      await page.locator(".top-row").locator("button, input").count(),
+    ).toBeLessThanOrEqual(4);
+    await page.getByRole("button", { name: "Levels above" }).tap();
+    await page
+      .getByRole("dialog", { name: "Levels above" })
+      .getByRole("button", { name: "shop" })
+      .tap();
+    await expect(lid).toHaveText("shop");
+    await expect(
+      sheet.getByRole("button", { name: "Open the containers" }).first(),
+    ).toBeVisible();
   });
 
   test("search_opens_inside_the_lid", async ({ page, engine }) => {

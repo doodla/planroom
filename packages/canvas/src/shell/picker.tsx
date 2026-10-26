@@ -17,12 +17,17 @@ export function Picker({
   className,
   children,
   entries,
+  onPick,
+  buttonClass = "button picker-button",
 }: {
   concept: string;
   label: string;
   className: string;
   children: ReactNode;
   entries: readonly PickerEntry[];
+  /** What a press on an entry does, by its key; the sheet closes either way. */
+  onPick?: (key: string) => void;
+  buttonClass?: string;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -48,7 +53,7 @@ export function Picker({
     <div className={`picker ${className}`} data-concept={concept} ref={root}>
       <button
         type="button"
-        className="button picker-button"
+        className={buttonClass}
         aria-label={label}
         aria-expanded={open}
         aria-controls={id}
@@ -70,7 +75,10 @@ export function Picker({
                   type="button"
                   className="picker-entry"
                   aria-current={e.current || undefined}
-                  onClick={() => setOpen(false)}
+                  onClick={() => {
+                    setOpen(false);
+                    onPick?.(e.key);
+                  }}
                 >
                   {e.label}
                 </button>

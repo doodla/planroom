@@ -238,10 +238,7 @@ test("security-5: an OSC 52 or RLO in a repo name never reaches the pane or the 
   const drawn = texts(all).join("\n");
   expect(drawn).toContain("\\x1b]52");
   expect(drawn).toContain("⟨U+202E⟩");
-  // eslint-disable-next-line no-control-regex
-  expect(
-    /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u202a-\u202e]/.test(drawn),
-  ).toBe(false);
+  expect(hasRaw(drawn)).toBe(false);
 });
 
 test("no_decision_shows_next: with no open decision the card is the next action", () => {
@@ -349,3 +346,16 @@ test("a person key mismatch is a pane Button and never the band's", () => {
   });
   expect(bandRow({ fallback: f }, 80).kind).toBe("text");
 });
+
+/** Whether a control or bidi character other than a line break is left raw in `text`. */
+function hasRaw(text: string): boolean {
+  return [...text].some((c) => {
+    const n = c.codePointAt(0) ?? 0;
+    return (
+      (n < 0x20 && n !== 0x0a) ||
+      (n >= 0x7f && n <= 0x9f) ||
+      (n >= 0x202a && n <= 0x202e) ||
+      (n >= 0x2066 && n <= 0x2069)
+    );
+  });
+}

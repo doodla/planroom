@@ -9,6 +9,7 @@ import emptyDiffs from "../assets/empty-diffs.webp";
 import { STRINGS } from "../strings";
 import { useCanvas } from "../use-canvas";
 import { EmptyState } from "../views/empty-state";
+import { useNextAction } from "./next-action";
 
 export function TrayBadge({
   open,
@@ -44,20 +45,12 @@ export function TrayPeek() {
 
 export function TrayList() {
   const pane = useCanvas((s) => s.pane);
-  const run = useCanvas((s) => s.run);
+  const next = useNextAction();
   if (pane === null) {
     return null;
   }
   if (pane.diffs.length === 0) {
-    return (
-      <EmptyState
-        art={emptyDiffs}
-        action={{
-          label: sanitize(pane.next.label),
-          onPress: () => void run(pane.next),
-        }}
-      />
-    );
+    return <EmptyState art={emptyDiffs} {...(next ? { action: next } : {})} />;
   }
   return (
     <ul className="tray-list" aria-label={STRINGS.diffs}>

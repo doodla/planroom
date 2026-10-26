@@ -7,10 +7,12 @@ import { sanitize } from "@planroom/ui";
 
 import { STRINGS } from "../strings";
 import { useCanvas } from "../use-canvas";
+import { useNextAction } from "./next-action";
 
 export function CardStack() {
   const pane = useCanvas((s) => s.pane);
   const run = useCanvas((s) => s.run);
+  const next = useNextAction();
   if (pane === null) {
     return null;
   }
@@ -58,17 +60,17 @@ export function CardStack() {
                 ))}
               </div>
             </>
-          ) : (
+          ) : next !== null ? (
             <div className="card-choices">
               <button
                 type="button"
                 className="button primary"
-                onClick={() => void run(pane.next)}
+                onClick={next.onPress}
               >
-                {sanitize(pane.next.label)}
+                {next.label}
               </button>
             </div>
-          )}
+          ) : null}
         </article>
       </div>
     </section>

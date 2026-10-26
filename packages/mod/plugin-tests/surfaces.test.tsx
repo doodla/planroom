@@ -139,7 +139,11 @@ const CONTAINERS = JSON.stringify({
     focus: null,
     nodes: [
       { id: "orders:svc:api", name: "api", counts: { component: 3 } },
-      { id: "w:svc:e", name: "evil\u001b]52;c;aGVsbG8=\u0007‮abc", counts: {} },
+      {
+        id: "w:svc:e",
+        name: `evil\u001b]52;c;aGVsbG8=\u0007${String.fromCodePoint(0x202e)}abc`,
+        counts: {},
+      },
     ],
     edges: [],
     hidden: 0,
@@ -173,7 +177,7 @@ test("ux-1: the next action shows its result in the pane, the band stops offerin
   );
   // The repo-derived name shows its escapes, never the raw OSC 52 or RLO (security-5).
   for (const t of await texts(ui)) {
-    expect(t).not.toMatch(/[\u001b\u0007‮]/);
+    expect(hasRaw(t), t).toBe(false);
   }
   const band = await $.ui.mount({ ...BAND, surface: "terminal" });
   expect(await band.find({ key: "band-primary" })).toBeUndefined();
@@ -227,3 +231,16 @@ test("ux-2: /room map returns its summary line and draws the full result in its 
     await row.unmount();
   }
 });
+
+/** Whether a control or bidi character other than a line break is left raw in `text`. */
+function hasRaw(text: string): boolean {
+  return [...text].some((c) => {
+    const n = c.codePointAt(0) ?? 0;
+    return (
+      (n < 0x20 && n !== 0x0a) ||
+      (n >= 0x7f && n <= 0x9f) ||
+      (n >= 0x202a && n <= 0x202e) ||
+      (n >= 0x2066 && n <= 0x2069)
+    );
+  });
+}

@@ -9,7 +9,11 @@ import { EmptyState } from "./views/empty-state";
 export function App() {
   const phase = useCanvas((s) => s.phase);
   const problem = useCanvas((s) => s.problem);
-  const empty = useCanvas((s) => s.map?.empty ?? null);
+  // The top level's empty state fills the page; a level below it keeps the shell, so its
+  // breadcrumb and rail still lead back up (ux-3).
+  const empty = useCanvas((s) =>
+    s.level === null ? (s.map?.empty ?? null) : null,
+  );
   const start = useCanvas((s) => s.start);
   const run = useCanvas((s) => s.run);
 
