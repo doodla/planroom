@@ -1,12 +1,12 @@
-// A review round under KICKOFF's protocol: one reviewer per lens, then a separate verifier that
-// tries to refute that lens's findings. Copy this into the Workflow tool's `script`, fill in the
+// A review round under KICKOFF's protocol: one reviewer per focus, then a separate verifier that
+// tries to refute that focus's findings. Copy this into the Workflow tool's `script`, fill in the
 // <...> parts, and keep `model` and `effort` literal on every agent() call (a hook checks them).
-// Run two of these with four lenses each when there are eight lenses: a workflow runs two agents
-// at a time on this machine.
+// With eight focuses, run this twice, with four focuses each: one run executes two agents at a
+// time on this machine.
 export const meta = {
   name: '<phase>-review-<a|b>',
-  description: '<Phase> review round <N>, lenses <...>; each lens refuted by a separate verifier',
-  phases: [{ title: 'Review', detail: 'reviewer per lens' }, { title: 'Refute', detail: 'separate verifier per lens' }],
+  description: '<Phase> review round <N>, focuses <...>; each focus checked by a separate verifier',
+  phases: [{ title: 'Review', detail: 'reviewer per focus' }, { title: 'Verify', detail: 'separate verifier per focus' }],
 }
 
 // What is under review and what is out of scope. Give the work, never the build's reasoning or
@@ -29,7 +29,7 @@ const FINDINGS = {
       items: {
         type: 'object',
         properties: {
-          id: { type: 'string', description: 'lens-n, e.g. security-3' },
+          id: { type: 'string', description: 'focus-n, e.g. security-3' },
           title: { type: 'string' },
           severity: { type: 'string', enum: ['material', 'minor'] },
           where: { type: 'array', items: { type: 'string' } },
@@ -65,20 +65,20 @@ const VERDICTS = {
   required: ['verdicts'],
 }
 
-// One entry per lens. Pick lenses that fail in different ways; the skeleton used correctness,
-// security, drift, tests (workflow A) and repo, ux, operability, unasked (workflow B).
-const LENSES = [
-  { key: '<lens>', ask: 'Lens: <NAME>. <What to hunt for, and which files and docs to compare.>' },
+// One entry per focus. Pick focuses that fail in different ways; the skeleton used correctness,
+// security, drift, tests (first batch) and repo, ux, operability, unasked (second batch).
+const FOCUSES = [
+  { key: '<focus>', ask: 'Focus: <NAME>. <What to hunt for, and which files and docs to compare.>' },
 ]
 
 const results = await pipeline(
-  LENSES,
-  (l) => agent(`${WORK}\n\n${l.ask}`, { label: `review:${l.key}`, phase: 'Review', schema: FINDINGS, model: 'opus', effort: 'high' }),
-  (review, l) => {
-    if (!review || !review.findings || review.findings.length === 0) return { lens: l.key, review, verdicts: [] }
-    return agent(`${WORK}\n\nYou are a separate VERIFIER for the "${l.key}" lens. Another reviewer reported the findings below. Try to REFUTE each one independently: re-check its evidence yourself (read the cited lines, rerun the cited command where the rules allow), look for code, tests or decision records that already handle it, and check whether its severity is right under the definition above. Default to refuted=false only when you confirmed the defect yourself. Judge each finding on its own; do not weigh one against another.\n\nFindings:\n${JSON.stringify(review.findings, null, 1)}`,
-      { label: `refute:${l.key}`, phase: 'Refute', schema: VERDICTS, model: 'opus', effort: 'high' })
-      .then((v) => ({ lens: l.key, review, verdicts: v ? v.verdicts : null }))
+  FOCUSES,
+  (f) => agent(`${WORK}\n\n${f.ask}`, { label: `review:${f.key}`, phase: 'Review', schema: FINDINGS, model: 'opus', effort: 'high' }),
+  (review, f) => {
+    if (!review || !review.findings || review.findings.length === 0) return { focus: f.key, review, verdicts: [] }
+    return agent(`${WORK}\n\nYou are a separate VERIFIER for the "${f.key}" focus. Another reviewer reported the findings below. Try to REFUTE each one independently: re-check its evidence yourself (read the cited lines, rerun the cited command where the rules allow), look for code, tests or decision records that already handle it, and check whether its severity is right under the definition above. Default to refuted=false only when you confirmed the defect yourself. Judge each finding on its own; do not weigh one against another.\n\nFindings:\n${JSON.stringify(review.findings, null, 1)}`,
+      { label: `verify:${f.key}`, phase: 'Verify', schema: VERDICTS, model: 'opus', effort: 'high' })
+      .then((v) => ({ focus: f.key, review, verdicts: v ? v.verdicts : null }))
   },
 )
 return results

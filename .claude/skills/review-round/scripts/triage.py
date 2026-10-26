@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Triage one review round from its workflow journals.
 
-Reads each journal's `review:<lens>` and `refute:<lens>` results, writes one
-`round<N>-<lens>.json` per lens into OUT, and prints each finding's outcome:
-MATERIAL (unrefuted, material after the verifier), minor (unrefuted, minor), or
-refuted. With --rows, also writes the README's outcome table rows to that file;
---tracks names a JSON file mapping finding IDs to the track that fixes them.
+Reads each journal's `review:<focus>` and `verify:<focus>` results (older
+journals label the verifier `refute:<focus>`), writes one `round<N>-<focus>.json`
+per focus into OUT, and prints each finding's outcome: MATERIAL (unrefuted,
+material after the verifier), minor (unrefuted, minor), or refuted. With --rows,
+also writes the README's outcome table rows to that file; --fixes names a JSON
+file mapping finding IDs to the branch that fixes them.
 
     python3 -I triage.py --round 1 --out docs/contributing/research/<phase>-review \
-        JOURNAL [JOURNAL ...] [--rows rows.md] [--tracks tracks.json]
+        JOURNAL [JOURNAL ...] [--rows rows.md] [--fixes fixes.json]
 """
 
 import argparse
@@ -44,9 +45,9 @@ def main():
     p.add_argument("--round", type=int, required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--rows")
-    p.add_argument("--tracks")
+    p.add_argument("--fixes", help="JSON file mapping finding IDs to the branch that fixes them")
     a = p.parse_args()
-    tracks = json.load(open(a.tracks)) if a.tracks else {}
+    fixes = json.load(open(a.fixes)) if a.fixes else {}
     os.makedirs(a.out, exist_ok=True)
     rows, counts = [], {"material": 0, "minor": 0, "refuted": 0, "unverified": 0}
     for journal in a.journals:
@@ -54,22 +55,22 @@ def main():
         for label in sorted(res):
             if not label.startswith("review:"):
                 continue
-            lens = label.split(":", 1)[1]
+            focus = label.split(":", 1)[1]
             review = res[label] or {"findings": [], "summary": ""}
-            refute = res.get("refute:" + lens) or {}
-            verdicts = refute.get("verdicts") or []
-            with open(os.path.join(a.out, f"round{a.round}-{lens}.json"), "w") as f:
-                json.dump({"lens": lens, "review": review, "verdicts": verdicts}, f, indent=1)
+            check = res.get("verify:" + focus) or res.get("refute:" + focus) or {}
+            verdicts = check.get("verdicts") or []
+            with open(os.path.join(a.out, f"round{a.round}-{focus}.json"), "w") as f:
+                json.dump({"focus": focus, "review": review, "verdicts": verdicts}, f, indent=1)
                 f.write("\n")
             by_id = {v["id"]: v for v in verdicts}
-            print(f"## {lens}")
+            print(f"## {focus}")
             for finding in review.get("findings", []):
                 o = outcome(finding, by_id.get(finding["id"]))
                 counts[o] += 1
                 tag = {"material": "MATERIAL", "minor": "minor", "refuted": "refuted", "unverified": "UNVERIFIED"}[o]
                 print(f"  {tag:10} {finding['id']}: {finding['title'][:140]}")
                 text = {
-                    "material": "Material: fix" + (f" in {tracks[finding['id']]}" if finding["id"] in tracks else ""),
+                    "material": "Material: fix" + (f" in {fixes[finding['id']]}" if finding["id"] in fixes else ""),
                     "minor": "Minor: known gap",
                     "refuted": "Refuted",
                     "unverified": "Unverified: no verdict",
@@ -78,7 +79,7 @@ def main():
                 rows.append(f"| {finding['id']} | {title} | {text} |")
     print("\n" + ", ".join(f"{n} {k}" for k, n in counts.items()))
     if counts["unverified"]:
-        print("Some findings have no verdict: a refuter is missing or still running.", file=sys.stderr)
+        print("Some findings have no verdict: a verifier is missing or still running.", file=sys.stderr)
     if a.rows:
         with open(a.rows, "w") as f:
             f.write("\n".join(rows) + "\n")

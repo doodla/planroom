@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: plans-a-gated-branch-merge
+expected_outcome: |
+  merge-plan.md gives an ordered merge procedure for feat/pack-loader: it squash-merges the branch,
+  regenerates the conflicting generated files (the mod bundle and catalogue.ts) with cargo xtask gen
+  instead of merging them by hand, unions the usage lines in main.rs, writes a decision record for
+  the gated changes and the tone conflict and runs cargo xtask gen --layout-lock with it, commits all
+  of it as one squash commit whose message says what changed and why in Planroom's terms and ends
+  with the session's trailers, runs the full suite itself (check, test with the plugin harness)
+  before that, pushes only to the working branch, cleans the worktree and deletes the branch, and
+  reads CI through the GitHub tools afterwards.

@@ -1,25 +1,27 @@
 ---
-name: merge-track
-description: How the main agent merges a Planroom track branch built in a worktree into the working branch, verifies it, ratifies gated surfaces with a decision record and the layout lock, pushes, and gets CI green. Use it whenever a workflow or agent that built a track (track/*, a worktree-* branch) reports back, when two tracks need merging one after another, when a merge hits conflicts in generated files, or when CI turns red after a merge, even if the request only says "merge it" or "the agent finished".
+name: merge-branch
+description: How you squash-merge a Planroom branch that an agent built in parallel in a worktree into the working branch, verify it, ratify gated surfaces with a decision record and the layout lock, push, and get CI green. Use it whenever a Workflow tool run or an agent that built a branch in a worktree (a worktree-* branch, or a named one such as fix/import-budget) reports back, when two such branches need merging one after another, when a merge hits conflicts in generated files, or when CI turns red after a merge, even if the request only says "merge it" or "the agent finished".
 ---
 
-# Merge a track
+# Merge a branch built in parallel
 
-In Planroom only the main agent merges tracks and pushes (KICKOFF `<process>`, `AGENTS.md`). A track's report is a claim, not proof: everything below re-checks it on the merged tree. Seam bugs live where tracks meet, and every one so far was invisible to each track alone. Examples: the person-token encoding, the mod's plugin root, a skill named like a mod command.
+You merge the branch and push it yourself; the agent that built it doesn't (KICKOFF `<process>`, `AGENTS.md`). Its report is a claim, not proof: everything below re-checks it on the merged tree. Seam bugs live where two branches meet, and every one so far was invisible to each branch alone. Examples: the person-token encoding, the mod's plugin root, a skill named like a mod command.
+
+A branch is named for what it changes, such as `fix/import-budget` or `feat/pack-loader`. Each one lands as one squash commit on the working branch.
 
 ## Before merging
 
-1. **Read the track's whole report**, not the truncated notification: `journal.jsonl` in the workflow's transcript directory holds each agent's full result. Note three lists from it: what it verified, its doc conflicts, and the gated surfaces it changed.
+1. **Read the agent's whole report**, not the truncated notification. When the Workflow tool built the branch, `journal.jsonl` in that run's transcript directory holds each agent's full result. Note three lists from it: what it verified, its doc conflicts, and the gated surfaces it changed.
 2. **Free disk first.** A worktree's `target/` is 3 to 8 GB, and a full disk fails builds halfway through. Run `df -h /`. Delete the build directories of merged or finished worktrees (`rm -rf .claude/worktrees/*/target`), never their branches.
-3. **Preview the conflicts:** `git merge-tree --write-tree --name-only <working-branch> track/<name>`. Merge tracks one at a time, in the order the plan names; the second track merges onto the first's result.
+3. **Preview the conflicts:** `git merge-tree --write-tree --name-only <working-branch> <branch>`. Merge branches one at a time, in the order the plan names; the second branch merges onto the first's result.
 
 ## Merging
 
-1. `git merge --no-ff --no-commit track/<name>`.
+1. `git merge --squash <branch>`. It stages the branch's changes as one change and doesn't commit.
 2. **Generated files never merge by hand.** Take either side, then run the generator that the Generated directories table in `docs/contributing/repo-layout.md` names: `cargo xtask gen` for most (the schemas, the TypeScript contract, the mod bundle `plugin/hooks/planroom-mod.js`, `plugin.json`'s content-stamped version, `engine.env`, the area contract blocks), and `cargo xtask gen --golden` for `tests/golden/`. A `layout.lock` conflict is yours to resolve: rewrite it with `gen --layout-lock`, never by hand.
-3. **Source conflicts:** keep both sides' intent. Usually both tracks added an item to the same list: a usage line, a match arm, a contract re-export. Union them. When both tracks fixed the same bug differently, keep one fix and drop the other.
+3. **Source conflicts:** keep both sides' intent. Usually both branches added an item to the same list: a usage line, a match arm, a contract re-export. Union them. When both branches fixed the same bug differently, keep one fix and drop the other.
 4. **New dependencies:** run `pnpm install --frozen-lockfile --offline`, and without `--offline` if that fails. Otherwise `tsc` and the bundle fail with "cannot find module" errors that look like code bugs. The xtask commands don't run the install themselves yet (an M1 gates item); once they do, this step goes.
-5. **Version-coupled pins:** the workspace path dependencies carry `version = "=X.Y.Z[-dev]"`. If a track changed the workspace version, update those pins to match, or `cargo metadata` fails.
+5. **Version-coupled pins:** the workspace path dependencies carry `version = "=X.Y.Z[-dev]"`. If the branch changed the workspace version, update those pins to match, or `cargo metadata` fails.
 
 ## Ratify what changed
 
@@ -27,8 +29,8 @@ In Planroom only the main agent merges tracks and pushes (KICKOFF `<process>`, `
 2. **Every doc conflict and every changed gated surface needs a decision:**
    - Write one decision record for the merge, in the shape of DR-81 to DR-84: Status, Starting point, Origin, Context, Decision, Alternatives rejected, Consequences, Sources. Add its index row.
    - Decide each conflict yourself. Either the code follows the docs, with the milestone named, or the docs follow the code because the code is right.
-   - Then fold the decision into its homes: `contracts.md`, `architecture.md`, `repo-layout.md`, `feature_list.json`.
-3. For a gated change, run `cargo xtask gen --layout-lock DR-n` in the same merge commit, naming the record you just wrote.
+   - Then apply the decision to its homes: `contracts.md`, `architecture.md`, `repo-layout.md`, `feature_list.json`.
+3. For a gated change, run `cargo xtask gen --layout-lock DR-n`, naming the record you just wrote. The record and the new `layout.lock` go in the squash commit.
 
 ## Verify on the merged tree
 
@@ -43,10 +45,10 @@ Chain commit and push so they run only on success. A shell `;` after a failing c
 
 ## Commit and push
 
-- Use one merge commit whose message says what the track added and what you verified. End it with the session's `Co-Authored-By` and `Claude-Session` trailers.
+- Commit the squashed change as one commit. Its message says what changed and why, in Planroom's terms: the behavior, the contract or the docs, not the branch's name, the agents' roles or how the review ran. It includes the decision record and the `gen --layout-lock` output. End it with the session's `Co-Authored-By` and `Claude-Session` trailers.
 - If another agent is editing the same working tree, `git add` your own paths only, never `-A`.
 - Push with `git push -u origin <working-branch>`. Never open a pull request, push a tag or change repository settings without the owner.
-- **Clean up:** run `git worktree remove --force` for the track's worktree. Delete `track/<name>` with `git branch -d`, which refuses an unmerged branch, and the leftover `worktree-*` branch, which holds only the worktree's starting commit, with `-D`.
+- **Clean up:** run `git worktree remove --force` for the branch's worktree. Then delete the branch with `git branch -D <branch>`: `-d` refuses a squash-merged branch, because its commits aren't in your history, so delete it only after the squash commit is pushed. Delete the leftover `worktree-*` branch, which holds only the worktree's starting commit, with `-D` too.
 
 ## Get CI green
 
@@ -58,9 +60,9 @@ CI catches what this container can't: cargo-deny, a BusyBox that prefers its own
 
 Nothing wakes the session when CI finishes. Schedule a check-in with `send_later` if you won't otherwise come back.
 
-Don't push again until the merge's run has finished. A newer push cancels the older run, so a stream of carry and docs pushes after a merge can leave every merge commit without a finished run, and CI red for hours with nobody seeing it. Read the newest completed run, not the newest run, and treat `cancelled` as not yet checked.
+Don't push again until the merge's run has finished. A newer push cancels the older run, so a stream of notes and docs pushes after a merge can leave every merge commit without a finished run, and CI red for hours with nobody seeing it. Read the newest completed run, not the newest run, and treat `cancelled` as not yet checked.
 
 ## Record it
 
 - Add a dated entry to `progress.md` with the commits, what you verified, the seam bugs found, and the decisions made.
-- Update `.claude/carry.md`'s "Where I am" section, keeping it under 4,000 characters.
+- Update the notes file that `CLAUDE.md`'s "Keeping track across compactions" names, keeping it under 4,000 characters.
