@@ -271,7 +271,10 @@ test("security-r3-2: Artifact, ArtifactData, SendUserFile, LS and unknown tools 
         writes: [{ op: "set", collection: "c", doc_id: "d", file_path: store }],
       },
     ],
-    ["Artifact", { action: "publish", asset: true, url: "u", file_path: store }],
+    [
+      "Artifact",
+      { action: "publish", asset: true, url: "u", file_path: store },
+    ],
     [
       "Artifact",
       {

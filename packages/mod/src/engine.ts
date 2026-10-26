@@ -113,9 +113,7 @@ export function engineFromVersion(
   // engine_unavailable's details, as the error registry documents them (contracts.md); the reason
   // is the contract's generated union, so a reason added or renamed there is a type error here.
   const details = error.details as
-    | { reason?: UnavailableReason; fix?: string }
-    | null
-    | undefined;
+    { reason?: UnavailableReason; fix?: string } | null | undefined;
   const fix = details?.fix ?? error.hint ?? null;
   if (error.code === "engine_fetching") {
     return { ...base, status: "fetching", line: error.message };

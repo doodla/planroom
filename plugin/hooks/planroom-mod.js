@@ -598,12 +598,7 @@ function uploadDenied(path, places2) {
 }
 function cdDenied(path, places2) {
   const config = places2.userConfig.slice(0, places2.userConfig.lastIndexOf("/"));
-  const held = [
-    places2.dataRoot,
-    modStoreDir(places2),
-    config,
-    ...places2.plugin
-  ];
+  const held = [places2.dataRoot, modStoreDir(places2), config, ...places2.plugin];
   return mayBeInStateDir(path) || held.some((h2) => mayName(path, h2, "within")) ? "An agent doesn't cd into Planroom's state, its data root, the mod's store, the user config's folder or the plugin's own folder; name the file from where you are, or use the planroom CLI." : null;
 }
 function secretPlaces(places2) {
@@ -1268,7 +1263,8 @@ function callPaths(tool, input) {
         else if (typeof v === "object" && v !== null && !("artifact" in v)) {
           const from = v["from"];
           const path = v["path"];
-          if (typeof from === "string" && from !== "") sources.push(under(from));
+          if (typeof from === "string" && from !== "")
+            sources.push(under(from));
           else if (typeof path === "string" && path !== "") {
             sources.push(under(path));
           }

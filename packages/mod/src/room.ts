@@ -47,7 +47,9 @@ function mapOf(result: unknown): MapView | null {
     r.nodes.every((n: unknown) => {
       const node = n as Partial<MapView["nodes"][number]> | null;
       return (
-        node !== null && typeof node === "object" && typeof node.name === "string"
+        node !== null &&
+        typeof node === "object" &&
+        typeof node.name === "string"
       );
     })
     ? (r as MapView)
@@ -245,10 +247,7 @@ export function shownFrom(
     seq,
     line: lineFor(handle.command, handle.label, ran),
     level: map === null ? null : sanitize(map.level),
-    blocks:
-      map === null
-        ? []
-        : map.nodes.map((n) => oneLine(n.name)),
+    blocks: map === null ? [] : map.nodes.map((n) => oneLine(n.name)),
   };
 }
 

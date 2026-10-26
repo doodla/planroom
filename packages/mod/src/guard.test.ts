@@ -590,7 +590,11 @@ const TOOL_BYPASSES: [string, unknown][] = [
   ],
   [
     "Monitor",
-    { description: "x", timeout_ms: 1, command: "tail -f .planroom/serve.json" },
+    {
+      description: "x",
+      timeout_ms: 1,
+      command: "tail -f .planroom/serve.json",
+    },
   ],
   // A file in the state directory that isn't share's leaves the machine through none of them.
   ["SendUserFile", { files: [".planroom/config.toml"], status: "normal" }],
