@@ -18,7 +18,7 @@ In Planroom only the main agent merges tracks and pushes (KICKOFF `<process>`, `
 1. `git merge --no-ff --no-commit track/<name>`.
 2. **Generated files never merge by hand.** Take either side, then run the generator that the Generated directories table in `docs/contributing/repo-layout.md` names: `cargo xtask gen` for most (the schemas, the TypeScript contract, the mod bundle `plugin/hooks/planroom-mod.js`, `plugin.json`'s content-stamped version, `engine.env`, the area contract blocks), and `cargo xtask gen --golden` for `tests/golden/`. A `layout.lock` conflict is yours to resolve: rewrite it with `gen --layout-lock`, never by hand.
 3. **Source conflicts:** keep both sides' intent. Usually both tracks added an item to the same list: a usage line, a match arm, a contract re-export. Union them. When both tracks fixed the same bug differently, keep one fix and drop the other.
-4. **New dependencies:** run `pnpm install --frozen-lockfile --offline`, and without `--offline` if that fails. Otherwise `tsc` and the bundle fail with "cannot find module" errors that look like code bugs.
+4. **New dependencies:** run `pnpm install --frozen-lockfile --offline`, and without `--offline` if that fails. Otherwise `tsc` and the bundle fail with "cannot find module" errors that look like code bugs. The xtask commands don't run the install themselves yet (an M1 gates item); once they do, this step goes.
 5. **Version-coupled pins:** the workspace path dependencies carry `version = "=X.Y.Z[-dev]"`. If a track changed the workspace version, update those pins to match, or `cargo metadata` fails.
 
 ## Ratify what changed
@@ -46,7 +46,7 @@ Chain commit and push so they run only on success. A shell `;` after a failing c
 - Use one merge commit whose message says what the track added and what you verified. End it with the session's `Co-Authored-By` and `Claude-Session` trailers.
 - If another agent is editing the same working tree, `git add` your own paths only, never `-A`.
 - Push with `git push -u origin <working-branch>`. Never open a pull request, push a tag or change repository settings without the owner.
-- **Clean up:** run `git worktree remove --force` for the track's worktree, then delete `track/<name>` and its `worktree-*` branch.
+- **Clean up:** run `git worktree remove --force` for the track's worktree. Delete `track/<name>` with `git branch -d`, which refuses an unmerged branch, and the leftover `worktree-*` branch, which holds only the worktree's starting commit, with `-D`.
 
 ## Get CI green
 
