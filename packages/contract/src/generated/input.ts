@@ -510,6 +510,14 @@ export type ScanState = "never" | "running" | "done";
  * via the `definition` "ResolverStep".
  */
 export type ResolverStep = "override" | "checkout" | "cache" | "download";
+/**
+ * `engine_unavailable`'s `details.reason` (DR-69, DR-81).
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "UnavailableReason".
+ */
+export type UnavailableReason =
+  "download_failed" | "no_release" | "stale_build" | "no_toolchain" | "override_missing" | "no_build";
 
 /**
  * What Planroom accepts (the deserialize view).

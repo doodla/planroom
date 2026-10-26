@@ -10,6 +10,7 @@ import type {
   ToolError,
   ToolMeta,
   ToolResult,
+  UnavailableReason,
   VersionInfo,
 } from "@planroom/contract";
 
@@ -70,6 +71,19 @@ export function unsupportedPlatform(): EngineState {
   };
 }
 
+/**
+ * A reason the generated union doesn't hold: typed `never`, so the switch above must name every
+ * reason the contract has, while a newer engine's reason still reads as a failure at run time.
+ */
+function unknownReason(
+  _reason: never,
+  base: EngineState,
+  line: string,
+  fix: string | null,
+): EngineState {
+  return { ...base, status: "failed", line, fix };
+}
+
 /** The engine's state after `scripts/planroom version --json`. */
 export function engineFromVersion(
   resolver: string,
@@ -96,15 +110,20 @@ export function engineFromVersion(
     };
   }
   const error = reply.error ?? NO_ERROR;
-  // engine_unavailable's details, as the error registry documents them (contracts.md).
+  // engine_unavailable's details, as the error registry documents them (contracts.md); the reason
+  // is the contract's generated union, so a reason added or renamed there is a type error here.
   const details = error.details as
-    { reason?: string; fix?: string } | null | undefined;
+    { reason?: UnavailableReason; fix?: string } | null | undefined;
   const fix = details?.fix ?? error.hint ?? null;
   if (error.code === "engine_fetching") {
     return { ...base, status: "fetching", line: error.message };
   }
   if (error.code === "engine_unavailable") {
-    switch (details?.reason) {
+    const reason = details?.reason;
+    if (reason === undefined) {
+      return { ...base, status: "failed", line: error.message, fix };
+    }
+    switch (reason) {
       case "stale_build":
         return {
           ...base,
@@ -116,8 +135,12 @@ export function engineFromVersion(
       case "no_build":
       case "download_failed":
         return { ...base, status: "build_offered", line: error.message, fix };
-      default:
+      case "no_toolchain":
+      case "override_missing":
         return { ...base, status: "failed", line: error.message, fix };
+      default:
+        // An engine newer than this mod may send a reason the union doesn't hold yet.
+        return unknownReason(reason, base, error.message, fix);
     }
   }
   return { ...base, status: "failed", line: error.message, fix };

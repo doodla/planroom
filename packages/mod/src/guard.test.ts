@@ -10,7 +10,10 @@ import {
   shellWords,
 } from "./guard";
 
-const places = guardPlaces("/work", { HOME: "/home/u" });
+/** Where the installed plugin lives: its mod bundle, its guard and the resolver (security-r3-3). */
+const PLUGIN = "/home/u/.claude/plugins/cache/planroom/planroom/0.1.0";
+
+const places = guardPlaces("/work", { HOME: "/home/u" }, { plugin: [PLUGIN] });
 
 function verdict(
   tool: string,
@@ -28,6 +31,8 @@ function verdict(
 test("the places follow the environment's overrides", () => {
   expect(places).toEqual({
     cwd: "/work",
+    workspace: "/work",
+    plugin: [PLUGIN],
     home: "/home/u",
     claudeConfig: "/home/u/.claude",
     dataRoot: "/home/u/.local/share/planroom",
@@ -302,6 +307,18 @@ const WRITE_BYPASSES = [
   "rm -rf .",
   "rm -rf ~/.claude",
   "rm -rf ~/.local/share/*",
+  // security-r3-3's strings: the plugin's resolver and mod bundle, which hold the guard itself.
+  "echo x > ~/.claude/plugins/cache/planroom/planroom/0.1.0/scripts/planroom",
+  "cp evil.js ~/.claude/plugins/cache/planroom/planroom/0.1.0/mod/index.js",
+  "cp evil.js ~/.claude/plugins/cache/planroom/planroom/0.1.0/hooks/planroom-mod.js",
+  // The same by the other forms: a glob, a link, an in-place edit, a delete, a program's argument.
+  "tee ~/.claude/plugins/cache/planroom/planroom/*/hooks/planroom-mod.js < evil.js",
+  "ln -sf /tmp/evil ~/.claude/plugins/cache/planroom/planroom/0.1.0/scripts/planroom",
+  "sed -i s/deny/allow/ ~/.claude/plugins/cache/planroom/planroom/0.1.0/hooks/planroom-mod.js",
+  "rm -rf ~/.claude/plugins/cache/planroom",
+  "rm -rf ~/.claude/plugins/cache",
+  "python3 -c 'open(1)' ~/.claude/plugins/cache/planroom/planroom/0.1.0/scripts/planroom",
+  "cp evil $CLAUDE_PLUGIN_ROOT/scripts/planroom",
   "find .planroom -delete",
   "git clean -f -d -x",
   "git clean -fdX -e .planroom",
@@ -431,4 +448,333 @@ test("security-r2: everyday writes and recursive reads still pass", () => {
   ]) {
     expect(verdict("Bash", { command }), command).toBeNull();
   }
+});
+
+/** The places as register.tsx builds them for one call, the shell in `cwd`. */
+function from(cwd: string) {
+  return (tool: string, input: unknown) =>
+    guardCall(tool, input, () => [], { ...places, cwd });
+}
+
+test("security-r3-1: relative paths resolve from the shell's directory for this call, not the session's start", () => {
+  // The reviewer's sequences, as the second call sees them once the host kept the first's `cd`.
+  const inState = from("/work/.planroom");
+  for (const command of ["cat serve.json", "rm -rf ./*", "sqlite3 store.db"]) {
+    expect(inState("Bash", { command })?.decision, command).toBe("deny");
+  }
+  expect(inState("Read", { file_path: "serve.json" })?.decision).toBe("deny");
+  expect(
+    from("/home/u/.claude/plugins")("Bash", {
+      command: "cat store/planroom_x.json",
+    })?.decision,
+  ).toBe("deny");
+  const inData = from("/home/u/.local/share/planroom");
+  for (const command of [
+    "cp evil engine/0.1.0/planroom",
+    "cat open/abc.html",
+  ]) {
+    expect(inData("Bash", { command })?.decision, command).toBe("deny");
+  }
+  expect(
+    from("/home/u/.config/planroom")("Bash", { command: "cat config.toml" })
+      ?.decision,
+  ).toBe("deny");
+  // From a folder inside the workspace, the workspace's state directory is still held.
+  const inSrc = from("/work/src");
+  expect(inSrc("Bash", { command: "rm -rf .." })?.decision).toBe("deny");
+  expect(inSrc("Bash", { command: "cat main.rs" })).toBeNull();
+  expect(inSrc("Read", { file_path: "../README.md" })).toBeNull();
+});
+
+test("security-r3-1: a cd or pushd into a guarded place is refused, in case a host doesn't report it", () => {
+  for (const command of [
+    "cd .planroom",
+    "cd repo/.git/planroom",
+    "pushd ~/.claude/plugins/store",
+    "cd ~/.local/share/planroom",
+    "cd ~/.local/share/planroom/engine/0.1.0",
+    "cd ~/.config/planroom",
+    `cd ${PLUGIN}/scripts`,
+    "cd ~/.local/share/plan*",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of [
+    "cd ..",
+    "cd ~/.claude/plugins",
+    "cd ~/.config/git",
+    "cd ~/.local/share",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+const STORE =
+  "/home/u/.claude/plugins/store/planroom_planroom-0123456789ab.json";
+
+/** Tool calls review round 3 found carried a guarded file past the guard (security-r3-2). */
+const TOOL_BYPASSES: [string, unknown][] = [
+  // The reviewer's calls.
+  [
+    "ArtifactData",
+    { action: "update", collection: "c", doc_id: "d", file_path: STORE },
+  ],
+  ["Artifact", { action: "publish", asset: true, url: "u", file_path: STORE }],
+  [
+    "Artifact",
+    {
+      action: "publish",
+      files: { "k.json": "/home/u/.config/planroom/config.toml" },
+    },
+  ],
+  ["SendUserFile", { files: ["/work/.planroom/serve.json"], status: "normal" }],
+  ["LS", { path: "/home/u/.claude/plugins/store" }],
+  ["NotebookRead", { notebook_path: STORE }],
+  // Every other path-bearing input of those tools.
+  [
+    "ArtifactData",
+    {
+      action: "batch",
+      writes: [{ op: "set", collection: "c", doc_id: "d", file_path: STORE }],
+    },
+  ],
+  [
+    "ArtifactData",
+    { action: "batch", batch: [{ file_path: ".planroom/serve.json" }] },
+  ],
+  [
+    "ArtifactData",
+    { action: "list", collection: "inbox", out_dir: ".planroom/share/inbox" },
+  ],
+  [
+    "Artifact",
+    { action: "publish", asset: true, url: "u", file_paths: ["a.png", STORE] },
+  ],
+  [
+    "Artifact",
+    {
+      action: "publish",
+      root: "/home/u/.claude/plugins",
+      files: { "s.json": "store/planroom_x.json" },
+    },
+  ],
+  [
+    "Artifact",
+    { action: "publish", root: ".planroom", files: [{ path: "serve.json" }] },
+  ],
+  [
+    "Artifact",
+    { action: "publish", files: { "s.db": { from: ".planroom/store.db" } } },
+  ],
+  [
+    "Artifact",
+    {
+      action: "publish",
+      file_path: "/home/u/.local/share/planroom/open/abc.html",
+    },
+  ],
+  [
+    "Artifact",
+    { action: "read", url: "u", path: "index.html", out_dir: ".planroom" },
+  ],
+  ["SendFile", { to: "peer", files: ["~/.config/planroom/config.toml"] }],
+  ["LS", { path: "/home/u/.local/share/planroom/backups" }],
+  [
+    "LSP",
+    {
+      operation: "hover",
+      filePath: ".planroom/serve.json",
+      line: 1,
+      character: 1,
+    },
+  ],
+  [
+    "Monitor",
+    {
+      description: "x",
+      timeout_ms: 1,
+      command: "tail -f .planroom/serve.json",
+    },
+  ],
+  // A file in the state directory that isn't share's leaves the machine through none of them.
+  ["SendUserFile", { files: [".planroom/config.toml"], status: "normal" }],
+  [
+    "ArtifactData",
+    {
+      action: "set",
+      collection: "c",
+      doc_id: "d",
+      file_path: ".planroom/layout.json",
+    },
+  ],
+  // A tool the guard doesn't know: each string that looks like a path is held to the read rule.
+  ["mcp__other__upload", { attachment: STORE }],
+  [
+    "mcp__other__upload",
+    { nested: { files: ["~/.config/planroom/config.toml"] } },
+  ],
+  [
+    "DesignSync",
+    {
+      method: "write_files",
+      files: [{ path: "a", localPath: "../work/.planroom/serve.json" }],
+    },
+  ],
+  ["Workflow", { scriptPath: "./.planroom/store.db" }],
+];
+
+test("security-r3-2: every path-bearing input of every tool is held to the read rule", () => {
+  for (const [tool, input] of TOOL_BYPASSES) {
+    expect(
+      verdict(tool, input)?.decision,
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBe("deny");
+  }
+  // A link that lands on the store is the store, for an upload too.
+  expect(
+    verdict("SendUserFile", { files: ["notes.json"] }, { "notes.json": STORE })
+      ?.decision,
+  ).toBe("deny");
+});
+
+test("security-r3-2: S11's own Artifact calls, and everyday uploads and tools, still pass", () => {
+  // `share --out .planroom/share`'s publish arguments, as its result hands them to the session.
+  expect(
+    verdict("Artifact", {
+      action: "publish",
+      file_path: "/work/.planroom/share/page.html",
+      root: "/work/.planroom/share",
+      files: {
+        "assets/index.js": "assets/index.js",
+        "data/snapshot.json": "data/snapshot.json",
+      },
+      icon: "map",
+    }),
+  ).toBeNull();
+  // import's batch files, under `.planroom/share/sync/<seq>-<µs>/`.
+  expect(
+    verdict("ArtifactData", {
+      action: "batch",
+      url: "https://claude.ai/artifact/x",
+      writes: [
+        {
+          op: "set",
+          collection: "answers",
+          doc_id: "r1",
+          file_path: "/work/.planroom/share/sync/412-1/answers/r1.json",
+        },
+        {
+          op: "update",
+          collection: "acks",
+          doc_id: "u1",
+          file_path: ".planroom/share/sync/412-1/acks/u1.json",
+          if_version: 2,
+        },
+        { op: "delete", collection: "inbox/u1/events", doc_id: "e1" },
+      ],
+    }),
+  ).toBeNull();
+  // A repo's `.git/planroom/share/` is a state directory's share/ too.
+  expect(
+    verdict("ArtifactData", {
+      action: "set",
+      collection: "live",
+      doc_id: "head",
+      file_path: "/r/.git/planroom/share/sync/1-2/live/head.json",
+    }),
+  ).toBeNull();
+  for (const [tool, input] of [
+    [
+      "ArtifactData",
+      {
+        action: "list",
+        collection: "inbox",
+        url: "https://claude.ai/artifact/x",
+      },
+    ],
+    [
+      "Artifact",
+      {
+        action: "read",
+        url: "https://claude.ai/artifact/x",
+        path: "data/snapshot.json",
+      },
+    ],
+    [
+      "Artifact",
+      {
+        action: "publish",
+        file_path: "report.html",
+        files: {
+          "a.css": { artifact: "https://claude.ai/artifact/y", path: "a.css" },
+        },
+      },
+    ],
+    [
+      "SendUserFile",
+      {
+        files: ["docs/screenshots/map.png", "/tmp/report.html"],
+        status: "normal",
+      },
+    ],
+    ["LS", { path: "/work/src" }],
+    ["NotebookRead", { notebook_path: "notebooks/a.ipynb" }],
+    [
+      "WebFetch",
+      { url: "https://example.com/.planroom/serve.json", prompt: "read it" },
+    ],
+    [
+      "Agent",
+      {
+        description: "x",
+        prompt: "Read ./src/main.rs and the serve.json docs.",
+      },
+    ],
+    ["mcp__other__upload", { attachment: "./dist/app.js" }],
+    [
+      "Monitor",
+      { description: "x", timeout_ms: 1, command: "tail -f /tmp/build.log" },
+    ],
+  ] as const) {
+    expect(verdict(tool, input), `${tool} ${JSON.stringify(input)}`).toBeNull();
+  }
+});
+
+test("security-r3-3: the plugin's own files are never written by the Write tool or Bash, yet its resolver runs", () => {
+  for (const [tool, input] of [
+    ["Write", { file_path: `${PLUGIN}/scripts/planroom`, content: "evil" }],
+    [
+      "Edit",
+      {
+        file_path: `${PLUGIN}/hooks/planroom-mod.js`,
+        old_string: "a",
+        new_string: "b",
+      },
+    ],
+    ["MultiEdit", { file_path: `${PLUGIN}/skills/planroom/SKILL.md` }],
+    ["NotebookEdit", { notebook_path: `${PLUGIN}/x.ipynb`, new_source: "" }],
+  ] as const) {
+    expect(verdict(tool, input)?.decision, tool).toBe("deny");
+  }
+  // A link that lands in the plugin's folder is the plugin's folder.
+  expect(
+    verdict(
+      "Write",
+      { file_path: "bin/planroom" },
+      { "bin/planroom": `${PLUGIN}/scripts/planroom` },
+    )?.decision,
+  ).toBe("deny");
+  // The resolver runs as the planroom skill has the agent run it, and the plugin's files read.
+  for (const command of [
+    `"${PLUGIN}/scripts/planroom" map --json`,
+    `${PLUGIN}/scripts/planroom focus --json`,
+    "$CLAUDE_PLUGIN_ROOT/scripts/planroom map --json",
+    `PLANROOM_ACTOR=agent:abcd1234:chat ${PLUGIN}/scripts/planroom map --json`,
+    "ls ~/.claude/plugins/cache",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+  expect(
+    verdict("Read", { file_path: `${PLUGIN}/skills/planroom/SKILL.md` }),
+  ).toBeNull();
 });

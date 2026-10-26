@@ -417,20 +417,46 @@ async function handleTool(
   return { result: JSON.stringify(result) };
 }
 
-/** Where the guard looks, read once per module from the session's environment. */
+/**
+ * Where the guard looks, but for the shell's directory: read once per module from the session's
+ * environment and the plugin's own folder, as the host names it and where it lands.
+ */
 let places: GuardPlaces | null = null;
 
 async function guardPlacesFor($: $): Promise<GuardPlaces> {
+  // security-r3-1: the Bash tool keeps a `cd` between calls, and the host reports where the shell
+  // is now (`$.session.cwd()`, which a shell `cd` moves, unlike `root()`), so every call's relative
+  // paths resolve from there, never from where the session started.
+  const cwd = await $.session.cwd();
   if (places === null) {
-    places = guardPlaces(workspace === "" ? await $.session.cwd() : workspace, {
-      HOME: await $.env.get("HOME"),
-      CLAUDE_CONFIG_DIR: await $.env.get("CLAUDE_CONFIG_DIR"),
-      PLANROOM_DATA: await $.env.get("PLANROOM_DATA"),
-      XDG_DATA_HOME: await $.env.get("XDG_DATA_HOME"),
-      XDG_CONFIG_HOME: await $.env.get("XDG_CONFIG_HOME"),
-    });
+    const plugin = $.plugin.root;
+    const real = await $.fs
+      .stat(plugin, { resolve: true })
+      .then((s) => s.realPath)
+      .catch(() => undefined);
+    places = guardPlaces(
+      cwd,
+      {
+        HOME: await $.env.get("HOME"),
+        CLAUDE_CONFIG_DIR: await $.env.get("CLAUDE_CONFIG_DIR"),
+        PLANROOM_DATA: await $.env.get("PLANROOM_DATA"),
+        XDG_DATA_HOME: await $.env.get("XDG_DATA_HOME"),
+        XDG_CONFIG_HOME: await $.env.get("XDG_CONFIG_HOME"),
+      },
+      {
+        workspace: workspace === "" ? await $.session.root() : workspace,
+        // security-r3-3: the mod bundle, its guard and the resolver are never an agent's to write.
+        plugin: [
+          ...new Set(
+            [plugin, real]
+              .filter((p): p is string => p !== undefined)
+              .map((p) => p.replace(/\/+$/, "")),
+          ),
+        ],
+      },
+    );
   }
-  return places;
+  return { ...places, cwd };
 }
 
 /** Where a path lands, symlinks followed: the file's real path, else its folder's plus its name. */
@@ -446,7 +472,10 @@ async function landing($: $, path: string): Promise<string[]> {
     : [`${folder.realPath.replace(/\/+$/, "")}/${path.slice(cut + 1)}`];
 }
 
-/** The guard's verdict on one call, every path it names resolved first (DR-52). */
+/**
+ * The guard's verdict on one call, every path it names resolved first (DR-52), from the directory
+ * the shell is in for this call.
+ */
 async function guardVerdict(
   $: $,
   tool: string,

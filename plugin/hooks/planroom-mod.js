@@ -115,6 +115,9 @@ function unsupportedPlatform() {
     line: "Planroom v0.1 runs on macOS, Linux and WSL 2. Open this repo from WSL."
   };
 }
+function unknownReason(_reason, base, line, fix) {
+  return { ...base, status: "failed", line, fix };
+}
 function engineFromVersion(resolver, run2) {
   const base = { ...INITIAL_ENGINE, resolver };
   const reply = parseReply(run2.stdout);
@@ -142,7 +145,11 @@ function engineFromVersion(resolver, run2) {
     return { ...base, status: "fetching", line: error.message };
   }
   if (error.code === "engine_unavailable") {
-    switch (details?.reason) {
+    const reason = details?.reason;
+    if (reason === void 0) {
+      return { ...base, status: "failed", line: error.message, fix };
+    }
+    switch (reason) {
       case "stale_build":
         return {
           ...base,
@@ -154,8 +161,11 @@ function engineFromVersion(resolver, run2) {
       case "no_build":
       case "download_failed":
         return { ...base, status: "build_offered", line: error.message, fix };
-      default:
+      case "no_toolchain":
+      case "override_missing":
         return { ...base, status: "failed", line: error.message, fix };
+      default:
+        return unknownReason(reason, base, error.message, fix);
     }
   }
   return { ...base, status: "failed", line: error.message, fix };
@@ -497,11 +507,13 @@ function fallbackFor(engine, focusError = null) {
 }
 
 // src/guard.ts
-function guardPlaces(cwd, env) {
+function guardPlaces(cwd, env, more = {}) {
   const home = env.HOME ?? "/";
   const nonEmpty = (v) => v === void 0 || v === "" ? void 0 : v;
   return {
     cwd,
+    workspace: more.workspace ?? cwd,
+    plugin: (more.plugin ?? []).filter((p) => p.startsWith("/")),
     home,
     claudeConfig: nonEmpty(env.CLAUDE_CONFIG_DIR) ?? `${home}/.claude`,
     dataRoot: nonEmpty(env.PLANROOM_DATA) ?? `${nonEmpty(env.XDG_DATA_HOME) ?? `${home}/.local/share`}/planroom`,
@@ -563,10 +575,31 @@ function readDenied(path, places2) {
 }
 var STATE_WRITE = "Planroom's state directory changes only through the planroom CLI.";
 var DATA_WRITE = "The Planroom data root changes only through the planroom CLI.";
+var PLUGIN_WRITE = "The Planroom plugin's own files (the mod with its guard and person key code, and the resolver every press runs) change only when the person installs or updates the plugin.";
 function writeDenied(path, places2) {
   if (inStateDir(path)) return STATE_WRITE;
   if (within(path, places2.dataRoot)) return DATA_WRITE;
+  if (places2.plugin.some((p) => within(path, p))) return PLUGIN_WRITE;
   return readDenied(path, places2);
+}
+function inShareDir(path) {
+  return /(^|\/)(\.planroom|\.git\/planroom)\/share(\/|$)/.test(path);
+}
+function uploadDenied(path, places2) {
+  const read3 = GLOB.test(path) ? globDenied(path, places2) : readDenied(path, places2);
+  if (read3 !== null) return read3;
+  if (inStateDir(path) && !inShareDir(path)) {
+    return "Of Planroom's state directory, only share/, which planroom share and import write for the Artifact, leaves this machine.";
+  }
+  if (within(path, places2.dataRoot)) {
+    return "The Planroom data root stays on this machine.";
+  }
+  return null;
+}
+function cdDenied(path, places2) {
+  const config = places2.userConfig.slice(0, places2.userConfig.lastIndexOf("/"));
+  const held = [places2.dataRoot, modStoreDir(places2), config, ...places2.plugin];
+  return mayBeInStateDir(path) || held.some((h2) => mayName(path, h2, "within")) ? "An agent doesn't cd into Planroom's state, its data root, the mod's store, the user config's folder or the plugin's own folder; name the file from where you are, or use the planroom CLI." : null;
 }
 function secretPlaces(places2) {
   const data = places2.dataRoot;
@@ -605,17 +638,23 @@ function writeTargetDenied(path, places2) {
   if (!GLOB.test(path)) return writeDenied(path, places2);
   if (mayBeInStateDir(path)) return STATE_WRITE;
   if (mayName(path, places2.dataRoot, "within")) return DATA_WRITE;
+  if (places2.plugin.some((p) => mayName(path, p, "within"))) {
+    return PLUGIN_WRITE;
+  }
   return globDenied(path, places2);
 }
 function removeDenied(path, places2) {
   const held = [
     places2.dataRoot,
-    `${places2.cwd}/.planroom`,
-    `${places2.cwd}/.git/planroom`,
+    ...[places2.workspace, places2.cwd].flatMap((w) => [
+      `${w}/.planroom`,
+      `${w}/.git/planroom`
+    ]),
     modStoreDir(places2),
-    places2.userConfig
+    places2.userConfig,
+    ...places2.plugin
   ];
-  return held.some((h2) => mayName(path, h2, "above")) ? "This deletes a folder that holds Planroom's state, its data root, the person key or the gateway key." : null;
+  return held.some((h2) => mayName(path, h2, "above")) ? "This deletes a folder that holds Planroom's state, its data root, the person key, the gateway key or the Planroom plugin." : null;
 }
 function treeDenied(path, hidden, places2) {
   const reaches = (secret) => mayName(path, secret, "above") && (hidden || path.includes("**") || !segmentsOf(secret).slice(segmentsOf(path).length).some((s) => s.startsWith(".")));
@@ -730,13 +769,15 @@ function bashDenied(command) {
 }
 function knownVariables(places2) {
   const parent = (p) => p.slice(0, Math.max(1, p.lastIndexOf("/")));
-  return /* @__PURE__ */ new Map([
+  return new Map([
     ["HOME", places2.home],
     ["PWD", places2.cwd],
     ["CLAUDE_CONFIG_DIR", places2.claudeConfig],
     ["PLANROOM_DATA", places2.dataRoot],
     ["XDG_DATA_HOME", parent(places2.dataRoot)],
-    ["XDG_CONFIG_HOME", parent(parent(places2.userConfig))]
+    ["XDG_CONFIG_HOME", parent(parent(places2.userConfig))],
+    // The planroom skill names the resolver through it; a shell that has it set has this plugin's.
+    ...places2.plugin.slice(0, 1).map((p) => ["CLAUDE_PLUGIN_ROOT", p])
   ]);
 }
 function expand(word, vars) {
@@ -1001,26 +1042,36 @@ function bashPaths(command, places2) {
     refusal: null
   };
   let bases = [places2.cwd];
-  let moved = false;
+  const cds = [];
+  let moved = places2.cwd !== places2.workspace;
   for (const simple of commands) {
     const words2 = [];
+    const values = [];
+    const assignments = [];
     for (const [i, raw] of simple.words.entries()) {
       const eq = raw.indexOf("=");
       const assigned = eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(raw.slice(0, eq));
       const value = eq >= 0 ? expand(raw.slice(eq + 1), vars) : null;
       if (assigned && value !== null) vars.set(raw.slice(0, eq), value);
-      const word = expand(raw, vars);
-      words2.push(word);
-      if (value !== null && value !== "") candidates.push(value);
-      if (!assigned && !word.startsWith("-")) candidates.push(word);
+      words2.push(expand(raw, vars));
+      values.push(value);
+      assignments.push(assigned);
       if (raw === "cd" || raw === "pushd") {
         const next = simple.words[i + 1];
         const target = next === void 0 || next.startsWith("-") ? "~" : expand(next, vars);
+        cds.push(target);
         const moves = bases.map((b) => normalize(target, b, places2.home));
         bases = [.../* @__PURE__ */ new Set([...bases, ...moves])].slice(0, 8);
         moved = true;
       }
     }
+    words2.forEach((word, i) => {
+      const value = values[i] ?? null;
+      if (value !== null && value !== "") candidates.push(value);
+      if (assignments[i] !== true && !word.startsWith("-")) {
+        candidates.push(word);
+      }
+    });
     const writes = simple.writes.map((w) => expand(w, vars));
     candidates.push(...writes, ...simple.reads.map((w) => expand(w, vars)));
     const own = commandEffects(words2, piped);
@@ -1038,7 +1089,24 @@ function bashPaths(command, places2) {
     ...effects.trees.map((t) => t.word)
   ];
   const words = [...named, ...operands].filter((w) => w !== "");
-  return { words: [...new Set(words)], bases, effects };
+  const known = knownVariables(places2);
+  const runs = simpleCommands(command).map((c) => {
+    const expanded = c.map((w) => expand(w, known));
+    return expanded[commandStart(expanded)] ?? "";
+  });
+  const args = [...named, ...operands].filter((w) => {
+    const at = runs.indexOf(w);
+    if (at < 0) return w !== "";
+    runs.splice(at, 1);
+    return false;
+  });
+  return {
+    words: [...new Set(words)],
+    args: [...new Set(args)],
+    bases,
+    cds,
+    effects
+  };
 }
 function segmentPattern(segment) {
   let out = "";
@@ -1119,45 +1187,132 @@ function globDenied(pattern, places2) {
   }
   return null;
 }
+function pathLike(value) {
+  if (value === "" || value.includes("\n") || value.includes("://")) {
+    return false;
+  }
+  if (/^(\/|~|\.\.?\/)/.test(value)) return true;
+  if (/\s/.test(value)) return false;
+  return value.includes("/") || STORE_FILE.test(value) || value === "store.pointer" || value === "serve.json";
+}
+function stringsIn(value, depth = 0, out = []) {
+  if (out.length >= 64 || depth > 8) return out;
+  if (typeof value === "string") out.push(value);
+  else if (Array.isArray(value)) {
+    for (const v of value) stringsIn(v, depth + 1, out);
+  } else if (typeof value === "object" && value !== null) {
+    for (const v of Object.values(value)) stringsIn(v, depth + 1, out);
+  }
+  return out;
+}
 function callPaths(tool, input) {
   const i = typeof input === "object" && input !== null ? input : {};
-  const str = (k) => {
-    const v = i[k];
+  const str = (k, from = i) => {
+    const v = from[k];
     return typeof v === "string" && v !== "" ? [v] : [];
   };
+  const strs = (k) => {
+    const v = i[k];
+    return Array.isArray(v) ? v.filter((s) => typeof s === "string" && s !== "") : str(k);
+  };
+  const records = (k) => {
+    const v = i[k];
+    return Array.isArray(v) ? v.filter(
+      (r) => typeof r === "object" && r !== null
+    ) : [];
+  };
+  const none = { reads: [], writes: [], uploads: [], bash: null };
   switch (tool) {
     case "Read":
-      return { reads: str("file_path"), writes: [], bash: null };
+      return { ...none, reads: str("file_path") };
     case "Grep":
     case "Glob":
       return {
+        ...none,
         reads: [
           ...str("path"),
           ...str("glob"),
           ...str("pattern").filter((p) => tool === "Glob" && p.includes("/"))
-        ],
-        writes: [],
-        bash: null
+        ]
       };
+    case "LS":
+      return { ...none, reads: str("path") };
+    case "NotebookRead":
+      return { ...none, reads: [...str("notebook_path"), ...str("path")] };
+    case "LSP":
+      return { ...none, reads: str("filePath") };
     case "Edit":
     case "Write":
     case "MultiEdit":
-      return { reads: [], writes: str("file_path"), bash: null };
+      return { ...none, writes: str("file_path") };
     case "NotebookEdit":
-      return { reads: [], writes: str("notebook_path"), bash: null };
+      return { ...none, writes: str("notebook_path") };
     case "Bash":
-      return { reads: [], writes: [], bash: str("command")[0] ?? "" };
+      return { ...none, bash: str("command")[0] ?? "" };
+    case "Monitor": {
+      const command = str("command")[0];
+      return { ...none, bash: command ?? null };
+    }
+    case "Artifact": {
+      const root = str("root")[0];
+      const under = (p) => root === void 0 || /^(\/|~)/.test(p) ? p : `${root}/${p}`;
+      const files = i["files"];
+      const sources = [];
+      const source = (v) => {
+        if (typeof v === "string" && v !== "") sources.push(under(v));
+        else if (typeof v === "object" && v !== null && !("artifact" in v)) {
+          const from = v["from"];
+          const path = v["path"];
+          if (typeof from === "string" && from !== "")
+            sources.push(under(from));
+          else if (typeof path === "string" && path !== "") {
+            sources.push(under(path));
+          }
+        }
+      };
+      if (Array.isArray(files)) files.forEach(source);
+      else if (typeof files === "object" && files !== null) {
+        Object.values(files).forEach(source);
+      }
+      return {
+        ...none,
+        uploads: [
+          ...str("file_path"),
+          ...strs("file_paths"),
+          ...sources,
+          ...str("root")
+        ],
+        writes: str("out_dir")
+      };
+    }
+    case "ArtifactData":
+      return {
+        ...none,
+        uploads: [
+          ...str("file_path"),
+          ...[...records("writes"), ...records("batch")].flatMap(
+            (w) => str("file_path", w)
+          )
+        ],
+        writes: str("out_dir")
+      };
+    case "SendUserFile":
+    case "SendFile":
+      return { ...none, uploads: strs("files") };
     default:
-      return { reads: [], writes: [], bash: null };
+      return { ...none, reads: stringsIn(input).filter(pathLike) };
   }
 }
 function namedPaths(tool, input, places2) {
-  const { reads, writes, bash } = callPaths(tool, input);
+  const { reads, writes, uploads, bash } = callPaths(tool, input);
   const fromBash = bash === null ? [] : bashPaths(bash, places2).words;
-  return [.../* @__PURE__ */ new Set([...reads, ...writes, ...fromBash])].slice(0, 32);
+  return [.../* @__PURE__ */ new Set([...reads, ...writes, ...uploads, ...fromBash])].slice(
+    0,
+    64
+  );
 }
 function guardCall(tool, input, resolved, places2) {
-  const { reads, writes, bash } = callPaths(tool, input);
+  const { reads, writes, uploads, bash } = callPaths(tool, input);
   const deny = (reason) => ({ decision: "deny", reason });
   const spell = (p) => [
     normalize(p, places2.cwd, places2.home),
@@ -1173,10 +1328,16 @@ function guardCall(tool, input, resolved, places2) {
         );
       }
     }
-    if (tool !== "Read" && /store\.db|serve\.json/.test(p)) {
+    if ((tool === "Grep" || tool === "Glob") && /store\.db|serve\.json/.test(p)) {
       return deny(
         "Planroom's store is read through the planroom CLI, never directly."
       );
+    }
+  }
+  for (const p of uploads) {
+    for (const s of spell(p)) {
+      const reason = uploadDenied(s, places2);
+      if (reason !== null) return deny(reason);
     }
   }
   for (const p of writes) {
@@ -1188,7 +1349,7 @@ function guardCall(tool, input, resolved, places2) {
   if (bash !== null) {
     const reason = bashDenied(bash);
     if (reason !== null) return deny(reason);
-    const { words, bases, effects } = bashPaths(bash, places2);
+    const { words, args, bases, cds, effects } = bashPaths(bash, places2);
     if (effects.refusal !== null) return deny(effects.refusal);
     const spellings = (p) => [
       ...bases.map((b) => normalize(p, b, places2.home)),
@@ -1206,7 +1367,14 @@ function guardCall(tool, input, resolved, places2) {
     const why = first(
       words,
       (s) => mayName(s, engineDir(places2), "within") ? "Planroom's engine cache runs with the person's authority: only the resolver writes it, and an agent's command never names it." : GLOB.test(s) ? globDenied(s, places2) : readDenied(s, places2)
-    ) ?? // security-r2-1: what the Write tool may not write, no command or redirection writes either.
+    ) ?? // security-r3-3: the plugin's folder is named only to run what's in it, such as the resolver
+    // the planroom skill has the agent run; as any other word, a program may write it.
+    first(
+      args,
+      (s) => places2.plugin.some((p) => mayName(s, p, "within")) ? PLUGIN_WRITE : null
+    ) ?? // security-r3-1: a host reports where the shell is, but a cd into a guarded place is refused
+    // too, so a host that didn't still leaves no relative path there.
+    first(cds, (s) => cdDenied(s, places2)) ?? // security-r2-1: what the Write tool may not write, no command or redirection writes either.
     first(effects.writes, (s) => writeTargetDenied(s, places2)) ?? first(effects.removes, (s) => removeDenied(s, places2)) ?? // security-r2-2: a whole-tree read reaches whatever its folder holds.
     effects.trees.map((t) => first([t.word], (s) => treeDenied(s, t.hidden, places2))).find((r) => r !== null) ?? null;
     if (why !== null) return deny(why);
@@ -1224,7 +1392,10 @@ function oneLine(text2) {
 }
 function mapOf(result) {
   const r = result;
-  return r !== null && typeof r === "object" && typeof r.level === "string" && Array.isArray(r.nodes) ? r : null;
+  return r !== null && typeof r === "object" && typeof r.level === "string" && Array.isArray(r.nodes) && r.nodes.every((n) => {
+    const node = n;
+    return node !== null && typeof node === "object" && typeof node.name === "string";
+  }) ? r : null;
 }
 function isHandle(value) {
   const h2 = value;
@@ -1310,11 +1481,10 @@ function roomRows(command, ran) {
     const map = mapOf(ran.result.result);
     if (map !== null) {
       map.nodes.slice(0, ROOM_BLOCKS).forEach((n, i) => {
-        const name = typeof n.name === "string" ? n.name : "";
         rows.push({
           kind: "text",
           key: `block-${i}`,
-          text: oneLine(`□ ${name}${countsOf(n.counts)}`)
+          text: oneLine(`□ ${n.name}${countsOf(n.counts)}`)
         });
       });
       if (map.nodes.length > ROOM_BLOCKS) {
@@ -1356,9 +1526,7 @@ function shownFrom(handle, ran, seq) {
     seq,
     line: lineFor(handle.command, handle.label, ran),
     level: map === null ? null : sanitize(map.level),
-    blocks: map === null ? [] : map.nodes.map(
-      (n) => oneLine(typeof n.name === "string" ? n.name : "")
-    )
+    blocks: map === null ? [] : map.nodes.map((n) => oneLine(n.name))
   };
 }
 function shows(shown2, handle, seq) {
@@ -5028,16 +5196,31 @@ async function handleTool($, tool, input) {
 }
 var places = null;
 async function guardPlacesFor($) {
+  const cwd = await $.session.cwd();
   if (places === null) {
-    places = guardPlaces(workspace === "" ? await $.session.cwd() : workspace, {
-      HOME: await $.env.get("HOME"),
-      CLAUDE_CONFIG_DIR: await $.env.get("CLAUDE_CONFIG_DIR"),
-      PLANROOM_DATA: await $.env.get("PLANROOM_DATA"),
-      XDG_DATA_HOME: await $.env.get("XDG_DATA_HOME"),
-      XDG_CONFIG_HOME: await $.env.get("XDG_CONFIG_HOME")
-    });
+    const plugin = $.plugin.root;
+    const real = await $.fs.stat(plugin, { resolve: true }).then((s) => s.realPath).catch(() => void 0);
+    places = guardPlaces(
+      cwd,
+      {
+        HOME: await $.env.get("HOME"),
+        CLAUDE_CONFIG_DIR: await $.env.get("CLAUDE_CONFIG_DIR"),
+        PLANROOM_DATA: await $.env.get("PLANROOM_DATA"),
+        XDG_DATA_HOME: await $.env.get("XDG_DATA_HOME"),
+        XDG_CONFIG_HOME: await $.env.get("XDG_CONFIG_HOME")
+      },
+      {
+        workspace: workspace === "" ? await $.session.root() : workspace,
+        // security-r3-3: the mod bundle, its guard and the resolver are never an agent's to write.
+        plugin: [
+          ...new Set(
+            [plugin, real].filter((p) => p !== void 0).map((p) => p.replace(/\/+$/, ""))
+          )
+        ]
+      }
+    );
   }
-  return places;
+  return { ...places, cwd };
 }
 async function landing($, path) {
   const own = await $.fs.stat(path, { resolve: true }).catch(() => void 0);
