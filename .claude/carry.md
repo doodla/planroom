@@ -10,7 +10,7 @@ Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `c
 - Spike mod lives in ~/.claude/dev-mods/<session>/planroom-spike (consent question raised); delete it once the real mod loads.
 - TRUTH.json FROZEN (commit 8053725) after 3 review rounds; changes only via decision record. `examples/check-fixture` verifies it (CI it).
 - Art in docs/art/ (Iris $0.27); social preview needs wordmark overlay later.
-- Phase 3: rounds 1+2 fixed (DR-44..72; records in docs/contributing/research/arch-review/round-{1,2}/). Round 3 (LAST) running: wf_ff925915-1f5 + wf_906aafcd-e69 -> save to round-3/, decide, fix, then record leftovers as accepted risk.
+- Phase 3: rounds 1+2 fixed (DR-44..72; records in docs/contributing/research/arch-review/round-{1,2}/). Round 3 (LAST) done: 29 material; decisions F1-F20 in round-3/owner-decisions.md; fix pass wf_1d10b52b-40a running (writes accepted-risk.md). After it: Phase 3 closed; log in progress.md.
 - Phase 4 tracks running in worktrees: ENGINE (WS3 scan/store/map + WS4 concurrency spike) and PLUGIN (packaging, resolver, mod shell + harness). Verify each (xtask check/test myself), merge one at a time, push. Then WS5 wiring, WS6 serve+canvas, WS7 artifact (main session), WS8 install.
 - WS1+WS2 merged (3cd4e66): xtask check/test green (verified). Gaps: cargo-deny never run locally; e2e/installer/release jobs are if:false stubs; layout gate, release pins, secret scan, catalogue.ts not built yet.
 - CI green on run #6 (all jobs incl. macOS).
