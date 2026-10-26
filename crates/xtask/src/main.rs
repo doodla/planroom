@@ -489,7 +489,17 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>, filter: Option<&str>) 
     }
     let nextest = tools::ensure(root, Tool::Nextest);
     if nextest.is_ok() {
-        let mut args = vec!["nextest", "run", "--locked", "--no-fail-fast", "--no-tests", "pass"];
+        // A failing test's output comes at the end, so a CI log's tail shows why it failed.
+        let mut args = vec![
+            "nextest",
+            "run",
+            "--locked",
+            "--no-fail-fast",
+            "--no-tests",
+            "pass",
+            "--failure-output",
+            "final",
+        ];
         args.extend(&scope);
         r.tool(root, "cargo nextest run", "cargo", &args, "fix the failing tests above");
         let mut args = vec!["test", "--doc", "--locked"];

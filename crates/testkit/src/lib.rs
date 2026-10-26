@@ -40,7 +40,10 @@ pub fn fixture(out: &Path) -> Fixture {
     assert!(built.status.success(), "build-fixture failed: {}", String::from_utf8_lossy(&built.stderr));
     let heads = serde_json::from_slice(&built.stdout).expect("build-fixture prints its heads as JSON");
     write_config(out, &root.join("examples/packs/ruby"));
-    Fixture { root: out.to_path_buf(), heads }
+    // The engine reports physical paths, and on macOS a temporary directory sits behind a link
+    // (/var is /private/var), so the root a test compares with is the physical one (DR-83).
+    let root = out.canonicalize().unwrap_or_else(|_| out.to_path_buf());
+    Fixture { root, heads }
 }
 
 /// `OUT/.planroom/config.toml` naming one pack, with the modes the engine uses (0700, 0600).

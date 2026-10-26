@@ -137,7 +137,7 @@ impl Report {
         let output = output.trim_end();
         if !output.is_empty() {
             let lines: Vec<&str> = output.lines().collect();
-            let tail = &lines[lines.len().saturating_sub(80)..];
+            let tail = &lines[lines.len().saturating_sub(400)..];
             println!("---- {name} ----\n{}\n", tail.join("\n"));
         }
         self.failed = true;
