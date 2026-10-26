@@ -51,6 +51,8 @@ partial_scan = "{extractor} reached its bound in {repo}; {count} files weren't s
 partial_parse = "{count} files in {repo} couldn't be read in full."
 workspace_nested = "Another workspace sits inside this one, at {other_root}; the two stay apart."
 truncated = "This map has {total} blocks; the first {kept} fit its {budget}-token budget. Next: {label}."
+warnings_left_out = "{count} more warnings ({codes}) were left out to keep this reply to its {budget}-token budget."
+reply_over_budget = "This reply passes its {budget}-token budget; that's a bug, so please report it."
 
 [empty]
 not_scanned = "Map these {count} repos? About 2 s."

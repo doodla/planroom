@@ -159,6 +159,11 @@ impl JsonSchema for ErrorCode {
     }
 }
 
+/// How many items a warning's `details` list at most, in their sorted order, beside their
+/// `count`: `partial_scan`'s uncovered paths and `partial_parse`'s paths. A reply an agent reads
+/// keeps to its leaf's budget, so a warning never lists every path of a large repo.
+pub const WARNING_SAMPLE: usize = 10;
+
 macro_rules! warning_codes {
     ($($variant:ident = $code:literal, $meaning:literal;)*) => {
         /// A stable warning code.
@@ -192,9 +197,10 @@ warning_codes! {
     Truncated = "truncated", "the result hit its budget; the summary and first page are kept";
     UnresolvedRef = "unresolved_ref", "an alias or a linker join had zero or several candidates; no edge was made";
     EvidenceDropped = "evidence_dropped", "an evidence item failed verification at ingest";
-    PartialParse = "partial_parse", "a file parsed with error nodes; its facts are weak";
+    PartialParse = "partial_parse",
+        "files parsed with error nodes, so their facts are weak; details name the repo, the count and the first 10 paths in sorted order";
     PartialScan = "partial_scan",
-        "an extractor reached its file or byte bound; details name the extractor, the repo and the uncovered paths";
+        "an extractor reached its file or byte bound; details name the extractor, the repo, the count of uncovered files and the first 10 in sorted order";
     WorkspaceNested = "workspace_nested",
         "another workspace's .planroom/ sits inside this one, or this one inside it; details name the other root";
 }

@@ -139,7 +139,21 @@ fn level_empty(root: &Path, level: Option<Level>) -> Empty {
 /// Keep the blocks that fit `budget_tokens`, in their order, and the lifted edges between them.
 /// Returns the `truncated` warning when it cut anything. `scan`'s reply carries a map too.
 pub(crate) fn fit(view: &mut MapView, budget_tokens: u32, level: Option<Level>) -> Option<Warning> {
-    let limit = (budget_tokens as usize * 4).saturating_sub(ENVELOPE_RESERVE_BYTES);
+    fit_beside(view, budget_tokens, level, &[])
+}
+
+/// [`fit`], leaving room for the warnings the reply carries beside the map, such as `scan`'s
+/// `partial_scan`: at most half the budget, so the map keeps a first page however many there are.
+/// The envelope's own check summarises warnings past the rest (`cli::fit_warnings`).
+pub(crate) fn fit_beside(
+    view: &mut MapView,
+    budget_tokens: u32,
+    level: Option<Level>,
+    beside: &[Warning],
+) -> Option<Warning> {
+    let whole = (budget_tokens as usize * 4).saturating_sub(ENVELOPE_RESERVE_BYTES);
+    let warnings = serde_json::to_string(beside).map_or(0, |s| s.len());
+    let limit = whole - warnings.min(whole / 2);
     let size = |v: &MapView| serde_json::to_string(v).map_or(usize::MAX, |s| s.len());
     if size(view) <= limit {
         return None;

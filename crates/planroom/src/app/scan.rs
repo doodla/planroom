@@ -4,6 +4,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use planroom_contract::errors::WARNING_SAMPLE;
 use planroom_contract::{
     Actor, Client, Command, CommandName, FactBatch, Handle, ScanReq, ScanResult, ScanStats, Surface, Warning,
     WarningCode,
@@ -63,7 +64,8 @@ pub fn run(req: &ScanReq, cwd: &Path) -> Result<Reply<ScanResult>, AppError> {
     // The top-level map an agent reads in scan's reply keeps to scan's budget, as map's does.
     let mut view = map::top(&store, &ws.root, None)?;
     let budget = Command::Scan(ScanReq::default()).spec().budget_tokens;
-    warnings.extend(map::fit(&mut view, budget, None));
+    let cut = map::fit_beside(&mut view, budget, None, &warnings);
+    warnings.extend(cut);
     let containers = map::top(&store, &ws.root, Some(planroom_contract::Level::Container))?.nodes.len();
     let summary = text::get(
         "scan.summary",
@@ -119,7 +121,12 @@ fn extract(repo: &Repo, names: &[String], warnings: &mut Vec<Warning>) -> Result
                 "warning.partial_scan",
                 &[("extractor", &files::NAME), ("repo", &repo.name), ("count", &walked.uncovered.len())],
             ),
-            details: json!({"extractor": files::NAME, "repo": repo.name, "uncovered": walked.uncovered}),
+            details: json!({
+                "extractor": files::NAME,
+                "repo": repo.name,
+                "count": walked.uncovered.len(),
+                "uncovered": walked.uncovered.iter().take(WARNING_SAMPLE).collect::<Vec<_>>(),
+            }),
         });
     }
     let refs = git.refs().map_err(|e| AppError::git(&repo.name, &e))?;
@@ -156,7 +163,11 @@ fn extract(repo: &Repo, names: &[String], warnings: &mut Vec<Warning>) -> Result
         warnings.push(Warning {
             code: WarningCode::PartialParse,
             message: text::get("warning.partial_parse", &[("count", &partial.len()), ("repo", &repo.name)]),
-            details: json!({"repo": repo.name, "paths": partial}),
+            details: json!({
+                "repo": repo.name,
+                "count": partial.len(),
+                "paths": partial.iter().take(WARNING_SAMPLE).collect::<Vec<_>>(),
+            }),
         });
     }
     let stats = ScanStats {
