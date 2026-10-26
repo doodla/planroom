@@ -4,11 +4,12 @@ Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `c
 
 ## Where I am
 - Phases 1-3 DONE. Estimate 376 h.
-- Phase 4 skeleton: WS1-WS6 tracks merged + pushed (ENGINE, PLUGIN, ENGINE-2, CANVAS, MOD-2, WATCH, REAL-SERVE). DR-81, DR-82 written. xtask check/test/e2e green at merge of real-serve.
-- WS8 mostly done (docs/contributing/research/ws8-install.md): A-14/15/16/18/19/20 settled, A-23 fails (fallback = dev version stamped with plugin/ content hash, GATES builds it). A-15: store at <config>/plugins/store/planroom_*.json; guard fixed. Open: A-21 (git 2.34.1 CI job), spikes tool.check agentId + $.tool.call ArtifactData (spike mod has probes `checks`, `artifactdata`: spawn an Agent running Bash, then call spike_probe), comments.sendToClaude wake (needs a press on a page).
-- Running: wf_942a6fbe-d44 (track/gates: boundaries/allow-lists/clippy.toml/check layout/ci_skips/area sync/0.1.0-dev version stamp/art spend check; track/remote: remote.rs, share --out, import -, canvas transport/artifact.ts, shim e2e). On finish: verify each (check/test/e2e), merge, rm worktree target/, WRITE FIRST layout.lock (gen --layout-lock DR-79 per DR-81) + DR-83 for gates/remote seams, push.
-- Then: WS7 publish from MAIN session using share --json args (Artifact tool, icon map), write an inbox row as owner? (rows come from page; A-13 check: owner can't write another viewer's inbox), import round trip; skeleton review workflow; update architecture.md with findings; then M1.
-- Lesson: run full `cargo xtask test` (incl. claude plugin test) before every push. CI found what local couldn't: deny (tokio 1.53.3 taken 1 day early for RUSTSEC-2026-0386 -> DR-83; BSD-3-Clause; versioned path deps), busybox-static applets (installer sandbox), macOS /private tmp, slow python3 server. Fixed in c61e9d9, 4c6d9b4, 6827792: verify CI green on 6827792. Local now has shellcheck, busybox-static, bwrap, socat (apt). cargo-deny install is blocked by the classifier: read CI logs.
+- Phase 4 skeleton: ALL tracks merged (ENGINE..REMOTE, GATES). DR-81/82/83 written. layout.lock exists (first lock DR-79); any gated-surface change now needs a new DR + `cargo xtask gen --layout-lock DR-n` in the same commit.
+- WS7 done on real platform (artifact 69VbWfb55J2p6kduVUJcG8, research/ws7-remote.md). WS8 done except A-21 (git 2.34.1 CI job) and press-only spikes. A-13 fails -> every unsigned row held (DR-83).
+- Live check: real plugin symlinked at ~/.claude/dev-mods/<session>/planroom -> /home/user/planroom/plugin; repo scanned (store at ./.planroom, gitignored). Next turn: call mcp__planroom__room_query (e.g. focus/map) to prove mod+engine live; guard now denies my reads of .planroom paths -> remove symlink after the check (and delete planroom-spike).
+- Running: wf_d998336e-ae8 docs fold (main tree, uncommitted edits to docs). Then: skeleton review workflow (lenses + refuters, protocol), fix material, context review + skills, then M1 planning (tracks).
+- Dogfood findings for M1: fixture compose pollutes repo map (default excludes); store should be .git/planroom (DR-74).
+- Lesson: run full `cargo xtask test` before every push; CI covers deny/busybox/macOS.
 
 ## Gotchas
 - 4 CPUs -> workflow concurrency is 2. Prefer few, larger agents.
