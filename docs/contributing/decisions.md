@@ -95,6 +95,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 79 | Gates that fire only where they mean something | Repo layout: boundary checks | extended | review round 3 (F18) |
 | 80 | Hand-off results land however the change reaches the tracked branch | none (R7, R8) | added | review round 3 (F20) |
 | 81 | What the walking skeleton's engine and plugin tracks settled | Store: events carry an idempotency key; Repo layout: boundary checks; Remote mode | extended | walking skeleton (ENGINE and PLUGIN tracks), main agent |
+| 82 | What the walking skeleton's serve, canvas and mod tracks settled | Actors: person actions are signed; Surfaces read one contract; Repo layout: package dependencies | extended | walking skeleton (ENGINE-2, CANVAS and MOD-2 tracks), main agent |
 
 ## Judge disagreements and how they were resolved
 
@@ -1932,3 +1933,48 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It changes gated surfaces: `boundaries.toml`, the area contracts table (`packages/mod`, `tests/golden`) and the Boundaries section of `AGENTS.md`.
   - It amends DR-8, DR-12, DR-39, DR-42, DR-57, DR-69, DR-70, DR-75, DR-77 and DR-79.
 - **Sources (checked 2026-10-26):** `progress.md`, the 2026-10-26 entries "ENGINE track merged" and "PLUGIN track merged"; `docs/contributing/research/ws4-concurrency.md`; `crates/store/migrations/0001_init.sql`; `crates/store/src/commit.rs`; `crates/extract/src/{files,compose,verify}.rs`; `.dependency-cruiser.cjs`; `crates/xtask/src/{modgen,generate}.rs`; `plugin/scripts/planroom`; `eslint.config.js`; the main agent's decisions at the merges.
+
+## DR-82: What the walking skeleton's serve, canvas and mod tracks settled
+
+- **Status:** accepted (decided by the main agent at the ENGINE-2, CANVAS and MOD-2 merges and the integration step after them, 2026-10-26).
+- **Starting point:** extended "Actors: person actions are signed", "Surfaces: the canvas and the mod read one contract", and Repo layout's gated package dependencies.
+- **Origin:** the walking skeleton's ENGINE-2, CANVAS and MOD-2 tracks, from their merge notes in `progress.md`, plus what the main agent found when the three met.
+- **Context:**
+  - ENGINE-2 and MOD-2 each had to choose the person token's wire format, which the docs left open, and chose differently: the mod signed `at` in milliseconds and left `--idem` and `--base` out of `args`, while the engine read seconds and signed every word but `--json`. Each side's tests passed alone; together the engine refused every mod token as stale.
+  - In `claude plugin test` on Claude Code 2.1.310, `crypto.subtle` has only `digest`, so the mod can't sign with Web Crypto [A-17 fails]. The mod's `third_party` list is empty.
+  - ENGINE-2 reports the Rust target triple in `version --json`, which `VersionInfo` didn't list. MOD-2 keeps `lastSeq` as `{ seq }`, not the bare `Seq` the docs gave, and widened the A-15 guard until WS8 finds the `$.store` file.
+  - Every golden now comes from a real engine run, but the engine can't yet produce a decision card, diffs, drift, tones or an agent's ghost edits, which the surfaces' tests draw.
+  - The canvas found that `elk.bundled.js` fails inside a module worker, that its `Transport` needs a login and a layout save, and that the palette has no lens colors yet.
+  - Some code trails the docs: `PaneModel.minimap` is required, `PresenceRow` has no `client_id`, `StreamFrame` has only `Event`, `Reset` and `Ping`, the resolver's cache path ignores the catalogue hash, and `serve` lacks `code`, `drain`, its version handshake, the request timeout and the client cap.
+- **Decision:**
+  - **The person key and token, on the wire.**
+    - The key `person init` reads on stdin is one line: the base64url, without padding, of the 65-byte SEC1 uncompressed point. Its fingerprint is the first 16 hex characters of the sha256 of those bytes.
+    - `PLANROOM_PERSON_TOKEN` is `<at>.<sig>`. `at` is Unix time in whole seconds. `sig` is the base64url of the 64-byte `r ‖ s` ECDSA P-256 signature over SHA-256 of the message.
+    - The message is `command ‖ args ‖ idem ‖ base ‖ at`, each field followed by one NUL byte. `command` is the leaf's path joined with spaces (`person init`). `args` is the canonical JSON array of the argv words after the command's path, less `--json`; `--idem`, `--base` and their values stay in it as well as in their own fields. `idem` and `base` are those flags' values, or empty. `at` is its decimal text.
+    - The engine accepts a token within 30 s of its own clock, either way, and spends its digest once. The mod signs low-S; the engine accepts either form.
+    - With no key registered, `person init`'s token must verify under the key on its own stdin, which proves the caller holds that key. A `--rekey` verifies under the old key or the new one; the new one is the mismatch pane's press, the guardrail that accepted risk security-4 names.
+    - `crates/kernel/src/keys.rs::a_token_message_ends_each_field_with_a_nul` and `packages/mod/src/actor.test.ts`'s "the signed bytes match the engine's own example" pin the same bytes on both sides.
+  - **The mod signs with `@noble/curves`** 2.4.0 (MIT, audited), bundled into `plugin/hooks/planroom-mod.js`; it is the mod's one `third_party` entry. A-17 is settled as failed.
+  - **`VersionInfo`** is `{ version, git_commit, target, schema_version, catalogue_hash }`, `target` being the Rust target triple the binary was built for.
+  - **The mod's `lastSeq` atom** is `{ seq: Seq | null }`, null before the first frame.
+  - **The A-15 guard, until WS8.** The guard denies agent reads of any path under the Claude Code configuration directory, outside `plugins/`, with a path segment that holds `planroom`, not only a file name. WS8 narrows it to the file it finds.
+  - **Goldens from real runs only.** Every file under `tests/golden/cli/` is written by the engine's own tests on the built fixture, `cargo xtask gen --golden` rewrites them, and no generator builds stand-ins. `map-empty.json` is `map --detail graph` before the first scan, with the temporary root written as `/home/you/shop`. A surface test that needs a state the engine can't produce yet lays a test-only overlay over a real golden, kept beside the test and named for the milestone that makes the state real; nothing hand-edits `tests/golden/`. The golden test learns it should write from `PLANROOM_GOLDEN=write`, which only `gen --golden` sets and the engine never reads; DR-70's retired variables stay retired.
+  - **The canvas.** ELK runs from ELK's own `elk-worker.min.js`, loaded by URL from `layout/elk.ts`, since `elk.bundled.js` fails inside a module worker [ts-stack §8]. Until packs bring lenses in M1, every edge draws in `--muted`; M1 adds one yarn token per lens to the palette, held to the 3:1 mark bar. The needs-login text lives in `packages/canvas/src/strings.ts` until M1 generates the canvas's strings from `en.toml`, as `FALLBACK_PANES` already is. Vite runs with `--configLoader runner`, so its config can import `@planroom/ui`'s TypeScript.
+  - **Code that trails the docs keeps to the docs.** Each item below is built in the milestone named, and the docs stand as written:
+    - `PaneModel.minimap` becomes optional with `focus --detail summary` (M1, mod slice).
+    - `PresenceRow.client_id` and `StreamFrame::Presence` arrive with presence through `watch` (M1); `Duty` arrives with detached duties (M3) and `ModelRequest` with the session backend (M2).
+    - The resolver's cache key takes the catalogue hash, and `serve` gains `code`, `drain`, the version handshake, reuse of a running server, the 10 s request timeout and the 64-client cap (M1, serve and resolver slices).
+- **Alternatives rejected:**
+  - Milliseconds for `at`: a token's window is 30 s, and seconds are what the engine's clock and its spent-token table already keep.
+  - Leaving `--idem` and `--base` out of `args`: the engine would have to strip them the mod's way, two rules to keep in step where one says "every word but `--json`".
+  - Web Crypto in the mod: the host doesn't offer `sign`, and a native helper would add a binary to the plugin.
+  - Generated stand-in goldens: they drifted from the engine (repo IDs, `tone`, positions) and hid the token mismatch's kind of gap, which only a real run shows.
+  - `elk.bundled.js` in a module worker: it fails at load.
+- **Consequences:**
+  - Contracts: the token and key formats; `VersionInfo.target`; `lastSeq`'s shape.
+  - Layout: `@noble/curves` in the mod's `third_party` list in `boundaries.toml` and the area table; `layout/elk.ts` in place of `layout/elk.worker.ts`; `tests/golden/cli/map-empty.json` written by `crates/planroom/tests/golden.rs`; `crates/xtask/src/golden.rs` removed.
+  - Tests: the shared token example; `golden.rs::golden_outputs_equal_engine_output` over every golden; the surfaces' overlays.
+  - Security: unchanged; the rekey's press stays the guardrail security-4 accepted.
+  - It changes a gated surface: the mod's dependency names.
+  - It amends DR-58, DR-64, DR-70, DR-72 and DR-75.
+- **Sources (checked 2026-10-26):** `progress.md`, the 2026-10-26 entries for the ENGINE-2, CANVAS and MOD-2 merges; `crates/kernel/src/keys.rs`; `crates/planroom/src/app/{actor,person,version}.rs`; `packages/mod/src/{actor,person,atoms}.ts`; `packages/canvas/src/layout/elk.ts`; `crates/planroom/tests/golden.rs`; `docs/contributing/research/ts-stack.md` §8.

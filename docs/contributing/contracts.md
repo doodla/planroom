@@ -296,11 +296,17 @@ pub struct WriteCommon {                     // flattened into every write reque
 
 `PaneModel.next`, every band Button and every pack `[[suggestions]]` action name only a leaf whose undo class isn't `NotUndoable`, whose class isn't `Handoff`, and whose `spends` is false; the pack loader refuses any other with `pack_invalid` (DR-54, DR-66).
 
-A person action carries `PLANROOM_PERSON_TOKEN=<at>.<sig>`, where `sig` is the base64url of the raw `r ‖ s` ECDSA P-256 SHA-256 signature, made with the mod's private key, over `command ‖ canonical(args) ‖ idem ‖ base ‖ at`. The engine verifies it against `meta.person_pubkey`, the registered public key; no store, backup or export holds anything that can sign (DR-72). It refuses a token older than 30 s, one for another command, and one already spent, and removes it from every child's environment (DR-64).
+A person action carries `PLANROOM_PERSON_TOKEN=<at>.<sig>`, made with the mod's private key (DR-72, DR-82):
+
+- `at` is Unix time in whole seconds, and `sig` is the base64url, without padding, of the 64-byte `r ‖ s` ECDSA P-256 signature over SHA-256 of the message.
+- The message is `command ‖ args ‖ idem ‖ base ‖ at`, each field followed by one NUL byte: `command` is the leaf's path joined with spaces (`person init`); `args` is the canonical JSON array of the argv words after that path, less `--json` (`--idem`, `--base` and their values stay in); `idem` and `base` are those flags' values or empty; `at` is its decimal text. `kernel::keys::person_token_message` builds it, and the mod's `tokenMessage` matches it byte for byte.
+- The key `person init` reads on stdin is one line, the base64url of the 65-byte SEC1 uncompressed point; its fingerprint is the first 16 hex characters of the sha256 of those bytes.
+
+The engine verifies the token against `meta.person_pubkey`, the registered public key; no store, backup or export holds anything that can sign (DR-72). It refuses a token more than 30 s from its own clock, one for another command, and one already spent, and removes it from every child's environment (DR-64). With no key registered, `person init`'s token must verify under the key on its own stdin.
 
 `planroom open --json` returns `OpenResult { opened: bool, empty: Option<Empty> }`: `opened` is false where no browser can be seen, and `empty.next` then names `share`, which the pane offers as `/room share` (DR-29).
 
-`planroom version --json` returns `VersionInfo { version, git_commit, schema_version, catalogue_hash }`. The catalogue hash is the sha256 of the whole catalogue as `planroom schema --commands` lists it across its pages, which `cargo xtask gen` also writes into `catalogue.ts`, so the mod and `serve` detect a mismatched engine (DR-58).
+`planroom version --json` returns `VersionInfo { version, git_commit, target, schema_version, catalogue_hash }`, `target` being the Rust target triple the binary was built for (DR-82). The catalogue hash is the sha256 of the whole catalogue as `planroom schema --commands` lists it across its pages, which `cargo xtask gen` also writes into `catalogue.ts`, so the mod and `serve` detect a mismatched engine (DR-58).
 
 ## HTTP API and live stream
 
@@ -929,7 +935,7 @@ The mod's state (`plugin/types/index.d.ts`, generated) is a set of `$.state` ato
 |---|---|---|
 | `engine` | `{ status, resolver, path, version, catalogue_hash, backend, line, fix }`, the contract's `EngineState` (DR-81); `line` is the one status line and `fix` the command that clears it; `status` is `resolving`, `fetching`, `build_offered`, `building`, `failed`, `unsupported_platform`, `version_mismatch`, `person_key_mismatch` or `ready`, and picks the fallback pane (DR-57, DR-60) | `session.start`, the resolver's `status --json` |
 | `pane` | `PaneModel` | the watch loop's scheduled `focus` (first frame, after 250 ms of quiet, and at least every 500 ms under load) |
-| `lastSeq` | `Seq` | the watch loop |
+| `lastSeq` | `{ seq: Seq \| null }`, null before the first frame (DR-82) | the watch loop |
 | `outbox` | `{ idem, argv, env_names }[]` (never a token or the key) | each write, cleared on reply |
 | `agents` | `{ agentId, role, key, clones, commands, denied, started_at }[]`: the hand-off's clones and approved commands, which the guard reads, and the commands it denied (DR-64) | spawns, `turn.complete`, the guard |
 | `remote` | `{ url, last_published_seq, last_sync_at }` | `/room share`, `/room sync` |
