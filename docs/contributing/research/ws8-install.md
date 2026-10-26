@@ -10,7 +10,7 @@ The plugin's version is `0.1.0` on `main`, where E11 says `main` carries `X.Y.Z-
 
 ## The marketplace source that names a release [A-20] [V]
 
-- A `github` source with `ref` validates and installs, but it ignores `path`: the install cached the whole repository root (`Cargo.toml`, `KICKOFF.md`, ...) and named the version by commit (`071909da5f77`).
+- A `github` source with `ref` validates and installs, but it ignores `path`: the install cached the whole repository root (`Cargo.toml`, `KICKOFF.md`, ...) and named the version by commit (`6b48d4d0eb90`).
 - A `git-subdir` source installs exactly the subdirectory, sparse-checked out, at the version in its `plugin.json`:
 
   ```json
@@ -61,7 +61,7 @@ So both guards hold, and the `examples/` area contract's rule stays as the secon
 
 ## `/plugin update` at an unchanged version [A-23] [V]
 
-A-23 fails. After later pushes to the branch the `git-subdir` install named, `claude plugin marketplace update planroom` then `claude plugin update planroom@planroom` answered "planroom is already at the latest version (0.1.0)", and `installed_plugins.json` kept `gitCommitSha` `071909da…`: the update compares versions, not commits. So the fallback applies: plain `gen` stamps a `-dev` version with a hash, so a new `main` commit installs as a new version. The catalogue hash the fallback names misses a change to a skill, an agent, the resolver or the mod alone. The skeleton's record should stamp the hash of `plugin/`'s own files instead (every file but `plugin.json`), and the resolver should compare the engine against the version without that suffix.
+A-23 fails. After later pushes to the branch the `git-subdir` install named, `claude plugin marketplace update planroom` then `claude plugin update planroom@planroom` answered "planroom is already at the latest version (0.1.0)", and `installed_plugins.json` kept `gitCommitSha` `6b48d4d0…`: the update compares versions, not commits. So the fallback applies: plain `gen` stamps a `-dev` version with a hash, so a new `main` commit installs as a new version. The catalogue hash the fallback names misses a change to a skill, an agent, the resolver or the mod alone. The skeleton's record should stamp the hash of `plugin/`'s own files instead (every file but `plugin.json`), and the resolver should compare the engine against the version without that suffix.
 
 ## The mod's `$.store` file [A-15] [V]
 
