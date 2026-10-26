@@ -1,0 +1,122 @@
+{
+ "lens": "correctness",
+ "review": {
+  "summary": "Round 3, correctness and concurrency lens, on b007ff3. I ran the built target/debug/planroom (it is newer than every crates/planroom source change) on fixture copies under the scratchpad, with PLANROOM_DATA and HOME pointing at temporary directories.\n\nRound-2 material fixes in my area, checked per ID:\n- correctness-13 HOLDS. Repo-set case rerun: moving orders out and back gives orders:container:orders again, the same as a fresh store. Branch case rerun: after `checkout -b feature; branch -D main`, kit:repo:kit's evidence is `{type: ref, commit: d77bb65\u2026, ref: null}` and the snapshots' branch column is empty.\n- correctness-14 HOLDS for a HEAD move. Rerun with SIGSTOP on a scan slowed by a 20k-file repo: the late scan returns `scan_superseded` for platform and the events stay `[(3,'4a8b57c'),(7,'9db64b0')]`. It does NOT hold when another extraction input changes: see correctness-r3-1.\n- correctness-15 HOLDS on this git (2.43.0, which honours GIT_NO_LAZY_FETCH). On a partial clone with a planted uploadpack, the scan fetches nothing, reports partial_scan count 16, and nothing ran. The `protocol.allow=never` fallback the docs rely on can be overridden, though: see correctness-r3-3.\n- correctness-16, unasked-r2-1 and ux-a HOLD for a workspace that has at least one committed repo. A fresh `git init` gives `repo_unborn` and the rest maps. Repos chowned to nobody give `repo_skipped`/other_owner. When every repo is unreadable, the reason is `repos_unreadable` and the next action is `focus`. The all-unborn workspace still loops: see correctness-r3-2.\n- correctness-17 and unasked-r2-2 HOLD. A 60k-file repo's scan reply is 1,237 bytes; `partial_scan` carries count 10000 and 10 sampled paths. `map` at component and code level is cut, with `truncated`.\n- drift-r2-1 HOLDS. `schema --command` for all 10 leaves comes to 254\u20131431 tokens, within the 1500 budget, and `share` comes to 677 tokens.\n\nRound-1 spot checks:\n- correctness-1 holds: a dirty go.mod plus an untracked directory leave the map at 135 nodes, with no untracked path in it.\n- correctness-4: the lock is in the code (data.rs:156-163). I did not run a concurrent test.\n\nNew: one material defect, a late scan whose repo set changed moves repos back (correctness-r3-1). Five minor ones follow it.\n\nNot checked: concurrent workspaces.json writers, serve over HTTP under load, and import's ack-merge semantics on the real ArtifactData service.",
+  "findings": [
+   {
+    "id": "correctness-r3-1",
+    "title": "A late scan still moves repos back when its repo set (extraction inputs) changed meanwhile: DR-86's 'a late scan never moves a repo back' holds only for HEAD moves",
+    "severity": "material",
+    "where": [
+     "crates/store/src/commit.rs:180-188",
+     "crates/planroom/src/app/scan.rs:105-107",
+     "crates/planroom/src/app/scan.rs:191-198"
+    ],
+    "evidence": "Verified with the binary using the script /tmp/claude-0/-home-user-planroom/d26fcf29-d6d2-57f8-acca-1138f06b3754/scratchpad/race.py. The fixture had an extra 20k-file repo `zzz` to slow the scan.\n1. P0 scans the workspace.\n2. P1 starts `scan . --json` and is SIGSTOPped after 1 s.\n3. A new repo `redis` is created with one commit. Its name matches platform's compose image `redis:7.4`.\n4. P2 scans: 'Mapped 7 repos, 7 of them moved'. The container map holds redis:container:redis.\n5. P1 resumes: 'Mapped 6 repos, 6 of them moved', with no warning. The map now holds ws:container:redis instead.\nThe store's scan events read: seq 7-13 move to snapshots 8-14 (link 15), then seq 14-19 move kit, orders, platform, storefront, worker and zzz back to snapshots 1-6 (link 16). Those are P1's stale-inputs snapshots, recorded as real moves.\nThe cause: commit_scan moves a repo when `previous != snapshot` and `is_head(repo)` is true. is_head compares only the commit (scan.rs:192-197). The snapshot also differs by `inputs`, the sorted workspace repo names that compose joins on, and that difference passes as a move.",
+    "why": "This is the same defect class as round 2's material correctness-13 and -14: the map depends on scan order and history, and it disagrees with a fresh store, with no `scan_superseded` warning. Watch, serve and the mod all trigger scans, so a scan that overlaps someone cloning or adding a repo is an ordinary race. The wrong map persists until someone scans again, and every live client receives six spurious 'Scanned \u2026' frames.",
+    "fix": "Inside commit_scan's transaction, refuse a move whenever the repo's active scan event is newer than this scan's start. One way: record max(seq) in prepare and pass it in, then treat a repo as Superseded when active.seq > started_seq and the active snapshot differs. Another way: re-derive the inputs (rediscover the repo names) under the lock and compare them with repo.inputs, the way is_head re-reads HEAD. Add the repo-added-mid-scan case to scan.rs's late-scan test."
+   },
+   {
+    "id": "correctness-r3-2",
+    "title": "A workspace whose only repos have no commits loops: 'Map these N repos?', then a scan that maps nothing, then 'Scan again' forever, while focus offers an empty containers level",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/workspace.rs:107-119",
+     "crates/planroom/src/app/map.rs:118-133",
+     "crates/planroom/src/app/focus.rs:36-38"
+    ],
+    "evidence": "Verified with the binary on a workspace holding one fresh `git init -b main app`.\n- Before the scan, focus says 'Map these 1 repos? About 2 s.' with next action `scan ROOT`, because scannable() counts an unborn repo as readable.\n- scan returns ok, 'Mapped 1 repos, 1 of them moved: 0 containers, 0 nodes', and warns repo_unborn. Its map's empty is `nothing_mapped`, labelled 'The last scan found nothing to map. Scan again.', with next `scan ROOT`.\n- focus then says 'ws \u00b7 system \u00b7 lens all \u00b7 seq 1', with next 'Open the containers' (`map --level container`), a level that is empty.\n- Scanning again gives '0 of them moved' and the same state.",
+    "why": "ux-a's dead loop (round 2, material) survives in the commonest first-run case for a brand-new project. The one next action is a scan that cannot change anything, and focus and map disagree. It is not a blank state, and no tier A or B scenario uses an unborn-only workspace, so I rate it minor.",
+    "fix": "Make scannable() count only repos with a commit, and add an empty reason such as `repos_unborn` ('Commit something in app, then check again', next action `focus`) for both the unscanned and the scanned-but-nothing-mapped cases. focus should take the same Empty when the top map is empty."
+   },
+   {
+    "id": "correctness-r3-3",
+    "title": "The no-fetch defence is weaker than documented: a repo-local `protocol.<name>.allow=always` overrides `-c protocol.allow=never`, and partial-clone detection misses a valueless or integer `promisor` key",
+    "severity": "minor",
+    "where": [
+     "crates/extract/src/git.rs:68-79",
+     "crates/extract/src/git.rs:131-146",
+     "crates/extract/src/walk.rs:82-83"
+    ],
+    "evidence": "I simulated a git that ignores GIT_NO_LAZY_FETCH by running plain git with the adapter's flags under `env -u GIT_NO_LAZY_FETCH`, in a blob:none partial clone whose config plants remote.origin.uploadpack.\n- With no other config, `cat-file -p <missing>` fails with \"transport 'file' not allowed\", as intended.\n- With `protocol.file.allow=always` added to the repo's own .git/config, rc=0 and the planted command ran ('ran' written).\n- Separately: removing extensions.partialclone and writing `[remote \"origin\"]\\n\\tpromisor` with no value makes is_partial_clone return false. git treats a valueless key as true, but the parser at git.rs:139 needs a space. The walk then runs `ls-tree -l`, which triggered three planted-uploadpack runs under the simulation.\n- On this host's git, which honours GIT_NO_LAZY_FETCH, the binary instead skips the repo with repo_skipped/git_failed rather than mapping it with partial_scan.",
+    "why": "git.rs:69-70 and DR-86 say `protocol.allow=never` 'refuses every transport on any version'. That is false, because a protocol-specific `allow` takes precedence and a scanned repo's local config may set one. The command can only run on a git that predates the 2024 lazy-fetch fix, which is already exposed to clone-time CVEs, so this is minor. The misdetection also drops a mappable repo on patched git.",
+    "fix": "Also pass `-c protocol.file.allow=never -c protocol.ssh.allow=never -c protocol.git.allow=never -c protocol.http.allow=never -c protocol.https.allow=never -c protocol.ext.allow=never`. Parse promisor with git's bool rules: a missing value is true, and any nonzero integer is true. Better still, ask git with `git config --type=bool --get-regexp`. Correct the comment and DR-86's wording."
+   },
+   {
+    "id": "correctness-r3-4",
+    "title": "An unborn repo writes a scan event with an empty commit, so stream frames read 'Scanned newrepo at .' and the event log carries a commit that isn't a SHA",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/scan.rs:247-255",
+     "crates/planroom/src/live.rs:142-144",
+     "crates/store/src/commit.rs:176"
+    ],
+    "evidence": "Verified with the binary: `watch --since 0` on a workspace with an unborn repo prints `{\"seq\":2,\"kind\":\"scan\",\"target\":\"newrepo\",\u2026,\"summary\":\"Scanned newrepo at .\"}`. The store holds snapshot (2,'newrepo','','head') and a scan event whose commit is \"\". contracts.md:247 says only that the repo 'maps nothing'. Nothing documents an event or snapshot with an empty commit.",
+    "why": "Every consumer of scan events (frames, M1's truth comparator and reconciler, the backup/restore path) has to special-case commit \"\". The live summary is malformed text shown to people.",
+    "fix": "Either write no scan event or snapshot for an unborn repo (repo_unborn already says so), or document the empty commit in contracts.md and give frame.scan an unborn variant ('newrepo has no commits yet')."
+   },
+   {
+    "id": "correctness-r3-5",
+    "title": "The branch DR-86 moved onto the scan event goes stale: a branch switch or delete at the same commit writes no event, so the store keeps naming a branch that no longer exists",
+    "severity": "minor",
+    "where": [
+     "crates/store/src/commit.rs:181-183",
+     "docs/contributing/decisions.md:2141"
+    ],
+    "evidence": "Verified with the binary on a fixture copy. `git -C kit checkout -b feature && git -C kit branch -D main`, then scan, gives 'Mapped 5 repos, 0 of them moved'. Because the snapshot is Unchanged, commit_scan writes no event (commit.rs:181-183), so kit's only scan event still has branch \"main\". DR-86 says the truth comparator 'matches TRUTH's evidence items that name a branch through the scan event that read them'.",
+    "why": "The comparator will match branch-naming evidence against a branch that git no longer has. The round-2 fix moved the stale-branch problem from facts onto events.",
+    "fix": "Record the branch HEAD names at each scan where it changed, for example as a lightweight 'branch' field update or event even when the snapshot is unchanged. Otherwise, have the comparator read the branch from git at compare time, and say which in DR-86."
+   },
+   {
+    "id": "correctness-r3-6",
+    "title": "A superseded repo still stores a full snapshot of facts, and its warning tells the person to rescan a HEAD that is already mapped",
+    "severity": "minor",
+    "where": [
+     "crates/store/src/commit.rs:176-188",
+     "crates/planroom/text/en.toml:57"
+    ],
+    "evidence": "From the code: put_snapshot and insert_facts (commit.rs:176-179) run before the Superseded check at commit.rs:185. A late scan therefore inserts every fact of a snapshot that never becomes active, up to 50k rows per repo. Observed with the binary in the late-scan rerun: P2 had already recorded platform at 9db64b0, yet P1's warning read \"platform's HEAD moved on while this scan read 4a8b57c, so its map stays as it was. Scan again to map HEAD.\"",
+    "why": "Store growth with orphan snapshots adds to the known unasked-r2-5. The warning's advice is wrong when a newer scan has already landed, which is the usual reason for supersession.",
+    "fix": "Run the Superseded check before put_snapshot. Word the warning by case: when the active snapshot is already at HEAD, say 'a newer scan already mapped HEAD'; say 'scan again' only when it isn't."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "correctness-r3-1",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced on HEAD aaad29d. b007ff3..HEAD changes only xtask and carry files. I ran the reviewer's race.py on a fresh fixture copy plus a 20k-file repo zzz. P0 scanned; P1 was SIGSTOPped mid-scan; a repo `redis` was added; P2 reported 'Mapped 7 repos, 7 of them moved' with redis:container:redis; P1 resumed and reported 'Mapped 6 repos, 6 of them moved' with no warnings, and the container map then held ws:container:redis instead of redis:container:redis. The cause matches the code. commit_scan (crates/store/src/commit.rs:181-188) treats a repo as Superseded only when `!is_head(repo)`. is_head (crates/planroom/src/app/scan.rs:191-197) compares only the commit, while the snapshot key also carries `inputs`, which hash compose's repo-name set (scan.rs:163-189). P1's stale-inputs snapshot therefore passes as a real move. This contradicts DR-86's 'A late scan never moves a repo back' (decisions.md:2139). It is the same class as round 2's material correctness-13/-14, and it leaves a wrong map with no scan_superseded warning. The impact is narrower than round 2's: the repo set has to change during the scan window, and the next scan (watch's included) heals it. I keep it material because it silently contradicts a recorded guarantee."
+  },
+  {
+   "id": "correctness-r3-2",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced on a workspace holding one `git init -b main app`. Before the scan, focus said 'Map these 1 repos? About 2 s.' with next action `scan ROOT`. The scan returned 'Mapped 1 repos, 1 of them moved' with repo_unborn, and its map's empty reason was nothing_mapped ('The last scan found nothing to map. Scan again.', next action `scan`). focus then gave 'w \u00b7 system \u00b7 lens all \u00b7 seq 1' with next action `map --level container`, which returns empty_level. A rescan gave '0 of them moved', the same state. The loop and the disagreement between focus and map are real. Minor is right, because no tier A or B scenario uses an unborn-only workspace."
+  },
+  {
+   "id": "correctness-r3-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Both halves verified with git 2.43. (a) In a blob:none partial clone with a planted remote.origin.uploadpack, I ran `env -u GIT_NO_LAZY_FETCH git -c protocol.allow=never cat-file -p <missing>`. Without repo config it failed with \"transport 'file' not allowed\". After `git config protocol.file.allow always` in the repo, the planted command ran (the 'ran' file was written). With GIT_NO_LAZY_FETCH=1 it did not run. So the comment at crates/extract/src/git.rs:68-70 and DR-86's 'refuses every transport' overstate the defence. (b) With `[remote \"origin\"]\\n\\tpromisor` and no extensions.partialclone, `git config --get-regexp` prints 'remote.origin.promisor' with no space (od output). git.rs:139's split_once(' ') then returns None, so the clone counts as not partial. The exposure needs a git that ignores GIT_NO_LAZY_FETCH, so minor is right."
+  },
+  {
+   "id": "correctness-r3-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Verified on the unborn workspace. `watch --since 0 --json` emitted `{\"seq\":1,\"kind\":\"scan\",\"target\":\"app\",...,\"summary\":\"Scanned app at .\"}`. The store's snapshots row is (1,'app','','','head',...), and the event body has \"commit\":\"\". live.rs:142-144 slices the empty commit into the frame text. contracts.md's repo_unborn row says only that the repo maps nothing, and nothing documents an empty-commit event or snapshot. Malformed text and an undocumented persisted value make this minor."
+  },
+  {
+   "id": "correctness-r3-5",
+   "refuted": true,
+   "severity_after": "none",
+   "reason": "This is intended behaviour, and the tree tests it. crates/planroom/tests/scan.rs:415-435 (`deleting_the_branch_a_snapshot_was_read_on_leaves_no_evidence_naming_it`) deletes kit's main branch, rescans, and asserts the scan event still records branch \"main\" ('the scan event records the branch it read'). DR-86 (decisions.md, 'Evidence names the commit') puts the branch on the event that read the facts, and the comparator resolves branch-naming evidence 'through the scan event that read them': the branch at read time, not the branch now. The comparator is M1 work and not built, so no existing code matches against a deleted branch. Nothing in the code contradicts the decision."
+  },
+  {
+   "id": "correctness-r3-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed from the code. commit.rs:176-179 runs put_snapshot and insert_facts (when created) before the Superseded check at commit.rs:185, so a superseded repo's full fact set is stored under a snapshot that never becomes active. That adds to the known gap unasked-r2-5 (README:196). The warning text at en.toml:57 always ends 'Scan again to map HEAD.', which is unnecessary advice when a newer scan has already recorded HEAD, though the rest of it holds. I did not reproduce the reviewer's specific platform/9db64b0 run; my race run produced no superseded repo, because no commit moved. Minor."
+  }
+ ]
+}

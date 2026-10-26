@@ -1,0 +1,122 @@
+{
+ "lens": "security",
+ "review": {
+  "summary": "Security and privacy lens, round 3, on b007ff3. I ran packages/mod/src/guard.ts unchanged, apart from swapping in the generated CATALOGUE, under node 22 --experimental-strip-types (HOME=/home/u, cwd=/work/ws). I also ran target/debug/planroom on a copy of target/e2e/fixture, with PLANROOM_DATA in my scratchpad.\n\nRound-2 material fixes, per ID:\n- security-r2-1 holds. All 8 of the reviewer's repros are DENY: cp, curl -o into engine/, echo > .planroom/config.toml, rm -rf .planroom, mv .planroom, rm -rf the data root, git clean -fdx, >> workspaces.json. So are ln -sfn, mv, cp -r and rsync above or into engine/ and the data root. The resolver's new cache check is at plugin/scripts/planroom:152-156, and tests/installer/run.sh:468 has a_swapped_cached_engine_is_refused. Its limits are in findings 1 and 3.\n- security-r2-2 holds. All 10 Bash repros are DENY: grep -r and rg on ~/.claude, ~/.config and ~/.local/share; find -exec; find | xargs; tar; cp -r; ln -s. So is the Grep tool on ~/.config, ~/.local/share and ~/.local.\n- tests-r2-2 holds. All 8 repros are DENY: grep -rh, rg, grep -r .planroom, cp -r .planroom, cp -r ~/.claude/plugins, zip -r, tar c, find -exec.\n\nRound-1 spot checks:\n- security-3 holds. These are DENY: a glob into the mod's store, `cd ~/.claude/plugins && cat store/\u2026` on one line, `p=planroom; $p person init`, and /proc/*/environ.\n- security-5 holds by code. The pane path sanitizes: room.ts:33 and :201, and the bundled sanitize in plugin/hooks/planroom-mod.js. CLI --json escapes ESC as \\u001b. I couldn't get the planted OSC 52 name into CLI text output, so I didn't rerun that end to end.\n\nOther checks:\n- Serve auth and CSP match architecture.md. That covers Host, Origin, Sec-Fetch-Site, the one-time code, revoke on a second exchange, and the CSP header. Live file modes: .planroom 0700, serve.json and store.db 0600, data/open 0700 with its page 0600.\n- Share redaction: the DSN password and the Stripe-shaped key I planted don't reach snapshot.json. A service name stays raw in its node ID, which is security-8, a known gap.\n- Import attributes rows by path uid and applies no change in this slice, matching DR-83.\n- CI pins actions by SHA with contents: read. deny.toml denies OpenSSL and unknown sources.\n\nNew material findings:\n1. The guard resolves Bash paths against the directory the session started in. Claude Code's Bash keeps a `cd` between calls, so two everyday calls get past the r2-1 and r2-2 rules.\n2. Tools the guard doesn't parse read guarded files. Artifact, ArtifactData and SendUserFile can carry the person key, the gateway key or serve.json, and the first two can send them off the machine.\n3. The installed plugin's own files are writable. That includes the mod bundle, which holds the guard and the person-key code, and the resolver. This is the same threat as r2-1, which the fix closed only for the engine cache.\n\nAlso reported as minor: deletion forms the remove rule misses, the mod's registration cache that never re-registers, and the `untrusted: true` marking the docs claim but no output carries.\n\nWhat I verified and what I assumed:\n- Verified: every guard verdict above, by running guard.ts. Also the share snapshot contents, and the file modes from a live `serve --detach`.\n- Assumed: the host keeps the Bash working directory across calls. The evidence is the host types (`$.session.cwd()` versus `root()`, which \"a shell cd does not move\"; CwdChanged; backgroundCwdHint) and this environment's own Bash tool description. I also assume the host resets a `cd` that leaves the project, so outside-project two-call routes may need the session's extra directories. And I assume the host's own approval prompts for Artifact and Write still apply in default mode, as they did for r2-1.",
+  "findings": [
+   {
+    "id": "security-r3-1",
+    "title": "The guard resolves Bash paths against the session's start directory, so `cd` in one call and a relative path in the next pass every r2 rule",
+    "severity": "material",
+    "where": [
+     "packages/mod/src/register.tsx:421-460",
+     "packages/mod/src/register.tsx:467-468",
+     "packages/mod/src/guard.ts:776-838",
+     "packages/mod/src/guard.ts:1004-1089"
+    ],
+    "evidence": "`places` is built once from `workspace = e.cwd` at session.start (register.tsx:467-468, 423-433). Every path is then normalized against `places.cwd`: guardCall's `spell`/`spellings`, and `landing()` via `normalize(p, at.cwd, at.home)` at register.tsx:457. bashPaths tracks `cd` only within one line (guard.ts:789-811). The host separates `$.session.cwd()` from `root()`, which 'a shell cd does not move' (vendor/claude-code.d.ts:2828-2842), and has CwdChanged and backgroundCwdHint. This environment's Bash tool also states 'Working directory persists between calls'. I ran guard.ts as calls one after another, cwd=/work/ws. ALLOW: `cd .planroom`, then `cat serve.json` and `rm -rf ./*`. The same targets spelled absolutely are DENY: `cat /work/ws/.planroom/serve.json`, `rm -rf /work/ws/.planroom/*`. Also ALLOW: `cd ~/.local/share/planroom`, then `cp evil engine/0.1.0/planroom` and `cat open/abc.html`; `cd ~/.config/planroom`, then `cat config.toml`; `cd ~/.claude/plugins`, then `cat store/planroom_x.json`. The Read tool on a relative `serve.json` is also ALLOW. Verified: the guard's verdicts. Assumed: the host keeps a `cd` inside the project, as the type docs and the tool description say. A `cd` outside the project may be reset by the host, so the data-root and ~/.claude routes may need the session's extra directories. The in-project route needs nothing. The resolver's sha256 check (planroom:152-156) runs once per resolve, and the mod then runs that path for every press all session (live.ts), so a later swap isn't caught either.",
+    "why": "This is round 1's security-3 class (cd, then a relative path) in its two-call form. It isn't among the residual risks DR-85/86 and architecture.md:442-447 name, which mention only a variable set in an earlier call. In-project, it reads serve's control token and deletes the store, for which there is no backup in the skeleton. Where the host keeps the directory, it also reads the person key and gateway key and swaps the cached engine every press runs. That breaks 'AI proposes, person disposes' (KICKOFF line 68) and AGENTS.md's credential rule.",
+    "fix": "In tool.check for Bash, read the shell's current directory per call. Use `$.session.cwd()` inside the hook, not the cached start directory, and pass it as `places.cwd` for both normalize and landing(). Drop the module-level `places` cache for cwd. Add a two-call test in guard.test.ts (`cd .planroom`, then `cat serve.json`). If the host can't report the Bash directory, deny `cd`/`pushd` into or above a guarded place, and name the residual risk in architecture.md."
+   },
+   {
+    "id": "security-r3-2",
+    "title": "The guard sees file paths only in eight tools; Artifact, ArtifactData and SendUserFile read the person key, the gateway key and serve.json unchecked",
+    "severity": "material",
+    "where": [
+     "packages/mod/src/guard.ts:950-986",
+     "packages/mod/src/register.tsx:563-576"
+    ],
+    "evidence": "callPaths knows only Read, Grep, Glob, Edit, Write, MultiEdit, NotebookEdit and Bash. Every other tool returns no paths (guard.ts:983-984), so guardCall returns null and the call goes to `next(e)`. I ran guardCall: ALLOW for `ArtifactData {action: update, file_path: /home/u/.claude/plugins/store/planroom_planroom-0123456789ab.json}`; `Artifact {publish, asset: true, file_path: <same store file>}`; `Artifact {publish, files: {k.json: /home/u/.config/planroom/config.toml}}`; `SendUserFile {files: [/work/ws/.planroom/serve.json]}`; and LS/NotebookRead on guarded paths. The host documents ArtifactData's `file_path` as 'a local JSON file whose top-level object is sent as the document' (vendor/claude-code.d.ts:17158). The mod's `$.store` file is exactly such a JSON object, holding `person-key.secret`, and serve.json is another. An agent can set it into the Artifact db and `get` it back. Planroom's own S11 flow has the session call ArtifactData with `file_path`, the batch files import writes (import.rs:338-345), so this tool is in routine use. Assumed: the host's own approval prompt for these tools is the only remaining check.",
+    "why": "Reading the person key gives an agent every person-only action, which breaks 'AI proposes, person disposes' and the Actors containment. Uploading `~/.config/planroom/config.toml` sends the gateway key to claude.ai, against AGENTS.md: never send a credential to a host other than the gateway's. architecture.md's security table says 'The guard denies every agent's reads of the user-level config [DR-75]', without naming the tool.",
+    "fix": "Apply the read rule to every path-bearing input of every tool, not a fixed list. Add Artifact (`file_path`, `file_paths`, `files` values, `root`), ArtifactData (`file_path`, and `batch[].file_path`), SendUserFile (`files`) and NotebookRead/LS (`path`). For unknown tools, scan string inputs that look like paths (absolute, `~`, or `./`) with readDenied. Add these to the guard tests."
+   },
+   {
+    "id": "security-r3-3",
+    "title": "The installed plugin's files, the mod bundle with the guard and person-key code and the resolver, are writable by Write and Bash: r2-1's threat with a different target",
+    "severity": "material",
+    "where": [
+     "packages/mod/src/guard.ts:146-151",
+     "packages/mod/src/guard.ts:167-170",
+     "packages/mod/src/register.tsx:136-141",
+     "plugin/hooks/hooks.json"
+    ],
+    "evidence": "writeDenied covers only the state directory, the data root and the read-denied files (guard.ts:147-151). The engine-cache rule is only `${dataRoot}/engine` (guard.ts:168-170). The mod runs `${$.plugin.root}/scripts/planroom` (register.tsx:136-141), and the host loads the bundle `./planroom-mod.js` from the plugin's hooks folder (plugin/hooks/hooks.json). That bundle holds the guard, sanitize and the code that reads `$.store` and signs person tokens. guardCall gives ALLOW for: the Write tool on `/home/u/.claude/plugins/cache/planroom/planroom/0.1.0/scripts/planroom`; `echo x > ~/.claude/plugins/cache/planroom/planroom/0.1.0/scripts/planroom`; `cp evil.js ~/.claude/plugins/cache/planroom/planroom/0.1.0/mod/index.js`. The guard's own test calls the plugin cache readable (guard.test.ts:90, 258) but says nothing on writes. The resolver's new `.ok` check doesn't help, since the resolver itself is the file replaced. Assumed: the host's own prompt for writes outside the project, which applied equally to r2-1.",
+    "why": "A replaced mod bundle runs at the next session start with `$.store` access, so it holds the person key, and the replaced guard no longer guards. A replaced resolver chooses the binary every press runs. That is the exact harm r2-1 was rated material for, 'every later session and every person press runs it'. DR-86 closed it only for the engine cache, so 'AI proposes, person disposes' still rests on a writable file.",
+    "fix": "Treat the plugin's own root as write-protected. Have register.tsx pass `$.plugin.root` into GuardPlaces, along with the dev-mods folder if the host exposes it. Have writeDenied and writeTargetDenied refuse any path within it, and removeDenied any folder above it. Deny any Bash word that lands in it, as the engine-cache rule does. Add Write and Bash cases to WRITE_BYPASSES."
+   },
+   {
+    "id": "security-r3-4",
+    "title": "The current workspace's state directory can still be deleted through everyday forms the remove rule doesn't read",
+    "severity": "minor",
+    "where": [
+     "packages/mod/src/guard.ts:683-761",
+     "docs/contributing/decisions.md:2130 (DR-86, 'The guard holds Bash to the write rule')"
+    ],
+    "evidence": "guardCall gives ALLOW for: `find . -name .planroom -exec rm -rf {} +`; `ls -d .planroom | xargs rm -rf`; `echo .planroom | xargs rm -rf`; `git stash -a`; `git stash push --all`; `rm -rf $(echo .planroom)`. `.planroom` has no slash, so it's no candidate word; `rm` after xargs gets no operands; `-exec rm` is read only as a tree; `$(...)` becomes a relative `*`, which skips dot names; and `git stash --all` isn't modelled. `find . -path './.planroom/*' -delete` and `rm -rf .p*` are DENY. The skeleton has no event backup: no `backups` code under crates/*/src. After a rescan, the store has no `person_pubkey`, and `person init` then accepts any key that signs its own token (person.rs:43-50), which is the known security-1.",
+    "why": "DR-86 says the guard 'refuses deleting the current workspace's state directory'. These forms are plausible in agent clean-up, not only in evasion. Today the loss is rebuildable by scan, apart from the person key registration (see security-r3-5). From M1 the store holds plans and decisions.",
+    "fix": "Treat `-exec`/`-execdir` and `xargs` with a REMOVERS command or `mv` as removes of their roots or the piped words. Treat `git stash -a/--all` like `git clean -x`. Count a bare `.planroom` word as a path candidate. Add these to WRITE_BYPASSES."
+   },
+   {
+    "id": "security-r3-5",
+    "title": "The mod never re-registers its key once a workspace is in its `registered` list, even when the store lost the key",
+    "severity": "minor",
+    "where": [
+     "packages/mod/src/person.ts:61-95",
+     "packages/mod/src/register.tsx:104-124"
+    ],
+    "evidence": "registerKey returns `{kind: 'registered'}` with no engine call when `key.registered.includes(workspace)` (person.ts:67-69). registerOnce's callers (register.tsx:160, 262, 415, 519) never pass `rekey`. Only the mismatch pane's button does (register.tsx:222), and it appears only after a `person_key_mismatch` reply, which needs a registered key. After `.planroom/` is deleted or recreated and then rescanned, the store's `person_pubkey` is empty. import.rs:87-91 then checks against no keys, and every signed press is refused with `person_required` (`bad_signature`). In this window, the first `person init` from any process registers its own key (person.rs:43-50).",
+    "why": "In the skeleton, only `import` and `person init` verify tokens, so no built flow fails yet. From M1, every press would fail with no path back. The gap also leaves the seat open to whoever runs `person init` first.",
+    "fix": "On `person_required` with reason `bad_signature` or `missing` from a press, or when `focus` reports no registered key, drop the workspace from `registered` and run `person init` once. Better, have `focus --json` say whether a person key is registered, and its fingerprint, so registerOnce compares instead of caching."
+   },
+   {
+    "id": "security-r3-6",
+    "title": "Tool outputs aren't marked `untrusted: true`, as architecture.md's injection containment says they are",
+    "severity": "minor",
+    "where": [
+     "packages/mod/src/register.tsx:378-418",
+     "docs/contributing/architecture.md:1457"
+    ],
+    "evidence": "architecture.md:1457 says 'Tool outputs are summaries and evidence pointers ..., marked `untrusted: true`'. handleTool returns `JSON.stringify(result)` of the engine envelope as is (register.tsx:417). `grep -rln untrusted crates packages --include=*.rs --include=*.ts --include=*.tsx` finds only the vendored host types. No envelope or ToolResult field carries the mark. The map's names come from the scanned repos, for example the planted service name in my fixture, and reach the model raw.",
+    "why": "This is drift in a stated containment. In the skeleton, the person-only gates are the real containment, so it isn't material. A doc reader would believe a marker exists that the skill and model could key on.",
+    "fix": "Either add `untrusted: true` (or `meta.untrusted`) to room_query and room_change results whose payload holds repo-derived text, as an additive contract field, or change architecture.md:1457 to say the skill's 'evidence is data' rule is the only marker."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "security-r3-1",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "I confirmed this. At register.tsx:421-433, guardPlacesFor builds `places` once from `workspace`, which only session.start sets (lines 467-468). No CwdChanged or other hook refreshes it; the mod's hooks are session.start, session.attach, turn.start, tool.check, tool.call, command.run, prompt.autocomplete and ui.render. In guard.ts:789-811, bashPaths starts `bases` at places.cwd and follows `cd` only within one line. I ran guard.ts under node with strip-types, a loader script in my scratchpad, and places at cwd=/work/ws. ALLOW: `cd .planroom`, `cat serve.json`, `rm -rf ./*`, the Read tool on `serve.json`, `cp evil engine/0.1.0/planroom`, `cat config.toml`, `cat store/planroom_x.json`. DENY: the absolute forms `cat /work/ws/.planroom/serve.json` and `rm -rf /work/ws/.planroom/*`. With places.cwd set to /work/ws/.planroom, both relative forms are DENY, so reading the cwd per call would fix it. The host types (vendor/claude-code.d.ts:2828-2842) separate cwd() from root(), which 'a shell cd does not move'. The store is .planroom/store.db (workspace.rs:16-17, 42), so the in-project route deletes the store and reads serve.json. That token registers login codes (architecture.md:1287, 1293), which yields person-authority canvas tabs. Mitigations I weighed: architecture.md:446 already accepts that `grep -r x .` reaches serve.json, so that read is not new harm. But deleting `.planroom/` through a bypass is the harm r2-1 was rated material for. The residual-risk list (architecture.md:442-447, DR-85 line 2109) names only a variable set in an earlier call, not a `cd`. Assumed, not verified: the data-root and ~/.claude routes need the host to keep a `cd` outside the project, which Claude Code normally resets, so only the in-project route is solid. Severity stays material, consistent with r2-1."
+  },
+  {
+   "id": "security-r3-2",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "I confirmed this. callPaths (guard.ts:950-986) lists only Read, Grep, Glob, Edit, Write, MultiEdit, NotebookEdit and Bash; every other tool gets empty reads and writes, so guardCall returns null and tool.check calls next(e) (register.tsx:572-573). Running guardCall gave ALLOW for: ArtifactData {action: update, file_path: the planroom_ store file}; Artifact {asset: true, file_path: same}; Artifact {files: {k.json: ~/.config/planroom/config.toml}}; SendUserFile {files: [/work/ws/.planroom/serve.json]}. As a control, Read on the same store file is DENY ('The Planroom mod's store holds the person key.'). architecture.md:418 names only Read, Grep, Glob and Bash. The security table at :1449 says 'The guard denies every agent's reads of the user-level config', and :414 says the guard keeps every agent out of the mod's $.store. Uploading config.toml sends the gateway key to claude.ai, against AGENTS.md's credential-host rule. Upserting the store file and reading it back exposes the person key. Assumed: the host's own approval for these tools is the only remaining check. The same was true for r2-1, so severity stays material."
+  },
+  {
+   "id": "security-r3-3",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "I confirmed this. writeDenied (guard.ts:147-151) covers only the state dir, the data root and readDenied. The only cache rule is engineDir = `${dataRoot}/engine` (guard.ts:168-170). The mod runs `${$.plugin.root}/scripts/planroom` (register.tsx:136-141), and plugin/hooks/hooks.json loads ./planroom-mod.js, the bundle that holds the guard and the person-key signing code. guardCall gave ALLOW for: the Write tool on ~/.claude/plugins/cache/planroom/planroom/0.1.0/scripts/planroom; `echo x > ...scripts/planroom`; `cp evil.js ...hooks/planroom-mod.js`. guard.test.ts:87-90 asserts the plugin's files stay readable, but no test covers writes to them. This is the r2-1 harm (code every later session and every person press runs) with a different target that DR-86 didn't close. Assumed: the host prompts for writes outside the project, which held equally for r2-1. Severity stays material."
+  },
+  {
+   "id": "security-r3-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "I reran the cited forms through guardCall. ALLOW: `find . -name .planroom -exec rm -rf {} +`, `ls -d .planroom | xargs rm -rf`, `echo .planroom | xargs rm -rf`, `git stash -a`, `git stash push --all`, `rm -rf $(echo .planroom)`. DENY: `find . -path './.planroom/*' -delete`, `rm -rf .p*`, `rm -rf .planroom`, `git clean -fdx`. That contradicts DR-86's claim that the guard refuses deleting the state directory. `git stash -a` is recoverable with `stash pop`. In the skeleton the store can be rebuilt by scan, except the person key registration. Minor is the right rating."
+  },
+  {
+   "id": "security-r3-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "I confirmed this from the code. registerKey returns {kind: 'registered'} without calling the engine when key.registered includes the workspace and rekey is false (person.ts:67-69). Every registerOnce call site (register.tsx:160, 262, 415, 519) passes no rekey; only the mismatch pane's action at :221-222 does. person.rs:43-50 shows that with no registered key, `allowed` is just the submitted key, so any process's self-signed `person init` registers it. That last part is known gap security-1. Once a store is recreated, the mod never re-registers. In the skeleton no built flow beyond import and person init depends on it, so minor."
+  },
+  {
+   "id": "security-r3-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "I confirmed this. architecture.md:1457 says tool outputs are 'marked `untrusted: true`'. handleTool returns JSON.stringify(result) of the engine envelope (register.tsx:417). `grep -rln untrusted` over crates, packages and plugin (.rs, .ts, .tsx, .md, .json) finds only the vendored host type files. The planroom skill (plugin/skills/planroom/SKILL.md:38) does say evidence is data, so the containment rests on the skill and the person-only gates. This is doc drift: minor."
+  }
+ ]
+}

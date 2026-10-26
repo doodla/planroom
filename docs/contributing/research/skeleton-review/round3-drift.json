@@ -1,0 +1,191 @@
+{
+ "lens": "drift",
+ "review": {
+  "summary": "Round-3 architecture-drift review of /home/user/planroom at b007ff3 (HEAD aaad29d; the commits after b007ff3 touch only xtask, carry and the review script). I ran the prebuilt target/debug/planroom (mtime 16:05:01, built after b007ff3) only on copies of target/e2e/fixture/shop and on small repos I made under /tmp/claude-0/-home-user-planroom/d26fcf29-d6d2-57f8-acca-1138f06b3754/scratchpad/r3drift, with PLANROOM_DATA set to a temporary folder. I built nothing and wrote nothing under the repo. I started one detached serve and killed it afterwards.\n\nRound-2 material findings in this lens:\n- drift-r2-1 HOLDS for what it named. `schema --command` for each of the 10 leaves stays under schema's 1,500-token budget: focus at 1,431 tokens is the largest, map 1,327, scan 1,322. The summary says which descriptions were dropped (\"only the request's types keep their descriptions\"). On the fixture, `share --out <long scratch path> --json` is 681 tokens against its 800 budget, with `root` plus relative `files`. budgets.rs now runs every built leaf. The same defect class is still open for `import` and `focus`, though (findings drift-3-1 and drift-3-3).\n- drift-r2-2 HOLDS for the four shapes DR-86 lists. engine.ts now imports Envelope, ErrorObject, VersionInfo and ResolverStatus, and Reply and ReplyError are gone. One hand-copy is left in room.ts (MapLike), which is finding drift-3-2.\n\nRound-1 spot checks:\n- drift-1 HOLDS. The usage error is one invalid_argument envelope with exit 2 for 8 cases: bad value, bad flag, unknown command, bare `--bogus`, `watch --since abc`, a missing `--out`, bare `person` and bare `import`. Each carries the field, synopsis and schema handle (bare `person` has field null, which tests-r2-6 already logs).\n- drift-2 HOLDS:\n  - The catalogue hash 7a8e3030\u2026 agrees across `version --json`, catalogue.ts and engine.env.\n  - `plugin.json`'s stamp gc3281fc5 matches my recomputation of plugin_hash over the 14 plugin files.\n  - The binary's `schema --command` `$defs` for every leaf equal the committed schema/planroom.v1*.schema.json once descriptions are stripped, so the generated schema is in step with the code.\n- unasked-1 HOLDS. A workspaces.json tagged planroom.workspaces/v2 makes `serve --detach --json` exit 7 with schema_mismatch and details.file, and the file stays byte-identical (same md5 before and after).\n\nDR-86 claims checked against the code:\n- Head snapshots record branch '' and Line evidence has branch null, read in the store with sqlite.\n- The scan event keeps the branch.\n- repo_skipped and repos_unreadable come out as documented (a broken .git/config gives exit 0, the warning, and focus's \"check again\").\n- Warnings past the budget are summarised in one truncated warning ({budget_tokens, left_out, codes}).\n- git runs with protocol.allow=never and GIT_NO_LAZY_FETCH (extract/src/git.rs:69-78).\n- The resolver's cache_ok checks a regular file, not a link, against its sha256 (plugin/scripts/planroom:152-155).\n\nNot verified: scan_superseded (no race reproduced), other_owner skipping (I'm root), and the live Artifact publish with the new `root` form.\n\nNew findings, most important first:\n1. drift-3-1 (material): `import`'s reply passes its 800-token budget from 5 read rows, and is 5x over at 40.\n2. drift-3-2 (material): the mod still hand-copies MapView as MapLike.\n3. drift-3-3: the 4 KB PaneModel cap and focus's 1,000-token budget disagree, so a focus reply in a large workspace tells the agent it is a bug.\n4. drift-3-4: an unborn repo writes a scan event with an empty commit, counts as mapped and moved, and its next action loops back to the same scan.\n5. drift-3-5: share's consent line isn't generated from the snapshot's sections.\n6. drift-3-6: several contract fields are lagging with no record accepting them.\n7. drift-3-7: the docs still cite the WS7 live publish as proof of `share`'s arguments, which DR-86 changed.\n8. drift-3-8: scan's text mode drops the warnings DR-86 added.\n9. drift-3-9: the docs disagree about where live/head goes in a sync's batches.",
+  "findings": [
+   {
+    "id": "drift-3-1",
+    "title": "import's reply passes its 800-token budget from 5 read rows (5x at 40), the same defect drift-r2-1 fixed for share but not for import",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/import.rs (ImportResult: one rows entry per line, one absolute file_path per db write)",
+     "crates/contract/src/command.rs (import budget_tokens 800)",
+     "crates/planroom/tests/budgets.rs:240-271 (every_built_leafs_reply_on_the_fixture_keeps_to_its_budget runs import with exactly one row)",
+     "docs/contributing/decisions.md DR-86 'Every CLI reply keeps to its leaf's budget'",
+     "docs/contributing/architecture.md:1439 ('The model applies each batch with one ArtifactData batch')"
+    ],
+    "evidence": "Verified by running the binary on the scanned fixture copy. I fed `import - --json` N read-request rows ({path: inbox/uX/events/docN, version: 1, row: {format: planroom.inbox/v1, command: map, request: {level: container}, base: 5, ...}}):\n- N=1: 296 tokens.\n- N=3: 601 tokens.\n- N=5: 955 tokens.\n- N=8: 1,413 tokens.\n- N=40: 16,598 B, about 4,150 tokens.\nFrom N=5 on, meta.warnings carries one truncated warning: \"This reply passes its 800-token budget; that's a bug, so please report it.\" The engine flags its own reply.\n\nThe bulk is two things. result.rows has one {path, command, status, reason} per line. result.batches has one absolute `file_path` per write (`.../.planroom/share/sync/5-<\u00b5s>/answers/docNNN.json`), plus one delete per row. That is 82 writes in 2 batches for 40 rows. DR-86 fixed exactly this pattern for share (relative files plus one root) but not for import. budgets.rs covers import with a single row, so it can't see the growth.\n\nIn the design, this reply is agent-facing. architecture.md:1439 says the model applies each batch with one ArtifactData batch call, so the chat model reads it.",
+    "why": "This breaks KICKOFF principle 'every agent-facing output has a size budget' and DR-86's 'Every CLI reply keeps to its leaf's budget'. The budget is declared, and on the remote sync path it fails for any viewer who taps a handful of views. That is the same class round 2 rated material (drift-r2-1). The code is right to flag it; the reply shape is what's wrong, and the docs are right.",
+    "fix": "Give import's batches one `root` (the sync directory) with relative file paths, as share's publish has. Cap `rows` to a count by status plus the first few entries, since acks/<uid> already lists each row. Or put the batches in a file the reply names by path. Then extend budgets.rs to run import with 40 rows."
+   },
+   {
+    "id": "drift-3-2",
+    "title": "drift-r2-2's fix holds only for the four shapes DR-86 named: room.ts still hand-copies MapView as MapLike, and engine.ts types engine_unavailable's details by hand",
+    "severity": "material",
+    "where": [
+     "packages/mod/src/room.ts:36-51 (interface MapLike, mapOf), used at :79, :176, :238",
+     "packages/mod/src/engine.ts:100-101 (details as { reason?: string; fix?: string })",
+     "packages/contract/src/generated/output.ts:1754 (MapView), :512 (ResolverStep), UnavailableReason",
+     "KICKOFF.md:239 ('Never hand-copy types across the language boundary')"
+    ],
+    "evidence": "Read the code.\n\nroom.ts:36-41 declares `interface MapLike { level: string; nodes: { name?: unknown; counts?: unknown }[]; empty?: { next?: unknown } | null; }` with the comment 'A map reply's result, as far as the mod reads it'. That is the same 'as far as the mod reads it' copy drift-r2-2 named. room.ts builds /room's text and rows from it, while @planroom/contract exports MapView (output.ts:1754), MapNode and Empty.\n\nengine.ts:100 reads engine_unavailable's details as `{ reason?: string; fix?: string }` and switches on string literals ('stale_build', 'no_release', 'no_build', 'download_failed'). The contract has UnavailableReason for exactly these values.\n\nThe four types DR-86 lists are fixed: engine.ts:6-13 imports Envelope, ErrorObject, VersionInfo and ResolverStatus, and grep finds no `interface Reply`.",
+    "why": "KICKOFF constraint 'One contract source ... Never hand-copy types across the language boundary', and DR-85/DR-86 'The mod reads the contract's types'. The round-2 verifier kept drift-r2-2 material for this class even though the copies were narrow. With MapLike, renaming MapView.nodes or Empty.next compiles silently in the mod, and /room falls back to its generic line. tests-r2-4 notes that the room tests run on a hand-written map reply, so they wouldn't catch it either. The impact is narrow, but the constraint is absolute, so I rated it material to stay consistent with round 2. The docs are right.",
+    "fix": "In room.ts, type mapOf's result as `MapView` (import type from @planroom/contract) and delete MapLike. In engine.ts, type details.reason as `UnavailableReason`, so the switch is checked against the generated union."
+   },
+   {
+    "id": "drift-3-3",
+    "title": "focus's two budgets disagree: the PaneModel is fit to 4,096 bytes, but the envelope's catalogue budget is 1,000 tokens, so a large workspace's focus tells the agent its reply is a bug",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/focus.rs:21-23 (MINIMAP_BLOCKS 60, BUDGET_BYTES 4_096), :89-96 (fit)",
+     "crates/contract/src/command.rs (focus budget_tokens 1000)",
+     "crates/planroom/src/cli.rs:210-260 (envelope_within, 'passes its budget' warning)",
+     "docs/contributing/architecture.md:1256 (focus: '1,000 (at most 4 KB)')"
+    ],
+    "evidence": "Verified. I made 70 one-commit repos (service-number-1..70), then ran `scan` and `focus --json`. Focus returned 4,406 B, about 1,102 tokens, with 38 minimap blocks, and meta.warnings = [truncated: \"This reply passes its 1000-token budget; that's a bug, so please report it.\"].\n\nfocus.rs fits only the PaneModel to 4,096 bytes, which is already 1,024 tokens before the envelope's summary and meta are added. The CLI checks the whole envelope against 1,000 tokens. focus is a room_query leaf. `focus --detail summary`, which drops the minimap for the tools, is M1 per DR-82, so today the tools get the full pane.",
+    "why": "The overrun is bounded at about 10%. But the agent's most common read carries an engine message calling it a bug and asking for a report, in any workspace with about 40 or more top-level blocks. The docs themselves are inconsistent ('1,000 (at most 4 KB)'), so neither side is wholly right.",
+    "fix": "Fit the PaneModel to the leaf's budget less the envelope overhead (or measure the envelope itself in fit), or state the budget as 4 KB of reply in one place and derive the other from it."
+   },
+   {
+    "id": "drift-3-4",
+    "title": "An unborn repo writes a scan event and snapshot with an empty commit, counts as mapped and moved, and the empty map's next action loops on the same scan",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/scan.rs:226-250 (unborn), :128-140 (summary counts write.repos)",
+     "crates/store/src/commit.rs:175-216 (put_snapshot and event with commit '')",
+     "docs/contributing/contracts.md:529 (EventBody::Scan.commit), the nothing_mapped row of the Empty table",
+     "docs/contributing/decisions.md DR-86 ('A repo with no commits yet maps nothing')"
+    ],
+    "evidence": "Verified.\n\nI made 40 repos with `git init` only, then ran `scan --json`. It said \"Mapped 40 repos, 40 of them moved: 0 containers, 0 nodes, 0 hints.\" with seq 40. The store's snapshots rows have commit_id '' and branch ''. Each event body is {kind: scan, commit: \"\", branch: \"master\", snapshot: N, ...}, and `watch --since 37` streams `\"summary\":\"Scanned repo-with-a-rather-long-name-7 at .\"`.\n\n`map` returns empty.reason nothing_mapped with next `scan ROOT`, labelled \"The last scan found nothing to map. Scan again.\". That scan succeeds and maps nothing again. Meanwhile `focus` offers \"Open the containers\" with no empty state.\n\nIn a mixed workspace (ws7: three committed repos), adding one unborn repo re-keys and re-records the other three at unchanged commits (seq 4-6), as DR-86 accepts.",
+    "why": "DR-86 says an unborn repo 'maps nothing' and only warns. Here it also commits a scan event naming the empty string as a commit, which contracts.md's Scan body doesn't allow for. It counts toward 'Mapped N repos ... moved' and prints a broken summary line. For a fresh `git init` workspace, the one next action loops on a scan that can't help, the ux-a pattern minus the failure. The docs are right on 'maps nothing'. The nothing_mapped row doesn't cover 'every repo is unborn'.",
+    "fix": "Don't record a snapshot or event for an unborn repo. Leave it out of the 'Mapped N' and 'moved' counts. When every repo is unborn, return an empty reason whose line says to commit first and whose next is `focus` (check again), as repos_unreadable does."
+   },
+   {
+    "id": "drift-3-5",
+    "title": "share's 'what will be shared' line is a fixed template, not generated from the snapshot's sections: it claims paths and line numbers, and with --include-snippets 'code lines', which the snapshot never holds",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/text/en.toml:149 (share summary template)",
+     "crates/planroom/src/app/share.rs",
+     "docs/contributing/architecture.md:1420 ('generated from the snapshot's actual sections')",
+     "docs/contributing/contracts.md:1029 (ShareResult.summary 'from the snapshot's sections')"
+    ],
+    "evidence": "Verified.\n\n`share --out out1 --json` on the fixture says \"Shares 5 repos, 10 blocks at the top level and the pane, with paths and line numbers; no code text; no presence.\". But `grep -o '\"path\"\\|\"line\"\\|evidence' out1/data/snapshot.json` finds nothing: the snapshot holds one MapView (system/all), whose MapNodes carry no evidence.\n\nWith `--include-snippets --include-presence`, the line says \"code lines, redacted; who is working on what\". Yet the snapshot is identical to the default one apart from snippets: true and who: [], per a diff of both files with published_at, snippets and who removed.\n\nen.toml:149 hard-codes 'with paths and line numbers'.",
+    "why": "DR-31's first-publish consent line is meant to describe what is actually published. Today it over-states it, which is the safe direction for privacy, but it will stay wrong when M4 changes the snapshot's sections, because nothing ties the line to them. The docs are right.",
+    "fix": "Build the clauses from what the snapshot holds: evidence present or not, `contains` present or not, presence rows present or not. Add a test that checks the line against the written snapshot."
+   },
+   {
+    "id": "drift-3-6",
+    "title": "Public contract types trail contracts.md with no record accepting the lag, including persisted event fields",
+    "severity": "minor",
+    "where": [
+     "crates/contract/src/event.rs:127-135 (EventBody::Scan without renames and reconcile)",
+     "crates/contract/src/envelope.rs (Meta without stale_repos)",
+     "crates/contract/src/command.rs:389-399 (WriteCommon without client)",
+     "crates/contract/src/event.rs (HandoffStep without repos, patch_ids, landed_by; HandoffState without Merging, Reverting, Reverted)",
+     "docs/contributing/contracts.md:529-537, :110-125, :293-302",
+     "docs/contributing/decisions.md DR-81..DR-86 'code that trails the docs' lists"
+    ],
+    "evidence": "Verified by parsing the Rust blocks in contracts.md and architecture.md and comparing struct fields and enum variants with crates/contract/src/*.rs.\n- EventBody::Scan in the code is {repo, commit, branch, snapshot, link, stats}. contracts.md:529-537 adds `renames: Vec<Rename>` (DR-74) and `reconcile: Option<ReconcileOutcome>`.\n- Meta lacks `stale_repos`. `dirty_repos` is marked M1 in contracts.md, but `stale_repos` has no milestone.\n- WriteCommon lacks `client`. The CLI takes it from PLANROOM_CLIENT instead (actor.rs:49, scan.rs:148), which architecture.md:1355 documents.\n- HandoffStep and HandoffState, published in the v1 schema, lack the fields above.\nNone of these appear in DR-82's or DR-83's trailing lists, or in the review README's known gaps. Those lists name PaneModel.minimap, PresenceRow.client_id, StreamFrame variants, Snapshot sections and LiveHead.delta, which my comparison also found and which are accepted.\nNot found as drift: CommandSpec.spends and budget (drift-3, known).",
+    "why": "The scan events the skeleton writes persist without `renames`. That is harmless before release, but the docs present these fields as the v1 shape, and nothing schedules them. AGENTS.md and contracts.md say the docs stand and the code catches up only where a record lists it. The docs are right on intent, but the lag is unrecorded.",
+    "fix": "Add these items to a 'code that trails the docs' list with their milestones (renames: M1 extractors or DR-74's slice; reconcile: M2; handoff fields: M2; stale_repos: M1). Or mark them in contracts.md. When they land, make the new event fields serde-default so the skeleton's events still load."
+   },
+   {
+    "id": "drift-3-7",
+    "title": "The docs cite WS7's live publish as proof of share's exact arguments, but DR-86 changed those arguments (root plus relative files) and the new form was never published live",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/architecture.md, 'Bets and budgets it measured', row 'The Artifact round trip'",
+     "docs/contributing/research/ws7-remote.md:10",
+     "crates/contract/src/remote.rs (PublishArgs.root, relative files; DR-86)"
+    ],
+    "evidence": "Read the docs and the git log.\n\nws7-remote.md:10 says the session published with the exact arguments `share --json` returned (`file_path`, the `files` map, ...). That ran before 21f2dfd ('Make share's publish arguments compact', 15:11), when files held absolute sources. Today `share --json` returns `root` (absolute) and `files` mapping each path to itself relative to root (verified on the fixture).\n\narchitecture.md's evidence row still says \"`share`'s exact publish arguments published the page\". Neither DR-86 nor progress.md records a live publish of the new form.\n\nThis session's Artifact tool description says `root` is resolved relative to the working directory, or absolute within it or the scratchpad, and that sources must sit under the working directory. So the new form should work when `.planroom/share` is under the session's cwd. That reading is mine; nothing ran it.",
+    "why": "A WS7 claim is now evidence for a shape that no longer exists, and only a live run proves the Artifact tool's `root` semantics (WS8 found that the mocked harness hides host behaviour). The code is probably fine; the evidence trails it.",
+    "fix": "Re-run the WS7 publish with the current `share --json` arguments, record it in ws7-remote.md, and cite that run in the architecture row. Or mark the row as covering the pre-DR-86 form."
+   },
+   {
+    "id": "drift-3-8",
+    "title": "scan's text mode prints only the summary line and drops every warning, so a person at a terminal never sees repo_skipped, repo_unborn or partial_scan",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/scan.rs:100,128 (Reply.text is the summary only)",
+     "crates/planroom/src/app/map.rs:71-79 (map appends its warnings to text)",
+     "docs/contributing/contracts.md:94 ('Text mode renders the same structs')"
+    ],
+    "evidence": "Verified. In ws3 (one repo with a broken .git/config), `planroom scan` prints only \"Mapped 0 repos, 0 of them moved: 0 containers, 0 nodes, 0 hints.\" and exits 0. `scan --json` carries repo_skipped with its fix line (\"Run git -C <path> status to see why...\"). By contrast, `planroom map --level code` prints its truncated warning as a second line. Also, cli.rs's doc comment on envelope_within points to `cli::fit_warnings`, which doesn't exist.",
+    "why": "DR-86 makes per-repo outcomes and fixes visible through these warnings. In text mode they vanish, and map and scan render warnings differently. The docs are right.",
+    "fix": "Append each warning's message to scan's text, as map does, capped like the JSON."
+   },
+   {
+    "id": "drift-3-9",
+    "title": "The docs disagree on where live/head goes in a multi-batch sync; the code follows one of them",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/contracts.md:1020 ('written last in each batch')",
+     "docs/contributing/architecture.md:1429 ('written last in each sync batch')",
+     "docs/contributing/contracts.md:1089 and decisions.md:2026 ('live/head the last write of the last batch')",
+     "crates/planroom/src/app/import.rs"
+    ],
+    "evidence": "Verified. Importing 40 read rows gives 2 batches: batch 1 has 40 answers sets, 9 inbox deletes and 1 acks set; batch 2 has 31 deletes and the single live/head set. So live/head is written once, at the end of the last batch, as contracts.md:1089 says, and not in each batch as contracts.md:1020 and architecture.md:1429 say.",
+    "why": "The two homes for the same fact differ, which breaks 'every fact has one home'. A reader implementing the page or the sync can't tell whether viewers may see a batch without a head bump. The code and the import rule (one head per sync) look right; the table and the live-head paragraph are stale.",
+    "fix": "Change contracts.md:1020 and architecture.md:1429 to 'written last in the sync's last batch', or link both to the import rule."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "drift-3-1",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced on a scanned copy of target/e2e/fixture/shop. I fed `import - --json` N read-request rows. N=1 gave 288 tokens, N=5 gave 661, N=8 gave 989 with meta.warnings truncated (\"This reply passes its 800-token budget; that's a bug, so please report it.\"), and N=40 gave 4,007 tokens (16,028 B). My counts are a bit lower than the reviewer's, so the threshold is about 7 rows rather than 5, but the defect holds. result.rows has 40 entries. batches[0].writes carries an absolute file_path per answer (.../.planroom/share/sync/5-<us>/answers/dN.json), so share's DR-86 root-plus-relative form was not applied to import (import.rs:330, :399). budgets.rs:264-267 runs import with a single row, so the test can't see the growth. architecture.md:1439 says the model applies each batch, so the reply is agent-facing. This is the same class as drift-r2-1, which round 2 rated material: a declared budget that grows without bound with input, against KICKOFF's size-budget principle and DR-86's 'every CLI reply keeps to its leaf's budget'. Material stands."
+  },
+  {
+   "id": "drift-3-2",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed both copies. room.ts:36-50 declares `interface MapLike { level; nodes: { name?; counts? }[]; empty?: { next? } }` with the comment 'A map reply's result, as far as the mod reads it'. mapOf uses it at :79, :176 and :238, while @planroom/contract exports MapView (output.ts:1754, and packages/contract/src/index.test.ts imports it). engine.ts:100-101 hand-types engine_unavailable's details as `{ reason?: string; fix?: string }` and switches on the literals 'stale_build', 'no_release', 'no_build' and 'download_failed' (:107-118). One correction to the suggested fix: UnavailableReason exists only in Rust (crates/contract/src/resolver.rs:55, lib.rs:45). grep finds it nowhere under packages/contract/src, and the generated ErrorObject.details is `unknown`. So the mod has no generated type to import yet, and the fix has to generate the enum to TS first. That makes the gap partly a generation gap, but the mod still hand-copies the enum's values across the language boundary. The four DR-86 types are correctly imported (engine.ts:6-14). KICKOFF.md:239 says 'Never hand-copy types across the language boundary', and round 2 kept this class material, so material stands. The practical impact is narrow."
+  },
+  {
+   "id": "drift-3-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced with 70 one-commit repos (service-number-1..70). `focus --json` returned 4,403 B (tokens_est 1,101) with 38 minimap blocks, and meta.warnings carried \"This reply passes its 1000-token budget; that's a bug, so please report it.\" The code explains it. focus.rs:23 sets BUDGET_BYTES=4_096, and fit() at :89-96 measures only the PaneModel, which alone reaches about 1,024 tokens. command.rs:129 sets focus's budget_tokens to 1_000 for the whole envelope. architecture.md:1256 states '1,000 (at most 4 KB)', so the docs hold both numbers. The overrun is bounded at about 10% and breaks no scenario, so minor is right."
+  },
+  {
+   "id": "drift-3-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced with 3 `git init`-only repos. `scan --json` said 'Mapped 3 repos, 3 of them moved: 0 containers, 0 nodes, 0 hints.' with three repo_unborn warnings. A read-only sqlite read of .planroom/store.db shows snapshots rows (1,'r1','','','head',...) and event bodies {\"kind\":\"scan\",\"repo\":\"r1\",\"commit\":\"\",\"branch\":\"master\",...}. `map --json` returns empty.reason nothing_mapped with next `scan <root>`, labelled 'The last scan found nothing to map. Scan again.', which can't help. DR-86 (decisions.md:2141) says an unborn repo 'maps nothing' and doesn't address recording an empty-commit snapshot or event. The repo_unborn warning tells the user to commit, so the loop is a confusing next action, not a failure. Minor stands. I did not re-check the mixed-workspace re-keying claim."
+  },
+  {
+   "id": "drift-3-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. en.toml:149 is the fixed template 'Shares {repos} repos, {blocks} blocks at the top level and the pane, with paths and line numbers; {code}; {presence}.', and share.rs:94-101 fills it only from the request flags. On the fixture, both the default share and `--include-snippets --include-presence` print 'with paths and line numbers', and the second also prints 'code lines, redacted; who is working on what'. Neither snapshot.json contains \"path\", \"line\" or 'evidence'. A key-by-key diff of the two snapshots differs only in published_at, snippets (false/true) and who (null/[]). architecture.md:1458 and contracts.md:1029 say the line is generated from the snapshot's sections. It over-states what is shared, the privacy-safe direction, so minor stands."
+  },
+  {
+   "id": "drift-3-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading both sides. event.rs:127-135 Scan is {repo, commit, branch, snapshot, link, stats}, while contracts.md:529-537 adds renames and reconcile. contracts.md:121 has Meta.stale_repos with no milestone. WriteCommon (command.rs:389-399) lacks client, which contracts.md:293-302 lists. HandoffStep (event.rs:335-340) lacks repos, patch_ids and landed_by, and HandoffState (:345-354) lacks Merging, Reverting and Reverted, against contracts.md:550-560. The 'code that trails the docs' lists at decisions.md:1958, :1980-1984 and :2048-2055 don't name any of these. They are additive or unbuilt features and are harmless before release, so minor stands."
+  },
+  {
+   "id": "drift-3-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. ws7-remote.md:10 records the publish with 'the exact arguments `share --json` returned (`file_path`, the `files` map, ...)'. That ran in d219695 at 11:44, before 21f2dfd ('Make share's publish arguments compact', 15:11) introduced root and relative files. architecture.md:1584 still cites WS7 as evidence that \"`share`'s exact publish arguments published the page\". I found no live publish of the new form in progress.md or ws7-remote.md. The evidence trails the code; nothing shows the code is wrong. Minor stands."
+  },
+  {
+   "id": "drift-3-8",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. In the unborn-repo workspace, text-mode `planroom scan` printed only 'Mapped 3 repos, 0 of them moved: 0 containers, 0 nodes, 0 hints.' and exited 0. No repo_unborn line appeared on stdout or stderr, although --json carries three. scan.rs:100 and :128 set Reply.text to the summary alone, while map.rs:74-78 appends each warning's message. One small correction: the stale `cli::fit_warnings` reference is in map.rs:147's doc comment, not cli.rs, and grep finds no such function. Minor stands."
+  },
+  {
+   "id": "drift-3-9",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by running import with 40 rows. Batch 0 holds 50 writes (40 answers sets, 9 inbox deletes, 1 acks set). Batch 1 holds 32 writes (31 deletes and the single live/head set, which comes last). So live/head is written once, as the last write of the last batch, as contracts.md:1088 and decisions.md:2026 say. contracts.md:1020 ('written last in each batch') and architecture.md:1429 ('written last in each sync batch') disagree with that. This is a docs-only inconsistency, so minor stands."
+  }
+ ]
+}

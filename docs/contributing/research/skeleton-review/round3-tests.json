@@ -1,0 +1,105 @@
+{
+ "lens": "tests",
+ "review": {
+  "summary": "Round 3, TESTS AND EVIDENCE lens, on b007ff3 (HEAD aaad29d adds only a carry note). target/debug/planroom was built after the last code commit: its catalogue hash 7a8e3030\u2026 matches plugin/scripts/engine.env and packages/contract's CATALOGUE_HASH.\n\nWhat I ran:\n- The binary on copies of target/e2e/fixture/shop under the scratchpad, with PLANROOM_DATA set to a scratch directory.\n- packages/mod/src/guard.ts and guard.test.ts under `node --experimental-strip-types`, with a CATALOGUE stub and a minimal vitest shim. Every list passed except 2 cases that fail only because of my stub.\n- tests/installer/run.sh with TMPDIR set to the scratchpad and a loopback server only: 21 passed, 0 failed.\n\nI did not run cargo, pnpm, vitest, Playwright or `claude plugin test`. Where I say a test \"would\" do something, I reasoned it from the code.\n\nFix check for each round-2 material finding in this lens:\n- **tests-r2-1: holds in the plan, not in feature_list.json.**\n  - architecture.md:1021, 1276 and 1641 and DR-86 move `map` paging into M1's S1 slice.\n  - The binary still cuts the fixture at component level (20 of 38 blocks) and code level (21 of 83). It refuses `--cursor` as `invalid_argument`, which is expected until M1.\n  - feature_list.json's S1 ci_path was never updated (tests-3-2).\n- **tests-r2-2: holds.**\n  - All 31 RECURSIVE_BYPASSES are denied, including every tests-r2-2 string, as are all 18 security-3 BYPASSES and all 32 WRITE_BYPASSES. Both everyday lists pass.\n  - plugin-tests/guard.test.tsx exercises the same rule through tool.check (read, not run).\n  - The rule is a closed list of programs, and several recursive readers it doesn't name still pass (tests-3-3).\n\nSpot-check of round 1's material fixes, all HOLD:\n- **correctness-1 and unasked-3:** an uncommitted compose service and an untracked directory never reached the map.\n- **drift-1:** `map --bogus --json` prints one `invalid_argument` envelope, exit 2.\n- **ux-6:** an empty folder gives `no_repos`; map and focus agree, and the next action is `focus`.\n- **ux-3:** the intent level gives `no_intent` with a way back.\n- **unasked-8 and round 2's correctness-17 and unasked-r2-2:** a scan of a 60,000-file repo replied in 936 bytes, with `partial_scan` count 10000 and 10 sample paths. `schema --command` stayed under 1,500 tokens for every leaf (drift-r2-1).\n- **ops-2:** the installer suite passes, including the new `a_swapped_cached_engine_is_refused`.\n- **Golden:** the `focus` golden equals the current engine's output.\n- **Scan behaviour:** a workspace with a map whose repos all become unreadable keeps its map, with one `repo_skipped` per repo.\n\nOther checks:\n- No feature_list.json entry is marked passing; all 32 are failing.\n- Every test name that DR-86's Consequences cite exists.\n- The test names that don't resolve match round 1's tests-3 count, so that gap hasn't grown.\n- tests-r2-3 (the `first[\"warnings\"]` assertion at scan.rs:334 that can't fail) is unchanged. It is a logged known gap, so I don't re-report it.\n\nNew: 1 material, 4 minor.",
+  "findings": [
+   {
+    "id": "tests-3-1",
+    "title": "The guard fails open when the host's $.env.get(\"HOME\") gives nothing, and only mocked runs back it: the harness mocks HOME and fs.stat, and the last live run predates both guard rewrites",
+    "severity": "material",
+    "where": [
+     "packages/mod/src/register.tsx:421-433 (places read once from $.env.get(\"HOME\") and others)",
+     "packages/mod/src/guard.ts:57 (const home = env.HOME ?? \"/\")",
+     "packages/mod/plugin-tests/host.ts:175 (mock.env(on, { HOME: \"/home/u\" })) and :206-217 (fs.stat stub: every path is a file, realPath given)",
+     "packages/mod/src/guard.test.ts:13 (every case uses guardPlaces(\"/work\", { HOME: \"/home/u\" }))",
+     "docs/contributing/research/ws8-install.md:87-94 (the one live run of the real mod)"
+    ],
+    "evidence": "Verified:\n- guard.ts:57 falls back to `/` when HOME is undefined. An empty string isn't caught either, because nonEmpty() isn't applied to HOME.\n- I ran guard.ts with `guardPlaces(\"/work\", {})`. The places came out as claudeConfig `//.claude`, dataRoot `//.local/share/planroom` and userConfig `//.config/planroom/config.toml`.\n- With those places, all of these were ALLOWED: Read `/home/u/.claude/plugins/store/planroom_planroom-0123456789ab.json` (the person key), Read `/home/u/.config/planroom/config.toml`, `cat /home/u/.claude/plugins/store/planroom_x.json`, `cat ~/.claude/plugins/store/planroom_x.json` and `grep -r key /home/u/.claude`. Only state-directory names such as `/work/.planroom/store.db` stayed denied.\n- Every guard unit test and plugin test supplies HOME through a stub: guard.test.ts:13 and host.ts:175. No test covers HOME being unset or empty.\n- AGENTS.md (packages/mod) says `claude plugin test` mocks the environment, so a start-up change isn't proven until it runs live.\n- The only live run is commit 91c2c67, 2026-10-26 12:24. It records room_query results and no guard denial. The guard was rewritten after it, in 8813f22 (13:06, security-3) and 8847df9 (15:09, GUARD2).\n\nAssumed, not verified: whether Claude Code 2.1.310's `$.env.get(\"HOME\")` returns the process's HOME. A-14 shows only that `$.env.get(\"CLAUDE_PLUGIN_ROOT\")` came back unset live.",
+    "why": "The guard is the only control between an agent and the person key in the mod's $.store, and the user config that may hold the gateway key. KICKOFF's \"agents never act as a person\" rests on it (DR-64, DR-75, C1, S9). As written, it fails open on an input that only a mock has ever supplied. A Read-tool call, which always takes an absolute path, would then reach the key. Round 2 rated the narrower recursive-read gap material (tests-r2-2), and this is the same exposure.",
+    "fix": "Fail closed: when HOME is undefined or empty, deny by the protected file names themselves wherever they sit (`*/plugins/store/planroom_*`, `*/planroom/config.toml`, `*/planroom/{ledger.db,open,backups,engine}`). Add a guard.test.ts case with `guardPlaces(cwd, {})` and with `HOME: \"\"`. Record one live denial (Read of the real $.store file) in ws8-install.md before M1 builds on the guard."
+   },
+   {
+    "id": "tests-3-2",
+    "title": "tests-r2-1's fix never reached feature_list.json: S1's tier-A ci_path still runs the capped map with no paging step",
+    "severity": "minor",
+    "where": [
+     "feature_list.json (S1 ci_path.steps 3-4 and tests)",
+     "docs/contributing/architecture.md:1021, 1641 (S1 slice: `--cursor` and `meta.next`, which the comparator follows)",
+     "docs/contributing/decisions.md (DR-86, `map` pages in M1)"
+    ],
+    "evidence": "S1's steps are still `planroom map --level component --lens all --detail graph --json` and the same at container level, with no `--cursor` loop.\n\nOn a scanned fixture copy, the binary returns:\n- component level: 20 of 38 blocks, `meta.truncated` true, with `details.next` pointing to the container level;\n- code level: 21 of 83 blocks;\n- `--cursor` refused with `invalid_argument` (expected until M1).\n\nThe round-2 finding's fix asked for the S1 ci_path to be updated and for a test that the comparator sees every component. Neither is in S1's step list or its tests.",
+    "why": "feature_list.json is the scenario's CI contract. An M1 implementer who follows it compares a cut map with TRUTH.components (24) and gets a spurious failure, or weakens the comparison. That is the defect tests-r2-1 was about.",
+    "fix": "Change S1's component and code steps to page with `--cursor` until there's no `meta.next`, and say the comparison runs on the concatenated pages. Add a planned test such as `s01_first_look.rs::the_comparator_pages_to_every_component`."
+   },
+   {
+    "id": "tests-3-3",
+    "title": "The recursive-read rule and its bypass list cover a closed set of programs: git grep --no-index, ugrep -r, bsdtar, pax and gzip -r still read the person key's parent",
+    "severity": "minor",
+    "where": [
+     "packages/mod/src/guard.ts (whole-tree read rule)",
+     "packages/mod/src/guard.test.ts:323-357 (RECURSIVE_BYPASSES)"
+    ],
+    "evidence": "I ran guard.ts with places cwd=/work and HOME=/home/u.\n\nALLOWED:\n- `git grep --no-index key ~/.claude`\n- `git -C ~ grep --no-index key .claude`\n- `ugrep -r key ~/.claude`\n- `bsdtar cf /tmp/a ~/.claude`\n- `pax -w ~/.claude > /tmp/a`\n- `gzip -rc ~/.claude > /tmp/x`\n- `7z a /tmp/x ~/.config`\n\nDENIED: `grep -r`, `egrep -r`, `grep -d recurse`, `ack`, `ag --hidden`, `cp -R`, `rsync -r`, `zip -r`, `tar -C ~ -c .claude`.\n\nDR-86 accepts \"programs that walk or write files themselves\" as residual risk. Git's grep and ugrep are grep-family recursive readers, the class tests-r2-2 was about, and no test lists them.",
+    "why": "Residual risk on the person key (DR-75). It's minor because DR-86 already calls the guard a guardrail and names this class for SECURITY.md (M5).",
+    "fix": "Add `git grep --no-index` (and `git -C DIR grep`), `ugrep -r`, `bsdtar`, `pax` and `gzip -r` to the recursive-read rule and to RECURSIVE_BYPASSES. Or name these programs in DR-86's residual list, so SECURITY.md (M5) carries them."
+   },
+   {
+    "id": "tests-3-4",
+    "title": "The M1 stand-in overlay's evidence names no commit, contradicting DR-86 and what the engine stores",
+    "severity": "minor",
+    "where": [
+     "tests/e2e/overlays/m1-tones-and-edges.map.json (patch.edges[*].evidence_sample)",
+     "docs/contributing/decisions.md (DR-86, \"Evidence names the commit\")"
+    ],
+    "evidence": "Every overlay evidence_sample item is `{\"type\":\"line\",\u2026,\"commit\":null,\"branch\":null}`.\n\nDR-86 says Line and Ref evidence from a head scan name the commit and no branch. A fact read from a scanned fixture store has `\"evidence\":[{\"type\":\"line\",\"path\":\"kit/src/orderId.ts\",\"line\":1,\u2026,\"commit\":\"d77b\u2026\"`. That's a read-only sqlite query on the scratch copy's facts table.\n\nThis is the same class as tests-6 (overlay data contradicting the truth), and DR-86 made it newly wrong.",
+    "why": "The stand-in specs draw evidence popovers from data the engine can no longer produce. A canvas that broke on a non-null commit would still pass. Minor: test-only data.",
+    "fix": "Set each sample's `commit` to the fixture head of the repo it names, or drop the field. Note DR-86 in the overlay's `why`."
+   },
+   {
+    "id": "tests-3-5",
+    "title": "budgets.rs claims to check the whole graph over HTTP but calls the app function in-process, so the route is never exercised",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/tests/budgets.rs:1-8, 89-101 (the_canvas_graph_over_serve_takes_every_block)",
+     "docs/contributing/architecture.md:1021 (\"budgets.rs checks \u2026 the whole graph over HTTP\")",
+     "crates/planroom/src/server/routes.rs:310"
+    ],
+    "evidence": "The test calls `planroom::app::map::for_canvas(&req, tmp.path())` directly, with no serve and no request. routes.rs:310 does call `for_canvas` today (read). If the route were moved to the capped `map::run`, or HTTP replies were sent through the CLI's `envelope_within`, no test would fail. The canvas e2e reads only the top level, which fits within the budget anyway.",
+    "why": "DR-86 rests the canvas's whole-graph promise on this test (\"Replies over HTTP aren't checked, so --detail graph stays whole\"), and architecture.md describes it as an HTTP check.",
+    "fix": "Have the test start `serve` (or call the axum router in-process) and POST /api/v1/map with level code and detail graph, then assert 2,000 nodes and no truncated warning. Or reword architecture.md:1021 to say it checks the app function."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "tests-3-1",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "The code defect is real, but material isn't supported. Verified: guard.ts:57 is `const home = env.HOME ?? \"/\"`, and nonEmpty() isn't applied to HOME. I copied guard.ts and the generated catalogue into the scratchpad and ran guardCall under node --experimental-strip-types. With guardPlaces(\"/work\", {}) the places are `//.claude`, `//.local/share/planroom` and `//.config/planroom/config.toml`. These were ALLOWED: Read of /home/u/.claude/plugins/store/planroom_planroom-0123456789ab.json, Read of /home/u/.config/planroom/config.toml, `cat /home/u/.claude/plugins/store/planroom_x.json`, `cat ~/.claude/...` and `grep -r key /home/u/.claude`. With HOME \"\", the same calls were allowed except the `~` form. With HOME \"/home/u\", all of them were denied. host.ts:175 mocks `{ HOME: \"/home/u\" }` and guard.test.ts:13 fixes HOME, so no test covers a missing HOME. The live run (91c2c67, 12:24) predates 8813f22 (13:06) and 8847df9 (15:09) and records no denial. The HOME fallback was identical at 91c2c67. Why it's minor: the exposure needs the host's $.env.get(\"HOME\") to return nothing. Nothing shows that, and the reviewer marks it as assumed. A-14's unset CLAUDE_PLUGIN_ROOT is a variable the host never sets (ws8-install.md:72 shows children get the session's env); it is not evidence that env.get filters variables. DR-86 (decisions.md:2109, 2145) and decisions.md:214 call the guard a guardrail, not a security boundary. So this is a hardening gap with a missing test, not a demonstrated exposure."
+  },
+  {
+   "id": "tests-3-2",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. In feature_list.json, S1's ci_path steps still read `planroom map --level component --lens all --detail graph --json` and the container step, with no --cursor loop. S1's tests list has no paging test. Fix commit 71bd6ff touched only architecture.md and progress.md. architecture.md:1021 and :1641 now say M1's S1 slice adds --cursor and that the comparator follows meta.next. So the plan holds the fix and feature_list.json drifts from it. Round 2 verified the truncation (20 of 38 at component level) on the same binary. I didn't rerun it, because this finding is about the doc contract. Minor is right: the design home records the paging, and the comparator isn't built yet."
+  },
+  {
+   "id": "tests-3-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced with guard.ts under node, places cwd=/work and HOME=/home/u. ALLOWED: `git grep --no-index key ~/.claude`, `git -C ~ grep --no-index key .claude`, `ugrep -r key ~/.claude`, `bsdtar cf /tmp/a ~/.claude`, `pax -w ~/.claude > /tmp/a`, `gzip -rc ~/.claude > /tmp/x` and `7z a /tmp/x ~/.config`. DENIED: grep -r, egrep -r, grep -d recurse, ack, ag --hidden, cp -R, rsync -r, zip -r and tar -C ~ -c .claude. RECURSIVE_BYPASSES (guard.test.ts:327ff) lists none of the allowed forms. Minor is right: DR-86 (decisions.md:2145) accepts \"programs that walk or write files themselves\" as residual risk under a guardrail, bound for SECURITY.md."
+  },
+  {
+   "id": "tests-3-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. tests/e2e/overlays/m1-tones-and-edges.map.json has 8 evidence_sample entries, every one with `\"commit\": null`. I scanned a scratch copy of target/e2e/fixture/shop with PLANROOM_DATA in a temp dir and PLANROOM_MODELS=off. Then I read store.db read-only: 109 line-evidence items, 0 with a null commit (e.g. commit d77bb654\u2026 and branch None), which matches DR-86's \"Evidence names the commit\" (decisions.md:2138). The overlay's `why` doesn't mention DR-86. This is test-only stand-in data, so minor."
+  },
+  {
+   "id": "tests-3-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. budgets.rs:97-101 (the_canvas_graph_over_serve_takes_every_block) calls `planroom::app::map::for_canvas` in-process and starts no server. routes.rs:310 does route \"map\" to for_canvas today. The only test that POSTs /api/v1/map is server_auth.rs:124, at container level. The e2e specs request container or top level (surface.spec.ts:296-298, artifact.spec.ts:103), and the container level's 9 blocks fit the budget. So no test would fail if the route moved to the capped path. architecture.md:1021 says budgets.rs checks \"the whole graph over HTTP\", which drifts from the code. It's minor because the route is correct today and this is a test-coverage and doc gap."
+  }
+ ]
+}
