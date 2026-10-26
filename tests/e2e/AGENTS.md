@@ -6,3 +6,8 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **May depend on:** `@planroom/contract`, `@playwright/test`.
 - **Must not:** product code (it drives the built canvas).
 - **How to test it:** it is the test.
+
+## Layout
+
+- `playwright.config.ts`: one worker, results under `target/e2e/`.
+- `src/`: the specs (`*.spec.ts`, run by `cargo xtask e2e`, which builds the canvas first), their fixtures, and `server.ts`, a stand-in for `planroom serve` that serves `target/canvas/` and answers from `tests/golden/cli/` with the server's auth rules. `cargo xtask e2e --screens` also writes `docs/screenshots/`.
