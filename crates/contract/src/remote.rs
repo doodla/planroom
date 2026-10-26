@@ -257,9 +257,13 @@ pub struct DbBatch {
 /// The exact arguments of the Artifact publish the session makes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PublishArgs {
-    /// The page fragment.
+    /// The page fragment, an absolute path.
     pub file_path: String,
-    /// Each published path and the file it comes from.
+    /// The absolute directory every `files` source is relative to: `share`'s `--out`.
+    #[serde(default)]
+    pub root: String,
+    /// Each published path and the file it comes from, relative to `root`, so the publish's
+    /// arguments keep to `share`'s budget.
     pub files: BTreeMap<String, String>,
     /// The page's capabilities: `db` with its access rules, and `user`.
     pub capabilities: Value,
@@ -287,6 +291,8 @@ pub struct ShareResult {
     pub publish: PublishArgs,
     /// The `db` writes to make after the publish, `live/head` last.
     pub db: Vec<DbBatch>,
+    /// The files made from this workspace, with their sizes: the page, the snapshot and the first
+    /// `live/head`. The canvas build's assets, the same for every share, are only in `publish`.
     pub files: Vec<SharedFile>,
     /// What the snapshot holds, as `Snapshot.capabilities` names it.
     pub holds: Vec<String>,

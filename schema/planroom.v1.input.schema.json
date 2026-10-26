@@ -3002,14 +3002,19 @@
       "properties": {
         "file_path": {
           "type": "string",
-          "description": "The page fragment."
+          "description": "The page fragment, an absolute path."
+        },
+        "root": {
+          "type": "string",
+          "description": "The absolute directory every `files` source is relative to: `share`'s `--out`.",
+          "default": ""
         },
         "files": {
           "type": "object",
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Each published path and the file it comes from."
+          "description": "Each published path and the file it comes from, relative to `root`, so the publish's\narguments keep to `share`'s budget."
         },
         "capabilities": {
           "description": "The page's capabilities: `db` with its access rules, and `user`."
@@ -3450,7 +3455,8 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/SharedFile"
-          }
+          },
+          "description": "The files made from this workspace, with their sizes: the page, the snapshot and the first\n`live/head`. The canvas build's assets, the same for every share, are only in `publish`."
         },
         "holds": {
           "type": "array",

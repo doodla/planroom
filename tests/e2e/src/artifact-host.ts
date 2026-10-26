@@ -147,7 +147,8 @@ export async function hostArtifact(
     res.writeHead(200, {
       "Content-Type": TYPES[extname(path)] ?? "application/octet-stream",
     });
-    res.end(readFileSync(source));
+    // Each source is relative to the publish's one `root`, as the Artifact tool resolves it.
+    res.end(readFileSync(join(share.publish.root, source)));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;

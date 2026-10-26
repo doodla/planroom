@@ -1888,11 +1888,16 @@ export interface PersonKey {
  */
 export interface PublishArgs {
   /**
-   * The page fragment.
+   * The page fragment, an absolute path.
    */
   file_path: string;
   /**
-   * Each published path and the file it comes from.
+   * The absolute directory every `files` source is relative to: `share`'s `--out`.
+   */
+  root: string;
+  /**
+   * Each published path and the file it comes from, relative to `root`, so the publish's
+   * arguments keep to `share`'s budget.
    */
   files: {
     [k: string]: string;
@@ -2015,6 +2020,10 @@ export interface ShareResult {
    * The `db` writes to make after the publish, `live/head` last.
    */
   db: DbBatch[];
+  /**
+   * The files made from this workspace, with their sizes: the page, the snapshot and the first
+   * `live/head`. The canvas build's assets, the same for every share, are only in `publish`.
+   */
   files: SharedFile[];
   /**
    * What the snapshot holds, as `Snapshot.capabilities` names it.
