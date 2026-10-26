@@ -1,11 +1,13 @@
 /**
  * The mod's `tool.check` guard for every agent (architecture.md, "Actors"; DR-52, DR-64, DR-75):
  * no reads of the stores, the serve file, the data root's stores, ledger, backups and login pages,
- * the user-level config or the mod's own `$.store` file that holds the person key; no writes under
- * a state directory or the data root; and no Bash that runs a person-only command, sets a variable
- * that hands out the person's authority or picks the engine, or pushes `refs/planroom/`.
+ * the user-level config or the mod's own `$.store` file that holds the person key, by any tool and
+ * any input that names a path (security-r3-2); no writes under a state directory, the data root or
+ * the plugin's own folder (security-r3-3); and no Bash that runs a person-only command, sets a
+ * variable that hands out the person's authority or picks the engine, or pushes `refs/planroom/`.
  *
- * Pure: register.tsx resolves each path (relative, `..`, symlinks) and passes every spelling. A
+ * Pure: register.tsx reads the shell's directory for each call (security-r3-1), resolves each path
+ * (relative, `..`, symlinks) and passes every spelling. A
  * Bash line is read the way a shell would spell it out: quotes taken out, `$HOME` and the line's
  * own assignments put in, each path word from every directory a `cd` on the line may move to, and
  * a glob by every guarded place its literal prefix and segments may reach (security-3). Bash is
@@ -27,8 +29,18 @@ import { CATALOGUE } from "@planroom/contract";
 
 /** Where Planroom keeps what an agent mustn't read or write, for this user. */
 export interface GuardPlaces {
-  /** The session's working directory, for relative paths. */
+  /**
+   * The shell's directory for this call, for relative paths: the Bash tool keeps a `cd` between
+   * calls, so register.tsx reads it per call (security-r3-1).
+   */
   cwd: string;
+  /** The workspace the session started in, whose state directory stays held wherever the shell is. */
+  workspace: string;
+  /**
+   * The Planroom plugin's own folder, as the host names it and where it lands: it holds the mod
+   * bundle with this guard and the person-key code, and the resolver every press runs (security-r3-3).
+   */
+  plugin: string[];
   home: string;
   /** `${CLAUDE_CONFIG_DIR:-$HOME/.claude}`, which holds the mod's `$.store` file [A-15]. */
   claudeConfig: string;
@@ -53,12 +65,15 @@ export function guardPlaces(
     XDG_DATA_HOME?: string | undefined;
     XDG_CONFIG_HOME?: string | undefined;
   },
+  more: { workspace?: string; plugin?: readonly string[] } = {},
 ): GuardPlaces {
   const home = env.HOME ?? "/";
   const nonEmpty = (v: string | undefined): string | undefined =>
     v === undefined || v === "" ? undefined : v;
   return {
     cwd,
+    workspace: more.workspace ?? cwd,
+    plugin: (more.plugin ?? []).filter((p) => p.startsWith("/")),
     home,
     claudeConfig: nonEmpty(env.CLAUDE_CONFIG_DIR) ?? `${home}/.claude`,
     dataRoot:
@@ -143,11 +158,61 @@ const STATE_WRITE =
 const DATA_WRITE =
   "The Planroom data root changes only through the planroom CLI.";
 
+const PLUGIN_WRITE =
+  "The Planroom plugin's own files (the mod with its guard and person key code, and the resolver every press runs) change only when the person installs or updates the plugin.";
+
 /** Why an agent may not write this path (absolute and normal), or null. */
 export function writeDenied(path: string, places: GuardPlaces): string | null {
   if (inStateDir(path)) return STATE_WRITE;
   if (within(path, places.dataRoot)) return DATA_WRITE;
+  if (places.plugin.some((p) => within(path, p))) return PLUGIN_WRITE;
   return readDenied(path, places);
+}
+
+/** Whether a path is in a state directory's `share/` folder, which `share` and `import` write. */
+function inShareDir(path: string): boolean {
+  return /(^|\/)(\.planroom|\.git\/planroom)\/share(\/|$)/.test(path);
+}
+
+/**
+ * Why an agent may not send this file (absolute and normal) off the machine, through an Artifact,
+ * its database or a file sent to the person, or null (security-r3-2). Beyond the read rule, only
+ * the state directory's `share/` folder leaves it, since `planroom share` writes the Artifact's
+ * bundle and `import` its batch files there for exactly that; the rest of the state directory and
+ * the data root stay on this machine.
+ */
+function uploadDenied(path: string, places: GuardPlaces): string | null {
+  const read = GLOB.test(path)
+    ? globDenied(path, places)
+    : readDenied(path, places);
+  if (read !== null) return read;
+  if (inStateDir(path) && !inShareDir(path)) {
+    return "Of Planroom's state directory, only share/, which planroom share and import write for the Artifact, leaves this machine.";
+  }
+  if (within(path, places.dataRoot)) {
+    return "The Planroom data root stays on this machine.";
+  }
+  return null;
+}
+
+/**
+ * Why a `cd` or `pushd` may not move the shell into this folder, or null: a state directory, the
+ * data root, the mod's store folder, the user config's folder or the plugin's own. The guard reads
+ * the shell's directory for each call, so this holds only if a host ever doesn't report it
+ * (security-r3-1).
+ */
+function cdDenied(path: string, places: GuardPlaces): string | null {
+  const config = places.userConfig.slice(0, places.userConfig.lastIndexOf("/"));
+  const held = [
+    places.dataRoot,
+    modStoreDir(places),
+    config,
+    ...places.plugin,
+  ];
+  return mayBeInStateDir(path) ||
+    held.some((h) => mayName(path, h, "within"))
+    ? "An agent doesn't cd into Planroom's state, its data root, the mod's store, the user config's folder or the plugin's own folder; name the file from where you are, or use the planroom CLI."
+    : null;
 }
 
 /**
@@ -214,6 +279,9 @@ function writeTargetDenied(path: string, places: GuardPlaces): string | null {
   if (!GLOB.test(path)) return writeDenied(path, places);
   if (mayBeInStateDir(path)) return STATE_WRITE;
   if (mayName(path, places.dataRoot, "within")) return DATA_WRITE;
+  if (places.plugin.some((p) => mayName(path, p, "within"))) {
+    return PLUGIN_WRITE;
+  }
   return globDenied(path, places);
 }
 
@@ -221,13 +289,16 @@ function writeTargetDenied(path: string, places: GuardPlaces): string | null {
 function removeDenied(path: string, places: GuardPlaces): string | null {
   const held = [
     places.dataRoot,
-    `${places.cwd}/.planroom`,
-    `${places.cwd}/.git/planroom`,
+    ...[places.workspace, places.cwd].flatMap((w) => [
+      `${w}/.planroom`,
+      `${w}/.git/planroom`,
+    ]),
     modStoreDir(places),
     places.userConfig,
+    ...places.plugin,
   ];
   return held.some((h) => mayName(path, h, "above"))
-    ? "This deletes a folder that holds Planroom's state, its data root, the person key or the gateway key."
+    ? "This deletes a folder that holds Planroom's state, its data root, the person key, the gateway key or the Planroom plugin."
     : null;
 }
 
@@ -419,6 +490,10 @@ function knownVariables(places: GuardPlaces): Map<string, string> {
     ["PLANROOM_DATA", places.dataRoot],
     ["XDG_DATA_HOME", parent(places.dataRoot)],
     ["XDG_CONFIG_HOME", parent(parent(places.userConfig))],
+    // The planroom skill names the resolver through it; a shell that has it set has this plugin's.
+    ...places.plugin
+      .slice(0, 1)
+      .map((p): [string, string] => ["CLAUDE_PLUGIN_ROOT", p]),
   ]);
 }
 
@@ -763,8 +838,12 @@ function commandEffects(all: readonly string[], piped: boolean): BashEffects {
 /** The words of a Bash line that may name a file, its variables put in, and every directory it runs from. */
 export interface BashPaths {
   words: string[];
-  /** The session's directory, then each place a `cd` or `pushd` on the line may have moved to. */
+  /** The words of `words` a command takes as an argument, not the program it runs. */
+  args: string[];
+  /** The shell's directory, then each place a `cd` or `pushd` on the line may have moved to. */
   bases: string[];
+  /** Where each `cd` or `pushd` on the line goes, as written, its variables put in. */
+  cds: string[];
   effects: BashEffects;
 }
 
@@ -787,9 +866,14 @@ export function bashPaths(command: string, places: GuardPlaces): BashPaths {
     refusal: null,
   };
   let bases = [places.cwd];
-  let moved = false;
+  const cds: string[] = [];
+  // A shell outside the workspace's root, left there by an earlier call's `cd`, may sit where a
+  // bare name is a guarded file (`cat config.toml`), so every word counts as a path (security-r3-1).
+  let moved = places.cwd !== places.workspace;
   for (const simple of commands) {
     const words: string[] = [];
+    const values: (string | null)[] = [];
+    const assignments: boolean[] = [];
     for (const [i, raw] of simple.words.entries()) {
       // `NAME=value` and `--flag=value`: the value may be a path, and a name the line sets is known.
       const eq = raw.indexOf("=");
@@ -797,19 +881,26 @@ export function bashPaths(command: string, places: GuardPlaces): BashPaths {
         eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(raw.slice(0, eq));
       const value = eq >= 0 ? expand(raw.slice(eq + 1), vars) : null;
       if (assigned && value !== null) vars.set(raw.slice(0, eq), value);
-      const word = expand(raw, vars);
-      words.push(word);
-      if (value !== null && value !== "") candidates.push(value);
-      if (!assigned && !word.startsWith("-")) candidates.push(word);
+      words.push(expand(raw, vars));
+      values.push(value);
+      assignments.push(assigned);
       if (raw === "cd" || raw === "pushd") {
         const next = simple.words[i + 1];
         const target =
           next === undefined || next.startsWith("-") ? "~" : expand(next, vars);
+        cds.push(target);
         const moves = bases.map((b) => normalize(target, b, places.home));
         bases = [...new Set([...bases, ...moves])].slice(0, 8);
         moved = true;
       }
     }
+    words.forEach((word, i) => {
+      const value = values[i] ?? null;
+      if (value !== null && value !== "") candidates.push(value);
+      if (assignments[i] !== true && !word.startsWith("-")) {
+        candidates.push(word);
+      }
+    });
     const writes = simple.writes.map((w) => expand(w, vars));
     candidates.push(...writes, ...simple.reads.map((w) => expand(w, vars)));
     const own = commandEffects(words, piped);
@@ -834,7 +925,27 @@ export function bashPaths(command: string, places: GuardPlaces): BashPaths {
     ...effects.trees.map((t) => t.word),
   ];
   const words = [...named, ...operands].filter((w) => w !== "");
-  return { words: [...new Set(words)], bases, effects };
+  // The programs the line runs, one each per command the shell's operators split it into (not its
+  // parentheses, which may be quoted text, as in `python3 -c 'open(1)' FILE`). Each takes one
+  // occurrence of its word out of the arguments, so a word named again as an argument stays one.
+  const known = knownVariables(places);
+  const runs = simpleCommands(command).map((c) => {
+    const expanded = c.map((w) => expand(w, known));
+    return expanded[commandStart(expanded)] ?? "";
+  });
+  const args = [...named, ...operands].filter((w) => {
+    const at = runs.indexOf(w);
+    if (at < 0) return w !== "";
+    runs.splice(at, 1);
+    return false;
+  });
+  return {
+    words: [...new Set(words)],
+    args: [...new Set(args)],
+    bases,
+    cds,
+    effects,
+  };
 }
 
 /** A glob segment as a regular expression: `*` and `?` never match a leading dot, as in Bash. */
@@ -946,54 +1057,172 @@ export function globDenied(
   return null;
 }
 
-/** The paths a call names, by tool, as the tool reads them. */
-export function callPaths(
-  tool: string,
-  input: unknown,
-): { reads: string[]; writes: string[]; bash: string | null } {
+/** The paths a call names, by what the tool does with each. */
+export interface CallPaths {
+  /** Files and folders the tool reads. */
+  reads: string[];
+  /** Files and folders it writes or creates. */
+  writes: string[];
+  /** Files it sends off this machine: to an Artifact, its database, or the person's device. */
+  uploads: string[];
+  /** A shell command it runs, or null. */
+  bash: string | null;
+}
+
+/** A string an unknown tool may take as a file: a path to a folder or file, never a URL or prose. */
+function pathLike(value: string): boolean {
+  if (value === "" || value.includes("\n") || value.includes("://")) {
+    return false;
+  }
+  if (/^(\/|~|\.\.?\/)/.test(value)) return true;
+  if (/\s/.test(value)) return false;
+  return (
+    value.includes("/") ||
+    STORE_FILE.test(value) ||
+    value === "store.pointer" ||
+    value === "serve.json"
+  );
+}
+
+/** Every string an input holds, at any depth, keys left out; at most 64 of them. */
+function stringsIn(value: unknown, depth = 0, out: string[] = []): string[] {
+  if (out.length >= 64 || depth > 8) return out;
+  if (typeof value === "string") out.push(value);
+  else if (Array.isArray(value)) {
+    for (const v of value) stringsIn(v, depth + 1, out);
+  } else if (typeof value === "object" && value !== null) {
+    for (const v of Object.values(value)) stringsIn(v, depth + 1, out);
+  }
+  return out;
+}
+
+/**
+ * The paths a call names, by tool, as the tool takes them (security-r3-2). Every tool's
+ * path-bearing inputs count, not a fixed few: a tool the guard doesn't know has each string it
+ * holds that looks like a path held to the read rule.
+ */
+export function callPaths(tool: string, input: unknown): CallPaths {
   const i = (
     typeof input === "object" && input !== null ? input : {}
   ) as Record<string, unknown>;
-  const str = (k: string): string[] => {
-    const v = i[k];
+  const str = (k: string, from: Record<string, unknown> = i): string[] => {
+    const v = from[k];
     return typeof v === "string" && v !== "" ? [v] : [];
   };
+  const strs = (k: string): string[] => {
+    const v = i[k];
+    return Array.isArray(v)
+      ? v.filter((s): s is string => typeof s === "string" && s !== "")
+      : str(k);
+  };
+  const records = (k: string): Record<string, unknown>[] => {
+    const v = i[k];
+    return Array.isArray(v)
+      ? v.filter(
+          (r): r is Record<string, unknown> =>
+            typeof r === "object" && r !== null,
+        )
+      : [];
+  };
+  const none: CallPaths = { reads: [], writes: [], uploads: [], bash: null };
   switch (tool) {
     case "Read":
-      return { reads: str("file_path"), writes: [], bash: null };
+      return { ...none, reads: str("file_path") };
     case "Grep":
     case "Glob":
       return {
+        ...none,
         reads: [
           ...str("path"),
           ...str("glob"),
           ...str("pattern").filter((p) => tool === "Glob" && p.includes("/")),
         ],
-        writes: [],
-        bash: null,
       };
+    case "LS":
+      return { ...none, reads: str("path") };
+    case "NotebookRead":
+      return { ...none, reads: [...str("notebook_path"), ...str("path")] };
+    case "LSP":
+      return { ...none, reads: str("filePath") };
     case "Edit":
     case "Write":
     case "MultiEdit":
-      return { reads: [], writes: str("file_path"), bash: null };
+      return { ...none, writes: str("file_path") };
     case "NotebookEdit":
-      return { reads: [], writes: str("notebook_path"), bash: null };
+      return { ...none, writes: str("notebook_path") };
     case "Bash":
-      return { reads: [], writes: [], bash: str("command")[0] ?? "" };
+      return { ...none, bash: str("command")[0] ?? "" };
+    case "Monitor": {
+      // A Monitor's command is a shell command like Bash's; one that watches a socket names none.
+      const command = str("command")[0];
+      return { ...none, bash: command ?? null };
+    }
+    case "Artifact": {
+      // Each `files` source is relative to `root` when one is given; a source in another
+      // Artifact ({artifact, path}) isn't a local file.
+      const root = str("root")[0];
+      const under = (p: string): string =>
+        root === undefined || /^(\/|~)/.test(p) ? p : `${root}/${p}`;
+      const files = i["files"];
+      const sources: string[] = [];
+      const source = (v: unknown): void => {
+        if (typeof v === "string" && v !== "") sources.push(under(v));
+        else if (typeof v === "object" && v !== null && !("artifact" in v)) {
+          const from = (v as Record<string, unknown>)["from"];
+          const path = (v as Record<string, unknown>)["path"];
+          if (typeof from === "string" && from !== "") sources.push(under(from));
+          else if (typeof path === "string" && path !== "") {
+            sources.push(under(path));
+          }
+        }
+      };
+      if (Array.isArray(files)) files.forEach(source);
+      else if (typeof files === "object" && files !== null) {
+        Object.values(files).forEach(source);
+      }
+      return {
+        ...none,
+        uploads: [
+          ...str("file_path"),
+          ...strs("file_paths"),
+          ...sources,
+          ...str("root"),
+        ],
+        writes: str("out_dir"),
+      };
+    }
+    case "ArtifactData":
+      // `file_path` is a local JSON file sent as the document; so is each batch entry's.
+      return {
+        ...none,
+        uploads: [
+          ...str("file_path"),
+          ...[...records("writes"), ...records("batch")].flatMap((w) =>
+            str("file_path", w),
+          ),
+        ],
+        writes: str("out_dir"),
+      };
+    case "SendUserFile":
+    case "SendFile":
+      return { ...none, uploads: strs("files") };
     default:
-      return { reads: [], writes: [], bash: null };
+      return { ...none, reads: stringsIn(input).filter(pathLike) };
   }
 }
 
-/** Every path a call names, which the caller resolves before it asks `guardCall`; at most 32. */
+/** Every path a call names, which the caller resolves before it asks `guardCall`; at most 64. */
 export function namedPaths(
   tool: string,
   input: unknown,
   places: GuardPlaces,
 ): string[] {
-  const { reads, writes, bash } = callPaths(tool, input);
+  const { reads, writes, uploads, bash } = callPaths(tool, input);
   const fromBash = bash === null ? [] : bashPaths(bash, places).words;
-  return [...new Set([...reads, ...writes, ...fromBash])].slice(0, 32);
+  return [...new Set([...reads, ...writes, ...uploads, ...fromBash])].slice(
+    0,
+    64,
+  );
 }
 
 /**
@@ -1007,7 +1236,7 @@ export function guardCall(
   resolved: (path: string) => readonly string[],
   places: GuardPlaces,
 ): Denial | null {
-  const { reads, writes, bash } = callPaths(tool, input);
+  const { reads, writes, uploads, bash } = callPaths(tool, input);
   const deny = (reason: string): Denial => ({ decision: "deny", reason });
   // The path as written, made absolute, then wherever the file system says it lands.
   const spell = (p: string): string[] => [
@@ -1033,10 +1262,19 @@ export function guardCall(
         );
       }
     }
-    if (tool !== "Read" && /store\.db|serve\.json/.test(p)) {
+    if (
+      (tool === "Grep" || tool === "Glob") &&
+      /store\.db|serve\.json/.test(p)
+    ) {
       return deny(
         "Planroom's store is read through the planroom CLI, never directly.",
       );
+    }
+  }
+  for (const p of uploads) {
+    for (const s of spell(p)) {
+      const reason = uploadDenied(s, places);
+      if (reason !== null) return deny(reason);
     }
   }
   for (const p of writes) {
@@ -1049,7 +1287,7 @@ export function guardCall(
     const reason = bashDenied(bash);
     if (reason !== null) return deny(reason);
     // Each word from every directory the line may run it in; a glob by what it may expand to.
-    const { words, bases, effects } = bashPaths(bash, places);
+    const { words, args, bases, cds, effects } = bashPaths(bash, places);
     if (effects.refusal !== null) return deny(effects.refusal);
     const spellings = (p: string): string[] => [
       ...bases.map((b) => normalize(p, b, places.home)),
@@ -1075,6 +1313,16 @@ export function guardCall(
             ? globDenied(s, places)
             : readDenied(s, places),
       ) ??
+      // security-r3-3: the plugin's folder is named only to run what's in it, such as the resolver
+      // the planroom skill has the agent run; as any other word, a program may write it.
+      first(args, (s) =>
+        places.plugin.some((p) => mayName(s, p, "within"))
+          ? PLUGIN_WRITE
+          : null,
+      ) ??
+      // security-r3-1: a host reports where the shell is, but a cd into a guarded place is refused
+      // too, so a host that didn't still leaves no relative path there.
+      first(cds, (s) => cdDenied(s, places)) ??
       // security-r2-1: what the Write tool may not write, no command or redirection writes either.
       first(effects.writes, (s) => writeTargetDenied(s, places)) ??
       first(effects.removes, (s) => removeDenied(s, places)) ??

@@ -6,7 +6,7 @@
 import { expect, test } from "claude-code/testing";
 import type { On } from "claude-code";
 
-import { host, START } from "./host";
+import { host, isResolver, START } from "./host";
 
 /** The session's own permission rules, beneath the mod: they allow what the mod lets through. */
 function allowBeneath(on: On): void {
@@ -193,4 +193,177 @@ test("security-3: globs, cd, split quoting and an expanded command word are deni
     const v = await $.tool.check({ tool: "Bash", input: { command } });
     expect(v.decision, command).toBe("allow");
   }
+});
+
+test("security-r3-1: a cd in one call and a relative path in the next are denied, since the guard reads the shell's directory per call", async ($, on) => {
+  const h = host(on);
+  allowBeneath(on);
+  await $.session.start(START);
+  await h.clock.settle();
+  const bash = (command: string) =>
+    $.tool.check({ tool: "Bash", input: { command } });
+
+  // The reviewer's sequences: the host keeps each `cd`, so the next call runs where it went.
+  h.shell.cwd = "/work/.planroom";
+  for (const command of [
+    "cat serve.json",
+    "rm -rf ./*",
+    "sqlite3 store.db .dump",
+  ]) {
+    expect((await bash(command)).decision, command).toBe("deny");
+  }
+  const read = await $.tool.check({
+    tool: "Read",
+    input: { file_path: "serve.json" },
+  });
+  expect(read.decision).toBe("deny");
+  h.shell.cwd = "/home/u/.claude/plugins";
+  expect((await bash("cat store/planroom_x.json")).decision).toBe("deny");
+  h.shell.cwd = "/home/u/.local/share/planroom";
+  for (const command of [
+    "cp evil engine/0.1.0/planroom",
+    "cat open/abc.html",
+  ]) {
+    expect((await bash(command)).decision, command).toBe("deny");
+  }
+  h.shell.cwd = "/home/u/.config/planroom";
+  expect((await bash("cat config.toml")).decision).toBe("deny");
+
+  // A cd into a guarded place is refused itself, in case a host doesn't report where it went.
+  h.shell.cwd = "/work";
+  for (const command of [
+    "cd .planroom",
+    "pushd ~/.claude/plugins/store",
+    "cd ~/.local/share/planroom",
+  ]) {
+    expect((await bash(command)).decision, command).toBe("deny");
+  }
+  // From a folder inside the workspace, its state directory is still held, and work goes on.
+  h.shell.cwd = "/work/src";
+  expect((await bash("rm -rf ..")).decision).toBe("deny");
+  for (const command of [
+    "cd lib",
+    "cat main.rs",
+    "rm -rf ./build",
+    "cd .. && ls",
+  ]) {
+    expect((await bash(command)).decision, command).toBe("allow");
+  }
+});
+
+test("security-r3-2: Artifact, ArtifactData, SendUserFile, LS and unknown tools are held to the read rule; S11's own calls pass", async ($, on) => {
+  const h = host(on);
+  allowBeneath(on);
+  await $.session.start(START);
+  await h.clock.settle();
+  const store =
+    "/home/u/.claude/plugins/store/planroom_planroom-0123456789ab.json";
+
+  for (const [tool, input] of [
+    [
+      "ArtifactData",
+      { action: "update", collection: "c", doc_id: "d", file_path: store },
+    ],
+    [
+      "ArtifactData",
+      {
+        action: "batch",
+        writes: [{ op: "set", collection: "c", doc_id: "d", file_path: store }],
+      },
+    ],
+    ["Artifact", { action: "publish", asset: true, url: "u", file_path: store }],
+    [
+      "Artifact",
+      {
+        action: "publish",
+        files: { "k.json": "/home/u/.config/planroom/config.toml" },
+      },
+    ],
+    [
+      "SendUserFile",
+      { files: ["/work/.planroom/serve.json"], status: "normal" },
+    ],
+    ["LS", { path: "/home/u/.claude/plugins/store" }],
+    ["NotebookRead", { notebook_path: store }],
+    ["mcp__other__upload", { attachment: "~/.config/planroom/config.toml" }],
+  ] as const) {
+    const v = await $.tool.check({ tool, input });
+    expect(v.decision, `${tool} ${JSON.stringify(input)}`).toBe("deny");
+  }
+
+  // S11: import's batch files and share's bundle, both under the state directory's share/.
+  const batch = await $.tool.check({
+    tool: "ArtifactData",
+    input: {
+      action: "batch",
+      url: "https://claude.ai/artifact/x",
+      writes: [
+        {
+          op: "set",
+          collection: "answers",
+          doc_id: "r1",
+          file_path: "/work/.planroom/share/sync/412-1/answers/r1.json",
+        },
+        {
+          op: "set",
+          collection: "live",
+          doc_id: "head",
+          file_path: "/work/.planroom/share/sync/412-1/live/head.json",
+          if_version: 3,
+        },
+      ],
+    },
+  });
+  expect(batch.decision).toBe("allow");
+  const publish = await $.tool.check({
+    tool: "Artifact",
+    input: {
+      action: "publish",
+      file_path: "/work/.planroom/share/page.html",
+      root: "/work/.planroom/share",
+      files: {
+        "assets/index.js": "assets/index.js",
+        "data/snapshot.json": "data/snapshot.json",
+      },
+      icon: "map",
+    },
+  });
+  expect(publish.decision).toBe("allow");
+});
+
+test("security-r3-3: the plugin's own files are never written, by the Write tool or by Bash", async ($, on) => {
+  const h = host(on);
+  allowBeneath(on);
+  await $.session.start(START);
+  await h.clock.settle();
+  // Wherever the kit loaded the plugin from: the mod runs its resolver from `$.plugin.root`.
+  const resolver = h.runs.find((r) => isResolver(r.argv[0]))?.argv[0] ?? "";
+  const root = resolver.slice(0, -"/scripts/planroom".length);
+  expect(root).not.toBe("");
+
+  const write = await $.tool.check({
+    tool: "Write",
+    input: { file_path: `${root}/scripts/planroom`, content: "evil" },
+  });
+  expect(write.decision).toBe("deny");
+  for (const command of [
+    `echo x > ${root}/scripts/planroom`,
+    `cp evil.js ${root}/hooks/planroom-mod.js`,
+    `python3 -c 'open(1)' ${root}/hooks/planroom-mod.js`,
+    `rm -rf ${root}`,
+  ]) {
+    const v = await $.tool.check({ tool: "Bash", input: { command } });
+    expect(v.decision, command).toBe("deny");
+  }
+  // The resolver still runs, as the planroom skill has the agent run it, and its files still read.
+  const run = await $.tool.check({
+    tool: "Bash",
+    input: { command: `"${root}/scripts/planroom" map --json` },
+  });
+  expect(run.decision).toBe("allow");
+  const read = await $.tool.check({
+    tool: "Read",
+    input: { file_path: `${root}/skills/planroom/SKILL.md` },
+  });
+  expect(read.decision).toBe("allow");
 });

@@ -124,6 +124,8 @@ export interface Host {
   clock: MockClock;
   runs: Run[];
   children: Child[];
+  /** The shell's directory, as `$.session.cwd()` reports it: a test moves it the way a Bash `cd` does. */
+  shell: { cwd: string };
 }
 
 /** An engine that resolves and answers focus with the golden PaneModel. */
@@ -183,6 +185,8 @@ export function host(
   mock.env(on, { HOME: "/home/u" });
   const runs: Run[] = [];
   const children: Child[] = [];
+  const shell = { cwd: START.cwd as string };
+  on("session.cwd", () => ({ value: shell.cwd }));
   on("command.register", (_$, e) => ({ value: { command: e.name } }));
   on("tool.register", (_$, e) => ({
     value: { tool: `mcp__planroom__${e.name}` },
@@ -231,7 +235,7 @@ export function host(
     children.push(child);
     return { value: yield* child.run(next.signal) };
   });
-  return { clock, runs, children };
+  return { clock, runs, children, shell };
 }
 
 /** The focus runs so far, as the clock read when each started. */
