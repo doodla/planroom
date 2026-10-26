@@ -12,23 +12,28 @@ pub mod event;
 pub mod model;
 mod open_set;
 pub mod schema;
+pub mod stream;
 pub mod view;
 
 pub use command::{
     ActorRule, Class, Command, CommandSpec, Detail, FocusReq, Idea, MapReq, ScanReq, ScanResult, Tool, Undo,
-    WriteCommon,
+    WatchReq, WriteCommon,
 };
 pub use decision::{Band, DecisionRecord, Outcome};
 pub use envelope::{
     CommandName, Cursor, Empty, EmptyReason, Envelope, ErrorObject, Handle, Meta, ModelRequestRef, ModelUse,
     SCHEMA_VERSION, Size, Usage, Warning,
 };
-pub use errors::{Category, ErrorCode, WarningCode};
+pub use errors::{Category, ErrorCode, Retry, WarningCode};
 pub use event::{
-    Actor, Cause, Edit, Event, EventBody, EventId, HandoffState, HandoffStep, Op, ScanStats, Status, Surface,
-    Target, Timestamp, Verdict,
+    Actor, Cause, Client, Edit, Event, EventBody, EventId, EventKind, HandoffState, HandoffStep, Op,
+    ScanStats, Status, Surface, Target, Timestamp, Verdict,
 };
-pub use model::{Edge, EdgeId, Evidence, Hint, Kind, Layer, Level, Node, NodeId, Provenance, Ref, Seq, Tier};
+pub use model::{
+    CONTAINS_MAX_CHARS, Edge, EdgeId, Evidence, FACTS_FORMAT, FactBatch, Hint, HintRef, Kind, Layer, Level,
+    Node, NodeId, PartialFile, Provenance, Ref, Seq, Tier,
+};
+pub use stream::StreamFrame;
 pub use view::{
     BatchInfo, Choice, Crumb, DecisionCard, DiffLine, DriftLine, Focus, LiftedEdge, MapNode, MapView,
     MiniBlock, MiniEdge, MiniMap, PaneModel, Position, PresenceRow, Progress, ScanState, Stakes,

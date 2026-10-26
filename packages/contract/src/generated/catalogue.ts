@@ -51,5 +51,17 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "undo": "not_undoable",
     "tool": "room_change",
     "room": true
+  },
+  {
+    "name": "watch",
+    "idea": "setup",
+    "summary": "Stream the workspace's committed events as NDJSON frames.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 0,
+    "needs_base": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
   }
 ];

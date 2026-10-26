@@ -11,7 +11,6 @@ export type Actor =
   | {
       id: string;
       name: string | null;
-      surface: Surface;
       kind: "person";
     }
   | {
@@ -29,13 +28,6 @@ export type Actor =
       kind: "system";
     };
 /**
- * Where a person acted from.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "Surface".
- */
-export type Surface = "cli" | "mod" | "canvas" | "artifact" | "test";
-/**
  * Which policy band a score fell in.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -48,7 +40,7 @@ export type Band = "auto" | "card" | "escalate";
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "CommandName".
  */
-export type CommandName = ("map" | "focus" | "scan") | string;
+export type CommandName = ("map" | "focus" | "scan" | "watch") | string;
 /**
  * An error's category; the exit code and the HTTP status follow it.
  *
@@ -81,6 +73,13 @@ export type Cause =
  */
 export type EventId = string;
 /**
+ * Where a writer acted from.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Surface".
+ */
+export type Surface = "cli" | "mod" | "canvas" | "artifact" | "test";
+/**
  * One variant per catalogue leaf; the request travels as `args`.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -98,6 +97,10 @@ export type Command =
   | {
       command: "scan";
       args: ScanReq;
+    }
+  | {
+      command: "watch";
+      args: WatchReq;
     };
 /**
  * The five fixed levels, from the plan down to the code.
@@ -175,6 +178,38 @@ export type Ref =
       alias: string;
     };
 /**
+ * What a fact was read from, verified at ingest (DR-12).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Evidence".
+ */
+export type Evidence =
+  | {
+      /**
+       * `<repo>/<repo-relative path>`.
+       */
+      path: string;
+      /**
+       * 1-based.
+       */
+      line: number;
+      /**
+       * The exact line, cut to 200 characters; omitted in a default Artifact snapshot.
+       */
+      contains?: string | null;
+      commit: string | null;
+      branch: string | null;
+      type: "line";
+    }
+  | {
+      commit: string;
+      /**
+       * Such as `refs/tags/v1.5.0` or `refs/heads/main`.
+       */
+      ref: string | null;
+      type: "ref";
+    };
+/**
  * Which layer a fact or edit belongs to.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -195,7 +230,7 @@ export type Provenance =
     }
   | {
       linker: string;
-      hints: string[];
+      hints: HintRef[];
       kind: "linked";
     }
   | {
@@ -215,7 +250,7 @@ export type Provenance =
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "Tier".
  */
-export type Tier = "universal" | "syntactic" | "config" | "pattern" | "inference" | "linked";
+export type Tier = ("universal" | "syntactic" | "config" | "pattern" | "inference" | "linked") | "precise";
 /**
  * The three edit operations.
  *
@@ -242,6 +277,7 @@ export type ErrorCode =
       | "ambiguous_ref"
       | "workspace_not_found"
       | "not_found"
+      | "idempotency_mismatch"
       | "store_busy"
       | "schema_mismatch"
       | "pack_invalid"
@@ -250,12 +286,21 @@ export type ErrorCode =
     )
   | string;
 /**
+ * When a caller may retry a failed command.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Retry".
+ */
+export type Retry = "never" | "now" | "after_reread" | "later";
+/**
  * A stable warning code.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "WarningCode".
  */
-export type WarningCode = ("truncated" | "unresolved_ref" | "evidence_dropped" | "partial_parse") | string;
+export type WarningCode =
+  | ("truncated" | "unresolved_ref" | "evidence_dropped" | "partial_parse" | "partial_scan" | "workspace_nested")
+  | string;
 /**
  * An RFC 3339 UTC timestamp.
  *
@@ -304,6 +349,10 @@ export type EventBody =
       commit: string;
       branch: string;
       snapshot: number;
+      /**
+       * The workspace link snapshot of the active set this scan committed.
+       */
+      link: number;
       stats: ScanStats;
       kind: "scan";
     }
@@ -316,13 +365,12 @@ export type EventBody =
  */
 export type Verdict = "accept" | "reject";
 /**
- * The states of a hand-off.
+ * The eight event kinds, as the `kind` tag of an `EventBody` spells them.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "HandoffState".
+ * via the `definition` "EventKind".
  */
-export type HandoffState =
-  "proposed" | "started" | "reported" | "failed" | "reviewing" | "merged" | "reconciled" | "dropped";
+export type EventKind = "edit" | "review" | "undo" | "version" | "decision" | "claim" | "scan" | "handoff";
 /**
  * A kind, `<pack>.<name>`, such as `code.service`, `kernel.group` or `kernel.external`.
  *
@@ -331,12 +379,47 @@ export type HandoffState =
  */
 export type Kind = string;
 /**
+ * The states of a hand-off.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "HandoffState".
+ */
+export type HandoffState =
+  "proposed" | "started" | "reported" | "failed" | "reviewing" | "merged" | "reconciled" | "dropped";
+/**
  * Whether the workspace has been scanned.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "ScanState".
  */
 export type ScanState = "never" | "running" | "done";
+/**
+ * One frame of the live stream.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "StreamFrame".
+ */
+export type StreamFrame =
+  | {
+      seq: number;
+      kind: EventKind;
+      target: string | null;
+      project: NodeId | null;
+      actor: Actor;
+      status: Status;
+      /**
+       * One engine-authored line, at most 2 KB.
+       */
+      summary: string;
+      type: "event";
+    }
+  | {
+      seq: number;
+      type: "reset";
+    }
+  | {
+      type: "ping";
+    };
 
 /**
  * What Planroom emits (the serialize view).
@@ -375,6 +458,16 @@ export interface Choice {
   id: string;
   label: string;
   preselected: boolean;
+}
+/**
+ * The client a writer writes from, such as `tab_01J...`, `mod:<sessionId>` or `cli:4242`.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Client".
+ */
+export interface Client {
+  surface: Surface;
+  id: string;
 }
 /**
  * `planroom map [--level L] [--lens X] [--focus ID] [--detail summary|graph]`.
@@ -435,6 +528,18 @@ export interface ScanReq {
    * The project the write belongs to.
    */
   project: NodeId | null;
+}
+/**
+ * `planroom watch [--since SEQ]`: one `StreamFrame` per line on stdout until stopped.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "WatchReq".
+ */
+export interface WatchReq {
+  /**
+   * Stream the events after this `seq`; the store's latest when absent.
+   */
+  since: number | null;
 }
 /**
  * One step of the breadcrumb.
@@ -563,26 +668,14 @@ export interface Edge {
   provenance: Provenance;
 }
 /**
- * A pointer to the line a fact was read from.
+ * A hint a linked edge joined: its ID and the pack-qualified extractor that emitted it.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "Evidence".
+ * via the `definition` "HintRef".
  */
-export interface Evidence {
-  /**
-   * `<repo>/<repo-relative path>`.
-   */
-  path: string;
-  /**
-   * 1-based.
-   */
-  line: number;
-  /**
-   * The exact line, cut to 200 characters; omitted in a default Artifact snapshot.
-   */
-  contains?: string | null;
-  commit: string | null;
-  branch: string | null;
+export interface HintRef {
+  id: string;
+  extractor: string;
 }
 /**
  * One operation on one target.
@@ -633,7 +726,7 @@ export interface Envelope {
   /**
    * A command name from the catalogue, its path joined with spaces.
    */
-  command: ("map" | "focus" | "scan") | string;
+  command: ("map" | "focus" | "scan" | "watch") | string;
   result?: unknown;
   error?: ErrorObject | null;
   meta: Meta;
@@ -647,7 +740,11 @@ export interface Envelope {
 export interface ErrorObject {
   code: ErrorCode;
   category: Category;
-  retryable: boolean;
+  retry: Retry;
+  /**
+   * With `later`, when the caller may try again.
+   */
+  retry_after_ms?: number | null;
   /**
    * One line, engine-authored.
    */
@@ -664,7 +761,8 @@ export interface ErrorObject {
   };
 }
 /**
- * What every reply carries besides its result.
+ * What every reply carries besides its result. Every field but `seq` and `size` is left out when
+ * empty, false, null or zero, and the schema gives each its default (DR-66).
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "Meta".
@@ -674,20 +772,27 @@ export interface Meta {
    * The store version this reply reflects; pass it back as `base`.
    */
   seq: number;
-  took_ms: number;
+  took_ms?: number;
   size: Size;
-  next: Cursor | null;
-  truncated: boolean;
+  next?: Cursor | null;
+  truncated?: boolean;
   /**
    * An idempotent replay of a stored reply.
    */
-  replayed: boolean;
-  warnings: Warning[];
-  models: ModelUse;
+  replayed?: boolean;
+  /**
+   * A replay of a derived key: the original `seq`; pass a new `--idem` to repeat the write.
+   */
+  replayed_from?: number | null;
+  warnings?: Warning[];
+  /**
+   * Absent when no model was called.
+   */
+  models?: ModelUse | null;
   /**
    * Session backend: requests the mod should fulfil.
    */
-  model_requests: ModelRequestRef[];
+  model_requests?: ModelRequestRef[];
 }
 /**
  * The reply's size.
@@ -767,10 +872,18 @@ export interface Event {
   request_hash: string;
   at: Timestamp;
   actor: Actor;
+  client: Client1;
   project: NodeId | null;
   cause: Cause | null;
   status: Status;
   body: EventBody;
+}
+/**
+ * With `actor`, the writer instance that compare-and-set compares.
+ */
+export interface Client1 {
+  surface: Surface;
+  id: string;
 }
 /**
  * The only event that changes the graph.
@@ -807,6 +920,129 @@ export interface HandoffStep {
   kind: "handoff";
 }
 /**
+ * What every extractor and linker returns, sorted by ID.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "FactBatch".
+ */
+export interface FactBatch {
+  /**
+   * `planroom.facts/v1`.
+   */
+  format: string;
+  /**
+   * Pack-qualified, such as `code/files`.
+   */
+  extractor: string;
+  tier: Tier;
+  nodes: Node[];
+  edges: Edge[];
+  hints: Hint[];
+  /**
+   * Files read with errors; their facts are weak.
+   */
+  partial: PartialFile[];
+}
+/**
+ * A thing in the system at one level, with exactly one parent.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Node".
+ */
+export interface Node {
+  id: NodeId;
+  kind: Kind;
+  level: Level;
+  /**
+   * `None` only at the top.
+   */
+  parent: NodeId | null;
+  name: string;
+  /**
+   * Such as `host:orders`, `service:orders`, `pkg:@acme/kit`.
+   */
+  aliases: string[];
+  /**
+   * Validated against the kind's prop schema.
+   */
+  props: {
+    [k: string]: unknown;
+  };
+  layer: Layer;
+  provenance: Provenance;
+  evidence: Evidence[];
+}
+/**
+ * A partial observation a linker joins with others, such as a URL literal or an environment read.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Hint".
+ */
+export interface Hint {
+  /**
+   * 12 hex characters of `sha256(kind ‖ scope ‖ key ‖ evidence)`.
+   */
+  id: string;
+  /**
+   * A kind, `<pack>.<name>`, such as `code.service`, `kernel.group` or `kernel.external`.
+   */
+  kind: string;
+  /**
+   * A node ID, `<namespace>:<kind-short>:<key>`, such as `orders:pkg:internal/http`.
+   */
+  scope: string;
+  /**
+   * The join key: a host, an environment variable name, a path, a queue key.
+   */
+  key: string;
+  value: string | null;
+  /**
+   * Scheme, port, path, method, op, driver, default.
+   */
+  attrs: {
+    [k: string]: unknown;
+  };
+  evidence: Evidence[];
+  /**
+   * Where a node or edge came from.
+   */
+  provenance:
+    | {
+        extractor: string;
+        tier: Tier;
+        kind: "extracted";
+      }
+    | {
+        linker: string;
+        hints: HintRef[];
+        kind: "linked";
+      }
+    | {
+        model: string;
+        decision: EventId;
+        confidence: number;
+        kind: "inferred";
+      }
+    | {
+        actor: Actor;
+        event: EventId;
+        kind: "authored";
+      };
+}
+/**
+ * A file an extractor read with errors, such as one that isn't UTF-8.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PartialFile".
+ */
+export interface PartialFile {
+  /**
+   * `<repo>/<repo-relative path>`.
+   */
+  path: string;
+  errors: number;
+}
+/**
  * Where you are.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -833,34 +1069,6 @@ export interface HandoffStep1 {
   from: HandoffState;
   to: HandoffState;
   note: string | null;
-}
-/**
- * A partial observation a linker joins with others, such as a URL literal or an environment read.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "Hint".
- */
-export interface Hint {
-  /**
-   * Such as `code.url` or `code.env_read`.
-   */
-  kind: string;
-  /**
-   * A node ID, `<namespace>:<kind-short>:<key>`, such as `orders:pkg:internal/http`.
-   */
-  scope: string;
-  /**
-   * The join key: a host, an environment variable name, a path, a queue key.
-   */
-  key: string;
-  value: string | null;
-  /**
-   * Scheme, port, path, method, op, driver, default.
-   */
-  attrs: {
-    [k: string]: unknown;
-  };
-  evidence: Evidence[];
 }
 /**
  * Edges lifted to the nearest ancestors at the view's level; `count == children.len()`.
@@ -967,35 +1175,6 @@ export interface MiniMap {
   level: Level;
   blocks: MiniBlock[];
   edges: MiniEdge[];
-}
-/**
- * A thing in the system at one level, with exactly one parent.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "Node".
- */
-export interface Node {
-  id: NodeId;
-  kind: Kind;
-  level: Level;
-  /**
-   * `None` only at the top.
-   */
-  parent: NodeId | null;
-  name: string;
-  /**
-   * Such as `host:orders`, `service:orders`, `pkg:@acme/kit`.
-   */
-  aliases: string[];
-  /**
-   * Validated against the kind's prop schema.
-   */
-  props: {
-    [k: string]: unknown;
-  };
-  layer: Layer;
-  provenance: Provenance;
-  evidence: Evidence[];
 }
 /**
  * What `focus` returns: the pane, the band and the status line; at most 4 KB.

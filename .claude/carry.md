@@ -9,12 +9,11 @@ Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `c
 - Spikes done: mod (research/mod-spike.md: dock 49x34 at 120x40; bare digit presses band Button; /room+hotkey = 2 keys). Artifact probe https://claude.ai/artifact/3U8hgkkX2Rp1ECATZCptXD (research/artifact-spike.md); page-side results land in db inbox/<uid>/probe/latest when someone opens it -> read back later.
 - Spike mod lives in ~/.claude/dev-mods/<session>/planroom-spike (consent question raised); delete it once the real mod loads.
 - TRUTH.json FROZEN (commit 8053725) after 3 review rounds; changes only via decision record. `examples/check-fixture` verifies it (CI it).
-- Art done in docs/art/ (Iris, $0.27): logo, hero, social-base (wordmark overlay later), 3 empty states. Plugin icon = logo (512-2048 px PNG at plugin/.claude-plugin/icon.png).
-- Design language: docs/contributing/design-language.md (planning table).
-- Phase 3 round 1 done + fixed (DR-44..60; records in docs/contributing/research/arch-review/round-1/). Round 2 review running: wf_23085362-22a + wf_478ff741-839. Save round-2 JSON to arch-review/round-2/, decide, fix, max 3 rounds.
+- Art in docs/art/ (Iris $0.27); social preview needs wordmark overlay later.
+- Phase 3: rounds 1+2 fixed (DR-44..72; records in docs/contributing/research/arch-review/round-{1,2}/). Round 3 (LAST) done: 29 material; decisions F1-F20 in round-3/owner-decisions.md; fix pass wf_1d10b52b-40a running (writes accepted-risk.md). After it: Phase 3 closed; log in progress.md.
+- ENGINE (WS3+WS4) MERGED 47fb47f; its doc notes listed in progress.md log -> fold into docs (one DR) after round-3 fix pass. PLUGIN track still running. Verify each (xtask check/test myself), merge one at a time, push. Then WS5 wiring, WS6 serve+canvas, WS7 artifact (main session), WS8 install.
 - WS1+WS2 merged (3cd4e66): xtask check/test green (verified). Gaps: cargo-deny never run locally; e2e/installer/release jobs are if:false stubs; layout gate, release pins, secret scan, catalogue.ts not built yet.
-- CI: boundary self-test failed on fresh runners (offline pnpm re-resolve) -> fixed with a symlink (commit after 2ab5c57); verify next CI run green incl. macOS test.
-- Next after review: Phase 4 walking skeleton WS3-WS8 (architecture.md 'Walking skeleton').
+- CI green on run #6 (all jobs incl. macOS).
 - All WS assumptions A-1..A-4, A-8..A-11 settled (progress.md).
 - Docs style rules (bind README/docs/CONTRIBUTING/SECURITY): `docs/contributing/research/iris-release-bar.md` sec 4.
 

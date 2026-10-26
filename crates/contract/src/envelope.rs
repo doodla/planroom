@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::command::Command;
-use crate::errors::{Category, ErrorCode, WarningCode};
+use crate::errors::{Category, ErrorCode, Retry, WarningCode};
 use crate::model::Seq;
 use crate::open_set;
 
@@ -34,25 +34,45 @@ pub struct Envelope<T = Value> {
     pub meta: Meta,
 }
 
-/// What every reply carries besides its result.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+/// What every reply carries besides its result. Every field but `seq` and `size` is left out when
+/// empty, false, null or zero, and the schema gives each its default (DR-66).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Meta {
     /// The store version this reply reflects; pass it back as `base`.
     pub seq: Seq,
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub took_ms: u32,
     pub size: Size,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next: Option<Cursor>,
+    #[serde(default, skip_serializing_if = "is_false")]
     pub truncated: bool,
     /// An idempotent replay of a stored reply.
+    #[serde(default, skip_serializing_if = "is_false")]
     pub replayed: bool,
+    /// A replay of a derived key: the original `seq`; pass a new `--idem` to repeat the write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replayed_from: Option<Seq>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<Warning>,
-    pub models: ModelUse,
+    /// Absent when no model was called.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models: Option<ModelUse>,
     /// Session backend: requests the mod should fulfil.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub model_requests: Vec<ModelRequestRef>,
 }
 
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 /// The reply's size.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Size {
     pub bytes: u32,
     /// `ceil(bytes / 4)`.
@@ -92,7 +112,10 @@ pub struct ModelRequestRef {
 pub struct ErrorObject {
     pub code: ErrorCode,
     pub category: Category,
-    pub retryable: bool,
+    pub retry: Retry,
+    /// With `later`, when the caller may try again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<u32>,
     /// One line, engine-authored.
     pub message: String,
     /// An exact command, such as `planroom show ev_01J...`.

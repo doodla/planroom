@@ -4,6 +4,7 @@
 //! or `skipped (why)` line per step, and names the fix command on failure.
 
 mod boundaries;
+mod fixture;
 mod generate;
 mod golden;
 mod modgen;
@@ -23,7 +24,8 @@ usage: cargo xtask <command>
   test [-p CRATE]             the Rust tests (nextest when installed) and vitest
   test --installer            ShellCheck and BusyBox sh when installed, then tests/installer/run.sh
   gen                         write every generated file
-  gen --mod                   write only the mod bundle, plugin/hooks/planroom-mod.js";
+  gen --mod                   write only the mod bundle, plugin/hooks/planroom-mod.js
+  fixture OUT [--no-packs]    build the fixture workspace into OUT, with a config loading the Ruby pack";
 
 fn main() -> ExitCode {
     let root = repo_root();
@@ -48,6 +50,18 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             }
+        }
+        ["fixture", out] | ["fixture", out, "--no-packs"] => {
+            return match fixture::build(&root, Path::new(out), args.len() == 2) {
+                Ok(heads) => {
+                    print!("{heads}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("cargo xtask fixture failed: {e}");
+                    ExitCode::FAILURE
+                }
+            };
         }
         ["help" | "--help" | "-h"] => {
             println!("{USAGE}");

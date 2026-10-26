@@ -1,0 +1,112 @@
+{
+ "key": "cost",
+ "findings": [
+  {
+   "id": "cost-1",
+   "title": "The live spend plan budgets 3 S03 runs, but the replay keys and milestone order mean many more re-recordings on the capable tier",
+   "severity": "material",
+   "claim": "The plan prices S03 gateway recordings at about $0.15 each on Sonnet 5.5 and plans 3 runs (1 plus 2 re-records). Claude replays are keyed by the full canonical request body. That body includes the pack prompt, the PlanProposal JSON Schema generated from the contract, and the redacted fixture slice. So the S03 recordings go stale whenever any of those changes. The milestone plan guarantees such changes after S3 is first recorded. S3 closes in M2, but its truth needs nodes that only M3 creates.",
+   "evidence": "architecture.md 'Claude' backend table, replay row: recorded responses are 'keyed by sha256(path \u2016 canonical body)', and 'a missing record fails with replay_missing'. architecture.md 909: a request is '[pack prompt file] + [output JSON Schema], a cache breakpoint, then [slice as JSON] + [the question]'. architecture.md 'Live spend plan', S03 row: 'capable | about $0.15 | 3 (1 plus 2 re-records) | about $0.45', with a total of 'about $1.00, with $2.00 of margin'. Milestones table: M2 closes S3, and M3 brings 'Cross-repo joins: compose service to repo, image and package versions' and 'The observability pack: prometheus...'. TRUTH.scenarios.S3.attach_targets needs 'platform/docker-compose.yml' ('image: acme/worker:0.9.0') and 'platform/prometheus/alerts.yml' ('- alert: OrdersHighErrorRate'), so the worker slice changes in M3. M4 and M5 change it again (artifacts nodes, contract edits). On top of that, M2's prompt iteration over six stages costs a full run each time. KICKOFF <constraints> Spend: 'Live Jev, gateway and sample calls ... stay under $3 in total'. claude-gateway \u00a72: Sonnet 5.5 output costs $10/M, against $0.50/M for Haiku 5.5, so it is 20 times dearer.",
+   "failure_scenario": "In M2, S03 prompt tuning takes about 6 runs. M3 then changes the worker slice, which forces a re-record and another 2 runs to fix attach targets. M4 and M5 contract or redaction changes force 2 or 3 more. That is 11 to 12 S03 runs, about $1.70, plus about $0.55 of other planned spend, which reaches the $2.75 refusal point. The guard then refuses live calls in M5, where the S9, S11 and S14 evidence runs and any final S03 or S06 re-record happen. Tier A evidence paths, or S3's CI replay after a late change, cannot be completed without breaking the $3 cap.",
+   "proposed_fix": "Split CI recordings from evidence. The S03, S06 and S12 CI replays are recorded with the fixture config's `model_capable` set to the cheap tier (about $0.01 per S03 run). The capable tier is recorded once, as the evidence run after M4's extractors and the contract freeze. Schedule the S3 recording after M3, or move S3's Claude part to M3. Add a 'development re-records' row to the live spend plan, with a count per milestone. Have `xtask live record` print the cumulative spend at each milestone end in progress.md. Optionally, make `replay_missing` report which part of the key changed (prefix, schema or slice) so re-records are deliberate."
+  },
+  {
+   "id": "cost-2",
+   "title": "The cold-start check on recordings and the 1-hour plan TTL turn a failed recording into a paid, refused retry",
+   "severity": "minor",
+   "claim": "`xtask live record` checks after the fact that each recording's first call wrote the cache. Plan prompts declare `ttl = \"1h\"`. Any retry within an hour of a partial or failed S03 recording therefore starts warm. The check refuses that recording only after its calls have been paid for. The spend plan has no row for aborted or refused runs.",
+   "evidence": "architecture.md 909: 'it checks that each recording's first call wrote the cache, so a warm cache never inflates a baseline'. architecture.md 910: 'Plan prompts, which are person-paced, declare ttl = \"1h\"'. architecture.md 911: 'A response that fails validation is recorded and becomes a card', so a stage can fail partway through a run. DR-65 Decision: 'checks that a recording starts cold'.",
+   "failure_scenario": "Stage 4 of an S03 recording returns schema-invalid JSON. The agent fixes the prompt tail and re-runs at once. Call 1 reads the hour-old prefix cache, the check refuses, and the agent has spent about $0.03 to $0.15 with nothing recorded. The agent either waits an hour or loops, and each attempt draws on the $3 margin.",
+   "proposed_fix": "Check the cache state before any billable stage call. Look at the ledger's last write time for that `prefix_hash`. If it is inside the TTL, refuse up front and print when the TTL lapses. Alternatively, stop after call 1 when it comes back warm. Add one row to the spend plan for aborted recordings."
+  },
+  {
+   "id": "cost-3",
+   "title": "Phase 1 and spike spend is missing from the spend logs the final report reads",
+   "severity": "minor",
+   "claim": "The design says the final report reads Jev, gateway and `sample` spend from `docs/evidence/spend.jsonl`, and Iris spend from `docs/art/spend.jsonl`. Neither file exists yet. Phase 1 live spend and the uncommitted Iris drafts have no rows. As designed, the cap check and the final report would understate spend that was already made.",
+   "evidence": "architecture.md 973: 'every evidence run, eval and re-record counts against KICKOFF's $3 ... the final report reads Jev, gateway and sample spend from it'. architecture.md 974: 'the final report reads Iris spend from that file', and `every_image_has_its_prompt_and_spend_row`. progress.md spend log: 'Jev $0.005, Claude gateway $0.022, Iris $0.27'. jev.md: 282 calls, $0.00517. `ls docs/evidence` returns no such directory, and there is no docs/art/spend.jsonl. docs/art/README.md rows sum to about $0.16 against 'about $0.27' total, because the drafts aren't committed. KICKOFF <definition_of_done>: the final message reports 'Iris and Jev spend'.",
+   "failure_scenario": "The final report states the Jev spend from spend.jsonl only, which leaves out Phase 1's $0.005 and the gateway's $0.022. It states Iris spend as the sum of committed-image rows, about $0.16 against $0.27 actually spent. If the art spend log is created only in M5, the docs test also fails until the rows are backfilled.",
+   "proposed_fix": "In the walking skeleton, seed docs/evidence/spend.jsonl with Phase 1 rows (scenario `phase1`, from the research totals). Seed docs/art/spend.jsonl with one row per committed image plus one `drafts` row. Let the art spend test allow rows for images that aren't committed."
+  },
+  {
+   "id": "cost-4",
+   "title": "S7's warm phase runs `decide --run` once, so a backlog over the per-kind cap spills into the rescan being measured",
+   "severity": "minor",
+   "claim": "Each kind has `budget = { max_calls_per_scan = 20 }`, counted per scan event and per duty run. The S7 warm phase runs `planroom decide --run` once. If any kind has more than 20 subjects on the fixture at main, requests are still pending when the routine commit lands. The rescan's `decide --run` then pays for that backlog, or deals cards from it. That breaks 'none is pending after the rescan', or puts unrelated spend into the under-$0.001 measurement. Candidates include `part_relation`, at up to 3 per part across the fixture's READMEs, CHANGELOGs, lifecycle doc, SKILL.md and CLAUDE.md once M4 lands, and `dependency_real`.",
+   "evidence": "architecture.md 'A decision kind': `budget = { max_calls_per_scan = 20 }`. contracts.md 665: 'counted per scan event and per duty run (DR-65)'. feature_list S7 steps: 'planroom scan $OUT --json, then planroom decide --run --json (warm cache on main)', one run. The asserts include 'no request was deferred by a budget, and none is pending after the rescan'. architecture.md 655: `part_relation` 'asks at most 3n questions for n parts'. The fixture has 26 .md files.",
+   "failure_scenario": "After M4 the fixture yields 30 `part_relation` candidates. The warm run decides 20, and the rescan's run decides the other 10. The rescan's `meta.models.jev.calls` is then 10, not 0, and the 'nothing deferred and none pending' assert or the card count can fail for reasons that have nothing to do with the routine commit.",
+   "proposed_fix": "Make the S7 warm phase loop `decide --run` until `decide --json` reports zero pending, and assert that. Alternatively, have the S7 asserts count only requests whose input hash the routine commit changed."
+  },
+  {
+   "id": "cost-5",
+   "title": "The 'per scan' Jev guard has no defined duty-run cadence, so card copy saying 'at most $0.001 a scan' isn't what's enforced",
+   "severity": "minor",
+   "claim": "The Jev budget applies separately 'per scan event and per duty run'. A decide duty runs whenever requests are pending, and a run that leaves some pending changes the request set and its `decide:<hash>` lease. Nothing says one scan triggers one duty run. As written, chained duty runs can each spend the cap until the backlog is gone. Alternatively, pending items wait for an unspecified next trigger. The consent and setup cards promise 'At most $0.001 a scan', and `card_costs_match_the_estimator` only checks the copy against config, not against the runtime cadence.",
+   "evidence": "architecture.md 970: 'a Jev budget per scan event and per duty run'. architecture.md 805 and 831: 'pending --> requested: a later duty run within budget'. architecture.md 164: duties include 'a decision run on pending requests', leased by `decide:<requests hash>`. architecture.md 920 and 1000: the card copy reads 'At most $0.001 a scan'. architecture.md 921: card figures come from 'the request count times the measured cost per request, capped by the configured limit'.",
+   "failure_scenario": "A kind-version bump re-asks 300 subjects. Each duty run spends $0.001 and leaves the rest pending under a new hash, so the next run starts at once. That spends about $0.01 to $0.02 within minutes of one scan, while the card the person accepted said at most $0.001 a scan. The amount is small, but the stated bound is false, and principle 1 relies on cheap decisions being honest.",
+   "proposed_fix": "Define the cadence. A scan event triggers one decide duty run that shares that scan's budget. Leftover requests wait for the next scan event or an explicit `decide --run`. Add a test that two back-to-back duty runs after one scan spend at most `jev_per_scan_usd` in total."
+  },
+  {
+   "id": "cost-6",
+   "title": "`/room` results go into the transcript as model-read text with no separate budget, including the bare `/room` used before every pane action",
+   "severity": "minor",
+   "claim": "Each `/room` result is 'returned as text the model can read'. In the mod API, `text` is a transcript row the model reads on every later turn. Bare `/room` is the documented first keystroke for every pane action, and nothing bounds or gates what it puts in the transcript. Command budgets go up to 2,000 tokens (`diff`) and 1,000 tokens (`focus`). The S7 and S15 token gates cover tool results and the always-on surface, not `/room` transcript rows.",
+   "evidence": "architecture.md 1271: '`/room` alone focuses the pane. Each result is drawn through the CommandOutput site and returned as text the model can read'. mod-api.md \u00a73: '`text` is the transcript row, which the model also reads. `context` is hidden notes only the model reads'. mod-spike.md: 'Every pane action is two: /room (or ctrl+x tab) for focus, then one hotkey'. architecture.md 963-964: the gates cover tool results and the always-on surface only. KICKOFF principle 2: 'every agent-facing output has a size budget'.",
+   "failure_scenario": "A person drives S9's flows from the pane, pressing `/room` about 30 times in a session. If each press writes the focus summary (up to 1,000 tokens) into the transcript, the conversation grows by up to 30k tokens. Those tokens are re-read, cached or not, on every later turn and bring compaction sooner, and no budget test notices.",
+   "proposed_fix": "State that bare `/room` returns no `text`, or a single line of 30 tokens or fewer. For `/room CMD`, the CommandOutput site draws the full view, while `text` carries only the summary line and handles, capped at about 300 tokens. Add those numbers to budgets.json and gate them in `packages/mod` tests next to `tool_results_within_budget`."
+  },
+  {
+   "id": "cost-7",
+   "title": "The contributing corpus is about 170k tokens and restates the same numbers in several places, which multiplies the build's agent spend",
+   "severity": "minor",
+   "claim": "The design docs total about 674 KB (architecture.md 256 KB, decisions.md 229 KB, contracts.md 90 KB, traceability.md 53 KB, repo-layout.md 46 KB). Cost facts appear in several of them at once. Each milestone's architecture-drift check, each review round and each track has to read or edit several copies. That runs against KICKOFF's guidance to spend build tokens where they buy quality, and against the release bar's 'each fact in one place'.",
+   "evidence": "`wc -c` gives the sizes above. The 1,500/900/300/300 always-on split appears at architecture.md 964 and 1385, contracts.md 59 and DR-51. The `jev_per_scan_usd` semantics appear at architecture.md 970-972, contracts.md 960 and DR-65. The spend log appears at architecture.md 973, contracts.md 66 and 986, DR-51 and DR-65. KICKOFF <constraints> Spend: 'read targeted ranges rather than whole files'. Release bar: 'docs ... with each fact in one place'.",
+   "failure_scenario": "In M2 the S03 cost estimate or a gate number changes. The agent updates architecture.md but misses contracts.md's configuration table or the DR. The next drift check flags it, and a reviewer re-reads about 170k tokens to reconcile them. Across 5 milestones and their review rounds that repeats, and the copies drift.",
+   "proposed_fix": "Make contracts.md the single home for numbers and config semantics, and have architecture.md and the DRs link to the anchor without restating values. Add a small docs check that fails when a budget or config value from contracts.md appears verbatim in another contributing page."
+  }
+ ],
+ "verdicts": [
+  {
+   "id": "cost-1",
+   "verdict": "downgraded",
+   "reason": "The churn is real. Replay keys cover the full body, the slice changes as later milestones add nodes, and the spend plan has no row for development re-records. But the finding's own numbers don't reach the refusal point, and the guard keeps the $3 cap from ever being broken. 11 to 12 S03 runs at $0.15 is about $1.70. With the other planned $0.55 and Phase 1's roughly $0.027 already spent, that totals about $2.28. The refusal point is $2.75, so about $0.47 is still left, enough for 3 more capable-tier S03 runs or many cheap ones. No tier A or B scenario is shown to fail, and no KICKOFF constraint is broken. What remains is a real risk to the estimate, not a material defect.",
+   "evidence": "architecture.md 907: replay is 'keyed by sha256(path \u2016 canonical body)'. architecture.md 909: the slice goes in the request body. architecture.md 973: the engine 'refuses a call that would take the total past live_tests_total_usd less a $0.25 margin', so the cap can't be passed. Live spend plan: S03 is '3 (1 plus 2 re-records) | about $0.45', the total is 'about $1.00, with $2.00 of margin', and there is no row for development re-records. Milestones: S3 closes in M2, and the prometheus extractor arrives in M3. progress.md:55 gives Phase 1 spend: Jev $0.00517, gateway about $0.022. Arithmetic: 1.70 + 0.55 + 0.027 = 2.28, which is under 2.75."
+  },
+  {
+   "id": "cost-2",
+   "verdict": "upheld",
+   "reason": "Real and minor as reported. The cold-start check runs after the recording's calls are paid for. Plan prompts keep a 1-hour TTL. The stage method sits in the uncached tail, so fixing the tail leaves the prefix the same, and a retry within the hour starts warm and is refused. No document describes a check before the call, or a spend-plan row for aborted runs.",
+   "evidence": "architecture.md 909: 'it checks that each recording's first call wrote the cache'. architecture.md 910: 'The stage's method and checklist go in the uncached tail ... Plan prompts ... declare ttl = \"1h\"'. decisions.md 1352: 'checks that a recording starts cold'. The Live spend plan table has no row for aborted or refused recordings."
+  },
+  {
+   "id": "cost-3",
+   "verdict": "upheld",
+   "reason": "Real and minor. No document says to seed either spend log with Phase 1 or earlier spend. docs/evidence/ doesn't exist yet. docs/art/ already holds committed images (hero.png, empty-*.png) with no spend.jsonl, so every_image_has_its_prompt_and_spend_row would fail once it's implemented unless rows are backfilled. The final report reads spend from these files alone, so it would understate Phase 1 spend.",
+   "evidence": "architecture.md 973: 'the final report reads Jev, gateway and sample spend from it'. architecture.md 974: 'the final report reads Iris spend from that file'. `ls docs/evidence` gives 'No such file or directory'. docs/art holds hero.png and empty-decisions.png, empty-diffs.png and empty-map.png, with no spend.jsonl. progress.md:55: 'Phase 1 live spend: Jev $0.00517 (282 calls), Claude on the gateway about $0.022.' Searching for backfill or Phase 1 seeding in architecture, decisions and contracts finds nothing."
+  },
+  {
+   "id": "cost-4",
+   "verdict": "upheld",
+   "reason": "Plausible and minor. The budget counts calls per kind, and Jev sends one request per slice, so 20 calls cover at most 20 subjects per kind in each duty run. S7's warm phase runs decide --run only once. Nothing asserts that the warm phase leaves nothing pending, and the rescan asserts 'none is pending after the rescan'. Some of the failure scenario is softer than stated: no assert requires 0 Jev calls, and 10 backlog calls at about $0.000016 stay under $0.001. But a backlog over 40 subjects for one kind would still fail the pending assert. Whether the fixture reaches that depends on M4's part counts, which the documents don't give.",
+   "evidence": "architecture.md 852: `budget = { max_calls_per_scan = 20 }`. contracts.md 665: 'counted per scan event and per duty run'. decisions.md 762: 'One request per slice ... never several slices per state'. architecture.md 655: part_relation 'asks at most 3n questions for n parts'. feature_list S7 steps: 'planroom scan $OUT --json, then planroom decide --run --json (warm cache on main)', run once. S7 asserts: 'no request was deferred by a budget, and none is pending after the rescan'."
+  },
+  {
+   "id": "cost-5",
+   "verdict": "upheld",
+   "reason": "Real and minor. The budget is counted per scan event and per duty run, but no document says what triggers a decide duty run or ties it to a scan. The lease is keyed by the requests hash, and a partial run changes that set, so nothing stops runs from chaining. The card copy promises 'at most $0.001 a scan', and card_costs_match_the_estimator checks the copy against config only, not against how often duties run.",
+   "evidence": "architecture.md 164: duties include 'a decision run on pending requests', leased by `decide:<requests hash>`, and 'duplicate triggers join one run'. Only identical triggers are deduplicated. architecture.md 805 and 831: 'a later duty run within budget'. architecture.md 970: 'a Jev budget per scan event and per duty run'. architecture.md 917 and 920: 'At most $0.001 a scan', and card_costs_match_the_estimator 'checks each card's copy against the config'. contracts.md 960 states the same counting rule and gives no cadence."
+  },
+  {
+   "id": "cost-6",
+   "verdict": "upheld",
+   "reason": "Minor, and partly overstated. Every command's output is capped by Command::budget(), so '/room' text is not unbounded and principle 2 is met. But the design does put each /room result into the transcript as text the model reads. It doesn't say whether bare /room returns any text. No gate measures /room transcript rows, and the token gates cover only tool results and the always-on surface. So the cost that builds up in the transcript is real and unmeasured.",
+   "evidence": "architecture.md 1271: '`/room` alone focuses the pane. Each result is drawn through the CommandOutput site and returned as text the model can read'. mod-api.md:206: '`text` is the transcript row, which the model also reads'. architecture.md 960: every command has a default output budget, 1,500 for summaries, which bounds each result. architecture.md 963-964: tools.test.ts gates tool results, and surface_tokens.sh gates the always-on surface. Neither covers /room text."
+  },
+  {
+   "id": "cost-7",
+   "verdict": "upheld",
+   "reason": "Real and minor. The documents total about 683 KB, and the cited numbers are restated across architecture.md, contracts.md and the DRs. That raises the cost of every drift check and review, and lets the copies drift apart. KICKOFF tells the build to read targeted ranges, and its release bar asks for each fact in one place. This affects build-token efficiency and doc hygiene, and no tier A or B scenario fails because of it.",
+   "evidence": "`wc -c`: architecture.md 255,874, decisions.md 229,057, contracts.md 89,786, traceability.md 53,192 and repo-layout.md 45,568, totalling 682,654. jev_per_scan_usd semantics appear at architecture.md 970, contracts.md 960 and decisions.md 1349. The spend log appears at architecture.md 973, contracts.md 66 and 986, and decisions.md 691-692 and 968. KICKOFF:260: 'with each fact in one place'. KICKOFF:269: 'read targeted ranges rather than whole files'."
+  }
+ ]
+}

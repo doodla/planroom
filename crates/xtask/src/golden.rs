@@ -2,7 +2,7 @@
 //! from the schema. They stand in until the engine's own tests write `tests/golden/cli/` with
 //! `cargo xtask gen --golden`; then this module goes.
 
-use planroom_contract::envelope::{CommandName, Envelope, Handle, Meta, ModelUse, Size};
+use planroom_contract::envelope::{CommandName, Envelope, Handle, Meta, Size};
 use planroom_contract::event::{Actor, Surface, Timestamp};
 use planroom_contract::model::{Level, NodeId};
 use planroom_contract::view::{
@@ -113,8 +113,9 @@ pub fn focus() -> Result<String, String> {
             next: None,
             truncated: false,
             replayed: false,
+            replayed_from: None,
             warnings: vec![],
-            models: ModelUse::default(),
+            models: None,
             model_requests: vec![],
         },
     };
