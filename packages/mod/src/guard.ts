@@ -5,8 +5,14 @@
  * a state directory or the data root; and no Bash that runs a person-only command, sets a variable
  * that hands out the person's authority or picks the engine, or pushes `refs/planroom/`.
  *
- * Pure: register.tsx resolves each path (relative, `..`, symlinks) and passes every spelling. It
- * is a guardrail for "AI proposes, person disposes", not a boundary between processes of one user.
+ * Pure: register.tsx resolves each path (relative, `..`, symlinks) and passes every spelling. A
+ * Bash line is read the way a shell would spell it out: quotes taken out, `$HOME` and the line's
+ * own assignments put in, each path word from every directory a `cd` on the line may move to, and
+ * a glob by every guarded place its literal prefix and segments may reach (security-3).
+ *
+ * It is a guardrail for "AI proposes, person disposes", not a boundary between processes of one
+ * user: a script the agent runs by path, or writes and then runs, isn't read, nor is a variable set
+ * in an earlier call or a glob that only `dotglob` lets reach a hidden folder.
  */
 
 import { CATALOGUE } from "@planroom/contract";
@@ -89,8 +95,14 @@ function inStateDir(path: string): boolean {
 
 const STORE_FILE = /^(store|ledger)\.db(-wal|-shm|-journal)?$/;
 
+/** Another process's environment or memory, which may hold a person token (security-3). */
+const PROC_SECRETS = /^\/proc\/[^/]+\/(task\/[^/]+\/)?(environ|mem)$/;
+
 /** Why an agent may not read this path (absolute and normal), or null. */
 export function readDenied(path: string, places: GuardPlaces): string | null {
+  if (PROC_SECRETS.test(path)) {
+    return "Another process's environment and memory may hold a person token.";
+  }
   const name = basename(path);
   if (STORE_FILE.test(name) || name === "store.pointer") {
     return "Planroom's store is read through the planroom CLI, never directly.";
@@ -127,6 +139,14 @@ export function writeDenied(path: string, places: GuardPlaces): string | null {
     return "The Planroom data root changes only through the planroom CLI.";
   }
   return readDenied(path, places);
+}
+
+/**
+ * A shell command with its quotes and backslash escapes taken out, so a name split by quotes
+ * (`PLANROOM_PERSON"_TOKEN"`, `plan'room'`) reads as the shell joins it.
+ */
+export function unquote(command: string): string {
+  return command.replace(/\\\n/g, " ").replace(/["'\\]/g, "");
 }
 
 /** The words of a shell command, quotes and operators taken away, so `sh -c '...'` shows through. */
@@ -218,27 +238,45 @@ export function personOnlyLine(line: readonly string[]): string | null {
 const GUARDED_VARIABLES =
   /\bPLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)\b\s*=|\b(export|declare|typeset|env|set)\b[^;&|\n]*\bPLANROOM_(PERSON_TOKEN|RAW|ENGINE|RELEASE_BASE_URL)\b/;
 
-/** Words of a Bash line that may name a file: the guard resolves and checks each. */
-export function pathWords(words: readonly string[]): string[] {
-  return words.filter(
-    (w) =>
-      !w.startsWith("-") &&
-      (w.includes("/") ||
-        w.startsWith("~") ||
-        STORE_FILE.test(w) ||
-        w === "serve.json"),
-  );
+/** Glob metacharacters: a word holding one expands to whatever paths match it. */
+const GLOB = /[*?[{]/;
+
+/** A word that starts with an expansion: `$x`, `${x}`, `$(...)` or a backtick. */
+function isExpansion(word: string): boolean {
+  return word.startsWith("$") || word.startsWith("`");
+}
+
+/**
+ * The simple commands of a shell line, quotes taken out, each as its words. Operators split it,
+ * so `p=planroom; $p person init` is two commands.
+ */
+function simpleCommands(command: string): string[][] {
+  return unquote(command)
+    .split(/[;&|\n]+/)
+    .map((c) => c.split(/[\s<>]+/).filter((w) => w !== ""));
 }
 
 /** The guard's verdict on a Bash command's text alone, before its paths are resolved. */
 export function bashDenied(command: string): string | null {
-  if (GUARDED_VARIABLES.test(command)) {
+  const plain = unquote(command);
+  if (GUARDED_VARIABLES.test(plain)) {
     return "An agent never sets PLANROOM_PERSON_TOKEN, PLANROOM_RAW, PLANROOM_ENGINE or PLANROOM_RELEASE_BASE_URL.";
   }
-  const words = shellWords(command);
+  const words = shellWords(plain);
   for (const line of planroomLines(words)) {
     const reason = personOnlyLine(line);
     if (reason !== null) return reason;
+  }
+  // `$p person init`: an expansion in command position may be the engine, so the words after it
+  // are read as a planroom line.
+  for (const simple of simpleCommands(command)) {
+    for (const [i, word] of simple.entries()) {
+      if (!isExpansion(word)) continue;
+      for (const line of planroomLines(["planroom", ...simple.slice(i + 1)])) {
+        const reason = personOnlyLine(line);
+        if (reason !== null) return reason;
+      }
+    }
   }
   const push = words.findIndex(
     (w, i) => basename(w) === "git" && words[i + 1] === "push",
@@ -248,6 +286,194 @@ export function bashDenied(command: string): string | null {
     words.slice(push).some((w) => w.includes("refs/planroom/"))
   ) {
     return "Planroom's refs move only through the planroom CLI.";
+  }
+  return null;
+}
+
+/** The variables a path word may start from, as this session's environment set them. */
+function knownVariables(places: GuardPlaces): Map<string, string> {
+  const parent = (p: string): string =>
+    p.slice(0, Math.max(1, p.lastIndexOf("/")));
+  return new Map([
+    ["HOME", places.home],
+    ["PWD", places.cwd],
+    ["CLAUDE_CONFIG_DIR", places.claudeConfig],
+    ["PLANROOM_DATA", places.dataRoot],
+    ["XDG_DATA_HOME", parent(places.dataRoot)],
+    ["XDG_CONFIG_HOME", parent(parent(places.userConfig))],
+  ]);
+}
+
+/**
+ * `word` with each variable it names put in: a known one's value, one the line assigned before
+ * its value, and any other expansion as `*`, since it could hold anything.
+ */
+function expand(word: string, vars: ReadonlyMap<string, string>): string {
+  return word
+    .replace(
+      /\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}|\$([A-Za-z_][A-Za-z0-9_]*)/g,
+      (_, braced: string | undefined, bare: string | undefined) =>
+        vars.get(braced ?? bare ?? "") ?? "*",
+    )
+    .replace(/\$[^/]*|`[^/]*/g, "*");
+}
+
+/** The words of a Bash line that may name a file, its variables put in, and every directory it runs from. */
+export interface BashPaths {
+  words: string[];
+  /** The session's directory, then each place a `cd` or `pushd` on the line may have moved to. */
+  bases: string[];
+}
+
+/** Where a Bash line's words may land: each word that may name a file, and every `cd` target. */
+export function bashPaths(command: string, places: GuardPlaces): BashPaths {
+  const vars = knownVariables(places);
+  const tokens = unquote(command)
+    .split(/[\s;&|()<>`]+/)
+    .filter((w) => w !== "");
+  const candidates: string[] = [];
+  let bases = [places.cwd];
+  let moved = false;
+  for (const [i, raw] of tokens.entries()) {
+    // `NAME=value` and `--flag=value`: the value may be a path, and a name the line sets is known.
+    const eq = raw.indexOf("=");
+    const assigned =
+      eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(raw.slice(0, eq));
+    const value = eq >= 0 ? expand(raw.slice(eq + 1), vars) : null;
+    if (assigned && value !== null) vars.set(raw.slice(0, eq), value);
+    const word = expand(raw, vars);
+    if (value !== null && value !== "") candidates.push(value);
+    if (!assigned && !word.startsWith("-")) candidates.push(word);
+    if (raw === "cd" || raw === "pushd") {
+      const next = tokens[i + 1];
+      const target =
+        next === undefined || next.startsWith("-") || /^[;&|]/.test(next)
+          ? "~"
+          : expand(next, vars);
+      const moves = bases.map((b) => normalize(target, b, places.home));
+      bases = [...new Set([...bases, ...moves])].slice(0, 8);
+      moved = true;
+    }
+  }
+  const words = candidates.filter(
+    (w) =>
+      w !== "" &&
+      (moved ||
+        w.includes("/") ||
+        w.startsWith("~") ||
+        GLOB.test(w) ||
+        STORE_FILE.test(w) ||
+        w === "store.pointer" ||
+        w === "serve.json"),
+  );
+  return { words: [...new Set(words)], bases };
+}
+
+/** A glob segment as a regular expression: `*` and `?` never match a leading dot, as in Bash. */
+function segmentPattern(segment: string): string {
+  let out = "";
+  for (let i = 0; i < segment.length; i++) {
+    const ch = segment[i] ?? "";
+    if (ch === "*") out += "[^/]*";
+    else if (ch === "?") out += "[^/]";
+    else if (ch === "[") {
+      const end = segment.indexOf("]", i + 2);
+      if (end < 0) {
+        out += "\\[";
+        continue;
+      }
+      const set = segment.slice(i + 1, end).replace(/^!/, "^");
+      out += `[${set.replace(/\\/g, "\\\\")}]`;
+      i = end;
+    } else if (ch === "{") {
+      const end = segment.indexOf("}", i);
+      if (end < 0) {
+        out += "\\{";
+        continue;
+      }
+      const alternatives = segment.slice(i + 1, end).split(",");
+      out += `(?:${alternatives.map(segmentPattern).join("|")})`;
+      i = end;
+    } else out += ch.replace(/[.+^$()|\\\]}]/g, "\\$&");
+  }
+  return /^[*?[]/.test(segment) ? `(?!\\.)${out}` : out;
+}
+
+/** Whether the glob segment `segment` may match the name `name`. */
+function segmentMatches(segment: string, name: string): boolean {
+  if (segment === "**") return true;
+  try {
+    return new RegExp(`^${segmentPattern(segment)}$`).test(name);
+  } catch {
+    return true;
+  }
+}
+
+/** The names Planroom keeps in a state directory, which an agent never reads. */
+const STATE_SECRETS = [
+  "store.db",
+  "store.db-wal",
+  "store.db-shm",
+  "store.db-journal",
+  "ledger.db",
+  "store.pointer",
+  "serve.json",
+];
+
+/**
+ * Why a glob (absolute and normal) may expand into a place an agent may not read, or null: it
+ * names one already; it lies inside a guarded directory; its literal prefix holds one that its
+ * segments can reach; or it may name a store or serve file inside a state directory.
+ */
+export function globDenied(
+  pattern: string,
+  places: GuardPlaces,
+): string | null {
+  const direct = readDenied(pattern, places);
+  if (direct !== null) return direct;
+  const segments = pattern.split("/").filter((s) => s !== "");
+  const first = segments.findIndex((s) => GLOB.test(s));
+  if (first < 0) return null;
+  const prefix = `/${segments.slice(0, first).join("/")}`;
+  const rest = segments.slice(first);
+  const data = places.dataRoot;
+  const guarded = [
+    ...["stores", "backups", "open", "ledger.db"].map((s) => `${data}/${s}`),
+    places.userConfig,
+    modStoreDir(places),
+  ];
+  for (const dir of guarded) {
+    const why =
+      readDenied(dir, places) ??
+      "Planroom's private files are read through the planroom CLI, never directly.";
+    if (within(prefix, dir)) return why;
+    if (!within(dir, prefix)) continue;
+    const below = dir
+      .slice(prefix.length)
+      .split("/")
+      .filter((s) => s !== "");
+    if (rest.includes("**")) return why;
+    if (
+      rest.length >= below.length &&
+      below.every((name, i) => segmentMatches(rest[i] ?? "", name))
+    ) {
+      return why;
+    }
+  }
+  // A store or serve file sits in a state directory: `.planroom/`, or a repo's `.git/planroom/`.
+  const folders = segments.slice(0, -1);
+  const last = segments.at(-1) ?? "";
+  const stateFolder =
+    inStateDir(prefix) ||
+    folders.some(
+      (s, i) =>
+        segmentMatches(s, ".planroom") ||
+        (segmentMatches(s, ".git") &&
+          i + 1 < folders.length &&
+          segmentMatches(folders[i + 1] ?? "", "planroom")),
+    );
+  if (stateFolder && STATE_SECRETS.some((n) => segmentMatches(last, n))) {
+    return "Planroom's store is read through the planroom CLI, never directly.";
   }
   return null;
 }
@@ -292,9 +518,13 @@ export function callPaths(
 }
 
 /** Every path a call names, which the caller resolves before it asks `guardCall`; at most 32. */
-export function namedPaths(tool: string, input: unknown): string[] {
+export function namedPaths(
+  tool: string,
+  input: unknown,
+  places: GuardPlaces,
+): string[] {
   const { reads, writes, bash } = callPaths(tool, input);
-  const fromBash = bash === null ? [] : pathWords(shellWords(bash));
+  const fromBash = bash === null ? [] : bashPaths(bash, places).words;
   return [...new Set([...reads, ...writes, ...fromBash])].slice(0, 32);
 }
 
@@ -318,7 +548,9 @@ export function guardCall(
   ];
   for (const p of reads) {
     for (const s of spell(p)) {
-      const reason = readDenied(s, places);
+      const reason = GLOB.test(s)
+        ? globDenied(s, places)
+        : readDenied(s, places);
       if (reason !== null) return deny(reason);
       // A search rooted at a state directory, the data root, or a folder that holds the mod's
       // store reaches what's inside it.
@@ -348,9 +580,17 @@ export function guardCall(
   if (bash !== null) {
     const reason = bashDenied(bash);
     if (reason !== null) return deny(reason);
-    for (const p of pathWords(shellWords(bash))) {
-      for (const s of spell(p)) {
-        const why = readDenied(s, places);
+    // Each word from every directory the line may run it in; a glob by what it may expand to.
+    const { words, bases } = bashPaths(bash, places);
+    for (const p of words) {
+      const spellings = [
+        ...bases.map((b) => normalize(p, b, places.home)),
+        ...resolved(p),
+      ];
+      for (const s of spellings) {
+        const why = GLOB.test(s)
+          ? globDenied(s, places)
+          : readDenied(s, places);
         if (why !== null) return deny(why);
       }
     }

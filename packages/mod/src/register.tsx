@@ -382,7 +382,7 @@ async function guardVerdict(
 ): Promise<Denial | null> {
   const at = await guardPlacesFor($);
   const real = new Map<string, string[]>();
-  for (const p of namedPaths(tool, input)) {
+  for (const p of namedPaths(tool, input, at)) {
     real.set(p, await landing($, normalize(p, at.cwd, at.home)));
   }
   return guardCall(tool, input, (p) => real.get(p) ?? [], at);

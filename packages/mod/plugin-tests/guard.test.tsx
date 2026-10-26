@@ -122,3 +122,28 @@ test("Planroom's own reads and ghost-making writes need no prompt; scan goes to 
   });
   expect(scan.decision).toBe("ask");
 });
+
+test("security-3: globs, cd, split quoting and an expanded command word are denied through tool.check", async ($, on) => {
+  const h = host(on);
+  allowBeneath(on);
+  await $.session.start(START);
+  await h.clock.settle();
+
+  for (const command of [
+    "cat ~/.claude/plugins/st*/planroom_*",
+    "cd ~/.claude/plugins && cat store/planroom_x.json",
+    "cat ~/.config/planroom/config.tom?",
+    "cat /home/u/.local/share/planroom/op*/*.html",
+    "sqlite3 .planroom/stor?.db .dump",
+    'env PLANROOM_PERSON"_TOKEN"=1 planroom map',
+    "p=planroom; $p person init",
+    "cat /proc/*/environ",
+  ]) {
+    const v = await $.tool.check({ tool: "Bash", input: { command } });
+    expect(v.decision, command).toBe("deny");
+  }
+  for (const command of ["ls src/*.ts", "cd packages && pnpm test"]) {
+    const v = await $.tool.check({ tool: "Bash", input: { command } });
+    expect(v.decision, command).toBe("allow");
+  }
+});
