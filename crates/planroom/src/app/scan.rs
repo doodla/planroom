@@ -95,17 +95,20 @@ pub fn open_store(ws: &Workspace) -> Result<Store, AppError> {
     Ok(store)
 }
 
-/// One repo at its `HEAD`: every built-in's facts, verified, merged and ready to store.
+/// One repo at its `HEAD`: every built-in's facts, verified, merged and ready to store. The files
+/// come from `HEAD`'s tree, never the working tree, so the facts are a function of the snapshot's
+/// key alone: a dirty or untracked file never reaches a snapshot.
 fn extract(repo: &Repo, names: &[String], warnings: &mut Vec<Warning>) -> Result<RepoScan, AppError> {
     let git = Git::new(&repo.path);
     let head = git.head().map_err(|e| AppError::git(&repo.name, &e))?;
+    let walked = walk::walk(&git, &head.commit).map_err(|e| AppError::git(&repo.name, &e))?;
     let view = RepoView {
         name: repo.name.clone(),
         root: repo.path.clone(),
         commit: head.commit.clone(),
         branch: head.branch.clone().unwrap_or_default(),
+        blobs: walked.blobs.clone(),
     };
-    let walked = walk::walk(&repo.path)?;
     if !walked.uncovered.is_empty() {
         warnings.push(Warning {
             code: WarningCode::PartialScan,

@@ -2,7 +2,8 @@
 //! a `Code` node per file, with the `language` the merged `[[languages]]` table gives its extension.
 //!
 //! Evidence: a file's first line (`Evidence::Line`, line 1); an empty or non-UTF-8 file, a
-//! directory and the repo carry the commit and branch they were read at (`Evidence::Ref`).
+//! directory and the repo carry the commit and branch they were read at (`Evidence::Ref`). Every
+//! file and directory is one of that commit's paths, because the walk reads the commit's tree.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -93,18 +94,13 @@ impl Extractor for Files {
         let mut languages = BTreeSet::new();
         for file in files {
             let path = file.0.as_str();
-            let mut dir = path;
-            while let Some((up, _)) = dir.rsplit_once('/') {
-                dirs.insert(up.to_owned());
-                dir = up;
-            }
             let full = format!("{}/{path}", repo.name);
-            let evidence = match std::fs::read(repo.root.join(path)) {
-                Ok(bytes) => match String::from_utf8(bytes) {
+            let evidence = match repo.read(file) {
+                Some(bytes) => match std::str::from_utf8(bytes) {
                     Ok(text) if !text.is_empty() => vec![Evidence::Line {
                         path: full.clone(),
                         line: 1,
-                        contains: lines::line(&text, 1).map(lines::cut),
+                        contains: lines::line(text, 1).map(lines::cut),
                         commit: Some(repo.commit.clone()),
                         branch: (!repo.branch.is_empty()).then(|| repo.branch.clone()),
                     }],
@@ -114,11 +110,17 @@ impl Extractor for Files {
                         tree_evidence()
                     }
                 },
-                Err(_) => {
+                None => {
                     partial.push(PartialFile { path: full.clone(), errors: 1 });
                     continue;
                 }
             };
+            // A directory exists only for the commit's files: the ones the walk read.
+            let mut dir = path;
+            while let Some((up, _)) = dir.rsplit_once('/') {
+                dirs.insert(up.to_owned());
+                dir = up;
+            }
             let name = path.rsplit('/').next().unwrap_or(path);
             let mut props = BTreeMap::new();
             if let Some(language) = name.rsplit_once('.').and_then(|(_, ext)| by_ext.get(ext)) {
