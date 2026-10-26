@@ -86,7 +86,7 @@ This pre-mortem was owed before the phase began and wasn't written then; it is r
 2. **S1 fails on truth because the fixture's map is polluted or IDs drift.** Prevented by default excludes for fixture and test-data trees, the ID-stability test, and the truth comparator running in CI from the first pack merge.
 3. **A track breaks a gate it can't see from its worktree.** Prevented by `cargo xtask check layout`'s pending ratification in worktrees, the merge-track skill, and a decision record in every merge that changes a gated surface.
 4. **Live-only failures in the mod and canvas.** Prevented by running the bundle live from the dev-mods folder and driving the canvas with Playwright at both sizes and themes after each surface merge.
-5. **Estimate overrun.** M1 is 115 agent-hours. At twice that, finish its tier A items, record the rest and move on (KICKOFF).
+5. **Estimate overrun.** M1 is 119 agent-hours (115 before the skeleton review scheduled its unbuilt gates and the filesystem check). At twice that, finish its tier A items, record the rest and move on (KICKOFF).
 
 ## Effort estimates
 
@@ -95,12 +95,12 @@ From the synthesized architecture, in agent-hours of one focused build agent. Pe
 | Milestone | Estimate | Twice | Actual |
 |---|---|---|---|
 | Walking skeleton | 28 h | 56 h | about 15 to 20 agent-hours of wall-clock across tracks, plus the main session's merges and live checks (rough, from workflow durations) |
-| M1 kernel, store, code and plan packs, mod and canvas basics | 115 h | 230 h | |
+| M1 kernel, store, code and plan packs, mod and canvas basics | 119 h | 238 h | |
 | M2 diffs, reconciliation, hand-off, Jev decisions | 92 h | 184 h | |
 | M3 multi-repo, observability, release | 30 h | 60 h | |
 | M4 artifacts, state machines, anatomy | 35 h | 70 h | |
 | M5 context curation, polish, release | 76 h | 152 h | |
-| Total | 376 h (280 h before the review, 333 h after round 2) | | |
+| Total | 380 h (280 h before the review, 333 h after round 2, 376 h before the skeleton review) | | |
 
 ## Spend log
 

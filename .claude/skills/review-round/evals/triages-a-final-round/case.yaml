@@ -1,0 +1,8 @@
+schema_version: "1.1"
+name: triages-a-final-round
+expected_outcome: |
+  plan.md follows the verifiers' severities: it fixes correctness-1 and correctness-3 (upgraded to
+  material), logs correctness-2 (downgraded) and security-2 as known gaps, and drops security-1 as
+  refuted. It sees that tests-1 has no verdict because the tests refuter never returned, and doesn't
+  count or fix it as material until a verdict exists. Because this is round 3, it runs no fourth
+  round and records whatever stays open as accepted risk.

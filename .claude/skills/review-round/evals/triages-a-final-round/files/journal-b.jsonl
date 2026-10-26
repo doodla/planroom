@@ -1,0 +1,4 @@
+{"type": "launched"}
+{"type": "started", "key": "m1", "agentId": "b1", "label": "review:tests", "phase": "Review"}
+{"type": "result", "key": "m1", "agentId": "b1", "result": {"summary": "Tests lens.", "findings": [{"id": "tests-1", "title": "The S1 truth comparator compares node counts only, not edges", "severity": "material", "where": ["crates/testkit/src/truth.rs:60"], "evidence": "Read the comparator; deleted an edge from the store and the S1 test still passed.", "why": "S1 can pass with a wrong map.", "fix": "Compare edges and evidence too."}]}}
+{"type": "started", "key": "m2", "agentId": "b2", "label": "refute:tests", "phase": "Refute"}
