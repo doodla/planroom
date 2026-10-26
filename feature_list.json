@@ -62,6 +62,9 @@
         "crates/kernel/tests/rollup.rs::rollup_is_faithful_at_every_level",
         "tests/e2e/first-look.spec.ts",
         "crates/extract/tests/contract.rs::files_language_from_the_languages_table",
+        "crates/extract/tests/contract.rs::files_emit_the_repo_its_directories_and_its_files",
+        "crates/extract/tests/contract.rs::evidence_that_differs_from_the_commit_is_dropped",
+        "crates/extract/tests/contract.rs::compose_emits_containers_aliases_and_hints_on_their_lines",
         "crates/planroom/tests/first_run.rs::first_scan_deals_at_most_three_cards",
         "crates/kernel/tests/rollup.rs::no_lifted_edge_joins_a_node_to_its_own_ancestor",
         "crates/kernel/tests/rollup.rs::same_ancestor_edges_are_internal",
@@ -841,7 +844,7 @@
           "planroom share --out $D --json (page fragment, assets, data/snapshot.json, the publish arguments)",
           "Playwright loads $D/page.html with tests/e2e/shims/claude.ts (a stubbed window.claude: user u_test, sample) and tests/e2e/shims/artifact-db.ts (a fake db with the real rules: page-side last-writer-wins, if_version session-side, {self} paths, onSnapshot push)",
           "the viewer renames storefront:dir:src/cart in the page; the fake db holds inbox/u_test/events/DOC_ID",
-          "harness: the fake db's ArtifactData list result, as the mod's tool.call hook observes it, is written as {path, row} lines to $D/rows.ndjson for import's stdin (DR-67)",
+          "harness: the fake db's ArtifactData list result, as the mod's tool.call hook observes it, with each row read from the text block between BEGIN ARTIFACT DB and END ARTIFACT DB, is written as {path, version, row} lines to $D/rows.ndjson for import's stdin (DR-67, DR-83)",
           "PLANROOM_ACTOR=agent:aaaaaaaa:chat planroom import - --json < $D/rows.ndjson: person_required; then planroom import - --json < $D/rows.ndjson (person); planroom show storefront:dir:src/cart --json",
           "a second row with a stale base, a row whose body claims another actor, an unsigned row under the owner's uid, a decide row, and a re-import of the first row; planroom import - --json (person); then the person rejects the owner's unsigned row on its Apply card and runs planroom edit undo on that reject (DR-75)",
           "the page opens another lens's map, PathView for the web app to the worker and a scanned skill's Anatomy, which the snapshot precomputed; then the impact of a block it didn't precompute, which renders the request state; its button writes a read request row, the harness's tokenless sync answers it into answers/DOC_ID, and the view fills in (DR-77)",
@@ -859,12 +862,12 @@
         "compare": [],
         "asserts": [
           "the snapshot validates against planroom.snapshot/v1, is under 1 MB, and has no evidence contains by default",
-          "the edit is applied with actor person:artifact:u_test and its profile name",
+          "u_test's unsigned rename applies nothing at import: it waits as a ghost on the one Apply card, acked held, and applying it lands it with actor person:artifact:u_test, its profile name and the card as its cause (DR-83)",
           "the stale row becomes a person conflict reported back through live/head",
-          "the forged actor is ignored: the path is the author",
+          "the forged actor is ignored, as is every unknown field: the actor comes from the path, for display only (DR-83)",
           "the re-import is a no-op (meta.replayed)",
           "Ask Claude calls sample.json with modelTier quick only on a tap",
-          "u_test is not the owner; its decide row applies nothing and pre-selects its pick on that card, acked held; the owner's unsigned row becomes a ghost listed on one card with Apply pre-selected, an applied row lands as person:artifact:<uid> with the card as its cause, and a rejected one comes back with edit undo (DR-52, DR-67, DR-75)",
+          "u_test is not the owner; its decide row applies nothing and pre-selects its pick on that card, acked held; every unsigned row, the owner's and u_test's alike, becomes a ghost listed on one card with Apply pre-selected (DR-83), an applied row lands as person:artifact:<uid> with the card as its cause, and a rejected one comes back with edit undo (DR-52, DR-67, DR-75)",
           "the fake db lets only the owner read inbox; a contributor reads only its own inbox/{self}",
           "the snapshot has no who unless share --include-presence is passed",
           "views the snapshot doesn't hold show the engine-authored request state, never a blank, an error or /room open; a read request is answered into answers/ by any sync, a tokenless one included, and a read request naming a question that spends is refused (DR-56, DR-77)",
@@ -1067,7 +1070,7 @@
           "docs/contributing/releasing.md holds the owner checklist (DR-58)",
           "every image under docs/art/ has its prompt file and a row in docs/art/spend.jsonl, and the total is under $5 (DR-69)",
           "docs/contributing/releasing.md's checklist merges, dry-runs and tags on main, then bumps main to the next -dev version, and its triggers match release.yml's (DR-69)",
-          "the README's install line names the latest release, a tag source or the release branch, never main (DR-78)",
+          "the README's install line names the latest release through a git-subdir marketplace entry with path plugin and the release tag as its ref, never main (DR-78, DR-83)",
           "a detached prefetch or build runs in a session and process group of its own, on Linux under dash as on macOS (DR-78)",
           "a binary from a non-default base or PLANROOM_ENGINE never enters DATA_ROOT/engine/, and the cache key holds the catalogue hash (DR-78)"
         ],
@@ -1525,7 +1528,7 @@
         "steps": [
           "an older serve is running; a newer binary asks it to drain before migrating; an older watch exits with schema_mismatch after the migration",
           "a serve of the same version with another catalogue hash is drained by serve --detach and replaced; a newer serve is left running and the older engine says to restart",
-          "planroom version --json reports version, git_commit, schema_version and catalogue_hash"
+          "planroom version --json reports version, git_commit, target, schema_version and catalogue_hash (DR-82)"
         ],
         "compare": [],
         "stand_ins": [
@@ -1797,7 +1800,7 @@
       "ci_path": {
         "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
         "steps": [
-          "planroom serve --detach; requests with no bearer token, with a missing Origin, with a foreign Origin, with a wrong Host, and with a reused or 61 s old code are refused",
+          "planroom serve --detach; requests with no bearer token, with a foreign Origin, a POST with no Origin, a GET with neither an Origin nor Sec-Fetch-Site: same-origin, a GET marked Sec-Fetch-Site cross-site, same-site or none, a wrong Host, and a reused or 61 s old code are refused; a same-origin GET with Sec-Fetch-Site: same-origin and no Origin is served (DR-82)",
           "the store, its WAL files and serve.json are mode 0600 in a 0700 .planroom/",
           "planroom open with a stub opener: the opener's argv holds a file path under DATA_ROOT/open/, never the code; a second exchange of one code revokes the first token; a restarted serve binds its last port (DR-29, DR-64)",
           "a canvas edit pending when the tab reloads, and when serve restarts: the edit lands once, flushed from localStorage with its original idem (DR-8)",
