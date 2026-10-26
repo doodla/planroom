@@ -29,3 +29,8 @@ saphyr-parser = "=0.1.0"
 sha2 = "=0.11.0"
 tempfile = "=3.27.0"
 uuid = { version = "=1.28.0", features = ["v7"] }
+p256 = { version = "=0.14.0", default-features = false, features = ["ecdsa", "std"] }
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"] }
+tokio = { version = "=1.53.2", features = ["rt-multi-thread", "net", "sync", "time", "signal", "macros"] }
+tokio-stream = { version = "=0.1.19", features = ["sync"] }
+libc = "=0.2.190"

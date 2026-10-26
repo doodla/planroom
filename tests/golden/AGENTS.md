@@ -7,4 +7,8 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Must not:** hand edits.
 - **How to test it:** `golden_outputs_type_check`; the mod tests.
 
-Until the engine's tests write these files, `cargo xtask gen` builds `cli/focus.json` from the contract types (`crates/xtask/src/golden.rs`), and `cargo xtask check` drift-checks it.
+The engine's own tests write these files from real runs on the built fixture: `crates/planroom/tests/golden.rs` owns `cli/focus.json` and `cli/map-graph.json`. A plain `cargo xtask test` compares the engine's output with them; `cargo xtask gen --golden` rewrites them. `meta.took_ms` is left out, since no run repeats it.
+
+## Layout
+
+- `cli/`: one `--json` envelope per file, as the CLI prints it.

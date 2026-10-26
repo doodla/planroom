@@ -7,6 +7,8 @@
 
 mod commit;
 mod error;
+mod layouts;
+mod presence;
 mod read;
 mod tail;
 
@@ -148,6 +150,57 @@ impl Store {
         let held: String = tx.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0))?;
         tx.commit()?;
         Ok(held)
+    }
+
+    /// Set `key` to `value`, and each of `also`, only when `key` holds `expected` (`None`: no
+    /// value); returns whether it did. One IMMEDIATE transaction, so two callers can't both win.
+    pub fn meta_swap(
+        &mut self,
+        key: &str,
+        expected: Option<&str>,
+        value: &str,
+        also: &[(&str, &str)],
+    ) -> Result<bool, StoreError> {
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let held: Option<String> =
+            tx.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)).optional()?;
+        if held.as_deref() != expected {
+            return Ok(false);
+        }
+        for (k, v) in std::iter::once((key, value)).chain(also.iter().copied()) {
+            tx.execute(
+                "INSERT INTO meta (key, value) VALUES (?1, ?2)
+                 ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                [k, v],
+            )?;
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+
+    /// Record a spent one-time token's `digest` in `meta.spent_tokens` until `expires` (Unix
+    /// seconds), dropping digests expired by `now`. Returns false when the digest was already
+    /// spent, so each token works once (DR-64).
+    pub fn spend_token(&mut self, digest: &str, now: u64, expires: u64) -> Result<bool, StoreError> {
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let held: Option<String> =
+            tx.query_row("SELECT value FROM meta WHERE key = 'spent_tokens'", [], |r| r.get(0)).optional()?;
+        let mut spent: serde_json::Map<String, serde_json::Value> = match held {
+            Some(text) => serde_json::from_str(&text)?,
+            None => serde_json::Map::new(),
+        };
+        spent.retain(|_, until| until.as_u64().is_some_and(|u| u > now));
+        if spent.contains_key(digest) {
+            return Ok(false);
+        }
+        spent.insert(digest.to_owned(), expires.into());
+        tx.execute(
+            "INSERT INTO meta (key, value) VALUES ('spent_tokens', ?1)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            [serde_json::Value::Object(spent).to_string()],
+        )?;
+        tx.commit()?;
+        Ok(true)
     }
 
     /// The latest committed `seq`, 0 for a store with no events.

@@ -10,12 +10,13 @@ use std::time::Instant;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
-    Command, CommandName, Envelope, MapReq, Meta, SCHEMA_VERSION, ScanReq, Seq, Size, StreamFrame, Warning,
-    WatchReq,
+    Command, CommandName, Envelope, FocusReq, MapReq, Meta, PersonInitReq, SCHEMA_VERSION, ScanReq,
+    SchemaReq, Seq, ServeReq, Size, StreamFrame, VersionReq, Warning, WatchReq,
 };
 use planroom_store::Tail;
 use serde::Serialize;
 
+use crate::app::actor::Caller;
 use crate::app::error::AppError;
 use crate::app::{self, Reply, workspace};
 use crate::live::Live;
@@ -37,11 +38,29 @@ enum Cmd {
     Scan(ScanReq),
     /// The map at a level through a lens.
     Map(MapReq),
+    /// Where you are, the one open decision and the next action.
+    Focus(FocusReq),
     /// Stream the workspace's committed events as NDJSON frames.
     Watch(WatchReq),
+    /// The contract schema's summary, or the command catalogue with --commands.
+    Schema(SchemaReq),
+    /// This engine's version, target, schema version and catalogue hash.
+    Version(VersionReq),
+    /// Serve the canvas and the HTTP API on this workspace's port.
+    Serve(ServeReq),
+    /// The person key that signs a person's actions.
+    #[command(subcommand)]
+    Person(PersonCmd),
+}
+
+#[derive(Subcommand)]
+enum PersonCmd {
+    /// Register this workspace's person key, read from stdin; --rekey replaces it.
+    Init(PersonInitReq),
 }
 
 pub fn main() -> ExitCode {
+    let caller = Caller::from_env();
     let cli = Cli::parse();
     let Some(command) = cli.command else {
         Cli::command().print_help().expect("help is written to stdout");
@@ -61,12 +80,30 @@ pub fn main() -> ExitCode {
             let name = Command::Map(req.clone()).name();
             finish(cli.json, &name.0, app::map::run(&req, &cwd), started)
         }
+        Cmd::Focus(req) => {
+            let name = Command::Focus(req.clone()).name();
+            finish(cli.json, &name.0, app::focus::run(&req, &cwd), started)
+        }
         Cmd::Watch(req) => watch(cli.json, &req, &cwd),
+        Cmd::Schema(req) => {
+            let name = Command::Schema(req.clone()).name();
+            finish(cli.json, &name.0, app::version::schema(&req), started)
+        }
+        Cmd::Person(PersonCmd::Init(req)) => {
+            let name = Command::PersonInit(req.clone()).name();
+            let reply = app::person::run(&req, &cwd, &caller, &mut std::io::stdin().lock());
+            finish(cli.json, &name.0, reply, started)
+        }
+        Cmd::Serve(req) => crate::server::run(&req, &cwd, cli.json, started),
+        Cmd::Version(req) => {
+            let name = Command::Version(req).name();
+            finish(cli.json, &name.0, app::version::version(), started)
+        }
     }
 }
 
 /// Print a reply or an error, and exit with the error's category's code.
-fn finish<T: Serialize>(
+pub(crate) fn finish<T: Serialize>(
     json: bool,
     command: &str,
     reply: Result<Reply<T>, AppError>,
@@ -101,7 +138,7 @@ fn finish<T: Serialize>(
 }
 
 /// The envelope as one line, with `meta.size` measuring the line itself.
-fn envelope<T: Serialize>(
+pub(crate) fn envelope<T: Serialize>(
     command: &str,
     result: Option<&T>,
     error: Option<&AppError>,

@@ -63,5 +63,107 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "undo": "query",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "schema",
+    "idea": "setup",
+    "summary": "The contract schema's summary, or the command catalogue with --commands.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
+  },
+  {
+    "name": "version",
+    "idea": "setup",
+    "summary": "This engine's version, target, schema version and catalogue hash.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
+  },
+  {
+    "name": "person init",
+    "idea": "setup",
+    "summary": "Register this workspace's person key, read from stdin; --rekey replaces it.",
+    "actor": "person_only",
+    "class": "change",
+    "budget_tokens": 400,
+    "needs_base": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
+  },
+  {
+    "name": "serve",
+    "idea": "setup",
+    "summary": "Serve the canvas and the HTTP API on this workspace's port.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 0,
+    "needs_base": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
   }
 ];
+
+/** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
+export const CATALOGUE_HASH = "2b6a6437c3c45fefd737e5aaba4661ba48f0ff08d8a54a4a09669185bd0d939b";
+
+/** One pane the mod draws before the engine answers `focus` (DR-57). */
+export interface FallbackPane {
+  readonly headline: string;
+  readonly detail: string | null;
+  readonly action: string | null;
+}
+
+/** The fallback panes' strings, from the engine's `crates/planroom/text/en.toml`. */
+export const FALLBACK_PANES: Readonly<Record<"resolving" | "fetching" | "build_offered" | "building" | "version_mismatch" | "unsupported_platform" | "failed" | "no_focus", FallbackPane>> = {
+  "resolving": {
+    "headline": "Looking for the Planroom engine…",
+    "detail": null,
+    "action": "Check again"
+  },
+  "fetching": {
+    "headline": "Getting the Planroom engine…",
+    "detail": null,
+    "action": "Check again"
+  },
+  "build_offered": {
+    "headline": "Build the engine from source, about 4 minutes?",
+    "detail": null,
+    "action": "Build it"
+  },
+  "building": {
+    "headline": "Building the engine from source…",
+    "detail": "This takes about 4 minutes.",
+    "action": "Check again"
+  },
+  "version_mismatch": {
+    "headline": "This engine doesn't match the plugin.",
+    "detail": null,
+    "action": "Try again"
+  },
+  "unsupported_platform": {
+    "headline": "Planroom can't run here.",
+    "detail": "Planroom v0.1 runs on macOS, Linux and WSL 2. Open this repo from WSL.",
+    "action": null
+  },
+  "failed": {
+    "headline": "The Planroom engine isn't available.",
+    "detail": null,
+    "action": "Try again"
+  },
+  "no_focus": {
+    "headline": "Planroom couldn't show this folder.",
+    "detail": null,
+    "action": "Try again"
+  }
+};

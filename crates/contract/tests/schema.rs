@@ -89,6 +89,7 @@ fn sample_envelope() -> Envelope<MapView> {
             edges: vec![],
             hidden: 0,
             empty: None,
+            layout: None,
         }),
         error: None,
         meta: Meta {

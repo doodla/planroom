@@ -14,6 +14,26 @@ pub fn sha256_hex(parts: &[&str]) -> String {
     hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// sha256 of `bytes` as lowercase hex, with nothing added: for a hash another tool recomputes,
+/// such as the catalogue hash.
+pub fn sha256_plain_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The bytes a person action token signs (DR-64, DR-72): `command ‖ args ‖ idem ‖ base ‖ at`,
+/// each ended by a NUL. `command` is the leaf's name (`person init`), `args` the JSON array of the
+/// argv after the leaf's path with `--json` left out, `idem` and `base` the request's values or
+/// empty, and `at` the token's Unix time in seconds.
+pub fn person_token_message(command: &str, args: &[String], idem: &str, base: &str, at: u64) -> Vec<u8> {
+    let args = Value::Array(args.iter().cloned().map(Value::String).collect()).to_string();
+    let mut out = Vec::new();
+    for part in [command, &args, idem, base, &at.to_string()] {
+        out.extend_from_slice(part.as_bytes());
+        out.push(0);
+    }
+    out
+}
+
 /// JSON with every object's keys sorted, so equal values hash equally.
 pub fn canonical(value: &Value) -> String {
     fn sort(value: &Value) -> Value {
@@ -61,6 +81,12 @@ pub fn link_key(members: &[u64], packs_hash: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_token_message_ends_each_field_with_a_nul() {
+        let msg = person_token_message("person init", &["--rekey".into()], "k1", "", 1_793_000_000);
+        assert_eq!(msg, b"person init\0[\"--rekey\"]\0k1\0\x001793000000\0".to_vec());
+    }
 
     #[test]
     fn canonical_json_sorts_keys_at_every_depth() {

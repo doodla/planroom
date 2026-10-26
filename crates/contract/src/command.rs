@@ -88,6 +88,10 @@ pub enum Command {
     Focus(FocusReq),
     Scan(ScanReq),
     Watch(WatchReq),
+    Schema(SchemaReq),
+    Version(VersionReq),
+    PersonInit(PersonInitReq),
+    Serve(ServeReq),
 }
 
 const MAP: CommandSpec = CommandSpec {
@@ -172,9 +176,79 @@ const WATCH: CommandSpec = CommandSpec {
     room: false,
 };
 
+const SCHEMA: CommandSpec = CommandSpec {
+    path: &["schema"],
+    idea: Idea::Setup,
+    summary: "The contract schema's summary, or the command catalogue with --commands.",
+    actor: ActorRule::Any,
+    class: Class::Read,
+    budget_tokens: 1_500,
+    needs_base: false,
+    errors: &[ErrorCode::InvalidArgument, ErrorCode::Internal],
+    undo: Undo::Query,
+    tool: None,
+    room: false,
+};
+
+const VERSION: CommandSpec = CommandSpec {
+    path: &["version"],
+    idea: Idea::Setup,
+    summary: "This engine's version, target, schema version and catalogue hash.",
+    actor: ActorRule::Any,
+    class: Class::Read,
+    budget_tokens: 1_500,
+    needs_base: false,
+    errors: &[ErrorCode::Internal],
+    undo: Undo::Query,
+    tool: None,
+    room: false,
+};
+
+const PERSON_INIT: CommandSpec = CommandSpec {
+    path: &["person", "init"],
+    idea: Idea::Setup,
+    summary: "Register this workspace's person key, read from stdin; --rekey replaces it.",
+    actor: ActorRule::PersonOnly,
+    class: Class::Change,
+    budget_tokens: 400,
+    needs_base: false,
+    errors: &[
+        ErrorCode::InvalidArgument,
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::PersonRequired,
+        ErrorCode::PersonKeyMismatch,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Query,
+    tool: None,
+    room: false,
+};
+
+const SERVE: CommandSpec = CommandSpec {
+    path: &["serve"],
+    idea: Idea::Setup,
+    summary: "Serve the canvas and the HTTP API on this workspace's port.",
+    actor: ActorRule::Any,
+    class: Class::Read,
+    budget_tokens: 0,
+    needs_base: false,
+    errors: &[
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::PortInUse,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Query,
+    tool: None,
+    room: false,
+};
+
 impl Command {
     /// Every leaf's spec, in catalogue order.
-    pub const SPECS: &'static [CommandSpec] = &[MAP, FOCUS, SCAN, WATCH];
+    pub const SPECS: &'static [CommandSpec] = &[MAP, FOCUS, SCAN, WATCH, SCHEMA, VERSION, PERSON_INIT, SERVE];
 
     pub const fn spec(&self) -> &'static CommandSpec {
         match self {
@@ -182,11 +256,81 @@ impl Command {
             Command::Focus(_) => &FOCUS,
             Command::Scan(_) => &SCAN,
             Command::Watch(_) => &WATCH,
+            Command::Schema(_) => &SCHEMA,
+            Command::Version(_) => &VERSION,
+            Command::PersonInit(_) => &PERSON_INIT,
+            Command::Serve(_) => &SERVE,
         }
     }
 
     pub fn name(&self) -> CommandName {
         CommandName(self.spec().name())
+    }
+
+    /// The catalogue as `schema --commands` lists it, in catalogue order. The catalogue hash is
+    /// the sha256 of this list's compact JSON.
+    pub fn listing() -> Vec<LeafListing> {
+        Command::SPECS.iter().map(LeafListing::of).collect()
+    }
+}
+
+/// One leaf as `schema --commands` lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LeafListing {
+    /// The command name, its path joined with spaces.
+    pub name: String,
+    /// `levels`, `lenses`, `intent`, `diffs`, `decisions` or `setup`.
+    pub idea: String,
+    /// `any` or `person_only`.
+    pub actor: String,
+    /// `read`, `change` or `handoff`.
+    pub class: String,
+    /// The default output budget; 0 for a stream.
+    pub budget_tokens: u32,
+    /// `edit`, `compensate`, `query` or `not_undoable`.
+    pub undo: String,
+    /// The `schema --command LEAF` handle for the leaf's types.
+    pub schema: Handle,
+}
+
+impl LeafListing {
+    fn of(spec: &CommandSpec) -> LeafListing {
+        let idea = match spec.idea {
+            Idea::Levels => "levels",
+            Idea::Lenses => "lenses",
+            Idea::Intent => "intent",
+            Idea::Diffs => "diffs",
+            Idea::Decisions => "decisions",
+            Idea::Setup => "setup",
+        };
+        let actor = match spec.actor {
+            ActorRule::Any => "any",
+            ActorRule::PersonOnly => "person_only",
+        };
+        let class = match spec.class {
+            Class::Read => "read",
+            Class::Change => "change",
+            Class::Handoff => "handoff",
+        };
+        let undo = match spec.undo {
+            Undo::Edit => "edit",
+            Undo::Compensate => "compensate",
+            Undo::Query => "query",
+            Undo::NotUndoable(_) => "not_undoable",
+        };
+        LeafListing {
+            name: spec.name(),
+            idea: idea.into(),
+            actor: actor.into(),
+            class: class.into(),
+            budget_tokens: spec.budget_tokens,
+            undo: undo.into(),
+            schema: Handle {
+                command: CommandName("schema".into()),
+                args: vec!["--command".into(), spec.name()],
+                label: spec.summary.into(),
+            },
+        }
     }
 }
 
@@ -258,6 +402,139 @@ pub struct WatchReq {
     /// Stream the events after this `seq`; the store's latest when absent.
     #[arg(long)]
     pub since: Option<Seq>,
+}
+
+/// `planroom schema [--commands]`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct SchemaReq {
+    /// List the command catalogue instead of the schema's summary.
+    #[arg(long, conflicts_with = "command")]
+    #[serde(default)]
+    pub commands: bool,
+    /// One leaf's request and result types, with the definitions they reference.
+    #[arg(long, value_name = "LEAF")]
+    #[serde(default)]
+    pub command: Option<String>,
+}
+
+/// `planroom version`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct VersionReq {}
+
+/// `planroom person init [--rekey]`: the public key arrives on stdin as the base64url of its
+/// uncompressed SEC1 point (`crypto.subtle.exportKey("raw")`), and the call carries a
+/// `PLANROOM_PERSON_TOKEN` signed by the registered key or by the key on stdin (DR-72, DR-75).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct PersonInitReq {
+    /// Replace the registered key with the one on stdin.
+    #[arg(long)]
+    #[serde(default)]
+    pub rekey: bool,
+    #[serde(flatten)]
+    #[command(flatten)]
+    pub common: WriteCommon,
+}
+
+/// What `person init` returns: the registered key's fingerprint and when and from where it was
+/// registered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PersonKey {
+    pub summary: String,
+    /// The first 16 hex characters of the sha256 of the key's SEC1 bytes.
+    pub fingerprint: String,
+    pub registered_at: crate::event::Timestamp,
+    pub surface: crate::event::Surface,
+    /// This call replaced another key.
+    pub rekeyed: bool,
+}
+
+/// `planroom serve [--detach] [--port N]`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct ServeReq {
+    /// Run in the background, in a session of its own, and return at once.
+    #[arg(long)]
+    #[serde(default)]
+    pub detach: bool,
+    /// Move this workspace's canvas to port N and record it; without it, serve uses the recorded port.
+    #[arg(long)]
+    #[serde(default)]
+    pub port: Option<u16>,
+}
+
+/// What `serve` returns once it listens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ServeInfo {
+    pub summary: String,
+    /// `http://127.0.0.1:PORT/`.
+    pub url: String,
+    pub port: u16,
+    /// The serving process.
+    pub pid: u32,
+    /// The login page under the data root that opens the canvas with a one-time code, mode 0600;
+    /// the code itself is in no output (DR-29, DR-64).
+    pub login_page: String,
+}
+
+/// `PUT /api/v1/layout`: an auto-layout to cache, last writer wins.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct LayoutPut {
+    /// The view the positions belong to, such as `map:system:all`.
+    pub view_key: String,
+    /// The hash of the node and edge IDs the layout was computed for.
+    pub structure_hash: String,
+    pub positions: std::collections::BTreeMap<NodeId, crate::view::Position>,
+}
+
+/// `POST /api/v1/session`: the one-time code from the login page's URL fragment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SessionReq {
+    pub code: String,
+}
+
+/// The tab's bearer token, kept in `sessionStorage` and sent as `Authorization: Bearer`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SessionToken {
+    pub token: String,
+}
+
+/// What `version` returns; the mod and the resolver match an engine by its catalogue hash.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct VersionInfo {
+    pub version: String,
+    /// The commit the binary was built from, when the build recorded one.
+    pub git_commit: Option<String>,
+    /// The target triple the binary was built for.
+    pub target: String,
+    pub schema_version: u32,
+    /// sha256 of the catalogue as `schema --commands` lists it.
+    pub catalogue_hash: String,
+}
+
+/// What `schema` returns: the schema's ID and version, and handles to read further.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SchemaSummary {
+    pub summary: String,
+    /// The serialize view's `$id`.
+    pub id: String,
+    pub schema_version: u32,
+    pub handles: Vec<Handle>,
+}
+
+/// What `schema --command LEAF` returns: the leaf's request and result type names, and every
+/// definition they reference, keyed by name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct LeafSchema {
+    pub summary: String,
+    pub request: String,
+    pub result: String,
+    pub defs: serde_json::Map<String, serde_json::Value>,
+}
+
+/// What `schema --commands` returns: every leaf, summary first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CommandList {
+    pub summary: String,
+    pub items: Vec<LeafListing>,
 }
 
 /// What `scan` returns: the map at the top level with the default lens, and the next action.

@@ -19,6 +19,61 @@ import type { EngineState } from "./state-types";
 
 const golden = (focusReply as unknown as { result: PaneModel }).result;
 
+/**
+ * The engine's pane after a fixture scan has no open decision, diffs or presence yet, so the
+ * layout tests also lay a busy pane over it: a four-choice card, two diffs, drift and one agent.
+ */
+const busy: PaneModel = {
+  ...golden,
+  decision: {
+    id: "card_01JB7Q",
+    question: "Apply Claude's 2 edits to the worker group?",
+    why: "They move consumer.py under the queue it reads.",
+    choices: [
+      { id: "accept", label: "Accept both", preselected: true },
+      { id: "first", label: "Only the first", preselected: false },
+      { id: "reject", label: "Reject", preselected: false },
+      { id: "later", label: "Later", preselected: false },
+    ],
+    stakes: "low",
+    batch: null,
+    person_only: true,
+  },
+  more_decisions: 1,
+  diffs: [
+    {
+      summary: "worker → platform: + calls orders-api",
+      open: { command: "diff", args: ["--item", "d1"], label: "Open" },
+      hunk: ["@@ -1,2 +1,3 @@", " worker", "+  calls orders-api"],
+    },
+    {
+      summary: "storefront: ~ checkout moved to cart",
+      open: { command: "diff", args: ["--item", "d2"], label: "Open" },
+      hunk: [],
+    },
+  ],
+  drift: {
+    summary: "≠ 2 intended rules broken · 1 machine drift",
+    rules_broken: 2,
+    machine_drift: 1,
+  },
+  who: [
+    {
+      actor: {
+        kind: "agent",
+        session: "1a2b3c4d",
+        role: "implementer",
+        key: null,
+      },
+      surface: "mod",
+      doing: "worker-status-via-api",
+      focus: null,
+      seen_at: "2026-10-26T09:00:00Z",
+    },
+  ],
+  minimap: { ...golden.minimap, blocks: golden.minimap.blocks.slice(0, 5) },
+};
+
 function height(rows: Row[]): number {
   return rows.reduce((sum, r) => sum + rowHeight(r), 0);
 }
@@ -32,17 +87,17 @@ function buttons(rows: Row[]) {
 }
 
 test("rows_fit_at_49x34: every section fits the narrowest dock with a four-choice card", () => {
-  expect(golden.decision?.choices).toHaveLength(4);
-  const rows = paneRows(golden, DOCK.columns, DOCK.rows);
+  expect(busy.decision?.choices).toHaveLength(4);
+  const rows = paneRows(busy, DOCK.columns, DOCK.rows);
   expect(height(rows)).toBeLessThanOrEqual(DOCK.rows);
   expect(widest(rows)).toBeLessThanOrEqual(DOCK.columns);
   // No fixed choice label is cut.
-  for (const c of golden.decision?.choices ?? []) {
+  for (const c of busy.decision?.choices ?? []) {
     expect(c.label.length).toBeLessThanOrEqual(CHOICE_COLUMNS);
     expect(buttons(rows).some((b) => b.label === c.label)).toBe(true);
   }
-  // The list keeps its room: every block of the golden shows.
-  for (const block of golden.minimap.blocks) {
+  // The list keeps its room: every block of the busy shows.
+  for (const block of busy.minimap.blocks) {
     expect(buttons(rows).some((b) => b.label.endsWith(block.name))).toBe(true);
   }
 });
@@ -53,7 +108,7 @@ test("rows_fit_compact_at_80x24_and_100x30: inline panes keep the focus line, th
     [100, 10],
     [40, 34],
   ] as const) {
-    const laid = paneRows(golden, columns, rows);
+    const laid = paneRows(busy, columns, rows);
     expect(height(laid)).toBeLessThanOrEqual(rows);
     expect(widest(laid)).toBeLessThanOrEqual(columns);
     expect(laid.some((r) => r.key === "drift")).toBe(false);
@@ -62,7 +117,7 @@ test("rows_fit_compact_at_80x24_and_100x30: inline panes keep the focus line, th
 });
 
 test("keys: the card's choices take 1 to 4, rows take the row-key pool", () => {
-  const rows = paneRows(golden, DOCK.columns, DOCK.rows);
+  const rows = paneRows(busy, DOCK.columns, DOCK.rows);
   const hotkeys = buttons(rows).map((b) => b.hotkey);
   expect(hotkeys.slice(0, 4)).toEqual(["1", "2", "3", "4"]);
   expect(hotkeys.slice(4)).toEqual(["5", "6", "7", "8", "9", "0", "b"]);

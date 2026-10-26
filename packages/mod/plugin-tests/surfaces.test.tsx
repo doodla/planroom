@@ -186,18 +186,14 @@ test("the pane draws the golden PaneModel on every surface", async ($, on) => {
     expect((await ui.find({ type: "Text", text: /^▣ shop/ }))?.text).toBe(
       "▣ shop",
     );
-    expect(
-      await ui.find({ type: "Text", text: /Apply Claude's 2 edits/ }),
-    ).toBeDefined();
-    expect((await ui.find({ key: "choice-accept" }))?.text).toContain(
-      "Accept both",
-    );
-    expect((await ui.find({ key: "block-ws:repo:worker" }))?.text).toContain(
-      "worker",
+    // The fixture's real pane has no open decision, so the next action is the face-up card.
+    expect((await ui.find({ key: "next" }))?.text).toContain(
+      "Open the containers",
     );
     expect(
-      await ui.find({ type: "Text", text: /≠ 2 intended rules broken/ }),
-    ).toBeDefined();
+      (await ui.find({ key: "block-worker:repo:worker" }))?.text,
+    ).toContain("worker");
+    expect(await ui.find({ type: "Text", text: /^No drift/ })).toBeDefined();
     for (const t of await texts(ui))
       expect(t.length).toBeLessThanOrEqual(DOCK.columns + 3);
     await ui.unmount();

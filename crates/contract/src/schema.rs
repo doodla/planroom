@@ -4,8 +4,10 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    Command, Edge, Envelope, ErrorCode, ErrorObject, Event, Evidence, FactBatch, FocusReq, Hint, MapReq,
-    MapView, Node, PaneModel, ScanReq, ScanResult, StreamFrame, Warning, WarningCode, WatchReq,
+    Command, CommandList, Edge, Envelope, ErrorCode, ErrorObject, Event, Evidence, FactBatch, FocusReq, Hint,
+    LayoutPut, LeafSchema, MapReq, MapView, Node, PaneModel, PersonInitReq, PersonKey, ScanReq, ScanResult,
+    SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken, StreamFrame, VersionInfo,
+    VersionReq, Warning, WarningCode, WatchReq,
 };
 
 /// The first line, or the `$comment`, of every generated file.
@@ -64,9 +66,22 @@ pub fn generate(view: View) -> Value {
         FocusReq,
         ScanReq,
         WatchReq,
+        SchemaReq,
+        VersionReq,
+        PersonInitReq,
+        ServeReq,
+        LayoutPut,
+        SessionReq,
         MapView,
         PaneModel,
         ScanResult,
+        SchemaSummary,
+        CommandList,
+        LeafSchema,
+        VersionInfo,
+        PersonKey,
+        ServeInfo,
+        SessionToken,
         StreamFrame,
         Node,
         Edge,

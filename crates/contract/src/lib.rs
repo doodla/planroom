@@ -16,8 +16,9 @@ pub mod stream;
 pub mod view;
 
 pub use command::{
-    ActorRule, Class, Command, CommandSpec, Detail, FocusReq, Idea, MapReq, ScanReq, ScanResult, Tool, Undo,
-    WatchReq, WriteCommon,
+    ActorRule, Class, Command, CommandList, CommandSpec, Detail, FocusReq, Idea, LayoutPut, LeafListing,
+    LeafSchema, MapReq, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo,
+    ServeReq, SessionReq, SessionToken, Tool, Undo, VersionInfo, VersionReq, WatchReq, WriteCommon,
 };
 pub use decision::{Band, DecisionRecord, Outcome};
 pub use envelope::{
@@ -35,6 +36,6 @@ pub use model::{
 };
 pub use stream::StreamFrame;
 pub use view::{
-    BatchInfo, Choice, Crumb, DecisionCard, DiffLine, DriftLine, Focus, LiftedEdge, MapNode, MapView,
-    MiniBlock, MiniEdge, MiniMap, PaneModel, Position, PresenceRow, Progress, ScanState, Stakes,
+    BatchInfo, Choice, Crumb, DecisionCard, DiffLine, DriftLine, Focus, LayoutKey, LiftedEdge, MapNode,
+    MapView, MiniBlock, MiniEdge, MiniMap, PaneModel, Position, PresenceRow, Progress, ScanState, Stakes,
 };

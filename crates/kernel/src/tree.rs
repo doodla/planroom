@@ -2,7 +2,9 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use planroom_contract::{Level, MapNode, Node};
+use planroom_contract::{Edge, EdgeId, Evidence, Kind, Level, LiftedEdge, MapNode, Node, NodeId, Ref};
+
+use crate::keys;
 
 /// The level's name as the contract spells it, the key of `MapNode.counts`.
 pub fn level_name(level: Level) -> &'static str {
@@ -74,10 +76,90 @@ fn blocks<'a>(
     top
 }
 
+/// One lifted edge being gathered: its children's IDs and its evidence sample.
+type Lifting = (Vec<EdgeId>, Vec<Evidence>);
+
+/// Evidence items a lifted edge carries at most.
+pub const EVIDENCE_SAMPLE: usize = 3;
+
+/// `edges` lifted to `blocks`: each end resolved by ID or by a unique alias, then walked up to its
+/// nearest ancestor among the blocks. Edges between two blocks merge by kind and direction, with
+/// their IDs as children and a sample of their evidence; an edge inside one block, or with an end
+/// that doesn't resolve, lifts nowhere. Sorted by kind, then ends.
+pub fn lift_edges(nodes: &[Node], edges: &[Edge], blocks: &[MapNode]) -> Vec<LiftedEdge> {
+    let index: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.0.as_str(), n)).collect();
+    let mut aliases: HashMap<&str, Option<&str>> = HashMap::new();
+    for node in nodes {
+        for alias in &node.aliases {
+            aliases
+                .entry(alias.as_str())
+                .and_modify(|held| {
+                    if *held != Some(node.id.0.as_str()) {
+                        *held = None;
+                    }
+                })
+                .or_insert(Some(node.id.0.as_str()));
+        }
+    }
+    let is_block: HashMap<&str, ()> = blocks.iter().map(|b| (b.id.0.as_str(), ())).collect();
+    let block_of = |end: &Ref| -> Option<&str> {
+        let mut at = match end {
+            Ref::Id(id) => index.get(id.0.as_str()).copied()?,
+            Ref::Alias(alias) => index.get(aliases.get(alias.as_str()).copied().flatten()?).copied()?,
+        };
+        for _ in 0..=nodes.len() {
+            if is_block.contains_key(at.id.0.as_str()) {
+                return Some(at.id.0.as_str());
+            }
+            at = index.get(at.parent.as_ref()?.0.as_str()).copied()?;
+        }
+        None
+    };
+    let mut lifted: BTreeMap<(&Kind, &str, &str), Lifting> = BTreeMap::new();
+    for edge in edges {
+        let (Some(from), Some(to)) = (block_of(&edge.from), block_of(&edge.to)) else { continue };
+        if from == to {
+            continue;
+        }
+        let (children, sample) = lifted.entry((&edge.kind, from, to)).or_default();
+        children.push(edge.id.clone());
+        for evidence in &edge.evidence {
+            if sample.len() < EVIDENCE_SAMPLE {
+                sample.push(evidence.clone());
+            }
+        }
+    }
+    lifted
+        .into_iter()
+        .map(|((kind, from, to), (mut children, evidence_sample))| {
+            children.sort();
+            children.dedup();
+            LiftedEdge {
+                kind: kind.clone(),
+                from: NodeId(from.to_owned()),
+                to: NodeId(to.to_owned()),
+                count: children.len() as u32,
+                evidence_sample,
+                children,
+            }
+        })
+        .collect()
+}
+
+/// The hash of a view's structure, which a cached layout is keyed by: its block IDs and its
+/// lifted edges' kinds and ends, sorted.
+pub fn structure_hash(blocks: &[MapNode], edges: &[LiftedEdge]) -> String {
+    let mut parts: Vec<String> = blocks.iter().map(|b| format!("n {}", b.id.0)).collect();
+    parts.extend(edges.iter().map(|e| format!("e {} {} {}", e.kind.0, e.from.0, e.to.0)));
+    parts.sort();
+    let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
+    keys::sha256_hex(&parts)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use planroom_contract::{Kind, Layer, NodeId, Provenance, Tier};
+    use planroom_contract::{Layer, Provenance, Tier};
 
     fn node(id: &str, level: Level, parent: Option<&str>) -> Node {
         Node {
@@ -115,6 +197,53 @@ mod tests {
         let dirs = at_level(&nodes, Level::Component);
         assert_eq!(dirs.len(), 1);
         assert_eq!(dirs[0].counts, BTreeMap::from([("code".into(), 1)]));
+    }
+
+    fn edge(id: &str, from: Ref, to: Ref) -> Edge {
+        Edge {
+            id: EdgeId(id.into()),
+            kind: Kind("k.calls".into()),
+            from,
+            to,
+            via: None,
+            via_ref: None,
+            props: Default::default(),
+            evidence: vec![],
+            confidence: 1.0,
+            layer: Layer::Actual,
+            provenance: Provenance::Extracted { extractor: "p/x".into(), tier: Tier::Universal },
+        }
+    }
+
+    #[test]
+    fn edges_lift_to_their_nearest_blocks_and_merge() {
+        let mut aliased = node("b:file:main", Level::Code, Some("b:repo:b"));
+        aliased.aliases = vec!["host:b".into()];
+        let nodes = vec![
+            node("a:repo:a", Level::System, None),
+            node("a:file:x", Level::Code, Some("a:repo:a")),
+            node("a:file:y", Level::Code, Some("a:repo:a")),
+            node("b:repo:b", Level::System, None),
+            aliased,
+        ];
+        let id = |s: &str| Ref::Id(NodeId(s.into()));
+        let edges = vec![
+            edge("e:000000000002", id("a:file:x"), Ref::Alias("host:b".into())),
+            edge("e:000000000001", id("a:file:y"), id("b:repo:b")),
+            edge("e:000000000003", id("a:file:x"), id("a:file:y")),
+            edge("e:000000000004", id("a:file:x"), Ref::Alias("host:nowhere".into())),
+        ];
+        let blocks = top_level(&nodes);
+        let lifted = lift_edges(&nodes, &edges, &blocks);
+        assert_eq!(lifted.len(), 1, "{lifted:?}");
+        assert_eq!(
+            (lifted[0].from.0.as_str(), lifted[0].to.0.as_str(), lifted[0].count),
+            ("a:repo:a", "b:repo:b", 2)
+        );
+        assert_eq!(lifted[0].children, [EdgeId("e:000000000001".into()), EdgeId("e:000000000002".into())]);
+        let hash = structure_hash(&blocks, &lifted);
+        assert_eq!(hash, structure_hash(&blocks, &lifted));
+        assert_ne!(hash, structure_hash(&blocks, &[]));
     }
 
     #[test]

@@ -33,22 +33,26 @@ esac
 
 # --- fixtures -----------------------------------------------------------------------------------
 
-# A stand-in engine: `--version` prints its version; anything else prints its label and args.
+# A stand-in engine: `--version` prints its version, `version --json` reports the catalogue hash
+# `h<version>`, as make_plugin's engine.env names it; anything else prints its label and args.
 fake_engine() {
   mkdir -p "$(dirname "$1")"
   cat >"$1" <<EOF
 #!/bin/sh
-if [ "\${1:-}" = --version ]; then echo "planroom $2"; else echo "$3: \$*"; fi
+if [ "\${1:-}" = --version ]; then echo "planroom $2"
+elif [ "\${1:-}" = version ]; then echo '{"ok":true,"result":{"version":"$2","catalogue_hash":"h$2"}}'
+else echo "$3: \$*"; fi
 EOF
   chmod 755 "$1"
 }
 
-# A plugin copy at $1/plugin with engine.env naming version $2; with $3 = checkout, $1 is a
+# A plugin copy at $1/plugin with engine.env naming version $2 and catalogue hash h$2; with $3 = checkout, $1 is a
 # checkout (it holds Cargo.toml).
 make_plugin() {
   mkdir -p "$1/plugin/scripts"
   cp "$resolver" "$1/plugin/scripts/planroom"
-  printf 'PLANROOM_ENGINE_VERSION=%s\nPLANROOM_REPO=doodla/planroom\n' "$2" >"$1/plugin/scripts/engine.env"
+  printf 'PLANROOM_ENGINE_VERSION=%s\nPLANROOM_CATALOGUE_HASH=h%s\nPLANROOM_REPO=doodla/planroom\n' "$2" "$2" \
+    >"$1/plugin/scripts/engine.env"
   if [ "${3:-}" = checkout ]; then
     printf '[workspace.package]\nversion = "%s"\nrust-version = "1.97"\n' "$2" >"$1/Cargo.toml"
   fi

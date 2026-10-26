@@ -280,9 +280,92 @@
             "command",
             "args"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "schema"
+            },
+            "args": {
+              "$ref": "#/$defs/SchemaReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "version"
+            },
+            "args": {
+              "$ref": "#/$defs/VersionReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "person_init"
+            },
+            "args": {
+              "$ref": "#/$defs/PersonInitReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "serve"
+            },
+            "args": {
+              "$ref": "#/$defs/ServeReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
         }
       ],
       "description": "One variant per catalogue leaf; the request travels as `args`."
+    },
+    "CommandList": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LeafListing"
+          }
+        }
+      },
+      "required": [
+        "summary",
+        "items"
+      ],
+      "description": "What `schema --commands` returns: every leaf, summary first."
     },
     "CommandName": {
       "description": "A command name from the catalogue, its path joined with spaces.",
@@ -293,7 +376,11 @@
             "map",
             "focus",
             "scan",
-            "watch"
+            "watch",
+            "schema",
+            "version",
+            "person init",
+            "serve"
           ]
         },
         {
@@ -691,8 +778,12 @@
             "ambiguous_ref",
             "workspace_not_found",
             "not_found",
+            "person_required",
+            "unauthorized",
+            "person_key_mismatch",
             "idempotency_mismatch",
             "store_busy",
+            "port_in_use",
             "schema_mismatch",
             "pack_invalid",
             "git_failed",
@@ -1336,6 +1427,122 @@
       ],
       "description": "Which layer a fact or edit belongs to."
     },
+    "LayoutKey": {
+      "type": "object",
+      "properties": {
+        "view_key": {
+          "type": "string",
+          "description": "Such as `map:system:all`."
+        },
+        "structure_hash": {
+          "type": "string",
+          "description": "sha256 of the view's block IDs and lifted edges; a changed structure misses the cache."
+        }
+      },
+      "required": [
+        "view_key",
+        "structure_hash"
+      ],
+      "description": "Where a view's layout is cached: the view and the hash of its structure."
+    },
+    "LayoutPut": {
+      "type": "object",
+      "properties": {
+        "view_key": {
+          "type": "string",
+          "description": "The view the positions belong to, such as `map:system:all`."
+        },
+        "structure_hash": {
+          "type": "string",
+          "description": "The hash of the node and edge IDs the layout was computed for."
+        },
+        "positions": {
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[^:\\s]+:[^:\\s]+:.+$": {
+              "$ref": "#/$defs/Position"
+            }
+          }
+        }
+      },
+      "required": [
+        "view_key",
+        "structure_hash",
+        "positions"
+      ],
+      "description": "`PUT /api/v1/layout`: an auto-layout to cache, last writer wins."
+    },
+    "LeafListing": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The command name, its path joined with spaces."
+        },
+        "idea": {
+          "type": "string",
+          "description": "`levels`, `lenses`, `intent`, `diffs`, `decisions` or `setup`."
+        },
+        "actor": {
+          "type": "string",
+          "description": "`any` or `person_only`."
+        },
+        "class": {
+          "type": "string",
+          "description": "`read`, `change` or `handoff`."
+        },
+        "budget_tokens": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The default output budget; 0 for a stream."
+        },
+        "undo": {
+          "type": "string",
+          "description": "`edit`, `compensate`, `query` or `not_undoable`."
+        },
+        "schema": {
+          "$ref": "#/$defs/Handle",
+          "description": "The `schema --command LEAF` handle for the leaf's types."
+        }
+      },
+      "required": [
+        "name",
+        "idea",
+        "actor",
+        "class",
+        "budget_tokens",
+        "undo",
+        "schema"
+      ],
+      "description": "One leaf as `schema --commands` lists it."
+    },
+    "LeafSchema": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "request": {
+          "type": "string"
+        },
+        "result": {
+          "type": "string"
+        },
+        "defs": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "summary",
+        "request",
+        "result",
+        "defs"
+      ],
+      "description": "What `schema --command LEAF` returns: the leaf's request and result type names, and every\ndefinition they reference, keyed by name."
+    },
     "Level": {
       "type": "string",
       "enum": [
@@ -1539,6 +1746,17 @@
               "type": "null"
             }
           ]
+        },
+        "layout": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LayoutKey"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With `--detail graph`: the key a layout of this view is cached under, which\n`PUT /api/v1/layout` takes back."
         }
       },
       "required": [
@@ -1909,6 +2127,74 @@
       ],
       "description": "A file an extractor read with errors, such as one that isn't UTF-8."
     },
+    "PersonInitReq": {
+      "type": "object",
+      "properties": {
+        "rekey": {
+          "type": "boolean",
+          "description": "Replace the registered key with the one on stdin.",
+          "default": false
+        },
+        "base": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The `seq` of the view you acted on; required when the command writes user-authored state."
+        },
+        "idem": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The idempotency key; derived from the request when absent."
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The project the write belongs to."
+        }
+      },
+      "description": "`planroom person init [--rekey]`: the public key arrives on stdin as the base64url of its\nuncompressed SEC1 point (`crypto.subtle.exportKey(\"raw\")`), and the call carries a\n`PLANROOM_PERSON_TOKEN` signed by the registered key or by the key on stdin (DR-72, DR-75)."
+    },
+    "PersonKey": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "type": "string",
+          "description": "The first 16 hex characters of the sha256 of the key's SEC1 bytes."
+        },
+        "registered_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "surface": {
+          "$ref": "#/$defs/Surface"
+        },
+        "rekeyed": {
+          "type": "boolean",
+          "description": "This call replaced another key."
+        }
+      },
+      "required": [
+        "summary",
+        "fingerprint",
+        "registered_at",
+        "surface",
+        "rekeyed"
+      ],
+      "description": "What `person init` returns: the registered key's fingerprint and when and from where it was\nregistered."
+    },
     "Position": {
       "type": "object",
       "properties": {
@@ -2251,6 +2537,137 @@
       ],
       "description": "What one repo's scan found."
     },
+    "SchemaReq": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "type": "boolean",
+          "description": "List the command catalogue instead of the schema's summary.",
+          "default": false
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "One leaf's request and result types, with the definitions they reference.",
+          "default": null
+        }
+      },
+      "description": "`planroom schema [--commands]`."
+    },
+    "SchemaSummary": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string",
+          "description": "The serialize view's `$id`."
+        },
+        "schema_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "handles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Handle"
+          }
+        }
+      },
+      "required": [
+        "summary",
+        "id",
+        "schema_version",
+        "handles"
+      ],
+      "description": "What `schema` returns: the schema's ID and version, and handles to read further."
+    },
+    "ServeInfo": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "description": "`http://127.0.0.1:PORT/`."
+        },
+        "port": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "pid": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The serving process."
+        },
+        "login_page": {
+          "type": "string",
+          "description": "The login page under the data root that opens the canvas with a one-time code, mode 0600;\nthe code itself is in no output (DR-29, DR-64)."
+        }
+      },
+      "required": [
+        "summary",
+        "url",
+        "port",
+        "pid",
+        "login_page"
+      ],
+      "description": "What `serve` returns once it listens."
+    },
+    "ServeReq": {
+      "type": "object",
+      "properties": {
+        "detach": {
+          "type": "boolean",
+          "description": "Run in the background, in a session of its own, and return at once.",
+          "default": false
+        },
+        "port": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Move this workspace's canvas to port N and record it; without it, serve uses the recorded port.",
+          "default": null
+        }
+      },
+      "description": "`planroom serve [--detach] [--port N]`."
+    },
+    "SessionReq": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "description": "`POST /api/v1/session`: the one-time code from the login page's URL fragment."
+    },
+    "SessionToken": {
+      "type": "object",
+      "properties": {
+        "token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "token"
+      ],
+      "description": "The tab's bearer token, kept in `sessionStorage` and sent as `Authorization: Bearer`."
+    },
     "Size": {
       "type": "object",
       "properties": {
@@ -2479,6 +2896,45 @@
         "reject"
       ],
       "description": "A review's outcome."
+    },
+    "VersionInfo": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "git_commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The commit the binary was built from, when the build recorded one."
+        },
+        "target": {
+          "type": "string",
+          "description": "The target triple the binary was built for."
+        },
+        "schema_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "catalogue_hash": {
+          "type": "string",
+          "description": "sha256 of the catalogue as `schema --commands` lists it."
+        }
+      },
+      "required": [
+        "version",
+        "target",
+        "schema_version",
+        "catalogue_hash"
+      ],
+      "description": "What `version` returns; the mod and the resolver match an engine by its catalogue hash."
+    },
+    "VersionReq": {
+      "type": "object",
+      "description": "`planroom version`."
     },
     "Warning": {
       "type": "object",

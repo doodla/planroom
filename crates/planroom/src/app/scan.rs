@@ -90,7 +90,9 @@ pub fn open_store(ws: &Workspace) -> Result<Store, AppError> {
         engine_version: env!("CARGO_PKG_VERSION").into(),
         created_at: clock::now().0,
     };
-    Ok(Store::open(&ws.store_path(), &init)?)
+    let mut store = Store::open(&ws.store_path(), &init)?;
+    crate::app::hook(&mut store);
+    Ok(store)
 }
 
 /// One repo at its `HEAD`: every built-in's facts, verified, merged and ready to store.

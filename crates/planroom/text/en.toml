@@ -8,15 +8,28 @@ store_busy = "The store is still locked by another Planroom process after 5 s."
 schema_mismatch = "This store is version {found}, newer than this engine reads ({supported})."
 git_failed = "git failed in {repo}: {what}"
 internal = "Planroom hit a bug: {what}"
+person_required = "Only a person can run {command}: press its button in the Planroom pane."
+port_in_use = "Port {port}, this workspace's canvas address, is in use by another program. Stop it and press e again, or run planroom serve --port N to move; a tab's unsent edits stay with the old address."
+unauthorized = "This tab needs a fresh link: press e in the pane."
+not_found = "There is no {what}."
+person_key_mismatch = "Another person key is registered for this workspace, since {registered_at}."
 
 [hint]
 workspace_not_found = "planroom scan DIR"
 idempotency_mismatch = "pass a new --idem to make another write"
 store_busy = "retry the same command"
 schema_mismatch = "update Planroom, then retry"
+port_in_use = "planroom serve --port N"
+person_required = "press the action's button in the Planroom pane, or type it after /room"
+person_key_mismatch = "press Use this session's key in the Planroom pane"
 
 [argument]
 focus_unsupported = "--focus isn't available yet; run map without it."
+person_key = "stdin must hold the person key: the base64url of an uncompressed P-256 point."
+bad_body = "The request body isn't valid: {why}"
+http_scan_dir = "scan over HTTP always maps the workspace it serves; leave dir out."
+http_command = "command {command} on this server"
+unknown_leaf = "No command {leaf} in the catalogue; planroom schema --commands lists them."
 
 [warning]
 evidence_dropped = "{count} evidence items in {repo} didn't match commit {commit} and were dropped."
@@ -32,6 +45,35 @@ no_repos = "No git repos here. Run planroom scan PATH on a directory that holds 
 summary = "Mapped {repos} repos, {moved} of them moved: {containers} containers, {nodes} nodes, {hints} hints."
 next_label = "Show the map"
 
+[focus]
+summary = "{name} · {level} · lens {lens} · seq {seq}"
+blocks = "{count} at the top: {names}."
+next = "Next: {label}"
+next_containers = "Open the containers"
+no_drift = "No drift: no intended rule broken, no machine drift."
+
+# The panes the mod draws before the engine answers `focus` (DR-57). `cargo xtask gen` writes
+# them into `packages/contract/src/generated/catalogue.ts` as FALLBACK_PANES. Each state has a
+# headline, an optional detail and an optional action label.
+[fallback]
+resolving_headline = "Looking for the Planroom engine…"
+resolving_action = "Check again"
+fetching_headline = "Getting the Planroom engine…"
+fetching_action = "Check again"
+build_offered_headline = "Build the engine from source, about 4 minutes?"
+build_offered_action = "Build it"
+building_headline = "Building the engine from source…"
+building_detail = "This takes about 4 minutes."
+building_action = "Check again"
+version_mismatch_headline = "This engine doesn't match the plugin."
+version_mismatch_action = "Try again"
+unsupported_platform_headline = "Planroom can't run here."
+unsupported_platform_detail = "Planroom v0.1 runs on macOS, Linux and WSL 2. Open this repo from WSL."
+failed_headline = "The Planroom engine isn't available."
+failed_action = "Try again"
+no_focus_headline = "Planroom couldn't show this folder."
+no_focus_action = "Try again"
+
 [map]
 summary = "{count} at the top: {names}."
 
@@ -39,3 +81,26 @@ summary = "{count} at the top: {names}."
 scan = "Scanned {repo} at {commit}."
 version = "Tagged {label}."
 other = "A {kind} event."
+
+[person]
+registered = "Registered the person key {fingerprint} for this workspace."
+already = "The person key {fingerprint} is already registered for this workspace."
+rekeyed = "Replaced this workspace's person key with {fingerprint}."
+
+[serve]
+summary = "Serving the canvas at {url}; open it with the login page this serve wrote."
+session = "Signed in."
+
+[canvas]
+missing_title = "Planroom"
+missing_checkout = "This engine was built without the canvas. Run cargo xtask gen --canvas, then rebuild."
+missing_install = "This engine was built without the canvas. Install Node 22 and pnpm, then run scripts/planroom build."
+
+[version]
+summary = "planroom {version} for {target}, catalogue {hash}."
+
+[schema]
+summary = "Planroom contract schema version {version}: {id}"
+commands = "{count} commands in the catalogue."
+commands_label = "List every command"
+leaf = "{leaf} takes {request} and returns {result}."

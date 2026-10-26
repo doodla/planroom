@@ -9,7 +9,6 @@ use planroom_contract::{Command, CommandSpec, Tool, Undo};
 use serde_json::json;
 
 use crate::boundaries;
-use crate::golden;
 use crate::modgen;
 use crate::plugin;
 use crate::util;
@@ -30,15 +29,8 @@ type Generator = fn(&Path) -> Result<Group, String>;
 
 /// Every generator, in the order `gen` writes them: the mod bundle last, since esbuild reads the
 /// generated TypeScript from disk.
-const GENERATORS: &[Generator] = &[
-    |_| schemas(),
-    typescript,
-    |_| catalogue(),
-    dependency_cruiser,
-    engine_env,
-    |_| goldens(),
-    modgen::bundle,
-];
+const GENERATORS: &[Generator] =
+    &[|_| schemas(), typescript, catalogue, dependency_cruiser, engine_env, modgen::bundle];
 
 /// Every generated file, grouped by drift check.
 pub fn all(root: &Path) -> Vec<Result<Group, String>> {
@@ -87,7 +79,7 @@ fn typescript(root: &Path) -> Result<Group, String> {
 
 /// `packages/contract/src/generated/catalogue.ts`: every catalogue leaf, for the mod's tools, `/room`
 /// and its typeahead.
-fn catalogue() -> Result<Group, String> {
+fn catalogue(root: &Path) -> Result<Group, String> {
     let leaves: Vec<_> = Command::SPECS.iter().map(leaf_json).collect();
     let body = serde_json::to_string_pretty(&leaves).map_err(|e| e.to_string())?;
     let contents = format!(
@@ -109,12 +101,68 @@ export interface CatalogueLeaf {{
 
 /** Every leaf, in catalogue order. */
 export const CATALOGUE: readonly CatalogueLeaf[] = {body};
-"
+
+/** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
+export const CATALOGUE_HASH = \"{hash}\";
+
+/** One pane the mod draws before the engine answers `focus` (DR-57). */
+export interface FallbackPane {{
+  readonly headline: string;
+  readonly detail: string | null;
+  readonly action: string | null;
+}}
+
+/** The fallback panes' strings, from the engine's `crates/planroom/text/en.toml`. */
+export const FALLBACK_PANES: Readonly<Record<\"{states}\", FallbackPane>> = {panes};
+",
+        hash = catalogue_hash()?,
+        states = FALLBACK_STATES.join("\" | \""),
+        panes = fallback_panes(root)?
     );
     Ok(Group {
         name: "packages/contract/src/generated/catalogue.ts",
         files: vec![Generated { path: "packages/contract/src/generated/catalogue.ts".into(), contents }],
     })
+}
+
+/// The states with a fallback pane, in the order `catalogue.ts` lists them.
+const FALLBACK_STATES: &[&str] = &[
+    "resolving",
+    "fetching",
+    "build_offered",
+    "building",
+    "version_mismatch",
+    "unsupported_platform",
+    "failed",
+    "no_focus",
+];
+
+/// `FALLBACK_PANES` from the `[fallback]` table of `en.toml`: each state's headline, detail and
+/// action label, a missing detail or action as null.
+fn fallback_panes(root: &Path) -> Result<String, String> {
+    let path = root.join("crates/planroom/text/en.toml");
+    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let catalog: toml::Table = text.parse().map_err(|e| format!("{}: {e}", path.display()))?;
+    let table =
+        catalog.get("fallback").and_then(|t| t.as_table()).ok_or("en.toml has no [fallback] table")?;
+    let get = |key: String| table.get(&key).and_then(|v| v.as_str()).map(str::to_owned);
+    let mut panes = serde_json::Map::new();
+    for state in FALLBACK_STATES {
+        let headline =
+            get(format!("{state}_headline")).ok_or(format!("en.toml has no fallback.{state}_headline"))?;
+        panes.insert(
+            (*state).into(),
+            json!({"headline": headline, "detail": get(format!("{state}_detail")), "action": get(format!("{state}_action"))}),
+        );
+    }
+    serde_json::to_string_pretty(&panes).map_err(|e| e.to_string())
+}
+
+/// sha256 of the compact JSON of `Command::listing()`, as the engine's `version --json` reports it.
+pub fn catalogue_hash() -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let listing = serde_json::to_string(&Command::listing()).map_err(|e| e.to_string())?;
+    Ok(Sha256::digest(listing.as_bytes()).iter().map(|b| format!("{b:02x}")).collect())
 }
 
 fn leaf_json(spec: &CommandSpec) -> serde_json::Value {
@@ -167,22 +215,18 @@ fn dependency_cruiser(root: &Path) -> Result<Group, String> {
     })
 }
 
-/// `plugin/scripts/engine.env`: the engine version the resolver fetches and the repo it comes from.
+/// `plugin/scripts/engine.env`: the engine version the resolver fetches, the catalogue hash a checkout
+/// build must report, and the repo it comes from.
 fn engine_env(root: &Path) -> Result<Group, String> {
     let version = plugin::workspace_version(root)?;
     let repo = plugin::workspace_repo(root)?;
-    let contents = format!("# {GENERATED_HEADER}\nPLANROOM_ENGINE_VERSION={version}\nPLANROOM_REPO={repo}\n");
+    let hash = catalogue_hash()?;
+    let contents = format!(
+        "# {GENERATED_HEADER}\nPLANROOM_ENGINE_VERSION={version}\nPLANROOM_CATALOGUE_HASH={hash}\nPLANROOM_REPO={repo}\n"
+    );
     Ok(Group {
         name: "plugin/scripts/engine.env",
         files: vec![Generated { path: "plugin/scripts/engine.env".into(), contents }],
-    })
-}
-
-/// `tests/golden/cli/`: the CLI outputs the mod's tests read.
-fn goldens() -> Result<Group, String> {
-    Ok(Group {
-        name: "tests/golden/cli/",
-        files: vec![Generated { path: "tests/golden/cli/focus.json".into(), contents: golden::focus()? }],
     })
 }
 

@@ -2,7 +2,12 @@
 
 use std::path::Path;
 
-use planroom_contract::{CommandName, Empty, EmptyReason, Handle, Level, MapReq, MapView, Node};
+use std::collections::BTreeMap;
+
+use planroom_contract::{
+    CommandName, Detail, Edge, Empty, EmptyReason, Handle, LayoutKey, Level, MapReq, MapView, Node, NodeId,
+    Position,
+};
 use planroom_kernel::{facts, tree};
 use planroom_store::{Shape, Store};
 
@@ -25,6 +30,13 @@ pub fn run(req: &MapReq, cwd: &Path) -> Result<Reply<MapView>, AppError> {
     };
     let mut view = top(&store, &root, req.level)?;
     view.lens = lens;
+    if view.empty.is_none() {
+        match req.detail {
+            Detail::Graph => place(&store, &mut view)?,
+            // Agents get the counts and the lifted edges; evidence is a `show` away.
+            Detail::Summary => view.edges.iter_mut().for_each(|e| e.evidence_sample.clear()),
+        }
+    }
     let seq = store.seq()?;
     Ok(Reply { text: text_of(&view), result: view, seq, warnings: vec![] })
 }
@@ -36,9 +48,12 @@ pub fn top(store: &Store, root: &Path, level: Option<Level>) -> Result<MapView, 
         return Ok(not_scanned(root, ALL_LENSES.into(), level)?.result);
     }
     let mut nodes: Vec<Node> = Vec::new();
+    let mut edges: Vec<Edge> = Vec::new();
     for row in store.facts(&active.snapshots())? {
-        if row.shape == Shape::Node {
-            nodes.push(serde_json::from_str(&row.body).map_err(AppError::internal)?);
+        match row.shape {
+            Shape::Node => nodes.push(serde_json::from_str(&row.body).map_err(AppError::internal)?),
+            Shape::Edge => edges.push(serde_json::from_str(&row.body).map_err(AppError::internal)?),
+            Shape::Hint => {}
         }
     }
     let nodes = facts::merge_nodes(nodes);
@@ -46,15 +61,35 @@ pub fn top(store: &Store, root: &Path, level: Option<Level>) -> Result<MapView, 
         None => (Level::System, tree::top_level(&nodes)),
         Some(level) => (level, tree::at_level(&nodes, level)),
     };
+    let edges = tree::lift_edges(&nodes, &edges, &blocks);
     Ok(MapView {
         level,
         lens: ALL_LENSES.into(),
         focus: None,
         nodes: blocks,
-        edges: vec![],
+        edges,
         hidden: 0,
         empty: None,
+        layout: None,
     })
+}
+
+/// `--detail graph`: the view's layout key, and each block's position from the layout cache
+/// when one is cached for this structure.
+fn place(store: &Store, view: &mut MapView) -> Result<(), AppError> {
+    let key = LayoutKey {
+        view_key: format!("map:{}:{}", tree::level_name(view.level), view.lens),
+        structure_hash: tree::structure_hash(&view.nodes, &view.edges),
+    };
+    if let Some(cached) = store.layout(&key.view_key, &key.structure_hash)? {
+        let positions: BTreeMap<NodeId, Position> =
+            serde_json::from_str(&cached).map_err(AppError::internal)?;
+        for node in &mut view.nodes {
+            node.position = positions.get(&node.id).copied();
+        }
+    }
+    view.layout = Some(key);
+    Ok(())
 }
 
 /// A workspace with no scan yet: an empty map whose next action is the scan.
@@ -65,7 +100,8 @@ fn not_scanned(root: &Path, lens: String, level: Option<Level>) -> Result<Reply<
     Ok(Reply { text: text_of(&view), result: view, seq: 0, warnings: vec![] })
 }
 
-fn scan_empty(root: &Path, repos: usize) -> Empty {
+/// The empty state of a directory with no scan: map its repos, or find some first.
+pub(crate) fn scan_empty(root: &Path, repos: usize) -> Empty {
     let (reason, label) = if repos == 0 {
         ("no_repos", text::get("empty.no_repos", &[]))
     } else {
