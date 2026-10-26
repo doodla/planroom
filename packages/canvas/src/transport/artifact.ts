@@ -315,6 +315,11 @@ export function artifactTransport(env: ArtifactEnv): Transport {
 
     subscribe(onFrame) {
       listeners.add(onFrame);
+      // The platform may have answered while the first view loaded: catch the subscriber up.
+      if (settled) {
+        const seq = head?.seq ?? snapshot?.seq ?? 0;
+        queueMicrotask(() => onFrame({ type: "reset", seq }));
+      }
       return () => listeners.delete(onFrame);
     },
   };

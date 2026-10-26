@@ -189,6 +189,19 @@ describe("the artifact transport", () => {
     await expect(p.ask("map", container)).rejects.toThrow();
   });
 
+  test("a subscriber that arrives after the platform answered is caught up", async () => {
+    const { t } = transport(host(null));
+    await t.login();
+    await settle();
+    const late: StreamFrame[] = [];
+    t.subscribe(
+      (f) => late.push(f),
+      () => undefined,
+    );
+    await settle();
+    expect(late).toEqual([{ type: "reset", seq: 5 }]);
+  });
+
   test("a page opened outside the platform has no host at all", async () => {
     const { t } = transport(null);
     await t.login();

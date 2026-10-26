@@ -10,9 +10,9 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 ## Layout
 
 - `index.html`, `vite.config.js`: the Vite app; `cargo xtask gen --canvas` builds it into `target/canvas/` with relative paths and stable file names, and the config links the tokens from `@planroom/ui` as `assets/tokens.css`.
-- `src/transport/`: the `Transport` interface, the local transport (login code, bearer token, the stream read through `fetch`) and its SSE parser.
+- `src/transport/`: the `Transport` interface, the local transport (login code, bearer token, the stream read through `fetch`) and its SSE parser, and the artifact transport (`./data/snapshot.json`, the `db` document `live/head`, read request rows to `inbox/{self}` and their `answers/{docId}`), which `main.tsx` picks when `share`'s page marks the root `data-transport="artifact"`.
 - `src/layout/`: the `MapView` to ELK mapping and ELK in its Web Worker.
-- `src/views/`: `MapView` and its blocks, the screen-reader outline, empty states.
+- `src/views/`: `MapView` and its blocks, the screen-reader outline, empty states, and the Artifact's request state for a view the snapshot doesn't hold.
 - `src/shell/`: the five concepts around the map: the top row (breadcrumb and search, lenses, projects), the zoom rail, the card stack, the diff tray, and the phone's bottom sheet.
 - `src/assets/`: the Iris empty-state art from `docs/art/`, cropped and converted to WebP.
 
