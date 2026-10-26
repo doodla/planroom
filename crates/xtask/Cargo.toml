@@ -9,6 +9,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+planroom-contract.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
