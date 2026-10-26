@@ -1116,12 +1116,12 @@
         "crates/planroom/tests/docs.rs::every_image_has_its_prompt_and_spend_row",
         "tests/installer/run.sh::every_resolver_output_validates (planned for M5)",
         "tests/installer/run.sh::a_missing_tag_builds_nothing (planned for M5)",
-        "tests/installer/run.sh::detach_gets_its_own_session",
-        "tests/installer/run.sh::a_non_default_base_never_fills_the_shared_cache",
-        "tests/installer/run.sh::an_engine_override_is_never_cached",
-        "tests/installer/run.sh::a_newer_dev_catalogue_misses_the_cache",
-        "tests/installer/run.sh::a_marketplace_clone_is_not_a_checkout",
-        "tests/installer/run.sh::a_failed_download_names_its_urls",
+        "tests/installer/run.sh::detach_gets_its_own_session (planned for M5)",
+        "tests/installer/run.sh::a_non_default_base_never_fills_the_shared_cache (planned for M5)",
+        "tests/installer/run.sh::an_engine_override_is_never_cached (planned for M5)",
+        "tests/installer/run.sh::a_newer_dev_catalogue_misses_the_cache (planned for M5)",
+        "tests/installer/run.sh::a_marketplace_clone_is_not_a_checkout (planned for M5)",
+        "tests/installer/run.sh::a_failed_download_names_its_urls (planned for M5)",
         "crates/planroom/tests/docs.rs::readme_installs_the_release",
         "crates/planroom/tests/docs.rs::remove_planroom_lists_every_location",
         "crates/xtask/tests/gates.rs::a_dispatch_run_checks_state_only",
@@ -1300,9 +1300,12 @@
         "crates/planroom/tests/actor.rs::a_leaked_store_cannot_sign_a_person_action",
         "packages/mod/src/guard.test.ts::the_user_config_is_guarded",
         "packages/mod/src/guard.test.ts::an_agent_push_of_planroom_refs_is_denied",
-        "crates/planroom/tests/server_auth.rs::the_opener_gets_a_fixed_path"
+        "crates/planroom/tests/server_auth.rs::the_opener_gets_a_fixed_path",
+        "packages/mod/src/guard.test.ts::security-3: the everyday shell forms that slipped past the guard are denied",
+        "packages/mod/src/guard.test.ts::security-3: a Glob tool's pattern is held to the same rule as a Bash glob",
+        "packages/mod/src/guard.test.ts::security-3: everyday commands still pass"
       ],
-      "decision": "DR-4, DR-52, DR-64, DR-72, DR-75"
+      "decision": "DR-4, DR-52, DR-64, DR-72, DR-75, DR-85"
     },
     {
       "id": "C2",
@@ -1819,7 +1822,7 @@
         "crates/planroom/tests/workspaces.rs::an_engine_older_than_the_file_refuses_it_and_leaves_it_as_it_was",
         "crates/planroom/tests/workspaces.rs::a_file_from_before_min_reader_version_loads_and_gains_it"
       ],
-      "decision": "DR-53, DR-73, DR-74, DR-75, DR-78"
+      "decision": "DR-53, DR-73, DR-74, DR-75, DR-78, DR-85"
     },
     {
       "id": "C15",
@@ -1951,7 +1954,7 @@
         "packages/mod/src/layout.test.ts::security-5: an OSC 52 or RLO in a repo name never reaches the pane or the band raw",
         "packages/mod/src/room.test.ts::security-5: an OSC 52 or RLO in a name or the summary never reaches the transcript raw"
       ],
-      "decision": "DR-64, DR-75, DR-78"
+      "decision": "DR-64, DR-75, DR-78, DR-85"
     }
   ]
 }
