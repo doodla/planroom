@@ -5,7 +5,7 @@ export interface CatalogueLeaf {
   readonly name: string;
   readonly idea: "levels" | "lenses" | "intent" | "diffs" | "decisions" | "setup";
   readonly summary: string;
-  readonly actor: "any" | "person_only";
+  readonly actor: "any" | "person_only" | "mixed";
   readonly class: "read" | "change" | "handoff";
   readonly budget_tokens: number;
   readonly needs_base: boolean;
@@ -111,11 +111,35 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "undo": "query",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "share",
+    "idea": "levels",
+    "summary": "Write the canvas, its snapshot and the first live head for an Artifact publish.",
+    "actor": "any",
+    "class": "handoff",
+    "budget_tokens": 800,
+    "needs_base": false,
+    "undo": "not_undoable",
+    "tool": "room_handoff",
+    "room": true
+  },
+  {
+    "name": "import",
+    "idea": "setup",
+    "summary": "Import Artifact inbox rows from stdin, one {path, row} per line; answers read requests.",
+    "actor": "mixed",
+    "class": "change",
+    "budget_tokens": 800,
+    "needs_base": false,
+    "undo": "edit",
+    "tool": null,
+    "room": false
   }
 ];
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
-export const CATALOGUE_HASH = "2b6a6437c3c45fefd737e5aaba4661ba48f0ff08d8a54a4a09669185bd0d939b";
+export const CATALOGUE_HASH = "4602c6652ecfaad917c01d06a2a1eccb47de05dfc27cf4baee8f0c155852556b";
 
 /** One pane the mod draws before the engine answers `focus` (DR-57). */
 export interface FallbackPane {

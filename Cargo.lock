@@ -1152,6 +1152,7 @@ name = "planroom-kernel"
 version = "0.1.0"
 dependencies = [
  "planroom-contract",
+ "regex",
  "serde_json",
  "sha2",
 ]

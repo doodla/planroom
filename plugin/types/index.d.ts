@@ -2,6 +2,13 @@
 // The $.state contract of the planroom mod: the contract's output types and the mod's atoms.
 
 /**
+ * What import did with one row, as `acks/<uid>` lists it.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "AckStatus".
+ */
+export type AckStatus = "imported" | "held" | "conflict" | "refused";
+/**
  * Who did it.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -28,20 +35,37 @@ export type Actor =
       kind: "system";
     };
 /**
- * Which policy band a score fell in.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "Band".
- */
-export type Band = "auto" | "card" | "escalate";
-/**
  * A command name from the catalogue, its path joined with spaces.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "CommandName".
  */
 export type CommandName =
-  ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve") | string;
+  ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve" | "share" | "import") | string;
+/**
+ * A stable error code. Older readers map an unknown code to its category.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ErrorCode".
+ */
+export type ErrorCode =
+  | (
+      | "invalid_argument"
+      | "ambiguous_ref"
+      | "workspace_not_found"
+      | "not_found"
+      | "person_required"
+      | "unauthorized"
+      | "person_key_mismatch"
+      | "idempotency_mismatch"
+      | "store_busy"
+      | "port_in_use"
+      | "schema_mismatch"
+      | "pack_invalid"
+      | "git_failed"
+      | "internal"
+    )
+  | string;
 /**
  * An error's category; the exit code and the HTTP status follow it.
  *
@@ -50,6 +74,20 @@ export type CommandName =
  */
 export type Category =
   "usage" | "not_found" | "conflict" | "permission" | "budget" | "unavailable" | "failed" | "internal";
+/**
+ * When a caller may retry a failed command.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Retry".
+ */
+export type Retry = "never" | "now" | "after_reread" | "later";
+/**
+ * Which policy band a score fell in.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Band".
+ */
+export type Band = "auto" | "card" | "escalate";
 /**
  * What an event follows from; a chat turn batches ghosts into one card.
  *
@@ -118,6 +156,14 @@ export type Command =
   | {
       command: "serve";
       args: ServeReq;
+    }
+  | {
+      command: "share";
+      args: ShareReq;
+    }
+  | {
+      command: "import";
+      args: ImportReq;
     };
 /**
  * The five fixed levels, from the plan down to the code.
@@ -140,6 +186,13 @@ export type NodeId = string;
  * via the `definition` "Cursor".
  */
 export type Cursor = string;
+/**
+ * A `db` write's operation.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DbOp".
+ */
+export type DbOp = "set" | "update" | "delete";
 /**
  * How much a wrong pick costs; cards rank by stakes and staleness.
  *
@@ -283,37 +336,6 @@ export type Op = "put" | "set" | "retract";
  */
 export type EmptyReason = string;
 /**
- * A stable error code. Older readers map an unknown code to its category.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "ErrorCode".
- */
-export type ErrorCode =
-  | (
-      | "invalid_argument"
-      | "ambiguous_ref"
-      | "workspace_not_found"
-      | "not_found"
-      | "person_required"
-      | "unauthorized"
-      | "person_key_mismatch"
-      | "idempotency_mismatch"
-      | "store_busy"
-      | "port_in_use"
-      | "schema_mismatch"
-      | "pack_invalid"
-      | "git_failed"
-      | "internal"
-    )
-  | string;
-/**
- * When a caller may retry a failed command.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "Retry".
- */
-export type Retry = "never" | "now" | "after_reread" | "later";
-/**
  * A stable warning code.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -408,21 +430,6 @@ export type Kind = string;
 export type HandoffState =
   "proposed" | "started" | "reported" | "failed" | "reviewing" | "merged" | "reconciled" | "dropped";
 /**
- * A Container-level kind's block color: surfaces style a block from its tone, never from a kind
- * ID (DR-46).
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "Tone".
- */
-export type Tone = "service" | "library" | "store" | "infra";
-/**
- * Whether the workspace has been scanned.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "ScanState".
- */
-export type ScanState = "never" | "running" | "done";
-/**
  * One frame of the live stream.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -449,12 +456,114 @@ export type StreamFrame =
   | {
       type: "ping";
     };
+/**
+ * A Container-level kind's block color: surfaces style a block from its tone, never from a kind
+ * ID (DR-46).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Tone".
+ */
+export type Tone = "service" | "library" | "store" | "infra";
+/**
+ * Whether the workspace has been scanned.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ScanState".
+ */
+export type ScanState = "never" | "running" | "done";
 
 /**
  * What Planroom emits (the serialize view).
  */
 export interface PlanroomContractV1 {
   [k: string]: unknown;
+}
+/**
+ * `planroom.ack/v1`: `acks/<uid>`, one per viewer, which the page reads to clear its queued rows.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Ack".
+ */
+export interface Ack {
+  /**
+   * `planroom.ack/v1`.
+   */
+  format: string;
+  /**
+   * The store `seq` the import that wrote it reached.
+   */
+  imported_through: number;
+  /**
+   * Each row's outcome, by its docId.
+   */
+  rows: {
+    [k: string]: AckStatus;
+  };
+}
+/**
+ * `planroom.answer/v1`: a read request's result, under `answers/<docId>`, or a view the snapshot
+ * precomputed. Redacted, within the leaf's budget.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Answer".
+ */
+export interface Answer {
+  /**
+   * `planroom.answer/v1`.
+   */
+  format: string;
+  handle: Handle;
+  /**
+   * The store `seq` the result reflects.
+   */
+  seq: number;
+  /**
+   * The command's result, as its `--json` envelope carries it; null when it failed.
+   */
+  result: {
+    [k: string]: unknown;
+  };
+  /**
+   * Why the read failed, when it did.
+   */
+  error?: ErrorObject | null;
+}
+/**
+ * The handle that asks for this view.
+ */
+export interface Handle {
+  command: CommandName;
+  args: string[];
+  label: string;
+}
+/**
+ * A failed command's error.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ErrorObject".
+ */
+export interface ErrorObject {
+  code: ErrorCode;
+  category: Category;
+  retry: Retry;
+  /**
+   * With `later`, when the caller may try again.
+   */
+  retry_after_ms?: number | null;
+  /**
+   * One line, engine-authored.
+   */
+  message: string;
+  /**
+   * An exact command, such as `planroom show ev_01J...`.
+   */
+  hint: string | null;
+  /**
+   * Per code, documented in the registry.
+   */
+  details: {
+    [k: string]: unknown;
+  };
 }
 /**
  * The items one card applies together.
@@ -464,7 +573,7 @@ export interface PlanroomContractV1 {
  */
 export interface BatchInfo {
   count: number;
-  items: Handle[];
+  items: Handle1[];
 }
 /**
  * An exact invocation a surface can offer, such as a drill-down or the next action.
@@ -472,7 +581,7 @@ export interface BatchInfo {
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "Handle".
  */
-export interface Handle {
+export interface Handle1 {
   command: CommandName;
   args: string[];
   label: string;
@@ -654,6 +763,40 @@ export interface ServeReq {
   port: number | null;
 }
 /**
+ * `planroom share --out DIR [--include-snippets] [--include-presence]`: the canvas built for an
+ * Artifact, `DIR/data/snapshot.json` and the first `live/head`, with the publish's arguments.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ShareReq".
+ */
+export interface ShareReq {
+  /**
+   * The directory to write the bundle into, such as `.planroom/share`.
+   */
+  out: string;
+  /**
+   * Keep each evidence line's text in the snapshot (redacted); left out by default.
+   */
+  include_snippets: boolean;
+  /**
+   * Include who is working on what; left out by default.
+   */
+  include_presence: boolean;
+}
+/**
+ * `planroom import -`: Artifact inbox rows on stdin, one `ImportLine` per line, from the mod,
+ * which read them from the `ArtifactData list` result it observed (DR-52, DR-67).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ImportReq".
+ */
+export interface ImportReq {
+  /**
+   * `-`: the rows come only on stdin, never from a file.
+   */
+  source: string;
+}
+/**
  * What `schema --commands` returns: every leaf, summary first.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -694,12 +837,12 @@ export interface LeafListing {
    * `edit`, `compensate`, `query` or `not_undoable`.
    */
   undo: string;
-  schema: Handle1;
+  schema: Handle2;
 }
 /**
  * An exact invocation a surface can offer, such as a drill-down or the next action.
  */
-export interface Handle1 {
+export interface Handle2 {
   command: CommandName;
   args: string[];
   label: string;
@@ -713,6 +856,37 @@ export interface Handle1 {
 export interface Crumb {
   id: NodeId;
   name: string;
+}
+/**
+ * The writes of one `ArtifactData batch` call: at most 50, and at most 1 MiB of documents.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DbBatch".
+ */
+export interface DbBatch {
+  writes: DbWrite[];
+}
+/**
+ * One `db` write, in the shape an `ArtifactData batch` entry takes.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DbWrite".
+ */
+export interface DbWrite {
+  op: DbOp;
+  /**
+   * The collection path, such as `answers` or `inbox/u_1/events`.
+   */
+  collection: string;
+  doc_id: string;
+  /**
+   * The JSON file whose top-level object is the document, for `set` and `update`.
+   */
+  file_path?: string | null;
+  /**
+   * The version the document was read at; absent when the write creates it.
+   */
+  if_version?: number | null;
 }
 /**
  * A decision a person is asked to make.
@@ -780,7 +954,7 @@ export interface DecisionRecord {
  */
 export interface DiffLine {
   summary: string;
-  open: Handle;
+  open: Handle1;
   /**
    * Up to 5, for the first diff only.
    */
@@ -875,7 +1049,7 @@ export interface Edit {
  */
 export interface Empty {
   reason: EmptyReason;
-  next: Handle;
+  next: Handle1;
 }
 /**
  * The reply to one command.
@@ -889,39 +1063,11 @@ export interface Envelope {
   /**
    * A command name from the catalogue, its path joined with spaces.
    */
-  command: ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve") | string;
+  command:
+    ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve" | "share" | "import") | string;
   result?: unknown;
   error?: ErrorObject | null;
   meta: Meta;
-}
-/**
- * A failed command's error.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "ErrorObject".
- */
-export interface ErrorObject {
-  code: ErrorCode;
-  category: Category;
-  retry: Retry;
-  /**
-   * With `later`, when the caller may try again.
-   */
-  retry_after_ms?: number | null;
-  /**
-   * One line, engine-authored.
-   */
-  message: string;
-  /**
-   * An exact command, such as `planroom show ev_01J...`.
-   */
-  hint: string | null;
-  /**
-   * Per code, documented in the registry.
-   */
-  details: {
-    [k: string]: unknown;
-  };
 }
 /**
  * What every reply carries besides its result. Every field but `seq` and `size` is left out when
@@ -1234,6 +1380,141 @@ export interface HandoffStep1 {
   note: string | null;
 }
 /**
+ * One line of `import -`'s stdin: an inbox row from the observed `ArtifactData list` result,
+ * with its path, which names the author, and its document version, which the delete pins. A line
+ * with no `row` gives the version of a document the session wrote before (`live/head`,
+ * `acks/<uid>`), so the next write to it can pin that version.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ImportLine".
+ */
+export interface ImportLine {
+  /**
+   * `inbox/<uid>/events/<docId>`, or `live/head` or `acks/<uid>` for a version line.
+   */
+  path: string;
+  /**
+   * The row as the list result showed it; validated as an `InboxRow`.
+   */
+  row: {
+    [k: string]: unknown;
+  };
+  /**
+   * The document's version as the list result showed it.
+   */
+  version: number | null;
+}
+/**
+ * What `import -` returns: each row's outcome and the `db` batches the session writes, each with
+ * one `ArtifactData batch` call, in order; `live/head` is the last write of the last batch.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ImportResult".
+ */
+export interface ImportResult {
+  summary: string;
+  /**
+   * Whether a person's token came with the rows.
+   */
+  person: boolean;
+  rows: ImportedRow[];
+  batches: DbBatch[];
+}
+/**
+ * What `import` did with one stdin line.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ImportedRow".
+ */
+export interface ImportedRow {
+  path: string;
+  command: CommandName | null;
+  /**
+   * Its ack; none when the row stays in the inbox for a person's sync.
+   */
+  status: AckStatus | null;
+  /**
+   * One engine-authored line when the row wasn't imported.
+   */
+  reason: string | null;
+}
+/**
+ * `inbox/<uid>`: the viewer's own head, which the page bumps after each row, so the session can
+ * list who wrote.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "InboxHead".
+ */
+export interface InboxHead {
+  /**
+   * The page's last row counter.
+   */
+  seq: number;
+  updated_at: Timestamp;
+  /**
+   * Each Ask Claude call and the model the platform applied, for the ledger.
+   */
+  sample: SampleUse[];
+}
+/**
+ * One Ask Claude call the page made.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "SampleUse".
+ */
+export interface SampleUse {
+  at: Timestamp;
+  prompt_chars: number;
+  response_chars: number;
+  model: string;
+}
+/**
+ * `planroom.inbox/v1`: one row a viewer's page writes to `inbox/{self}/events/{docId}`. Import
+ * validates it, and takes the author from the path, never from the body: a field the row doesn't
+ * define, such as a forged `actor`, is ignored.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "InboxRow".
+ */
+export interface InboxRow {
+  /**
+   * `planroom.inbox/v1`.
+   */
+  format: string;
+  /**
+   * Minted by the page on each load: with the uid, the writer instance.
+   */
+  instance: string;
+  /**
+   * Per instance, monotonic; import applies rows in `(instance, counter)` order.
+   */
+  counter: number;
+  /**
+   * A command name from the catalogue, its path joined with spaces.
+   */
+  command:
+    ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve" | "share" | "import") | string;
+  /**
+   * That command's request JSON.
+   */
+  request: {
+    [k: string]: unknown;
+  };
+  /**
+   * The snapshot or live-head `seq` the viewer saw.
+   */
+  base: number;
+  at: Timestamp;
+  /**
+   * `sample` when the row came from Ask Claude.
+   */
+  source?: string | null;
+  /**
+   * A paired device's HMAC-SHA256 over the docId and the row without its `sig` (DR-67).
+   */
+  sig?: string | null;
+}
+/**
  * Where a view's layout is cached: the view and the hash of its structure.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -1312,6 +1593,39 @@ export interface LiftedEdge {
    */
   evidence_sample: Evidence[];
   children: EdgeId[];
+}
+/**
+ * `planroom.live-head/v1`: the small `db` document `live/head` the session writes last in each
+ * sync batch; at most 256 KiB.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "LiveHead".
+ */
+export interface LiveHead {
+  /**
+   * `planroom.live-head/v1`.
+   */
+  format: string;
+  /**
+   * The store `seq` this head reflects.
+   */
+  seq: number;
+  /**
+   * The `seq` of the published snapshot it extends.
+   */
+  snapshot_seq: number;
+  /**
+   * The top open cards.
+   */
+  cards: DecisionCard[];
+  /**
+   * The change frames since the snapshot, newest last.
+   */
+  changes: StreamFrame[];
+  /**
+   * Engine-authored lines for the conflicts the last import found.
+   */
+  conflicts: string[];
 }
 /**
  * One block on the map.
@@ -1421,7 +1735,7 @@ export interface PaneModel {
   diffs: DiffLine[];
   drift: DriftLine;
   who: PresenceRow[];
-  next: Handle2;
+  next: Handle3;
   minimap: MiniMap;
   empty: Empty | null;
 }
@@ -1454,7 +1768,7 @@ export interface PresenceRow {
 /**
  * An exact invocation a surface can offer, such as a drill-down or the next action.
  */
-export interface Handle2 {
+export interface Handle3 {
   command: CommandName;
   args: string[];
   label: string;
@@ -1480,6 +1794,36 @@ export interface PersonKey {
   rekeyed: boolean;
 }
 /**
+ * The exact arguments of the Artifact publish the session makes.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PublishArgs".
+ */
+export interface PublishArgs {
+  /**
+   * The page fragment.
+   */
+  file_path: string;
+  /**
+   * Each published path and the file it comes from.
+   */
+  files: {
+    [k: string]: string;
+  };
+  /**
+   * The page's capabilities: `db` with its access rules, and `user`.
+   */
+  capabilities: {
+    [k: string]: unknown;
+  };
+  title: string;
+  description: string;
+  /**
+   * On the first publish.
+   */
+  icon: string;
+}
+/**
  * What `scan` returns: the map at the top level with the default lens, and the next action.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -1487,7 +1831,7 @@ export interface PersonKey {
  */
 export interface ScanResult {
   map: MapView;
-  next: Handle;
+  next: Handle1;
 }
 /**
  * What `schema` returns: the schema's ID and version, and handles to read further.
@@ -1502,7 +1846,7 @@ export interface SchemaSummary {
    */
   id: string;
   schema_version: number;
-  handles: Handle[];
+  handles: Handle1[];
 }
 /**
  * What `serve` returns once it listens.
@@ -1544,6 +1888,95 @@ export interface SessionReq {
  */
 export interface SessionToken {
   token: string;
+}
+/**
+ * What `share` returns: the publish to make, the `db` writes that seed `live/head`, and what the
+ * snapshot holds.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ShareResult".
+ */
+export interface ShareResult {
+  /**
+   * What will be shared, from the snapshot's sections; the first publish shows it.
+   */
+  summary: string;
+  publish: PublishArgs;
+  /**
+   * The `db` writes to make after the publish, `live/head` last.
+   */
+  db: DbBatch[];
+  files: SharedFile[];
+  /**
+   * What the snapshot holds, as `Snapshot.capabilities` names it.
+   */
+  holds: string[];
+}
+/**
+ * One file `share` wrote, with its size.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "SharedFile".
+ */
+export interface SharedFile {
+  /**
+   * The published path, such as `assets/main.js` or `data/snapshot.json`; the page itself is
+   * `page.html`.
+   */
+  path: string;
+  bytes: number;
+}
+/**
+ * `planroom.snapshot/v1`: what the Artifact page draws with no engine, published as
+ * `data/snapshot.json`. It passes `kernel::redact`, and holds no evidence `contains` unless
+ * `share --include-snippets`, and no presence unless `share --include-presence`.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Snapshot".
+ */
+export interface Snapshot {
+  /**
+   * `planroom.snapshot/v1`.
+   */
+  format: string;
+  workspace_id: string;
+  /**
+   * The store `seq` the snapshot reflects.
+   */
+  seq: number;
+  published_at: Timestamp;
+  /**
+   * Whether evidence keeps its `contains` text; false by default.
+   */
+  snippets: boolean;
+  /**
+   * The maps it holds, each with its layout positions when one is cached; the page asks for
+   * any other as a read request.
+   */
+  maps: MapView[];
+  cards: DecisionCard[];
+  /**
+   * None unless `share --include-presence`.
+   */
+  who: PresenceRow[] | null;
+  pane: PaneModel;
+  /**
+   * Precomputed views, keyed by the handle that asks for each.
+   */
+  answers: Answer[];
+  /**
+   * The views and queries this snapshot serves: `map:<level>:<lens>` for each map it holds,
+   * `pane`, and `answers`.
+   */
+  capabilities: string[];
+  unavailable: Empty1;
+}
+/**
+ * Why a list or view is empty, and what to do next; no surface shows a blank state.
+ */
+export interface Empty1 {
+  reason: EmptyReason;
+  next: Handle1;
 }
 /**
  * What `version` returns; the mod and the resolver match an engine by its catalogue hash.

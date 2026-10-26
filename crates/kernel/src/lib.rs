@@ -2,4 +2,5 @@
 
 pub mod facts;
 pub mod keys;
+pub mod redact;
 pub mod tree;
