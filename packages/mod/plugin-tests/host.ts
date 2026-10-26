@@ -168,6 +168,8 @@ export function host(
     store?: Record<string, unknown>;
     /** The script of the nth child `watch` starts; left out, each refuses with `NO_STORE`. */
     watch?: (nth: number) => Piece[];
+    /** Symbolic links: where `fs.stat` says each path lands; any other path is itself. */
+    links?: Record<string, string>;
   } = {},
 ): Host {
   const clock = mock.clock(on, { now: 1_800_000_000_000 });
@@ -199,6 +201,18 @@ export function host(
         stderr: a.stderr ?? "",
         isStdoutTruncated: false,
         isStderrTruncated: false,
+      },
+    };
+  });
+  on("fs.stat", (_$, e) => {
+    const realPath = options.links?.[e.path] ?? e.path;
+    return {
+      value: {
+        kind: "file" as const,
+        size: 0,
+        mtimeMs: 0,
+        isLink: realPath !== e.path,
+        ...(e.resolve ? { realPath } : {}),
       },
     };
   });
