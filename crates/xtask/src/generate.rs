@@ -7,6 +7,7 @@ pub use planroom_contract::schema::GENERATED_HEADER;
 use planroom_contract::schema::{self, View};
 
 use crate::boundaries;
+use crate::plugin;
 use crate::util;
 
 /// One generated file: its path from the repo root and its bytes.
@@ -23,7 +24,7 @@ pub struct Group {
 
 /// Every generated file, grouped by drift check.
 pub fn all(root: &Path) -> Vec<Result<Group, String>> {
-    vec![schemas(), typescript(root), dependency_cruiser(root)]
+    vec![schemas(), typescript(root), dependency_cruiser(root), engine_env(root)]
 }
 
 fn schemas() -> Result<Group, String> {
@@ -68,6 +69,17 @@ fn dependency_cruiser(root: &Path) -> Result<Group, String> {
     Ok(Group {
         name: ".dependency-cruiser.cjs",
         files: vec![Generated { path: ".dependency-cruiser.cjs".into(), contents }],
+    })
+}
+
+/// `plugin/scripts/engine.env`: the engine version the resolver fetches and the repo it comes from.
+fn engine_env(root: &Path) -> Result<Group, String> {
+    let version = plugin::workspace_version(root)?;
+    let repo = plugin::workspace_repo(root)?;
+    let contents = format!("# {GENERATED_HEADER}\nPLANROOM_ENGINE_VERSION={version}\nPLANROOM_REPO={repo}\n");
+    Ok(Group {
+        name: "plugin/scripts/engine.env",
+        files: vec![Generated { path: "plugin/scripts/engine.env".into(), contents }],
     })
 }
 

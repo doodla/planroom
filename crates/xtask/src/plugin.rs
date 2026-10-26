@@ -83,6 +83,13 @@ pub fn layout_problems(root: &Path) -> Result<Vec<String>, String> {
         }
     }
 
+    let resolver = plugin.join("scripts/planroom");
+    match fs::metadata(&resolver) {
+        Ok(meta) if std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o111 != 0 => {}
+        Ok(_) => problems.push("plugin/scripts/planroom is not executable".into()),
+        Err(_) => problems.push("plugin/scripts/planroom is missing".into()),
+    }
+
     let market = read_json(&root.join(".claude-plugin/marketplace.json"))?;
     let entries = market["plugins"].as_array().cloned().unwrap_or_default();
     match entries.as_slice() {
@@ -135,14 +142,26 @@ pub fn layout_problems(root: &Path) -> Result<Vec<String>, String> {
 
 /// `[workspace.package] version` from the root `Cargo.toml`.
 pub fn workspace_version(root: &Path) -> Result<String, String> {
+    workspace_package(root, "version")
+}
+
+/// `owner/repo` from `[workspace.package] repository`, a GitHub URL.
+pub fn workspace_repo(root: &Path) -> Result<String, String> {
+    let url = workspace_package(root, "repository")?;
+    url.strip_prefix("https://github.com/")
+        .map(|r| r.trim_end_matches('/').to_owned())
+        .ok_or_else(|| format!("Cargo.toml: repository {url} is not a https://github.com/ URL"))
+}
+
+fn workspace_package(root: &Path, key: &str) -> Result<String, String> {
     let text = fs::read_to_string(root.join("Cargo.toml")).map_err(|e| format!("Cargo.toml: {e}"))?;
     let doc: toml::Table = toml::from_str(&text).map_err(|e| format!("Cargo.toml: {e}"))?;
     doc.get("workspace")
         .and_then(|w| w.get("package"))
-        .and_then(|p| p.get("version"))
+        .and_then(|p| p.get(key))
         .and_then(|v| v.as_str())
         .map(str::to_owned)
-        .ok_or_else(|| "Cargo.toml has no [workspace.package] version".into())
+        .ok_or_else(|| format!("Cargo.toml has no [workspace.package] {key}"))
 }
 
 fn read_json(path: &Path) -> Result<Value, String> {

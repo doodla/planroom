@@ -101,17 +101,23 @@ jobs:
     steps:
       - run: cargo xtask e2e
 
-  # TODO: tests/installer/ doesn't exist yet (the resolver arrives in WS5). Remove `if: false` then,
-  # and add the ShellCheck and BusyBox steps (repo-layout.md "CI workflows").
+  # TODO: add the sha256-pinned ShellCheck and BusyBox downloads to xtask (repo-layout.md
+  # "Toolchain pins"); until then `cargo xtask test --installer` skips both where they're missing.
   installer:
     name: installer (${{ matrix.os }})
-    if: false
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
-      - run: sh tests/installer/run.sh
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo xtask test --installer
 
   # TODO: `cargo xtask release-dry-run` doesn't exist yet. Remove `if: false` then.
   release-dry-run:

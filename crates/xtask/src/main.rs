@@ -19,6 +19,7 @@ usage: cargo xtask <command>
   check boundaries [--self-test]
                               the boundary rules alone, or with the planted crossings
   test [-p CRATE]             the Rust tests (nextest when installed) and vitest
+  test --installer            ShellCheck and BusyBox sh when installed, then tests/installer/run.sh
   gen                         write every generated file";
 
 fn main() -> ExitCode {
@@ -32,6 +33,7 @@ fn main() -> ExitCode {
         ["check", "boundaries", "--self-test"] => boundary_checks(&root, &mut report, true),
         ["test"] => test(&root, &mut report, None),
         ["test", "-p", krate] => test(&root, &mut report, Some(krate)),
+        ["test", "--installer"] => installer(&root, &mut report),
         ["gen"] => match generate::write_all(&root) {
             Ok(written) => {
                 written.iter().for_each(|p| println!("wrote {p}"));
@@ -259,5 +261,44 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>) {
             r.tool(root, "vitest run", "pnpm", &["exec", "vitest", "run"], "fix the failing tests above")
         }
         None => r.failed("vitest run", "node_modules is missing", PNPM_FIX),
+    }
+}
+
+/// The resolver's offline suite: ShellCheck and BusyBox `sh` where they're installed, then
+/// `tests/installer/run.sh` under the system `sh`, after a debug build of the engine for its
+/// checkout test.
+fn installer(root: &Path, r: &mut Report) {
+    let scripts = ["plugin/scripts/planroom", "tests/installer/run.sh"];
+    if util::available("shellcheck", &["--version"]) {
+        let mut args = vec!["--shell=sh", "--severity=style"];
+        args.extend(scripts);
+        r.tool(root, "shellcheck", "shellcheck", &args, "fix the findings above");
+    } else {
+        r.skipped("shellcheck", "shellcheck is not installed");
+    }
+    r.tool(
+        root,
+        "cargo build -p planroom",
+        "cargo",
+        &["build", "--locked", "-p", "planroom"],
+        "fix the build",
+    );
+    r.tool(
+        root,
+        "tests/installer/run.sh (sh)",
+        "sh",
+        &["tests/installer/run.sh"],
+        "fix the failing tests above",
+    );
+    if util::available("busybox", &["true"]) {
+        r.tool(
+            root,
+            "tests/installer/run.sh (busybox sh)",
+            "busybox",
+            &["sh", "tests/installer/run.sh"],
+            "fix the failing tests above",
+        );
+    } else {
+        r.skipped("tests/installer/run.sh (busybox sh)", "busybox is not installed");
     }
 }
