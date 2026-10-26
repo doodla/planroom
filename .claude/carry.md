@@ -3,9 +3,11 @@
 Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `ccr-b124f0e3-xnzjca`; push with `git push -u origin ccr-b124f0e3-xnzjca`.
 
 ## Where I am
-- Phases 1-3 DONE (research, architecture, 3 review rounds; accepted risks in docs/contributing/research/arch-review/round-3/accepted-risk.md). Estimate 376 h.
-- Phase 4 walking skeleton: WS1-WS4 + PLUGIN shell merged. Running: wf_fb2eb3a8-670 (track/engine-2: version/focus/person tokens/serve/map graph; track/canvas: ui tokens + canvas app + e2e screenshots) and wf_c5faf8db-e42 (track/mod-2: mod<->engine wiring; docs DR-81 fold of build feedback, edits docs in main tree).
-- Merge order: engine-2 -> canvas -> mod-2 (each: verify xtask check/test myself, resolve, push). Then WS7 Artifact round trip in MAIN session (share/publish/import), WS8 install test (claude plugin marketplace add/install in temp HOME), then skeleton review + update architecture with findings, then M1.
+- Phases 1-3 DONE. Estimate 376 h.
+- Phase 4 skeleton: WS1-WS4, PLUGIN, ENGINE-2, CANVAS, MOD-2 merged + pushed; DR-82 written (token wire format etc.). Token seam bug fixed in mod (secs, args keep --idem/--base).
+- Running: wf_e5bfa8c0-f14 (track/watch: watch --json + real watch-frames golden; track/real-serve: canvas e2e vs real serve, Origin/CSP/routes). On finish: verify each myself (check/test/e2e), merge, delete worktree target/ dirs (disk!), append server seams to DR-82, push.
+- Next round (2 agents): GATES (boundaries.toml to repo-layout spec: third_party, external_allow, network allow-list; check layout + gen --layout-lock + first lock naming DR-79; CI --commits) and REMOTE (engine share + import -, canvas transport/artifact.ts + Artifact build). Then WS7 publish/round trip in MAIN session (A-13), WS8 install in temp HOME + spikes (spike mod now has store/env/version probes: call spike_probe what=store|env|version for A-15/A-14/A-19), skeleton review, architecture update, M1.
+- CI e2e job is red until REAL-SERVE merges.
 
 ## Gotchas
 - 4 CPUs -> workflow concurrency is 2. Prefer few, larger agents.
