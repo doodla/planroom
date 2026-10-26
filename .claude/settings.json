@@ -25,5 +25,13 @@
         ]
       }
     ]
+  },
+  "claudeMdExcludes": [
+    "**/examples/fixture/**/CLAUDE.md"
+  ],
+  "permissions": {
+    "deny": [
+      "Skill(run-worker-tests)"
+    ]
   }
 }

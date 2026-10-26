@@ -54,11 +54,19 @@ The sandbox is a session setting. An agent definition (`AgentSpec` in the 2.1.31
 
 `$.session.version()` answers the engine's `version`, its `base` release and its `builtAt` build time, in every mode and build. A live call from the spike mod follows with the `$.store` spike below.
 
+## The fixture's agent files [A-16] [V]
+
+Headless haiku sessions in this repository, with and without `--settings` carrying the two entries now in `.claude/settings.json`:
+
+- Without `claudeMdExcludes`, reading `examples/fixture/repos/worker/05-tests/tree/pyproject.toml` brought that directory's `CLAUDE.md` into context: the model quoted its first bullet exactly. With `claudeMdExcludes: ["**/examples/fixture/**/CLAUDE.md"]`, nothing arrived.
+- A session at the repository root isn't offered the fixture's `run-worker-tests` skill. A session whose working directory is `examples/fixture/repos/worker/07-run-tests-skill/tree` is, and without a rule the Skill tool loaded it. With `permissions.deny: ["Skill(run-worker-tests)"]` the call was refused: "Skill execution blocked by permission rules".
+
+So both guards hold, and the `examples/` area contract's rule stays as the second line.
+
 ## Still open in WS8
 
 - A-15: where the mod's `$.store` lands on disk. The spike mod now has a `store` probe, which runs once the mod reloads.
 - A-14: the mod's plugin root and its children's environment, through the spike's `env` probe.
-- A-16: `claudeMdExcludes` over the fixture's agent files.
 - A-21: the git adapter's tests on git 2.34.1, in a CI job with that git.
 - A-23: `/plugin update` at an unchanged `-dev` version, against a later push to the branch the `git-subdir` test installed from.
 - The live-mod spikes: `tool.check` seeing a spawned agent's `agentId`, `$.tool.call` on `ArtifactData` from a press, and `comments.sendToClaude` waking the session's watch.
