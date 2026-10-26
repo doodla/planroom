@@ -1,0 +1,205 @@
+{
+ "lens": "operability",
+ "review": {
+  "summary": "Lens: operability and release, round 2, on commit 30898ce (HEAD is 3156a41, which only adds a carry note).\n\nRound-1 material findings in this lens:\n- **ops-2: holds in part.** `build_canvas` (plugin/scripts/planroom:362-372) runs `pnpm install --frozen-lockfile` and then `cargo xtask gen --canvas` before `cargo build`. It does this in the checkout (:380) and in the clone (:397). The clone is removed once the cache holds the engine (:410). The installer suite has a_checkout_build_builds_the_canvas_first, a_build_without_node_has_no_canvas and a_clone_build_is_cached_and_its_clone_removed (tests/installer/run.sh:383-415). `gen --canvas` exists (crates/xtask/src/main.rs:93), and build.rs embeds target/canvas. So when Node and pnpm are present at build time, the loop is gone. Two cases are still dead ends: no Node at the first build, and a canvas build that fails. See ops-r2-4.\n- **ops-3: holds.** README.md and plugin/README.md both give `/plugin marketplace add doodla/planroom` followed by `/plugin install planroom@planroom`. Outside KICKOFF, its snapshot, a research note and stale .claude/worktrees copies, no shipped doc still has `--marketplace`. The README now says the source build applies until the first release. That forward-looking sentence is wrong under the current design (ops-r2-1).\n- ops-1, ops-4 and ops-5 were downgraded to minor in round 1 and stay known gaps. ops-5 got worse (ops-r2-5).\n- repo-1 (PLUGIN `24c6bac`) is outside this lens. I didn't run `cargo xtask check`, so its `not built` lines are unverified here.\n\nWhat I verified by running target/debug/planroom and the resolver on temporary copies:\n- `serve --detach` binds, forks, calls setsid and writes serve.json at 0600. The log is at DATA_ROOT/logs/<id>/serve.log (0600), and the canvas is embedded (GET / returns 200 with index.html).\n- SIGTERM removes serve.json.\n- A second `serve` gets port_in_use (known gap ux-5/ops-6).\n- After I bumped the store's `user_version`, a running `serve` died within one poll and logged \"the live loop stopped\". `watch` printed a ping, then one schema_mismatch envelope, and exited 7. Both match DR-78. The serve exit leaves serve.json behind with a dead pid.\n- The resolver's envelopes have a correct `size.bytes` under dash, and a wrong one under bash with a non-ASCII path (ops-r2-6).\n- The plugin.json stamp `0.1.0-dev.g75664b73` matches a fresh recomputation of plugin_hash.\n\nStill known gaps and no worse: release.yml, release-dry-run (`if: false`), gen --version, CHANGELOG, check-tag-version.sh and SECURITY.md don't exist; package.json versions still say 0.1.0 (ops-7, scheduled M5); the cache key ignores the catalogue hash (ops-1, scheduled M1); the data root is created at 0755 (ops-11); there is no build lock or detach (ops-5); the checkout test has no plugins-dir exclusion (ops-9). A release can't be cut from this tree.\n\nAssumed rather than verified (each is flagged in its finding):\n- Platform facts: the macOS cc/git shims, PATH not refreshing after rustup, and how /plugin update compares versions.\n- Build durations. Nothing in docs/evidence measures them.\n\nProcess note, for whoever reran nearby tests: the scratchpad's r2 to r5 directories were shared with other reviewers. My first command ran `rm -rf ws data` inside scratchpad/r2, which may have deleted another agent's r2/ws and r2/data. My scans from r4/ws and r5/ws climbed up to another agent's fixture `.planroom/` and appended a scan to those stores. I removed everything I created and moved to a unique directory (opsrev2.*). No repository file was written.",
+  "findings": [
+   {
+    "id": "ops-r2-1",
+    "title": "The README's install line reads main's marketplace.json, so after a release it still installs main's -dev plugin; the design has no file for the 'published' git-subdir entry",
+    "severity": "material",
+    "where": [
+     "README.md:7-10",
+     "plugin/README.md:13",
+     "/.claude-plugin/marketplace.json",
+     "docs/contributing/architecture.md:1480",
+     "docs/contributing/architecture.md:1514",
+     "docs/contributing/architecture.md (Owner checklist step 6)"
+    ],
+    "evidence": "VERIFIED by reading. README.md and plugin/README.md tell users to run `/plugin marketplace add doodla/planroom`, which reads `.claude-plugin/marketplace.json` from the default branch. That file has one entry, `\"source\": \"./plugin\"`, and architecture.md:1480 says `main`'s marketplace.json keeps `./plugin` for S14's local-path flow. The same paragraph says the README line 'never names main' and that 'the published marketplace entry is a git-subdir source ... with a ref that names the release tag'. No file or ref holds that entry, and none can while the one marketplace.json on main must stay `./plugin`. `gen --version writes that line into the README` names no line form that would read anything but main's marketplace.json. plugin/README.md:13 promises 'From the first release on, it fetches the engine for your platform instead'. With this design, a user who follows the README after v0.1.0 installs main's `X.Y.(Z+1)-dev` plugin (owner checklist step 7). The resolver then skips the download for a -dev version (plugin/scripts/planroom:471-473) and offers a source build. The 'Upgrade Planroom' text (architecture.md:1514) has the same problem. WS8 verified a git-subdir entry and a local-directory marketplace, never `/plugin marketplace add owner/repo` against this repo's own marketplace.json (ws8-install.md).",
+    "why": "KICKOFF's packaging constraint says the engine 'is fetched on first use from a GitHub release, checksum-verified'. R15 and S14 require a releasable v0.1. A release cut from this design would put every user who follows the documented install line on main's -dev engine, which builds from source, and the README's own promise would be false. DR-78's 'never main' rule has no mechanism behind it.",
+    "fix": "Decide and record where the release entry lives. Options: a `release` branch whose marketplace.json has the git-subdir entry with the tag's `ref`, which `gen --version` updates and the README names; or a README line that pins the marketplace to the tag, if the host supports a ref on `marketplace add`. Verify that line live in an isolated HOME, as WS8 did. Until then, drop 'From the first release on, it fetches the engine' from plugin/README.md, or qualify it."
+   },
+   {
+    "id": "ops-r2-2",
+    "title": "architecture.md says a clone build whose catalogue hash isn't the plugin's keeps no binary; the resolver compares only the version",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:399-407",
+     "docs/contributing/architecture.md:1498"
+    ],
+    "evidence": "VERIFIED by reading. architecture.md:1498, edited in the DR-85 fold, says: 'A build from main whose catalogue hash isn't the plugin's keeps no binary and says \"This plugin is older than main...\"'. The known-gap sentence just before it lists only the missing-tag build and the hashless clone path. build() checks only `[ \"$(engine_version \"$built\")\" != \"$version\" ]` (:400). `engine_catalogue` is used only in the checkout step (:441). Every main commit reports `0.1.0-dev`, so a clone of a newer main with a different catalogue is cached under the plugin's key (:404-407). The mod would then run tools against an engine with a different command catalogue. The hint names only `/plugin marketplace update planroom`, while the upgrade steps (architecture.md:1514) also need `/plugin update planroom@planroom`.",
+    "why": "The docs describe a guard as built that doesn't exist, in the same paragraph that names the known gaps. It's related to ops-1 (minor, M1), but this sentence claims otherwise.",
+    "fix": "In build(), compare `engine_catalogue \"$built\"` with `$catalogue`, keep no binary on a mismatch and exit with the message. Add `/plugin update planroom@planroom` to the hint. Or list this check as a known gap in architecture.md:1498."
+   },
+   {
+    "id": "ops-r2-3",
+    "title": "The source build hard-codes target/release, so a CARGO_TARGET_DIR or build.target-dir setting makes a successful build look like a failure or a version mismatch",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:382",
+     "plugin/scripts/planroom:398-401",
+     "plugin/scripts/planroom:438"
+    ],
+    "evidence": "VERIFIED by reading. The checkout build runs `cargo build --release --locked -p planroom` and exits 0 (:382-383). Resolution then looks only at `$checkout/target/release/planroom` and `target/debug/planroom` (:438). The clone build reads `built=\"$src/target/release/planroom\"` (:399). With a global CARGO_TARGET_DIR, or `build.target-dir` in ~/.cargo/config.toml, cargo writes the binary elsewhere. In a checkout, the pane's build succeeds and the next resolve offers the build again, a loop. In a clone, `engine_version` of a missing file is empty, so a full multi-minute build ends with 'This plugin is older than main', which is wrong. The canvas side is unaffected, because xtask writes `<root>/target/canvas` and build.rs reads `manifest/../../target/canvas`.",
+    "why": "A developer's machine often carries one of these settings. The source build is the only engine path for every user today, and this failure gives a wrong diagnosis.",
+    "fix": "Run both builds with `CARGO_TARGET_DIR=\"$dir/target\"` (or `--target-dir`), so the binary lands where the resolver looks."
+   },
+   {
+    "id": "ops-r2-4",
+    "title": "ops-2's residual: an engine built without a canvas leaves no reachable way to rebuild, and a failed canvas build is never shown",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/text/en.toml:121",
+     "plugin/scripts/planroom:362-372",
+     "packages/mod/src/register.tsx:226-252",
+     "packages/mod/src/engine.ts:127-141",
+     "plugin/skills/planroom/SKILL.md (How to reach it)"
+    ],
+    "evidence": "VERIFIED by reading. Without Node and pnpm, or when `pnpm install` or `vite build` fails, build_canvas prints one stderr line and the engine is cached without a canvas. On exit 0 the mod's build press discards stderr and starts the engine (register.tsx:239-252), so the person never sees the line. The offer had said `details.canvas: true`. The canvas fix page then says 'Install Node 22 and pnpm, then run scripts/planroom build' (en.toml:121). That path is relative to a plugin cache directory the person doesn't know. Once the cache holds an engine, the resolver resolves from it (:464-469), so the pane never offers a build again. The umbrella skill tells Claude never to start a build. When Node and pnpm are present but the canvas build failed, the same text names the wrong cause.",
+    "why": "The round-1 loop is now a dead end for the no-Node-at-first-build case. The canvas is a tier A surface, and the remedy it shows can't be followed from the pane, the canvas or Claude.",
+    "fix": "Have the resolver write a `no_canvas` marker beside the cached engine and print a final line the mod surfaces on success. Let the mod offer 'Rebuild with the canvas' when `version --json` reports no embedded canvas. Have the engine's fix text name the resolver's absolute path, or `/room rebuild`."
+   },
+   {
+    "id": "ops-r2-5",
+    "title": "The canvas step makes the attached source build longer, still under the mod's 10-minute cap, and the '4 minutes' estimate is unmeasured",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:352-353",
+     "plugin/scripts/planroom:368-369",
+     "packages/mod/src/register.tsx:235-239",
+     "plugin/README.md:13",
+     "pnpm-workspace.yaml"
+    ],
+    "evidence": "VERIFIED by reading: the ops-2 fix runs `pnpm install --frozen-lockfile` for the whole workspace. That covers packages/* and tests/e2e: eslint, dependency-cruiser, vitest, typescript, @playwright/test. node_modules is 178 MB in this checkout (`du -sh node_modules`). It then compiles xtask and runs `vite build`, all before the release build. The mod still runs `[resolver, \"build\"]` attached, with `600_000` ms. The offer still says `est_minutes: 4`, and plugin/README.md says 'about 4 minutes'. docs/evidence holds no build timing (`ls docs/evidence`: only s15/ and spend.jsonl). ASSUMED, not measured: on a cold machine, the rustup install of 1.97.0 plus four targets, the full dev install and a release build can pass 10 minutes. The retry starts over (`rm -rf \"$src\"`, :393).",
+    "why": "This is the known gap ops-5, made worse by a fix. If the cap is hit, S14's source-build path (tier A) fails, and each retry throws the work away.",
+    "fix": "Install only what the canvas needs (`pnpm install --frozen-lockfile --filter @planroom/canvas...`). Time a cold build on both OSes, record the time in docs/evidence, and set est_minutes from it. Raise the mod's timeout, or land `build --detach` sooner."
+   },
+   {
+    "id": "ops-r2-6",
+    "title": "The resolver's envelope meta.size.bytes counts characters under bash, so it's wrong for a non-ASCII path, as on macOS, whose /bin/sh is bash",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:55-67"
+    ],
+    "evidence": "VERIFIED. I copied plugin/ to a directory named `jos\u00e9` and ran `scripts/planroom version --json` with LC_ALL=C.UTF-8. Under dash: actual 775 bytes, claimed 775. Under bash: actual 775 bytes, claimed 772. envelope_error uses `${#doc}`, which bash counts in characters in a UTF-8 locale. resolver_outputs_are_one_document_with_their_size uses only ASCII paths, so it passes.",
+    "why": "`meta.size.bytes` is a public contract field, and the resolver breaks it on the default shell of one of the two supported OSes for any user whose home or plugin path isn't ASCII.",
+    "fix": "Measure the length in bytes: `LC_ALL=C` around the `${#doc}` loop, or `printf '%s' \"$doc\" | wc -c`. Add a non-ASCII path to the size test."
+   },
+   {
+    "id": "ops-r2-7",
+    "title": "The preflight can pass on a clean macOS, and it never checks git or the cargo that rustup just installed",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:317-347",
+     "plugin/scripts/planroom:395"
+    ],
+    "evidence": "VERIFIED by reading: the C-compiler check is `command -v cc || gcc || clang` (:333-334). git is never checked, though the clone build needs it (:389, :395). cargo is found only on PATH (:318), and the fix tells the person to install rustup. ASSUMED from platform knowledge, not run here: a clean macOS has /usr/bin/cc and /usr/bin/git as xcode-select shims, so the check passes and the `xcode-select --install` fix (:336) never shows. The build then fails at `git clone`, or at link time, with 'xcrun: error: invalid active developer path'. Also assumed: after a person installs rustup, the running Claude Code's PATH lacks ~/.cargo/bin, so the card keeps saying cargo is missing until a restart that nothing mentions.",
+    "why": "This is the lens's 'first user on a clean macOS' question. The design (architecture.md, The source build) promises a preflight that never deals a card for a build that will fail.",
+    "fix": "On Darwin, check `xcode-select -p >/dev/null 2>&1`. Check `git`. Fall back to `$HOME/.cargo/bin/cargo`, or say 'restart Claude Code after installing rustup'."
+   },
+   {
+    "id": "ops-r2-8",
+    "title": "The -dev version stamp was never checked against how /plugin update orders versions",
+    "severity": "minor",
+    "where": [
+     "crates/xtask/src/plugin.rs:204-215",
+     "docs/contributing/research/ws8-install.md (A-23)",
+     "docs/contributing/architecture.md:1479"
+    ],
+    "evidence": "VERIFIED: WS8 observed only that an unchanged version string blocks an update. The `X.Y.Z-dev.g<8 hex>` fallback was adopted with no live run that updates from one stamp to another (ws8-install.md, A-23; DR-83). ASSUMED: if the host updates only when the new version is greater by semver, then 'g'-prefixed hex identifiers compare in arbitrary order (`0.1.0-dev.gffff\u2026` > `0.1.0-dev.g1234\u2026`), so about half of main's commits would look like downgrades and be skipped.",
+    "why": "Every marketplace user today is on -dev. If the assumption holds, /plugin update silently leaves them on old skills, a stale resolver and a stale mod.",
+    "fix": "Run the A-23 check live: install at one stamp, push a change whose stamp sorts lower, then run marketplace update and plugin update. If ordering matters, use a monotonic identifier such as a commit count or a timestamp, followed by the hash."
+   },
+   {
+    "id": "ops-r2-9",
+    "title": "plugin/README.md doesn't name the tested Claude Code version that DR-76 and R-13 rely on",
+    "severity": "minor",
+    "where": [
+     "plugin/README.md",
+     "docs/contributing/decisions.md (DR-76)",
+     "docs/contributing/architecture.md:1690",
+     "docs/contributing/traceability.md:60"
+    ],
+    "evidence": "VERIFIED: plugin/README.md, rewritten in 24c6bac, says nothing about a Claude Code version. DR-76 says '`plugin/README.md` names the tested version'. Risk R-13's mitigation and traceability's S14 row ('the tested Claude Code version in plugin/README.md [DR-76]') rely on it. The mod has no host check yet (grep for session.version or 2.1.310 in packages/mod/src finds only a comment in actor.ts). The host check is scheduled, so for now the README line is a user's only signal.",
+    "why": "The mod API is early access and users run an auto-updating host. The user-facing file has nothing to compare against when the pane stops loading.",
+    "fix": "Add one line: 'Tested with Claude Code 2.1.310; mods are early access.'"
+   },
+   {
+    "id": "ops-r2-10",
+    "title": "schema_mismatch's hint 'update Planroom, then retry' dead-ends for a -dev install, and serve's exit on it leaves serve.json naming a dead pid",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/server/routes.rs:102-107",
+     "crates/planroom/src/server/mod.rs:263-268",
+     "plugin/scripts/planroom:143",
+     "plugin/scripts/planroom:464-469"
+    ],
+    "evidence": "VERIFIED by running in a temporary workspace with PLANROOM_DATA set to a temporary directory. With `serve --detach` running, I set the store's user_version to 2. serve.log got 'the live loop stopped: the store is version 2', the process exited, and `.planroom/serve.json` stayed, with the dead pid and its control token. `std::process::exit` skips the cleanup at mod.rs:263-268. `focus` and a new `serve` then answer schema_mismatch with hint 'update Planroom, then retry'. For a -dev install, updating the plugin never changes the engine: the cache key is `$data/engine/$version` (:143) and is used without any check (:464-469). architecture.md:1278 says a -dev writer's line should name `doctor --restore`, which isn't built.",
+    "why": "Once M1 adds migrations, a person who mixes a checkout build with a marketplace install, or two -dev builds, gets a retry-never error whose only remedy can't work. This is a consequence of ops-1 that no milestone row names.",
+    "fix": "Until doctor and the hashed cache key land, make the hint for a -dev `writer_version` say `rm -rf DATA_ROOT/engine/<version>` and rebuild. Remove serve.json, if its pid is ours, before the live loop's process::exit."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "ops-r2-1",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "The drift is real, but it isn't material. Checked: README.md:7-10 and plugin/README.md give `/plugin marketplace add doodla/planroom` with no ref. .claude-plugin/marketplace.json has the one entry `\"source\": \"./plugin\"`. architecture.md:1480 says the README line 'never names main', that a git-subdir entry with a tag `ref` is published, and that `gen --version` writes that line. `gen --version` doesn't exist: grep finds no such code in crates/xtask/src. No file holds a git-subdir entry. Why not material: the claim that no file can hold the entry is overstated. DR-78 (decisions.md:1801) records a mechanism: 'a marketplace source that names the tag, or else a `release` branch the owner fast-forwards to each tag'. A release branch's marketplace.json can hold the git-subdir entry while main keeps `./plugin`. So the design is undecided between two options, not impossible. KICKOFF's tier-A S14 install step (KICKOFF.md:192) uses `/plugin marketplace add <local repo path>`, which works today. No release exists. Round 1 logged the whole release path (release.yml, gen --version, releasing.md) as minor known gap ops-7, scheduled for M3/M5. Before any release, the README line has to read main, and plugin/README.md already says that until the first release the engine builds from source. What remains: architecture.md states as settled a git-subdir form and a README line that `gen --version` writes, which no code or decision pins down, and plugin/README.md's 'From the first release on' depends on that work. That is minor drift and a design gap to settle in M5."
+  },
+  {
+   "id": "ops-r2-2",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading. architecture.md:1498 says 'A build from main whose catalogue hash isn't the plugin's keeps no binary and says \"This plugin is older than main...\"', after a known-gap sentence that names only the missing-tag build and the hashless clone path. plugin/scripts/planroom:400 compares only `engine_version \"$built\"` (from `--version`, :98-100) with `$version`. For a -dev plugin both are `0.1.0-dev` (engine.env), so a clone of a newer main with a different catalogue is cached at :404-407. `engine_catalogue` is used only in the checkout step (:441). The hint at :401 names only `/plugin marketplace update planroom`. The docs describe a guard that isn't built. It is related to known gap ops-1, so minor is right."
+  },
+  {
+   "id": "ops-r2-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading. The checkout build runs `(cd \"$checkout\" && cargo build --release --locked -p planroom)` and exits with its status (:382-383). Resolution looks only at `$checkout/target/release/planroom` and `target/debug/planroom` (:438). The clone path reads `built=\"$src/target/release/planroom\"` (:399) and checks its version (:400). The repo's .cargo/config.toml sets only an alias, not a target-dir, so a user's CARGO_TARGET_DIR or a global `build.target-dir` takes effect. Then the checkout build exits 0, and the next resolve offers the build again (no_build/offer). In a clone, engine_version of a missing file is empty, so the build ends with the misleading 'This plugin is older than main'. Nothing in the docs or code handles CARGO_TARGET_DIR (grep). It's an environment-dependent failure with a wrong diagnosis, so minor."
+  },
+  {
+   "id": "ops-r2-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading. build_canvas (:362-372) only `say`s to stderr when Node or pnpm is missing or the canvas build fails. register.tsx:234-252 runs the build and shows stderr only when the exit code isn't 0, then starts the engine. The engine is cached (:404-408), and resolve returns the cache at :464-469 from then on, so build_offered never comes back. The mod has no rebuild action: grep finds 'build' only in the fallback path, offered only for no_release, no_build and download_failed (engine.ts:136-139). en.toml:121 `missing_install` says 'Install Node 22 and pnpm, then run scripts/planroom build', a path relative to an unnamed plugin cache directory. SKILL.md:29 tells Claude not to start a build. The ops-2 loop became a dead end for this case, but only for a user without Node and pnpm (the offer's canvas flag says so beforehand) or with a failed canvas build. The map, pane and CLI still work, so minor is right."
+  },
+  {
+   "id": "ops-r2-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Partly confirmed. pnpm-workspace.yaml includes `packages/*` and `tests/e2e`, so `pnpm install --frozen-lockfile` (:368) installs the whole dev workspace before `cargo xtask gen --canvas` and the release build. The mod still runs the build attached with a 600_000 ms cap (register.tsx:234-239). The offer still says `est_minutes: 4` (:352-353), and plugin/README.md says 'about 4 minutes'. docs/evidence holds only s15/ and spend.jsonl, so the estimate has no recorded measurement. rust-toolchain.toml pins 1.97.0 with four targets. Assumed, not verified: that a cold build passes 10 minutes. This extends known gap ops-5 (minor), so minor is right."
+  },
+  {
+   "id": "ops-r2-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced. I copied plugin/ into a directory named jos\u00e9 under the scratchpad, set PLANROOM_DATA to a temporary directory and LC_ALL=C.UTF-8, and ran `scripts/planroom version --json`. Under dash, the document is 745 bytes and says `\"bytes\":745`. Under bash, the document is 745 bytes and says `\"bytes\":742`. The cause is `${#doc}` at plugin/scripts/planroom:63-64, which bash counts in characters. macOS's /bin/sh is bash in POSIX mode with a UTF-8 locale by default. The size field is a public contract field, but it's wrong only for non-ASCII paths, so minor."
+  },
+  {
+   "id": "ops-r2-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading. build_preflight (:317-347) checks cargo only on PATH (:318), checks the C compiler with `command -v cc/gcc/clang` (:333-334), and never checks git, which the clone build uses at :389 and :395. That macOS ships /usr/bin/cc and /usr/bin/git as xcode-select shims is platform knowledge I didn't verify here, as is the PATH-after-rustup behaviour. Both are well known, so the preflight can pass for a build that then fails. The build fails loudly rather than silently, and the person can still install the tools, so minor."
+  },
+  {
+   "id": "ops-r2-8",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Partly confirmed. crates/xtask/src/plugin.rs:204-214 stamps `X.Y.Z-dev.g<8 hex of plugin_hash>`, and plugin.json today says `0.1.0-dev.g75664b73`. ws8-install.md's A-23 section records only that an unchanged version blocks an update ('already at the latest version'). No run checks updating from one stamp to another, so how the host orders versions is unverified. Whether the host compares semver order (which would make some updates look like downgrades) or only equality is an assumption I couldn't check here. The verified part is a missing verification for a scheme every -dev user depends on, so minor."
+  },
+  {
+   "id": "ops-r2-9",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. grep finds no 'Claude Code <version>', '2.1.' or 'tested' in plugin/README.md, at HEAD or in its earlier versions (712ce3b, 24c6bac). DR-76 (decisions.md:1742) says '`plugin/README.md` names the tested version'. R-13's mitigation (architecture.md:1690) and traceability.md:60's S14 row rely on that line. This is drift from a decision. It's a one-line doc gap, not a failing scenario, so minor."
+  },
+  {
+   "id": "ops-r2-10",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading; I didn't rerun the serve repro. routes.rs:102-107 calls `std::process::exit` on SchemaMismatch from the live thread. That skips mod.rs:264-268, which removes serve.json only after axum::serve returns, so serve.json keeps the dead pid and its control token (mode 0600). en.toml:25 gives the schema_mismatch hint 'update Planroom, then retry'. For a -dev install the cache key is `$data/engine/$version` (planroom:143), used without a check at :464-469, so updating the plugin doesn't replace the engine. Nothing reads serve.json except serve itself (grep across crates/planroom/src and packages/mod/src), so today the stale file only holds a dead token. No migration exists yet (the store is at version 1). Both are latent and minor."
+  }
+ ]
+}

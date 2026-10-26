@@ -1,0 +1,148 @@
+{
+ "lens": "unasked",
+ "review": {
+  "findings": [
+   {
+    "id": "unasked-r2-1",
+    "title": "One repo git can't read (no commits yet, or owned by another user) fails the whole workspace scan, and focus's one next action is that failing scan",
+    "severity": "material",
+    "where": [
+     "crates/extract/src/git.rs:86",
+     "crates/planroom/src/app/scan.rs:46-48",
+     "crates/planroom/src/app/scan.rs:106",
+     "docs/contributing/architecture.md:815"
+    ],
+    "evidence": "Verified with the binary under the scratchpad, with PLANROOM_DATA set there. (a) A workspace held repo `a` with one commit and repo `fresh` made with `git init` and no commits. `planroom scan --json .` returned `{ok:false, error:{code:\"git_failed\", retry:\"never\", message:\"git failed in fresh: fatal: Needed a single revision\", hint:null}}`. Nothing was mapped, so `a` got nothing either. In the same directory, `focus --json` returned `empty.reason: not_scanned` with next `{command: scan, label: \"Map these 2 repos? About 2 s.\"}`, which is exactly the call that fails. (b) Two committed repos, with `chown -R nobody b`: scan failed for the whole workspace with `git_failed ... detected dubious ownership`, hint null. In code, `scan::run` loops `repos.push(extract(repo, ...)?)` (scan.rs:46-48), so the first `git.head()` error (git.rs:86 `rev-parse --verify HEAD^{commit}`) aborts every repo. The design says the engine 'refuses a repo whose git directory another user owns' (architecture.md:815) but never says whether that refusal costs one repo or the whole workspace. Not assumed: how often this happens. A new `git init` service directory inside a directory of repos is common.",
+    "why": "This breaks R1 ('no repo gets nothing') and principle 1 ('Never show a blank state'). One unborn or foreign repo blanks the whole map. The error is `retry: never` with no hint, and the one next action both surfaces offer leads into it. It is the same failure shape round 1 rated material for ux-6, reached another way. M1 adds more per-repo git reads (log, numstat, status, the ownership check, git_too_old), and every one inherits all-or-nothing unless the scan pipeline gets a per-repo outcome now.",
+    "fix": "Give `ScanResult` a per-repo outcome. Map an unborn repo as an empty repo node with a warning ('fresh has no commits yet'). Turn a per-repo git failure into a `repo_skipped`-style warning naming its fix, and keep scanning the rest. Count only scannable repos in focus's 'Map these N repos?' label. Add a first_run test with one unborn repo and one foreign-owned repo beside a good one, and state the per-repo rule in architecture.md's scan section."
+   },
+   {
+    "id": "unasked-r2-2",
+    "title": "unasked-8's fix doesn't hold for scan: partial_scan lists every uncovered path, so one scan reply ran to about 42,000 tokens",
+    "severity": "material",
+    "where": [
+     "crates/extract/src/walk.rs:113-114",
+     "crates/planroom/src/app/scan.rs:115-124",
+     "crates/planroom/src/app/scan.rs:148-155",
+     "docs/contributing/contracts.md:230",
+     "crates/planroom/tests/budgets.rs:103-121",
+     "packages/mod/src/tools.ts:128-144"
+    ],
+    "evidence": "Verified with the binary. A repo of 600 directories \u00d7 100 committed files (60,000 files) gave `scan --json .` a reply of 169,739 bytes, with `meta.size.tokens_est: 42435`, no `truncated` flag and one warning, `partial_scan`, at 179,176 bytes of JSON. Its `details.uncovered` held all 10,000 paths. scan's catalogue budget is at most 1,500 (crates/contract/src/command.rs, every non-stream leaf). walk.rs:114 pushes every path past the cut, scan.rs:122 copies `walked.uncovered` whole into details, and `partial_parse` does the same with every path (scan.rs:153). Only `evidence_dropped` samples 5. contracts.md:230 itself defines `uncovered` as the full list. budgets.rs::scan_keeps_its_top_level_map_to_its_budget asserts `tokens_est <= budget` only for a repo that never hits the file bound. `room_change` reaches `scan` (tools.ts:128-144 gives it a 600 s timeout), and the mod passes the reply through with no cap. DR-85 says 'Everything an agent can reach is capped: ... the top-level map in scan's reply (to scan's own budget)'. The map is capped; the envelope isn't. Assumed: a 1M-file monorepo would put about 950k paths, tens of MB, in one reply.",
+    "why": "KICKOFF principle 2 says every agent-facing output has a size budget. Round 1 rated an unbounded agent-reachable reply material (unasked-8), and DR-85 records the guarantee as closed. A single agent-run scan of a large monorepo can fill a session's context. Because the contract defines the field as unbounded, fixing it later is a contract change.",
+    "fix": "Make `partial_scan.details` `{extractor, repo, uncovered_count, uncovered_sample (first N), next}`, and do the same for `partial_parse.paths`, then regenerate the contract. Apply the budget check to the whole envelope, warnings included, in the shared reply path. Add a budgets.rs case where a repo passes the 50,000-file bound and the scan reply still fits."
+   },
+   {
+    "id": "unasked-r2-3",
+    "title": "A cut scan isn't recorded anywhere, so map and focus show a partly mapped repo as whole, and the store schema has nowhere to keep coverage",
+    "severity": "minor",
+    "where": [
+     "crates/store/migrations/0001_init.sql:26-34",
+     "docs/contributing/architecture.md:379",
+     "docs/contributing/architecture.md:1127",
+     "docs/contributing/architecture.md:612"
+    ],
+    "evidence": "Verified. After the 60,000-file scan above (packages pkg500-pkg599 cut), `map --json` said '1 at the top: mono (50000 code, 500 component)' with no warning, and `focus --json` had `progress.scan: \"done\"` and no warning. The only record of the cut was the scan reply. The `snapshots` table (0001_init.sql:26-34, and the DDL in architecture.md) has no coverage column, and nothing else in the store holds the uncovered paths. architecture.md:379 and :1127 still need 'a target whose evidence paths a partial scan didn't cover' when the reconciler and scan-drift run later.",
+    "why": "R1 asks for faithful roll-ups. A sixth of a repo vanishes from the map, and no surface outside the one scan reply says so. M2's reconciler and scan-drift rules can't be built without per-snapshot coverage, so the schema and the snapshot write will need rework.",
+    "fix": "Persist coverage with the snapshot: a cut flag plus a hash or compact form of the uncovered set, or the cut point, since the cut is 'sorted path order from X'. Surface it as a persistent `partial_scan` warning on map and focus, and as the repo block's 'partly mapped' state."
+   },
+   {
+    "id": "unasked-r2-4",
+    "title": "Scan cost isn't bounded by DR-47's bounds: every blob is read past the cut, and an unchanged repo is fully re-extracted before the existing snapshot is found",
+    "severity": "minor",
+    "where": [
+     "crates/extract/src/walk.rs:101-115",
+     "crates/planroom/src/app/scan.rs:46-61",
+     "crates/planroom/src/app/scan.rs:104-175",
+     "docs/contributing/architecture.md:243"
+    ],
+    "evidence": "Verified. walk.rs:102 reads, by design ('Every file is read, even past the cut'), every regular file of HEAD's tree through `cat-file --batch` before deciding to cut it. `scan::run` runs `extract()` for every repo (scan.rs:46-48) and only learns in `commit_scan` that the (repo, commit, packs_hash) snapshot already exists. A no-op rescan of the 60,000-file repo (HEAD unchanged, reply 'Mapped 1 repos, 0 of them moved') took 25.4 s with 149 MB peak RSS (debug build, measured with Python's getrusage). The first scan took 25.6 s. Not measured: a release build, or a repo past 256 MiB.",
+    "why": "The bounds exist so that a scan's cost is bounded and deterministic, but the I/O still scales with the whole tree. Every multi-repo rescan re-extracts unchanged repos. The freshness rule (architecture.md:243, 'rescans what moved') and S7's cheap commit-triggered rescan both assume per-repo short-circuiting, which the skeleton's pipeline doesn't have, so M1's blob_facts cache will be built on a pipeline that does the work first.",
+    "fix": "In `scan::run`, resolve each repo's HEAD and compare it with the active snapshot's key before walking, and skip unchanged repos. In the walk, stop reading blobs past the cut. Classify binaries past the cut from `cat-file --batch-check` plus a bounded header read, or leave them out of the uncovered list."
+   },
+   {
+    "id": "unasked-r2-5",
+    "title": "Each snapshot stores a full copy of every fact, so store size grows with retained snapshots times repo size",
+    "severity": "minor",
+    "where": [
+     "crates/store/migrations/0001_init.sql:44-52",
+     "docs/contributing/architecture.md:392",
+     "docs/contributing/architecture.md:522-524"
+    ],
+    "evidence": "Verified with a read-only sqlite query on the 60,000-file workspace's store: one head snapshot held 50,501 `facts` rows totalling 19,252,812 bytes of `body`, and store.db was 27.9 MB. `facts` is keyed `(snapshot, id)` with the full body per row (0001_init.sql:44-52), so each new commit writes a whole new copy. The design keeps the last 20 snapshots per repo, plus any a version event, open diff or reconcile outcome refers to (architecture.md:392). It also writes a `VACUUM INTO` copy, keeping 3, before every migration (architecture.md:522). Assumed, by arithmetic: about 20 \u00d7 19 MB \u2248 385 MB of facts for one such repo, about 28 MB written per commit under synchronous=FULL, and 3 more full copies in backups/.",
+    "why": "Large repos are an expected case for a 'point it at work' tool. Changing the facts layout to content-addressed rows with snapshot membership is a migration of the biggest table, and it is cheapest before v0.1 freezes 0001_init.sql behind release fixtures (contracts.md:382).",
+    "fix": "Before M1's store slice, decide between per-snapshot copies and content-addressed facts (a fact table keyed by hash plus a snapshot\u2192fact membership table), and record the store-size budget for a 50k-file repo in the architecture."
+   },
+   {
+    "id": "unasked-r2-6",
+    "title": "Files whose paths aren't UTF-8 (or contain a backslash or newline) are dropped silently",
+    "severity": "minor",
+    "where": [
+     "crates/extract/src/walk.rs:85-90"
+    ],
+    "evidence": "Verified. In a repo with a committed `src/caf\\xe9.py` (Latin-1) and `src/ok.py`, `map --level code --json` listed only `bad:file:src/ok.py`, and the scan reply had no warning. walk.rs:85-90 increments `skipped` and moves on. `skipped` is never surfaced, and there is no warning code for it.",
+    "why": "R1 says precision may vary but no repo gets nothing, and a person can't tell these files are missing. It is common in older repos and in repos made on Windows with legacy code pages. Silent loss also hides from the evidence and the reconciler later.",
+    "fix": "Report skipped paths with a counted warning, or map them under a lossy, escaped display name with the raw bytes hashed into the ID. Add a contract test with a Latin-1 path."
+   },
+   {
+    "id": "unasked-r2-7",
+    "title": "`planroom doctor`, the diagnostics, bug-report and downgrade surface, still has no milestone slice beyond `doctor --pack`",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/architecture.md:1249",
+     "docs/contributing/architecture.md:1278",
+     "docs/contributing/contracts.md:384",
+     "docs/contributing/architecture.md:1590-1680"
+    ],
+    "evidence": "Verified. An awk over the Milestones section (from '## Milestones' to '## Risks') finds 'doctor' only in M1's packs slice ('`doctor --pack`'). The rest of doctor is in no slice: the checks for git, store, filesystem, packs, models, version and backup age; the redacted report file 'which is the bug report's attachment'; suffixed-namespace listing; rekey history; and the backup high-water warning (architecture.md:1249, 526, 308, 410). The M1 backups slice builds the pre-restore copy and replay set but never names the `doctor --restore` command. Yet contracts.md:384 and architecture.md:1278 tell a user whose store a -dev build migrated to run `planroom doctor --restore`. Round 1's unasked-4 fix proposed 'the `doctor` command as its own slice'; only the filesystem check was scheduled. The engine also has no logging yet (known gap unasked-5/drift-11).",
+    "why": "It isn't material today, because no migration exists yet. But doctor is the engine's only self-observability and support surface, and the line the docs give users for the downgrade path. Unscheduled, it either won't exist when M2-M4 first migrate the store, or it will be bolted on in M5.",
+    "fix": "Add one M1 slice: `doctor` checks and report file, and `doctor --restore` with its test (`a_restore_is_undone_by_its_pre_restore_copy`). Or move `--restore` into the backups slice by name."
+   }
+  ],
+  "summary": "Lens: expected but unasked, round 2. I read KICKOFF's principles, requirements, acceptance and constraints first, then the review README, round1-unasked.json, DR-85, the store, extract, scan, data and mod tool code, and the milestone plan. I ran target/debug/planroom only on fixture copies and synthetic repos under a unique scratchpad subdirectory (unasked-r2-*), with PLANROOM_DATA set there.\n\nCaveat: the shared scratchpad already held other reviewers' `.planroom/` directories (e.g. $S/fx, $S/big). Workspace discovery walks up to the nearest ancestor `.planroom/`, so my first 20k-file measurements in $S/big were contaminated. I discarded them and reran in a fresh subdirectory. The 60k-file and edge-case numbers below come from clean directories.\n\nRound-1 material findings in this lens:\n- **unasked-1 holds.**\n  - `EventKind` is published as `anyOf [enum, pattern]` (schema/planroom.v1.schema.json at the EventKind def), and `EventBody::Unknown` keeps the raw object (crates/contract/src/event.rs:141-162).\n  - `contract::format` exists, and its TypeScript port `checkFormat` is used by the Artifact transport (packages/canvas/src/transport/artifact.ts:155, 180, 292).\n  - With the binary, a `workspaces.json` tagged `planroom.workspaces/v2`, and one with `min_reader_version` above the engine, were both refused with `schema_mismatch` and `details.file`. Neither file was rewritten.\n- **unasked-3 holds.** On a fresh fixture, untracked `kit/newdir/f{1,2,3}.py` left kit at component 4 before and after the rescan, and `map --level code` had 0 `newdir` nodes.\n- **unasked-4 holds as the schedule fix DR-85 chose.** architecture.md:1610 puts the filesystem check, `store.pointer`, `fs_check.rs` and `crash.rs` in M1. `Store::connect` still only checks WAL (crates/store/src/lib.rs:83-93), as DR-85 accepts.\n- **unasked-8 holds for `map`, not for `scan`'s envelope.** `map --level code` over 40,000 blocks returned 4,916 bytes with a `truncated` warning and a working drill-down. But a 60,000-file repo's scan reply was 169,739 bytes (about 42,435 tokens), because `partial_scan` lists all 10,000 uncovered paths. That reply is reachable through `room_change scan`. See finding 2.\n\nNew findings: 2 material, 5 minor.\n1. **Material:** one unborn or foreign-owned repo fails the whole workspace scan with `retry: never` and no hint, while focus offers that failing scan as the one next action. Reproduced both ways.\n2. **Material:** the scan envelope has no budget, as above.\n3. **Minor:** a scan that hits the bound is recorded nowhere. Map and focus show the cut repo as complete, and the schema has no field to hold coverage, which M2's reconciler and scan-drift rules will need.\n4. **Minor:** DR-47's bounds don't bound scan cost. Every blob is read past the cut, and unchanged repos are re-extracted fully: a no-op rescan of 60k files took 25.4 s.\n5. **Minor:** each snapshot stores a full copy of every fact (19 MB per snapshot for 50k files), so the retained snapshots and VACUUM copies grow with repo size.\n6. **Minor:** paths that aren't UTF-8 are dropped silently.\n7. **Minor:** `planroom doctor` (checks, report file, `--restore`) has no milestone slice beyond `--pack`, though user-facing recovery lines name it.\n\nSeparated from the verified facts above:\n- Not measured: release-build timings.\n- Assumed, by extrapolation: the 1M-file reply size in finding 2 and the store sizes in finding 5.\n\nI checked and didn't re-report:\n- **Windows/WSL:** CI runs on Linux and macOS, and the resolver detects the platform.\n- **Accessibility:** scheduled for M5 under DR-68.\n- **Logging, licensing notices and community-health files:** known gaps unasked-5, unasked-6 and unasked-7.\n- **The single-repo state directory:** scheduled for M1."
+ },
+ "verdicts": [
+  {
+   "id": "unasked-r2-1",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced with target/debug/planroom (PLANROOM_DATA in scratchpad). Workspace with committed repo `a` and `git init`-only repo `fresh`: `scan --json .` returned ok:false, code git_failed, retry never, hint null, 'git failed in fresh: fatal: Needed a single revision' (argv rev-parse --verify HEAD^{commit}). In the same directory `focus --json` and `map --json` both returned empty.reason not_scanned with next {command: scan, label 'Map these 2 repos? About 2 s.'}, i.e. the failing call. Second workspace with two committed repos and `chown -R nobody b` (running as uid 0): scan failed for the whole workspace with 'detected dubious ownership'. Code: scan.rs:46-48 loops `repos.push(extract(repo, ...)?)`, and extract's first line `git.head()` (scan.rs:106, git.rs:86) aborts on error, so one bad repo fails all. grep finds no repo_skipped/unborn handling anywhere in crates or docs. This breaks R1 ('no repo gets nothing', KICKOFF:58) and principle 'Never show a blank state' (KICKOFF:39), the same shape as round-1 ux-6, so material stands. Not verified: how often this arises in practice."
+  },
+  {
+   "id": "unasked-r2-2",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Code confirmed: walk.rs:113-114 pushes every path past the cut into `uncovered`; scan.rs:115-124 puts `walked.uncovered` into partial_scan details whole; scan.rs:148-155 does the same for partial_parse paths; contracts.md:230 defines `uncovered` as the full sorted list. Reproduced at smaller scale: a fast-import repo of 52,000 committed files gave a scan reply of 36,736 bytes, meta.size.tokens_est 9184 against scan's catalogue budget of 1,500 (command.rs), no `truncated`, and one partial_scan warning whose details.uncovered held all 2,000 paths. Size grows linearly with the uncovered count, so the reviewer's 10,000-path/42k-token figure is consistent. budgets.rs:103-121 tests only a repo below the file bound. DR-85 (decisions.md:2101) claims 'Everything an agent can reach is capped ... the top-level map in scan's reply (to scan's own budget)', but only the map is fitted; the envelope's warnings are not. This violates KICKOFF principle 'every agent-facing output has a size budget' (KICKOFF:45) on an agent-reachable command, so material stands."
+  },
+  {
+   "id": "unasked-r2-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed after the 52,000-file scan: `map --json` summary '1 at the top: mono (50000 code, 500 component).' with no warnings, and `focus --json` progress.scan 'done' with no warnings. The snapshots table (0001_init.sql:26-34) has no coverage column and nothing else stores uncovered paths, while architecture.md (reconciler rule near line 1127, DR-47) needs to know which facts a partial scan didn't cover. Rated minor because the cut is reported in the scan reply and the dependent reconciler/scan-drift features are M2; that rating is right."
+  },
+  {
+   "id": "unasked-r2-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. walk.rs:101-115 reads every blob through `objects.get` before checking the cut (comment 'Every file is read, even past the cut'). scan::run calls extract() for every repo (scan.rs:46-48) before commit_scan learns the snapshot exists. A no-op rescan of the unchanged 52,000-file repo took 24.1 s with about 135 MB peak RSS (debug build) and replied 'Mapped 1 repos, 0 of them moved', about the same as the first scan (26.1 s). This is a performance and design gap, not a data or acceptance failure, so minor is right."
+  },
+  {
+   "id": "unasked-r2-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed with a read-only sqlite query on the 52,000-file store: snapshot 1 holds 50,501 facts rows totalling 19,617,812 bytes of body; blob_facts is empty; store.db is 27,979,776 bytes. facts is keyed (snapshot, id) with a full body per row (0001_init.sql:44-52), so each new commit's snapshot writes a full copy. Retention of 20 snapshots per repo is in architecture.md ('pruned after the last 20 per repo'). The projected 385 MB is arithmetic, not measured. This is a forward design gap, so minor is right."
+  },
+  {
+   "id": "unasked-r2-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced. In a repo with committed `src/caf\\351.py` and `src/ok.py`, scan reported no warnings and `map --level code --json` listed only bad:file:src/ok.py. walk.rs:85-90 increments `skipped` for a non-UTF-8 path or one containing a newline or backslash. `Walked.skipped` is never read outside walk.rs (grep), and no warning code exists for it. The docs cover non-UTF-8 file contents (DR-81) but not non-UTF-8 paths. One silently missing file doesn't make a repo get nothing, so minor is right."
+  },
+  {
+   "id": "unasked-r2-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Mostly confirmed. Within the Milestones section (architecture.md:1590-1674), 'doctor' appears only as `doctor --pack` in the packs slice. The doctor checks, the redacted report file and the backup high-water warning have no slice. Partly overstated: the M1 backups slice does schedule 'the restore card' and 'the pre-restore copy and the replay set', which architecture.md:529 defines as what `doctor --restore BACKUP` does. So the restore's mechanics are scheduled; only the command is not named. contracts.md:384 and architecture.md:1278 do point -dev users at `planroom doctor --restore`. No migration exists yet, so minor is right."
+  }
+ ]
+}

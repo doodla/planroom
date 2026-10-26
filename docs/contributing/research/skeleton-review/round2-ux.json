@@ -1,0 +1,244 @@
+{
+ "lens": "ux",
+ "review": {
+  "summary": "Lens: user surface and UX, round 2, on tree 30898ce. I ran target/debug/planroom on copies of the built fixture (/tmp/planroom-e2e-*/shop copied into my scratchpad, with PLANROOM_DATA in the scratchpad). I read every PNG in docs/screenshots, plus the canvas shell/views/store/transport, the mod's layout.ts, register.tsx, room.ts, fallback.ts and engine.ts, en.toml, cli.rs and the resolver. I could not run the mod host or a browser, so mod and canvas behaviour comes from reading the code, and each finding says which parts I verified.\n\nRound-1 material fix check:\n- ux-1 HOLDS. Block rows are plain text with no row key (layout.ts:279-317). A pressed next action stores `shown` and draws its result with a \"Back to the \u2026 level\" press (layout.ts:155-185, register.tsx:216-260). One odd case is in ux-a below.\n- ux-2 HOLDS. Verified: the envelope carries `summary` (for example `map --json` gives \"10 at the top: kit (11 code, \u2026\"). roomText returns the summary plus at most 3 handles, never JSON (room.ts:138-147). A gap remains for truncated maps (ux-e).\n- ux-3 HOLDS for blankness. Verified: `map --level intent` returns `empty.reason=no_intent`, and the canvas draws LevelEmpty for a zero-node map (map-view.tsx:185-215). But the merged engine's label makes that screen say the same thing twice, and the screenshot doesn't show it (ux-d).\n- ux-4 HOLDS. Breadcrumbs now follow the level (levels.ts crumbsAt), the phone has a \u22ef lid, and the next action becomes \"Back to shop\" (container-390x844 screenshots). But the \u22ef lid's tap area is 34 px (ux-b).\n- ux-6 HOLDS. Verified in an empty dir: `focus` and `map` both return ok with `no_repos`, and the next action is `focus`. But the same failing-scan loop comes back for a repo with no commits (ux-c).\n\nKnown minor gaps that are unchanged and not re-reported: ux-7 (the `e` key and the login path), ux-8 (the Artifact's \"Ask your computer\" while it can't), ux-9 (hints dropped, full-page takeover), ux-10 (hard-coded mod strings), ux-11 (no tones, truncated subtitles), ux-12 (jargon such as \"moved\" and \"at the top\" at every level), and unasked-9 (plurals such as \"Map these 1 repos\").\n\nNew problems in brief:\n- A single uncommitted repo blocks the whole workspace and loops the one next action. This is material and verified.\n- The phone's way back up has a 34 px target, and the 44 px gate never visits that state. Material, verified from the screenshot pixels and the CSS.\n- \"No project\" opens a blank sheet. Material per the \"never a blank state\" principle, verified from the code.\n- `Empty` has one string doing double duty as the line and the button.\n- The screenshots predate the ENGINE merge.\n- The next action never changes with level.\n- The rail's System step shows a different map from the top-level map, with the same name.\n- Usage errors lose the missing argument's name. Verified with `share --json`.\n- `/room` hides truncation.\n- `/room share` gives the model no publish arguments.\n- \"Check again\" during a source build offers a second, clobbering build. Read only, not run.\n- The fix page and some hints can't be followed where the person is.",
+  "findings": [
+   {
+    "id": "ux-a",
+    "title": "One repo with no commits blocks the whole workspace: scan fails, and every surface keeps offering that same scan as the next action",
+    "severity": "material",
+    "where": [
+     "crates/extract/src/git.rs:86",
+     "crates/planroom/text/en.toml:9 (git_failed, no [hint] entry)",
+     "crates/planroom/src/app/focus.rs (not_scanned next = scan ROOT)",
+     "packages/mod/src/layout.ts:155-200,445-468",
+     "packages/canvas/src/app.tsx:44-56"
+    ],
+    "evidence": "Verified. I copied the fixture, added `newsvc/` with `git init` and no commit, then ran `planroom scan --json`. The reply is `{\"ok\":false,\"error\":{\"code\":\"git_failed\",\"retry\":\"never\",\"message\":\"git failed in newsvc: fatal: Needed a single revision\",\"hint\":null,...}}`, exit 8. `planroom focus` afterwards still prints \"Map these 6 repos? About 2 s.\" with next = `scan <root>`. With only an unborn repo (`w/bare/r1`), the same happens: scan exits 8 and focus offers the same scan again. The other 5 repos get no map at all. The pre-fix tree used the same `rev-parse --verify HEAD^{commit}` (`git grep` at a7b66a1), so the SCAN fix didn't introduce this, but it is the same loop ux-6 was rated material for. The mod's band key `1`, the pane's Next button and the canvas's top empty state would each run the failing scan again; for those three I assumed the behaviour from layout.ts:445-468 and app.tsx:44-56 and did not run them.",
+    "why": "This breaks the KICKOFF principle \"Never show a blank state\" and R1's \"no repo gets nothing\": a `git init` for a new service is an everyday workspace state, and it leaves every repo unmapped. The only next action is a scan that fails, and its raw git error has no hint and `retry: never`. It is the same shape as material finding ux-6.",
+    "fix": "Have discovery or scan skip a repo with an unborn HEAD and add a warning naming it (\"newsvc has no commits yet; it maps after its first commit\"), so the rest of the workspace still maps. Until then, give git_failed a hint, and don't offer `scan` as focus's next action when the last scan failed this way."
+   },
+   {
+    "id": "ux-b",
+    "title": "On the phone, the \u22ef lid (the way back up) has a 34 px tap area, and the 44 px e2e check never visits a level where that lid exists",
+    "severity": "material",
+    "where": [
+     "packages/canvas/src/styles.css:215-218",
+     "packages/canvas/src/styles.css:232-237,244-248,291-293",
+     "packages/canvas/src/shell/top-row.tsx:36-58",
+     "tests/e2e/src/surface.spec.ts:379-401",
+     "docs/screenshots/container-390x844-light.png"
+    ],
+    "evidence": "Verified from the screenshot pixels. In container-390x844-light.png (2x), dark border columns sit at x=32-35 (the \u22ef lid's left edge) and at x=100-103 (the current lid's left edge) on rows 60, 74 and 100. That leaves 68 device px, or 34 CSS px, of exposed \u22ef target. The CSS explains it: the \u22ef button is `.lid-ancestor` with `margin-right: -10px` and `min-width: var(--target)` (44 px), and `.lid-current` is `position: relative`, so it paints over the last 10 px and takes their hits. The e2e test `the_top_row_holds_four_targets_at_most_every_target_is_44px...` measures each button's boundingBox only after `openMap`, at the top level, where the \u22ef lid isn't rendered (surface.spec.ts:425-427 asserts it has count 0 there). The overlap is therefore never measured.",
+    "why": "S13 (tier B) and design-language.md \"Touch\" require every target on the phone to be at least 44 px. This lid is the gesture table's way back up, \"Tap the \u22ef lid, then an ancestor\".",
+    "fix": "Drop the negative margin on `.lid-more` (or give `.lid-more` a 10 px right padding so its exposed part is 44 px). Extend the 44 px test to run again after \"Open the containers\", and measure hit-testable width with `elementFromPoint`, not boundingBox."
+   },
+   {
+    "id": "ux-c",
+    "title": "The project shelf's \"No project\" chip opens a blank sheet; the lens switcher opens a one-entry sheet that does nothing",
+    "severity": "material",
+    "where": [
+     "packages/canvas/src/shell/top-row.tsx:174-186",
+     "packages/canvas/src/shell/picker.tsx:68-91",
+     "packages/canvas/src/styles.css:388-401"
+    ],
+    "evidence": "Verified by reading the code. With `pane.focus.project === null` (true on the fixture: `focus --json` gives `\"project\": null`), TopRow passes `entries={[]}` to Picker. A press sets `open`, and Picker renders `.picker-sheet.panel` (min-width 200px, padding 6px, border) around an empty `<ul>`: an empty box with no line and no action. The lens Picker has one entry and no `onPick`, so a press on \"all\" closes the sheet and does nothing. On the phone the chip is one of the top row's four targets (main-390x844 screenshots).",
+    "why": "KICKOFF principle 1 says \"Never show a blank state\", and S15 requires that an empty-state audit finds none. design-language.md \"Empty states\" also asks for the felt with one block waiting and the single next action.",
+    "fix": "With no projects, draw the sheet as an EmptyState with one line and its next action (for now a line such as \"No projects yet\"), or make the chip non-interactive until M1. Hide the lens sheet when it has a single entry."
+   },
+   {
+    "id": "ux-d",
+    "title": "An Empty's one label is used as both the line and the button: the intent level says the same thing twice, no_repos becomes a 104-character button the pane cuts mid-sentence, and pressing \"check again\" leaves a meaningless Back press",
+    "severity": "minor",
+    "where": [
+     "crates/contract/src/envelope.rs:221-224",
+     "crates/planroom/text/en.toml:96-101",
+     "packages/canvas/src/views/map-view.tsx:185-206",
+     "packages/canvas/src/app.tsx:44-56",
+     "packages/mod/src/layout.ts:155-200"
+    ],
+    "evidence": "Verified. `map --level intent --detail graph --json` gives `empty.next.label = \"No plans at the intent level yet. Show the top of the map.\"`. LevelEmpty draws `line = \"Nothing at the intent level yet.\"` and, because `next !== null`, a button carrying that whole two-sentence label. Verified: `focus --json` in an empty dir gives a 104-character label, \"No git repos here. Open Planroom in a folder that holds your repos, or clone one here, then check again.\". The canvas's top-level empty state draws only that as a button, with no line (app.tsx:47-55). The pane cuts it to `columns-3` = 46 columns, \"No git repos here. Open Planroom in a folder \u2026\" (computed with ui truncate), so the instruction and \"check again\" are lost. I read but did not run what follows. After a press, `shown` matches (same command, same seq 0), so the card shows the label twice and a \"Back to the system level\" button. With no store there is no watch loop to refresh the pane, so after cloning a repo the person must press Back, then the button again.",
+    "why": "This makes an empty-state decision costlier than it needs to be, against principle 1. Each empty state should show one line and one short next action.",
+    "fix": "Give `Empty` an optional `line` next to `next` (additive), split the [empty] strings into a line and a short label (\"Show the top of the map\", \"Check again\"), have surfaces draw the line as text, and don't keep `shown` for a `focus` press."
+   },
+   {
+    "id": "ux-e",
+    "title": "docs/screenshots predate the ENGINE merge, so they show labels and states the merged tree doesn't produce",
+    "severity": "minor",
+    "where": [
+     "docs/screenshots/empty-level-1440x900-*.png",
+     "docs/screenshots/container-*.png",
+     "tests/e2e/src/screens.spec.ts:1-8"
+    ],
+    "evidence": "Verified with git. The screenshots were last written at b0ac5d4 (the SURFACES track, 13:28). `git merge-base --is-ancestor 603dfe0 b0ac5d4` gives `no`, so the ENGINE commit that added the `no_intent`, `empty_level` and `nothing_mapped` Empties isn't in them. No screenshot commit follows the merges 330a430 and 90476d3, or 6e07f6a (`git log -- docs/screenshots` gives only b0ac5d4). empty-level-1440x900-dark.png shows the fallback button \"Back to shop\", but against the merged engine LevelEmpty takes the engine's label (ux-d). The empty-*.png files date from 09:58, before every fix, and come from the stand-in.",
+    "why": "S15's empty-state screenshot audit and this review read these images as the product's states, and they don't match the merged tree.",
+    "fix": "Rerun `cargo xtask e2e --screens` on the merged tree, and add a check that the screenshots' commit is not older than the last change under packages/canvas or crates/planroom/text."
+   },
+   {
+    "id": "ux-f",
+    "title": "The pane's next action is always \"Open the containers\", whatever the level or the map",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/focus.rs:63-82",
+     "packages/canvas/src/shell/next-action.ts:26-41",
+     "docs/screenshots/empty-level-1440x900-dark.png"
+    ],
+    "evidence": "Verified: focus.rs sets `level: Level::System` and next = `map --level container` with `focus.next_containers`, unconditionally. I verified one case end to end: on a workspace with one repo and an empty commit, `focus` gives \"Next: Open the containers\" and `map --level container` gives \"Nothing at the container level here. Show the top of the map.\", whose way back returns to the same press, so there is no real next action. The rest I read but did not run: on the canvas at component or code level, alreadyShown is false, so the card says \"Open the containers\" but goes up a level. At intent the card stack keeps \"Open the containers\" next to the empty state's own button, giving two primary actions on one screen (empty-level screenshot).",
+    "why": "S1 asks for \"one suggested next action\", and principle 1 asks to respect attention. This one is mislabelled at some levels and a dead end on small workspaces.",
+    "fix": "Have the canvas hide the pane's next action on a level other than the pane's own (or below container), and have focus offer `map --level container` only when that level has blocks."
+   },
+   {
+    "id": "ux-g",
+    "title": "The rail's System step and the top lid name the same place but show different maps, and the rail draws Intent nested above System",
+    "severity": "minor",
+    "where": [
+     "packages/canvas/src/levels.ts:22-38",
+     "packages/canvas/src/shell/zoom-rail.tsx:13-31",
+     "packages/canvas/src/transport/artifact.ts:97-103"
+    ],
+    "evidence": "Verified: `map --detail graph` returns 10 nodes, while `map --level system --detail graph` returns 5 (kit, orders, platform, storefront, worker); the 5 externals drop out. At the top the rail marks System current (`s.level ?? s.map?.level`), and pressing it sets level \"system\". crumbsAt('system') returns only the top lid, so the breadcrumb still reads \"shop\" while 5 blocks vanish. On the Artifact, viewKey maps level \"system\" to `map:system:all`, the top map, so the same press shows 10 there. The rail lists Intent first, joined to System by the level line (screenshots), but DR-85 says intent \"sits beside the system level\". This is engine drift-6 made visible, and the ux-4 fix made it worse by giving the two views the same name.",
+    "why": "Levels are one of the five ideas: the same named place showing two different contents, and differing between surfaces, undermines \"where I am\".",
+    "fix": "Have the rail's System step call `back()` (the top map) until drift-6 is fixed, and draw Intent apart from the System to Code chain."
+   },
+   {
+    "id": "ux-h",
+    "title": "A usage error's message drops the missing argument (\"\u2026were not provided:.\"), and `/room share`, which /room help offers, hits it",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/cli.rs:263-267",
+     "crates/planroom/text/en.toml:57 (argument.usage)",
+     "packages/contract/src/generated/catalogue.ts (share room: true)"
+    ],
+    "evidence": "Verified: `planroom share --json` gives `\"message\":\"The command line isn't valid: the following required arguments were not provided:.\"`. cli.rs takes only `rendered.lines().next()`, and clap puts the missing `--out <OUT>` on the next line. `details.field` is \"out\", but the one line a person reads names nothing. `share` is `room: true`, so `/room share` (architecture.md:248 and 1397) runs this exact line and fails. The mod then toasts the message with a CLI hint, `planroom schema --command share`, inside /room.",
+    "why": "en.toml rules say messages are one engine-authored, actionable line. This one is broken, and the documented `/room share` fails on first use.",
+    "fix": "For MissingRequiredArgument, build `why` from clap's ContextKind::InvalidArg (\"--out is required\"). Give share a default `--out .planroom/share`, as architecture.md:1397 says."
+   },
+   {
+    "id": "ux-i",
+    "title": "/room hides a truncated map: the summary counts blocks the result doesn't hold, and the drill-down handle never reaches the person or the model",
+    "severity": "minor",
+    "where": [
+     "packages/mod/src/room.ts:94-114",
+     "packages/mod/src/room.ts:182-243"
+    ],
+    "evidence": "Verified: `map --level code --json` has summary \"83 at the top: \u2026; and 71 more.\" and 22 nodes, with the drill-down only in `meta.warnings[0].details.next` (`map --level component`). I read but did not run the mod side. handlesOf reads `meta.next`, `result.empty.next` and `result.next`, never `meta.warnings`. roomText therefore returns the summary with no handle, and roomRows draws 22 block rows with no warning row and no \"+61 more\" (that row only appears past 200 nodes).",
+    "why": "Principle 2 asks for summary-first answers \"with handles to drill down\", and DR-85 has the truncated warning name a drill-down that runs today. /room drops it, so the person sees 83 promised and 22 drawn.",
+    "fix": "In handlesOf, also collect `meta.warnings[*].details.next`, and in roomRows add a dim row with the warning's message when `meta.truncated` is set."
+   },
+   {
+    "id": "ux-j",
+    "title": "`/room share` returns no publish arguments to the model, so the documented publish can't follow it",
+    "severity": "minor",
+    "where": [
+     "packages/mod/src/register.tsx:476-498",
+     "packages/mod/src/room.ts:136-147",
+     "docs/contributing/architecture.md:1397"
+    ],
+    "evidence": "Read, not run in the mod. Architecture.md:1397 says \"/room share \u2026 returns `context` with the exact publish arguments: file_path, files, capabilities\u2026\". The command.run handler returns only `{ text: roomText(...) }`, and roomText is the summary plus handles. Verified: share's result has `publish` (file_path and files) but no handle, so the model reads only \"Shares 5 repos, 10 blocks \u2026; no code text; no presence.\". The publish args are drawn only as JSON in CommandOutput, for the person. DR-85's \"never JSON\" text rule leaves no channel for them. WS7 used the CLI directly, so nothing exercised this path.",
+    "why": "This is a design gap the ux-2 fix exposed: the person path to S11's publish (architecture.md:248, \"the chat model makes the one publish call\") can't complete from what the model is given.",
+    "fix": "Return share's publish arguments in the command result's `context` field (or as a handle the model can act on), and record that exception to the summary-only text rule in DR-85."
+   },
+   {
+    "id": "ux-k",
+    "title": "During a source build, the fallback's only button (\"Check again\", also band key 1) flips the pane back to \"Build it\", and a second press starts a build that deletes the first one's clone",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/text/en.toml:111-113",
+     "packages/mod/src/register.tsx:218-245",
+     "packages/mod/src/engine.ts:136-138",
+     "plugin/scripts/planroom:386-398,476-484"
+    ],
+    "evidence": "Read, not run. The building pane's action is \"Check again\" (run: retry), which calls startEngine and runs `resolver version --json`. The resolver has no idea a build is in progress: build() takes no lock, and resolve() goes straight to `offer_build` with reason no_release, no_build or download_failed. engineFromVersion maps that to `build_offered`, so the pane and band offer \"Build it\" while the first build is still running. A second build runs `rm -rf \"$src\"` and clones into the directory the first `cargo build` is using (installed-plugin path). When the first build fails, act() then sets status `failed`.",
+    "why": "Here the one obvious next action makes things worse, during a 4-minute wait the pane says to expect.",
+    "fix": "Give `build` a lock (reuse the fetch lock) and have resolve report `engine_fetching` (\"a build is running\") while it's held. Or have the pane's building state offer no action until act()'s build returns."
+   },
+   {
+    "id": "ux-l",
+    "title": "Some fix lines and hints can't be run from where the person is, and the no-canvas fix page is a bare white page",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/text/en.toml:28 (hint.engine_unavailable)",
+     "crates/planroom/text/en.toml:121 (canvas.missing_install)",
+     "crates/planroom/src/server/canvas.rs:59-66"
+    ],
+    "evidence": "Verified by reading. `hint.engine_unavailable = \"scripts/planroom build\"` and `canvas.missing_install = \"\u2026then run scripts/planroom build.\"` are paths relative to the plugin's install directory, which a person in their workspace doesn't know. The resolver itself prints the absolute `$self build` (planroom:350-352), so the engine's strings disagree with it. fix_page() writes `<body><main><h1>\u2026<p>\u2026` with no styles, so the browser's white default background shows. design-language.md lists \"A cream or off-white background\" under Don't, and asks every empty state for the felt with one next action. git_failed (ux-a) has no hint at all.",
+    "why": "AGENTS.md says hints are exact commands. These can't be run as written, and the page breaks the design language.",
+    "fix": "Interpolate the resolver's absolute path (the engine can read it from engine.env or PLANROOM_RESOLVER), or say \"/plugin\" steps. Give the fix page the --table and --card tokens and the empty-state art."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "ux-a",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced with target/debug/planroom on a temp workspace (svc1, svc2 with one commit each, newsvc after `git init` only, PLANROOM_DATA in scratch). `scan --json` gave `{ok:false, code:git_failed, retry:never, message:\"git failed in newsvc: fatal: Needed a single revision\", hint:null}`. Then `focus --json` gave next = `scan <root>` with the label \"Map these 3 repos? About 2 s.\" and empty.reason not_scanned, so the two healthy repos got no map and the only next action is the same failing scan. Source: crates/extract/src/git.rs:86 runs `rev-parse --verify HEAD^{commit}` with no handling for an unborn HEAD. en.toml [hint] has no git_failed entry. The README and DR-85 don't log the case. This breaks KICKOFF principle 1 (\"Never show a blank state\") and R1's \"no repo gets nothing\", so material stands. I did not run the surface half (mod key 1, canvas empty state); it is inferred from code."
+  },
+  {
+   "id": "ux-b",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed from CSS and pixels. The phone's \u22ef lid is a Picker with className lid-more and buttonClass `lid lid-ancestor lid-more-button` (top-row.tsx:36-49). `.lid-ancestor` has `margin-right:-10px` (styles.css:215-218), so the button overflows its `.picker` wrapper by 10px. The next flex item `.lid-current` is `position:relative` (styles.css:244-248) and later in DOM order, so it paints over that 10px and takes its hits. In container-390x844-light.png (2x), dark border columns sit at x=32-35 and x=100-103 on rows 60, 74 and 100, which leaves 68 device px, or 34 CSS px, exposed. The e2e test at surface.spec.ts:380-401 checks boundingBox only after openMap at the top level, where the \u22ef lid is absent (asserted at :425-427). S13 is tier B (KICKOFF:128,184) and requires 44 px targets, so material stands."
+  },
+  {
+   "id": "ux-c",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed in code. TopRow (top-row.tsx:174-186) passes `entries=[]` to the project Picker whenever pane.focus.project is null, and focus.rs:63-70 always sets project None. A press sets open, and Picker (picker.tsx:64-90) renders `.picker-sheet.panel` around an empty <ul>, styled min-width 200px with a border (styles.css:388+). That is an empty box with no line and no action, a blank state under KICKOFF principle 1, so material holds for the project shelf. The lens half (one entry, no onPick) is only a no-op and would on its own be minor. Neither case is logged as a known gap in the README or DR-85."
+  },
+  {
+   "id": "ux-d",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. On a scanned temp workspace, `map --level intent --detail graph --json` gives empty.next.label \"No plans at the intent level yet. Show the top of the map.\". LevelEmpty (map-view.tsx:185-206) draws STRINGS.emptyLevel as the line plus a button with that whole label, so the text repeats. In an empty dir, `focus --json` gives the 104-character no_repos label. app.tsx:47-55 draws only that label as the button, and layout.ts:189 cuts it to columns-3. Envelope `Empty` has only reason and next (envelope.rs:221-224). This is a UX cost, not a blank state, so minor is right."
+  },
+  {
+   "id": "ux-e",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed with git. `git log -- docs/screenshots` shows b0ac5d4 (13:28) as the last write. `git merge-base --is-ancestor 603dfe0 b0ac5d4` gives no. Commits 6e07f6a, 330a430, 90476d3 and 603dfe0 changed packages/canvas or crates/planroom/text after it. The screenshots therefore predate the engine's empty-state labels. This is drift in evidence, not product behaviour, so minor."
+  },
+  {
+   "id": "ux-f",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. focus.rs:63-82 sets next = `map --level container` with focus.next_containers unconditionally, at level System. On a 2-repo temp workspace, `focus` gave \"Open the containers\", and `map --level container --json` gave empty_level with \"Nothing at the container level here. Show the top of the map.\", so that press is a dead end. next-action.ts:26-41 only swaps in Back when the level already matches. This is a mislabel or loop at the edges, not a blank state, so minor."
+  },
+  {
+   "id": "ux-g",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed in code. ZoomRail (zoom-rail.tsx:13) marks `s.level ?? s.map?.level` as current, so at the top (level null, map.level system) System is marked, and a press calls showLevel('system'), which is `map --level system`. That map drops blocks, per drift-6 (README:64, logged as a minor known gap). artifact.ts:97-100 maps level system to `map:system:all`, the top view, so the two surfaces differ. I did not rerun the 10-vs-5 node count, because the fixture isn't built here. This is the UI face of a logged minor gap, so it stays minor."
+  },
+  {
+   "id": "ux-h",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced. `planroom share --json` gave message \"The command line isn't valid: the following required arguments were not provided:.\" with details.field \"out\". cli.rs:265 takes only `rendered.lines().next()`, and clap puts the missing argument on the next line. The generated catalogue marks share `room: true`, and the /room run handler (register.tsx:507-517) passes the person's args through unchanged, adding no default --out, so a bare `/room share` fails this way. The synopsis and the schema hint still name --out, so it's recoverable. Minor."
+  },
+  {
+   "id": "ux-i",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed in code. handlesOf (room.ts:94-110) reads meta.next, result.empty.next and result.next, never meta.warnings. roomRows adds the '+N more' row only past 200 nodes and has no warning row. map.rs:5,140-160 puts the drill-down in the truncated warning's details.next. I did not rerun the 83/22 numbers, because the fixture isn't built. The person still sees the summary, so minor."
+  },
+  {
+   "id": "ux-j",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. The /room run case returns only `{ text: roomText(...) }` (register.tsx:520-528), and roomText is the summary plus handles. On a temp workspace, `share --out DIR --json` has summary \"Shares 2 repos, ...; no code text; no presence.\", meta.next None, and the publish args only in result.publish. So the model gets no file_path or files, against architecture.md:1397. The model can still list the --out directory, so S11 isn't certain to fail. Minor design gap."
+  },
+  {
+   "id": "ux-k",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed by reading. The building fallback uses action \"Check again\" with run retry (fallback.ts:55-56, en.toml:83-85). build() in plugin/scripts/planroom:374-398 does `rm -rf \"$src\"` and clones without take_lock, which only the download path takes (planroom:257). While the build runs, resolve has no engine and goes to offer_build, so engineFromVersion maps no_build to build_offered (engine.ts:136-138). A second Build press could therefore clobber the first clone. I did not run it. It needs two presses during a rare source build, so minor."
+  },
+  {
+   "id": "ux-l",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. en.toml:28 has `hint.engine_unavailable = \"scripts/planroom build\"`, and en.toml:121 has missing_install \"...run scripts/planroom build.\", both relative paths. The resolver itself prints the absolute `$self build` (planroom:350-352). The en.toml comment says these are fallbacks used only when the resolver gives no line, which limits their reach. fix_page (canvas.rs:59-66) is unstyled HTML on the browser's default white, against design-language.md:26,134. Minor."
+  }
+ ]
+}

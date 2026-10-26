@@ -1,0 +1,79 @@
+{
+ "lens": "repo",
+ "review": {
+  "summary": "Round-2 check of the one round-1 MATERIAL finding in this lens:\n- repo-1 HOLDS for `check`. `CHECK_NOT_BUILT` (crates/xtask/src/main.rs:181-188) lists the breaking-change guard, feature_list_is_complete, the secret scan and release_pins as M1, and the docs tests and check-tag-version.sh as M5. check() prints each one through `Report::not_built` (main.rs:232-234, report.rs:132). That line neither passes nor fails, and xtask/tests/skips.rs tests it. The M1 \"Repo gates the skeleton left\" row (architecture.md:1619) and DR-85's \"`check` names what nobody built\" bullet now schedule these gates. The repo-layout.md check row (`cargo xtask check` row in \"The one task entry point\") matches CHECK_NOT_BUILT item for item. The one part that doesn't hold: the same row still claims \"The skeleton's GATES track built the rest of DR-70's and DR-79's gates\", and that is false. See repo2-1.\n\nOther checks I verified:\n- I recomputed the sha256 of boundaries.toml (now recorded under DR-85), the Boundaries and Conventions sections of AGENTS.md, and the top-level directory list. All match layout.lock, so the DR-85 ratification is consistent.\n- contract.sh carries its GENERATED header and is in generated_read_only (boundaries.toml:52-53). The drift check covers it (generate.rs:42), and the Generated directories table lists it.\n- All 20 area CLAUDE.md files are `@AGENTS.md`. claudeMdExcludes and the run-worker-tests deny are in place.\n- Every path in the existing Layout lists exists (canvas, e2e incl. overlays/, golden, schema).\n- DR-47, DR-71 and DR-81 carry \"Amended by DR-85\" bullets and Status lines, so the Read-first records stay truthful.\n- contract and kernel stay I/O-free: grep finds no std::fs or std::env in their src. The workspaces.json lock lives in crates/planroom/src/app/data.rs.\n- The README counts (94 findings, 18 material, 1 refuted) match the JSON files.\n- I ran target/debug/planroom scan on a temporary repo with PLANROOM_DATA set to a temporary directory. Nothing was written to the data root, so repo-11 is still latent, not live.\n\nKnown minor gaps, unchanged and not re-reported:\n- repo-2: test filters, eval, release-dry-run, live and gen flags.\n- repo-3: the Directory map's missing paths.\n- repo-4: e2e reads goldens through fs.\n- repo-5: .gitattributes is 3 hand lines and now also omits contract.sh; plugin/hooks/hooks.json has no generator.\n- repo-6: the engine.env rows still say BEGIN/END markers and a hand-written PLANROOM_REPO. The DR-85 fold edited the neighbouring rows and left these.\n- repo-7: pane.tsx, defaults.toml and errors.md.\n- repo-8: How to test it.\n- repo-9: Layout lists are still in only 5 of 20 areas. New untracked-purpose directories: docs/contributing/research/skeleton-review and .claude/skills/review-round/*.\n- repo-10: the boundaries copy in repo-layout.\n- repo-11: env vars xtask doesn't set.\n\nNew findings (all minor): three, below. No new material defect found in this lens.",
+  "findings": [
+   {
+    "id": "repo2-1",
+    "title": "repo-1's fix covers `check` only: `check audit`, `test`, `e2e` and several R16 gates are still documented as running, print no `not built` line, and the M1 row still says GATES built the rest",
+    "severity": "minor",
+    "where": [
+     "AGENTS.md:28",
+     "AGENTS.md:118",
+     "crates/xtask/src/main.rs:43-53",
+     "crates/xtask/src/main.rs:238-258",
+     "docs/contributing/repo-layout.md (rows `cargo xtask test`, `cargo xtask e2e`, `cargo xtask check audit`; Area contracts para above the table; Generated directories para)",
+     "docs/contributing/architecture.md:1619",
+     "docs/contributing/decisions.md:8",
+     "docs/contributing/contracts.md:17"
+    ],
+    "evidence": "1. AGENTS.md:28 says \"`cargo xtask check audit` checks each direct pin's age\". audit() at main.rs:238-258 runs only `cargo deny check advisories` and `pnpm audit --prod`. It has no pin-age step and no not_built line. The only not_built call sites are main.rs:233 and the self-test's two plants (boundaries.rs:1060, 1187). `grep -rn 'pin.age|every_directory_has_a_purpose' crates/xtask/src` finds nothing.\n2. repo-layout.md's test row says `test` runs the scenario CI paths S1 to S15, the tests/plugin/ scripts, budgets and eval recompute, and takes [FILTER] [--ts PATH] [--scenario SNN]. test() at main.rs:463-505 runs only the canvas build, nextest/doc tests, vitest and `claude plugin test`. The dispatcher (main.rs:50-52) accepts only `test`, `test -p K` and `test --installer`; anything else prints USAGE and exits 2 (main.rs:123-125). Yet AGENTS.md:118 tells every agent to iterate with `cargo xtask test -p CRATE [FILTER]` or `--ts PATH`.\n3. The e2e row's \"plugin install smoke in an isolated HOME, with mods on and off\" isn't in e2e() (main.rs:568-641).\n4. repo-layout.md describes `every_directory_has_a_purpose`, \"`cargo xtask gen` writes `generated_read_only` and `.gitattributes` from this table\" and \"`generated_headers` checks every path in it\" in the present tense. decisions.md:8 says `docs.rs::an_amended_record_says_so_in_its_status` checks Status, but crates/xtask/tests/docs.rs has only the four art tests.\n5. contracts.md:17 still says `cargo xtask check` runs the breaking-change guard, with no mention that it isn't built.\n6. architecture.md:1619 still ends \"The skeleton's GATES track built the rest of DR-70's and DR-79's gates\". DR-70's test filters (decisions.md:1574) are neither built nor named in any milestone row; I grepped the Milestones section for FILTER, --ts and \"test filter\".\nThe pin-age audit, every_directory_has_a_purpose and amended-record marking are scheduled in M1 (architecture.md:1619). The tests/plugin scripts and install test are scheduled in M5's release row (architecture.md:1670). Only the filters are unscheduled.",
+    "why": "KICKOFF R16 and its principle that \"the repo is easy for agents to work in\". A new agent following AGENTS.md:118 gets exit 2. A green `cargo xtask test`, `e2e` or `check audit` reads as having run gates it never ran, which is exactly the failure mode repo-1 named. It's minor because nearly all of these are scheduled and none is a tier A gate that the check row hides.",
+    "fix": "Apply DR-85's rule to every command. Have audit, test and e2e emit `r.not_built(...)` for their documented, unbuilt steps: pin-age (M1); scenario CI paths, tests/plugin and eval recompute (M1 to M5); install smoke (M5). Do the same in check for every_directory_has_a_purpose and generated .gitattributes (M1). Either change AGENTS.md:118 to `cargo xtask test -p CRATE` or add the filters to the M1 repo-gates row. Delete the \"built the rest of DR-70's\" clause, or name the filters as the exception."
+   },
+   {
+    "id": "repo2-2",
+    "title": "`Empty` carries no line, so the ux-3 fix hand-wrote three different empty-level texts in the canvas and the mod, outside en.toml",
+    "severity": "minor",
+    "where": [
+     "crates/contract/src/envelope.rs:221-224",
+     "crates/planroom/text/en.toml:58-60",
+     "packages/canvas/src/strings.ts (emptyLevel, backTo, newerDocument)",
+     "packages/canvas/src/views/map-view.tsx:180-207",
+     "packages/mod/src/room.ts:82-85",
+     "packages/mod/src/layout.ts:330",
+     "packages/canvas/AGENTS.md (Layout note on strings.ts)",
+     "AGENTS.md:113"
+    ],
+    "evidence": "`pub struct Empty { reason, next }` (envelope.rs:221-224) has no text, while en.toml:58-59 holds the engine's lines (`empty_level = \"Nothing at the {level} level here. Show the top of the map.\"`). Since a7b66a1, `git diff -- packages/canvas/src/strings.ts` adds `emptyLevel: (level) => `Nothing at the ${level} level yet.``, `backTo` and `newerDocument`. map-view.tsx:199 always draws STRINGS.emptyLevel, even when the engine sent an Empty, although its doc comment (line 182) says \"the engine's empty state when it sends one\". The mod writes `No blocks at the ${map.level} level` (room.ts:84) and \"No blocks at this level yet\" (layout.ts:330). So the CLI, the canvas and the pane word one state three ways. canvas/AGENTS.md says strings.ts \"holds the lines the canvas shows before an engine answers\", and these lines show after it answers. AGENTS.md's Where-new-code-goes row (line 113) sends a user-facing string to en.toml.",
+    "why": "It breaks the documented convention (engine-authored strings from en.toml, DR-21) and the canvas area's own stated contract. It drifts from KICKOFF principle 2's \"the human surfaces render the same output\". This widens known gaps ux-10 and unasked-9 rather than closing them. It's minor because no scenario fails.",
+    "fix": "Add the engine's sanitized line to `Empty` (an additive field) from en.toml, have both surfaces draw it, and keep the hand-written text only as the no-engine fallback. Until then, correct the strings.ts note in packages/canvas/AGENTS.md."
+   },
+   {
+    "id": "repo2-3",
+    "title": "A CI job turned off with `if: false` is a skipped check that neither the skip rule nor ci_runs_only_xtask can see",
+    "severity": "minor",
+    "where": [
+     ".github/workflows/ci.yml:139-152",
+     "crates/xtask/src/workflows.rs",
+     "crates/xtask/ci_skips.toml",
+     "AGENTS.md (Tests: \"In CI a `skipped` check fails\")",
+     "docs/contributing/repo-layout.md (CI workflows table, `release-dry-run (target)` row)"
+    ],
+    "evidence": "ci.yml:139-142 reads `# TODO: cargo xtask release-dry-run doesn't exist yet. Remove if: false then.` followed by `release-dry-run: ... if: false`, and its step runs `cargo xtask release-dry-run --target ...`, which the xtask dispatcher rejects (main.rs USAGE has no release-dry-run). ci_skips.toml declares no skips (\"None today\"). workflows.rs inspects `run:` commands only (grep for `if:` finds no handling), so it accepts a job that is permanently skipped and calls a non-existent command. repo-layout's CI table lists the job as running on four runners, with no note.",
+    "why": "AGENTS.md's Tests rule says a skipped check fails in CI unless ci_skips.toml lists it with a record. A disabled job is a skip GitHub shows as green-adjacent \"skipped\", with no record and no not-built line, which is the same gap repo-1 closed for `check`. It's minor because the release (M5) is scheduled.",
+    "fix": "Have ci_runs_only_xtask refuse `if: false` (or any job whose xtask command the dispatcher doesn't accept) unless ci_skips.toml lists it with a record, and mark the release-dry-run row in repo-layout's CI table `(M5)`."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "repo2-1",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Verified on HEAD 3156a41, which differs from 30898ce only in .claude/carry.md. AGENTS.md:28 says `check audit` checks pin age, but audit() runs only deny advisories and pnpm audit. The only not_built call is main.rs:232-233, over CHECK_NOT_BUILT (main.rs:180-187), and the only other `not built` output is the self-test's plants. The dispatcher (main.rs:50-52) accepts only `test`, `test -p K` and `test --installer`. AGENTS.md:118's `-p CRATE [FILTER]` and `--ts PATH` fall to the `_` arm and exit 2. repo-layout.md:297-298 describes scenario paths, tests/plugin, eval recompute and an install smoke in e2e, and test() and e2e() run none of them. crates/xtask/tests/docs.rs has only the four art tests, yet decisions.md:8 cites `an_amended_record_says_so_in_its_status`. contracts.md:17 still says `check` runs the breaking-change guard, with no not-built note. contracts.md was one of repo-1's own evidence sites, so repo-1's fix left that drift (check() itself now prints the line, and M1 schedules the guard, so repo-1 otherwise holds). architecture.md:1619 still says GATES 'built the rest of DR-70's' gates, but DR-70's test filters (traceability.md:41) aren't built. Caveat: most of this re-reports README known minor gaps. repo-2 covers the AGENTS.md:118 filters and unbuilt flags in the task table. repo-5 covers generated_read_only, .gitattributes and generated_headers in the present tense. repo-9 covers every_directory_has_a_purpose. unasked-7 and ops-7 cover the audit and pin-age statements. DR-85 deliberately scoped the not-built rule to `check`. What's new is the leftover drift: contracts.md:17, decisions.md:8, the e2e install-smoke claim and the 1619 sentence. Minor is right; no tier A gate is hidden."
+  },
+  {
+   "id": "repo2-2",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Partly confirmed, with corrected evidence. `Empty { reason, next }` (envelope.rs:221-224) has no text field. But the engine's en.toml line does reach the surfaces: map.rs:119-133 puts text::get(\"empty.no_intent\" / \"empty.empty_level\") into the next Handle's label. So 'Empty carries no line' is inaccurate: the line rides as the button label. room.ts:81-85 uses next.label whenever there is a Handle. Its `No blocks at the ${level} level` text is only a fallback, and DR-85 now always sends an Empty for an empty level. layout.ts:330 is a pre-existing string already logged under ux-10. What does hold is the canvas. map-view.tsx:199 always draws the hand-written STRINGS.emptyLevel ('Nothing at the X level yet.'), added by the ux-3 fix (b0ac5d4). That contradicts strings.ts's own comment ('when the engine sends no empty state of its own') and canvas/AGENTS.md:29 ('lines the canvas shows before an engine answers'). It also renders beside a button whose label is the engine's near-duplicate sentence ('Nothing at the X level here. Show the top of the map.'). That is new drift from a documented convention, introduced by a fix. It sits in the same family as known gaps ux-10 and unasked-9, and no scenario fails, so it's minor."
+  },
+  {
+   "id": "repo2-3",
+   "refuted": true,
+   "severity_after": "none",
+   "reason": "The facts are accurate: ci.yml:139-152 holds a release-dry-run job with `if: false` and a TODO. workflows.rs checks only `run:` lines, and its own test (workflows.rs:90) asserts the release-dry-run command is allowed. ci_skips.toml lists nothing. But round 1 already reported this exact job: repo-2's evidence cites ci.yml:138's admission that release-dry-run doesn't exist, and ops-7's cites 'the CI job is `if: false` with a TODO'. The README logs both as minor known gaps (README.md:85, :114), and nothing has got worse since. The new angle, that it breaches the skip rule, doesn't hold. AGENTS.md's rule and ci_skips.toml govern xtask report lines that print `skipped`; ci_skips.toml's header says each entry 'names the check as its report line prints it'. A disabled GitHub job isn't such a line. The release is scheduled (M5). So this is a duplicate of logged known gaps, not a new defect."
+  }
+ ]
+}
