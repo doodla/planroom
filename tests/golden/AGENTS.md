@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Must not:** hand edits.
 - **How to test it:** `golden_outputs_type_check`; the mod tests.
 
-The engine's own tests write these files from real runs on the built fixture: `crates/planroom/tests/golden.rs` owns `cli/focus.json`, `cli/map-graph.json` and `cli/map-empty.json` (`map --detail graph` before the first scan, with the temp root written as `/home/you/shop`). A plain `cargo xtask test` compares the engine's output with them; `cargo xtask gen --golden` rewrites them. `meta.took_ms` is left out, since no run repeats it.
+The engine's own tests write these files from real runs on the built fixture: `crates/planroom/tests/golden.rs` owns `cli/focus.json`, `cli/map-graph.json`, `cli/map-empty.json` (`map --detail graph` before the first scan, with the temp root written as `/home/you/shop`) and `cli/watch-frames.json` (the lines `watch --json --since SEQ` printed over a replay and a rescan after two fixture commits, kept as one JSON array). A plain `cargo xtask test` compares the engine's output with them; `cargo xtask gen --golden` rewrites them. `meta.took_ms` is left out, since no run repeats it.
 
 ## Layout
 

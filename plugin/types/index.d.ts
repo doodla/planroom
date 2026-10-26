@@ -559,7 +559,8 @@ export interface ScanReq {
   project: NodeId | null;
 }
 /**
- * `planroom watch [--since SEQ]`: one `StreamFrame` per line on stdout until stopped.
+ * `planroom watch [--since SEQ] [--session ID]`: one `StreamFrame` per line on stdout until
+ * stopped.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "WatchReq".
@@ -569,6 +570,10 @@ export interface WatchReq {
    * Stream the events after this `seq`; the store's latest when absent.
    */
   since: number | null;
+  /**
+   * The Claude Code session this stream serves, as the mod starts it.
+   */
+  session: string | null;
 }
 /**
  * `planroom schema [--commands]`.

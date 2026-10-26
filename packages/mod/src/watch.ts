@@ -74,6 +74,22 @@ export function frameSeq(frame: StreamFrame): number | null {
   }
 }
 
+/**
+ * The loop's cursor after a batch of frames, from `held`: a reset names the seq to refetch from,
+ * and an event only moves the cursor on. A restarted child streams from the result (`--since`).
+ */
+export function advanceCursor(
+  held: number | null,
+  frames: readonly StreamFrame[],
+): number | null {
+  return frames.reduce<number | null>((at, f) => {
+    const seq = frameSeq(f);
+    if (seq === null) return at;
+    if (f.type === "reset") return seq;
+    return at === null ? seq : Math.max(at, seq);
+  }, held);
+}
+
 /** Whether a frame changes what `focus` would draw; a ping only says the stream is alive. */
 export function frameRefreshes(frame: StreamFrame): boolean {
   return frame.type !== "ping";

@@ -22,7 +22,7 @@ test("the_mod_store_file_is_guarded: no agent reads the person key, the stores o
   await h.clock.settle();
 
   for (const file_path of [
-    "/home/u/.claude/plugin-data/planroom/store.json",
+    "/home/u/.claude/plugins/store/planroom_planroom-0123456789ab.json",
     ".planroom/store.db",
     "notes.db",
     "/home/u/.local/share/planroom/backups/ws/events.ndjson",

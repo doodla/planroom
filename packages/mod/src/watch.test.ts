@@ -1,7 +1,9 @@
 import { expect, test } from "vitest";
+import type { StreamFrame } from "@planroom/contract";
 
 import frames from "../../../tests/golden/cli/watch-frames.json";
 import {
+  advanceCursor,
   frameRefreshes,
   frameSeq,
   IDLE,
@@ -25,18 +27,66 @@ test("pieces of NDJSON become whole lines, a partial line waits", () => {
   expect(r.flush()).toEqual([]);
 });
 
+/** The golden lines, as `watch --json --since 3` printed them: a ping, the replay, a rescan. */
+const golden: StreamFrame[] = frames.map((f) => {
+  const p = parseLine(JSON.stringify(f));
+  if (p.kind !== "frame") throw new Error(`not a frame: ${JSON.stringify(f)}`);
+  return p.frame;
+});
+
 test("the golden frames parse, and each moves the cursor as its kind says", () => {
-  const parsed = frames.map((f) => parseLine(JSON.stringify(f)));
-  expect(parsed.every((p) => p.kind === "frame")).toBe(true);
-  const seqs = parsed.map((p) => (p.kind === "frame" ? frameSeq(p.frame) : -1));
-  expect(seqs.filter((s) => s !== null).length).toBeGreaterThan(0);
-  const ping = parsed.find(
-    (p) => p.kind === "frame" && p.frame.type === "ping",
+  expect(golden[0]).toEqual({ type: "ping" });
+  const ping = golden[0] as StreamFrame;
+  expect(frameSeq(ping)).toBeNull();
+  expect(frameRefreshes(ping)).toBe(false);
+  // The rest are the engine's events, in seq order with no gap, each refreshing the pane.
+  const seqs = golden.slice(1).map(frameSeq);
+  expect(seqs).toEqual(seqs.map((_, i) => 4 + i));
+  expect(golden.slice(1).every(frameRefreshes)).toBe(true);
+  // The loop started at --since 3 ends at the last event's seq, which a restart passes on.
+  expect(advanceCursor(3, golden)).toBe(seqs.at(-1));
+});
+
+/**
+ * Test-only overlay: frames the engine can't produce yet (an agent's ghost edit and claim), laid
+ * after the real golden frames. They move the cursor and refresh like any event.
+ */
+const agentOverlay: StreamFrame[] = [
+  {
+    type: "event",
+    seq: 8,
+    kind: "edit",
+    target: "orders:repo:orders",
+    project: null,
+    actor: { kind: "agent", session: "5e55i0n1", role: "chat", key: null },
+    status: "ghost",
+    summary: "Claude proposed renaming the group",
+  },
+  {
+    type: "event",
+    seq: 9,
+    kind: "claim",
+    target: "worker:repo:worker",
+    project: null,
+    actor: { kind: "agent", session: "5e55i0n1", role: "chat", key: null },
+    status: "ghost",
+    summary: "Claude claimed worker for 30 min",
+  },
+];
+
+test("agent ghost edits and claims (overlay) move the cursor like the engine's events", () => {
+  const all = [...golden, ...agentOverlay];
+  expect(all.every((f) => parseLine(JSON.stringify(f)).kind === "frame")).toBe(
+    true,
   );
-  if (ping?.kind === "frame") {
-    expect(frameSeq(ping.frame)).toBeNull();
-    expect(frameRefreshes(ping.frame)).toBe(false);
-  }
+  expect(agentOverlay.every(frameRefreshes)).toBe(true);
+  expect(advanceCursor(3, all)).toBe(9);
+});
+
+test("a reset moves the cursor back to the seq it names; pings move nothing", () => {
+  expect(advanceCursor(null, [{ type: "ping" }])).toBeNull();
+  expect(advanceCursor(40, [{ type: "reset", seq: 7 }])).toBe(7);
+  expect(advanceCursor(40, [...golden])).toBe(40);
 });
 
 test("an error envelope and noise are told apart from frames", () => {

@@ -23,6 +23,7 @@ import { engineAtom, lastSeqAtom, paneAtom } from "./atoms";
 import { parseReply, type Reply, type RunResult } from "./engine";
 import type { EngineState, PaneState } from "./state-types";
 import {
+  advanceCursor,
   frameRefreshes,
   frameSeq,
   hasStore,
@@ -213,13 +214,7 @@ async function readLines(
   }
   if (frames.some((f) => frameSeq(f) !== null)) {
     await update($, lastSeqAtom, (held) => ({
-      seq: frames.reduce<number | null>((at, f) => {
-        const seq = frameSeq(f);
-        // A reset names the seq to refetch from; an event only moves the cursor on.
-        if (seq === null) return at;
-        if (f.type === "reset") return seq;
-        return at === null ? seq : Math.max(at, seq);
-      }, held.seq),
+      seq: advanceCursor(held.seq, frames),
     }));
   }
   if (gen === generation && frames.some(frameRefreshes)) {
