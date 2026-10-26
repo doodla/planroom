@@ -634,7 +634,8 @@ pub struct Policy { pub auto_at: Option<f64> /* None: never auto, never asks Cla
                     pub card_band: (f64, f64), pub escalate_band: (f64, f64), pub escalate_to: ModelTier }
 
 pub struct DecisionRecord {                  // the body of a decision event
-    pub kind: String, pub kind_version: u32, pub subject: Target, pub input_hash: String,
+    pub decision_kind: String,               // not `kind`: `kind` is the event body's serde tag
+    pub kind_version: u32, pub subject: Target, pub input_hash: String,
     pub backend: String, pub model_requested: String, pub model_reported: Option<String>,
     pub scores: Value,                       // the normalized Jev or Claude result
     pub pick: Option<String>, pub band: Band, // Auto | Card | Escalate

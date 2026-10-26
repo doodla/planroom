@@ -110,4 +110,4 @@ This section is the conventions' only home; `docs/contributing/repo-layout.md` l
 - Keep `.claude/carry.md` current and under 4,000 characters; keep `progress.md` as the full record.
 - Changing the layout, a boundary or a convention in this file needs a decision record in `docs/contributing/decisions.md` first.
 - Respect unrelated work: don't revert, reformat or "clean up" code outside your task.
-- Commits follow the attribution rules in `CLAUDE.md`; never fabricate a git identity; never discard others' changes.
+- An agent's commits end with the `Co-Authored-By` and `Claude-Session` trailers its session gives; never fabricate a git identity; never discard others' changes.

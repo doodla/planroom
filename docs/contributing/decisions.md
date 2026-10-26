@@ -639,7 +639,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Starting point:** kept and refined "`planroom-schema` (contract source)" and "a schema-to-TS generator (`json-schema-to-typescript`, `ts-rs` or `specta`)."
 - **Origin:** S (§8.1, D18).
 - **Context:** principle 2 asks for one versioned schema. schemars makes `#[serde(default)]` and `Option` fields optional in the default view [rust-stack G7].
-- **Decision:** Rust types in `planroom-contract` are the source. `cargo xtask gen` writes `schema/planroom.v1.schema.json` (serialize view) and `schema/planroom.v1.input.schema.json` (deserialize view) with schemars 1.2.3, then `json-schema-to-typescript` 16.0.0 writes `packages/contract/src/generated/`. One integer `schema_version = 1` covers the whole contract; persisted documents also carry `format: "planroom.<name>/v1"`. Open sets use `anyOf: [{enum}, {pattern}]`.
+- **Decision:** Rust types in `planroom-contract` are the source. `cargo xtask gen` writes `schema/planroom.v1.schema.json` (serialize view) and `schema/planroom.v1.input.schema.json` (deserialize view) with schemars 1.2.2, then `json-schema-to-typescript` 16.0.0 writes `packages/contract/src/generated/`. One integer `schema_version = 1` covers the whole contract; persisted documents also carry `format: "planroom.<name>/v1"`. Open sets use `anyOf: [{enum}, {pattern}]`.
 - **Alternatives rejected:** one schema per contract with its own major (E); ts-rs (`u64` as `bigint`); specta (a release candidate); schema-first with typify (draft-07 internals) [rust-stack §9].
 - **Sources (checked 2026-10-25):** [rust-stack §9, G7, G8]; [iris-release-bar §6]; judge J2 fatal flaw on E.
 
@@ -666,7 +666,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | SQLite | `rusqlite =0.41.0` (`bundled`) | `sqlx 0.9.0` | synchronous single writer; 12 s build against 48 s; the two can't share a workspace (G1) |
 | HTTP server | `axum =0.8.9`, `tokio =1.54.1`, `tower-http =0.6.11`, `tokio-stream =0.1.19` | actix-web, warp | SSE and static files verified; one `tower-http` copy with reqwest |
 | HTTP client | `reqwest =0.13.5` with `rustls` and the ring provider | hyper directly, ureq | no OpenSSL; ring builds 22 s faster |
-| Serialization and schema | `serde =1.0.229`, `serde_json =1.0.154` (`preserve_order`), `schemars =1.2.3` (`preserve_order`) | schemars 0.8 | draft 2020-12, follows serde attributes |
+| Serialization and schema | `serde =1.0.229`, `serde_json =1.0.154` (`preserve_order`), `schemars =1.2.2` (`preserve_order`) | schemars 0.8 | draft 2020-12, follows serde attributes |
 | CLI | `clap =4.6.7` (derive) | argh, bpaf | |
 | Diffs | `similar =3.2.1` | `diff`, `dissimilar` | text hunks and ratios |
 | Logging | `tracing =0.1.44`, `tracing-subscriber =0.3.23` | log | stderr only |
@@ -678,13 +678,13 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | Fuzzy search | `nucleo-matcher` | | |
 | Hashes and IDs | `sha2 =0.11.1`, `uuid =1.29.0` (`v7`) | blake3 (C build), ulid 3.0 (renamed API) | |
 | Errors | `thiserror =2.0.21` in libraries, `anyhow =1.0.104` in the binary and tests | snafu | |
-| Tests | `insta =1.49.0`, `assert_cmd =2.2.2`, `tempfile =3.27.0`, `proptest`, `jsonschema =0.60.1`, `wiremock =0.6.5` | expect-test | |
+| Tests | `insta =1.49.0`, `assert_cmd =2.2.2`, `tempfile =3.27.0`, `proptest`, `jsonschema =0.58.6`, `wiremock =0.6.5` | expect-test | |
 | CI tools | `cargo-deny 0.20.2`, `cargo-nextest 0.9.149`, `cargo-about 0.9.2`, downloaded with pinned sha256 | `cargo install` (2 min 30 s) | |
 | Git | the git CLI (DR-16) | `gix =0.90.0`, `git2 =0.21.0` | |
 | MCP | none (DR-14) | `rmcp =3.7.0` | |
 | File watching | none (DR-33) | `notify =8.2.1` | |
 
-- **Cool-off.** Several pins were released within 14 days of 2026-10-25 (rusqlite 0.41.0, tokio 1.54.1, uuid 1.29.0, schemars 1.2.3, sha2 0.11.1, similar 3.2.1, jsonschema 0.60.1). WS1 decides between these and the newest versions at least 14 days old listed in [rust-stack §2], and records the choice here.
+- **Cool-off.** Several pins were released within 14 days of 2026-10-25 (rusqlite 0.41.0, tokio 1.54.1, uuid 1.29.0, schemars 1.2.3, sha2 0.11.1, similar 3.2.1, jsonschema 0.60.1). **Decided in WS1 (2026-10-26):** every pin is a version at least 14 days old. WS1 pinned `schemars =1.2.2` and `jsonschema =0.58.6`; later slices pin the others the same way when they first add them, and record the version here.
 - **Consequences:** `deny.toml` allows MIT, Apache-2.0, Unicode-3.0, Unlicense, ISC, Zlib, BSD, CC0-1.0, MIT-0, BSL-1.0, CDLA-Permissive-2.0 and MPL-2.0; bans `openssl` and `openssl-sys`; `[profile.dev.package."*"] opt-level = 2` for tree-sitter speed (G4).
 - **Sources (checked 2026-10-25):** [rust-stack §1, §2, §5, §6, §9, §10, §11].
 
@@ -704,15 +704,15 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | Primitives | `radix-ui 1.8.1` | per-primitive packages | one pin |
 | State | `zustand 5.0.15` | TanStack Query 5 | a pushed, event-sourced model, not request caching |
 | Schema to TS | `json-schema-to-typescript 16.0.0` | ts-rs, specta | DR-37 |
-| Language and lint | `typescript 6.0.3`, `eslint 10.13.0`, `typescript-eslint 8.71.2`, `eslint-plugin-react-hooks 7.1.1` | TypeScript 7.0.2 (no typescript-eslint support), ESLint 9 (deprecated) | |
+| Language and lint | `typescript 6.0.3`, `eslint 10.12.0`, `typescript-eslint 8.71.1` (both pinned in WS1: at least 14 days old), `eslint-plugin-react-hooks 7.1.1` | TypeScript 7.0.2 (no typescript-eslint support), ESLint 9 (deprecated) | |
 | Format | `prettier 3.9.10` | Biome 2.5 and 2.6 | Markdown and YAML support too young |
 | Boundaries | `dependency-cruiser 18.6.0` | `eslint-plugin-boundaries 7.x` | DR-36 |
-| Tests | `vitest 5.0.5`, `@playwright/test 1.63.0` | | `cargo xtask e2e` installs the matching Chromium |
+| Tests | `vitest 5.0.3` (pinned in WS1: at least 14 days old), `@playwright/test 1.63.0` | | `cargo xtask e2e` installs the matching Chromium |
 | Mod bundle | `esbuild` (ESM, no splitting) | Vite for the mod | the mod can't use `import()` [mod-api §10] |
 | Fonts | `@fontsource-variable/*` 5.3.0: Bricolage Grotesque, Atkinson Hyperlegible Next; JetBrains Mono | Inter, Roboto, Arial, system-ui, Space Grotesk | design language |
 | Statecharts | none (DR-11) | `xstate 5.33.3` | |
 
-- pnpm 10.28 with `minimumReleaseAge: 10080` (7 days).
+- pnpm 10.28.2 with `minimumReleaseAge: 10080` (7 days).
 - **Amended in review round 1:** CI runners have no preinstalled browsers, so `cargo xtask e2e` runs `playwright install chromium` at the pinned version, with `--with-deps` in CI. pnpm is pinned exactly in `packageManager` (10.28.2, as WS1 committed it), and Dependabot waits 7 days like `minimumReleaseAge` (operability-10, operability-12, repo-11) [DR-59].
 - **Sources (checked 2026-10-25):** [ts-stack §1, §2, §6, §7, §8]; [mod-api §1, §10].
 
