@@ -139,6 +139,10 @@ impl Live {
 /// An event's stream frame, with its engine-authored one-line summary.
 pub fn frame(event: &Event) -> StreamFrame {
     let summary = match &event.body {
+        // A repo with no commit yet maps nothing, so its frame says that rather than "at ".
+        EventBody::Scan { repo, commit, .. } if commit.is_empty() => {
+            text::get("frame.scan_unborn", &[("repo", repo)])
+        }
         EventBody::Scan { repo, commit, .. } => {
             text::get("frame.scan", &[("repo", repo), ("commit", &&commit[..commit.len().min(7)])])
         }

@@ -101,7 +101,15 @@ pub fn top(store: &Store, root: &Path, level: Option<Level>) -> Result<MapView, 
         Some(level) => (level, tree::at_level(&nodes, level)),
     };
     let edges = tree::lift_edges(&nodes, &edges, &blocks);
-    let empty = blocks.is_empty().then(|| level_empty(root, level));
+    // With nothing at the top there is nothing at any level, so every level shows the top's own
+    // empty state, which says why.
+    let empty = if !blocks.is_empty() {
+        None
+    } else if level.is_none() || tree::top_level(&nodes).is_empty() {
+        Some(top_empty(root))
+    } else {
+        Some(level_empty(level))
+    };
     Ok(MapView {
         level: shown,
         lens: ALL_LENSES.into(),
@@ -114,26 +122,37 @@ pub fn top(store: &Store, root: &Path, level: Option<Level>) -> Result<MapView, 
     })
 }
 
-/// The empty state of a scanned workspace's level with no blocks: the intent level before any
-/// plan, or a level this workspace has nothing at. Its next action is the top of the map, which a
-/// scan always fills; an empty top offers the scan again.
-fn level_empty(root: &Path, level: Option<Level>) -> Empty {
+/// The empty state of a scanned workspace's level with no blocks, below a top that has some: the
+/// intent level before any plan, or a level this workspace has nothing at. Its next action is the
+/// top of the map.
+fn level_empty(level: Option<Level>) -> Empty {
     let map = |label: String| Handle { command: CommandName("map".into()), args: vec![], label };
     let (reason, next) = match level {
         Some(Level::Intent) => ("no_intent", map(text::get("empty.no_intent", &[]))),
         Some(level) => {
             ("empty_level", map(text::get("empty.empty_level", &[("level", &tree::level_name(level))])))
         }
-        None => (
-            "nothing_mapped",
-            Handle {
-                command: CommandName("scan".into()),
-                args: vec![root.display().to_string()],
-                label: text::get("empty.nothing_mapped", &[]),
-            },
-        ),
+        None => ("empty_level", map(text::get("empty.empty_level", &[("level", &"system")]))),
     };
     Empty { reason: EmptyReason(reason.into()), next }
+}
+
+/// The empty state of a scanned workspace with nothing at the top. When a scan can now map a repo,
+/// one with a commit, the action is that scan; otherwise no scan could map anything, so the state
+/// says why (no commits yet, or git can't read the repos) and the action checks again.
+fn top_empty(root: &Path) -> Empty {
+    let repos = workspace::scannable(root);
+    if repos.readable == 0 {
+        return scan_empty(root, &repos);
+    }
+    Empty {
+        reason: EmptyReason("nothing_mapped".into()),
+        next: Handle {
+            command: CommandName("scan".into()),
+            args: vec![root.display().to_string()],
+            label: text::get("empty.nothing_mapped", &[]),
+        },
+    }
 }
 
 /// Keep the blocks that fit `budget_tokens`, in their order, and the lifted edges between them.
@@ -245,13 +264,18 @@ pub(crate) fn not_scanned_view(root: &Path) -> Result<MapView, AppError> {
     Ok(not_scanned(root, ALL_LENSES.into(), None)?.result)
 }
 
-/// The empty state of a directory with no scan: map the repos git can read. With none, no scan
-/// can map anything, so the line says what to do and the action checks again.
+/// The empty state of a directory with no scan: map the repos a scan can map, those with a commit.
+/// With none, no scan can map anything, so the line says what to do (make a first commit, or see
+/// why git can't read them) and the action checks again.
 pub(crate) fn scan_empty(root: &Path, repos: &workspace::Scannable) -> Empty {
     let check_again = |reason: &str, label: String| Empty {
         reason: EmptyReason(reason.into()),
         next: Handle { command: CommandName("focus".into()), args: vec![], label },
     };
+    if repos.readable == 0 && !repos.unborn.is_empty() {
+        let names = repos.unborn.join(", ");
+        return check_again("repos_unborn", text::get("empty.repos_unborn", &[("names", &names)]));
+    }
     if repos.readable == 0 && !repos.unreadable.is_empty() {
         let names = repos.unreadable.join(", ");
         return check_again("repos_unreadable", text::get("empty.repos_unreadable", &[("names", &names)]));

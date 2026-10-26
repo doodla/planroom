@@ -95,20 +95,24 @@ pub fn discover(dir: &Path) -> Result<Workspace, AppError> {
 /// The repos of the workspace `dir` belongs to, as a scan would find them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Scannable {
-    /// Repos git can read: with commits, or none yet (those map nothing until their first commit).
+    /// Repos a scan maps: git can read them and they have a commit.
     pub readable: usize,
+    /// The names of the repos with no commit yet, which map nothing until their first, sorted.
+    pub unborn: Vec<String>,
     /// The names of the repos git refuses, which a scan skips, sorted.
     pub unreadable: Vec<String>,
 }
 
-/// Which of `dir`'s workspace repos a scan can read: one `git rev-parse` each.
+/// Which of `dir`'s workspace repos a scan can map: one `git rev-parse` each.
 pub fn scannable(dir: &Path) -> Scannable {
     let Ok(ws) = discover(dir) else { return Scannable::default() };
     let mut out = Scannable::default();
     for repo in ws.repos {
         let git = Git::new(&repo.path);
-        if git.head().is_ok() || git.unborn_branch().is_some() {
+        if git.head().is_ok() {
             out.readable += 1;
+        } else if git.unborn_branch().is_some() {
+            out.unborn.push(repo.name);
         } else {
             out.unreadable.push(repo.name);
         }

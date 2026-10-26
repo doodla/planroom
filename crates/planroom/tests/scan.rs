@@ -542,9 +542,10 @@ fn an_unborn_and_an_unreadable_repo_leave_the_rest_of_the_workspace_mapped() {
         let out = Command::new("chown").args(["-R", "nobody", "worker"]).current_dir(&root).output().unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     }
-    let readable = if as_root { 5 } else { 6 };
+    // newrepo has no commit, so a scan can't map it either.
+    let readable = if as_root { 4 } else { 5 };
 
-    // Before any scan, focus offers to map only what git can read.
+    // Before any scan, focus offers to map only what a scan can map.
     let (focus, _) = envelope(&root, &["focus", "--json"]);
     assert_eq!(focus["result"]["next"]["command"], "scan", "{focus}");
     assert_eq!(focus["result"]["next"]["label"], format!("Map these {readable} repos? About 2 s."));
@@ -590,6 +591,83 @@ fn an_unborn_and_an_unreadable_repo_leave_the_rest_of_the_workspace_mapped() {
     assert!(warnings_of(&env, "repo_unborn").is_empty(), "{env}");
     assert!(map_ids(&root, "code").contains("newrepo:file:README.md"));
     assert!(map_ids(&root, "").contains("newrepo:repo:newrepo"));
+}
+
+/// The text mode's output of `args`.
+fn text(cwd: &Path, args: &[&str]) -> String {
+    let out = planroom(cwd, args);
+    assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8(out.stdout).unwrap()
+}
+
+/// `focus` and `map` at every level agree on the `repos_unborn` empty state, whose one action
+/// checks again, and no text line shows an empty map.
+fn assert_unborn_everywhere(root: &Path, when: &str) {
+    let (focus, _) = envelope(root, &["focus", "--json"]);
+    let empty = &focus["result"]["empty"];
+    assert_eq!(empty["reason"], "repos_unborn", "{when}: {focus}");
+    assert_eq!(empty["next"]["command"], "focus", "{when}");
+    assert_eq!(empty["next"]["args"], serde_json::json!([]), "{when}");
+    let label = empty["next"]["label"].as_str().unwrap();
+    assert!(label.contains("app") && label.contains("first commit"), "{when}: {label}");
+    assert_eq!(focus["result"]["next"], empty["next"], "{when}: the pane's next action is the empty one");
+    for args in [&["map"][..], &["map", "--level", "container"], &["map", "--level", "code"]] {
+        let mut json = args.to_vec();
+        json.push("--json");
+        let (map, _) = envelope(root, &json);
+        assert_eq!(&map["result"]["empty"], empty, "{when}: {args:?} agrees with focus");
+        assert_eq!(text(root, args).trim(), label, "{when}: {args:?}");
+    }
+    let shown = text(root, &["focus"]);
+    assert_eq!(shown.trim(), label, "{when}");
+    assert!(!shown.contains("at the top"), "{when}: {shown}");
+}
+
+#[test]
+fn a_workspace_whose_only_repo_has_no_commit_says_to_commit_and_never_loops() {
+    // ux-r3-1, correctness-r3-2: a fresh `git init` is the commonest first run.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("ws");
+    std::fs::create_dir_all(&root).unwrap();
+    git(&root, &["init", "-q", "-b", "main", "app"]);
+
+    // Before any scan: no "Map these 1 repos?", since a scan would map nothing.
+    assert_unborn_everywhere(&root, "before the scan");
+
+    let env = scan(&root);
+    let summary = env["summary"].as_str().unwrap();
+    assert!(summary.starts_with("Mapped 0 repos, 0 of them moved"), "{summary}");
+    assert!(summary.ends_with("No commits yet in app; each maps after its first commit."), "{summary}");
+    assert_eq!(text(&root, &["scan"]).lines().next().unwrap(), summary, "the text mode says so too");
+    assert_eq!(env["result"]["map"]["empty"]["reason"], "repos_unborn", "{env}");
+    assert_eq!(warnings_of(&env, "repo_unborn").len(), 1, "{env}");
+    assert_unborn_everywhere(&root, "after the scan");
+
+    // The live frame of the unborn repo's scan event names no commit.
+    let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
+    let events = store.events_after(0, 10).unwrap();
+    assert_eq!(events.len(), 1);
+    let planroom_contract::StreamFrame::Event { summary, .. } = planroom::live::frame(&events[0]) else {
+        panic!("an event frame")
+    };
+    assert_eq!(summary, "app has no commits yet; it maps after its first commit.");
+
+    // A rescan changes nothing, and still offers no scan.
+    assert_eq!(scan(&root)["meta"]["seq"], 1);
+    assert_unborn_everywhere(&root, "after a rescan");
+
+    // After its first commit the one action is the scan, which maps it.
+    std::fs::write(root.join("app/README.md"), "# App\n").unwrap();
+    git(&root.join("app"), &["add", "README.md"]);
+    git(&root.join("app"), &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "First"]);
+    let (focus, _) = envelope(&root, &["focus", "--json"]);
+    assert_eq!(focus["result"]["empty"]["reason"], "nothing_mapped", "{focus}");
+    assert_eq!(focus["result"]["next"]["command"], "scan");
+    let env = scan(&root);
+    assert!(env["summary"].as_str().unwrap().starts_with("Mapped 1 repos, 1 of them moved"), "{env}");
+    let (focus, _) = envelope(&root, &["focus", "--json"]);
+    assert!(focus["result"]["empty"].is_null(), "{focus}");
+    assert!(map_ids(&root, "").contains("app:repo:app"));
 }
 
 #[test]

@@ -66,6 +66,7 @@ no_repos = "No git repos here. Open Planroom in a folder that holds your repos, 
 no_intent = "No plans at the intent level yet. Show the top of the map."
 empty_level = "Nothing at the {level} level here. Show the top of the map."
 nothing_mapped = "The last scan found nothing to map. Scan again."
+repos_unborn = "No commits yet in {names}, so there's nothing to map. Make a first commit, then check again."
 repos_unreadable = "git can't read {names} here, so there's nothing to map yet. Run git status in each to see why, then check again."
 
 # The fix a repo_skipped warning names, by its reason.
@@ -75,6 +76,7 @@ git_failed = "Run git -C {path} status to see why, fix it, then scan again."
 
 [scan]
 summary = "Mapped {repos} repos, {moved} of them moved: {containers} containers, {nodes} nodes, {hints} hints."
+unborn = "No commits yet in {names}; each maps after its first commit."
 next_label = "Show the map"
 
 [focus]
@@ -117,6 +119,7 @@ pane = "Show where you are"
 
 [frame]
 scan = "Scanned {repo} at {commit}."
+scan_unborn = "{repo} has no commits yet; it maps after its first commit."
 version = "Tagged {label}."
 other = "A {kind} event."
 

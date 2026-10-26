@@ -146,7 +146,13 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
             });
         }
     }
-    let recorded = done.repos.iter().filter(|(_, o)| matches!(o, RepoOutcome::Recorded { .. })).count();
+    // An unborn repo's scan event records its branch, but it maps nothing, so it isn't counted.
+    let recorded = done
+        .repos
+        .iter()
+        .zip(&write.repos)
+        .filter(|((_, o), repo)| matches!(o, RepoOutcome::Recorded { .. }) && !repo.commit.is_empty())
+        .count();
     // The top-level map an agent reads in scan's reply keeps to scan's budget, as map's does.
     let mut view = map::top(&store, &ws.root, None)?;
     let budget = Command::Scan(ScanReq::default()).spec().budget_tokens;
@@ -157,17 +163,27 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     Ok(Reply { result: ScanResult { map: view, next: next() }, seq: done.seq, warnings, text: summary })
 }
 
+/// The scan's one line: the repos it mapped, those with a commit, and how many moved; then the
+/// repos with no commit yet, which map after their first. A skipped repo isn't in `write`.
 fn summary(write: &ScanWrite, containers: usize, moved: usize) -> String {
-    text::get(
+    let (mapped, unborn): (Vec<&RepoScan>, Vec<&RepoScan>) =
+        write.repos.iter().partition(|r| !r.commit.is_empty());
+    let mut line = text::get(
         "scan.summary",
         &[
-            ("repos", &write.repos.len()),
+            ("repos", &mapped.len()),
             ("containers", &containers),
-            ("nodes", &write.repos.iter().map(|r| r.stats.nodes).sum::<u32>()),
-            ("hints", &write.repos.iter().map(|r| r.stats.hints).sum::<u32>()),
+            ("nodes", &mapped.iter().map(|r| r.stats.nodes).sum::<u32>()),
+            ("hints", &mapped.iter().map(|r| r.stats.hints).sum::<u32>()),
             ("moved", &moved),
         ],
-    )
+    );
+    if !unborn.is_empty() {
+        let names: Vec<&str> = unborn.iter().map(|r| r.repo.as_str()).collect();
+        line.push(' ');
+        line.push_str(&text::get("scan.unborn", &[("names", &names.join(", "))]));
+    }
+    line
 }
 
 fn next() -> Handle {

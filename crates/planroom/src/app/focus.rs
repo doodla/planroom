@@ -82,6 +82,11 @@ pub fn pane(store: &Store, root: &Path) -> Result<PaneModel, AppError> {
         minimap: MiniMap { level: Level::System, blocks, edges },
         empty: None,
     };
+    // A top with no blocks is the map's own empty state, never "0 at the top".
+    if let Some(empty) = view.empty {
+        pane.next = empty.next.clone();
+        pane.empty = Some(empty);
+    }
     fit(&mut pane);
     Ok(pane)
 }
