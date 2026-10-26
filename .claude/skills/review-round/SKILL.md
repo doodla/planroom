@@ -65,10 +65,14 @@ Then write `docs/contributing/research/<phase>-review/README.md`: how the round 
 4. Before launching worktrees, check the disk. Each worktree's `target/` takes 2 to 4 GB even with line tables only. Four worktrees is the most this disk holds.
 5. Do small items yourself in the main checkout while the tracks run.
 6. Merge each track with the `merge-track` skill. Write one decision record for the round's fixes, covering every doc conflict and every contract addition the tracks reported.
+7. Run the full suite once on the tree with every track merged. Seams between tracks show up only there: one track's regenerated golden broke another's test fixture, and one track's new test refused another's new code.
+8. Fold the record into its home pages with one docs agent in a worktree, then have an independent agent check the fold against the code. Fix what it finds before the next round starts, so the next round's reviewers read docs that match the code. Each fold check has found real defects the tracks left, in code as well as docs.
 
 ## 4. Decide on the next round
 
 Run round N+1 when round N had any material finding. Its reviewers see the fixed tree, and its `WORK` names round N's README so they check that each fix holds. A round with no material finding ends the review.
+
+Build round N+1's scripts from round N's, so the lenses stay the same: copy the two scripts, change the `name`, `description`, commit and record range, and replace only the round paragraph in `WORK`. That paragraph asks each reviewer to say, per material ID in its area, whether the fix holds, then to look for what the fixes introduced, and not to re-report a logged minor gap unless it got worse. Rebuild `target/debug/planroom` first, so reviewers run the code they read.
 
 After round 3, don't run a fourth. Write `accepted-risk.md` beside the README. List each material finding still open, why it's accepted, and who signed it off: the main agent, or the owner when it touches their data, money or credentials. Round 3's own fixes get no reviewer either. Say so there, and say what checks them instead: each fix's regression test, the finding's original repro rerun, and the full suite.
 
