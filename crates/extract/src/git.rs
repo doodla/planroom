@@ -62,13 +62,23 @@ impl Git {
     }
 
     fn run(&self, args: &[&str]) -> Result<String, GitError> {
+        self.run_bytes(args).map(|out| String::from_utf8_lossy(&out).into_owned())
+    }
+
+    fn run_bytes(&self, args: &[&str]) -> Result<Vec<u8>, GitError> {
         let fail = |stderr: String| GitError { argv: args.iter().map(|a| a.to_string()).collect(), stderr };
         let out = self.command(args).output().map_err(|e| fail(e.to_string()))?;
         if out.status.success() {
-            Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+            Ok(out.stdout)
         } else {
             Err(fail(String::from_utf8_lossy(&out.stderr).into_owned()))
         }
+    }
+
+    /// Every entry of `commit`'s tree, recursively, as `git ls-tree -r -z -l` prints it:
+    /// NUL-terminated `<mode> <type> <object> <size>\t<path>` records, each path as raw bytes.
+    pub fn ls_tree(&self, commit: &str) -> Result<Vec<u8>, GitError> {
+        self.run_bytes(&["ls-tree", "-r", "-z", "-l", "--full-tree", &format!("{commit}^{{tree}}")])
     }
 
     /// The commit `HEAD` names and its branch.

@@ -25,10 +25,21 @@ pub use ids::{hex, node_id};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoView {
     pub name: String,
+    /// Where the repo's git runs. An extractor never reads a file from here: the working tree
+    /// isn't the commit. It reads contents with [`RepoView::read`].
     pub root: PathBuf,
     pub commit: String,
     /// Empty when `HEAD` is detached.
     pub branch: String,
+    /// The contents of the commit's files the walk took ([`walk::Walked::blobs`]).
+    pub blobs: walk::Blobs,
+}
+
+impl RepoView {
+    /// The contents of `file` at this view's commit, or `None` when the walk didn't take it.
+    pub fn read(&self, file: &RepoPath) -> Option<&[u8]> {
+        self.blobs.get(&file.0)
+    }
 }
 
 /// A path relative to the repo root, with `/` separators.

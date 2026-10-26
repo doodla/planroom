@@ -292,3 +292,82 @@ fn the_store_and_its_directory_are_private() {
     assert_eq!(mode(&root.join(".planroom/store.db")), 0o600);
     assert_eq!(std::fs::read_to_string(root.join(".planroom/.gitignore")).unwrap(), "*\n");
 }
+
+/// The IDs `map --level LEVEL --json` lists, or plain `map --json` for an empty level.
+fn map_ids(root: &Path, level: &str) -> BTreeSet<String> {
+    let args: &[&str] =
+        if level.is_empty() { &["map", "--json"] } else { &["map", "--level", level, "--json"] };
+    let (env, out) = envelope(root, args);
+    assert!(out.status.success(), "{env}");
+    env["result"]["nodes"].as_array().unwrap().iter().map(|n| n["id"].as_str().unwrap().to_owned()).collect()
+}
+
+/// Every level's IDs and every active fact, sorted: what two stores at the same heads share.
+fn the_map(root: &Path) -> (Vec<BTreeSet<String>>, Vec<String>) {
+    let levels = ["", "system", "container", "component", "code"].iter().map(|l| map_ids(root, l)).collect();
+    let mut facts: Vec<String> = active_facts(root).iter().map(|(_, v)| v.to_string()).collect();
+    facts.sort();
+    (levels, facts)
+}
+
+#[test]
+fn a_dirty_first_scan_then_a_clean_rescan_gives_the_map_a_fresh_store_gives() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = fixture(&dir.path().join("dirty")).root;
+    let compose = root.join("platform/docker-compose.yml");
+    let committed = std::fs::read_to_string(&compose).unwrap();
+    std::fs::write(&compose, format!("# local note\n{committed}")).unwrap();
+    let first = scan(&root);
+    assert!(
+        first["warnings"].as_array().is_none_or(|w| w.iter().all(|w| w["code"] != "evidence_dropped")),
+        "the dirty edit never reaches extraction: {first}"
+    );
+    let dirty = the_map(&root);
+    std::fs::write(&compose, committed).unwrap();
+    scan(&root);
+    let rescanned = the_map(&root);
+    assert_eq!(rescanned, dirty, "the working tree never changed the map");
+
+    let fresh = fixture(&dir.path().join("fresh")).root;
+    scan(&fresh);
+    assert_eq!(the_map(&fresh), rescanned, "the same heads give the same map");
+    assert!(rescanned.0[0].contains("ws:container:redis"), "{:?}", rescanned.0[0]);
+}
+
+#[test]
+fn an_untracked_directory_is_never_mapped_and_never_lingers() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = fixture(dir.path()).root;
+    let untracked = |ids: &BTreeSet<String>| -> Vec<String> {
+        ids.iter().filter(|id| id.contains("newdir") || id.contains("EMPTY_UNTRACKED")).cloned().collect()
+    };
+    // Present at the first scan of the commit.
+    std::fs::create_dir_all(root.join("kit/newdir/deep")).unwrap();
+    std::fs::write(root.join("kit/newdir/deep/f1.py"), "x = 1\n").unwrap();
+    std::fs::write(root.join("kit/EMPTY_UNTRACKED"), "").unwrap();
+    scan(&root);
+    let with = the_map(&root);
+    for level in &with.0 {
+        assert_eq!(untracked(level), Vec::<String>::new());
+    }
+    assert!(with.1.iter().all(|f| !f.contains("newdir") && !f.contains("EMPTY_UNTRACKED")));
+    // Deleted: nothing lingers, and the map is the one it was.
+    std::fs::remove_dir_all(root.join("kit/newdir")).unwrap();
+    std::fs::remove_file(root.join("kit/EMPTY_UNTRACKED")).unwrap();
+    scan(&root);
+    assert_eq!(the_map(&root), with);
+    // Created after the first scan: still never mapped.
+    std::fs::create_dir_all(root.join("kit/newdir")).unwrap();
+    std::fs::write(root.join("kit/newdir/f2.py"), "y = 2\n").unwrap();
+    scan(&root);
+    assert_eq!(the_map(&root), with);
+}
+
+#[test]
+fn a_file_removed_from_the_working_tree_but_in_head_stays_mapped() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = fixture(dir.path()).root;
+    std::fs::remove_file(root.join("kit/CHANGELOG.md")).unwrap();
+    scan(&root);
+    assert!(map_ids(&root, "code").contains("kit:file:CHANGELOG.md"));
+}
