@@ -50,10 +50,6 @@ A first run that wrote "outside" to a path under `/tmp/claude-0/` succeeded, sin
 
 The sandbox is a session setting. An agent definition (`AgentSpec` in the 2.1.310 types) has no sandbox field [D], so the mod can't turn it on for the implementer alone. The mod reads it with `$.settings.read({ key: "sandbox" })` [D]. So the design's rule stands as written: with the sandbox on, the implementer's approved commands run without prompts inside its clones; with it off, they ask (`guard.test.ts::without_a_sandbox_approved_commands_ask`). The clones' directory must also be in `sandbox.filesystem.allowWrite`, so the hand-off guide (M3) needs to say how to add it.
 
-## The mod reading its host's version [A-19] [D]
-
-`$.session.version()` answers the engine's `version`, its `base` release and its `builtAt` build time, in every mode and build. A live call from the spike mod follows with the `$.store` spike below.
-
 ## The fixture's agent files [A-16] [V]
 
 Headless haiku sessions in this repository, with and without `--settings` carrying the two entries now in `.claude/settings.json`:
@@ -67,10 +63,17 @@ So both guards hold, and the `examples/` area contract's rule stays as the secon
 
 A-23 fails. After later pushes to the branch the `git-subdir` install named, `claude plugin marketplace update planroom` then `claude plugin update planroom@planroom` answered "planroom is already at the latest version (0.1.0)", and `installed_plugins.json` kept `gitCommitSha` `071909da…`: the update compares versions, not commits. So the fallback applies: plain `gen` stamps a `-dev` version with a hash, so a new `main` commit installs as a new version. The catalogue hash the fallback names misses a change to a skill, an agent, the resolver or the mod alone. The skeleton's record should stamp the hash of `plugin/`'s own files instead (every file but `plugin.json`), and the resolver should compare the engine against the version without that suffix.
 
-## Still open in WS8
+## The mod's `$.store` file [A-15] [V]
 
-- A-15: where the mod's `$.store` lands on disk. The spike mod now has a `store` probe, which runs once the mod reloads.
-- A-14: the mod's plugin root and its children's environment, through the spike's `env` probe.
+The spike mod set a marker with `$.store.set`, and a search found it in `~/.claude/plugins/store/planroom-spike_inline-d70c18432e39.json` (mode 0600, the store as one JSON object): the host keeps every plugin's store at `<config>/plugins/store/<plugin>_<source>-<hash>.json`. MOD-2's interim guard exempted everything under `plugins/`, so it missed exactly this file; the guard now denies that folder and its `planroom_*` files (DR-82).
+
+## The mod's plugin root and its children's environment [A-14] [V, D]
+
+`$.process.run(["sh", "-c", "env ..."])` from the spike mod listed the session's own variables (`CLAUDE_CODE_*`, `CLAUDE_CODE_REMOTE=true`), so children inherit the session's environment. `CLAUDE_PLUGIN_ROOT` isn't among them: the 2.1.310 types give the mod `$.plugin.root` for its own files instead [D]. So the mod finds the resolver at `${$.plugin.root}/scripts/planroom`, and A-14's fallback isn't needed.
+
+`CLAUDE_CODE_VERSION` in that environment said `2.1.42` while `$.session.version()` answered `{ version: "2.1.310", base: "2.1.310", builtAt: "2026-10-23T17:43:32Z" }` [A-19, V]: the variable names something else, so the host check reads the API, never the environment.
+
+## Still open in WS8
 - A-21: the git adapter's tests on git 2.34.1, in a CI job with that git.
 - The live-mod spikes: `tool.check` seeing a spawned agent's `agentId`, `$.tool.call` on `ArtifactData` from a press, and `comments.sendToClaude` waking the session's watch.
 

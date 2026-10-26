@@ -57,8 +57,9 @@ test("paths are made absolute and folded before they're matched", () => {
 
 test("the_mod_store_file_is_guarded: agents can't read the person key or the stores", () => {
   for (const file_path of [
-    "/home/u/.claude/plugin-data/planroom/store.json",
-    "~/.claude/planroom.json",
+    "/home/u/.claude/plugins/store/planroom_planroom-0123456789ab.json",
+    "~/.claude/plugins/store/planroom_inline-d70c18432e39.json",
+    "/home/u/.claude/plugins/store",
     ".planroom/store.db",
     "repo/.git/planroom/store.db-wal",
     ".planroom/serve.json",
@@ -77,10 +78,18 @@ test("the_mod_store_file_is_guarded: agents can't read the person key or the sto
       { "notes.db": "/work/.planroom/store.db" },
     )?.decision,
   ).toBe("deny");
-  // The plugin's own files and the engine cache stay readable.
+  // A search over a folder that holds the mod's store reaches it.
+  for (const path of ["/home/u/.claude", "/home/u/.claude/plugins"]) {
+    expect(verdict("Grep", { pattern: "secret", path })?.decision, path).toBe(
+      "deny",
+    );
+  }
+  // The plugin's own files, other plugins' stores, transcripts and the engine cache stay readable.
   for (const file_path of [
     "/work/README.md",
     "/home/u/.claude/plugins/cache/planroom/scripts/planroom",
+    "/home/u/.claude/plugins/store/other_market-0123456789ab.json",
+    "/home/u/.claude/projects/-work-planroom/session.jsonl",
     "/home/u/.local/share/planroom/engine/0.1.0+ab12cd34/planroom",
   ]) {
     expect(verdict("Read", { file_path }), file_path).toBeNull();
@@ -168,7 +177,10 @@ test("Bash that reads a guarded file by any spelling is refused", () => {
     verdict(
       "Bash",
       { command: "cat ./x/y" },
-      { "./x/y": "/home/u/.claude/planroom-store.json" },
+      {
+        "./x/y":
+          "/home/u/.claude/plugins/store/planroom_planroom-0123456789ab.json",
+      },
     )?.decision,
   ).toBe("deny");
   expect(namedPaths("Bash", { command: "cp a/b ~/c store.db" })).toEqual([

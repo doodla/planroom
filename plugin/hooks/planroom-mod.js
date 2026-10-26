@@ -389,6 +389,9 @@ function within(path, dir) {
   const d = dir.replace(/\/+$/, "");
   return path === d || path.startsWith(`${d}/`);
 }
+function modStoreDir(places2) {
+  return `${places2.claudeConfig}/plugins/store`;
+}
 function basename(path) {
   return path.slice(path.lastIndexOf("/") + 1);
 }
@@ -413,7 +416,8 @@ function readDenied(path, places2) {
   if (path === places2.userConfig) {
     return "The user-level Planroom config may hold the gateway key.";
   }
-  if (within(path, places2.claudeConfig) && !within(path, `${places2.claudeConfig}/plugins`) && /planroom/i.test(path.slice(places2.claudeConfig.length))) {
+  const store = modStoreDir(places2);
+  if (path === store || within(path, store) && /^planroom_/.test(basename(path))) {
     return "The Planroom mod's store holds the person key.";
   }
   return null;
@@ -564,7 +568,7 @@ function guardCall(tool, input, resolved, places2) {
     for (const s of spell(p)) {
       const reason = readDenied(s, places2);
       if (reason !== null) return deny(reason);
-      if ((tool === "Grep" || tool === "Glob") && (inStateDir(s) || within(s, places2.dataRoot))) {
+      if ((tool === "Grep" || tool === "Glob") && (inStateDir(s) || within(s, places2.dataRoot) || within(modStoreDir(places2), s))) {
         return deny(
           "Planroom's state is read through the planroom CLI, never directly."
         );

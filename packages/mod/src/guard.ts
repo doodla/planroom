@@ -73,6 +73,11 @@ function within(path: string, dir: string): boolean {
   return path === d || path.startsWith(`${d}/`);
 }
 
+/** Where the host keeps every plugin's `$.store` file (A-15, checked in WS8). */
+function modStoreDir(places: GuardPlaces): string {
+  return `${places.claudeConfig}/plugins/store`;
+}
+
 function basename(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
 }
@@ -102,13 +107,12 @@ export function readDenied(path: string, places: GuardPlaces): string | null {
   if (path === places.userConfig) {
     return "The user-level Planroom config may hold the gateway key.";
   }
+  const store = modStoreDir(places);
   if (
-    within(path, places.claudeConfig) &&
-    !within(path, `${places.claudeConfig}/plugins`) &&
-    /planroom/i.test(path.slice(places.claudeConfig.length))
+    path === store ||
+    (within(path, store) && /^planroom_/.test(basename(path)))
   ) {
-    // A-15: until WS8 pins the $.store file's path, every file there whose name or folder names
-    // planroom is kept out, except the installed plugins' own files.
+    // A-15: the host keeps a plugin's `$.store` in `<config>/plugins/store/<plugin>_<source>-<hash>.json`.
     return "The Planroom mod's store holds the person key.";
   }
   return null;
@@ -316,10 +320,13 @@ export function guardCall(
     for (const s of spell(p)) {
       const reason = readDenied(s, places);
       if (reason !== null) return deny(reason);
-      // A search rooted at a state directory or the data root reaches what's inside it.
+      // A search rooted at a state directory, the data root, or a folder that holds the mod's
+      // store reaches what's inside it.
       if (
         (tool === "Grep" || tool === "Glob") &&
-        (inStateDir(s) || within(s, places.dataRoot))
+        (inStateDir(s) ||
+          within(s, places.dataRoot) ||
+          within(modStoreDir(places), s))
       ) {
         return deny(
           "Planroom's state is read through the planroom CLI, never directly.",
