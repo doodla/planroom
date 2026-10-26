@@ -1887,7 +1887,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-81: What the walking skeleton's engine and plugin tracks settled
 
-- **Status:** accepted (decided by the main agent at the ENGINE and PLUGIN track merges, 2026-10-26). Amended by DR-85.
+- **Status:** accepted (decided by the main agent at the ENGINE and PLUGIN track merges, 2026-10-26). Amended by DR-85 and DR-86.
 - **Starting point:** extended "Store: events carry ... an idempotency key", "Repo layout: a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` in TypeScript", and Remote mode.
 - **Origin:** the walking skeleton: the ENGINE track (WS3 and WS4) and the PLUGIN track, from their merge notes in `progress.md`, plus the main agent's decisions at the merges.
 - **Context:**
@@ -1939,6 +1939,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It changes gated surfaces: `boundaries.toml`, the area contracts table (`packages/mod`, `tests/golden`) and the Boundaries section of `AGENTS.md`.
   - It amends DR-8, DR-12, DR-39, DR-42, DR-57, DR-69, DR-70, DR-75, DR-77 and DR-79.
 - **Amended by DR-85:** the walk no longer reads the working tree. It lists `HEAD`'s tree and reads the files from the commit, so a snapshot's facts are a function of its key, and a directory or file node exists only for a path in the commit. Verification still checks every evidence item against the snapshot's commit, and `Evidence::Ref` still names no path.
+- **Amended by DR-86:** `Evidence::Ref` and `Line` evidence from a head scan name the commit and no branch. The branch is on the scan event, and a head snapshot records none, since a branch can move or be deleted while the commit stays.
 - **Sources (checked 2026-10-26):** `progress.md`, the 2026-10-26 entries "ENGINE track merged" and "PLUGIN track merged"; `docs/contributing/research/ws4-concurrency.md`; `crates/store/migrations/0001_init.sql`; `crates/store/src/commit.rs`; `crates/extract/src/{files,compose,verify}.rs`; `.dependency-cruiser.cjs`; `crates/xtask/src/{modgen,generate}.rs`; `plugin/scripts/planroom`; `eslint.config.js`; the main agent's decisions at the merges.
 
 ## DR-82: What the walking skeleton's serve, canvas and mod tracks settled
@@ -2087,7 +2088,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-85: What the walking skeleton's review settled
 
-- **Status:** accepted (decided by the main agent at the merge of the review's fix tracks, 2026-10-26).
+- **Status:** accepted (decided by the main agent at the merge of the review's fix tracks, 2026-10-26). Amended by DR-86.
 - **Starting point:** extended "Extractors read the repo", "One contract source", "Surfaces read one contract" and the release model.
 - **Origin:** the walking skeleton's review, round 1. Eight lenses, each refuted by a separate verifier, found 18 material findings ([the review's index](research/skeleton-review/README.md)). Four tracks fixed them (SCAN, CONTRACT, ENGINE, SURFACES), and the main agent fixed the resolver and `check` items. This record settles each doc conflict the fixes raised.
 - **Context:** The skeleton's slice worked end to end, live. Its review still found that a dirty first scan froze a wrong map, persisted documents dropped unknown fields, surfaces offered buttons that failed, the guard missed everyday shell forms, and some documented gates and checks had no milestone. Each fix met a place where the docs were silent or said something else.
@@ -2117,6 +2118,11 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `crates/planroom/tests/scan.rs` (three dirty-tree cases), `workspaces.rs`, `usage.rs`, `budgets.rs`, `empty_states.rs` and `display.rs`; `crates/kernel/tests/display.rs`; `crates/extract/tests/contract.rs::the_working_tree_never_reaches_the_facts`; the guard's 18 bypasses and 18 everyday commands; the canvas's way-back e2e specs; five new installer tests.
   - Users: a dirty or untracked file never changes the map; the install line works; every button does something.
   - It amends DR-81 where it says the walk reads the working tree, DR-47's bounds and the ignored paths they skip, DR-71's dirty signal (`--untracked-files=no`), and architecture.md's "The map holds only committed lines", which is now how it's built.
+- **Amended by DR-86:**
+  - `map` pages in M1, not M2: M1's S1 slice adds `--cursor` with `meta.next` at every detail, and the truth comparator follows it to the whole map. Until then `map` keeps the blocks that fit, as above.
+  - The CLI checks every `--json` success reply against its leaf's budget, warnings included, not only `map`'s and `scan`'s. Replies over HTTP still aren't checked.
+  - The guard also holds Bash to the Write tool's rule and refuses whole-tree reads of a secret's parents. Any word in the engine cache is denied, so listing it is no longer one of the everyday commands that pass. Its residual risks in `SECURITY.md` add programs that walk or write files themselves, a tree read rooted at or above the workspace root, a crafted tree copied above the data root, and quoted text that reads as a redirection.
+  - `share`'s publish arguments name `root`, with `files` relative to it, and its result lists only the files it built from the workspace.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/` (round 1's findings and verdicts); the four tracks' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
 
 ## DR-86: What the walking skeleton's review settled in round 2
