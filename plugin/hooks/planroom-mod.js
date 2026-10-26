@@ -4098,15 +4098,7 @@ async function registerOnce($, rekey = false) {
 async function startEngine($) {
   watchStop();
   await personKey($);
-  const root = await $.env.get("CLAUDE_PLUGIN_ROOT");
-  if (root === void 0) {
-    await setEngine($, {
-      ...INITIAL_ENGINE,
-      status: "failed",
-      line: "CLAUDE_PLUGIN_ROOT is unset, so the mod can't find its resolver."
-    });
-    return;
-  }
+  const root = $.plugin.root;
   if (isWindowsRoot(root)) {
     await setEngine($, unsupportedPlatform());
     return;

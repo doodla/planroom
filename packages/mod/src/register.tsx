@@ -104,15 +104,8 @@ async function startEngine($: $): Promise<void> {
   watchStop();
   // The person key is made on the first start and kept in $.store across sessions (DR-72).
   await personKey($);
-  const root = await $.env.get("CLAUDE_PLUGIN_ROOT");
-  if (root === undefined) {
-    await setEngine($, {
-      ...INITIAL_ENGINE,
-      status: "failed",
-      line: "CLAUDE_PLUGIN_ROOT is unset, so the mod can't find its resolver.",
-    });
-    return;
-  }
+  // The host hands a mod its own directory; it doesn't set CLAUDE_PLUGIN_ROOT for mods (A-14, WS8).
+  const root = $.plugin.root;
   if (isWindowsRoot(root)) {
     await setEngine($, unsupportedPlatform());
     return;

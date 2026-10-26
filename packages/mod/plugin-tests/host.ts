@@ -12,6 +12,11 @@ import focusReply from "../../../tests/golden/cli/focus.json";
 
 export const ROOT = "/plugins/planroom";
 export const RESOLVER = `${ROOT}/scripts/planroom`;
+
+/** Whether argv[0] runs the plugin's resolver, wherever the kit loaded the plugin from (`$.plugin.root`). */
+export function isResolver(path: string | undefined): boolean {
+  return path !== undefined && path.endsWith("/scripts/planroom");
+}
 export const ENGINE = "/repo/target/debug/planroom";
 export const SESSION = "5e55i0n1-0000-4000-8000-000000000000";
 export const SURFACES = ["terminal", "desktop", "vscode", "mobile"] as const;
@@ -123,14 +128,14 @@ export interface Host {
 
 /** An engine that resolves and answers focus with the golden PaneModel. */
 export function readyEngine(argv: readonly string[]): Answer {
-  if (argv[0] === RESOLVER && argv[1] === "version") {
+  if (isResolver(argv[0]) && argv[1] === "version") {
     return {
       exitCode: 0,
       stdout:
         '{"schema_version":1,"ok":true,"command":"version","result":{"version":"0.1.0","git_commit":"abc1234","schema_version":1,"catalogue_hash":"ab12"},"meta":{"seq":0}}',
     };
   }
-  if (argv[0] === RESOLVER && argv[1] === "status") {
+  if (isResolver(argv[0]) && argv[1] === "status") {
     return {
       exitCode: 0,
       stdout: `{"ok":true,"step":"checkout","path":"${ENGINE}","version":"0.1.0"}`,
@@ -174,7 +179,8 @@ export function host(
 ): Host {
   const clock = mock.clock(on, { now: 1_800_000_000_000 });
   mock.store(on, options.store ?? {});
-  mock.env(on, { CLAUDE_PLUGIN_ROOT: ROOT, HOME: "/home/u" });
+  // No CLAUDE_PLUGIN_ROOT: the host doesn't set it for a mod, which finds itself through $.plugin.root.
+  mock.env(on, { HOME: "/home/u" });
   const runs: Run[] = [];
   const children: Child[] = [];
   on("command.register", (_$, e) => ({ value: { command: e.name } }));

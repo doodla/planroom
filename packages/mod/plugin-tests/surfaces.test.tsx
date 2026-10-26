@@ -79,6 +79,22 @@ test("no_blank_pane: before the engine exists the pane offers the source build, 
   expect(h.children).toHaveLength(0);
 });
 
+test("the mod finds its resolver under $.plugin.root, with no CLAUDE_PLUGIN_ROOT in its environment", async ($, on) => {
+  // The host doesn't set CLAUDE_PLUGIN_ROOT for a mod (A-14, WS8); the live session found it unset.
+  const h = host(on);
+  await $.session.start(START);
+  await h.clock.settle();
+  const resolverRuns = h.runs.filter((r) =>
+    r.argv[0]?.endsWith("/scripts/planroom"),
+  );
+  expect(resolverRuns.length).toBeGreaterThan(0);
+  // The kit's own `$` has no plugin noun, so check the path's shape: absolute, under the plugin.
+  for (const r of resolverRuns) {
+    expect(r.argv[0]).toMatch(/^\/.+\/scripts\/planroom$/);
+    expect(r.argv[0]).not.toContain("undefined");
+  }
+});
+
 test("the pane draws the golden focus PaneModel on every surface", async ($, on) => {
   const h = host(on);
   await $.session.start(START);

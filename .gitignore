@@ -4,3 +4,6 @@
 # Build outputs and installed packages
 /target/
 node_modules/
+# Written into a mod's folder by the Claude Code host when plugin/ is loaded as a dev mod; never ours.
+/plugin/tsconfig.json
+/plugin/.claude-plugin/types/
