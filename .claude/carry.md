@@ -3,13 +3,11 @@
 Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `ccr-b124f0e3-xnzjca`; push with `git push -u origin ccr-b124f0e3-xnzjca`.
 
 ## Where I am
-- Phases 1-3 DONE. Estimate 376 h.
-- Phase 4 skeleton: ALL tracks merged (ENGINE..REMOTE, GATES). DR-81/82/83 written. layout.lock exists (first lock DR-79); any gated-surface change now needs a new DR + `cargo xtask gen --layout-lock DR-n` in the same commit.
-- WS7 done on real platform (artifact 69VbWfb55J2p6kduVUJcG8, research/ws7-remote.md). WS8 done except A-21 (git 2.34.1 CI job) and press-only spikes. A-13 fails -> every unsigned row held (DR-83).
-- Live check: real plugin symlinked at ~/.claude/dev-mods/<session>/planroom -> /home/user/planroom/plugin; repo scanned (store at ./.planroom, gitignored). Next turn: call mcp__planroom__room_query (e.g. focus/map) to prove mod+engine live; guard now denies my reads of .planroom paths -> remove symlink after the check (and delete planroom-spike).
-- Running: wf_d998336e-ae8 docs fold (main tree, uncommitted edits to docs). Then: skeleton review workflow (lenses + refuters, protocol), fix material, context review + skills, then M1 planning (tracks).
-- Dogfood findings for M1: fixture compose pollutes repo map (default excludes); store should be .git/planroom (DR-74).
-- Lesson: run full `cargo xtask test` before every push; CI covers deny/busybox/macOS.
+- Phases 1-3 DONE. Phase 4 skeleton: all tracks merged, DR-81..84, docs fold done, real mod ran LIVE (research/ws8-install.md), Artifact round trip on real platform (ws7-remote.md). CI green at 3e435fd+. Dev mods unloaded.
+- Skill: .claude/skills/merge-track (use it for every track merge; eval 7/7 vs 6/7).
+- Running: skeleton review wf_5ee442c6-106 (correctness, security, drift, tests) + wf_dc8e7240-2fc (repo, ux, operability, unasked), each lens with a refuter. Next: fix every unrefuted MATERIAL finding (round 2 if needed, max 3), log minor as known gaps (docs/contributing/research/skeleton-review/), then M1.
+- M1 plan (115 h): tracks K (fold+IDs, kernel/store), X (extractors+linkers), P (packs+plan pack, after K/X), A (actor/security+backups/.git/planroom), M (mod), C (canvas), G (S1 path, gates leftovers, serve/resolver). Add default excludes for fixture/test-data trees. Shrink disk: [profile.dev]/[profile.test] debug="line-tables-only" before parallel worktrees (~9 GB free).
+- Lesson: chain `check && test && commit && push`; CI covers deny/busybox/macOS.
 
 ## Gotchas
 - 4 CPUs -> workflow concurrency is 2. Prefer few, larger agents.
