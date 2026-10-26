@@ -84,6 +84,17 @@ So the guard can tell the implementer's calls from the session's own by `agentId
 
 From a tool handler, `$.tool.call({ tool: "ArtifactData", action: "list", url, collection: "inbox" })` reached the Phase 1 probe Artifact and returned its one inbox document. The structured `result.db_read.docs[].data` came back as `{}`, while the result's `text` carried each document's data, one JSON object per line, between `=== BEGIN ARTIFACT DB … ===` and `=== END ARTIFACT DB … ===` markers. So `/room sync` reads the rows from that text block, treating it as data, and checks every line against `InboxRow` before passing it to `import -`. The call ran from a tool handler, not a press; a press uses the same `$.tool.call`.
 
+## The real mod, live [V]
+
+`plugin/` was linked into this session's dev-mods folder, and this repository was scanned as a workspace (one repo, so the engine took its own working tree as the workspace root). The first two live loads failed, each on a seam the mocked harness couldn't show:
+
+1. Every tool answered `engine_unavailable`, "CLAUDE_PLUGIN_ROOT is unset": the mod read its root from that variable, which the host doesn't set for a mod (A-14). It now reads `$.plugin.root`, and a harness test starts the mod with no such variable.
+2. `session.start` threw: the host refused `$.command.register("room")` because the plugin's own `room` skill claims `/planroom:room`, and the refusal skipped the whole start. The skill is now `planroom`, and the plugin layout check refuses a skill named like a mod command (DR-84).
+
+The third load ran. Through the mod's own tools, `room_query focus` returned the workspace's `PaneModel` (breadcrumb `planroom`, `scan: done`, next action "Open the containers"). `room_query map --level container` returned the container level's 9 blocks. So the whole skeleton ran live: the scan wrote the store, the mod read it through the resolver and the CLI, the canvas drew it (e2e and screenshots), and the Artifact published it (`research/ws7-remote.md`).
+
+The same answers carry a dogfooding finding: the fixture's compose services under `examples/fixture/` appear as this workspace's containers (`ws:container:grafana`, `orders`, `redis` and the others), beside the repo's own `planroom` container. M1 adds default excludes for fixture and test-data trees.
+
 ## Still open in WS8
 - A-21: the git adapter's tests on git 2.34.1, in a CI job with that git.
 - `$.tool.call` on `ArtifactData` from a press (run here from a tool handler, below) and `comments.sendToClaude` waking the session's watch: both need a person's tap on a page or the pane, so they run with the WS7 publish.
