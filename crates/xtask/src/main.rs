@@ -524,7 +524,8 @@ fn installer(root: &Path, r: &mut Report) {
     let scripts = ["plugin/scripts/planroom", "plugin/scripts/contract.sh", "tests/installer/run.sh"];
     match tools::ensure(root, Tool::Shellcheck) {
         Ok(_) => {
-            let mut args = vec!["--shell=sh", "--severity=style"];
+            // -x follows the resolver into the contract.sh it sources, from its own directory.
+            let mut args = vec!["--shell=sh", "--severity=style", "-x", "--source-path=SCRIPTDIR"];
             args.extend(scripts);
             r.tool(root, "shellcheck", "shellcheck", &args, "fix the findings above");
         }

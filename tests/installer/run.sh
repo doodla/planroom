@@ -366,7 +366,9 @@ the_resolver_spells_no_code_or_reason_itself() {
   contract="$repo/plugin/scripts/contract.sh"
   codes=$(sed -n 's/.*"code":"\([a-z_]*\)".*/\1/p' "$contract")
   reasons=$(sed -n 's/^contract_reason_[a-z_]*=//p' "$contract")
-  [ -n "$codes" ] && [ -n "$reasons" ] || fail "contract.sh names no codes or reasons"
+  if [ -z "$codes" ] || [ -z "$reasons" ]; then
+    fail "contract.sh names no codes or reasons"
+  fi
   for word in $codes $reasons; do
     if grep -v '^[[:space:]]*#' "$resolver" | grep -q -w -- "$word"; then
       fail "the resolver spells $word itself; take it from contract.sh"
