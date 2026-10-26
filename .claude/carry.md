@@ -4,10 +4,11 @@ Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `c
 
 ## Where I am
 - Phases 1-3 DONE. Estimate 376 h.
-- Phase 4 skeleton: WS1-WS4, PLUGIN, ENGINE-2, CANVAS, MOD-2 merged + pushed; DR-82 written (token wire format etc.). Token seam bug fixed in mod (secs, args keep --idem/--base).
-- Running: wf_e5bfa8c0-f14 (track/watch: watch --json + real watch-frames golden; track/real-serve: canvas e2e vs real serve, Origin/CSP/routes). On finish: verify each myself (check/test/e2e), merge, delete worktree target/ dirs (disk!), append server seams to DR-82, push.
-- Next round (2 agents): GATES (boundaries.toml to repo-layout spec: third_party, external_allow, network allow-list; check layout + gen --layout-lock + first lock naming DR-79; CI --commits) and REMOTE (engine share + import -, canvas transport/artifact.ts + Artifact build). Then WS7 publish/round trip in MAIN session (A-13), WS8 install in temp HOME + spikes (spike mod now has store/env/version probes: call spike_probe what=store|env|version for A-15/A-14/A-19), skeleton review, architecture update, M1.
-- CI e2e job is red until REAL-SERVE merges.
+- Phase 4 skeleton: WS1-WS6 tracks merged + pushed (ENGINE, PLUGIN, ENGINE-2, CANVAS, MOD-2, WATCH, REAL-SERVE). DR-81, DR-82 written. xtask check/test/e2e green at merge of real-serve.
+- WS8 mostly done (docs/contributing/research/ws8-install.md): A-14/15/16/18/19/20 settled, A-23 fails (fallback = dev version stamped with plugin/ content hash, GATES builds it). A-15: store at <config>/plugins/store/planroom_*.json; guard fixed. Open: A-21 (git 2.34.1 CI job), spikes tool.check agentId + $.tool.call ArtifactData (spike mod has probes `checks`, `artifactdata`: spawn an Agent running Bash, then call spike_probe), comments.sendToClaude wake (needs a press on a page).
+- Running: wf_942a6fbe-d44 (track/gates: boundaries/allow-lists/clippy.toml/check layout/ci_skips/area sync/0.1.0-dev version stamp/art spend check; track/remote: remote.rs, share --out, import -, canvas transport/artifact.ts, shim e2e). On finish: verify each (check/test/e2e), merge, rm worktree target/, WRITE FIRST layout.lock (gen --layout-lock DR-79 per DR-81) + DR-83 for gates/remote seams, push.
+- Then: WS7 publish from MAIN session using share --json args (Artifact tool, icon map), write an inbox row as owner? (rows come from page; A-13 check: owner can't write another viewer's inbox), import round trip; skeleton review workflow; update architecture.md with findings; then M1.
+- Lesson: run full `cargo xtask test` (incl. claude plugin test) before every push.
 
 ## Gotchas
 - 4 CPUs -> workflow concurrency is 2. Prefer few, larger agents.
