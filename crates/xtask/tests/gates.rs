@@ -207,7 +207,7 @@ fn a_worktree_change_is_pending_not_failed_and_gen_layout_lock_refuses_there() {
     git(&c.dir, &["worktree", "add", "--quiet", "--detach", wt.to_str().unwrap(), "HEAD"]);
     assert!(layout::linked_worktree(&wt).unwrap());
     let mut s = fs::read_to_string(wt.join("boundaries.toml")).unwrap();
-    s.push_str("\n# a track's change\n");
+    s.push_str("\n# a branch's change\n");
     fs::write(wt.join("boundaries.toml"), s).unwrap();
     let st = layout::state(&wt).unwrap();
     assert!(st.errors.is_empty(), "{st:?}");

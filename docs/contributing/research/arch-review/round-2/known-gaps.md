@@ -1,6 +1,6 @@
 # Architecture review round 2: known gaps
 
-Findings each fix cluster left open, with the reason. One row per finding.
+Findings each group of fixes left open, with the reason. One row per finding.
 
 | ID | Title | Why it stays a gap |
 |---|---|---|
@@ -17,5 +17,5 @@ Findings each fix cluster left open, with the reason. One row per finding.
 | unasked-8 | Workspace discovery misses common multi-repo layouts and allows silently nested workspaces | Applied in part: submodules, repos two levels down and a `workspace_nested` warning (DR-71). Merging the inner workspace's store on a card needs an import into a store that has authored events, which the event model doesn't define yet. |
 | unasked-7 | `planroom open` has no path on WSL 2, SSH remotes, cloud sessions or headless Linux | Applied in part: `open` detects these hosts, opens through `wslview` on WSL and offers `/room share` (DR-29). Drawing the login URL in the pane for an SSH user puts a live code on screen and in scrollback, which DR-64 keeps out. |
 | unasked-11 | "Remove Planroom" misses worktrees, the person key and user-level config | Applied in part: the guide lists every path, ref and config file in order, and hand-off clones replaced worktrees in DR-64. A `doctor --uninstall-plan` leaf is a new command; the ordered list serves until removal grows. |
-| repo-4 | Any track can satisfy the decision-record gate itself, and parallel tracks collide on DR numbers | Applied in part: duplicate headings fail, the main agent assigns numbers, and a track merge lists its gated changes (DR-70). A hook that denies a track's agent the lock can't tell a track's own session from the main agent's. |
+| repo-4 | Any branch can satisfy the decision-record gate itself, and parallel branches collide on DR numbers | Applied in part: duplicate headings fail, numbers are assigned at merge, and a branch's merge lists its gated changes (DR-70). A hook that denies a branch's session the lock can't tell that session from the one that merges. |
 | repo-7 | Navigation sends agents to about 115k tokens of design docs | Applied in part: the Read first table maps each area to its sections, records and scenarios (DR-70). An anchored index at the top of `architecture.md` would restate the heading outline GitHub already renders. |

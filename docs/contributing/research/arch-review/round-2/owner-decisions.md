@@ -1,6 +1,6 @@
 # Architecture review round 2: owner decisions
 
-Round 2 ran the same nine lenses with fresh reviewers and refuters on the documents as fixed after round 1. The principles refuter returned a broken verdict list, so it was run again alone (`principles-refuter.json`). These decisions cover the cross-cutting questions. Where no decision below overrides it, apply each upheld material finding's own proposed fix, adapted to fit the rest of the design. Apply minor and downgraded findings when the fix is small and clearly right; list the rest in `known-gaps.md` here with a one-line reason each.
+Round 2 ran the same nine focuses with fresh reviewers and verifiers on the documents as fixed after round 1. The principles verifier returned a broken verdict list, so it was run again alone (`principles-refuter.json`). These decisions cover the cross-cutting questions. Where no decision below overrides it, apply each upheld material finding's own proposed fix, adapted to fit the rest of the design. Apply minor and downgraded findings when the fix is small and clearly right; list the rest in `known-gaps.md` here with a one-line reason each.
 
 ## Store, writes and live updates
 

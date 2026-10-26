@@ -1,6 +1,6 @@
 # Architecture review round 2: fixes
 
-One section per fix cluster: one line per finding, saying what changed and where, or "known gap".
+One section per group of fixes: one line per finding, saying what changed and where, or "known gap".
 
 ## Store, writes, kernel and packs
 
@@ -94,8 +94,8 @@ One section per fix cluster: one line per finding, saying what changed and where
 - operability-12: each Iris run appends to `docs/art/spend.jsonl`, and `docs.rs::every_image_has_its_prompt_and_spend_row` checks prompts, rows and the $5 total. Changed in architecture.md (Spend guards, M5), contracts.md (contracts table), repo-layout.md (directory map), DR-69, S14 and traceability (constraints).
 - repo-1 (E14): `check layout` runs a history-free state check every time and walks only the commits a push or pull request adds; the first lock comes with a new record. Changed in repo-layout.md (Decision-record gate, task table), contracts.md (contracts table, Repo artifacts), architecture.md (Requirements R16, WS1, M1), new DR-70, DR-59's amendment, S15 and C16, traceability (R16, S15).
 - repo-2 (E14): the gated surfaces add the area contracts table, the Boundaries section of `AGENTS.md` and each package's dependency names. Adapted: names only, so a Dependabot version bump needs no record. Changed in repo-layout.md (Decision-record gate), contracts.md (`layout.lock`), AGENTS.md (Boundaries), DR-70, S15.
-- repo-3: applied by the store and kernel cluster.
-- repo-4: duplicate record headings fail, the main agent assigns numbers, and a track merge lists its gated changes; the guard hook is a known gap. Changed in repo-layout.md (Decision-record gate), contracts.md (Repo artifacts), AGENTS.md (Working in this repository), DR-70.
+- repo-3: applied in the store and kernel section.
+- repo-4: duplicate record headings fail, numbers are assigned at merge, and a branch's merge lists its gated changes; the guard hook is a known gap. Changed in repo-layout.md (Decision-record gate), contracts.md (Repo artifacts), AGENTS.md (Working in this repository), DR-70.
 - repo-5: every non-dot top-level directory and each `tests/*` directory has an area row and an `AGENTS.md`; `plugin/` and `packs/` keep a user-facing README beside theirs; DR-38 records why release helpers stay sh. Changed in repo-layout.md (directory map, Area contracts, Plugin layout), AGENTS.md (Boundaries, Working), DR-38's amendment, DR-70.
 - repo-6: the `examples/` contract says fixture agent files are test data, and `.claude/settings.json` gets `claudeMdExcludes` over them, a new assumption A-16 for WS8. Renaming was rejected because `examples/README.md` is frozen. Changed in repo-layout.md (directory map, `examples/` row), AGENTS.md (Working), architecture.md (WS8, Assumptions), DR-70.
 - repo-7: a Read first table maps each area to its sections, records and scenarios and is generated into each area's `AGENTS.md`; the architecture index is a known gap. Changed in repo-layout.md (new Read first section, generated directories), contracts.md (codegen flow, drift tests), AGENTS.md (Working), DR-70.
@@ -109,7 +109,7 @@ One section per fix cluster: one line per finding, saying what changed and where
 - unasked-3 (downgraded): the `git` extractor reads at most 5,000 commits and the mod runs `scan` with the 10-minute timeout; the rest is a known gap. Changed in architecture.md (The extractor contract, Tools, M1), DR-47's amendment.
 - unasked-4 (downgraded): `person init` returns `person_key_mismatch`, the pane draws that fallback with the `person init --rekey` line, and the mods-off text lists what goes missing. Narrowed: no `scripts/planroom link` shim, since the pane prints the resolver's absolute path. Changed in architecture.md (Actors, CLI table, Fallback panes, With mods off, M1), contracts.md (error codes, `PersonInit`, view models, mod state), DR-57's and DR-60's amendments, C1 and traceability (R13).
 - unasked-5 (E5): a restore writes a pre-restore copy first and sets later edits aside as a replay set the next migration applies, so `doctor --restore` is compensable. Changed in architecture.md (backup paragraph, undo classes, CLI table, Security, M1), contracts.md (Store schema and migrations), DR-53's amendment, C14 and traceability (R10).
-- unasked-6: applied by the security cluster.
+- unasked-6: applied in the security section.
 - unasked-7: applied with ux-4, plus `wslview` on WSL; showing the URL in the pane is a known gap.
 - unasked-8: submodules and repos two levels down are workspace repos, and a nested workspace warns with `workspace_nested`; the merge card is a known gap. Changed in architecture.md (Requirements R1, Where the workspace lives, M1), contracts.md (warnings), DR-71, traceability (R1).
 - unasked-9: known gap.

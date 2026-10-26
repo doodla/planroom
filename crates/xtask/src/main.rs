@@ -30,7 +30,7 @@ usage: cargo xtask <command>
   gen --mod                   write only the mod bundle, plugin/hooks/planroom-mod.js
   gen --golden                rerun the Rust tests that write tests/golden/ from real engine runs
   gen --canvas                build the canvas into target/canvas/ (not committed)
-  gen --layout-lock DR-n      ratify the gated surfaces with record DR-n (the main agent only)
+  gen --layout-lock DR-n      ratify the gated surfaces with record DR-n (in the merge commit only)
   e2e [--screens]             build the canvas, the engine and the fixture, then the Playwright
                               specs against planroom serve; --screens also writes
                               docs/screenshots/
@@ -319,25 +319,25 @@ fn layout_checks(root: &Path, r: &mut Report, range: Option<&str>) {
         Ok(st) if !st.errors.is_empty() => r.failed(
             name,
             &st.errors.join("\n"),
-            "fix decisions.md or layout.lock as the lines above say (the main agent only)",
+            "fix decisions.md or layout.lock as the lines above say (in the merge commit only)",
         ),
         Ok(st) if st.changed.is_empty() => r.ok(name),
         Ok(st) if linked => r.ok(&format!(
-            "{name}: pending ratification: gated surfaces {} changed; the main agent records this at merge",
+            "{name}: pending ratification: gated surfaces {} changed; record them in the merge commit",
             st.changed.join(", ")
         )),
         Ok(st) if !st.has_lock => r.failed(
             name,
             &format!("there is no {} yet", layout::LOCK),
             &format!(
-                "cargo xtask gen --layout-lock DR-{}, the first lock (the main agent only)",
+                "cargo xtask gen --layout-lock DR-{}, the first lock (in the merge commit only)",
                 layout::FIRST_RECORD
             ),
         ),
         Ok(st) => r.failed(
             name,
             &format!("gated surfaces changed with no record: {}", st.changed.join(", ")),
-            "write the decision record, then cargo xtask gen --layout-lock DR-n (the main agent only)",
+            "write the decision record, then cargo xtask gen --layout-lock DR-n (in the merge commit only)",
         ),
         Err(e) => r.failed(name, &e, "fix the error above"),
     }

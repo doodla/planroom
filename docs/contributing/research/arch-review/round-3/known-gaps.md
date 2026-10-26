@@ -1,6 +1,6 @@
 # Architecture review round 3: known gaps
 
-Findings each fix cluster left open, with the reason. One row per finding.
+Findings each group of fixes left open, with the reason. One row per finding.
 
 | ID | Title | Why it stays a gap |
 |---|---|---|
@@ -8,7 +8,7 @@ Findings each fix cluster left open, with the reason. One row per finding.
 | extensibility-6 | No pack field carries visual encoding, so surfaces must hard-code kind and lens IDs | Applied in part: `KindDecl.tone` styles blocks and a literal scan keeps kind IDs out of the surfaces (DR-46). A contrast-tested yarn palette for `LensDecl` to index is design work for design-language.md, best done with S10's evidence screenshots. |
 | extensibility-8 | Kernel roles add a mechanism that buys no extensibility in v0.1 | A judgment call on complexity, not a defect: kernel decision kinds would move prompts and evals into the kernel, and rebinding roles in load order adds scope no scenario needs. |
 | principles-8 | Every person write from a terminal costs an extra /dev/tty confirmation | The confirmation supplies the write's base and is what tells a person at a terminal from an agent with no terminal. A tty-scoped lease would add an authority path that an agent sharing the terminal could ride, against F15's direction; the pane, the canvas and the batch cards are the batched paths. |
-| cost-7 | The contributing corpus restates the same numbers in several places | Making contracts.md the one home for numbers and config semantics, with a docs check that fails on a value restated verbatim elsewhere, restructures every design page; it suits the docs pass in M5, not a fix round. Each fix cluster updates every home meanwhile. |
+| cost-7 | The contributing corpus restates the same numbers in several places | Making contracts.md the one home for numbers and config semantics, with a docs check that fails on a value restated verbatim elsewhere, restructures every design page; it suits the docs pass in M5, not a fix round. Each group of fixes updates every home meanwhile. |
 | security-10 | Release archives are checked only against a SHA256SUMS from the same release | Applied in part: a release version whose tag is missing builds nothing (DR-75). Pinning the archives' sha256 in `engine.env` needs a release commit that holds the hashes of archives which embed that same commit, so it needs a two-commit release or build attestations; checksums still guard only against corruption, and `SECURITY.md` says so. |
 | ux-4 | Bare-digit band hotkeys take over a message that starts with 1, 2 or 3 | Dropping them trades the one-key next action from the prompt for `ctrl+x tab` and a key; the band names only reversible commands that don't spend, with a toast and a 10 s undo, so the S9 evidence run in M5 should decide with a real session. |
 | ux-8 | The pane has no keys for R6 hand edits | A verb with two targets can't fit two keys under the 36-key cap; the pane accepts Claude's ghost with `a`, a typed `/room edit` with typeahead is one entry point, and R6's hand edits live on the canvas. |

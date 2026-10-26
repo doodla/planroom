@@ -1,6 +1,6 @@
 # Architecture review round 3: owner decisions
 
-Round 3 is the last round the review protocol allows. It ran the same nine lenses with fresh reviewers and refuters: 29 material findings upheld. Apply each upheld material finding as decided below, else by its own proposed fix adapted to the design. Apply minor and downgraded findings when the fix is small and clearly right; list the rest in `known-gaps.md` here. Anything material that can't be closed in the documents goes to `accepted-risk.md` here, one line each with its reason, and the main agent signs it off.
+Round 3 is the last round the review protocol allows. It ran the same nine focuses with fresh reviewers and verifiers: 29 material findings upheld. Apply each upheld material finding as decided below, else by its own proposed fix adapted to the design. Apply minor and downgraded findings when the fix is small and clearly right; list the rest in `known-gaps.md` here. Anything material that can't be closed in the documents goes to `accepted-risk.md` here, one line each with its reason, and is signed off there.
 
 ## Writes and data
 

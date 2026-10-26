@@ -1,6 +1,6 @@
 # Architecture review round 1: fixes
 
-What each round 1 fix pass changed, one line per finding, grouped by cluster.
+What each round 1 fix pass changed, one line per finding, grouped by area.
 
 ## Write model, kernel and extraction
 
@@ -142,7 +142,7 @@ Checked with no change needed:
 - D1 to D21 are each reflected in architecture.md, the DRs they name and the scenario entries.
 - All seven Mermaid blocks in architecture.md pass the Mermaid validator. Every relative link and anchor in the six documents, AGENTS.md and this file resolves.
 
-Left for the main agent:
+Left open:
 
-- The skeleton notes in `.claude/carry.md` (the `EventBody` tag colliding with `DecisionRecord.kind`, repo-layout self-test step 4's path, AGENTS.md's attribution wording, and recording the actual pins in DR-39 and DR-40) were not applied here, to avoid applying them twice.
+- The skeleton's working notes (the `EventBody` tag colliding with `DecisionRecord.kind`, repo-layout self-test step 4's path, AGENTS.md's attribution wording, and recording the actual pins in DR-39 and DR-40) were not applied here, to avoid applying them twice.
 - contracts.md's `engine` atom statuses and `FALLBACK_PANES` differ by design (`ready` versus `store_busy`); the atom's "picks the fallback pane" doesn't say which state picks `store_busy`.

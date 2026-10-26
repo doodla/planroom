@@ -10,7 +10,7 @@ All throwaway work lives in `/tmp/claude-0/-home-user-planroom/d26fcf29-d6d2-57f
 - **[D]** read in docs, a changelog or source, but not exercised.
 - **[A]** assumed.
 
-**Caveat on timings.** The machine is a 4-vCPU, 15 GB Firecracker VM. Another research agent was running npm and Vite work at the same time (load average about 3 during the builds), so treat every timing as an upper bound for a quiet 4-core CI runner. **[V]** `uptime` showed `load average: 2.22, 3.23, 2.89`.
+**Caveat on timings.** The machine is a 4-vCPU, 15 GB Firecracker VM. Other research was running npm and Vite work at the same time (load average about 3 during the builds), so treat every timing as an upper bound for a quiet 4-core CI runner. **[V]** `uptime` showed `load average: 2.22, 3.23, 2.89`.
 
 ## 1. Recommendations
 
@@ -186,7 +186,7 @@ The runs found 1,093 imports in total.
 - Creating the six languages and compiling the six queries takes 41 to 60 ms in release (156 ms in debug). Do it once per thread, not per file.
 - The directory walk takes about 1 ms for 218 files.
 - **Cold scan of a small polyglot fixture:** 32 files and 6.4k lines, run after `echo 3 > /proc/sys/vm/drop_caches`. The whole process took **162 ms** of wall time, against a 5 s target. Met with a margin of about 30 times.
-- Parallel scaling on the small corpus is poor (about 1.4×), because setup cost dominates and another agent was loading the CPUs. On the 5× corpus it reaches 3.1×. Use rayon or a work queue only once a scan exceeds a few hundred files.
+- Parallel scaling on the small corpus is poor (about 1.4×), because setup cost dominates and other research was loading the CPUs. On the 5× corpus it reaches 3.1×. Use rayon or a work queue only once a scan exceeds a few hundred files.
 - Four Rust files (`web-sys` generated bindings) parsed with `has_error()`, which tree-sitter-rust 0.24.2 does not fully handle. Parsing still recovers, so extractors must tolerate error nodes and record the file as "partially parsed" evidence instead of failing.
 
 ## 5. SQLite: rusqlite vs sqlx

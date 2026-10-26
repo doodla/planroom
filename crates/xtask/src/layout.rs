@@ -2,7 +2,7 @@
 //!
 //! `layout.lock` holds each gated surface's sha256 and the record that approved it. The state check
 //! recomputes the hashes on any checkout; the walk checks, per commit, that a commit changing the
-//! lock adds the record it names. In a linked worktree, where a track works, a changed surface is
+//! lock adds the record it names. In a linked worktree, where a branch is built, a changed surface is
 //! `pending ratification`, never a failure, and `gen --layout-lock` refuses.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -259,7 +259,7 @@ pub fn parse_lock(text: &str) -> Result<Lock, String> {
 
 pub fn render_lock(lock: &Lock) -> String {
     let mut out = format!(
-        "# {GENERATED_HEADER}\n# Written by `cargo xtask gen --layout-lock DR-n`, by the main agent only: each gated\n# surface's sha256 and the decision record that approved it (repo-layout.md, Decision-record gate).\n"
+        "# {GENERATED_HEADER}\n# Written by `cargo xtask gen --layout-lock DR-n`, in a merge commit only: each gated\n# surface's sha256 and the decision record that approved it (repo-layout.md, Decision-record gate).\n"
     );
     for (name, entry) in lock {
         let key = serde_json::to_string(name).unwrap_or_default();
@@ -350,7 +350,7 @@ fn changed(a: &BTreeMap<String, String>, b: &BTreeMap<String, String>) -> Vec<St
 pub fn write_lock(root: &Path, record: &str) -> Result<Vec<String>, String> {
     if linked_worktree(root)? {
         return Err(
-            "gen --layout-lock refuses in a linked worktree: a track writes no lock and no record; the main agent records its gated changes at merge"
+            "gen --layout-lock refuses in a linked worktree: a branch writes no lock and no record; its merge commit records its gated changes"
                 .into(),
         );
     }

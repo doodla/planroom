@@ -1,6 +1,6 @@
 # Architecture review round 3: accepted risks
 
-Material findings the documents can't fully close, one line each: the finding, why it stays open, and what would close it. The main agent signs each off.
+Material findings the documents can't fully close, one line each: the finding, why it stays open, and what would close it. Each is signed off here.
 
 | ID | Title | Why it stays open | What would close it |
 |---|---|---|---|
@@ -11,7 +11,7 @@ Material findings the documents can't fully close, one line each: the finding, w
 
 ## Downgraded findings left open
 
-The refuters downgraded these two from material to minor. The fix log doesn't mark them fully applied, so they're listed here too.
+The verifiers downgraded these two from material to minor. The fix log doesn't mark them fully applied, so they're listed here too.
 
 | ID | Title | Why it stays open | What would close it |
 |---|---|---|---|

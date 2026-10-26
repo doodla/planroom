@@ -1,6 +1,6 @@
 # Architecture review round 3: fixes
 
-One section per fix cluster: one line per finding, saying what changed and where, or "known gap" or "accepted risk".
+One section per group of fixes: one line per finding, saying what changed and where, or "known gap" or "accepted risk".
 
 ## Writes, kernel and packs
 
@@ -74,7 +74,7 @@ One section per fix cluster: one line per finding, saying what changed and where
 - repo-1 (F18): every shipped crate has an `external_allow`; only `models` and `planroom` may open sockets, with `std::net` disallowed in the others' generated `clippy.toml`; `contract` gets an allow-list and the no-I/O lint; the area table's "May depend on" cells must equal the allow-lists, and the `planroom` row gains `p256`; five new self-test plants. Changed in repo-layout.md (area table, boundaries.toml, boundary table, self-test step 3 and 4, Generated directories), AGENTS.md (Boundaries), architecture.md (R16 row, M1 repo-gates slice), contracts.md (`area_contracts_match_repo_layout`), new DR-79, DR-59 amended, feature_list.json S15, traceability R16 and S15.
 - repo-2 (F18): under `CI=true` a `skipped` check fails unless `crates/xtask/ci_skips.toml` lists it with a reason and a record; nextest's fallback can't run in CI; BusyBox runs on Linux only and macOS runs `/bin/sh` and dash; `feature_list_is_complete` refuses `passing` with a skipped test. Changed in repo-layout.md (The one task entry point, test row, pins), AGENTS.md (Tests), DR-79, feature_list.json S14 and S15, traceability R16.
 - repo-3 (applied): golden tests compare and write only under `gen --golden` (`golden_outputs_equal_engine_output`), and the Generated directories table names each output's conflict command. Changed in repo-layout.md, contracts.md (View models row, drift tests), AGENTS.md (Tests, Working in this repository), DR-79, DR-70 amended, feature_list.json S15.
-- repo-4 (applied): in a linked worktree a changed gated surface is `pending ratification`, `gen --layout-lock` refuses there, and the main agent writes the record and lock in the merge commit, so no numbers are assigned ahead. Changed in repo-layout.md (Decision-record gate, check layout row), AGENTS.md (Working in this repository), DR-79, DR-70 amended, feature_list.json S15.
+- repo-4 (applied): in a linked worktree a changed gated surface is `pending ratification`, `gen --layout-lock` refuses there, and the record and lock are written in the merge commit, so no numbers are assigned ahead. Changed in repo-layout.md (Decision-record gate, check layout row), AGENTS.md (Working in this repository), DR-79, DR-70 amended, feature_list.json S15.
 - repo-5 (applied): `plugin/hooks/` and `plugin/types/` are wholly generated directories, mixed files carry BEGIN and END GENERATED markers, `generated_read_only` and `.gitattributes` are generated from the table, and `generated_headers` checks every path in it; `clippy.toml` and `.dependency-cruiser.cjs` keep header lines where their tools read them. Changed in repo-layout.md (Directory map, Area contracts, boundaries.toml, Generated directories, Plugin layout), contracts.md (`generated_headers`), DR-79.
 - repo-6 (applied): `.claude/settings.json` denies `Skill(run-worker-tests)`, and WS8 checks the skill by a session working in the worker tree. Changed in repo-layout.md (Directory map), AGENTS.md, architecture.md (A-16), DR-79.
 - repo-7 (applied): an amended record's Status names its rounds (64 records), "How to read a record" says an amendment overrides the bullets above it, Read first says records give reasons, and `docs.rs::an_amended_record_says_so_in_its_status` checks it. Changed in decisions.md (How to read a record, Status lines), repo-layout.md (Read first), DR-79, feature_list.json S15.
@@ -95,7 +95,7 @@ One section per fix cluster: one line per finding, saying what changed and where
 
 ## Consistency pass
 
-One checker read the three clusters' changes across every design document, `feature_list.json` and `AGENTS.md` after the fixes landed. `examples/TRUTH.json` wasn't touched.
+One checker read the three groups' changes across every design document, `feature_list.json` and `AGENTS.md` after the fixes landed. `examples/TRUTH.json` wasn't touched.
 
 Checked and found consistent:
 

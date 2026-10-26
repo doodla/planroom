@@ -1,6 +1,6 @@
 # Architecture review round 1: owner decisions
 
-Round 1 ran nine lenses, each with an independent refuter: 102 findings, 49 material and upheld, 5 downgraded, none refuted. The findings are in this directory, one JSON file per lens. These are the main agent's decisions on the cross-cutting questions. The fix pass applies them, then each finding's own proposed fix where no decision below overrides it.
+Round 1 ran nine review focuses, each with an independent verifier: 102 findings, 49 material and upheld, 5 downgraded, none refuted. The findings are in this directory, one JSON file per focus. These are the decisions on the cross-cutting questions. The fix pass applies them, then each finding's own proposed fix where no decision below overrides it.
 
 ## Write model and identity
 
