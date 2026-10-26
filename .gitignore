@@ -7,3 +7,6 @@ node_modules/
 # Written into a mod's folder by the Claude Code host when plugin/ is loaded as a dev mod; never ours.
 /plugin/tsconfig.json
 /plugin/.claude-plugin/types/
+
+# Notes an agent keeps across context compactions (CLAUDE.md); local only
+.claude/carry.md
