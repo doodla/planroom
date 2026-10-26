@@ -3,13 +3,12 @@
 Task: execute `KICKOFF.md` (ultracode on). Full record: `progress.md`. Branch `ccr-b124f0e3-xnzjca`; push with `git push -u origin ccr-b124f0e3-xnzjca`.
 
 ## Where I am
-- Phases 1-3 DONE. Phase 4 skeleton DONE and live. Skeleton review round 1: 94 findings, 18 material (docs/contributing/research/skeleton-review/README.md).
-- Round 1 fixes MERGED locally (not pushed yet): fix-engine, fix-surfaces, fix-scan (89c1bd4), fix-contract + DR-85 + layout.lock (90476d3). My own: resolver canvas build, README install lines, check's not-built lines (CI run 64 green).
-- Running: full suite on 90476d3 (bg task bfk2y75lh; status in scratchpad/m-status.log), and docs fold of DR-85 (wf_09ee2ebd-c73, branch track/docs-dr85 + checker).
-- Next: suite green -> push; merge docs fold; update review README rows to "fixed (commit)"; progress.md log; then round 2 review (review-round skill), max 3 rounds; then M1.
-- M1 plan: tracks K (fold+IDs), X (extractors+linkers, dirty signal with untracked files per DR-85), P (packs+plan pack), A (actor/security, backups, .git/planroom, fs check), M (mod), C (canvas), G (S1 path, gates incl. not-built ones, serve/resolver). Default excludes for fixture/test-data trees.
-- Skills: merge-track, review-round (eval: 5/5 both, non-discriminating; RESULTS.md).
-- Lesson: chain `check && test && commit && push`; CI covers deny/busybox/macOS. Don't pkill broadly: kill own PIDs.
+- Phases 1-3 DONE. Phase 4 skeleton DONE and live. Review round 1 DONE: 18 material fixed and merged (DR-85; README rows name fix commits), docs folded + checked + fixed (30898ce, pushed, check ok).
+- Found after merge: canvas store load race (stale load overwrote a newer level's request; CI run 66 e2e) fixed with load generations (6e07f6a); scan --json map now capped to scan's budget.
+- Running: review ROUND 2 on 30898ce: wf_dc32e19d-2a4 (A: correctness, security, drift, tests) and wf_be838c9f-a82 (B: repo, ux, operability, unasked). Triage with .claude/skills/review-round/scripts/triage.py --round 2. Max 3 rounds; after round 3 write accepted-risk.md.
+- Then: context review + skills pass close-out (task #11), progress.md log, then M1 (task #12).
+- M1 plan: tracks K (fold+IDs), X (extractors+linkers, dirty signal with untracked files per DR-85), P (packs+plan pack), A (actor/security, backups, .git/planroom, fs check), M (mod; map --focus), C (canvas), G (S1 path, gates incl. not-built ones, serve/resolver). Default excludes for fixture/test-data trees.
+- Skills: merge-track, review-round. Lesson: chain check && test && push; kill own PIDs only.
 
 ## Gotchas
 - 4 CPUs -> workflow concurrency is 2. Prefer few, larger agents.
