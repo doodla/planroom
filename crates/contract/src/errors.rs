@@ -197,6 +197,12 @@ warning_codes! {
         "an extractor reached its file or byte bound; details name the extractor, the repo and the uncovered paths";
     WorkspaceNested = "workspace_nested",
         "another workspace's .planroom/ sits inside this one, or this one inside it; details name the other root";
+    RepoUnborn = "repo_unborn",
+        "a repo has no commit yet: it maps as a repo node, and its files after its first commit; details name the repo and its branch";
+    RepoSkipped = "repo_skipped",
+        "git couldn't read a repo, so the scan left it out and its last map stays; details name the repo, the reason (other_owner or git_failed) and the fix";
+    ScanSuperseded = "scan_superseded",
+        "a repo's HEAD moved on while the scan read it, so its map stays where a newer scan left it; details name the repo and the commit this scan read";
 }
 
 impl JsonSchema for WarningCode {

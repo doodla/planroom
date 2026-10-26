@@ -105,10 +105,10 @@ fn no_drift() -> DriftLine {
     DriftLine { summary: text::get("focus.no_drift", &[]), rules_broken: 0, machine_drift: 0 }
 }
 
-/// Not yet a workspace: no store, or a store with no scan. Its next action is the scan.
+/// Not yet a workspace: no store, or a store with no scan. Its next action is the scan of the
+/// repos git can read, or, when it can read none, a check again: never a scan that can't map.
 fn not_a_workspace(dir: &Path) -> Result<Reply<PaneModel>, AppError> {
-    let repos = workspace::discover(dir).map(|ws| ws.repos.len()).unwrap_or(0);
-    let empty = map::scan_empty(dir, repos);
+    let empty = map::scan_empty(dir, &workspace::scannable(dir));
     let pane = PaneModel {
         focus: Focus { breadcrumb: vec![], level: Level::System, lens: LENS.into(), project: None, seq: 0 },
         decision: None,

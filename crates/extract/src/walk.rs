@@ -2,8 +2,11 @@
 //! are a function of its commit alone. One `git ls-tree` lists the tree and one `cat-file --batch`
 //! reads the blobs. The tree's committed `.gitignore` files apply, symlinks and submodules are
 //! never followed, and the walk is bounded the same way on every machine (DR-47).
+//!
+//! A partial clone may not hold every blob of the commit. The walk never fetches one: it asks git
+//! which objects are missing, leaves those files out, and reports them as uncovered.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fmt;
 use std::os::unix::ffi::OsStrExt;
@@ -30,8 +33,12 @@ const BINARY_SNIFF: usize = 8000;
 pub struct Walked {
     /// Sorted by path; each a text file within the bounds.
     pub files: Vec<RepoPath>,
-    /// Files past the file or byte bound, in sorted order: the `partial_scan` warning's list.
+    /// Files past the file or byte bound, and files whose blob this clone doesn't hold, in sorted
+    /// order: the `partial_scan` warning's list.
     pub uncovered: Vec<String>,
+    /// The files whose blob this partial clone doesn't hold, sorted. Which blobs a clone holds
+    /// changes what the walk reads, so this list is part of a snapshot's key.
+    pub missing: Vec<String>,
     /// Files skipped as too large, binary, or with a path that isn't plain UTF-8.
     pub skipped: u32,
     /// The contents of `files`, read from the commit's blobs.
@@ -64,20 +71,33 @@ impl fmt::Debug for Blobs {
 struct Entry {
     path: Vec<u8>,
     object: String,
-    size: u64,
+    /// `None` when this clone doesn't hold the blob.
+    size: Option<u64>,
 }
 
 /// Walk `commit`'s tree in the repo `git` runs in: every regular file a committed `.gitignore`
 /// doesn't ignore, hidden files included. A submodule is a repo of its own, and a symlink is
 /// never followed.
 pub fn walk(git: &Git, commit: &str) -> Result<Walked, GitError> {
-    let listing = git.ls_tree(commit)?;
-    let entries = parse(&listing).map_err(|stderr| GitError { argv: vec!["ls-tree".into()], stderr })?;
+    let partial = git.is_partial_clone()?;
+    let listing = git.ls_tree(commit, !partial)?;
+    let mut entries = parse(&listing).map_err(|stderr| GitError { argv: vec!["ls-tree".into()], stderr })?;
+    if partial {
+        // `ls-tree -l` would read every blob, so the sizes come from the blobs this clone holds.
+        let missing = git.missing_objects(commit)?;
+        let mut sizes = git.object_sizes()?;
+        for entry in &mut entries {
+            if !missing.contains(&entry.object) {
+                entry.size = sizes.size(&entry.object)?;
+            }
+        }
+    }
     let mut objects = git.objects()?;
     let ignores = Ignores::read(&entries, &mut objects)?;
 
     let mut skipped = 0;
-    let mut found: Vec<(String, &Entry)> = Vec::new();
+    let mut missing = Vec::new();
+    let mut found: Vec<(String, &Entry, u64)> = Vec::new();
     for entry in &entries {
         if ignores.excludes(&entry.path) {
             continue;
@@ -88,18 +108,23 @@ pub fn walk(git: &Git, commit: &str) -> Result<Walked, GitError> {
             skipped += 1;
             continue;
         };
-        if entry.size > MAX_FILE_BYTES {
+        let Some(size) = entry.size else {
+            missing.push(rel.to_owned());
+            continue;
+        };
+        if size > MAX_FILE_BYTES {
             skipped += 1;
             continue;
         }
-        found.push((rel.to_owned(), entry));
+        found.push((rel.to_owned(), entry, size));
     }
     found.sort_by(|a, b| a.0.cmp(&b.0));
+    missing.sort();
 
     let mut walked = Walked { skipped, ..Walked::default() };
     let mut blobs = BTreeMap::new();
     let mut total = 0u64;
-    for (path, entry) in found {
+    for (path, entry, _) in found {
         // Every file is read, even past the cut, so the cut's list holds no binary file.
         let Some(bytes) = objects.get(&entry.object)? else {
             walked.skipped += 1;
@@ -119,19 +144,26 @@ pub fn walk(git: &Git, commit: &str) -> Result<Walked, GitError> {
         blobs.insert(path, bytes);
     }
     walked.blobs = Blobs::new(blobs);
+    if !missing.is_empty() {
+        let uncovered: BTreeSet<String> = walked.uncovered.drain(..).chain(missing.iter().cloned()).collect();
+        walked.uncovered = uncovered.into_iter().collect();
+        walked.missing = missing;
+    }
     Ok(walked)
 }
 
-/// The tree's regular files, from `ls-tree -r -z -l` output. Symlinks (mode 120000) and
-/// submodules (type `commit`) are left out.
+/// The tree's regular files, from `ls-tree -r -z` output, with `-l`'s sizes or without them.
+/// Symlinks (mode 120000) and submodules (type `commit`) are left out.
 fn parse(listing: &[u8]) -> Result<Vec<Entry>, String> {
     let mut entries = Vec::new();
     for record in listing.split(|b| *b == 0).filter(|r| !r.is_empty()) {
         let bad = || format!("unexpected ls-tree record: {}", String::from_utf8_lossy(record));
         let tab = record.iter().position(|b| *b == b'\t').ok_or_else(bad)?;
         let head = std::str::from_utf8(&record[..tab]).map_err(|_| bad())?;
-        let [mode, kind, object, size] = head.split_whitespace().collect::<Vec<_>>()[..] else {
-            return Err(bad());
+        let (mode, kind, object, size) = match head.split_whitespace().collect::<Vec<_>>()[..] {
+            [mode, kind, object, size] => (mode, kind, object, Some(size)),
+            [mode, kind, object] => (mode, kind, object, None),
+            _ => return Err(bad()),
         };
         if kind != "blob" || !mode.starts_with("100") {
             continue;
@@ -140,7 +172,7 @@ fn parse(listing: &[u8]) -> Result<Vec<Entry>, String> {
         if path.split(|b| *b == b'/').any(|part| part == b".git") {
             continue;
         }
-        let size = size.parse().map_err(|_| bad())?;
+        let size = size.map(str::parse).transpose().map_err(|_| bad())?;
         entries.push(Entry { path, object: object.to_owned(), size });
     }
     Ok(entries)
@@ -154,7 +186,8 @@ impl Ignores {
         let mut by_dir = BTreeMap::new();
         for entry in entries {
             let (dir, name) = split(&entry.path);
-            if name != b".gitignore" {
+            // A `.gitignore` this clone doesn't hold is itself reported as uncovered.
+            if name != b".gitignore" || entry.size.is_none() {
                 continue;
             }
             let Some(bytes) = objects.get(&entry.object)? else { continue };

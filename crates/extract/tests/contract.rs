@@ -75,13 +75,7 @@ fn view(root: &Path) -> RepoView {
     let git = Git::new(root);
     let head = git.head().unwrap();
     let blobs = walk::walk(&git, &head.commit).unwrap().blobs;
-    RepoView {
-        name: "deploy".into(),
-        root: root.to_path_buf(),
-        commit: head.commit,
-        branch: head.branch.unwrap(),
-        blobs,
-    }
+    RepoView { name: "deploy".into(), root: root.to_path_buf(), commit: head.commit, blobs }
 }
 
 fn walked(view: &RepoView) -> walk::Walked {

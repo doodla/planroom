@@ -220,31 +220,37 @@ fn place(store: &Store, view: &mut MapView) -> Result<(), AppError> {
 /// A directory with no scan yet, a workspace or not: an empty map whose next action is the scan,
 /// or, with no repos to scan, the same empty state `focus` returns.
 fn not_scanned(dir: &Path, lens: String, level: Option<Level>) -> Result<Reply<MapView>, AppError> {
-    let repos = workspace::discover(dir).map(|ws| ws.repos.len()).unwrap_or(0);
     let mut view = empty_view(level.unwrap_or(Level::System), lens);
-    view.empty = Some(scan_empty(dir, repos));
+    view.empty = Some(scan_empty(dir, &workspace::scannable(dir)));
     Ok(Reply { text: text_of(&view, 0), result: view, seq: 0, warnings: vec![] })
 }
 
-/// The empty state of a directory with no scan: map its repos. With none, no scan can succeed,
-/// so the line says what to do and the action checks again.
-pub(crate) fn scan_empty(root: &Path, repos: usize) -> Empty {
-    if repos == 0 {
-        return Empty {
-            reason: EmptyReason("no_repos".into()),
-            next: Handle {
-                command: CommandName("focus".into()),
-                args: vec![],
-                label: text::get("empty.no_repos", &[]),
-            },
-        };
+/// The top of the map of a workspace a scan wrote nothing for, since git could read none of its
+/// repos: the same empty state `map` returns there.
+pub(crate) fn not_scanned_view(root: &Path) -> Result<MapView, AppError> {
+    Ok(not_scanned(root, ALL_LENSES.into(), None)?.result)
+}
+
+/// The empty state of a directory with no scan: map the repos git can read. With none, no scan
+/// can map anything, so the line says what to do and the action checks again.
+pub(crate) fn scan_empty(root: &Path, repos: &workspace::Scannable) -> Empty {
+    let check_again = |reason: &str, label: String| Empty {
+        reason: EmptyReason(reason.into()),
+        next: Handle { command: CommandName("focus".into()), args: vec![], label },
+    };
+    if repos.readable == 0 && !repos.unreadable.is_empty() {
+        let names = repos.unreadable.join(", ");
+        return check_again("repos_unreadable", text::get("empty.repos_unreadable", &[("names", &names)]));
+    }
+    if repos.readable == 0 {
+        return check_again("no_repos", text::get("empty.no_repos", &[]));
     }
     Empty {
         reason: EmptyReason("not_scanned".into()),
         next: Handle {
             command: CommandName("scan".into()),
             args: vec![root.display().to_string()],
-            label: text::get("empty.not_scanned", &[("count", &repos)]),
+            label: text::get("empty.not_scanned", &[("count", &repos.readable)]),
         },
     }
 }

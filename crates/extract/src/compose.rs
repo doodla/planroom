@@ -67,7 +67,8 @@ impl Ctx<'_> {
             line,
             contains: lines::line(self.text, line).map(lines::cut),
             commit: Some(self.repo.commit.clone()),
-            branch: (!self.repo.branch.is_empty()).then(|| self.repo.branch.clone()),
+            // A snapshot is keyed by its commit, never a branch, which can move or go (DR-85).
+            branch: None,
         }]
     }
 }

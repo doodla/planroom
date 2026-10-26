@@ -2,8 +2,9 @@
 //! a `Code` node per file, with the `language` the merged `[[languages]]` table gives its extension.
 //!
 //! Evidence: a file's first line (`Evidence::Line`, line 1); an empty or non-UTF-8 file, a
-//! directory and the repo carry the commit and branch they were read at (`Evidence::Ref`). Every
-//! file and directory is one of that commit's paths, because the walk reads the commit's tree.
+//! directory and the repo carry the commit they were read at (`Evidence::Ref`). Every file and
+//! directory is one of that commit's paths, because the walk reads the commit's tree. Evidence
+//! names no branch: a branch can move or be deleted while the commit stays (DR-85).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -45,6 +46,24 @@ pub fn repo_id(repo: &str) -> NodeId {
     node_id(repo, REPO_PREFIX, repo)
 }
 
+/// The repo node of a repo with no commit yet, as after `git init`: it shows on the map, with
+/// nothing under it until the first commit. It carries no evidence, since there is no commit to
+/// cite and verification has nothing to check it against.
+pub fn unborn_repo(repo: &str) -> Node {
+    Node {
+        id: repo_id(repo),
+        kind: Kind(REPO_KIND.into()),
+        level: Level::System,
+        parent: None,
+        name: repo.into(),
+        aliases: vec![],
+        props: BTreeMap::new(),
+        layer: Layer::Actual,
+        provenance: Provenance::Extracted { extractor: NAME.into(), tier: Tier::Universal },
+        evidence: vec![],
+    }
+}
+
 pub struct Files;
 
 impl Extractor for Files {
@@ -64,12 +83,7 @@ impl Extractor for Files {
             .iter()
             .flat_map(|l| l.extensions.iter().map(move |e| (e.trim_start_matches('.'), l.id.as_str())))
             .collect();
-        let tree_evidence = || {
-            vec![Evidence::Ref {
-                commit: repo.commit.clone(),
-                ref_name: (!repo.branch.is_empty()).then(|| format!("refs/heads/{}", repo.branch)),
-            }]
-        };
+        let tree_evidence = || vec![Evidence::Ref { commit: repo.commit.clone(), ref_name: None }];
         let provenance = Provenance::Extracted { extractor: NAME.into(), tier: Tier::Universal };
         let node = |id: NodeId, kind: &str, level, parent, name: &str, props, evidence| Node {
             id,
@@ -102,7 +116,7 @@ impl Extractor for Files {
                         line: 1,
                         contains: lines::line(text, 1).map(lines::cut),
                         commit: Some(repo.commit.clone()),
-                        branch: (!repo.branch.is_empty()).then(|| repo.branch.clone()),
+                        branch: None,
                     }],
                     Ok(_) => tree_evidence(),
                     Err(_) => {

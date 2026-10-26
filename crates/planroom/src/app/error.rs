@@ -90,10 +90,13 @@ impl AppError {
         AppError::new(ErrorCode::Internal, &[("what", &what)]).details(json!({"report": null}))
     }
 
-    pub fn git(repo: &str, e: &GitError) -> AppError {
+    /// git failed in the repo at `path`; the hint is the command that shows why.
+    pub fn git(repo: &str, path: &std::path::Path, e: &GitError) -> AppError {
         let first = e.stderr.lines().next().unwrap_or_default().to_owned();
+        let hint = text::get("hint.git_failed", &[("path", &path.display())]);
         AppError::new(ErrorCode::GitFailed, &[("repo", &repo), ("what", &first)])
             .details(json!({"argv": e.argv, "stderr": e.stderr}))
+            .with_hint(hint)
     }
 
     pub fn object(&self) -> ErrorObject {
