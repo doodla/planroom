@@ -1,0 +1,12 @@
+{
+  "name": "planroom",
+  "description": "Planroom: a shared, living map of a software system that people and agents plan on together.",
+  "owner": { "name": "Sridhar Vadlamani" },
+  "plugins": [
+    {
+      "name": "planroom",
+      "source": "./plugin",
+      "description": "A shared, living map of your system, with a pane, /room and tools for planning with Claude."
+    }
+  ]
+}

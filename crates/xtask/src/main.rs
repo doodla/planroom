@@ -5,6 +5,7 @@
 
 mod boundaries;
 mod generate;
+mod plugin;
 mod rustlex;
 mod util;
 
@@ -137,7 +138,7 @@ fn check(root: &Path, r: &mut Report) {
     boundary_checks(root, r, true);
     drift_checks(root, r);
     python_checks(root, r);
-    plugin_validate(root, r);
+    plugin_checks(root, r);
 }
 
 fn boundary_checks(root: &Path, r: &mut Report, self_test: bool) {
@@ -210,14 +211,27 @@ fn python_checks(root: &Path, r: &mut Report) {
     }
 }
 
-fn plugin_validate(root: &Path, r: &mut Report) {
-    let name = "claude plugin validate .";
-    if !root.join(".claude-plugin/marketplace.json").is_file() {
-        r.skipped(name, "no .claude-plugin/marketplace.json yet");
-    } else if !util::available("claude", &["--version"]) {
-        r.failed(name, "the claude CLI is not installed", "install Claude Code");
-    } else {
-        r.tool(root, name, "claude", &["plugin", "validate", "."], "fix the manifest errors above");
+fn plugin_checks(root: &Path, r: &mut Report) {
+    match plugin::layout_problems(root) {
+        Ok(p) if p.is_empty() => {
+            r.ok("plugin layout (no bin/, no symlinks, names, version, skills, agents, icon)")
+        }
+        Ok(p) => r.failed("plugin layout", &p.join("\n"), "fix plugin/ as the lines above say"),
+        Err(e) => r.failed("plugin layout", &e, "fix the error above"),
+    }
+    let names = ["claude plugin validate --strict .", "claude plugin validate --strict plugin"];
+    match plugin::claude(root) {
+        Ok(claude) => {
+            for (name, dir) in names.iter().zip([".", "plugin"]) {
+                let (ok, out) = plugin::run_claude(root, &claude, &["plugin", "validate", "--strict", dir]);
+                if ok { r.ok(name) } else { r.failed(name, &out, "fix the manifest errors above") }
+            }
+        }
+        Err(e) => {
+            for name in names {
+                r.failed(name, &e, &format!("install Claude Code {}", plugin::CLAUDE_CODE_VERSION));
+            }
+        }
     }
 }
 
