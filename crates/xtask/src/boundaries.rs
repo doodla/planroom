@@ -429,7 +429,7 @@ pub fn self_test(root: &Path) -> Result<Vec<String>, String> {
     if !baseline.is_empty() {
         return Err(format!("the unplanted copy already fails: {}", baseline.join("; ")));
     }
-    util::capture(&tmp, "pnpm", &["install", "--offline", "--frozen-lockfile", "--silent"])?;
+    util::capture(&tmp, "pnpm", &["install", "--offline", "--frozen-lockfile"])?;
     let (ok, out) = util::run(&tmp, "pnpm", DEPCRUISE_ARGS);
     if !ok {
         return Err(format!("depcruise fails on the unplanted copy:\n{out}"));
@@ -471,7 +471,9 @@ pub fn self_test(root: &Path) -> Result<Vec<String>, String> {
     fs::write(&canvas_pkg, serde_json::to_string_pretty(&pkg).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
     append(&tmp.join("packages/canvas/src/index.ts"), "\nimport \"@planroom/mod\";\n")?;
-    util::capture(&tmp, "pnpm", &["install", "--offline", "--no-frozen-lockfile", "--silent"])?;
+    // Link it the way pnpm links a workspace dependency. A second `pnpm install --offline` would
+    // re-resolve, which needs registry metadata a fresh CI runner has never cached.
+    link_workspace_package(&tmp, "packages/canvas", "@planroom/mod", "packages/mod")?;
     let (ok, out) = util::run(&tmp, "pnpm", DEPCRUISE_ARGS);
     step(&mut lines, &mut failures, "canvas imports @planroom/mod", !ok && out.contains("not-in-allowed"));
 
@@ -483,6 +485,15 @@ pub fn self_test(root: &Path) -> Result<Vec<String>, String> {
     } else {
         Err(format!("{}\nnot caught: {}", lines.join("\n"), failures.join(", ")))
     }
+}
+
+/// Symlinks `<pkg_dir>/node_modules/<name>` to the workspace package at `target`, as pnpm does.
+fn link_workspace_package(root: &Path, pkg_dir: &str, name: &str, target: &str) -> Result<(), String> {
+    let link = root.join(pkg_dir).join("node_modules").join(name);
+    let parent = link.parent().ok_or("link has no parent")?;
+    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let _ = fs::remove_file(&link);
+    std::os::unix::fs::symlink(root.join(target), &link).map_err(|e| format!("{}: {e}", link.display()))
 }
 
 fn step(lines: &mut Vec<String>, failures: &mut Vec<String>, what: &str, caught: bool) {
