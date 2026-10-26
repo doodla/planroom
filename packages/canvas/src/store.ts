@@ -23,13 +23,23 @@ import {
   type ElkGraphIn,
   type ElkGraphOut,
 } from "./layout/graph";
+import { requestOf } from "./transport/request";
 import {
   CommandError,
   TransportError,
+  type Requested,
   type Transport,
 } from "./transport/types";
 
 export type Phase = "starting" | "needs_login" | "unreachable" | "ready";
+
+/** A view the transport doesn't hold, and where its read request stands (DR-56, DR-77). */
+export interface RequestView extends Requested {
+  readonly command: string;
+  readonly request: object;
+  /** Whether this viewer can ask for it. */
+  readonly canAsk: boolean;
+}
 
 export interface CanvasState {
   phase: Phase;
@@ -46,6 +56,10 @@ export interface CanvasState {
   revealed: { id: NodeId } | null;
   /** The level the person asked for; the top level when null. */
   level: Level | null;
+  /** The view asked for when the transport doesn't hold it; null while the map shows. */
+  request: RequestView | null;
+  /** The transport's line about what this view can't do, such as having no live store. */
+  note: string | null;
   start: () => Promise<void>;
   refresh: () => Promise<void>;
   select: (id: NodeId | null) => void;
@@ -54,6 +68,10 @@ export interface CanvasState {
   search: (query: string) => void;
   showLevel: (level: Level) => Promise<void>;
   run: (handle: Handle) => Promise<void>;
+  /** Ask for the view the transport doesn't hold, as a read request. */
+  ask: () => Promise<void>;
+  /** Leave a request state for the top-level map. */
+  back: () => Promise<void>;
   stop: () => void;
 }
 
@@ -84,8 +102,30 @@ export function createCanvasStore(
 
     async function load(): Promise<void> {
       const level = get().level;
+      const mapRequest = { detail: "graph", level };
+      const partial = transport.partial;
+      const note = partial?.note() ?? null;
+      // A view checks what the transport serves before it queries (DR-56).
+      if (partial && !partial.serves("map", mapRequest)) {
+        const pane = partial.serves("focus", {})
+          ? await transport.query<PaneModel>("focus", {})
+          : null;
+        set({
+          request: {
+            ...partial.requested("map", mapRequest),
+            command: "map",
+            request: mapRequest,
+            canAsk: partial.canAsk(),
+          },
+          pane,
+          note,
+          phase: "ready",
+          problem: null,
+        });
+        return;
+      }
       const [map, pane] = await Promise.all([
-        transport.query<MapView>("map", { detail: "graph", level }),
+        transport.query<MapView>("map", mapRequest),
         transport.query<PaneModel>("focus", {}).catch((e: unknown) => {
           // The map stands without the pane; only a signed-out tab stops both.
           if (e instanceof TransportError && e.kind === "needs_login") {
@@ -120,6 +160,8 @@ export function createCanvasStore(
         laidOut,
         phase: "ready",
         problem: null,
+        request: null,
+        note,
         selected: selected !== null && positions[selected] ? selected : null,
       });
     }
@@ -153,6 +195,8 @@ export function createCanvasStore(
       query: "",
       revealed: null,
       level: null,
+      request: null,
+      note: null,
       async start() {
         try {
           if (!(await transport.login())) {
@@ -194,12 +238,36 @@ export function createCanvasStore(
         await get().refresh();
       },
       async run(handle) {
+        // A map handle, such as the pane's "Open the containers", is a level to show.
+        if (handle.command === "map") {
+          const level = requestOf(handle).level;
+          if (typeof level === "string") {
+            await get().showLevel(level as Level);
+            return;
+          }
+        }
         try {
           await transport.run(handle);
           await load();
         } catch (e) {
           fail(e);
         }
+      },
+      async ask() {
+        const request = get().request;
+        if (request === null || transport.partial === null) {
+          return;
+        }
+        try {
+          await transport.partial.ask(request.command, request.request);
+          await load();
+        } catch (e) {
+          fail(e);
+        }
+      },
+      async back() {
+        set({ level: null, selected: null, request: null });
+        await get().refresh();
       },
       stop() {
         unsubscribe?.();

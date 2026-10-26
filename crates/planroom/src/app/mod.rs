@@ -5,9 +5,11 @@ pub mod actor;
 pub mod data;
 pub mod error;
 pub mod focus;
+pub mod import;
 pub mod map;
 pub mod person;
 pub mod scan;
+pub mod share;
 pub mod version;
 pub mod workspace;
 

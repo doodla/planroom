@@ -45,6 +45,12 @@ impl AppError {
         self
     }
 
+    /// Replace the hint with an exact fix line.
+    pub fn with_hint(mut self, hint: String) -> AppError {
+        self.0.hint = Some(hint);
+        self
+    }
+
     pub fn invalid_argument(field: &str, key: &str) -> AppError {
         AppError::new(ErrorCode::InvalidArgument, &[("what", &text::get(key, &[]))])
             .details(json!({"field": field}))

@@ -263,6 +263,30 @@ var CATALOGUE = [
     "undo": "query",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "share",
+    "idea": "levels",
+    "summary": "Write the canvas, its snapshot and the first live head for an Artifact publish.",
+    "actor": "any",
+    "class": "handoff",
+    "budget_tokens": 800,
+    "needs_base": false,
+    "undo": "not_undoable",
+    "tool": "room_handoff",
+    "room": true
+  },
+  {
+    "name": "import",
+    "idea": "setup",
+    "summary": "Import Artifact inbox rows from stdin, one {path, row} per line; answers read requests.",
+    "actor": "mixed",
+    "class": "change",
+    "budget_tokens": 800,
+    "needs_base": false,
+    "undo": "edit",
+    "tool": null,
+    "room": false
   }
 ];
 var FALLBACK_PANES = {

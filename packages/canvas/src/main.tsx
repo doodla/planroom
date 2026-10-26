@@ -1,4 +1,8 @@
-/** The canvas entry: tokens and faces first, then the store on the local transport, then the app. */
+/**
+ * The canvas entry: tokens and faces first, then the store on its transport, then the app. The page
+ * `share` writes marks its root `data-transport="artifact"`; every other page, the one `serve`
+ * serves, talks to the engine through the local transport.
+ */
 
 import "@fontsource/bricolage-grotesque/latin-600.css";
 import "@fontsource/bricolage-grotesque/latin-800.css";
@@ -14,11 +18,16 @@ import { createRoot } from "react-dom/client";
 import { App } from "./app";
 import { layoutInWorker } from "./layout/elk";
 import { createCanvasStore } from "./store";
+import { artifactTransport, browserArtifactEnv } from "./transport/artifact";
 import { browserEnv, localTransport } from "./transport/local";
 import { StoreContext } from "./use-canvas";
 
-const store = createCanvasStore(localTransport(browserEnv()), layoutInWorker);
 const root = document.getElementById("root");
+const transport =
+  root?.dataset.transport === "artifact"
+    ? artifactTransport(browserArtifactEnv())
+    : localTransport(browserEnv());
+const store = createCanvasStore(transport, layoutInWorker);
 if (root) {
   createRoot(root).render(
     <StrictMode>

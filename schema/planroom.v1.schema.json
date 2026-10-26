@@ -5,6 +5,59 @@
   "title": "Planroom contract v1",
   "description": "What Planroom emits (the serialize view).",
   "$defs": {
+    "Ack": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "`planroom.ack/v1`."
+        },
+        "imported_through": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The store `seq` the import that wrote it reached."
+        },
+        "rows": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/AckStatus"
+          },
+          "description": "Each row's outcome, by its docId."
+        }
+      },
+      "required": [
+        "format",
+        "imported_through",
+        "rows"
+      ],
+      "description": "`planroom.ack/v1`: `acks/<uid>`, one per viewer, which the page reads to clear its queued rows."
+    },
+    "AckStatus": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "imported",
+          "description": "Applied, or for a read request, answered."
+        },
+        {
+          "type": "string",
+          "const": "held",
+          "description": "Waiting for the desk, as a ghost or a pre-selected pick."
+        },
+        {
+          "type": "string",
+          "const": "conflict",
+          "description": "Stale against its base: a person conflict card."
+        },
+        {
+          "type": "string",
+          "const": "refused",
+          "description": "Not importable: malformed, or a command a row may not name."
+        }
+      ],
+      "description": "What import did with one row, as `acks/<uid>` lists it."
+    },
     "Actor": {
       "oneOf": [
         {
@@ -95,6 +148,46 @@
         }
       ],
       "description": "Who did it."
+    },
+    "Answer": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "`planroom.answer/v1`."
+        },
+        "handle": {
+          "$ref": "#/$defs/Handle",
+          "description": "The handle that asks for this view."
+        },
+        "seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The store `seq` the result reflects."
+        },
+        "result": {
+          "description": "The command's result, as its `--json` envelope carries it; null when it failed."
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorObject"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the read failed, when it did."
+        }
+      },
+      "required": [
+        "format",
+        "handle",
+        "seq",
+        "result"
+      ],
+      "description": "`planroom.answer/v1`: a read request's result, under `answers/<docId>`, or a view the snapshot\nprecomputed. Redacted, within the leaf's budget."
     },
     "Band": {
       "type": "string",
@@ -359,6 +452,38 @@
             "command",
             "args"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "share"
+            },
+            "args": {
+              "$ref": "#/$defs/ShareReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "import"
+            },
+            "args": {
+              "$ref": "#/$defs/ImportReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
         }
       ],
       "description": "One variant per catalogue leaf; the request travels as `args`."
@@ -395,7 +520,9 @@
             "schema",
             "version",
             "person init",
-            "serve"
+            "serve",
+            "share",
+            "import"
           ]
         },
         {
@@ -423,6 +550,67 @@
     "Cursor": {
       "type": "string",
       "description": "An opaque page cursor over `(seq, last_id, filter hash)`."
+    },
+    "DbBatch": {
+      "type": "object",
+      "properties": {
+        "writes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DbWrite"
+          }
+        }
+      },
+      "required": [
+        "writes"
+      ],
+      "description": "The writes of one `ArtifactData batch` call: at most 50, and at most 1 MiB of documents."
+    },
+    "DbOp": {
+      "type": "string",
+      "enum": [
+        "set",
+        "update",
+        "delete"
+      ],
+      "description": "A `db` write's operation."
+    },
+    "DbWrite": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "$ref": "#/$defs/DbOp"
+        },
+        "collection": {
+          "type": "string",
+          "description": "The collection path, such as `answers` or `inbox/u_1/events`."
+        },
+        "doc_id": {
+          "type": "string"
+        },
+        "file_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The JSON file whose top-level object is the document, for `set` and `update`."
+        },
+        "if_version": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The version the document was read at; absent when the write creates it."
+        }
+      },
+      "required": [
+        "op",
+        "collection",
+        "doc_id"
+      ],
+      "description": "One `db` write, in the shape an `ArtifactData batch` entry takes."
     },
     "DecisionCard": {
       "type": "object",
@@ -1448,6 +1636,211 @@
       ],
       "description": "A hint a linked edge joined: its ID and the pack-qualified extractor that emitted it."
     },
+    "ImportLine": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "`inbox/<uid>/events/<docId>`, or `live/head` or `acks/<uid>` for a version line."
+        },
+        "row": {
+          "description": "The row as the list result showed it; validated as an `InboxRow`.",
+          "default": null
+        },
+        "version": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The document's version as the list result showed it.",
+          "default": null
+        }
+      },
+      "required": [
+        "path",
+        "row",
+        "version"
+      ],
+      "description": "One line of `import -`'s stdin: an inbox row from the observed `ArtifactData list` result,\nwith its path, which names the author, and its document version, which the delete pins. A line\nwith no `row` gives the version of a document the session wrote before (`live/head`,\n`acks/<uid>`), so the next write to it can pin that version."
+    },
+    "ImportReq": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "`-`: the rows come only on stdin, never from a file."
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "description": "`planroom import -`: Artifact inbox rows on stdin, one `ImportLine` per line, from the mod,\nwhich read them from the `ArtifactData list` result it observed (DR-52, DR-67)."
+    },
+    "ImportResult": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "person": {
+          "type": "boolean",
+          "description": "Whether a person's token came with the rows."
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportedRow"
+          }
+        },
+        "batches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DbBatch"
+          }
+        }
+      },
+      "required": [
+        "summary",
+        "person",
+        "rows",
+        "batches"
+      ],
+      "description": "What `import -` returns: each row's outcome and the `db` batches the session writes, each with\none `ArtifactData batch` call, in order; `live/head` is the last write of the last batch."
+    },
+    "ImportedRow": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommandName"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AckStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its ack; none when the row stays in the inbox for a person's sync."
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "One engine-authored line when the row wasn't imported."
+        }
+      },
+      "required": [
+        "path",
+        "command",
+        "status",
+        "reason"
+      ],
+      "description": "What `import` did with one stdin line."
+    },
+    "InboxHead": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The page's last row counter."
+        },
+        "updated_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "sample": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SampleUse"
+          },
+          "description": "Each Ask Claude call and the model the platform applied, for the ledger.",
+          "default": []
+        }
+      },
+      "required": [
+        "seq",
+        "updated_at",
+        "sample"
+      ],
+      "description": "`inbox/<uid>`: the viewer's own head, which the page bumps after each row, so the session can\nlist who wrote."
+    },
+    "InboxRow": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "`planroom.inbox/v1`."
+        },
+        "instance": {
+          "type": "string",
+          "description": "Minted by the page on each load: with the uid, the writer instance.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "counter": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Per instance, monotonic; import applies rows in `(instance, counter)` order."
+        },
+        "command": {
+          "$ref": "#/$defs/CommandName",
+          "description": "`edit`, `review`, `decide` or `intent propose`; or a read request: `map`, `show`, `find`,\n`diff`, or an `ask` question that doesn't spend. Import refuses any other."
+        },
+        "request": {
+          "description": "That command's request JSON."
+        },
+        "base": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The snapshot or live-head `seq` the viewer saw."
+        },
+        "at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "`sample` when the row came from Ask Claude."
+        },
+        "sig": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A paired device's HMAC-SHA256 over the docId and the row without its `sig` (DR-67)."
+        }
+      },
+      "required": [
+        "format",
+        "instance",
+        "counter",
+        "command",
+        "request",
+        "base",
+        "at"
+      ],
+      "description": "`planroom.inbox/v1`: one row a viewer's page writes to `inbox/{self}/events/{docId}`. Import\nvalidates it, and takes the author from the path, never from the body: a field the row doesn't\ndefine, such as a forged `actor`, is ignored."
+    },
     "Kind": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
@@ -1628,6 +2021,57 @@
         "children"
       ],
       "description": "Edges lifted to the nearest ancestors at the view's level; `count == children.len()`."
+    },
+    "LiveHead": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "`planroom.live-head/v1`."
+        },
+        "seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The store `seq` this head reflects."
+        },
+        "snapshot_seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The `seq` of the published snapshot it extends."
+        },
+        "cards": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DecisionCard"
+          },
+          "description": "The top open cards."
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StreamFrame"
+          },
+          "description": "The change frames since the snapshot, newest last."
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Engine-authored lines for the conflicts the last import found."
+        }
+      },
+      "required": [
+        "format",
+        "seq",
+        "snapshot_seq",
+        "cards",
+        "changes",
+        "conflicts"
+      ],
+      "description": "`planroom.live-head/v1`: the small `db` document `live/head` the session writes last in each\nsync batch; at most 256 KiB."
     },
     "MapNode": {
       "type": "object",
@@ -2449,6 +2893,44 @@
       ],
       "description": "Where a node or edge came from."
     },
+    "PublishArgs": {
+      "type": "object",
+      "properties": {
+        "file_path": {
+          "type": "string",
+          "description": "The page fragment."
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Each published path and the file it comes from."
+        },
+        "capabilities": {
+          "description": "The page's capabilities: `db` with its access rules, and `user`."
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string",
+          "description": "On the first publish."
+        }
+      },
+      "required": [
+        "file_path",
+        "files",
+        "capabilities",
+        "title",
+        "description",
+        "icon"
+      ],
+      "description": "The exact arguments of the Artifact publish the session makes."
+    },
     "Ref": {
       "oneOf": [
         {
@@ -2502,6 +2984,34 @@
         }
       ],
       "description": "When a caller may retry a failed command."
+    },
+    "SampleUse": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "prompt_chars": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "response_chars": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "prompt_chars",
+        "response_chars",
+        "model"
+      ],
+      "description": "One Ask Claude call the page made."
     },
     "ScanReq": {
       "type": "object",
@@ -2752,6 +3262,90 @@
       ],
       "description": "The tab's bearer token, kept in `sessionStorage` and sent as `Authorization: Bearer`."
     },
+    "ShareReq": {
+      "type": "object",
+      "properties": {
+        "out": {
+          "type": "string",
+          "description": "The directory to write the bundle into, such as `.planroom/share`."
+        },
+        "include_snippets": {
+          "type": "boolean",
+          "description": "Keep each evidence line's text in the snapshot (redacted); left out by default.",
+          "default": false
+        },
+        "include_presence": {
+          "type": "boolean",
+          "description": "Include who is working on what; left out by default.",
+          "default": false
+        }
+      },
+      "required": [
+        "out",
+        "include_snippets",
+        "include_presence"
+      ],
+      "description": "`planroom share --out DIR [--include-snippets] [--include-presence]`: the canvas built for an\nArtifact, `DIR/data/snapshot.json` and the first `live/head`, with the publish's arguments."
+    },
+    "ShareResult": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "What will be shared, from the snapshot's sections; the first publish shows it."
+        },
+        "publish": {
+          "$ref": "#/$defs/PublishArgs"
+        },
+        "db": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DbBatch"
+          },
+          "description": "The `db` writes to make after the publish, `live/head` last."
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SharedFile"
+          }
+        },
+        "holds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the snapshot holds, as `Snapshot.capabilities` names it."
+        }
+      },
+      "required": [
+        "summary",
+        "publish",
+        "db",
+        "files",
+        "holds"
+      ],
+      "description": "What `share` returns: the publish to make, the `db` writes that seed `live/head`, and what the\nsnapshot holds."
+    },
+    "SharedFile": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "The published path, such as `assets/main.js` or `data/snapshot.json`; the page itself is\n`page.html`."
+        },
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "path",
+        "bytes"
+      ],
+      "description": "One file `share` wrote, with its size."
+    },
     "Size": {
       "type": "object",
       "properties": {
@@ -2772,6 +3366,90 @@
         "tokens_est"
       ],
       "description": "The reply's size."
+    },
+    "Snapshot": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "`planroom.snapshot/v1`."
+        },
+        "workspace_id": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The store `seq` the snapshot reflects."
+        },
+        "published_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "snippets": {
+          "type": "boolean",
+          "description": "Whether evidence keeps its `contains` text; false by default."
+        },
+        "maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MapView"
+          },
+          "description": "The maps it holds, each with its layout positions when one is cached; the page asks for\nany other as a read request."
+        },
+        "cards": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DecisionCard"
+          }
+        },
+        "who": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/PresenceRow"
+          },
+          "description": "None unless `share --include-presence`."
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneModel"
+        },
+        "answers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Answer"
+          },
+          "description": "Precomputed views, keyed by the handle that asks for each."
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The views and queries this snapshot serves: `map:<level>:<lens>` for each map it holds,\n`pane`, and `answers`."
+        },
+        "unavailable": {
+          "$ref": "#/$defs/Empty",
+          "description": "The engine-authored state the page shows for a view it doesn't hold; its `next` names the\nread request a press writes to the inbox."
+        }
+      },
+      "required": [
+        "format",
+        "workspace_id",
+        "seq",
+        "published_at",
+        "snippets",
+        "maps",
+        "cards",
+        "who",
+        "pane",
+        "answers",
+        "capabilities",
+        "unavailable"
+      ],
+      "description": "`planroom.snapshot/v1`: what the Artifact page draws with no engine, published as\n`data/snapshot.json`. It passes `kernel::redact`, and holds no evidence `contains` unless\n`share --include-snippets`, and no presence unless `share --include-presence`."
     },
     "Stakes": {
       "type": "string",

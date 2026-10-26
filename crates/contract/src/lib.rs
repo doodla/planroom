@@ -11,15 +11,16 @@ pub mod errors;
 pub mod event;
 pub mod model;
 mod open_set;
+pub mod remote;
 pub mod schema;
 pub mod stream;
 pub mod view;
 
 pub use command::{
-    ActorRule, Class, CodeReq, Command, CommandList, CommandSpec, Detail, FocusReq, Idea, LayoutPut,
-    LeafListing, LeafSchema, MapReq, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary,
-    ServeInfo, ServeReq, SessionReq, SessionToken, Tool, Undo, VersionInfo, VersionReq, WatchReq,
-    WriteCommon,
+    ActorRule, Class, CodeReq, Command, CommandList, CommandSpec, Detail, FocusReq, Idea, ImportReq,
+    LayoutPut, LeafListing, LeafSchema, MapReq, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq,
+    SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken, ShareReq, Tool, Undo, VersionInfo,
+    VersionReq, WatchReq, WriteCommon,
 };
 pub use decision::{Band, DecisionRecord, Outcome};
 pub use envelope::{
@@ -34,6 +35,10 @@ pub use event::{
 pub use model::{
     CONTAINS_MAX_CHARS, Edge, EdgeId, Evidence, FACTS_FORMAT, FactBatch, Hint, HintRef, Kind, Layer, Level,
     Node, NodeId, PartialFile, Provenance, Ref, Seq, Tier,
+};
+pub use remote::{
+    Ack, AckStatus, Answer, DbBatch, DbOp, DbWrite, ImportLine, ImportResult, ImportedRow, InboxHead,
+    InboxRow, LiveHead, PublishArgs, SampleUse, ShareResult, SharedFile, Snapshot,
 };
 pub use stream::StreamFrame;
 pub use view::{

@@ -24,6 +24,8 @@ pub enum Idea {
 pub enum ActorRule {
     Any,
     PersonOnly,
+    /// Some inputs need a person and others don't; the leaf table names which.
+    Mixed,
 }
 
 /// A command's permission class.
@@ -92,6 +94,8 @@ pub enum Command {
     Version(VersionReq),
     PersonInit(PersonInitReq),
     Serve(ServeReq),
+    Share(ShareReq),
+    Import(ImportReq),
 }
 
 const MAP: CommandSpec = CommandSpec {
@@ -246,9 +250,52 @@ const SERVE: CommandSpec = CommandSpec {
     room: false,
 };
 
+const SHARE: CommandSpec = CommandSpec {
+    path: &["share"],
+    idea: Idea::Levels,
+    summary: "Write the canvas, its snapshot and the first live head for an Artifact publish.",
+    actor: ActorRule::Any,
+    class: Class::Handoff,
+    budget_tokens: 800,
+    needs_base: false,
+    errors: &[
+        ErrorCode::InvalidArgument,
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::NotFound,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::NotUndoable("a viewer may already have seen what was published"),
+    tool: Some(Tool::RoomHandoff),
+    room: true,
+};
+
+const IMPORT: CommandSpec = CommandSpec {
+    path: &["import"],
+    idea: Idea::Setup,
+    summary: "Import Artifact inbox rows from stdin, one {path, row} per line; answers read requests.",
+    actor: ActorRule::Mixed,
+    class: Class::Change,
+    budget_tokens: 800,
+    needs_base: false,
+    errors: &[
+        ErrorCode::InvalidArgument,
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::PersonRequired,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Edit,
+    tool: None,
+    room: false,
+};
+
 impl Command {
     /// Every leaf's spec, in catalogue order.
-    pub const SPECS: &'static [CommandSpec] = &[MAP, FOCUS, SCAN, WATCH, SCHEMA, VERSION, PERSON_INIT, SERVE];
+    pub const SPECS: &'static [CommandSpec] =
+        &[MAP, FOCUS, SCAN, WATCH, SCHEMA, VERSION, PERSON_INIT, SERVE, SHARE, IMPORT];
 
     pub const fn spec(&self) -> &'static CommandSpec {
         match self {
@@ -260,6 +307,8 @@ impl Command {
             Command::Version(_) => &VERSION,
             Command::PersonInit(_) => &PERSON_INIT,
             Command::Serve(_) => &SERVE,
+            Command::Share(_) => &SHARE,
+            Command::Import(_) => &IMPORT,
         }
     }
 
@@ -306,6 +355,7 @@ impl LeafListing {
         let actor = match spec.actor {
             ActorRule::Any => "any",
             ActorRule::PersonOnly => "person_only",
+            ActorRule::Mixed => "mixed",
         };
         let class = match spec.class {
             Class::Read => "read",
@@ -463,6 +513,32 @@ pub struct ServeReq {
     #[arg(long)]
     #[serde(default)]
     pub port: Option<u16>,
+}
+
+/// `planroom share --out DIR [--include-snippets] [--include-presence]`: the canvas built for an
+/// Artifact, `DIR/data/snapshot.json` and the first `live/head`, with the publish's arguments.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct ShareReq {
+    /// The directory to write the bundle into, such as `.planroom/share`.
+    #[arg(long, value_name = "DIR")]
+    pub out: String,
+    /// Keep each evidence line's text in the snapshot (redacted); left out by default.
+    #[arg(long)]
+    #[serde(default)]
+    pub include_snippets: bool,
+    /// Include who is working on what; left out by default.
+    #[arg(long)]
+    #[serde(default)]
+    pub include_presence: bool,
+}
+
+/// `planroom import -`: Artifact inbox rows on stdin, one `ImportLine` per line, from the mod,
+/// which read them from the `ArtifactData list` result it observed (DR-52, DR-67).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct ImportReq {
+    /// `-`: the rows come only on stdin, never from a file.
+    #[arg(value_name = "SOURCE")]
+    pub source: String,
 }
 
 /// What `serve` returns once it listens.

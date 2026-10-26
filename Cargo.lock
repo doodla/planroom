@@ -1106,6 +1106,7 @@ version = "0.1.0-dev"
 dependencies = [
  "axum",
  "clap",
+ "jsonschema",
  "libc",
  "p256",
  "planroom-contract",
@@ -1152,6 +1153,7 @@ name = "planroom-kernel"
 version = "0.1.0-dev"
 dependencies = [
  "planroom-contract",
+ "regex",
  "serde_json",
  "sha2",
 ]

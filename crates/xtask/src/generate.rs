@@ -101,7 +101,7 @@ export interface CatalogueLeaf {{
   readonly name: string;
   readonly idea: \"levels\" | \"lenses\" | \"intent\" | \"diffs\" | \"decisions\" | \"setup\";
   readonly summary: string;
-  readonly actor: \"any\" | \"person_only\";
+  readonly actor: \"any\" | \"person_only\" | \"mixed\";
   readonly class: \"read\" | \"change\" | \"handoff\";
   readonly budget_tokens: number;
   readonly needs_base: boolean;

@@ -4,6 +4,10 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value, json};
 
 use crate::{
+    Ack, Answer, ImportLine, ImportReq, ImportResult, InboxHead, InboxRow, LiveHead, ShareReq, ShareResult,
+    Snapshot,
+};
+use crate::{
     CodeReq, Command, CommandList, Edge, Envelope, ErrorCode, ErrorObject, Event, Evidence, FactBatch,
     FocusReq, Hint, LayoutPut, LeafSchema, MapReq, MapView, Node, PaneModel, PersonInitReq, PersonKey,
     ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken,
@@ -90,6 +94,17 @@ pub fn generate(view: View) -> Value {
         Hint,
         FactBatch,
         Event,
+        ShareReq,
+        ImportReq,
+        ShareResult,
+        ImportResult,
+        ImportLine,
+        Snapshot,
+        LiveHead,
+        InboxRow,
+        InboxHead,
+        Answer,
+        Ack,
     );
     let mut defs: Vec<(String, Value)> = generator.take_definitions(true).into_iter().collect();
     defs.sort_by(|a, b| a.0.cmp(&b.0));

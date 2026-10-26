@@ -22,7 +22,7 @@ usage: cargo xtask <command>
                               the state check of layout.lock, and the walk over RANGE's commits
   check audit                 cargo deny check advisories and pnpm audit --prod (network)
   check guardrails            the two guardrails test files alone
-  test [-p CRATE]             the Rust tests (nextest when installed) and vitest
+  test [-p CRATE]             the canvas build, the Rust tests (nextest when installed) and vitest
   test --installer            ShellCheck, then tests/installer/run.sh under sh, dash and (Linux) BusyBox
   gen                         write every generated file
   gen --mod                   write only the mod bundle, plugin/hooks/planroom-mod.js
@@ -455,6 +455,18 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>) {
         Some(k) => vec!["-p", k],
         None => vec!["--workspace"],
     };
+    // The engine embeds target/canvas/ when it builds (build.rs), and `share`'s tests publish it, so
+    // the canvas builds first wherever the engine's tests run.
+    if matches!(krate, None | Some("planroom")) {
+        if !root.join("node_modules").is_dir() {
+            r.failed("canvas build", "node_modules is missing", PNPM_FIX);
+        } else {
+            match canvas::build(root) {
+                Ok(files) => r.ok(&format!("canvas build ({} files in {}/)", files.len(), canvas::OUT)),
+                Err(e) => r.failed("canvas build", &e, "fix the build errors above"),
+            }
+        }
+    }
     let nextest = tools::ensure(root, Tool::Nextest);
     if nextest.is_ok() {
         let mut args = vec!["nextest", "run", "--locked", "--no-fail-fast", "--no-tests", "pass"];

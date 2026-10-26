@@ -21,9 +21,14 @@ impl Clone {
         let _ = fs::remove_dir_all(&dir);
         let dir_str = dir.to_str().unwrap().to_owned();
         git(&repo, &["clone", "--quiet", "--shared", ".", &dir_str]);
-        // A clone made from a commit before the first lock may hold a lock the test didn't write.
-        let _ = fs::remove_file(dir.join(LOCK));
-        Self { dir }
+        // Each test starts from a repository with no lock yet. Once this repository holds one, the
+        // clone's removal is committed, so a test that writes the same lock again has a change.
+        let clone = Self { dir };
+        if clone.path(LOCK).exists() {
+            fs::remove_file(clone.path(LOCK)).unwrap();
+            clone.commit("start with no layout.lock");
+        }
+        clone
     }
 
     fn path(&self, rel: &str) -> PathBuf {

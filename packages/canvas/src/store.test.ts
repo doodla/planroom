@@ -74,6 +74,7 @@ function fake(answers: {
   let onFrame: (f: StreamFrame) => void = () => undefined;
   const transport: Transport = {
     capabilities: { views: "all", layoutWriteBack: true },
+    partial: null,
     login: () => Promise.resolve(answers.login ?? true),
     query: <T>(command: string, request: object) => {
       queries.push({ command, request });
@@ -268,4 +269,93 @@ test("a level from the rail asks the map for it, and a handle runs then refetche
   await store.getState().run(handle);
   expect(f.ran).toEqual([handle]);
   expect(f.queries.at(-2)?.command).toBe("map");
+});
+
+describe("a transport that holds only some views", () => {
+  function partialFake() {
+    const f = fake({});
+    const asked: { command: string; request: object }[] = [];
+    let held = false;
+    const transport: Transport = {
+      ...f.transport,
+      capabilities: {
+        views: ["map:container:all", "pane"],
+        layoutWriteBack: false,
+      },
+      partial: {
+        serves: (command, request) =>
+          command !== "map" ||
+          (request as { level: string | null }).level === null ||
+          held,
+        requested: () =>
+          asked.length > 0
+            ? { state: "asked", line: "Asked", problem: null }
+            : {
+                state: "unavailable",
+                line: "Not in this snapshot",
+                problem: null,
+              },
+        canAsk: () => true,
+        ask: (command, request) => {
+          asked.push({ command, request });
+          return Promise.resolve();
+        },
+        note: () => null,
+      },
+    };
+    return { ...f, transport, asked, hold: () => (held = true) };
+  }
+
+  test("a level it doesn't hold shows the request state, asks once, and goes back", async () => {
+    const f = partialFake();
+    const store = createCanvasStore(f.transport, f.layout);
+    await store.getState().start();
+    const queried = f.queries.length;
+    await store.getState().showLevel("component");
+    expect(store.getState().request).toMatchObject({
+      state: "unavailable",
+      line: "Not in this snapshot",
+      command: "map",
+      request: { detail: "graph", level: "component" },
+      canAsk: true,
+    });
+    // It checked before it queried: no map query for the view it doesn't hold.
+    expect(f.queries.slice(queried).map((q) => q.command)).toEqual(["focus"]);
+    await store.getState().ask();
+    expect(f.asked).toEqual([
+      { command: "map", request: { detail: "graph", level: "component" } },
+    ]);
+    expect(store.getState().request?.state).toBe("asked");
+    await store.getState().back();
+    expect(store.getState()).toMatchObject({ request: null, level: null });
+    expect(store.getState().map).not.toBeNull();
+  });
+
+  test("the view draws once the transport holds it", async () => {
+    const f = partialFake();
+    const store = createCanvasStore(f.transport, f.layout);
+    await store.getState().start();
+    await store.getState().showLevel("component");
+    f.hold();
+    await store.getState().refresh();
+    expect(store.getState().request).toBeNull();
+    expect(f.queries.at(-2)).toEqual({
+      command: "map",
+      request: { detail: "graph", level: "component" },
+    });
+  });
+
+  test("a map handle, such as the pane's next action, shows its level", async () => {
+    const f = partialFake();
+    const store = createCanvasStore(f.transport, f.layout);
+    await store.getState().start();
+    await store.getState().run({
+      command: "map",
+      args: ["--level", "container"],
+      label: "Open the containers",
+    });
+    expect(f.ran).toEqual([]);
+    expect(store.getState().level).toBe("container");
+    expect(store.getState().request?.state).toBe("unavailable");
+  });
 });
