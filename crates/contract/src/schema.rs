@@ -4,14 +4,14 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value, json};
 
 use crate::{
+    Ack, Answer, ImportLine, ImportReq, ImportResult, InboxHead, InboxRow, LiveHead, ShareReq, ShareResult,
+    Snapshot,
+};
+use crate::{
     CodeReq, Command, CommandList, Edge, Envelope, ErrorCode, ErrorObject, Event, Evidence, FactBatch,
     FocusReq, Hint, LayoutPut, LeafSchema, MapReq, MapView, Node, PaneModel, PersonInitReq, PersonKey,
     ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken,
     StreamFrame, VersionInfo, VersionReq, Warning, WarningCode, WatchReq,
-};
-use crate::{
-    Ack, Answer, ImportLine, ImportReq, ImportResult, InboxHead, InboxRow, LiveHead, ShareReq, ShareResult,
-    Snapshot,
 };
 
 /// The first line, or the `$comment`, of every generated file.

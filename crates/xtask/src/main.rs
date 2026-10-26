@@ -22,7 +22,7 @@ usage: cargo xtask <command>
   check                       every check CI runs
   check boundaries [--self-test]
                               the boundary rules alone, or with the planted crossings
-  test [-p CRATE]             the Rust tests (nextest when installed) and vitest
+  test [-p CRATE]             the canvas build, the Rust tests (nextest when installed) and vitest
   test --installer            ShellCheck and BusyBox sh when installed, then tests/installer/run.sh
   gen                         write every generated file
   gen --mod                   write only the mod bundle, plugin/hooks/planroom-mod.js
@@ -330,6 +330,18 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>) {
         Some(k) => vec!["-p", k],
         None => vec!["--workspace"],
     };
+    // The engine embeds target/canvas/ when it builds (build.rs), and `share`'s tests publish it, so
+    // the canvas builds first wherever the engine's tests run.
+    if matches!(krate, None | Some("planroom")) {
+        if !root.join("node_modules").is_dir() {
+            r.failed("canvas build", "node_modules is missing", PNPM_FIX);
+        } else {
+            match canvas::build(root) {
+                Ok(files) => r.ok(&format!("canvas build ({} files in {}/)", files.len(), canvas::OUT)),
+                Err(e) => r.failed("canvas build", &e, "fix the build errors above"),
+            }
+        }
+    }
     if util::available("cargo", &["nextest", "--version"]) {
         let mut args = vec!["nextest", "run", "--locked", "--no-tests", "pass"];
         args.extend(&scope);

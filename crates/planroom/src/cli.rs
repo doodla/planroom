@@ -10,8 +10,8 @@ use std::time::Instant;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
-    Command, CommandName, Envelope, FocusReq, MapReq, Meta, PersonInitReq, SCHEMA_VERSION, ScanReq,
-    SchemaReq, Seq, ServeReq, Size, StreamFrame, VersionReq, Warning, WatchReq,
+    Command, CommandName, Envelope, FocusReq, ImportReq, MapReq, Meta, PersonInitReq, SCHEMA_VERSION,
+    ScanReq, SchemaReq, Seq, ServeReq, ShareReq, Size, StreamFrame, VersionReq, Warning, WatchReq,
 };
 use planroom_store::{Store, Tail};
 use serde::Serialize;
@@ -51,6 +51,10 @@ enum Cmd {
     /// The person key that signs a person's actions.
     #[command(subcommand)]
     Person(PersonCmd),
+    /// Write the canvas, its snapshot and the first live head for an Artifact publish.
+    Share(ShareReq),
+    /// Import Artifact inbox rows from stdin, one {path, row} per line; answers read requests.
+    Import(ImportReq),
 }
 
 #[derive(Subcommand)]
@@ -95,6 +99,15 @@ pub fn main() -> ExitCode {
             finish(cli.json, &name.0, reply, started)
         }
         Cmd::Serve(req) => crate::server::run(&req, &cwd, cli.json, started),
+        Cmd::Share(req) => {
+            let name = Command::Share(req.clone()).name();
+            finish(cli.json, &name.0, app::share::run(&req, &cwd), started)
+        }
+        Cmd::Import(req) => {
+            let name = Command::Import(req.clone()).name();
+            let reply = app::import::run(&req, &cwd, &caller, &mut std::io::stdin().lock());
+            finish(cli.json, &name.0, reply, started)
+        }
         Cmd::Version(req) => {
             let name = Command::Version(req).name();
             finish(cli.json, &name.0, app::version::version(), started)

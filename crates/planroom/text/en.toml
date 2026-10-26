@@ -30,6 +30,8 @@ bad_body = "The request body isn't valid: {why}"
 http_scan_dir = "scan over HTTP always maps the workspace it serves; leave dir out or name that workspace."
 http_command = "command {command} on this server"
 unknown_leaf = "No command {leaf} in the catalogue; planroom schema --commands lists them."
+import_stdin = "import takes Artifact rows only on stdin: run planroom import -."
+share_out = "--out must name a directory Planroom can write: {why}"
 
 [warning]
 evidence_dropped = "{count} evidence items in {repo} didn't match commit {commit} and were dropped."
@@ -107,3 +109,29 @@ summary = "Planroom contract schema version {version}: {id}"
 commands = "{count} commands in the catalogue."
 commands_label = "List every command"
 leaf = "{leaf} takes {request} and returns {result}."
+
+# share and import: the Artifact bundle and the inbox (architecture.md, Remote mode).
+[share]
+summary = "Shares {repos} repos, {blocks} blocks at the top level and the pane, with paths and line numbers; {code}; {presence}."
+no_code = "no code text"
+code = "code lines, redacted"
+no_presence = "no presence"
+presence = "who is working on what"
+title = "Planroom Canvas"
+description = "The {workspace} workspace's map from Planroom: browse it, and ask your computer for what it doesn't hold."
+unavailable = "Not in this snapshot. Ask your computer for it"
+no_canvas = "canvas build in this engine"
+
+[import]
+summary = "Read requests answered: {answered}. Rows refused: {refused}. Rows left for a person's sync: {left}."
+not_a_row_path = "{path} isn't an inbox row's path, inbox/<uid>/events/<docId>."
+not_json = "A line on stdin isn't JSON: {why}"
+malformed = "This row isn't a valid planroom.inbox/v1 row: {why}"
+newer_format = "This row's format {format} is newer than this engine reads."
+not_allowed = "An Artifact row can't name {command}."
+not_yet = "{command} from an Artifact row isn't importable yet."
+read_not_yet = "{command} isn't answerable from the Artifact yet."
+bad_request = "This {command} request isn't valid: {why}"
+too_large = "This answer is larger than one db document holds; ask for a smaller view."
+left = "Waits in the inbox for a person's /room sync."
+map_label = "The map at the {level} level"

@@ -22,10 +22,6 @@ pub use command::{
     SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken, ShareReq, Tool, Undo, VersionInfo,
     VersionReq, WatchReq, WriteCommon,
 };
-pub use remote::{
-    Ack, AckStatus, Answer, DbBatch, DbOp, DbWrite, ImportLine, ImportResult, ImportedRow, InboxHead,
-    InboxRow, LiveHead, PublishArgs, SampleUse, SharedFile, ShareResult, Snapshot,
-};
 pub use decision::{Band, DecisionRecord, Outcome};
 pub use envelope::{
     CommandName, Cursor, Empty, EmptyReason, Envelope, ErrorObject, Handle, Meta, ModelRequestRef, ModelUse,
@@ -39,6 +35,10 @@ pub use event::{
 pub use model::{
     CONTAINS_MAX_CHARS, Edge, EdgeId, Evidence, FACTS_FORMAT, FactBatch, Hint, HintRef, Kind, Layer, Level,
     Node, NodeId, PartialFile, Provenance, Ref, Seq, Tier,
+};
+pub use remote::{
+    Ack, AckStatus, Answer, DbBatch, DbOp, DbWrite, ImportLine, ImportResult, ImportedRow, InboxHead,
+    InboxRow, LiveHead, PublishArgs, SampleUse, ShareResult, SharedFile, Snapshot,
 };
 pub use stream::StreamFrame;
 pub use view::{

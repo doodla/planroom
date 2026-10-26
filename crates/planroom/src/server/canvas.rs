@@ -14,6 +14,11 @@ pub fn file(path: &str) -> Option<(&'static [u8], &'static str)> {
     embedded::FILES.iter().find(|(p, _)| *p == path).map(|(p, bytes)| (*bytes, content_type(p)))
 }
 
+/// Every embedded file, by its path under `target/canvas/`, which `share` writes out.
+pub fn files() -> impl Iterator<Item = (&'static str, &'static [u8])> {
+    embedded::FILES.iter().copied()
+}
+
 /// Whether this binary embeds a canvas build.
 pub fn embedded() -> bool {
     file("index.html").is_some()

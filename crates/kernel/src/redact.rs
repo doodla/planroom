@@ -138,13 +138,19 @@ mod tests {
 
     #[test]
     fn each_secret_shape_is_masked() {
-        assert_eq!(text("DATABASE_URL=postgres://app:hunter2@db:5432/orders"), "DATABASE_URL=postgres://[redacted]@db:5432/orders");
+        assert_eq!(
+            text("DATABASE_URL=postgres://app:hunter2@db:5432/orders"),
+            "DATABASE_URL=postgres://[redacted]@db:5432/orders"
+        );
         assert_eq!(text("STRIPE_SECRET=abc123"), "STRIPE_SECRET=[redacted]");
         assert_eq!(text("api_token: \"tok\""), "api_token: \"[redacted]\"");
         assert_eq!(text("export DB_PASSWORD='p'"), "export DB_PASSWORD='[redacted]'");
         assert_eq!(text("key AKIAIOSFODNN7EXAMPLE here"), "key [redacted] here");
         assert_eq!(text("ghp_0123456789abcdefghijABCDEFGHIJ012345"), "[redacted]");
-        assert_eq!(text("-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----"), "[redacted]");
+        assert_eq!(
+            text("-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----"),
+            "[redacted]"
+        );
         assert_eq!(text("token wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"), "token [redacted]");
     }
 

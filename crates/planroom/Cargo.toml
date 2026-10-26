@@ -34,3 +34,4 @@ libc.workspace = true
 planroom-testkit.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+jsonschema.workspace = true
