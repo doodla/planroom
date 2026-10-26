@@ -89,6 +89,8 @@ pub enum Layer {
 pub enum Tier {
     Universal,
     Syntactic,
+    /// SCIP or LSIF; no v0.1 extractor (DR-11).
+    Precise,
     Config,
     Pattern,
     Inference,
@@ -99,10 +101,24 @@ pub enum Tier {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Provenance {
-    Extracted { extractor: String, tier: Tier },
-    Linked { linker: String, hints: Vec<String> },
-    Inferred { model: String, decision: EventId, confidence: f32 },
-    Authored { actor: Actor, event: EventId },
+    Extracted {
+        extractor: String,
+        tier: Tier,
+    },
+    /// The linker is pack-qualified, such as `code/runtime_wiring`.
+    Linked {
+        linker: String,
+        hints: Vec<HintRef>,
+    },
+    Inferred {
+        model: String,
+        decision: EventId,
+        confidence: f32,
+    },
+    Authored {
+        actor: Actor,
+        event: EventId,
+    },
 }
 
 /// An edge end: a node ID, or an alias another extractor defines, such as `host:orders`.
@@ -113,21 +129,36 @@ pub enum Ref {
     Alias(String),
 }
 
-/// A pointer to the line a fact was read from.
+/// What a fact was read from, verified at ingest (DR-12).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-pub struct Evidence {
-    /// `<repo>/<repo-relative path>`.
-    pub path: String,
-    /// 1-based.
-    #[schemars(range(min = 1))]
-    pub line: u32,
-    /// The exact line, cut to 200 characters; omitted in a default Artifact snapshot.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(length(max = 200))]
-    pub contains: Option<String>,
-    pub commit: Option<String>,
-    pub branch: Option<String>,
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Evidence {
+    /// A file fact: verified against the line index of the blob at `commit`.
+    Line {
+        /// `<repo>/<repo-relative path>`.
+        path: String,
+        /// 1-based.
+        #[schemars(range(min = 1))]
+        line: u32,
+        /// The exact line, cut to 200 characters; omitted in a default Artifact snapshot.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(length(max = 200))]
+        contains: Option<String>,
+        commit: Option<String>,
+        branch: Option<String>,
+    },
+    /// A git-derived fact (a tag, a commit, co-change, ownership, the tree at a commit): the commit
+    /// is verified to exist, and the ref to name it.
+    Ref {
+        commit: String,
+        /// Such as `refs/tags/v1.5.0` or `refs/heads/main`.
+        #[serde(rename = "ref")]
+        ref_name: Option<String>,
+    },
 }
+
+/// The most characters of a line that `Evidence::Line.contains` keeps.
+pub const CONTAINS_MAX_CHARS: usize = 200;
 
 /// A thing in the system at one level, with exactly one parent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -171,6 +202,9 @@ pub struct Edge {
 /// A partial observation a linker joins with others, such as a URL literal or an environment read.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Hint {
+    /// 12 hex characters of `sha256(kind ‖ scope ‖ key ‖ evidence)`.
+    #[schemars(pattern(r"^[0-9a-f]{12}$"))]
+    pub id: String,
     /// Such as `code.url` or `code.env_read`.
     pub kind: Kind,
     /// The file, or the compose service.
@@ -181,6 +215,41 @@ pub struct Hint {
     /// Scheme, port, path, method, op, driver, default.
     pub attrs: BTreeMap<String, Value>,
     pub evidence: Vec<Evidence>,
+    /// Always `Extracted`.
+    pub provenance: Provenance,
+}
+
+/// A hint a linked edge joined: its ID and the pack-qualified extractor that emitted it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct HintRef {
+    pub id: String,
+    pub extractor: String,
+}
+
+/// The format tag of a `FactBatch`.
+pub const FACTS_FORMAT: &str = "planroom.facts/v1";
+
+/// What every extractor and linker returns, sorted by ID.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct FactBatch {
+    /// `planroom.facts/v1`.
+    pub format: String,
+    /// Pack-qualified, such as `code/files`.
+    pub extractor: String,
+    pub tier: Tier,
+    pub nodes: Vec<Node>,
+    pub edges: Vec<Edge>,
+    pub hints: Vec<Hint>,
+    /// Files read with errors; their facts are weak.
+    pub partial: Vec<PartialFile>,
+}
+
+/// A file an extractor read with errors, such as one that isn't UTF-8.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct PartialFile {
+    /// `<repo>/<repo-relative path>`.
+    pub path: String,
+    pub errors: u32,
 }
 
 #[cfg(test)]

@@ -95,12 +95,8 @@ fn sample_envelope() -> Envelope<MapView> {
             seq: 412,
             took_ms: 38,
             size: Size { bytes: 2210, tokens_est: 553 },
-            next: None,
-            truncated: false,
-            replayed: false,
-            warnings: vec![],
-            models: ModelUse::default(),
-            model_requests: vec![],
+            models: Some(ModelUse::default()),
+            ..Meta::default()
         },
     }
 }
@@ -133,5 +129,50 @@ fn the_output_view_requires_always_sent_fields_and_the_input_view_does_not() {
     assert!(!required(View::Input, "MapReq").contains(&json!("level")));
     // Skipped when absent, so optional in both views.
     assert!(!required(View::Output, "Envelope").contains(&json!("result")));
-    assert!(!required(View::Output, "Evidence").contains(&json!("contains")));
+    let line = &schema::generate(View::Output)["$defs"]["Evidence"]["oneOf"][0];
+    assert_eq!(line["properties"]["type"]["const"], json!("line"));
+    let line_required = line["required"].as_array().unwrap();
+    assert!(line_required.contains(&json!("path")));
+    assert!(!line_required.contains(&json!("contains")));
+    // Meta sends only seq and size when everything else is empty (DR-66).
+    let meta = required(View::Output, "Meta");
+    assert_eq!(meta, vec![json!("seq"), json!("size")]);
+}
+
+#[test]
+fn an_empty_meta_serializes_as_seq_and_size_only() {
+    let meta = Meta { seq: 7, size: Size { bytes: 10, tokens_est: 3 }, ..Meta::default() };
+    assert_eq!(
+        serde_json::to_value(&meta).unwrap(),
+        json!({"seq": 7, "size": {"bytes": 10, "tokens_est": 3}})
+    );
+    let back: Meta =
+        serde_json::from_value(json!({"seq": 7, "size": {"bytes": 10, "tokens_est": 3}})).unwrap();
+    assert_eq!(back, meta);
+}
+
+#[test]
+fn evidence_is_a_line_or_a_ref() {
+    let line = planroom_contract::Evidence::Line {
+        path: "platform/docker-compose.yml".into(),
+        line: 6,
+        contains: Some("    image: acme/storefront:2.3.0".into()),
+        commit: Some("4a8b57c".into()),
+        branch: Some("main".into()),
+    };
+    let reference = planroom_contract::Evidence::Ref {
+        commit: "4a8b57c".into(),
+        ref_name: Some("refs/heads/main".into()),
+    };
+    assert_eq!(serde_json::to_value(&line).unwrap()["type"], "line");
+    assert_eq!(
+        serde_json::to_value(&reference).unwrap(),
+        json!({"type": "ref", "commit": "4a8b57c", "ref": "refs/heads/main"})
+    );
+    for (value, def) in [
+        (serde_json::to_value(&line).unwrap(), "Evidence"),
+        (serde_json::to_value(&reference).unwrap(), "Evidence"),
+    ] {
+        assert!(validator_for(View::Output, def).is_valid(&value), "{value}");
+    }
 }

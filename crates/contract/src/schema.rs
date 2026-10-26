@@ -4,8 +4,8 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    Command, Edge, Envelope, ErrorCode, ErrorObject, Event, Evidence, FocusReq, Hint, MapReq, MapView, Node,
-    PaneModel, ScanReq, ScanResult, Warning, WarningCode,
+    Command, Edge, Envelope, ErrorCode, ErrorObject, Event, Evidence, FactBatch, FocusReq, Hint, MapReq,
+    MapView, Node, PaneModel, ScanReq, ScanResult, StreamFrame, Warning, WarningCode, WatchReq,
 };
 
 /// The first line, or the `$comment`, of every generated file.
@@ -63,13 +63,16 @@ pub fn generate(view: View) -> Value {
         MapReq,
         FocusReq,
         ScanReq,
+        WatchReq,
         MapView,
         PaneModel,
         ScanResult,
+        StreamFrame,
         Node,
         Edge,
         Evidence,
         Hint,
+        FactBatch,
         Event,
     );
     let mut defs: Vec<(String, Value)> = generator.take_definitions(true).into_iter().collect();
