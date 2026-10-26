@@ -12,7 +12,7 @@ The full record of the build that `KICKOFF.md` describes. A later session should
 | 1. Understand | research done; mod and Artifact spikes in main session |
 | 2. Architecture | done: 3 candidates, 3 judges, synthesis; main agent decided DR-43 |
 | 3. Architecture review | done: 3 rounds (49, 43, 29 material findings), all applied or accepted as risk |
-| 4. Walking skeleton | WS1 to WS4 merged; WS5 to WS8 next |
+| 4. Walking skeleton | WS1 to WS8 merged and live (scan, store, mod, canvas, Artifact); DR-81 to DR-84; review running |
 | 5. Milestones M1–M5 | not started |
 | 6. Release | not started |
 
@@ -70,13 +70,31 @@ Phase 1 live spend: Jev $0.00517 (282 calls), Claude on the gateway about $0.022
 4. **Lenses voting each other down.** Prevented by judging each finding within its own lens; a security finding never needs the UX reviewer's agreement.
 5. **Unbounded review.** Capped at 3 rounds; what's left is recorded as accepted risk with a one-line reason.
 
+### Phase 4 (Walking skeleton), written at the phase's end
+
+This pre-mortem was owed before the phase began and wasn't written then; it is recorded here late, with what the phase did against each risk.
+
+1. **Tracks that pass alone and fail together.** Met: every seam bug (the person-token encoding, the mod's plugin root, the skill named like the mod's command, `scan`'s undo class) showed only when the pieces ran together, so each merge ran the full suite and the real mod ran live.
+2. **Mocked harnesses hiding the host.** Met late: the mod harness mocked the environment and command registration, so two start-up failures reached the live session. `packages/mod/AGENTS.md` now says a start-up change isn't proven until the bundle has run live.
+3. **CI-only failures.** Met: cargo-deny, a BusyBox that prefers its applets and macOS paths broke CI after local runs passed; fixed, and CI is read through the GitHub tools after every push.
+4. **Disk and CPU exhaustion from parallel worktrees.** Met twice (a full disk mid-build): worktree build directories are deleted after each merge, and M1 shrinks debug info.
+5. **Docs drifting from the code the skeleton built.** Met: every track's doc conflicts went into DR-81 to DR-84 and a docs fold, and a review lens checks drift.
+
+### Phase 5, M1 (kernel, store, code and plan packs, mod and canvas basics)
+
+1. **The fold and the packs land out of order, so tracks build on interfaces that change.** Prevented by waves: the kernel fold and IDs (K) and the extractors and linkers (X) first; packs and the plan pack (P) on top of both; the mod (M), the canvas (C), actors and backups (A) beside them on the contract.
+2. **S1 fails on truth because the fixture's map is polluted or IDs drift.** Prevented by default excludes for fixture and test-data trees, the ID-stability test, and the truth comparator running in CI from the first pack merge.
+3. **A track breaks a gate it can't see from its worktree.** Prevented by `cargo xtask check layout`'s pending ratification in worktrees, the merge-track skill, and a decision record in every merge that changes a gated surface.
+4. **Live-only failures in the mod and canvas.** Prevented by running the bundle live from the dev-mods folder and driving the canvas with Playwright at both sizes and themes after each surface merge.
+5. **Estimate overrun.** M1 is 115 agent-hours. At twice that, finish its tier A items, record the rest and move on (KICKOFF).
+
 ## Effort estimates
 
 From the synthesized architecture, in agent-hours of one focused build agent. Per KICKOFF, at twice a milestone's estimate, finish its tier A items, record the rest, and move on.
 
 | Milestone | Estimate | Twice | Actual |
 |---|---|---|---|
-| Walking skeleton | 28 h | 56 h | |
+| Walking skeleton | 28 h | 56 h | about 15 to 20 agent-hours of wall-clock across tracks, plus the main session's merges and live checks (rough, from workflow durations) |
 | M1 kernel, store, code and plan packs, mod and canvas basics | 115 h | 230 h | |
 | M2 diffs, reconciliation, hand-off, Jev decisions | 92 h | 184 h | |
 | M3 multi-repo, observability, release | 30 h | 60 h | |
