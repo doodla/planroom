@@ -8,6 +8,9 @@ repo=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd -P)
 resolver="$repo/plugin/scripts/planroom"
 filter=${1:-}
 work=$(mktemp -d "${TMPDIR:-/tmp}/planroom-installer.XXXXXX")
+# The physical path, as the resolver reports its own: on macOS $TMPDIR is /var/... (a link to
+# /private/var/...) and ends in a slash.
+work=$(CDPATH='' cd -- "$work" && pwd -P)
 server_pid=''
 
 cleanup() {
