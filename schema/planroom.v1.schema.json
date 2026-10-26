@@ -4102,7 +4102,10 @@
             "evidence_dropped",
             "partial_parse",
             "partial_scan",
-            "workspace_nested"
+            "workspace_nested",
+            "repo_unborn",
+            "repo_skipped",
+            "scan_superseded"
           ]
         },
         {

@@ -360,7 +360,17 @@ export type EngineStatus =
  * via the `definition` "WarningCode".
  */
 export type WarningCode =
-  | ("truncated" | "unresolved_ref" | "evidence_dropped" | "partial_parse" | "partial_scan" | "workspace_nested")
+  | (
+      | "truncated"
+      | "unresolved_ref"
+      | "evidence_dropped"
+      | "partial_parse"
+      | "partial_scan"
+      | "workspace_nested"
+      | "repo_unborn"
+      | "repo_skipped"
+      | "scan_superseded"
+    )
   | string;
 /**
  * An RFC 3339 UTC timestamp.
