@@ -11,7 +11,7 @@ use std::time::Instant;
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
     Command, CommandName, Envelope, FocusReq, MapReq, Meta, PersonInitReq, SCHEMA_VERSION, ScanReq,
-    SchemaReq, Seq, Size, StreamFrame, VersionReq, Warning, WatchReq,
+    SchemaReq, Seq, ServeReq, Size, StreamFrame, VersionReq, Warning, WatchReq,
 };
 use planroom_store::Tail;
 use serde::Serialize;
@@ -46,6 +46,8 @@ enum Cmd {
     Schema(SchemaReq),
     /// This engine's version, target, schema version and catalogue hash.
     Version(VersionReq),
+    /// Serve the canvas and the HTTP API on this workspace's port.
+    Serve(ServeReq),
     /// The person key that signs a person's actions.
     #[command(subcommand)]
     Person(PersonCmd),
@@ -92,6 +94,7 @@ pub fn main() -> ExitCode {
             let reply = app::person::run(&req, &cwd, &caller, &mut std::io::stdin().lock());
             finish(cli.json, &name.0, reply, started)
         }
+        Cmd::Serve(req) => crate::server::run(&req, &cwd, cli.json, started),
         Cmd::Version(req) => {
             let name = Command::Version(req).name();
             finish(cli.json, &name.0, app::version::version(), started)
@@ -100,7 +103,7 @@ pub fn main() -> ExitCode {
 }
 
 /// Print a reply or an error, and exit with the error's category's code.
-fn finish<T: Serialize>(
+pub(crate) fn finish<T: Serialize>(
     json: bool,
     command: &str,
     reply: Result<Reply<T>, AppError>,
@@ -135,7 +138,7 @@ fn finish<T: Serialize>(
 }
 
 /// The envelope as one line, with `meta.size` measuring the line itself.
-fn envelope<T: Serialize>(
+pub(crate) fn envelope<T: Serialize>(
     command: &str,
     result: Option<&T>,
     error: Option<&AppError>,

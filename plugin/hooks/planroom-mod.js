@@ -88,6 +88,18 @@ var CATALOGUE = [
     "undo": "query",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "serve",
+    "idea": "setup",
+    "summary": "Serve the canvas and the HTTP API on this workspace's port.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 0,
+    "needs_base": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
   }
 ];
 var FALLBACK_PANES = {

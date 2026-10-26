@@ -106,12 +106,17 @@ error_codes! {
     PersonRequired = "person_required", Permission, Never,
         "a person-only command without a valid person token: missing, stale, spent, or for another command",
         ["command", "reason"];
+    Unauthorized = "unauthorized", Permission, Never,
+        "HTTP: no bearer token, a missing or foreign Origin or Host, or a used or expired login code", [];
     PersonKeyMismatch = "person_key_mismatch", Permission, Never,
         "person init found another key registered; the pane's Use this session's key button runs person init --rekey",
         ["registered_at", "surface"];
     IdempotencyMismatch = "idempotency_mismatch", Conflict, Never,
         "the same idem with a different request", ["idem", "stored_event"];
     StoreBusy = "store_busy", Unavailable, Now, "still locked after the 5 s busy timeout", [];
+    PortInUse = "port_in_use", Unavailable, Never,
+        "another program holds the workspace's recorded canvas port; serve never moves unasked",
+        ["port", "fix"];
     SchemaMismatch = "schema_mismatch", Unavailable, Never,
         "the store or a file is from a newer version, or this process is older than the store",
         ["found", "supported", "writer_version"];

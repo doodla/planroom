@@ -39,7 +39,8 @@ export type Band = "auto" | "card" | "escalate";
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
  * via the `definition` "CommandName".
  */
-export type CommandName = ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init") | string;
+export type CommandName =
+  ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve") | string;
 /**
  * An error's category; the exit code and the HTTP status follow it.
  *
@@ -112,6 +113,10 @@ export type Command =
   | {
       command: "person_init";
       args: PersonInitReq;
+    }
+  | {
+      command: "serve";
+      args: ServeReq;
     };
 /**
  * The five fixed levels, from the plan down to the code.
@@ -289,9 +294,11 @@ export type ErrorCode =
       | "workspace_not_found"
       | "not_found"
       | "person_required"
+      | "unauthorized"
       | "person_key_mismatch"
       | "idempotency_mismatch"
       | "store_busy"
+      | "port_in_use"
       | "schema_mismatch"
       | "pack_invalid"
       | "git_failed"
@@ -604,6 +611,22 @@ export interface PersonInitReq {
   project?: NodeId | null;
 }
 /**
+ * `planroom serve [--detach] [--port N]`.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ServeReq".
+ */
+export interface ServeReq {
+  /**
+   * Run in the background, in a session of its own, and return at once.
+   */
+  detach?: boolean;
+  /**
+   * Move this workspace's canvas to port N and record it; without it, serve uses the recorded port.
+   */
+  port?: number | null;
+}
+/**
  * What `schema --commands` returns: every leaf, summary first.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
@@ -839,7 +862,7 @@ export interface Envelope {
   /**
    * A command name from the catalogue, its path joined with spaces.
    */
-  command: ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init") | string;
+  command: ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve") | string;
   result?: unknown;
   error?: ErrorObject | null;
   meta: Meta;
@@ -1184,6 +1207,38 @@ export interface HandoffStep1 {
   note?: string | null;
 }
 /**
+ * `PUT /api/v1/layout`: an auto-layout to cache, last writer wins.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "LayoutPut".
+ */
+export interface LayoutPut {
+  /**
+   * The view the positions belong to, such as `map:system:all`.
+   */
+  view_key: string;
+  /**
+   * The hash of the node and edge IDs the layout was computed for.
+   */
+  structure_hash: string;
+  positions: {
+    [k: string]: Position;
+  };
+}
+/**
+ * A layout position.
+ *
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^[^:\s]+:[^:\s]+:.+$".
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Position".
+ */
+export interface Position {
+  x: number;
+  y: number;
+}
+/**
  * What `schema --command LEAF` returns: the leaf's request and result type names, and every
  * definition they reference, keyed by name.
  *
@@ -1242,16 +1297,6 @@ export interface MapNode {
    */
   ghost: boolean;
   claimed_by?: Actor | null;
-}
-/**
- * A layout position.
- *
- * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
- * via the `definition` "Position".
- */
-export interface Position {
-  x: number;
-  y: number;
 }
 /**
  * The map at one level through one lens.
@@ -1406,6 +1451,47 @@ export interface SchemaSummary {
   id: string;
   schema_version: number;
   handles: Handle[];
+}
+/**
+ * What `serve` returns once it listens.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ServeInfo".
+ */
+export interface ServeInfo {
+  summary: string;
+  /**
+   * `http://127.0.0.1:PORT/`.
+   */
+  url: string;
+  port: number;
+  /**
+   * The serving process.
+   */
+  pid: number;
+  /**
+   * The login page under the data root that opens the canvas with a one-time code, mode 0600;
+   * the code itself is in no output (DR-29, DR-64).
+   */
+  login_page: string;
+}
+/**
+ * `POST /api/v1/session`: the one-time code from the login page's URL fragment.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "SessionReq".
+ */
+export interface SessionReq {
+  code: string;
+}
+/**
+ * The tab's bearer token, kept in `sessionStorage` and sent as `Authorization: Bearer`.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "SessionToken".
+ */
+export interface SessionToken {
+  token: string;
 }
 /**
  * What `version` returns; the mod and the resolver match an engine by its catalogue hash.

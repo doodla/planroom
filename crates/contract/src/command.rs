@@ -91,6 +91,7 @@ pub enum Command {
     Schema(SchemaReq),
     Version(VersionReq),
     PersonInit(PersonInitReq),
+    Serve(ServeReq),
 }
 
 const MAP: CommandSpec = CommandSpec {
@@ -225,9 +226,29 @@ const PERSON_INIT: CommandSpec = CommandSpec {
     room: false,
 };
 
+const SERVE: CommandSpec = CommandSpec {
+    path: &["serve"],
+    idea: Idea::Setup,
+    summary: "Serve the canvas and the HTTP API on this workspace's port.",
+    actor: ActorRule::Any,
+    class: Class::Read,
+    budget_tokens: 0,
+    needs_base: false,
+    errors: &[
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::PortInUse,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Query,
+    tool: None,
+    room: false,
+};
+
 impl Command {
     /// Every leaf's spec, in catalogue order.
-    pub const SPECS: &'static [CommandSpec] = &[MAP, FOCUS, SCAN, WATCH, SCHEMA, VERSION, PERSON_INIT];
+    pub const SPECS: &'static [CommandSpec] = &[MAP, FOCUS, SCAN, WATCH, SCHEMA, VERSION, PERSON_INIT, SERVE];
 
     pub const fn spec(&self) -> &'static CommandSpec {
         match self {
@@ -238,6 +259,7 @@ impl Command {
             Command::Schema(_) => &SCHEMA,
             Command::Version(_) => &VERSION,
             Command::PersonInit(_) => &PERSON_INIT,
+            Command::Serve(_) => &SERVE,
         }
     }
 
@@ -424,6 +446,55 @@ pub struct PersonKey {
     pub surface: crate::event::Surface,
     /// This call replaced another key.
     pub rekeyed: bool,
+}
+
+/// `planroom serve [--detach] [--port N]`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct ServeReq {
+    /// Run in the background, in a session of its own, and return at once.
+    #[arg(long)]
+    #[serde(default)]
+    pub detach: bool,
+    /// Move this workspace's canvas to port N and record it; without it, serve uses the recorded port.
+    #[arg(long)]
+    #[serde(default)]
+    pub port: Option<u16>,
+}
+
+/// What `serve` returns once it listens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ServeInfo {
+    pub summary: String,
+    /// `http://127.0.0.1:PORT/`.
+    pub url: String,
+    pub port: u16,
+    /// The serving process.
+    pub pid: u32,
+    /// The login page under the data root that opens the canvas with a one-time code, mode 0600;
+    /// the code itself is in no output (DR-29, DR-64).
+    pub login_page: String,
+}
+
+/// `PUT /api/v1/layout`: an auto-layout to cache, last writer wins.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct LayoutPut {
+    /// The view the positions belong to, such as `map:system:all`.
+    pub view_key: String,
+    /// The hash of the node and edge IDs the layout was computed for.
+    pub structure_hash: String,
+    pub positions: std::collections::BTreeMap<NodeId, crate::view::Position>,
+}
+
+/// `POST /api/v1/session`: the one-time code from the login page's URL fragment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SessionReq {
+    pub code: String,
+}
+
+/// The tab's bearer token, kept in `sessionStorage` and sent as `Authorization: Bearer`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SessionToken {
+    pub token: String,
 }
 
 /// What `version` returns; the mod and the resolver match an engine by its catalogue hash.

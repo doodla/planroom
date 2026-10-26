@@ -59,6 +59,7 @@ const RESULTS: &[(&str, &str)] = &[
     ("schema", "SchemaSummary"),
     ("version", "VersionInfo"),
     ("person init", "PersonKey"),
+    ("serve", "ServeInfo"),
 ];
 
 /// `schema --command LEAF`: the leaf's request and result types with their `$defs` closure.

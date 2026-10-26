@@ -328,6 +328,22 @@
             "command",
             "args"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "serve"
+            },
+            "args": {
+              "$ref": "#/$defs/ServeReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
         }
       ],
       "description": "One variant per catalogue leaf; the request travels as `args`."
@@ -363,7 +379,8 @@
             "watch",
             "schema",
             "version",
-            "person init"
+            "person init",
+            "serve"
           ]
         },
         {
@@ -762,9 +779,11 @@
             "workspace_not_found",
             "not_found",
             "person_required",
+            "unauthorized",
             "person_key_mismatch",
             "idempotency_mismatch",
             "store_busy",
+            "port_in_use",
             "schema_mismatch",
             "pack_invalid",
             "git_failed",
@@ -1407,6 +1426,34 @@
         "intended"
       ],
       "description": "Which layer a fact or edit belongs to."
+    },
+    "LayoutPut": {
+      "type": "object",
+      "properties": {
+        "view_key": {
+          "type": "string",
+          "description": "The view the positions belong to, such as `map:system:all`."
+        },
+        "structure_hash": {
+          "type": "string",
+          "description": "The hash of the node and edge IDs the layout was computed for."
+        },
+        "positions": {
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[^:\\s]+:[^:\\s]+:.+$": {
+              "$ref": "#/$defs/Position"
+            }
+          }
+        }
+      },
+      "required": [
+        "view_key",
+        "structure_hash",
+        "positions"
+      ],
+      "description": "`PUT /api/v1/layout`: an auto-layout to cache, last writer wins."
     },
     "LeafListing": {
       "type": "object",
@@ -2509,6 +2556,88 @@
         "handles"
       ],
       "description": "What `schema` returns: the schema's ID and version, and handles to read further."
+    },
+    "ServeInfo": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "description": "`http://127.0.0.1:PORT/`."
+        },
+        "port": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "pid": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The serving process."
+        },
+        "login_page": {
+          "type": "string",
+          "description": "The login page under the data root that opens the canvas with a one-time code, mode 0600;\nthe code itself is in no output (DR-29, DR-64)."
+        }
+      },
+      "required": [
+        "summary",
+        "url",
+        "port",
+        "pid",
+        "login_page"
+      ],
+      "description": "What `serve` returns once it listens."
+    },
+    "ServeReq": {
+      "type": "object",
+      "properties": {
+        "detach": {
+          "type": "boolean",
+          "description": "Run in the background, in a session of its own, and return at once.",
+          "default": false
+        },
+        "port": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Move this workspace's canvas to port N and record it; without it, serve uses the recorded port.",
+          "default": null
+        }
+      },
+      "description": "`planroom serve [--detach] [--port N]`."
+    },
+    "SessionReq": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "description": "`POST /api/v1/session`: the one-time code from the login page's URL fragment."
+    },
+    "SessionToken": {
+      "type": "object",
+      "properties": {
+        "token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "token"
+      ],
+      "description": "The tab's bearer token, kept in `sessionStorage` and sent as `Authorization: Bearer`."
     },
     "Size": {
       "type": "object",
