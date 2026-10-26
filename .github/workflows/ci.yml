@@ -24,6 +24,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The layout gate walks the commits a push adds, which needs the full history (DR-70).
+          fetch-depth: 0
       # Installs the toolchain rust-toolchain.toml pins, with its components and targets.
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -47,6 +49,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The layout gate walks the commits a push adds, which needs the full history (DR-70).
+          fetch-depth: 0
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -56,30 +60,23 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: cargo xtask test
 
-  deny-and-audit:
-    name: deny-and-audit
+  # cargo deny check advisories and pnpm audit --prod, which need the network; the pin-age check
+  # isn't built yet. cargo xtask installs the sha256-pinned cargo-deny itself.
+  audit:
+    name: audit
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - run: rustup toolchain install
-      # TODO: move this pin into xtask (repo-layout.md "Toolchain pins") once xtask downloads tools.
-      - name: Install cargo-deny 0.20.2 (sha256-pinned release binary)
-        run: |
-          set -euo pipefail
-          url=https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
-          curl -sSfL -o "$RUNNER_TEMP/cargo-deny.tar.gz" "$url"
-          echo "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f  $RUNNER_TEMP/cargo-deny.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/cargo-deny.tar.gz" -C "$RUNNER_TEMP" --strip-components 1
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-      - run: cargo deny check
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
       - run: corepack enable
-      - run: pnpm audit --prod
+      - run: cargo xtask check audit
 
   guardrails:
     name: guardrails
@@ -90,8 +87,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: python3 .claude/guardrails/tests/test_guardrails.py
-      - run: python3 .claude/guardrails/tests/test_context_restore.py
+          # The layout gate walks the commits a push adds, which needs the full history (DR-70).
+          fetch-depth: 0
+      - run: rustup toolchain install
+      - run: cargo xtask check guardrails
 
   # Installs the pinned Playwright's Chromium (with its system packages), builds the canvas, the
   # engine with the canvas embedded and the fixture (python3 and git from the runner image), then
@@ -106,6 +105,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The layout gate walks the commits a push adds, which needs the full history (DR-70).
+          fetch-depth: 0
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -115,8 +116,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: cargo xtask e2e
 
-  # TODO: add the sha256-pinned ShellCheck and BusyBox downloads to xtask (repo-layout.md
-  # "Toolchain pins"); until then `cargo xtask test --installer` skips both where they're missing.
+  # ShellCheck, then the suite under sh, dash and (Linux only) BusyBox sh. Under CI=true a skipped
+  # step fails, so cargo xtask installs a missing tool first (DR-79).
   installer:
     name: installer (${{ matrix.os }})
     strategy:
@@ -129,6 +130,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The layout gate walks the commits a push adds, which needs the full history (DR-70).
+          fetch-depth: 0
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo xtask test --installer
