@@ -51,7 +51,11 @@ importers:
         specifier: 0.28.2
         version: 0.28.2
 
-  packages/ui: {}
+  packages/ui:
+    dependencies:
+      '@planroom/contract':
+        specifier: workspace:*
+        version: link:../contract
 
   tests/e2e: {}
 
