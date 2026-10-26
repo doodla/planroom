@@ -3,6 +3,7 @@
   "compilerOptions": {
     "lib": ["es2023", "dom", "dom.iterable"],
     "types": [],
+    "jsx": "react-jsx",
     "outDir": "../../target/tsc/canvas",
     "tsBuildInfoFile": "../../target/tsc/canvas.tsbuildinfo"
   },

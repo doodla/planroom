@@ -4,6 +4,7 @@
 //! or `skipped (why)` line per step, and names the fix command on failure.
 
 mod boundaries;
+mod canvas;
 mod fixture;
 mod generate;
 mod golden;
@@ -25,6 +26,7 @@ usage: cargo xtask <command>
   test --installer            ShellCheck and BusyBox sh when installed, then tests/installer/run.sh
   gen                         write every generated file
   gen --mod                   write only the mod bundle, plugin/hooks/planroom-mod.js
+  gen --canvas                build the canvas into target/canvas/ (not committed)
   fixture OUT [--no-packs]    build the fixture workspace into OUT, with a config loading the Ruby pack";
 
 fn main() -> ExitCode {
@@ -50,6 +52,18 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             }
+        }
+        ["gen", "--canvas"] => {
+            return match canvas::build(&root) {
+                Ok(files) => {
+                    println!("wrote {}/ ({} files)", canvas::OUT, files.len());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("cargo xtask gen --canvas failed: {e}");
+                    ExitCode::FAILURE
+                }
+            };
         }
         ["fixture", out] | ["fixture", out, "--no-packs"] => {
             return match fixture::build(&root, Path::new(out), args.len() == 2) {
