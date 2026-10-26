@@ -56,15 +56,15 @@ Phase 1 live spend: Jev $0.00517 (282 calls), Claude on the gateway about $0.022
 
 ### Phase 2 (Architecture)
 
-1. **A candidate design built on an unmeasured bet.** Prevented by giving every candidate design the measured research and requiring each bet to name its proof and fallback (the synthesized design's "Biggest bets" table).
+1. **A candidate design built on an unmeasured bet.** Prevented by giving every candidate design the measured research and requiring each bet to name its proof and fallback (the combined design's "Biggest bets" table).
 2. **A scenario with no deterministic CI path.** Prevented by a requirements review that scored each tier A and B scenario's CI path, and `feature_list.json` naming one per scenario.
-3. **Constraint violations hidden in parts taken from one candidate** (the simplicity-first design dropped `$.model.complete`). Prevented by the reviews listing fatal flaws and the synthesis fixing each (DR-18).
-4. **Docs that contradict each other.** Prevented by writing all six deliverables in one synthesis pass, then the Phase 3 consistency checks.
+3. **Constraint violations hidden in parts taken from one candidate** (the simplicity-first design dropped `$.model.complete`). Prevented by the reviews listing fatal flaws and the combined design fixing each (DR-18).
+4. **Docs that contradict each other.** Prevented by writing all six deliverables in one pass, then the Phase 3 consistency checks.
 5. **A layout agents can't navigate.** Prevented by the R16 review focus, `repo-layout.md`'s area contracts and the "where new code goes" table.
 
 ### Phase 3 (Architecture review)
 
-1. **Reviewers anchored on the synthesis's framing.** Prevented by giving reviewers the documents and the brief only, never the synthesis notes or the build's reasoning, with one distinct focus each.
+1. **Reviewers anchored on the combined design's framing.** Prevented by giving reviewers the documents and the brief only, never the design notes or the reasoning behind them, with one distinct focus each.
 2. **Real problems refuted away, or noise kept.** Prevented by a separate verifier per focus that must cite evidence to refute, and by materiality defined exactly as KICKOFF defines it.
 3. **Fixes applied in one doc but not its other homes.** Prevented by a fix pass that edits every home a fact has (architecture, decisions, contracts, layout, traceability, feature list), then a consistency check.
 4. **Focuses voting each other down.** Prevented by judging each finding within its own focus; a security finding never needs the UX reviewer's agreement.
@@ -86,7 +86,7 @@ This pre-mortem was owed before the phase began and wasn't written then; it is r
 2. **S1 fails on truth because the fixture's map is polluted or IDs drift.** Prevented by default excludes for fixture and test-data trees, the ID-stability test, and the truth comparator running in CI from the first pack merge.
 3. **A branch breaks a gate it can't see from its worktree.** Prevented by `cargo xtask check layout`'s pending ratification in linked worktrees, the repo's merge skill (`merge-branch`), and a decision record in every merge that changes a gated surface.
 4. **Live-only failures in the mod and canvas.** Prevented by running the bundle live from the dev-mods folder and driving the canvas with Playwright at both sizes and themes after each surface merge.
-5. **Estimate overrun.** M1 is 121 h (115 h before the skeleton review scheduled its unbuilt gates, the filesystem check and `map` paging). At twice that, finish its tier A items, record the rest and move on (KICKOFF).
+5. **Estimate overrun.** M1 is 122 h (115 h before the skeleton review scheduled its unbuilt gates, the filesystem check and `map` paging, and 121 h before DR-89 moved the Ruby pack in). At twice that, finish its tier A items, record the rest and move on (KICKOFF).
 
 ## Effort estimates
 
@@ -95,27 +95,27 @@ From [Milestones](docs/contributing/architecture.md#milestones), which defines t
 | Milestone | Estimate | Twice | Actual |
 |---|---|---|---|
 | Walking skeleton | 28 h | 56 h | about 15 to 20 hours of wall-clock across the slices' branches, plus the merges and live checks (rough, from build durations) |
-| M1 kernel, store, code and plan packs, mod and canvas basics | 121 h | 242 h | |
+| M1 kernel, store, code and plan packs, mod and canvas basics | 122 h | 244 h | |
 | M2 diffs, reconciliation, hand-off, Jev decisions | 92 h | 184 h | |
 | M3 multi-repo, observability, release | 30 h | 60 h | |
 | M4 artifacts, state machines, anatomy | 35 h | 70 h | |
-| M5 context curation, polish, release | 76 h | 152 h | |
+| M5 context curation, polish, release | 75 h | 150 h | |
 | Total | 382 h (280 h before the review, 333 h after round 2, 376 h before the skeleton review) | | |
 
 ### M1's plan
 
-M1 is 121 h by the [Milestones](docs/contributing/architecture.md#milestones) table. Its plan comes to 174.5 h: the table's slices at 155.5 h, plus 19 h of work outside them.
+M1 is 122 h by the [Milestones](docs/contributing/architecture.md#milestones) table. Its plan comes to 174.5 h: the table's slices at 155.5 h, plus 19 h of work outside them.
 
-| Where the 53.5 h over the table goes | h |
+| Where the 52.5 h over the table goes | h |
 |---|---|
 | Seed work before the slices start: the contract, its error codes and the kernel's stubs, the configuration with default excludes, and reconciling `feature_list.json` with its gate | 16 |
 | The surface sweep for S15 | 3 |
-| Work DR-89 brings into M1 (the card store and dealing, `budgets.json` and the fold benchmark, the Ruby pack, the tests it names) | 7 |
+| Work DR-89 brings into M1 beyond the Ruby pack's hour in the table (the card store and dealing, `budgets.json` and the fold benchmark, the rest of the Ruby pack, the tests it names) | 6 |
 | Known gaps the walking skeleton's review left, round 3's leftovers among them (an estimate) | 9 |
 | Fixes from checking the plan | 3 |
-| Splitting the slices and estimating them again | 15.5 |
+| Work the slices hold beyond their table figures, found when each was split into steps | 15.5 |
 
-The stop line is twice the table's estimate, 242 h. Past it, M1 finishes its tier A items (S1's M1 subset, S15 and S3's deterministic part) and records the rest. The plan is checked against actual hours as it goes: when 115 h of it is done, if more than 138 h have been spent, the tier B and C items are recorded as gaps and the tier A items finish first.
+The stop line is twice the table's estimate, 244 h. Past it, M1 finishes its tier A items (S1's M1 subset, S15 and S3's deterministic part) and records the rest. The plan is checked against actual hours as it goes: when 115 h of it is done, if more than 138 h have been spent, the tier B and C items are recorded as gaps and the tier A items finish first.
 
 ## Spend log
 

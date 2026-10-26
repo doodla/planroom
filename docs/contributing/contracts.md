@@ -180,7 +180,7 @@ No level or view is blank: an empty one carries an `Empty`, whose `next` runs to
 | `nothing_mapped` | the top of the map after a scan found nothing to map, while a repo with a commit could be mapped | `scan ROOT` (DR-85, DR-87) |
 | `not_in_snapshot` | the Artifact's request state for a view the snapshot doesn't hold | the read request row (DR-77) |
 
-Redaction is by field [DR-64]. A field marked `#[redact]` in `crates/contract/src/` holds repo-derived free text: `Evidence.contains`, `Hint.value` and `Hint.attrs`, the string values of `Node.props` and `Edge.props`, `ContextExcerpt.excerpt`, `RunStep::Command.output_excerpt`, the `stderr` in `git_failed`'s `details`, and prompt text. `kernel::redact` masks secrets in those fields on every output path, CLI text and `--json` included. It never touches an ID, a handle, a cursor or a hash. `PLANROOM_RAW=1` turns it off for the truth comparator alone, and only on a read command's `--json` stdout: model requests, session request files, the snapshot, `live/head`, acks, tool results and logs stay redacted whatever it says. The mod's guard denies that variable to agents (DR-75).
+Redaction is by field [DR-64]. A field that holds repo-derived free text carries the `#[redact]` mark, `#[schemars(extend("x-redact" = true))]`, in `crates/contract/src/`: `Evidence.contains`, `Hint.value` and `Hint.attrs`, the string values of `Node.props` and `Edge.props`, `ContextExcerpt.excerpt`, `RunStep::Command.output_excerpt`, the `stderr` in `git_failed`'s `details`, and prompt text. `cargo xtask gen` writes the marked field paths into `crates/kernel/src/redact_fields.rs`, and `kernel::redact` masks secrets in exactly those fields on every output path [DR-89], CLI text and `--json` included. It never touches an ID, a handle, a cursor or a hash. `PLANROOM_RAW=1` turns it off for the truth comparator alone, and only on a read command's `--json` stdout: model requests, session request files, the snapshot, `live/head`, acks, tool results and logs stay redacted whatever it says. The mod's guard denies that variable to agents (DR-75).
 
 ### Error codes
 
@@ -439,7 +439,7 @@ pub enum Evidence {
     Line {                                   // a file fact: verified against the blob's line index
         path: String,                        // "<repo>/<repo-relative path>"
         line: u32,                           // 1-based
-        #[serde(skip_serializing_if = "Option::is_none")] #[redact]
+        #[serde(skip_serializing_if = "Option::is_none")] #[schemars(extend("x-redact" = true))]
         contains: Option<String>,            // the exact line, cut to 200 chars; omitted in a default Artifact snapshot
         commit: Option<String>,
         branch: Option<String>,              // None from a head scan: evidence names the commit, and the branch is on the scan
@@ -458,8 +458,8 @@ pub struct Hint {
     pub kind: Kind,                          // "code.url", "code.env_read", "code.route_serve", ...
     pub scope: NodeId,                       // the file, or the compose service
     pub key: String,                         // the join key: a host, an env var name, a path, a queue key
-    #[redact] pub value: Option<String>,
-    #[redact] pub attrs: BTreeMap<String, Value>,   // scheme, port, path, method, op, driver, default
+    #[schemars(extend("x-redact" = true))] pub value: Option<String>,
+    #[schemars(extend("x-redact" = true))] pub attrs: BTreeMap<String, Value>,   // scheme, port, path, method, op, driver, default
     pub evidence: Vec<Evidence>,
     pub provenance: Provenance,              // always Extracted
 }
@@ -880,7 +880,7 @@ pub struct ChangeSpec {
                                              //   base_commit, base_branch }
                                              // the merge preflight checks HEAD is on base_branch
     pub touch_points: Vec<TouchPoint>,       // { component, path, line, why }: pointers, never bodies
-    pub context: Vec<ContextExcerpt>,        // { path, lines, excerpt (#[redact]), untrusted: true }; 4,000 tokens in all
+    pub context: Vec<ContextExcerpt>,        // { path, lines, excerpt (marked x-redact), untrusted: true }; 4,000 tokens in all
     pub checks: Vec<SpecCheck>,              // { repo, command, env } and the reconcile rules
     pub installs: Vec<SpecCommand>,          // { repo, run, why }: the installs each repo's lockfiles call for, which the mod runs in each
                                              // clone at its base commit before the implementer starts, outside its sandbox (DR-75)
@@ -920,7 +920,7 @@ pub struct ImplementerRun {
 }
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RunStep {
-    Command { command: String, exit_code: i32, #[redact] output_excerpt: String },
+    Command { command: String, exit_code: i32, #[schemars(extend("x-redact" = true))] output_excerpt: String },
     Edit    { path: String, summary: String },
     Note    { text: String },
 }
@@ -1174,7 +1174,7 @@ These aren't product contracts, but tools and reviewers read them, so their shap
 - **`layout.lock`** (written by `cargo xtask gen --layout-lock DR-n`): TOML with the generated header, one table per gated surface, `["<surface>"]` with `sha256 = "..."` and `record = "DR-n"` (DR-83), one per gated surface: `boundaries.toml`, the workspace-crate dependency graph, the top-level directory list, each package's `exports` and its dependency names (never their versions, so a Dependabot bump needs no record), the area contracts table in `repo-layout.md`, parsed so formatting doesn't count, and the Boundaries and Conventions sections of `AGENTS.md` (DR-59, DR-70). Each `record` names a record heading that appears once in `decisions.md`; the first lock names DR-79 for every surface (DR-81).
 - **`schema/baseline/`**: copies of both schema views at the last `schema_version` bump, or before any, at the commit that added them. `cargo xtask gen --schema-baseline` writes them, and the breaking-change guard reads them (DR-59).
 - **`docs/evidence/spend.jsonl`** (appended, committed): one line per live call, the `sample` calls an import prices included, `{ "at", "generation_id", "provider", "model", "cost_usd", "scenario" }`, where `provider` is `jev`, `gateway`, `typesafe` or `sample`. The walking skeleton seeds it with Phase 1's live spend, `scenario` `phase1`. It is written only through the absolute path `cargo xtask` sets, under `spend.jsonl.lock` (DR-65).
-- **`feature_list.json`**: `{ "format": "planroom.feature-list/v1", "about", "fixture_note", "features": [{ id, title, tier (A, B or C), status, requirements, ci_path: { fixture, steps, compare, asserts, stand_ins }, evidence_path: { dir, steps }, tests, decision }] }`. `compare` names the `TRUTH.json` paths a step is checked against; `decision` (tier C only) names the record that added the entry. Status is `failing` or `passing`; an entry turns `passing` only after its tests pass. An entry may carry `due`, an object from a listed test to the milestone that builds it, such as `"due": {"crates/planroom/tests/first_run.rs::first_scan_deals_at_most_three_cards": "M2"}`; the field is additive, so the format stays `v1`. The list is complete when every listed test resolves to a test that CI runs with nothing live, or carries a `due`. A milestone closes only when no listed test still carries its `due` (DR-89).
+- **`feature_list.json`**: `{ "format": "planroom.feature-list/v1", "about", "fixture_note", "features": [{ id, title, tier (A, B or C), status, requirements, ci_path: { fixture, steps, compare, asserts, stand_ins }, evidence_path: { dir, steps }, tests, due?, decision }] }`. `compare` names the `TRUTH.json` paths a step is checked against; `decision` (tier C only) names the record that added the entry. Status is `failing` or `passing`; an entry turns `passing` only after its tests pass. An entry may carry `due`, an object from a listed test to the milestone that builds it, such as `"due": {"crates/planroom/tests/first_run.rs::first_scan_deals_at_most_three_cards": "M2"}`; the field is additive, so the format stays `v1`. The list is complete when every listed test resolves to a test that CI runs with nothing live, or carries a `due`. A milestone closes only when no listed test still carries its `due` (DR-89).
 
 ## Drift tests
 

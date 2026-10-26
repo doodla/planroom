@@ -1829,7 +1829,7 @@ A `proptest` test in `planroom-store` (`writer_interleavings`) generates random 
 | Op output budgets | yes | the envelope encoder plus `tests/budgets.rs` |
 | Mobile layout at 390×844 (S13) | yes | Playwright with touch emulation |
 | Console errors (S13) | yes | Playwright `page.on('console')` |
-| Screenshots of every main view at 1440×900 and 390×844 in both themes | produced in `xtask e2e`, reviewed by a person before the milestone closes | `docs/screenshots/` |
+| Screenshots of every main view at 1440×900 and 390×844 in both themes | produced in `xtask e2e`, reviewed before the milestone closes | `docs/screenshots/` |
 
 ### 10.5 Plugin install tests
 
