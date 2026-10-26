@@ -8,8 +8,9 @@
 import { useState } from "react";
 
 import { STRINGS } from "../strings";
-import { PHONE, useMedia } from "../use-canvas";
+import { PHONE, useCanvas, useMedia } from "../use-canvas";
 import { MapCanvas } from "../views/map-view";
+import { RequestState, TransportNote } from "../views/request-state";
 import { CardStack } from "./card-stack";
 import { TrayBadge, TrayList, TrayPeek } from "./diff-tray";
 import { ChevronIcon } from "./icons";
@@ -43,12 +44,14 @@ function BottomSheet() {
 export function Shell() {
   const phone = useMedia(PHONE);
   const [trayOpen, setTrayOpen] = useState(false);
+  const requesting = useCanvas((s) => s.request !== null);
   if (phone) {
     return (
       <div className="shell phone">
         <TopRow />
         <main className="stage">
-          <MapCanvas />
+          <TransportNote />
+          {requesting ? <RequestState /> : <MapCanvas />}
         </main>
         <BottomSheet />
       </div>
@@ -59,7 +62,8 @@ export function Shell() {
       <TopRow />
       <ZoomRail />
       <main className="stage">
-        <MapCanvas />
+        <TransportNote />
+        {requesting ? <RequestState /> : <MapCanvas />}
       </main>
       <aside className="side">
         <CardStack />

@@ -25,4 +25,12 @@ export const STRINGS = {
   sheetHalf: "Show more",
   outline: "Blocks on the map",
   map: "Map",
+  // The Artifact page's request state and its note (DR-56, DR-77); the "Not in this snapshot"
+  // line itself comes from the snapshot, which the engine authors.
+  asked: "Asked · it arrives at the next sync",
+  backToMap: "Back to the map",
+  refused: "Your computer couldn't answer this view.",
+  snapshotOnly:
+    "Snapshot only: this view can't reach live updates or ask your computer.",
+  snapshotMissing: "This page's snapshot didn't load.",
 } as const;

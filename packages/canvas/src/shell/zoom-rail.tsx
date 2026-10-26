@@ -9,7 +9,8 @@ import { STRINGS } from "../strings";
 import { useCanvas } from "../use-canvas";
 
 export function ZoomRail() {
-  const level = useCanvas((s) => s.map?.level);
+  // The level asked for, even while its view waits on a request.
+  const level = useCanvas((s) => s.level ?? s.map?.level);
   const showLevel = useCanvas((s) => s.showLevel);
   return (
     <nav className="rail" data-concept="levels" aria-label={STRINGS.zoomRail}>

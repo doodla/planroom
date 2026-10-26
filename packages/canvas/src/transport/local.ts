@@ -133,6 +133,7 @@ export function localTransport(env: LocalEnv): Transport {
 
   return {
     capabilities,
+    partial: null,
 
     async login() {
       const url = new URL(env.href);

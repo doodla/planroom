@@ -758,3 +758,34 @@ input {
     animation-name: crossfade;
   }
 }
+
+/* The Artifact page's request state (DR-77): centered in the stage, the map's place. */
+.request-state {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.request-state .empty-art {
+  width: min(320px, 70vw);
+}
+
+/* A line about what this view can't do, such as having no live store, over the stage. */
+.transport-note {
+  position: absolute;
+  z-index: 5;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(560px, calc(100% - 32px));
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  border: var(--border) solid var(--muted);
+  font-size: 14px;
+  text-align: center;
+}
