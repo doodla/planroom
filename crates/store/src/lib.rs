@@ -26,7 +26,9 @@ pub use error::StoreError;
 pub use read::{ActiveSet, FactRow, Shape};
 pub use tail::Tail;
 
-/// How long a connection waits for the write lock before `store_busy`.
+/// How long a connection waits for the write lock before `store_busy`. SQLite's busy handler
+/// backs off to 100 ms sleeps, so under steady contention one commit can wait ~630 ms; WS4
+/// measured that against a 1 ms fixed step and kept SQLite's (docs/contributing/research/ws4-concurrency.md).
 pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The numbered migrations, applied in order by `PRAGMA user_version`.
