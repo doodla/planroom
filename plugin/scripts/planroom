@@ -408,7 +408,8 @@ resolve() {
     best=''
     stale=''
     for candidate in "$checkout/target/release/planroom" "$checkout/target/debug/planroom"; do
-      [ -f "$candidate" ] && [ -x "$candidate" ] || continue
+      [ -f "$candidate" ] || continue
+      [ -x "$candidate" ] || continue
       if [ -n "$catalogue" ] && [ "$(engine_catalogue "$candidate")" = "$catalogue" ]; then
         if [ -z "$best" ] || newer_than "$candidate" "$best"; then
           best=$candidate
