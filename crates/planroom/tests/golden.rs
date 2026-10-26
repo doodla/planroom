@@ -51,12 +51,23 @@ fn normalized(mut env: Value) -> String {
 }
 
 /// `value` with every string naming the temporary workspace root rewritten to `/home/you/shop`,
-/// so a golden doesn't carry the test's own temp path.
+/// so a golden doesn't carry the test's own temp path. The canonical spelling goes first: on macOS
+/// the temp directory is a link, and the engine reports `/private/var/...` for `/var/...`.
 fn rooted(value: Value, root: &Path) -> Value {
+    let canonical = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let spellings = [canonical.to_string_lossy().into_owned(), root.to_string_lossy().into_owned()];
+    rewrite(value, &spellings)
+}
+
+fn rewrite(value: Value, spellings: &[String]) -> Value {
     match value {
-        Value::String(s) => Value::String(s.replace(&*root.to_string_lossy(), "/home/you/shop")),
-        Value::Array(items) => Value::Array(items.into_iter().map(|v| rooted(v, root)).collect()),
-        Value::Object(map) => Value::Object(map.into_iter().map(|(k, v)| (k, rooted(v, root))).collect()),
+        Value::String(s) => {
+            Value::String(spellings.iter().fold(s, |s, from| s.replace(from.as_str(), "/home/you/shop")))
+        }
+        Value::Array(items) => Value::Array(items.into_iter().map(|v| rewrite(v, spellings)).collect()),
+        Value::Object(map) => {
+            Value::Object(map.into_iter().map(|(k, v)| (k, rewrite(v, spellings))).collect())
+        }
         other => other,
     }
 }

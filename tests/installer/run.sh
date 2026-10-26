@@ -100,11 +100,27 @@ start_server() {
 }
 
 # A PATH holding only the tools the resolver uses, plus whatever a test adds to $1/bin.
+# The first executable file named $1 on PATH. Not `command -v`: a BusyBox built to prefer its own
+# applets answers a bare name such as `sed`, which would make a link to itself.
+on_path() {
+  saved_ifs=$IFS
+  IFS=:
+  for dir in $PATH; do
+    if [ -f "$dir/$1" ] && [ -x "$dir/$1" ]; then
+      IFS=$saved_ifs
+      printf '%s' "$dir/$1"
+      return 0
+    fi
+  done
+  IFS=$saved_ifs
+  return 1
+}
+
 sandbox_path() {
   mkdir -p "$1/bin"
   for tool in sh sed awk cat find mkdir rm mv chmod date sleep mktemp tar gzip curl sha256sum shasum \
     uname cp dirname head; do
-    found=$(command -v "$tool" 2>/dev/null || true)
+    found=$(on_path "$tool" || true)
     if [ -n "$found" ] && [ ! -e "$1/bin/$tool" ]; then
       ln -s "$found" "$1/bin/$tool"
     fi

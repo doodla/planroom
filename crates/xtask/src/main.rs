@@ -331,7 +331,7 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>) {
         None => vec!["--workspace"],
     };
     if util::available("cargo", &["nextest", "--version"]) {
-        let mut args = vec!["nextest", "run", "--locked", "--no-tests", "pass"];
+        let mut args = vec!["nextest", "run", "--locked", "--no-fail-fast", "--no-tests", "pass"];
         args.extend(&scope);
         r.tool(root, "cargo nextest run", "cargo", &args, "fix the failing tests above");
         let mut args = vec!["test", "--doc", "--locked"];
@@ -339,7 +339,8 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>) {
         r.tool(root, "cargo test --doc", "cargo", &args, "fix the failing doctests above");
     } else {
         r.skipped("cargo nextest run", "cargo-nextest is not installed; ran cargo test instead");
-        let mut args = vec!["test", "--locked"];
+        // Every test binary runs, so one failure doesn't hide the next (a CI run shows them all).
+        let mut args = vec!["test", "--locked", "--no-fail-fast"];
         args.extend(&scope);
         r.tool(root, "cargo test", "cargo", &args, "fix the failing tests above");
     }
