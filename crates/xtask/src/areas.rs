@@ -386,8 +386,31 @@ pub fn problems(root: &Path, rules: &Boundaries) -> Result<Vec<String>, String> 
 }
 
 /// The code spans in a cell.
+/// The code spans in a cell, less those in a parenthesis that qualifies the name just before it,
+/// as in "`libc` (fork and `setsid` only)"; a parenthesis after `boundaries.toml` lists names.
 fn code_spans(cell: &str) -> BTreeSet<String> {
-    cell.split('`').skip(1).step_by(2).map(str::to_owned).collect()
+    let parts: Vec<&str> = cell.split('`').collect();
+    let mut out = BTreeSet::new();
+    let mut skip_depth = 0usize;
+    for (i, part) in parts.iter().enumerate() {
+        if i % 2 == 1 {
+            if skip_depth == 0 {
+                out.insert((*part).to_owned());
+            }
+            continue;
+        }
+        for (at, c) in part.char_indices() {
+            match c {
+                '(' if skip_depth > 0 => skip_depth += 1,
+                '(' if i > 0 && part[..at].trim().is_empty() && parts[i - 1] != "boundaries.toml" => {
+                    skip_depth = 1
+                }
+                ')' if skip_depth > 0 => skip_depth -= 1,
+                _ => {}
+            }
+        }
+    }
+    out
 }
 
 /// A crate row's "May depend on" names exactly its `may_depend` and `external_allow`; a package
@@ -460,6 +483,18 @@ mod tests {
             "[E](../docs/contributing/repo-layout.md#the-one-task-entry-point)"
         );
         assert_eq!(relink("[A](../../AGENTS.md#dependencies)", "docs"), "[A](../AGENTS.md#dependencies)");
+    }
+
+    #[test]
+    fn a_qualifying_parenthesis_names_no_dependency() {
+        let spans = code_spans(
+            "its allow-list in `boundaries.toml`: `toml`, `libc` (fork and `setsid` only) [DR-69], `p256`",
+        );
+        assert_eq!(spans.into_iter().collect::<Vec<_>>(), ["boundaries.toml", "libc", "p256", "toml"]);
+        let spans = code_spans(
+            "`contract`, plus the allow-list in `boundaries.toml` (`serde`, `regex` for redaction)",
+        );
+        assert_eq!(spans.into_iter().collect::<Vec<_>>(), ["boundaries.toml", "contract", "regex", "serde"]);
     }
 
     #[test]
