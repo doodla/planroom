@@ -46,24 +46,6 @@ pub fn repo_id(repo: &str) -> NodeId {
     node_id(repo, REPO_PREFIX, repo)
 }
 
-/// The repo node of a repo with no commit yet, as after `git init`: it shows on the map, with
-/// nothing under it until the first commit. It carries no evidence, since there is no commit to
-/// cite and verification has nothing to check it against.
-pub fn unborn_repo(repo: &str) -> Node {
-    Node {
-        id: repo_id(repo),
-        kind: Kind(REPO_KIND.into()),
-        level: Level::System,
-        parent: None,
-        name: repo.into(),
-        aliases: vec![],
-        props: BTreeMap::new(),
-        layer: Layer::Actual,
-        provenance: Provenance::Extracted { extractor: NAME.into(), tier: Tier::Universal },
-        evidence: vec![],
-    }
-}
-
 pub struct Files;
 
 impl Extractor for Files {

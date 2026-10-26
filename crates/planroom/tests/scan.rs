@@ -509,7 +509,10 @@ fn an_unborn_and_an_unreadable_repo_leave_the_rest_of_the_workspace_mapped() {
     assert!(fix.contains(&format!("git -C {} status", root.join("broken").display())), "{fix}");
 
     let top = map_ids(&root, "");
-    assert!(top.contains("newrepo:repo:newrepo"), "the unborn repo maps as its repo node: {top:?}");
+    assert!(
+        !top.contains("newrepo:repo:newrepo"),
+        "an unborn repo maps nothing until its first commit: {top:?}"
+    );
     assert!(top.contains("orders:repo:orders") && top.contains("ws:container:redis"), "{top:?}");
     assert!(!top.contains("broken:repo:broken"));
     // focus now shows the map, and its next action is no scan.
@@ -524,6 +527,7 @@ fn an_unborn_and_an_unreadable_repo_leave_the_rest_of_the_workspace_mapped() {
     let env = scan(&root);
     assert!(warnings_of(&env, "repo_unborn").is_empty(), "{env}");
     assert!(map_ids(&root, "code").contains("newrepo:file:README.md"));
+    assert!(map_ids(&root, "").contains("newrepo:repo:newrepo"));
 }
 
 #[test]

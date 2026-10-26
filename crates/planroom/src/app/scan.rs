@@ -2,7 +2,8 @@
 //! evidence, and commit every repo's snapshot and `scan` event in one transaction.
 //!
 //! Each repo stands alone: one git can't read is left out with a `repo_skipped` warning, one with
-//! no commit yet maps as its repo node with `repo_unborn`, and the rest of the workspace maps.
+//! no commit yet maps nothing until its first commit, with `repo_unborn`, and the rest of the
+//! workspace maps.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -220,7 +221,8 @@ fn skipped(repo: &Repo, e: &GitError) -> Warning {
     }
 }
 
-/// A repo with no commit yet: its repo node alone, with no evidence to verify, and a warning.
+/// A repo with no commit yet: the map holds only committed content and every fact cites its
+/// evidence, so it maps nothing until its first commit (DR-86); the warning says so.
 fn unborn(
     repo: &Repo,
     branch: String,
@@ -236,7 +238,7 @@ fn unborn(
         format: FACTS_FORMAT.into(),
         extractor: files::NAME.into(),
         tier: Tier::Universal,
-        nodes: vec![files::unborn_repo(&repo.name)],
+        nodes: vec![],
         edges: vec![],
         hints: vec![],
         partial: vec![],
