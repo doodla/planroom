@@ -1,15 +1,21 @@
 //! `planroom map`: the map at a level, folded from the active snapshots on read.
+//!
+//! The leaf honors its catalogue budget (`CommandSpec::budget_tokens`): over it, the map keeps its
+//! blocks in their documented order while they fit, keeps the lifted edges between the kept ones,
+//! and says so with a `truncated` warning whose `details.next` is a handle that works today. Only
+//! the canvas's layout input, `--detail graph` over `serve` and in the `share` snapshot, takes the
+//! whole graph, until M2's paging pages it (architecture.md, The CLI: "`graph` pages").
 
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
-use std::collections::BTreeMap;
-
 use planroom_contract::{
-    CommandName, Detail, Edge, Empty, EmptyReason, Handle, LayoutKey, Level, MapReq, MapView, Node, NodeId,
-    Position,
+    Command, CommandName, Detail, Edge, Empty, EmptyReason, Handle, LayoutKey, Level, LiftedEdge, MapNode,
+    MapReq, MapView, Node, NodeId, Position, Warning, WarningCode,
 };
 use planroom_kernel::{facts, tree};
 use planroom_store::{Shape, Store};
+use serde_json::json;
 
 use crate::app::error::AppError;
 use crate::app::workspace;
@@ -18,13 +24,37 @@ use crate::text;
 
 /// The lens a map shows when none is asked for; no pack declares a default lens yet.
 const ALL_LENSES: &str = "all";
+/// What the envelope around a map takes besides the view: its other fields, the summary line and
+/// the `truncated` warning. The view gets the rest of the budget.
+const ENVELOPE_RESERVE_BYTES: usize = 1_536;
+/// Block names the one-line summary lists before "and N more".
+const SUMMARY_NAMES: usize = 12;
 
+/// `planroom map` as an agent reads it, through the CLI or the tools: within the leaf's budget.
 pub fn run(req: &MapReq, cwd: &Path) -> Result<Reply<MapView>, AppError> {
+    run_within(req, cwd, Some(budget_tokens()))
+}
+
+/// `map` for the canvas: `--detail graph` is its layout input and takes every block; a summary
+/// stays within the leaf's budget.
+pub fn for_canvas(req: &MapReq, cwd: &Path) -> Result<Reply<MapView>, AppError> {
+    let budget = (req.detail == Detail::Summary).then(budget_tokens);
+    run_within(req, cwd, budget)
+}
+
+fn budget_tokens() -> u32 {
+    Command::Map(MapReq::default()).spec().budget_tokens
+}
+
+fn run_within(req: &MapReq, cwd: &Path, budget: Option<u32>) -> Result<Reply<MapView>, AppError> {
     if req.focus.is_some() {
         return Err(AppError::invalid_argument("focus", "argument.focus_unsupported"));
     }
-    let root = workspace::find_root(cwd).ok_or_else(|| AppError::workspace_not_found(cwd))?;
     let lens = req.lens.clone().unwrap_or_else(|| ALL_LENSES.into());
+    // Outside a workspace, the same empty state `focus` shows (DR-57).
+    let Some(root) = workspace::find_root(cwd) else {
+        return not_scanned(cwd, lens, req.level);
+    };
     let Some(store) = Store::open_existing(&workspace::store_path(&root))? else {
         return not_scanned(&root, lens, req.level);
     };
@@ -37,11 +67,20 @@ pub fn run(req: &MapReq, cwd: &Path) -> Result<Reply<MapView>, AppError> {
             Detail::Summary => view.edges.iter_mut().for_each(|e| e.evidence_sample.clear()),
         }
     }
+    let total = view.nodes.len();
+    let warnings: Vec<Warning> =
+        budget.and_then(|budget| fit(&mut view, budget, req.level)).into_iter().collect();
     let seq = store.seq()?;
-    Ok(Reply { text: text_of(&view), result: view, seq, warnings: vec![] })
+    let mut text = text_of(&view, total);
+    for warning in &warnings {
+        text.push('\n');
+        text.push_str(&warning.message);
+    }
+    Ok(Reply { text, result: view, seq, warnings })
 }
 
-/// The map of the store's active snapshots: the top of the tree, or every node at `level`.
+/// The map of the store's active snapshots: the top of the tree, or every node at `level`. A
+/// level with no blocks is an `Empty` whose next action works today.
 pub fn top(store: &Store, root: &Path, level: Option<Level>) -> Result<MapView, AppError> {
     let active = store.active_set()?;
     if active.repos.is_empty() {
@@ -57,21 +96,107 @@ pub fn top(store: &Store, root: &Path, level: Option<Level>) -> Result<MapView, 
         }
     }
     let nodes = facts::merge_nodes(nodes);
-    let (level, blocks) = match level {
+    let (shown, blocks) = match level {
         None => (Level::System, tree::top_level(&nodes)),
         Some(level) => (level, tree::at_level(&nodes, level)),
     };
     let edges = tree::lift_edges(&nodes, &edges, &blocks);
+    let empty = blocks.is_empty().then(|| level_empty(root, level));
     Ok(MapView {
-        level,
+        level: shown,
         lens: ALL_LENSES.into(),
         focus: None,
         nodes: blocks,
         edges,
         hidden: 0,
-        empty: None,
+        empty,
         layout: None,
     })
+}
+
+/// The empty state of a scanned workspace's level with no blocks: the intent level before any
+/// plan, or a level this workspace has nothing at. Its next action is the top of the map, which a
+/// scan always fills; an empty top offers the scan again.
+fn level_empty(root: &Path, level: Option<Level>) -> Empty {
+    let map = |label: String| Handle { command: CommandName("map".into()), args: vec![], label };
+    let (reason, next) = match level {
+        Some(Level::Intent) => ("no_intent", map(text::get("empty.no_intent", &[]))),
+        Some(level) => {
+            ("empty_level", map(text::get("empty.empty_level", &[("level", &tree::level_name(level))])))
+        }
+        None => (
+            "nothing_mapped",
+            Handle {
+                command: CommandName("scan".into()),
+                args: vec![root.display().to_string()],
+                label: text::get("empty.nothing_mapped", &[]),
+            },
+        ),
+    };
+    Empty { reason: EmptyReason(reason.into()), next }
+}
+
+/// Keep the blocks that fit `budget_tokens`, in their order, and the lifted edges between them.
+/// Returns the `truncated` warning when it cut anything.
+fn fit(view: &mut MapView, budget_tokens: u32, level: Option<Level>) -> Option<Warning> {
+    let limit = (budget_tokens as usize * 4).saturating_sub(ENVELOPE_RESERVE_BYTES);
+    let size = |v: &MapView| serde_json::to_string(v).map_or(usize::MAX, |s| s.len());
+    if size(view) <= limit {
+        return None;
+    }
+    let nodes = std::mem::take(&mut view.nodes);
+    let edges = std::mem::take(&mut view.edges);
+    let total = nodes.len();
+    // The size grows with the number of blocks kept, so the largest prefix that fits is a search.
+    let (mut fits, mut over) = (0, total);
+    while fits < over {
+        let mid = (fits + over).div_ceil(2);
+        (view.nodes, view.edges) = prefix(&nodes, &edges, mid);
+        if size(view) <= limit { fits = mid } else { over = mid - 1 }
+    }
+    (view.nodes, view.edges) = prefix(&nodes, &edges, fits);
+    let next = drill_down(level.unwrap_or(view.level), level.is_none());
+    let message = text::get(
+        "warning.truncated",
+        &[("total", &total), ("kept", &fits), ("budget", &budget_tokens), ("label", &next.label)],
+    );
+    Some(Warning {
+        code: WarningCode::Truncated,
+        message,
+        details: json!({"kept": fits, "total": total, "budget_tokens": budget_tokens, "next": next}),
+    })
+}
+
+/// The first `count` blocks and the lifted edges between them.
+fn prefix(nodes: &[MapNode], edges: &[LiftedEdge], count: usize) -> (Vec<MapNode>, Vec<LiftedEdge>) {
+    let kept = nodes[..count].to_vec();
+    let ids: HashSet<&NodeId> = kept.iter().map(|n| &n.id).collect();
+    let edges = edges.iter().filter(|e| ids.contains(&e.from) && ids.contains(&e.to)).cloned().collect();
+    (kept, edges)
+}
+
+/// Where to go from a map cut at its budget, with what `map` and `focus` serve today: the next
+/// coarser level, whose blocks hold these; from the top, the pane's summary.
+fn drill_down(level: Level, at_top: bool) -> Handle {
+    let coarser = match level {
+        Level::Code => Some(Level::Component),
+        Level::Component => Some(Level::Container),
+        Level::Container => Some(Level::System),
+        Level::System | Level::Intent => None,
+    };
+    match coarser.filter(|_| !at_top) {
+        Some(level) => {
+            let name = tree::level_name(level);
+            Handle {
+                command: CommandName("map".into()),
+                args: vec!["--level".into(), name.into()],
+                label: text::get("map.coarser", &[("level", &name)]),
+            }
+        }
+        None => {
+            Handle { command: CommandName("focus".into()), args: vec![], label: text::get("map.pane", &[]) }
+        }
+    }
 }
 
 /// `--detail graph`: the view's layout key, and each block's position from the layout cache
@@ -92,39 +217,59 @@ fn place(store: &Store, view: &mut MapView) -> Result<(), AppError> {
     Ok(())
 }
 
-/// A workspace with no scan yet: an empty map whose next action is the scan.
-fn not_scanned(root: &Path, lens: String, level: Option<Level>) -> Result<Reply<MapView>, AppError> {
-    let repos = workspace::discover(root).map(|ws| ws.repos.len()).unwrap_or(0);
+/// A directory with no scan yet, a workspace or not: an empty map whose next action is the scan,
+/// or, with no repos to scan, the same empty state `focus` returns.
+fn not_scanned(dir: &Path, lens: String, level: Option<Level>) -> Result<Reply<MapView>, AppError> {
+    let repos = workspace::discover(dir).map(|ws| ws.repos.len()).unwrap_or(0);
     let mut view = empty_view(level.unwrap_or(Level::System), lens);
-    view.empty = Some(scan_empty(root, repos));
-    Ok(Reply { text: text_of(&view), result: view, seq: 0, warnings: vec![] })
+    view.empty = Some(scan_empty(dir, repos));
+    Ok(Reply { text: text_of(&view, 0), result: view, seq: 0, warnings: vec![] })
 }
 
-/// The empty state of a directory with no scan: map its repos, or find some first.
+/// The empty state of a directory with no scan: map its repos. With none, no scan can succeed,
+/// so the line says what to do and the action checks again.
 pub(crate) fn scan_empty(root: &Path, repos: usize) -> Empty {
-    let (reason, label) = if repos == 0 {
-        ("no_repos", text::get("empty.no_repos", &[]))
-    } else {
-        ("not_scanned", text::get("empty.not_scanned", &[("count", &repos)]))
-    };
+    if repos == 0 {
+        return Empty {
+            reason: EmptyReason("no_repos".into()),
+            next: Handle {
+                command: CommandName("focus".into()),
+                args: vec![],
+                label: text::get("empty.no_repos", &[]),
+            },
+        };
+    }
     Empty {
-        reason: EmptyReason(reason.into()),
-        next: Handle { command: CommandName("scan".into()), args: vec![root.display().to_string()], label },
+        reason: EmptyReason("not_scanned".into()),
+        next: Handle {
+            command: CommandName("scan".into()),
+            args: vec![root.display().to_string()],
+            label: text::get("empty.not_scanned", &[("count", &repos)]),
+        },
     }
 }
 
-fn text_of(view: &MapView) -> String {
+/// The text mode's first line, which the envelope also carries as `summary`: the empty state's
+/// line, or the count and the first block names with their counts.
+fn text_of(view: &MapView, total: usize) -> String {
     if let Some(empty) = &view.empty {
         return empty.next.label.clone();
     }
     let names: Vec<String> = view
         .nodes
         .iter()
+        .take(SUMMARY_NAMES)
         .map(|n| {
             let counts: Vec<String> =
                 n.counts.iter().map(|(level, count)| format!("{count} {level}")).collect();
             if counts.is_empty() { n.name.clone() } else { format!("{} ({})", n.name, counts.join(", ")) }
         })
         .collect();
-    text::get("map.summary", &[("count", &view.nodes.len()), ("names", &names.join("; "))])
+    let more = total.saturating_sub(names.len());
+    let names = if more == 0 {
+        names.join("; ")
+    } else {
+        text::get("map.more", &[("names", &names.join("; ")), ("more", &more)])
+    };
+    text::get("map.summary", &[("count", &total), ("names", &names)])
 }

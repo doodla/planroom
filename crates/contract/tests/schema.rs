@@ -81,6 +81,7 @@ fn sample_envelope() -> Envelope<MapView> {
         schema_version: SCHEMA_VERSION,
         ok: true,
         command: CommandName("map".into()),
+        summary: Some("9 at the container level: cart (4 component); orders-db.".into()),
         result: Some(MapView {
             level: Level::Container,
             lens: "code".into(),

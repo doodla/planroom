@@ -100,7 +100,8 @@ pub fn start_live(
                 true
             };
             if let Err(e) = live.run(&mut emit) {
-                eprintln!("planroom serve: the live loop stopped: {e}");
+                let shown = planroom_kernel::display::sanitize(&e.to_string());
+                eprintln!("planroom serve: the live loop stopped: {shown}");
                 if e.code() == ErrorCode::SchemaMismatch {
                     std::process::exit(e.code().exit_code());
                 }
@@ -135,7 +136,13 @@ fn guard(state: &State, headers: &HeaderMap, get_request: bool, bearer: bool) ->
 fn reply<T: Serialize>(command: &str, result: Result<Reply<T>, AppError>, started: Instant) -> Response {
     let took_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
     let (status, body) = match result {
-        Ok(r) => (StatusCode::OK, cli::envelope(command, Some(&r.result), None, r.seq, took_ms, r.warnings)),
+        Ok(r) => {
+            let summary = cli::summary_of(&r.text);
+            (
+                StatusCode::OK,
+                cli::envelope(command, Some(&r.result), None, r.seq, took_ms, r.warnings, summary),
+            )
+        }
         Err(e) => {
             let status = match (e.code, e.code.category()) {
                 (ErrorCode::Unauthorized, _) => StatusCode::UNAUTHORIZED,
@@ -148,7 +155,7 @@ fn reply<T: Serialize>(command: &str, result: Result<Reply<T>, AppError>, starte
                 (_, Category::Failed) => StatusCode::UNPROCESSABLE_ENTITY,
                 (_, Category::Internal) => StatusCode::INTERNAL_SERVER_ERROR,
             };
-            (status, cli::envelope::<T>(command, None, Some(&e), 0, took_ms, vec![]))
+            (status, cli::envelope::<T>(command, None, Some(&e), 0, took_ms, vec![], None))
         }
     };
     (status, [(header::CONTENT_TYPE, "application/json")], body).into_response()
@@ -300,7 +307,7 @@ fn dispatch(name: &str, body: Value, root: &Path, started: Instant) -> Response 
         serde_json::from_value(body).map_err(|e| bad_body(&e))
     }
     match name {
-        "map" => reply(name, parse::<MapReq>(body).and_then(|req| app::map::run(&req, root)), started),
+        "map" => reply(name, parse::<MapReq>(body).and_then(|req| app::map::for_canvas(&req, root)), started),
         "focus" => reply(name, parse::<FocusReq>(body).and_then(|req| app::focus::run(&req, root)), started),
         "scan" => {
             let ran = parse::<ScanReq>(body).and_then(|mut req| {

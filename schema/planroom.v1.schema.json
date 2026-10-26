@@ -954,6 +954,13 @@
           "$ref": "#/$defs/CommandName",
           "description": "Such as `ask` or `handoff merge`."
         },
+        "summary": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The one-line, engine-authored summary that text mode prints first, display-sanitized: what\n`/room` shows with the handles. Absent on an error, whose `message` is its line."
+        },
         "result": true,
         "error": {
           "anyOf": [

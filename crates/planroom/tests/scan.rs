@@ -261,14 +261,26 @@ fn map_before_a_scan_offers_the_scan() {
 }
 
 #[test]
-fn map_outside_a_workspace_is_workspace_not_found() {
+fn map_outside_a_workspace_is_the_empty_state_focus_shows() {
     let dir = tempfile::tempdir().unwrap();
-    let (env, out) = envelope(dir.path(), &["map", "--json"]);
-    assert_eq!(out.status.code(), Some(3));
-    assert_eq!(env["ok"], false);
-    assert_eq!(env["error"]["code"], "workspace_not_found");
-    assert_eq!(env["error"]["retry"], "never");
-    assert_eq!(env["error"]["hint"], "planroom scan DIR");
+    let (map, out) = envelope(dir.path(), &["map", "--json"]);
+    assert!(out.status.success(), "{map}");
+    let (focus, _) = envelope(dir.path(), &["focus", "--json"]);
+    let empty = &map["result"]["empty"];
+    assert_eq!(empty["reason"], "no_repos");
+    assert_eq!(empty, &focus["result"]["empty"], "map and focus agree");
+    assert_eq!(map["result"]["nodes"], serde_json::json!([]));
+    assert_eq!(map["summary"], empty["next"]["label"]);
+    // Its one next action works: no scan that would answer workspace_not_found.
+    let next = &empty["next"];
+    assert_ne!(next["command"], "scan");
+    let mut args = vec![next["command"].as_str().unwrap().to_owned()];
+    args.extend(next["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().to_owned()));
+    args.push("--json".into());
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let (ran, out) = envelope(dir.path(), &args);
+    assert!(out.status.success() && ran["ok"] == true, "{ran}");
+    assert!(!dir.path().join(".planroom").exists(), "a read created a state directory");
 }
 
 #[test]

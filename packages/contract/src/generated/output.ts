@@ -1064,6 +1064,11 @@ export interface Envelope {
    */
   command:
     ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve" | "share" | "import") | string;
+  /**
+   * The one-line, engine-authored summary that text mode prints first, display-sanitized: what
+   * `/room` shows with the handles. Absent on an error, whose `message` is its line.
+   */
+  summary?: string | null;
   result?: unknown;
   error?: ErrorObject | null;
   meta: Meta;

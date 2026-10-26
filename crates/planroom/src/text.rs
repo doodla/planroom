@@ -9,7 +9,8 @@ fn catalog() -> &'static toml::Table {
     CATALOG.get_or_init(|| EN.parse().expect("text/en.toml parses"))
 }
 
-/// The string at `section.key`, with each `{name}` replaced by its value.
+/// The string at `section.key`, with each `{name}` replaced by its value, display-sanitized, so a
+/// repo-derived value can't put a control or a bidi character into an engine line (DR-64).
 pub fn get(key: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
     let (section, name) = key.split_once('.').expect("keys are section.name");
     let template = catalog()
@@ -19,7 +20,7 @@ pub fn get(key: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
         .unwrap_or_else(|| panic!("text/en.toml has no {key}"));
     let mut out = template.to_owned();
     for (var, value) in vars {
-        out = out.replace(&format!("{{{var}}}"), &value.to_string());
+        out = out.replace(&format!("{{{var}}}"), &planroom_kernel::display::sanitize(&value.to_string()));
     }
     // One line, always.
     out.replace(['\n', '\r'], " ")

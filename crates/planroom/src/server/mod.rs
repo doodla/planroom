@@ -70,7 +70,7 @@ pub fn run(req: &ServeReq, cwd: &Path, json: bool, started: Instant) -> ExitCode
             let log = log_path(&prepared.workspace_id);
             detach_stdio(log.as_deref());
             if let Err(e) = serve(prepared) {
-                eprintln!("planroom serve: {}", e.message);
+                eprintln!("planroom serve: {}", planroom_kernel::display::sanitize(&e.message));
                 std::process::exit(e.code.exit_code());
             }
             std::process::exit(0)
