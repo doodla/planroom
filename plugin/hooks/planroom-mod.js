@@ -115,6 +115,9 @@ function unsupportedPlatform() {
     line: "Planroom v0.1 runs on macOS, Linux and WSL 2. Open this repo from WSL."
   };
 }
+function unknownReason(_reason, base, line, fix) {
+  return { ...base, status: "failed", line, fix };
+}
 function engineFromVersion(resolver, run2) {
   const base = { ...INITIAL_ENGINE, resolver };
   const reply = parseReply(run2.stdout);
@@ -142,7 +145,11 @@ function engineFromVersion(resolver, run2) {
     return { ...base, status: "fetching", line: error.message };
   }
   if (error.code === "engine_unavailable") {
-    switch (details?.reason) {
+    const reason = details?.reason;
+    if (reason === void 0) {
+      return { ...base, status: "failed", line: error.message, fix };
+    }
+    switch (reason) {
       case "stale_build":
         return {
           ...base,
@@ -154,8 +161,11 @@ function engineFromVersion(resolver, run2) {
       case "no_build":
       case "download_failed":
         return { ...base, status: "build_offered", line: error.message, fix };
-      default:
+      case "no_toolchain":
+      case "override_missing":
         return { ...base, status: "failed", line: error.message, fix };
+      default:
+        return unknownReason(reason, base, error.message, fix);
     }
   }
   return { ...base, status: "failed", line: error.message, fix };
@@ -1386,7 +1396,10 @@ function oneLine(text2) {
 }
 function mapOf(result) {
   const r = result;
-  return r !== null && typeof r === "object" && typeof r.level === "string" && Array.isArray(r.nodes) ? r : null;
+  return r !== null && typeof r === "object" && typeof r.level === "string" && Array.isArray(r.nodes) && r.nodes.every((n) => {
+    const node = n;
+    return node !== null && typeof node === "object" && typeof node.name === "string";
+  }) ? r : null;
 }
 function isHandle(value) {
   const h2 = value;
@@ -1472,11 +1485,10 @@ function roomRows(command, ran) {
     const map = mapOf(ran.result.result);
     if (map !== null) {
       map.nodes.slice(0, ROOM_BLOCKS).forEach((n, i) => {
-        const name = typeof n.name === "string" ? n.name : "";
         rows.push({
           kind: "text",
           key: `block-${i}`,
-          text: oneLine(`□ ${name}${countsOf(n.counts)}`)
+          text: oneLine(`□ ${n.name}${countsOf(n.counts)}`)
         });
       });
       if (map.nodes.length > ROOM_BLOCKS) {
@@ -1518,9 +1530,7 @@ function shownFrom(handle, ran, seq) {
     seq,
     line: lineFor(handle.command, handle.label, ran),
     level: map === null ? null : sanitize(map.level),
-    blocks: map === null ? [] : map.nodes.map(
-      (n) => oneLine(typeof n.name === "string" ? n.name : "")
-    )
+    blocks: map === null ? [] : map.nodes.map((n) => oneLine(n.name))
   };
 }
 function shows(shown2, handle, seq) {

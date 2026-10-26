@@ -4007,6 +4007,41 @@
       ],
       "description": "The mod's `turnSeq` atom: the main loop's current turn and the latest `meta.seq` a tool returned\nto the model in it, the default `base` of the tools' writes."
     },
+    "UnavailableReason": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "download_failed",
+          "description": "The download failed or didn't verify."
+        },
+        {
+          "type": "string",
+          "const": "no_release",
+          "description": "The version has no release, such as a `-dev` version."
+        },
+        {
+          "type": "string",
+          "const": "stale_build",
+          "description": "The checkout's build serves another command catalogue."
+        },
+        {
+          "type": "string",
+          "const": "no_toolchain",
+          "description": "A source build needs a tool that's missing; `details.missing` names it."
+        },
+        {
+          "type": "string",
+          "const": "override_missing",
+          "description": "`PLANROOM_ENGINE` names no executable file; the fix is `unset PLANROOM_ENGINE`."
+        },
+        {
+          "type": "string",
+          "const": "no_build",
+          "description": "`PLANROOM_RESOLVE=checkout` found no build in the checkout."
+        }
+      ],
+      "description": "`engine_unavailable`'s `details.reason` (DR-69, DR-81)."
+    },
     "Usage": {
       "type": "object",
       "properties": {

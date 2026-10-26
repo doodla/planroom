@@ -70,6 +70,13 @@ test("the resolver's reasons pick the fallback pane", () => {
   expect(
     engineFromVersion(R, unavailable("no_toolchain", "Needs cargo.")),
   ).toMatchObject({ status: "failed", line: "Needs cargo." });
+  expect(
+    engineFromVersion(R, unavailable("override_missing", "No engine there.")),
+  ).toMatchObject({ status: "failed", line: "No engine there." });
+  // A newer engine's reason, outside the generated union, still reads as a failure.
+  expect(
+    engineFromVersion(R, unavailable("from_the_future", "Newer.")),
+  ).toMatchObject({ status: "failed", line: "Newer." });
   const fetching = unavailable("x", "Another session is fetching.");
   fetching.stdout = fetching.stdout.replace(
     "engine_unavailable",

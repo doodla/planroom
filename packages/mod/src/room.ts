@@ -6,7 +6,7 @@
  * repo- or engine-derived, so each passes the display-sanitizing pass before it's shown (DR-64).
  */
 
-import type { Envelope, Handle } from "@planroom/contract";
+import type { Envelope, Handle, MapView } from "@planroom/contract";
 import { sanitize, truncate } from "@planroom/ui";
 
 import { leaf } from "./catalogue";
@@ -33,20 +33,24 @@ export function oneLine(text: string): string {
   return sanitize(text.trim().replace(/\s*[\r\n]+\s*/g, " · "));
 }
 
-/** A map reply's result, as far as the mod reads it. */
-interface MapLike {
-  level: string;
-  nodes: { name?: unknown; counts?: unknown }[];
-  empty?: { next?: unknown } | null;
-}
-
-function mapOf(result: unknown): MapLike | null {
-  const r = result as Partial<MapLike> | null | undefined;
+/**
+ * A reply's result as the contract's `MapView`, when it is one (drift-3-2): its level is a string
+ * and each node has a name. What else the mod reads (`counts`, `empty.next`) it checks where it
+ * reads it, since a reply is the engine's output, not the mod's own.
+ */
+function mapOf(result: unknown): MapView | null {
+  const r = result as Partial<MapView> | null | undefined;
   return r !== null &&
     typeof r === "object" &&
     typeof r.level === "string" &&
-    Array.isArray(r.nodes)
-    ? (r as MapLike)
+    Array.isArray(r.nodes) &&
+    r.nodes.every((n: unknown) => {
+      const node = n as Partial<MapView["nodes"][number]> | null;
+      return (
+        node !== null && typeof node === "object" && typeof node.name === "string"
+      );
+    })
+    ? (r as MapView)
     : null;
 }
 
@@ -176,11 +180,10 @@ export function roomRows(command: string, ran: Ran): RoomRow[] {
     const map = mapOf(ran.result.result);
     if (map !== null) {
       map.nodes.slice(0, ROOM_BLOCKS).forEach((n, i) => {
-        const name = typeof n.name === "string" ? n.name : "";
         rows.push({
           kind: "text",
           key: `block-${i}`,
-          text: oneLine(`□ ${name}${countsOf(n.counts)}`),
+          text: oneLine(`□ ${n.name}${countsOf(n.counts)}`),
         });
       });
       if (map.nodes.length > ROOM_BLOCKS) {
@@ -245,9 +248,7 @@ export function shownFrom(
     blocks:
       map === null
         ? []
-        : map.nodes.map((n) =>
-            oneLine(typeof n.name === "string" ? n.name : ""),
-          ),
+        : map.nodes.map((n) => oneLine(n.name)),
   };
 }
 
