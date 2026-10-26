@@ -16,3 +16,9 @@ Read first, from [Repo layout](../docs/contributing/repo-layout.md#read-first-pe
 - **Scenarios:** S14.
 
 <!-- END GENERATED -->
+
+## Notes
+
+- A skill's name can't equal a command the mod registers (`/room`): the host refuses the command and skips the mod's start. The plugin layout check enforces it ([DR-84](../docs/contributing/decisions.md#dr-84-the-umbrella-skill-is-planroom-so-the-mod-can-own-room)).
+- Loaded as a dev mod, this folder gets `tsconfig.json` and `.claude-plugin/types/` from the host. Both are gitignored and kept out of the version stamp.
+- `.claude-plugin/plugin.json`'s version is stamped by `cargo xtask gen` from this folder's tracked files, so any change here changes it ([DR-83](../docs/contributing/decisions.md#dr-83-what-the-walking-skeletons-gates-remote-slice-and-platform-checks-settled)).

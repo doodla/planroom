@@ -16,3 +16,14 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 - **Scenarios:** S9.
 
 <!-- END GENERATED -->
+
+## The host, as the walking skeleton found it
+
+These are the facts of Claude Code 2.1.310's mod host that broke the mod once, each found only in a live session. Their home is [WS8](../../docs/contributing/research/ws8-install.md).
+
+- The mod finds its own files through `$.plugin.root`; the host doesn't set `CLAUDE_PLUGIN_ROOT` for a mod (A-14). The host's version is `$.session.version()`, not an environment variable (A-19).
+- `crypto.subtle` has only `digest`, so person tokens sign with `@noble/curves` (A-17, [DR-82](../../docs/contributing/decisions.md#dr-82-what-the-walking-skeletons-serve-canvas-and-mod-tracks-settled)). Their bytes must match `kernel::keys::person_token_message`; a test on each side pins the same example.
+- The host keeps `$.store` at `<config>/plugins/store/planroom_*.json`, which the guard denies to agents (A-15).
+- A refused `$.command.register` skips the whole `session.start`, so no skill may share a name with a mod command ([DR-84](../../docs/contributing/decisions.md#dr-84-the-umbrella-skill-is-planroom-so-the-mod-can-own-room)).
+- `ArtifactData` returns rows in its text block; the structured `data` comes back empty ([DR-83](../../docs/contributing/decisions.md#dr-83-what-the-walking-skeletons-gates-remote-slice-and-platform-checks-settled)).
+- `claude plugin test` mocks the environment and command registration, so a change to start-up or the resolver path isn't proven until the bundle has run live, loaded from the dev-mods folder.
