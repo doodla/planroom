@@ -1,8 +1,8 @@
 /**
- * S13's bar (DR-43): the canvas is interactive in under 1 s on every one of 5 cold loads, each in
- * a fresh browser context, with every value recorded. Interactive is the latest of first
- * contentful paint, the map's `planroom:interactive` mark (every block measured) and the end of
- * the last long task.
+ * S13's bar (DR-43), against the real `planroom serve` on the scanned fixture: the canvas is
+ * interactive in under 1 s on every one of 5 cold loads, each in a fresh browser context, with
+ * every value recorded. Interactive is the latest of first contentful paint, the map's
+ * `planroom:interactive` mark (every block measured) and the end of the last long task.
  */
 
 import type { Page } from "@playwright/test";
@@ -43,18 +43,24 @@ async function coldLoad(page: Page, url: string): Promise<number> {
 
 test("interactive_in_under_1s_on_each_of_5_cold_loads", async ({
   browser,
-  served,
+  engine,
 }) => {
   // The first look lays the structure out in the worker and stores it, as `serve` then keeps it.
   const first = await browser.newContext({ viewport: DESKTOP });
-  const layoutLoad = await coldLoad(await first.newPage(), served.loginUrl());
-  await expect.poll(() => served.layouts.length).toBe(1);
+  const page = await first.newPage();
+  const stored = page.waitForResponse(
+    (r) => r.request().method() === "PUT" && r.url().endsWith("/api/v1/layout"),
+  );
+  const layoutLoad = await coldLoad(page, await engine.loginUrl());
+  expect((await stored).status()).toBe(204);
   await first.close();
 
   const samples: number[] = [];
   for (let i = 0; i < 5; i++) {
     const context = await browser.newContext({ viewport: DESKTOP });
-    samples.push(await coldLoad(await context.newPage(), served.loginUrl()));
+    samples.push(
+      await coldLoad(await context.newPage(), await engine.loginUrl()),
+    );
     await context.close();
   }
   const line = `interactive (ms), 5 cold loads with stored positions: ${samples.join(", ")}; first look with the ELK layout: ${layoutLoad}`;

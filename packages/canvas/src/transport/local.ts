@@ -5,8 +5,14 @@
  * `fetch` so the token rides in a header. No cookie carries authority.
  */
 
-import type { Envelope, Handle, StreamFrame } from "@planroom/contract";
+import type {
+  Envelope,
+  Handle,
+  SessionToken,
+  StreamFrame,
+} from "@planroom/contract";
 
+import { requestOf } from "./request";
 import { SseParser } from "./sse";
 import {
   CommandError,
@@ -152,18 +158,20 @@ export function localTransport(env: LocalEnv): Transport {
         keep(null);
         return false;
       }
-      const reply = (await response.json()) as { token?: unknown };
-      if (typeof reply.token !== "string") {
+      // The reply is the envelope every route answers with, its result the token.
+      const reply = (await response.json()) as Envelope;
+      const issued: unknown = (reply.result as SessionToken | undefined)?.token;
+      if (typeof issued !== "string") {
         return false;
       }
-      token = reply.token;
+      token = issued;
       keep(token);
       return true;
     },
 
     query: (name, request) => command(name, request),
     write: (name, request) => command(name, request),
-    run: (handle: Handle) => command(handle.command, { argv: handle.args }),
+    run: (handle: Handle) => command(handle.command, requestOf(handle)),
 
     async saveLayout(layout: LayoutPut) {
       const response = await send("PUT", "layout", layout);

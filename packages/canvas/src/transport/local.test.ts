@@ -65,10 +65,10 @@ const json = (body: unknown, status = 200) =>
     headers: { "Content-Type": "application/json" },
   });
 
-const envelope = (result: unknown, ok = true) => ({
+const envelope = (result: unknown, ok = true, command = "map") => ({
   schema_version: 1,
   ok,
-  command: "map",
+  command,
   result: ok ? result : null,
   error: ok
     ? null
@@ -80,12 +80,18 @@ describe("login", () => {
   test("the code in the fragment buys a token, which every request then carries", async () => {
     const t = env({
       "POST /api/v1/session": (c) =>
-        json({
-          token:
-            c.body && (c.body as { code: string }).code === "one-time"
-              ? "tok-1"
-              : "x",
-        }),
+        json(
+          envelope(
+            {
+              token:
+                c.body && (c.body as { code: string }).code === "one-time"
+                  ? "tok-1"
+                  : "x",
+            },
+            true,
+            "serve",
+          ),
+        ),
       "POST /api/v1/map": () => json(envelope({ nodes: [] })),
     });
     const transport = localTransport(t.env);
@@ -115,7 +121,14 @@ describe("login", () => {
 
   test("a spent code is refused and leaves no token", async () => {
     const t = env({
-      "POST /api/v1/session": () => json({ error: "used" }, 401),
+      "POST /api/v1/session": () =>
+        json(
+          {
+            ...envelope(null, false, "serve"),
+            error: { code: "unauthorized", message: "x", retry: "never" },
+          },
+          401,
+        ),
     });
     expect(await localTransport(t.env).login()).toBe(false);
     expect(t.storage.items.has(TOKEN_KEY)).toBe(false);
@@ -134,7 +147,8 @@ describe("login", () => {
       },
     };
     const t = env({
-      "POST /api/v1/session": () => json({ token: "tok-2" }),
+      "POST /api/v1/session": () =>
+        json(envelope({ token: "tok-2" }, true, "serve")),
       "POST /api/v1/focus": () => json(envelope({ ok: 1 })),
     });
     const transport = localTransport({ ...t.env, storage: throwing });
@@ -146,7 +160,8 @@ describe("login", () => {
 describe("requests", () => {
   async function signedIn(routes: Record<string, Route>) {
     const t = env({
-      "POST /api/v1/session": () => json({ token: "tok" }),
+      "POST /api/v1/session": () =>
+        json(envelope({ token: "tok" }, true, "serve")),
       ...routes,
     });
     const transport = localTransport(t.env);
@@ -177,7 +192,10 @@ describe("requests", () => {
   });
 
   test("an unreachable engine is its own error", async () => {
-    const t = env({ "POST /api/v1/session": () => json({ token: "tok" }) });
+    const t = env({
+      "POST /api/v1/session": () =>
+        json(envelope({ token: "tok" }, true, "serve")),
+    });
     let up = true;
     const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       if (!up) {
@@ -193,7 +211,7 @@ describe("requests", () => {
     });
   });
 
-  test("a command path joins its words with slashes, and a handle runs with its arguments", async () => {
+  test("a command path joins its words with slashes, and a handle runs as its request", async () => {
     const { t, transport } = await signedIn({
       "POST /api/v1/scan": () => json(envelope({ scanned: true })),
     });
@@ -204,7 +222,7 @@ describe("requests", () => {
     });
     expect(t.calls.at(-1)).toMatchObject({
       url: "http://127.0.0.1:41873/api/v1/scan",
-      body: { argv: ["/home/you/shop"] },
+      body: { dir: "/home/you/shop" },
     });
   });
 
@@ -213,7 +231,7 @@ describe("requests", () => {
       "PUT /api/v1/layout": () => new Response(null, { status: 204 }),
     });
     const layout = {
-      view_key: "container|all|",
+      view_key: "map:container:all",
       structure_hash: "ab",
       positions: { a: { x: 1, y: 2 } },
     };
@@ -243,7 +261,8 @@ describe("the stream", () => {
     let connects = 0;
     const seen: Record<string, string>[] = [];
     const t = env({
-      "POST /api/v1/session": () => json({ token: "tok" }),
+      "POST /api/v1/session": () =>
+        json(envelope({ token: "tok" }, true, "serve")),
       "GET /api/v1/stream": (c) => {
         seen.push(c.headers);
         connects++;
@@ -268,7 +287,8 @@ describe("the stream", () => {
 
   test("a refused token ends the stream as needs-login", async () => {
     const t = env({
-      "POST /api/v1/session": () => json({ token: "tok" }),
+      "POST /api/v1/session": () =>
+        json(envelope({ token: "tok" }, true, "serve")),
       "GET /api/v1/stream": () => json({}, 401),
     });
     const transport = localTransport(t.env);

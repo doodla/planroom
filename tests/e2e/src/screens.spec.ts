@@ -1,18 +1,21 @@
 /**
- * The walking skeleton's screenshots, written only by `cargo xtask e2e --screens`: the main view
- * and the empty state at 1440x900 and 390x844, in both themes, into docs/screenshots/.
+ * The walking skeleton's screenshots, written only by `cargo xtask e2e --screens`, at 1440x900
+ * and 390x844, in both themes, into docs/screenshots/: the main view from the real
+ * `planroom serve` on the scanned fixture, and the empty state from the stand-in's real
+ * `map-empty.json`, since `serve` can't start in an unscanned workspace yet (M1).
  */
 
 import { join } from "node:path";
 
+import { startEngine } from "./engine";
 import { DESKTOP, PHONE, expect, test } from "./fixtures";
-import { ROOT, serve } from "./server";
+import { ROOT, standIn } from "./standin";
 
 const OUT = join(ROOT, "docs/screenshots");
 
 const VIEWS = [
-  { name: "main", map: "map-graph.json", ready: ".map[data-ready]" },
-  { name: "empty", map: "map-empty.json", ready: "[data-empty] img" },
+  { name: "main", scanned: true, ready: ".map[data-ready]" },
+  { name: "empty", scanned: false, ready: "[data-empty] img" },
 ] as const;
 
 test.skip(
@@ -25,7 +28,9 @@ for (const view of VIEWS) {
     for (const colorScheme of ["light", "dark"] as const) {
       const file = `${view.name}-${viewport.width}x${viewport.height}-${colorScheme}.png`;
       test(file, async ({ browser }) => {
-        const served = await serve({ map: view.map });
+        const server = view.scanned
+          ? await startEngine()
+          : await standIn({ map: "map-empty.json" });
         const phone = viewport === PHONE;
         const context = await browser.newContext({
           viewport,
@@ -40,14 +45,17 @@ for (const view of VIEWS) {
           "console",
           (m) => m.type() === "error" && errors.push(m.text()),
         );
-        await page.goto(served.loginUrl());
-        await page.locator(view.ready).waitFor();
-        await page.evaluate(() => document.fonts.ready.then(() => undefined));
-        await page.waitForTimeout(300);
-        await page.screenshot({ path: join(OUT, file) });
-        expect(errors).toEqual([]);
-        await context.close();
-        await served.close();
+        try {
+          await page.goto(await server.loginUrl());
+          await page.locator(view.ready).waitFor();
+          await page.evaluate(() => document.fonts.ready.then(() => undefined));
+          await page.waitForTimeout(300);
+          await page.screenshot({ path: join(OUT, file) });
+          expect(errors).toEqual([]);
+        } finally {
+          await context.close();
+          await server.close();
+        }
       });
     }
   }

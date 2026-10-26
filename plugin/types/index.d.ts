@@ -499,6 +499,19 @@ export interface Client {
   id: string;
 }
 /**
+ * `POST /api/v1/code`: a login code to register, by its sha256, sent with the control token from
+ * `serve.json`, so the code itself never reaches the server's memory or any argv (DR-29, DR-64).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "CodeReq".
+ */
+export interface CodeReq {
+  /**
+   * The lowercase hex sha256 of the code.
+   */
+  code_sha256: string;
+}
+/**
  * `planroom map [--level L] [--lens X] [--focus ID] [--detail summary|graph]`.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema

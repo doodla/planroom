@@ -332,3 +332,105 @@ fn serve_detach_returns_at_once_and_keeps_serving() {
     }
     assert!(!root.join(".planroom/serve.json").exists(), "serve removes serve.json when it stops");
 }
+
+/// The status of a `GET /api/v1/stream` sent with `headers`, read from its status line.
+fn stream_status(s: &Serve, headers: &[(&str, &str)]) -> u16 {
+    let mut stream = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
+    let mut request = format!("GET /api/v1/stream HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n", s.port);
+    for (k, v) in headers {
+        request.push_str(&format!("{k}: {v}\r\n"));
+    }
+    request.push_str("\r\n");
+    stream.write_all(request.as_bytes()).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut line = String::new();
+    BufReader::new(stream).read_line(&mut line).unwrap();
+    line.split(' ').nth(1).unwrap_or_else(|| panic!("no status line: {line:?}")).parse().unwrap()
+}
+
+#[test]
+fn a_same_origin_get_without_origin_reaches_the_stream_and_a_cross_origin_one_does_not() {
+    let (_tmp, root) = workspace();
+    let (s, _) = serve(&root);
+    let token = login(&s);
+    let bearer = format!("Bearer {token}");
+    // What Chromium sends for the page's own fetch of the stream: no Origin, Sec-Fetch-Site.
+    assert_eq!(stream_status(&s, &[("Authorization", &bearer), ("Sec-Fetch-Site", "same-origin")]), 200);
+    // A page on another site, or a request with neither header, is refused.
+    for site in ["cross-site", "same-site", "none"] {
+        assert_eq!(stream_status(&s, &[("Authorization", &bearer), ("Sec-Fetch-Site", site)]), 401, "{site}");
+    }
+    assert_eq!(stream_status(&s, &[("Authorization", &bearer)]), 401);
+    let foreign = [
+        ("Authorization", bearer.as_str()),
+        ("Origin", "http://evil.test"),
+        ("Sec-Fetch-Site", "same-origin"),
+    ];
+    assert_eq!(stream_status(&s, &foreign), 401);
+    // Only a GET may leave Origin out: a POST needs the exact one.
+    let (status, _) = http(
+        s.port,
+        "POST",
+        "/api/v1/focus",
+        &[("Authorization", &bearer), ("Sec-Fetch-Site", "same-origin")],
+        "{}",
+    );
+    assert_eq!(status, 401);
+}
+
+#[test]
+fn every_response_carries_exactly_the_csp_the_canvas_needs() {
+    let (_tmp, root) = workspace();
+    let (s, _) = serve(&root);
+    let mut stream = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
+    let request = format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n", s.port);
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    let csp = response
+        .lines()
+        .find_map(|l| l.strip_prefix("content-security-policy: "))
+        .unwrap_or_else(|| panic!("no CSP: {response}"));
+    assert_eq!(
+        csp,
+        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; \
+         font-src 'self'; connect-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; \
+         frame-ancestors 'none'"
+    );
+}
+
+#[test]
+fn the_control_token_registers_a_login_code_by_its_digest() {
+    let (_tmp, root) = workspace();
+    let (s, _) = serve(&root);
+    let serve_json: Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join(".planroom/serve.json")).unwrap()).unwrap();
+    let control = format!("Bearer {}", serve_json["control_token"].as_str().unwrap());
+    let code = "0123456789abcdef0123456789abcdef";
+    let body = json!({"code_sha256": planroom::server::auth::code_digest(code)}).to_string();
+    let register =
+        |headers: &[(&str, &str)], body: &str| http(s.port, "POST", "/api/v1/code", headers, body).0;
+    assert_eq!(register(&[("Authorization", "Bearer nope")], &body), 401);
+    assert_eq!(register(&[("Authorization", &control), ("Origin", "http://evil.test")], &body), 401);
+    assert_eq!(register(&[("Authorization", &control)], r#"{"code_sha256": "short"}"#), 400);
+    assert_eq!(register(&[("Authorization", &control)], &body), 204);
+    let exchange = || {
+        let body = json!({"code": code}).to_string();
+        http(s.port, "POST", "/api/v1/session", &[("Origin", &origin(s.port))], &body)
+    };
+    let (status, reply) = exchange();
+    assert_eq!(status, 200, "{reply}");
+    assert_eq!(exchange().0, 401, "a registered code works once too");
+}
+
+#[test]
+fn scan_over_http_takes_the_served_root_and_no_other_dir() {
+    let (_tmp, root) = workspace();
+    let (s, _) = serve(&root);
+    let token = login(&s);
+    let at = |dir: &Path| json!({"dir": dir.display().to_string()}).to_string();
+    let (status, body) = api(&s, &token, "POST", "/api/v1/scan", &at(&root));
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = api(&s, &token, "POST", "/api/v1/scan", &at(&root.join("orders")));
+    assert_eq!(status, 400, "{body}");
+}

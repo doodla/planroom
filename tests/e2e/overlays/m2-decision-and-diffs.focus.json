@@ -1,0 +1,72 @@
+{
+  "overlay": "focus.json",
+  "milestone": "M2",
+  "why": "The engine opens no decision card and finds no diffs yet: the decision runner and the diff engine are M2. Until then this test-only overlay gives the real pane one face-up card and two diff lines, so the card stack, the tray and the phone's sheet stay covered.",
+  "patch": {
+    "decision": {
+      "id": "card_01JB7Q",
+      "question": "Apply Claude's 2 edits to the worker group?",
+      "why": "They move consumer.py under the queue it reads.",
+      "choices": [
+        {
+          "id": "accept",
+          "label": "Accept both",
+          "preselected": true
+        },
+        {
+          "id": "first",
+          "label": "Only the first",
+          "preselected": false
+        },
+        {
+          "id": "reject",
+          "label": "Reject",
+          "preselected": false
+        },
+        {
+          "id": "later",
+          "label": "Later",
+          "preselected": false
+        }
+      ],
+      "stakes": "low",
+      "batch": {
+        "count": 2,
+        "items": [
+          {
+            "command": "show",
+            "args": ["ev_01JB7Q1"],
+            "label": "Move consumer.py"
+          },
+          {
+            "command": "show",
+            "args": ["ev_01JB7Q2"],
+            "label": "Rename the group"
+          }
+        ]
+      },
+      "person_only": true
+    },
+    "more_decisions": 1,
+    "diffs": [
+      {
+        "summary": "worker → platform: + calls orders-api",
+        "open": {
+          "command": "diff",
+          "args": ["--item", "d1"],
+          "label": "Open"
+        },
+        "hunk": ["@@ -1,2 +1,3 @@", " worker", "+  calls orders-api"]
+      },
+      {
+        "summary": "storefront: ~ checkout moved to cart",
+        "open": {
+          "command": "diff",
+          "args": ["--item", "d2"],
+          "label": "Open"
+        },
+        "hunk": []
+      }
+    ]
+  }
+}

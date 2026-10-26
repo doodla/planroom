@@ -16,7 +16,8 @@ use axum::response::sse::{Event as SseEvent, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use planroom_contract::{
-    Category, ErrorCode, FocusReq, LayoutPut, MapReq, ScanReq, Seq, SessionReq, SessionToken, StreamFrame,
+    Category, CodeReq, ErrorCode, FocusReq, LayoutPut, MapReq, ScanReq, Seq, SessionReq, SessionToken,
+    StreamFrame,
 };
 use planroom_store::{Store, Tail};
 use serde::Serialize;
@@ -33,14 +34,20 @@ use crate::{cli, text};
 
 /// The largest request body.
 const BODY_LIMIT: usize = 1 << 20;
-const CSP: &str = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; \
-                   connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+/// Exactly what the canvas needs: its own scripts, styles, fonts, images, ELK worker and API, plus
+/// inline style attributes, which React Flow places every block and edge with. Nothing else loads,
+/// nothing frames the page, and no form posts anywhere.
+const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+                   img-src 'self'; font-src 'self'; connect-src 'self'; worker-src 'self'; \
+                   base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /// What every request shares.
 pub struct State {
     pub root: PathBuf,
     pub store_path: PathBuf,
     pub auth: Mutex<auth::Auth>,
+    /// `serve.json`'s control token, which registers login codes.
+    pub control_token: String,
     /// The connection for the layout cache, which isn't an event and makes no frame.
     pub store: Mutex<Store>,
     /// Every frame the live loop sends, for each stream client.
@@ -56,6 +63,7 @@ pub fn router(state: Arc<State>) -> Router {
         .route("/", get(index))
         .route("/assets/{*path}", get(asset))
         .route("/api/v1/session", post(session))
+        .route("/api/v1/code", post(code))
         .route("/api/v1/stream", get(stream))
         .route("/api/v1/layout", put(layout))
         .route("/api/v1/{*command}", post(command))
@@ -108,13 +116,18 @@ fn unauthorized() -> Response {
     reply::<()>("serve", Err(error), Instant::now())
 }
 
-/// Whether a request passes the checks every API request passes: the `Host`, an exact `Origin`,
+/// Whether a request passes the checks every API request passes: the `Host`, this page's own
+/// origin (an exact `Origin`, or `Sec-Fetch-Site: same-origin` on a `GET`, which carries none),
 /// and, unless `bearer` is false, a token this server issued.
-fn guard(state: &State, headers: &HeaderMap, bearer: bool) -> bool {
+fn guard(state: &State, headers: &HeaderMap, get_request: bool, bearer: bool) -> bool {
     let get = |name| headers.get(name).and_then(|v| v.to_str().ok());
     let auth = state.auth.lock().expect("the auth lock is never poisoned");
     auth.host_ok(get(header::HOST))
-        && auth.origin_ok(get(header::ORIGIN))
+        && auth.same_origin(
+            get_request,
+            get(header::ORIGIN),
+            get(header::HeaderName::from_static("sec-fetch-site")),
+        )
         && (!bearer || auth.bearer_ok(get(header::AUTHORIZATION)))
 }
 
@@ -167,7 +180,7 @@ async fn asset(Shared(state): Shared_, headers: HeaderMap, UrlPath(path): UrlPat
 
 /// `POST /api/v1/session`: the login page's one-time code for a bearer token.
 async fn session(Shared(state): Shared_, headers: HeaderMap, body: Bytes) -> Response {
-    if !guard(&state, &headers, false) {
+    if !guard(&state, &headers, false, false) {
         return unauthorized();
     }
     let started = Instant::now();
@@ -191,9 +204,44 @@ async fn session(Shared(state): Shared_, headers: HeaderMap, body: Bytes) -> Res
     }
 }
 
+/// `POST /api/v1/code`: register a login code by its sha256, with the control token from
+/// `serve.json`. Its caller is a local process, not a page, so it may send no `Origin`; a page's
+/// `POST` always sends one, and a foreign one is refused.
+async fn code(Shared(state): Shared_, headers: HeaderMap, body: Bytes) -> Response {
+    let get = |name| headers.get(name).and_then(|v| v.to_str().ok());
+    let control = get(header::AUTHORIZATION)
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .is_some_and(|t| auth::code_digest(t.trim()) == auth::code_digest(&state.control_token));
+    let mut auth = state.auth.lock().expect("the auth lock is never poisoned");
+    let origin = get(header::ORIGIN);
+    if !control || !auth.host_ok(get(header::HOST)) || (origin.is_some() && !auth.origin_ok(origin)) {
+        drop(auth);
+        return unauthorized();
+    }
+    let digest = serde_json::from_slice::<CodeReq>(&body)
+        .ok()
+        .map(|req| req.code_sha256)
+        .filter(|d| d.len() == 64 && d.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+    match digest {
+        Some(digest) => {
+            auth.add_code(digest);
+            StatusCode::NO_CONTENT.into_response()
+        }
+        None => {
+            drop(auth);
+            let e = AppError::new(
+                ErrorCode::InvalidArgument,
+                &[("what", &text::get("argument.bad_body", &[("why", &"code_sha256")]))],
+            )
+            .details(json!({"field": "code_sha256"}));
+            reply::<()>("serve", Err(e), Instant::now())
+        }
+    }
+}
+
 /// `PUT /api/v1/layout`: cache an auto-layout; last writer wins, and no frame follows.
 async fn layout(Shared(state): Shared_, headers: HeaderMap, body: Bytes) -> Response {
-    if !guard(&state, &headers, true) {
+    if !guard(&state, &headers, false, true) {
         return unauthorized();
     }
     let started = Instant::now();
@@ -226,7 +274,7 @@ async fn command(
     UrlPath(path): UrlPath<String>,
     body: Bytes,
 ) -> Response {
-    if !guard(&state, &headers, true) {
+    if !guard(&state, &headers, false, true) {
         return unauthorized();
     }
     let started = Instant::now();
@@ -245,7 +293,8 @@ async fn command(
 }
 
 /// The read commands this server runs, and `scan`, whose commit reaches every stream through the
-/// process's own live loop. `scan` over HTTP always scans the workspace root.
+/// process's own live loop. `scan` over HTTP always scans the workspace root; a `dir` may only name
+/// that root, as the empty map's next action does.
 fn dispatch(name: &str, body: Value, root: &Path, started: Instant) -> Response {
     fn parse<T: serde::de::DeserializeOwned>(body: Value) -> Result<T, AppError> {
         serde_json::from_value(body).map_err(|e| bad_body(&e))
@@ -254,9 +303,12 @@ fn dispatch(name: &str, body: Value, root: &Path, started: Instant) -> Response 
         "map" => reply(name, parse::<MapReq>(body).and_then(|req| app::map::run(&req, root)), started),
         "focus" => reply(name, parse::<FocusReq>(body).and_then(|req| app::focus::run(&req, root)), started),
         "scan" => {
-            let ran = parse::<ScanReq>(body).and_then(|req| {
-                if req.dir.is_some() {
-                    return Err(AppError::invalid_argument("dir", "argument.http_scan_dir"));
+            let ran = parse::<ScanReq>(body).and_then(|mut req| {
+                if let Some(dir) = req.dir.take() {
+                    let same = Path::new(&dir).canonicalize().ok().zip(root.canonicalize().ok());
+                    if !same.is_some_and(|(dir, root)| dir == root) {
+                        return Err(AppError::invalid_argument("dir", "argument.http_scan_dir"));
+                    }
                 }
                 app::scan::run(&req, root)
             });
@@ -277,7 +329,7 @@ async fn stream(
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> Response {
-    if !guard(&state, &headers, true) {
+    if !guard(&state, &headers, true, true) {
         return unauthorized();
     }
     let since: Option<Seq> = query
