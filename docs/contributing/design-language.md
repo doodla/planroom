@@ -94,7 +94,7 @@ The top row never wraps or shrinks a target. On the phone it holds four targets 
 | Drag with one finger on the felt | pans |
 | Tap a block | selects and focuses it: the ego view of its neighbors |
 | Double tap a block, or tap the open lid the breadcrumb shows for the selected block | dives one level into the block, with the lid-lift motion |
-| Tap an ancestor's lid in the breadcrumb | goes back up to that level |
+| Tap the `⋯` lid, then an ancestor in its list | goes back up to that level, the top-level map included |
 | Long press a block or an edge | opens the bottom sheet with its evidence and the action tray (see [Edit by hand](#edit-by-hand)) |
 | Tap a card's choice | picks it, in one tap |
 

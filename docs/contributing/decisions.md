@@ -898,7 +898,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-47: Deterministic scan bounds and a per-blob fact cache
 
-- **Status:** accepted (decided by the main agent in review round 1, D21). Amended in review rounds 2 and 3.
+- **Status:** accepted (decided by the main agent in review round 1, D21). Amended in review rounds 2 and 3, and by DR-85.
 - **Starting point:** none; replaces the extractor contract's 2 s wall-clock budget.
 - **Origin:** review round 1, unasked-4.
 - **Context:** a 2 s cut per extractor made a large repo's facts depend on machine load, which breaks "the same commit gives byte-identical facts". A dropped edge then read as a regression or a scan-changed-under-edit. Every head move also re-extracted every file.
@@ -915,6 +915,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `extract/tests/contract.rs::bounds_cut_in_sorted_path_order`, `unchanged_blobs_reuse_cached_facts`; `kernel/tests/reconcile.rs::a_partial_scan_raises_no_regression`.
 - **Amended in review round 2:** the `git` extractor reads at most the last 5,000 commits of the repo's tracked branch and reports older history as `partial_scan`, and the mod's tool handler runs `scan` with `process.run`'s 10-minute timeout (unasked-3, downgraded). Committing each repo's snapshot as it finishes, and a generated large-repo test, are known gaps.
 - **Amended in review round 3:** a `gc` duty, under its lease after a scan, prunes `blob_facts` rows of other pack sets and `model_cache` rows of models no config pins. `budgets.json` gates a second fold benchmark at 50,000 events, since every one-shot read folds every event. Events are never pruned (unasked-9).
+- **Amended by DR-85:** the bounds apply to `HEAD`'s tree, which the walk lists with `git ls-tree` and reads with one `git cat-file --batch`, never to the working tree. The skipped "ignored paths" are only those a committed `.gitignore` ignores; `.git/info/exclude` isn't part of the commit, so it no longer applies.
 - **Sources (checked 2026-10-26):** [rust-stack §4] (690 files/s); review round 1 unasked-4 and owner decision D21.
 
 ## DR-48: Workspace trust, user-level credential settings and policy-bearing packs
@@ -1591,7 +1592,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-71: Everyday git moves: a tracked branch, the working tree and every repo layout
 
-- **Status:** accepted (decided by the main agent in review round 2, E17). Amended in review round 3.
+- **Status:** accepted (decided by the main agent in review round 2, E17). Amended in review round 3, and by DR-85.
 - **Starting point:** extended DR-44 (the reconciler) and DR-33 (freshness on read).
 - **Origin:** review round 2: unasked-2; the minor findings unasked-8 and unasked-12.
 - **Context:**
@@ -1614,6 +1615,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Milestones: M2's reconciler slice grows 2 h, and M1's extractor slice 1 h.
   - It amends DR-33 and DR-44.
 - **Amended in review round 3:** the S7 consequence above gives way to DR-72's fast-forward. The reconciler runs on S7's rescan and classifies the `routine` commit `unplanned`, which deals no card (correctness-10). Test `s07_decisions.rs::the_routine_commit_is_unplanned`. A single-repo workspace's state directory is `.git/planroom/` [DR-74].
+- **Amended by DR-85:** `meta.dirty_repos` counts untracked files. Uncommitted work never reaches the map, and an untracked file is the commonest uncommitted work, so the signal runs `git status --porcelain=v1 -z --untracked-files=normal`, which honours `.gitignore`, in place of `--untracked-files=no`.
 - **Sources (checked 2026-10-26):** `examples/README.md` (S7's `routine` branch starts from `main`); KICKOFF principle 1 and R1; review round 2 unasked-2, unasked-8 and unasked-12, and owner decision E17.
 
 ## DR-72: Owner follow-ups after review round 2: signed person tokens, Git LFS filters, S7's fast-forward
@@ -1884,7 +1886,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-81: What the walking skeleton's engine and plugin tracks settled
 
-- **Status:** accepted (decided by the main agent at the ENGINE and PLUGIN track merges, 2026-10-26).
+- **Status:** accepted (decided by the main agent at the ENGINE and PLUGIN track merges, 2026-10-26). Amended by DR-85.
 - **Starting point:** extended "Store: events carry ... an idempotency key", "Repo layout: a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` in TypeScript", and Remote mode.
 - **Origin:** the walking skeleton: the ENGINE track (WS3 and WS4) and the PLUGIN track, from their merge notes in `progress.md`, plus the main agent's decisions at the merges.
 - **Context:**
@@ -1935,6 +1937,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Security: a pty that confirms `/dev/tty` can open the canvas in a workspace no mod has run in. That is R-8's guardrail, as for the other terminal-path commands.
   - It changes gated surfaces: `boundaries.toml`, the area contracts table (`packages/mod`, `tests/golden`) and the Boundaries section of `AGENTS.md`.
   - It amends DR-8, DR-12, DR-39, DR-42, DR-57, DR-69, DR-70, DR-75, DR-77 and DR-79.
+- **Amended by DR-85:** the walk no longer reads the working tree. It lists `HEAD`'s tree and reads the files from the commit, so a snapshot's facts are a function of its key, and a directory or file node exists only for a path in the commit. Verification still checks every evidence item against the snapshot's commit, and `Evidence::Ref` still names no path. The atom types DR-81 moved, `EngineState` and `EngineStatus`, are in `crates/contract/src/view.rs` with `PaneState`, `LastSeq` and `TurnSeq`.
 - **Sources (checked 2026-10-26):** `progress.md`, the 2026-10-26 entries "ENGINE track merged" and "PLUGIN track merged"; `docs/contributing/research/ws4-concurrency.md`; `crates/store/migrations/0001_init.sql`; `crates/store/src/commit.rs`; `crates/extract/src/{files,compose,verify}.rs`; `.dependency-cruiser.cjs`; `crates/xtask/src/{modgen,generate}.rs`; `plugin/scripts/planroom`; `eslint.config.js`; the main agent's decisions at the merges.
 
 ## DR-82: What the walking skeleton's serve, canvas and mod tracks settled
