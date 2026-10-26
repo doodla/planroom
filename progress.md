@@ -105,3 +105,5 @@ From the synthesized architecture, in agent-hours of one focused build agent. Pe
   - A-4: settled earlier (string or content blocks).
   - A-8: `tool.call` inputs carry `tool_use_id` (spike diagnostics).
   - A-11: a cloud session can start with no surface.
+  - A-9: `$.model.complete` caching works in this session: the first call wrote 14,403 cache tokens, the second read 14,403 (`mcp__planroom-spike__spike_probe what=model`, haiku, 8 output tokens).
+  - A-10: `$.process.run` works in this cloud session (exit 0, no TTY, git 2.43.0), and `$.process.spawn` streams stdout as written (chunks at 6, 310 and 624 ms).
