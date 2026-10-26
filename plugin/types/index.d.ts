@@ -1463,6 +1463,38 @@ export interface HandoffStep1 {
   note: string | null;
 }
 /**
+ * How many stdin lines of one `import -` came to each outcome.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ImportCounts".
+ */
+export interface ImportCounts {
+  /**
+   * Applied, or for a read request, answered.
+   */
+  imported: number;
+  /**
+   * Waiting for the desk.
+   */
+  held: number;
+  /**
+   * Stale against their base.
+   */
+  conflict: number;
+  /**
+   * Not importable.
+   */
+  refused: number;
+  /**
+   * Left in the inbox, unacked, for a person's sync.
+   */
+  left: number;
+  /**
+   * Lines that name no inbox row, reported and never written back.
+   */
+  skipped: number;
+}
+/**
  * One line of `import -`'s stdin: an inbox row from the observed `ArtifactData list` result,
  * with its path, which names the author, and its document version, which the delete pins. A line
  * with no `row` gives the version of a document the session wrote before (`live/head`,
@@ -1488,8 +1520,10 @@ export interface ImportLine {
   version: number | null;
 }
 /**
- * What `import -` returns: each row's outcome and the `db` batches the session writes, each with
- * one `ArtifactData batch` call, in order; `live/head` is the last write of the last batch.
+ * What `import -` returns: a count of the rows' outcomes with the first few, and the `db` batches
+ * the session writes, each a file holding the `writes` of one `ArtifactData batch` call, in order;
+ * `live/head` is the last write of the last batch. The writes stay in files, as the documents
+ * do, so the reply keeps to its budget however many rows a sync brings.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "ImportResult".
@@ -1500,8 +1534,21 @@ export interface ImportResult {
    * Whether a person's token came with the rows.
    */
   person: boolean;
+  counts: ImportCounts;
+  /**
+   * The first [`IMPORT_ROWS_SAMPLE`] rows' outcomes, in the order they applied; `counts` covers
+   * every one, and `acks/<uid>` lists each acked row.
+   */
   rows: ImportedRow[];
-  batches: DbBatch[];
+  /**
+   * The absolute directory of this sync's files: every `batch_files` entry is relative to it.
+   */
+  root: string;
+  /**
+   * Each `ArtifactData batch` call to make, in order: a file whose JSON is a `DbBatch`, its
+   * `writes` given as they are, each `file_path` absolute.
+   */
+  batch_files: string[];
 }
 /**
  * What `import` did with one stdin line.

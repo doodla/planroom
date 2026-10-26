@@ -454,9 +454,71 @@ fn a_scan_that_read_an_older_head_never_moves_the_repo_back() {
         late.warnings.iter().filter(|w| w.code == planroom_contract::WarningCode::ScanSuperseded).collect();
     assert_eq!(superseded.len(), 1, "{:?}", late.warnings);
     assert_eq!(superseded[0].details["repo"], "platform");
+    assert_eq!(superseded[0].details["reason"], "head_moved");
     assert_eq!(scan_events(&root).last().unwrap(), &(6, "platform".to_owned()), "no revert in the log");
     // The repo stays at HEAD: a rescan finds nothing to move.
     assert_eq!(scan(&root)["meta"]["seq"], 6);
+}
+
+#[test]
+fn a_scan_that_read_an_older_repo_set_never_moves_a_repo_back() {
+    // correctness-r3-1: no HEAD moves, but a repo joins the workspace while the first scan is
+    // between extraction and commit. Its name matches platform's compose image `redis:7.4`, so the
+    // newer scan joins the redis service to it; the late scan read the older repo set.
+    use planroom::app::scan as app_scan;
+    let dir = tempfile::tempdir().unwrap();
+    let root = fixture(dir.path()).root;
+    scan(&root);
+    let slow = app_scan::prepare(&planroom_contract::ScanReq::default(), &root).unwrap();
+    planroom_testkit::git_repo(&root.join("redis"), &[("README.md".into(), b"# Redis\n".to_vec())]);
+    let newer = scan(&root);
+    assert_eq!(newer["meta"]["seq"], 11, "the new repo set re-keys all six repos: {newer}");
+    let joined = the_map(&root);
+    assert!(joined.0[2].contains("redis:container:redis"), "{:?}", joined.0[2]);
+    assert!(!joined.0[2].contains("ws:container:redis"), "{:?}", joined.0[2]);
+
+    let late = app_scan::commit(slow).unwrap();
+    assert_eq!(late.seq, 11, "the late scan wrote nothing");
+    let superseded: BTreeSet<String> = late
+        .warnings
+        .iter()
+        .filter(|w| w.code == planroom_contract::WarningCode::ScanSuperseded)
+        .map(|w| w.details["repo"].as_str().unwrap().to_owned())
+        .collect();
+    let five: BTreeSet<String> =
+        ["kit", "orders", "platform", "storefront", "worker"].iter().map(|s| s.to_string()).collect();
+    assert_eq!(superseded, five, "{:?}", late.warnings);
+    for w in late.warnings.iter().filter(|w| w.code == planroom_contract::WarningCode::ScanSuperseded) {
+        assert_eq!(w.details["reason"], "repos_changed", "{w:?}");
+        assert!(w.message.starts_with("The workspace's repos changed"), "{}", w.message);
+    }
+    assert_eq!(scan_events(&root).last().unwrap().0, 11, "no revert in the log");
+    assert_eq!(the_map(&root), joined, "the map is the newer scan's");
+    let fresh = fixture(&dir.path().join("fresh")).root;
+    planroom_testkit::git_repo(&fresh.join("redis"), &[("README.md".into(), b"# Redis\n".to_vec())]);
+    scan(&fresh);
+    assert_eq!(the_map(&fresh), joined, "the same heads and repos give the same map");
+    assert_eq!(scan(&root)["meta"]["seq"], 11, "a rescan finds nothing to move");
+}
+
+#[test]
+fn a_scan_that_read_a_newer_head_still_moves_the_repo_after_a_concurrent_scan() {
+    // The late-scan rule refuses only a stale scan: one that read the newer HEAD, after another
+    // scan committed meanwhile, still moves the repo there.
+    use planroom::app::scan as app_scan;
+    let dir = tempfile::tempdir().unwrap();
+    let root = fixture(dir.path()).root;
+    scan(&root);
+    let commit = ["-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "Newer"];
+    // The other scan reads kit's old HEAD and commits; then kit moves on and this scan reads it.
+    let other = app_scan::prepare(&planroom_contract::ScanReq::default(), &root).unwrap();
+    git(&root.join("worker"), &commit);
+    let slow = app_scan::prepare(&planroom_contract::ScanReq::default(), &root).unwrap();
+    let first = app_scan::commit(other).unwrap();
+    assert_eq!(first.seq, 5, "worker's HEAD moved past the other scan: {:?}", first.warnings);
+    let late = app_scan::commit(slow).unwrap();
+    assert_eq!(late.seq, 6, "{:?}", late.warnings);
+    assert_eq!(scan_events(&root).last().unwrap(), &(6, "worker".to_owned()));
 }
 
 /// Make the repo at `dir` one git refuses: a config it can't parse stands in for any per-repo
@@ -480,9 +542,10 @@ fn an_unborn_and_an_unreadable_repo_leave_the_rest_of_the_workspace_mapped() {
         let out = Command::new("chown").args(["-R", "nobody", "worker"]).current_dir(&root).output().unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     }
-    let readable = if as_root { 5 } else { 6 };
+    // newrepo has no commit, so a scan can't map it either.
+    let readable = if as_root { 4 } else { 5 };
 
-    // Before any scan, focus offers to map only what git can read.
+    // Before any scan, focus offers to map only what a scan can map.
     let (focus, _) = envelope(&root, &["focus", "--json"]);
     assert_eq!(focus["result"]["next"]["command"], "scan", "{focus}");
     assert_eq!(focus["result"]["next"]["label"], format!("Map these {readable} repos? About 2 s."));
@@ -528,6 +591,83 @@ fn an_unborn_and_an_unreadable_repo_leave_the_rest_of_the_workspace_mapped() {
     assert!(warnings_of(&env, "repo_unborn").is_empty(), "{env}");
     assert!(map_ids(&root, "code").contains("newrepo:file:README.md"));
     assert!(map_ids(&root, "").contains("newrepo:repo:newrepo"));
+}
+
+/// The text mode's output of `args`.
+fn text(cwd: &Path, args: &[&str]) -> String {
+    let out = planroom(cwd, args);
+    assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8(out.stdout).unwrap()
+}
+
+/// `focus` and `map` at every level agree on the `repos_unborn` empty state, whose one action
+/// checks again, and no text line shows an empty map.
+fn assert_unborn_everywhere(root: &Path, when: &str) {
+    let (focus, _) = envelope(root, &["focus", "--json"]);
+    let empty = &focus["result"]["empty"];
+    assert_eq!(empty["reason"], "repos_unborn", "{when}: {focus}");
+    assert_eq!(empty["next"]["command"], "focus", "{when}");
+    assert_eq!(empty["next"]["args"], serde_json::json!([]), "{when}");
+    let label = empty["next"]["label"].as_str().unwrap();
+    assert!(label.contains("app") && label.contains("first commit"), "{when}: {label}");
+    assert_eq!(focus["result"]["next"], empty["next"], "{when}: the pane's next action is the empty one");
+    for args in [&["map"][..], &["map", "--level", "container"], &["map", "--level", "code"]] {
+        let mut json = args.to_vec();
+        json.push("--json");
+        let (map, _) = envelope(root, &json);
+        assert_eq!(&map["result"]["empty"], empty, "{when}: {args:?} agrees with focus");
+        assert_eq!(text(root, args).trim(), label, "{when}: {args:?}");
+    }
+    let shown = text(root, &["focus"]);
+    assert_eq!(shown.trim(), label, "{when}");
+    assert!(!shown.contains("at the top"), "{when}: {shown}");
+}
+
+#[test]
+fn a_workspace_whose_only_repo_has_no_commit_says_to_commit_and_never_loops() {
+    // ux-r3-1, correctness-r3-2: a fresh `git init` is the commonest first run.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("ws");
+    std::fs::create_dir_all(&root).unwrap();
+    git(&root, &["init", "-q", "-b", "main", "app"]);
+
+    // Before any scan: no "Map these 1 repos?", since a scan would map nothing.
+    assert_unborn_everywhere(&root, "before the scan");
+
+    let env = scan(&root);
+    let summary = env["summary"].as_str().unwrap();
+    assert!(summary.starts_with("Mapped 0 repos, 0 of them moved"), "{summary}");
+    assert!(summary.ends_with("No commits yet in app; each maps after its first commit."), "{summary}");
+    assert_eq!(text(&root, &["scan"]).lines().next().unwrap(), summary, "the text mode says so too");
+    assert_eq!(env["result"]["map"]["empty"]["reason"], "repos_unborn", "{env}");
+    assert_eq!(warnings_of(&env, "repo_unborn").len(), 1, "{env}");
+    assert_unborn_everywhere(&root, "after the scan");
+
+    // The live frame of the unborn repo's scan event names no commit.
+    let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
+    let events = store.events_after(0, 10).unwrap();
+    assert_eq!(events.len(), 1);
+    let planroom_contract::StreamFrame::Event { summary, .. } = planroom::live::frame(&events[0]) else {
+        panic!("an event frame")
+    };
+    assert_eq!(summary, "app has no commits yet; it maps after its first commit.");
+
+    // A rescan changes nothing, and still offers no scan.
+    assert_eq!(scan(&root)["meta"]["seq"], 1);
+    assert_unborn_everywhere(&root, "after a rescan");
+
+    // After its first commit the one action is the scan, which maps it.
+    std::fs::write(root.join("app/README.md"), "# App\n").unwrap();
+    git(&root.join("app"), &["add", "README.md"]);
+    git(&root.join("app"), &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "First"]);
+    let (focus, _) = envelope(&root, &["focus", "--json"]);
+    assert_eq!(focus["result"]["empty"]["reason"], "nothing_mapped", "{focus}");
+    assert_eq!(focus["result"]["next"]["command"], "scan");
+    let env = scan(&root);
+    assert!(env["summary"].as_str().unwrap().starts_with("Mapped 1 repos, 1 of them moved"), "{env}");
+    let (focus, _) = envelope(&root, &["focus", "--json"]);
+    assert!(focus["result"]["empty"].is_null(), "{focus}");
+    assert!(map_ids(&root, "").contains("app:repo:app"));
 }
 
 #[test]

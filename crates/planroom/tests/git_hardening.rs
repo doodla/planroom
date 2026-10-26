@@ -1,5 +1,8 @@
 //! The git adapter runs nothing a scanned repo names: no lazy fetch from a partial clone's
-//! promisor remote, so no `uploadpack` or `sshCommand` from its local config (correctness-15).
+//! promisor remote, so no `uploadpack`, `sshCommand` or `ext::` command from its local config,
+//! even where the repo allows that transport itself (correctness-15, unasked-r3-2). The adapter's
+//! own tests (`crates/extract/src/git.rs`) run the same plants as a git that ignores
+//! `GIT_NO_LAZY_FETCH` would.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -96,4 +99,46 @@ fn a_partial_clone_that_gains_blobs_maps_them_at_the_same_commit() {
         env["meta"]["warnings"].as_array().unwrap().iter().find(|w| w["code"] == "partial_scan").cloned();
     assert_eq!(partial.unwrap()["details"]["uncovered"], serde_json::json!(["b/g1.txt"]));
     assert_eq!(code_ids(&ws), ["orders:file:a/f1.txt", "orders:file:a/f2.txt", "orders:file:top.txt"]);
+}
+
+#[test]
+fn a_partial_clone_that_allows_an_ext_remote_never_runs_it() {
+    // unasked-r3-2: the repo's own protocol.ext.allow=always beats protocol.allow=never.
+    let dir = tempfile::tempdir().unwrap();
+    let ws = partial_clone(dir.path());
+    let mark = dir.path().join("PWNED");
+    let url = format!("ext::sh -c touch% {}% >&2", mark.display());
+    let orders = ws.join("orders");
+    git(&orders, &["config", "remote.origin.url", &url]);
+    git(&orders, &["config", "protocol.ext.allow", "always"]);
+    git(&orders, &["config", "protocol.file.allow", "always"]);
+
+    let env = scan(&ws);
+    assert!(!mark.exists(), "the repo's ext:: command ran");
+    let warnings = env["meta"]["warnings"].as_array().unwrap();
+    assert!(warnings.iter().any(|w| w["code"] == "partial_scan"), "{env}");
+    assert_eq!(code_ids(&ws), ["orders:file:top.txt"]);
+}
+
+#[test]
+fn a_promisor_key_with_no_value_still_marks_a_partial_clone() {
+    // correctness-r3-3: git reads `promisor` with no value as true. Read as false, the walk asked
+    // for every blob's size, which a lazy fetch would answer, and the repo was skipped.
+    let dir = tempfile::tempdir().unwrap();
+    let ws = partial_clone(dir.path());
+    let orders = ws.join("orders");
+    for key in ["extensions.partialclone", "remote.origin.promisor"] {
+        // Whichever of the two this git's clone wrote.
+        let _ = Command::new("git").args(["config", "--unset", key]).current_dir(&orders).output().unwrap();
+    }
+    let config = orders.join(".git/config");
+    let text = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(&config, format!("{text}[remote \"origin\"]\n\tpromisor\n")).unwrap();
+
+    let env = scan(&ws);
+    let warnings = env["meta"]["warnings"].as_array().unwrap();
+    assert!(!warnings.iter().any(|w| w["code"] == "repo_skipped"), "{env}");
+    let partial = warnings.iter().find(|w| w["code"] == "partial_scan").expect("a partial_scan warning");
+    assert_eq!(partial["details"]["uncovered"], serde_json::json!(["a/f1.txt", "a/f2.txt", "b/g1.txt"]));
+    assert_eq!(code_ids(&ws), ["orders:file:top.txt"]);
 }

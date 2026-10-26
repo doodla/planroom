@@ -52,6 +52,9 @@ pub const DB_DOC_MAX_BYTES: usize = 256 * 1024;
 pub const BATCH_MAX_WRITES: usize = 50;
 /// The largest body one `ArtifactData batch` takes.
 pub const BATCH_MAX_BYTES: usize = 1024 * 1024;
+/// The rows `import`'s reply lists at most, in the order they applied, beside a count of every
+/// outcome: `acks/<uid>` lists each acked row, and the reply keeps to its budget (drift-3-1).
+pub const IMPORT_ROWS_SAMPLE: usize = 5;
 
 /// `planroom.snapshot/v1`: what the Artifact page draws with no engine, published as
 /// `data/snapshot.json`. It passes `kernel::redact`, and holds no evidence `contains` unless
@@ -309,15 +312,41 @@ pub struct ImportedRow {
     pub reason: Option<String>,
 }
 
-/// What `import -` returns: each row's outcome and the `db` batches the session writes, each with
-/// one `ArtifactData batch` call, in order; `live/head` is the last write of the last batch.
+/// How many stdin lines of one `import -` came to each outcome.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ImportCounts {
+    /// Applied, or for a read request, answered.
+    pub imported: u32,
+    /// Waiting for the desk.
+    pub held: u32,
+    /// Stale against their base.
+    pub conflict: u32,
+    /// Not importable.
+    pub refused: u32,
+    /// Left in the inbox, unacked, for a person's sync.
+    pub left: u32,
+    /// Lines that name no inbox row, reported and never written back.
+    pub skipped: u32,
+}
+
+/// What `import -` returns: a count of the rows' outcomes with the first few, and the `db` batches
+/// the session writes, each a file holding the `writes` of one `ArtifactData batch` call, in order;
+/// `live/head` is the last write of the last batch. The writes stay in files, as the documents
+/// do, so the reply keeps to its budget however many rows a sync brings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ImportResult {
     pub summary: String,
     /// Whether a person's token came with the rows.
     pub person: bool,
+    pub counts: ImportCounts,
+    /// The first [`IMPORT_ROWS_SAMPLE`] rows' outcomes, in the order they applied; `counts` covers
+    /// every one, and `acks/<uid>` lists each acked row.
     pub rows: Vec<ImportedRow>,
-    pub batches: Vec<DbBatch>,
+    /// The absolute directory of this sync's files: every `batch_files` entry is relative to it.
+    pub root: String,
+    /// Each `ArtifactData batch` call to make, in order: a file whose JSON is a `DbBatch`, its
+    /// `writes` given as they are, each `file_path` absolute.
+    pub batch_files: Vec<String>,
 }
 
 #[cfg(test)]

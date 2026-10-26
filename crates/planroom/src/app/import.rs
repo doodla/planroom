@@ -12,9 +12,10 @@
 //!   token they are acked `refused`; without one they stay in the inbox, unacked, for a person's
 //!   sync, as a tokenless sync leaves every row it can't apply.
 //!
-//! Import writes each document the session must write to a batch file under
-//! `.planroom/share/sync/`, and returns the `ArtifactData batch` writes that name them, `live/head`
-//! last, so the session never retypes a document.
+//! Import writes each document the session must write under `.planroom/share/sync/<seq>-<µs>/`,
+//! and each `ArtifactData batch` call's writes, which name those documents, to a batch file there,
+//! `live/head` last, so the session never retypes a document. The reply names the batch files and
+//! counts the rows' outcomes with the first few, so it keeps to its budget for any number of rows.
 
 use std::collections::BTreeMap;
 use std::io::BufRead;
@@ -22,11 +23,12 @@ use std::path::{Path, PathBuf};
 
 use planroom_contract::format::{self, FormatError, ReadError};
 use planroom_contract::remote::{
-    ACK_FORMAT, ANSWER_FORMAT, BATCH_MAX_BYTES, BATCH_MAX_WRITES, DB_DOC_MAX_BYTES, LIVE_HEAD_FORMAT,
+    ACK_FORMAT, ANSWER_FORMAT, BATCH_MAX_BYTES, BATCH_MAX_WRITES, DB_DOC_MAX_BYTES, IMPORT_ROWS_SAMPLE,
+    LIVE_HEAD_FORMAT,
 };
 use planroom_contract::{
     Ack, AckStatus, Answer, Command, CommandName, DbBatch, DbOp, DbWrite, Detail, ErrorCode, Handle,
-    ImportLine, ImportReq, ImportResult, ImportedRow, InboxRow, LiveHead, MapReq, Seq,
+    ImportCounts, ImportLine, ImportReq, ImportResult, ImportedRow, InboxRow, LiveHead, MapReq, Seq,
 };
 use planroom_kernel::{redact, tree};
 use planroom_store::Store;
@@ -166,7 +168,7 @@ pub fn run(
     let seq = store.seq()?;
     let snapshot_seq: Seq = store.meta(SNAPSHOT_SEQ_META)?.and_then(|s| s.parse().ok()).unwrap_or(0);
     let head = live_head(&store, seq, snapshot_seq)?;
-    let batches = batch_files(&root, &outcomes, seq, &head, head_version, &ack_versions)?;
+    let (dir, batch_files) = batch_files(&root, &outcomes, seq, &head, head_version, &ack_versions)?;
 
     let count = |f: &dyn Fn(&Outcome) -> bool| outcomes.iter().filter(|o| f(o)).count();
     let answered = count(&|o| o.answer.is_some() && o.status == Some(AckStatus::Imported));
@@ -174,11 +176,31 @@ pub fn run(
     let left = count(&|o| o.status.is_none() && o.uid.is_some());
     let summary =
         text::get("import.summary", &[("answered", &answered), ("refused", &refused), ("left", &left)]);
+    let mut counts = ImportCounts::default();
+    for o in &outcomes {
+        let slot = match (o.status, &o.uid) {
+            (Some(AckStatus::Imported), _) => &mut counts.imported,
+            (Some(AckStatus::Held), _) => &mut counts.held,
+            (Some(AckStatus::Conflict), _) => &mut counts.conflict,
+            (Some(AckStatus::Refused), _) => &mut counts.refused,
+            (None, Some(_)) => &mut counts.left,
+            (None, None) => &mut counts.skipped,
+        };
+        *slot += 1;
+    }
     let rows = outcomes
         .into_iter()
+        .take(IMPORT_ROWS_SAMPLE)
         .map(|o| ImportedRow { path: o.path, command: o.command, status: o.status, reason: o.reason })
         .collect();
-    let result = ImportResult { summary: summary.clone(), person, rows, batches };
+    let result = ImportResult {
+        summary: summary.clone(),
+        person,
+        counts,
+        rows,
+        root: dir.display().to_string(),
+        batch_files,
+    };
     Ok(Reply { result, seq, warnings: vec![], text: summary })
 }
 
@@ -316,9 +338,10 @@ fn live_head(store: &Store, seq: Seq, snapshot_seq: Seq) -> Result<LiveHead, App
     Ok(head)
 }
 
-/// Write each document to a batch file, and group the writes into `ArtifactData batch` calls of
-/// at most 50 writes and 1 MiB: answers, then acks, then the deletes of every acked row, then
-/// `live/head`, last of all.
+/// Write each document to its file, and group the writes into `ArtifactData batch` calls of at
+/// most 50 writes and 1 MiB: answers, then acks, then the deletes of every acked row, then
+/// `live/head`, last of all. Each call's writes go to `batch-<n>.json`; returns the sync's
+/// directory and those files' paths relative to it, in order.
 fn batch_files(
     root: &Path,
     outcomes: &[Outcome],
@@ -326,7 +349,7 @@ fn batch_files(
     head: &LiveHead,
     head_version: Option<u64>,
     ack_versions: &BTreeMap<String, u64>,
-) -> Result<Vec<DbBatch>, AppError> {
+) -> Result<(PathBuf, Vec<String>), AppError> {
     let dir = root.join(workspace::DIR).join("share/sync").join(format!("{seq}-{}", clock::unix_micros()));
     data::ensure_dir(&dir)?;
     let mut writes: Vec<(DbWrite, usize)> = Vec::new();
@@ -388,7 +411,14 @@ fn batch_files(
         current.push(write);
     }
     batches.push(DbBatch { writes: current });
-    Ok(batches)
+    let mut files = Vec::with_capacity(batches.len());
+    for (i, batch) in batches.iter().enumerate() {
+        let name = format!("batch-{}.json", i + 1);
+        let bytes = serde_json::to_vec(batch).map_err(AppError::internal)?;
+        data::write_private(&dir.join(&name), &bytes)?;
+        files.push(name);
+    }
+    Ok((dir, files))
 }
 
 fn set(collection: &str, doc_id: &str, path: &Path, if_version: Option<u64>) -> DbWrite {

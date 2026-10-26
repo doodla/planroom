@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use planroom_contract::errors::WARNING_SAMPLE;
 use planroom_contract::{
     Actor, Client, Command, CommandName, FACTS_FORMAT, FactBatch, Handle, ScanReq, ScanResult, ScanStats,
-    Surface, Tier, Warning, WarningCode,
+    Seq, Surface, Tier, Warning, WarningCode,
 };
 use planroom_extract::git::{Git, GitError};
 use planroom_extract::verify::Verifier;
@@ -44,6 +44,10 @@ pub fn packs_hash() -> String {
 pub struct Prepared {
     ws: Workspace,
     packs_hash: String,
+    /// Every repo's extraction inputs besides its commit and a partial clone's missing blobs.
+    inputs: String,
+    /// The store's latest `seq` before any repo was read.
+    started: Seq,
     repos: Vec<RepoScan>,
     warnings: Vec<Warning>,
 }
@@ -59,6 +63,11 @@ pub fn prepare(req: &ScanReq, cwd: &Path) -> Result<Prepared, AppError> {
     if ws.repos.is_empty() {
         return Err(AppError::workspace_not_found(&ws.root));
     }
+    // Read before any repo, so a scan that commits meanwhile is newer than this one.
+    let started = match Store::open_existing(&ws.store_path())? {
+        Some(store) => store.seq()?,
+        None => 0,
+    };
     let mut warnings = ws.warnings.clone();
     let names: BTreeSet<&str> = ws.repos.iter().map(|r| r.name.as_str()).collect();
     let options = options(&names);
@@ -72,12 +81,14 @@ pub fn prepare(req: &ScanReq, cwd: &Path) -> Result<Prepared, AppError> {
             Err(RepoError::App(e)) => return Err(e),
         }
     }
-    Ok(Prepared { ws, packs_hash, repos, warnings })
+    Ok(Prepared { ws, packs_hash, inputs, started, repos, warnings })
 }
 
-/// Commit a prepared scan. A repo whose `HEAD` moved on since it was read stays where it is.
+/// Commit a prepared scan. A repo stays where it is when its `HEAD` moved on since it was read, or
+/// when another scan moved it meanwhile and the workspace's repos changed since this scan read
+/// them: a late scan never moves a repo back, whatever input changed.
 pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
-    let Prepared { ws, packs_hash, repos, mut warnings } = prepared;
+    let Prepared { ws, packs_hash, inputs, started, repos, mut warnings } = prepared;
     // With nothing to write, a workspace with no store stays without one.
     let store = if repos.is_empty() {
         Store::open_existing(&ws.store_path())?.map(|mut store| {
@@ -93,6 +104,7 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
         client: client(),
         packs_hash,
         repos,
+        started,
     };
     let Some(mut store) = store else {
         let view = map::not_scanned_view(&ws.root)?;
@@ -102,22 +114,45 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     store.meta_insert_once("packs", "[]")?;
     store.meta_insert_once("packs_hash", &write.packs_hash)?;
     let paths: BTreeMap<&str, &PathBuf> = ws.repos.iter().map(|r| (r.name.as_str(), &r.path)).collect();
-    let done = store.commit_scan(&write, RULES, &mut |repo| {
-        paths.get(repo.repo.as_str()).is_some_and(|p| is_head(p, &repo.commit))
+    // Why each superseded repo stays, and whether this scan's repo set is still the workspace's,
+    // which is asked once, and only when another scan moved a repo after this one began.
+    let mut why: BTreeMap<String, &str> = BTreeMap::new();
+    let mut same_repos: Option<bool> = None;
+    let done = store.commit_scan(&write, RULES, &mut |repo, newer_scan| {
+        if !paths.get(repo.repo.as_str()).is_some_and(|p| is_head(p, &repo.commit)) {
+            why.insert(repo.repo.clone(), "head_moved");
+            return false;
+        }
+        if newer_scan
+            && !*same_repos.get_or_insert_with(|| {
+                current_inputs(&ws.root, &write.packs_hash).as_deref() == Some(&inputs)
+            })
+        {
+            why.insert(repo.repo.clone(), "repos_changed");
+            return false;
+        }
+        true
     })?;
     for ((name, outcome), repo) in done.repos.iter().zip(&write.repos) {
         if let RepoOutcome::Superseded { .. } = outcome {
+            let reason = why.get(name).copied().unwrap_or("head_moved");
             warnings.push(Warning {
                 code: WarningCode::ScanSuperseded,
                 message: text::get(
-                    "warning.scan_superseded",
+                    &format!("warning.scan_superseded_{reason}"),
                     &[("repo", name), ("commit", &short(&repo.commit))],
                 ),
-                details: json!({"repo": name, "commit": repo.commit}),
+                details: json!({"repo": name, "commit": repo.commit, "reason": reason}),
             });
         }
     }
-    let recorded = done.repos.iter().filter(|(_, o)| matches!(o, RepoOutcome::Recorded { .. })).count();
+    // An unborn repo's scan event records its branch, but it maps nothing, so it isn't counted.
+    let recorded = done
+        .repos
+        .iter()
+        .zip(&write.repos)
+        .filter(|((_, o), repo)| matches!(o, RepoOutcome::Recorded { .. }) && !repo.commit.is_empty())
+        .count();
     // The top-level map an agent reads in scan's reply keeps to scan's budget, as map's does.
     let mut view = map::top(&store, &ws.root, None)?;
     let budget = Command::Scan(ScanReq::default()).spec().budget_tokens;
@@ -128,17 +163,27 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     Ok(Reply { result: ScanResult { map: view, next: next() }, seq: done.seq, warnings, text: summary })
 }
 
+/// The scan's one line: the repos it mapped, those with a commit, and how many moved; then the
+/// repos with no commit yet, which map after their first. A skipped repo isn't in `write`.
 fn summary(write: &ScanWrite, containers: usize, moved: usize) -> String {
-    text::get(
+    let (mapped, unborn): (Vec<&RepoScan>, Vec<&RepoScan>) =
+        write.repos.iter().partition(|r| !r.commit.is_empty());
+    let mut line = text::get(
         "scan.summary",
         &[
-            ("repos", &write.repos.len()),
+            ("repos", &mapped.len()),
             ("containers", &containers),
-            ("nodes", &write.repos.iter().map(|r| r.stats.nodes).sum::<u32>()),
-            ("hints", &write.repos.iter().map(|r| r.stats.hints).sum::<u32>()),
+            ("nodes", &mapped.iter().map(|r| r.stats.nodes).sum::<u32>()),
+            ("hints", &mapped.iter().map(|r| r.stats.hints).sum::<u32>()),
             ("moved", &moved),
         ],
-    )
+    );
+    if !unborn.is_empty() {
+        let names: Vec<&str> = unborn.iter().map(|r| r.repo.as_str()).collect();
+        line.push(' ');
+        line.push_str(&text::get("scan.unborn", &[("names", &names.join(", "))]));
+    }
+    line
 }
 
 fn next() -> Handle {
@@ -186,6 +231,14 @@ fn inputs_hash(packs_hash: &str, options: &[(&str, Value)]) -> String {
     let options: Vec<String> =
         options.iter().map(|(name, opts)| format!("{name}={}", keys::canonical(opts))).collect();
     keys::sha256_hex(&["planroom.extract-inputs/v1", packs_hash, &options.join("\n")])
+}
+
+/// The extraction inputs the workspace at `root` gives now, as [`prepare`] derives them: `None`
+/// when its repos can't be listed.
+fn current_inputs(root: &Path, packs_hash: &str) -> Option<String> {
+    let ws = workspace::discover(root).ok()?;
+    let names: BTreeSet<&str> = ws.repos.iter().map(|r| r.name.as_str()).collect();
+    Some(inputs_hash(packs_hash, &options(&names)))
 }
 
 /// Whether `HEAD` in the repo at `path` still names `commit` (empty: still no commit).

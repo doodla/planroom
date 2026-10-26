@@ -39,8 +39,8 @@ pub use model::{
     Node, NodeId, PartialFile, Provenance, Ref, Seq, Tier,
 };
 pub use remote::{
-    Ack, AckStatus, Answer, DbBatch, DbOp, DbWrite, ImportLine, ImportResult, ImportedRow, InboxHead,
-    InboxRow, LiveHead, PublishArgs, SampleUse, ShareResult, SharedFile, Snapshot,
+    Ack, AckStatus, Answer, DbBatch, DbOp, DbWrite, ImportCounts, ImportLine, ImportResult, ImportedRow,
+    InboxHead, InboxRow, LiveHead, PublishArgs, SampleUse, ShareResult, SharedFile, Snapshot,
 };
 pub use resolver::{ResolverStatus, ResolverStep, UnavailableReason};
 pub use stream::StreamFrame;

@@ -1,7 +1,8 @@
 //! The git CLI adapter (DR-16): every call runs with hooks, fsmonitor and optional locks off, a
 //! cleared environment and `LC_ALL=C`, so nothing from a scanned repo runs. Every call is a local
-//! read, and no transport may run: a partial clone's missing object is never fetched, so the
-//! `uploadpack` or `sshCommand` a repo's own config names never runs either.
+//! read, and no transport may run, each refused by name whatever the repo's own config allows: a
+//! partial clone's missing object is never fetched, so the `uploadpack`, `sshCommand` or `ext::`
+//! command a repo's own config names never runs either, on any git version.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -51,6 +52,10 @@ pub fn is_repo(dir: &Path) -> bool {
     dir.join(".git").exists()
 }
 
+/// Every transport git has: each is refused by name on the command line, since a repo's own
+/// `protocol.<name>.allow` beats `protocol.allow` (correctness-r3-3).
+pub const TRANSPORTS: &[&str] = &["ext", "fd", "file", "git", "ssh", "http", "https", "ftp", "ftps"];
+
 impl Git {
     pub fn new(dir: &Path) -> Git {
         Git { dir: dir.to_path_buf() }
@@ -65,10 +70,18 @@ impl Git {
             }
         }
         cmd.env("LC_ALL", "C").env("GIT_TERMINAL_PROMPT", "0").env("GIT_LFS_SKIP_SMUDGE", "1");
-        // No lazy fetch from a promisor remote. git 2.44 and later read the variable, as do
-        // distributions' security backports such as Ubuntu's 2.43; `protocol.allow=never` refuses
-        // every transport on any version, before git runs a configured upload-pack or ssh command.
+        // No lazy fetch from a promisor remote. git reads the variable from the 2024 security
+        // releases on (2.39.4 and later maintenance lines, 2.45) and in distributions' backports
+        // such as Ubuntu's 2.43; an older git ignores it. So no transport may run either:
+        // `protocol.allow=never` alone isn't enough, since a repo's own `protocol.<name>.allow`
+        // beats it, so each transport is refused by name too, and command-line config beats the
+        // repo's for the same key. git then refuses before it runs a configured upload-pack, ssh
+        // or ext:: command.
         cmd.env("GIT_NO_LAZY_FETCH", "1");
+        #[cfg(test)]
+        if tests::AS_OLD_GIT.with(std::cell::Cell::get) {
+            cmd.env_remove("GIT_NO_LAZY_FETCH");
+        }
         cmd.args([
             "-c",
             "core.hooksPath=/dev/null",
@@ -77,6 +90,9 @@ impl Git {
             "-c",
             "protocol.allow=never",
         ]);
+        for name in TRANSPORTS {
+            cmd.arg("-c").arg(format!("protocol.{name}.allow=never"));
+        }
         cmd.arg("--no-optional-locks");
         cmd.args(args).current_dir(&self.dir).stdin(Stdio::null());
         cmd
@@ -127,22 +143,35 @@ impl Git {
         Some(branch.strip_prefix("refs/heads/").unwrap_or(&branch).to_owned())
     }
 
-    /// Whether this is a partial clone, whose promisor remote may hold objects that aren't here.
+    /// Whether this is a partial clone, whose promisor remote may hold objects that aren't here:
+    /// `extensions.partialclone` names one, or a `remote.<name>.promisor` is true. git reads the
+    /// latter as a bool, where a key with no value and any nonzero integer are true, so git itself
+    /// normalises it.
     pub fn is_partial_clone(&self) -> Result<bool, GitError> {
-        let pattern = r"^(extensions\.partialclone|remote\..*\.promisor)$";
-        let out = match self.run(&["config", "--get-regexp", pattern]) {
-            Ok(out) => out,
-            // `git config --get-regexp` exits 1, silently, when no key matches.
-            Err(e) if e.stderr.trim().is_empty() => return Ok(false),
-            Err(e) => return Err(e),
-        };
-        Ok(out.lines().any(|line| match line.split_once(' ') {
-            Some((key, value)) if key.starts_with("remote.") => {
-                matches!(value.trim().to_ascii_lowercase().as_str(), "true" | "yes" | "on" | "1")
-            }
-            Some((_, value)) => !value.trim().is_empty(),
-            None => false,
-        }))
+        if !self.config_matching(r"^extensions\.partialclone$", false)?.is_empty() {
+            return Ok(true);
+        }
+        let promisors = self.config_matching(r"^remote\..*\.promisor$", true)?;
+        Ok(promisors.lines().any(|line| line.rsplit_once(' ').is_some_and(|(_, value)| value == "true")))
+    }
+
+    /// `git config --get-regexp`'s lines for `pattern`, with each value as a bool when `as_bool`;
+    /// empty when no key matches.
+    fn config_matching(&self, pattern: &str, as_bool: bool) -> Result<String, GitError> {
+        let mut args = vec!["config"];
+        if as_bool {
+            args.push("--type=bool");
+        }
+        args.extend(["--get-regexp", pattern]);
+        let fail = |stderr: String| GitError { argv: args.iter().map(|a| a.to_string()).collect(), stderr };
+        let out = self.command(&args).output().map_err(|e| fail(e.to_string()))?;
+        match out.status.code() {
+            Some(0) => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
+            // `git config --get-regexp` exits 1 when no key matches; any other failure, a crash
+            // included, is git failing.
+            Some(1) => Ok(String::new()),
+            _ => Err(fail(format!("{}{}", out.status, String::from_utf8_lossy(&out.stderr)))),
+        }
     }
 
     /// The objects of `commit`'s tree that aren't in this clone, as `rev-list --missing=print`
@@ -260,5 +289,172 @@ impl Drop for Objects {
     fn drop(&mut self) {
         drop(self.stdin.take());
         let _ = self.child.wait();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The adapter runs nothing a scanned repo names on any git, including one that predates
+    //! `GIT_NO_LAZY_FETCH` (unasked-r3-2, correctness-r3-3).
+
+    use std::cell::Cell;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    use super::Git;
+
+    thread_local! {
+        /// Run the adapter's git calls without `GIT_NO_LAZY_FETCH`, as a git older than the 2024
+        /// security releases runs them: the seam the old-git tests turn on.
+        pub(super) static AS_OLD_GIT: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Plain git, as a person runs it, with a fixed author: the tests' own setup.
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "T")
+            .env("GIT_AUTHOR_EMAIL", "t@example.test")
+            .env("GIT_COMMITTER_NAME", "T")
+            .env("GIT_COMMITTER_EMAIL", "t@example.test")
+            .env_remove("GIT_NO_LAZY_FETCH")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    }
+
+    /// A blob-less clone holding no blob at all, of a repo with two files: the clone, its commit
+    /// and one blob it lacks.
+    fn partial_clone(dir: &Path) -> (PathBuf, String, String) {
+        let src = dir.join("src");
+        std::fs::create_dir_all(src.join("b")).unwrap();
+        std::fs::write(src.join("a.txt"), "a\n").unwrap();
+        std::fs::write(src.join("b/c.txt"), "c\n").unwrap();
+        git(&src, &["init", "-q", "-b", "main"]);
+        git(&src, &["add", "."]);
+        git(&src, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "First"]);
+        git(&src, &["config", "uploadpack.allowFilter", "true"]);
+        let url = format!("file://{}", src.display());
+        git(dir, &["clone", "-q", "--filter=blob:none", "--no-checkout", &url, "clone"]);
+        let clone = dir.join("clone");
+        let commit = git(&clone, &["rev-parse", "HEAD"]);
+        let blob = git(&clone, &["rev-parse", "HEAD:a.txt"]);
+        (clone, commit, blob)
+    }
+
+    /// Every adapter call a scan makes that could want a missing blob, as an old git runs them.
+    fn scan_like_an_old_git(clone: &Path, commit: &str, blob: &str) {
+        AS_OLD_GIT.with(|old| old.set(true));
+        let adapter = Git::new(clone);
+        // Each may fail; what matters is that none runs a transport.
+        let _ = adapter.run(&["cat-file", "-p", blob]);
+        let _ = adapter.ls_tree(commit, true);
+        if let Ok(mut objects) = adapter.objects() {
+            let _ = objects.get(blob);
+        }
+        if let Ok(mut sizes) = adapter.object_sizes() {
+            let _ = sizes.size(blob);
+        }
+        let _ = crate::walk::walk(&adapter, commit);
+        AS_OLD_GIT.with(|old| old.set(false));
+    }
+
+    /// The control: plain git with only `-c protocol.allow=never` and no `GIT_NO_LAZY_FETCH`, which
+    /// runs a live plant.
+    fn plain_old_git(clone: &Path, blob: &str) {
+        let _ = Command::new("git")
+            .args(["-c", "protocol.allow=never", "cat-file", "-p", blob])
+            .current_dir(clone)
+            .env_remove("GIT_NO_LAZY_FETCH")
+            .output()
+            .unwrap();
+    }
+
+    #[test]
+    fn an_ext_remote_the_repo_allows_never_runs_on_an_old_git() {
+        let dir = tempfile::tempdir().unwrap();
+        let (clone, commit, blob) = partial_clone(dir.path());
+        let mark = dir.path().join("PWNED");
+        let url = format!("ext::sh -c touch% {}% >&2", mark.display());
+        git(&clone, &["config", "remote.origin.url", &url]);
+        git(&clone, &["config", "protocol.ext.allow", "always"]);
+
+        scan_like_an_old_git(&clone, &commit, &blob);
+        assert!(!mark.exists(), "the repo's ext:: command ran");
+        plain_old_git(&clone, &blob);
+        assert!(mark.exists(), "the control: a repo-local protocol.ext.allow beats protocol.allow=never");
+    }
+
+    #[test]
+    fn a_file_remote_the_repo_allows_never_runs_its_upload_pack_on_an_old_git() {
+        let dir = tempfile::tempdir().unwrap();
+        let (clone, commit, blob) = partial_clone(dir.path());
+        let mark = dir.path().join("ran");
+        let planted = format!("sh -c 'echo ran >> {}'; git-upload-pack", mark.display());
+        git(&clone, &["config", "remote.origin.uploadpack", &planted]);
+        git(&clone, &["config", "protocol.file.allow", "always"]);
+
+        scan_like_an_old_git(&clone, &commit, &blob);
+        assert!(!mark.exists(), "the repo's upload-pack command ran");
+        plain_old_git(&clone, &blob);
+        assert!(mark.exists(), "the control: a repo-local protocol.file.allow beats protocol.allow=never");
+    }
+
+    #[test]
+    fn the_command_line_refuses_each_transport_whatever_the_repo_config_allows() {
+        // Command-line config beats the repo's own for the same key, transport by transport.
+        let dir = tempfile::tempdir().unwrap();
+        git(dir.path(), &["init", "-q", "-b", "main", "r"]);
+        let repo = dir.path().join("r");
+        let adapter = Git::new(&repo);
+        for name in super::TRANSPORTS {
+            let key = format!("protocol.{name}.allow");
+            git(&repo, &["config", &key, "always"]);
+            let got = adapter.run(&["config", "--get", &key]).unwrap();
+            assert_eq!(got.trim(), "never", "{key}");
+        }
+        git(&repo, &["config", "protocol.allow", "always"]);
+        assert_eq!(adapter.run(&["config", "--get", "protocol.allow"]).unwrap().trim(), "never");
+    }
+
+    /// A repo whose `.git/config` ends with `extra`.
+    fn repo_with_config(dir: &Path, name: &str, extra: &str) -> PathBuf {
+        git(dir, &["init", "-q", "-b", "main", name]);
+        let repo = dir.join(name);
+        let config = repo.join(".git/config");
+        let text = std::fs::read_to_string(&config).unwrap();
+        std::fs::write(&config, format!("{text}{extra}")).unwrap();
+        repo
+    }
+
+    #[test]
+    fn a_promisor_key_reads_as_git_reads_a_bool() {
+        let dir = tempfile::tempdir().unwrap();
+        let cases = [
+            ("\tpromisor\n", true),
+            ("\tpromisor = true\n", true),
+            ("\tpromisor = 1\n", true),
+            ("\tpromisor = 2\n", true),
+            ("\tpromisor = -1\n", true),
+            ("\tpromisor = On\n", true),
+            ("\tpromisor = false\n", false),
+            ("\tpromisor = 0\n", false),
+            ("\tpromisor = no\n", false),
+            ("", false),
+        ];
+        for (i, (value, partial)) in cases.into_iter().enumerate() {
+            let extra = format!("[remote \"origin\"]\n\turl = /nowhere\n{value}");
+            let repo = repo_with_config(dir.path(), &format!("r{i}"), &extra);
+            assert_eq!(Git::new(&repo).is_partial_clone().unwrap(), partial, "{value:?}");
+        }
+        // extensions.partialclone marks one too. With no value, git itself fails on the repo (2.43
+        // crashes), which is never read as "not a partial clone".
+        let repo = repo_with_config(dir.path(), "e0", "[extensions]\n\tpartialclone = origin\n");
+        assert!(Git::new(&repo).is_partial_clone().unwrap());
+        let repo = repo_with_config(dir.path(), "e1", "[extensions]\n\tpartialclone\n");
+        let got = Git::new(&repo).is_partial_clone();
+        assert!(!matches!(got, Ok(false)), "{got:?}");
     }
 }

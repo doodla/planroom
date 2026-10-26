@@ -1760,6 +1760,56 @@
       ],
       "description": "A hint a linked edge joined: its ID and the pack-qualified extractor that emitted it."
     },
+    "ImportCounts": {
+      "type": "object",
+      "properties": {
+        "imported": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Applied, or for a read request, answered."
+        },
+        "held": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Waiting for the desk."
+        },
+        "conflict": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Stale against their base."
+        },
+        "refused": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Not importable."
+        },
+        "left": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Left in the inbox, unacked, for a person's sync."
+        },
+        "skipped": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Lines that name no inbox row, reported and never written back."
+        }
+      },
+      "required": [
+        "imported",
+        "held",
+        "conflict",
+        "refused",
+        "left",
+        "skipped"
+      ],
+      "description": "How many stdin lines of one `import -` came to each outcome."
+    },
     "ImportLine": {
       "type": "object",
       "properties": {
@@ -1812,26 +1862,37 @@
           "type": "boolean",
           "description": "Whether a person's token came with the rows."
         },
+        "counts": {
+          "$ref": "#/$defs/ImportCounts"
+        },
         "rows": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/ImportedRow"
-          }
+          },
+          "description": "The first [`IMPORT_ROWS_SAMPLE`] rows' outcomes, in the order they applied; `counts` covers\nevery one, and `acks/<uid>` lists each acked row."
         },
-        "batches": {
+        "root": {
+          "type": "string",
+          "description": "The absolute directory of this sync's files: every `batch_files` entry is relative to it."
+        },
+        "batch_files": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/DbBatch"
-          }
+            "type": "string"
+          },
+          "description": "Each `ArtifactData batch` call to make, in order: a file whose JSON is a `DbBatch`, its\n`writes` given as they are, each `file_path` absolute."
         }
       },
       "required": [
         "summary",
         "person",
+        "counts",
         "rows",
-        "batches"
+        "root",
+        "batch_files"
       ],
-      "description": "What `import -` returns: each row's outcome and the `db` batches the session writes, each with\none `ArtifactData batch` call, in order; `live/head` is the last write of the last batch."
+      "description": "What `import -` returns: a count of the rows' outcomes with the first few, and the `db` batches\nthe session writes, each a file holding the `writes` of one `ArtifactData batch` call, in order;\n`live/head` is the last write of the last batch. The writes stay in files, as the documents\ndo, so the reply keeps to its budget however many rows a sync brings."
     },
     "ImportedRow": {
       "type": "object",
