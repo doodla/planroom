@@ -224,7 +224,7 @@ A code that only a person can clear has retry `never` and names the card or comm
 | Code | Meaning |
 |---|---|
 | `claimed` | the target is claimed by someone else; `details {by, until}` |
-| `truncated` | the result hit its budget; the summary and first page are kept. For `map`, `details {kept, total, budget_tokens, next}`, where `next` is the drill-down handle in [Token budgets](architecture.md#token-budgets-s7) (DR-85). From the CLI's check of a whole reply against its leaf's budget, `details {budget_tokens, left_out, codes}`: `left_out` counts the warnings it left out after those it kept in order, and `codes` counts them by code. `left_out` 0 means the result alone passes the budget (DR-86) |
+| `truncated` | the result hit its budget; the summary and first page are kept. For `map`, `details {kept, total, budget_tokens, next}`, where `next` is the drill-down handle in [Token budgets](architecture.md#token-budgets-s7) (DR-85). From the CLI's check of a whole reply against its leaf's budget, `details {budget_tokens, left_out, codes}`: `left_out` counts the warnings it left out after those it kept in order, and `codes` counts them by code. A result that passes the budget alone keeps only the leaf's own `truncated` warning and leaves out every other, so `left_out` counts them all. Only the message marks that case: it says the reply passes its budget (DR-86) |
 | `unresolved_ref` | an alias or a linker join had zero or several candidates; no edge was made |
 | `evidence_dropped` | an evidence item failed verification at ingest |
 | `partial_parse` | files parsed with error nodes, so their facts are weak; `details {repo, count, paths}`, where `paths` is a sample: the first 10 in sorted order (DR-86) |
@@ -246,7 +246,7 @@ A code that only a person can clear has retry `never` and names the card or comm
 | `workspace_nested` | another workspace's `.planroom/` sits inside this one, or this one inside it; `details {other_root}` (DR-71) |
 | `repo_unborn` | a repo has no commit yet, so it maps nothing until its first commit; the rest of the workspace maps. `details {repo, branch}` (DR-86) |
 | `repo_skipped` | git refused a repo, so the scan left it out and its last map stays; the rest of the workspace maps. `details {repo, reason, fix}`, where `reason` is `other_owner` or `git_failed` and `fix` is one line with an exact command (DR-86) |
-| `scan_superseded` | a repo's `HEAD` moved on while the scan read it, so its map stays where a newer scan left it; `details {repo, commit}`, the commit this scan read (DR-86) |
+| `scan_superseded` | a repo's `HEAD` moved on while the scan read it, so its map stays as it was until a scan reads the new `HEAD`; `details {repo, commit}`, the commit this scan read (DR-86) |
 | `duty_failed` | a background duty failed and hasn't succeeded since; `details {duty, at, log}`, the log under the data root (DR-58) |
 
 ## Command catalogue
