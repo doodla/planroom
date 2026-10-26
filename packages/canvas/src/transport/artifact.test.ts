@@ -131,13 +131,13 @@ function host(db: HostDb | null, uid: string | null = "u_1"): ArtifactHost {
   };
 }
 
-function transport(h: ArtifactHost | null) {
+function transport(h: ArtifactHost | null, published: object = snapshot) {
   const fetched: string[] = [];
   const t = artifactTransport({
     fetch: ((url: string) => {
       fetched.push(url);
       return Promise.resolve(
-        new Response(JSON.stringify(snapshot), { status: 200 }),
+        new Response(JSON.stringify(published), { status: 200 }),
       );
     }) as typeof fetch,
     host: h,
@@ -308,6 +308,69 @@ describe("the artifact transport", () => {
       conflicts: [],
     });
     expect(frames.slice(before)).toEqual([{ type: "reset", seq: 9 }]);
+  });
+
+  test("a snapshot keeps the fields it doesn't know, and one a newer engine wrote is refused", async () => {
+    const later = { ...snapshot, added_later: { kept: true } };
+    const { t } = transport(host(null), later);
+    expect(await t.login()).toBe(true);
+    expect(await t.query<PaneModel>("focus", {})).toEqual(pane);
+    const newer = { ...snapshot, format: "planroom.snapshot/v2" };
+    await expect(transport(host(null), newer).t.login()).rejects.toThrow(
+      STRINGS.newerDocument,
+    );
+    const other = { ...snapshot, format: "planroom.live-head/v1" };
+    await expect(transport(host(null), other).t.login()).rejects.toThrow(
+      STRINGS.snapshotMissing,
+    );
+  });
+
+  test("a live head a newer engine wrote isn't read; an older-shaped one with extra fields is", async () => {
+    const f = fakeDb();
+    const { t, frames } = transport(host(f.db));
+    await t.login();
+    await settle();
+    const before = frames.length;
+    const head = {
+      format: "planroom.live-head/v1",
+      seq: 9,
+      snapshot_seq: 5,
+      cards: [],
+      changes: [],
+      conflicts: [],
+    };
+    f.sessionSet("live/head", {
+      ...head,
+      seq: 12,
+      format: "planroom.live-head/v2",
+    });
+    expect(frames.slice(before)).toEqual([]);
+    f.sessionSet("live/head", { ...head, added_later: [1] });
+    expect(frames.slice(before)).toEqual([{ type: "reset", seq: 9 }]);
+  });
+
+  test("an answer in a newer format shows as refused, with why", async () => {
+    const f = fakeDb();
+    const { t } = transport(host(f.db));
+    await t.login();
+    await settle();
+    await t.partial!.ask("map", container);
+    const docId = [...f.docs.keys()]
+      .find((k) => k.startsWith("inbox/u_1/events/"))!
+      .split("/")
+      .at(-1)!;
+    f.sessionSet(`answers/${docId}`, {
+      format: "planroom.answer/v2",
+      handle: { command: "map", args: [], label: "x" },
+      seq: 6,
+      result: null,
+    });
+    expect(t.partial!.requested("map", container)).toEqual({
+      state: "refused",
+      line: STRINGS.refused,
+      problem: STRINGS.newerDocument,
+    });
+    expect(t.partial!.serves("map", container)).toBe(false);
   });
 
   test("a signed-out viewer has the store but no inbox to write", async () => {

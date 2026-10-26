@@ -128,6 +128,58 @@ pub struct ErrorObject {
     pub details: Value,
 }
 
+/// What a mod tool handler returns, for success and failure alike, as compact JSON text: the
+/// envelope less what an agent doesn't act on. Empty fields are left out (DR-66).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(rename = "ToolResult")]
+pub struct ToolResult<T = Value> {
+    pub ok: bool,
+    // On success: the command's result, redacted like every output. (A doc comment here would make
+    // the generated TypeScript an object type rather than `unknown`.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<T>,
+    /// On failure: the error, never dropped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<ToolError>,
+    pub meta: ToolMeta,
+}
+
+/// A tool result's error: the envelope's error whole (DR-66). Only an error the mod authors, when no
+/// engine answered, may leave out its category and details.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ToolError {
+    pub code: ErrorCode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<Category>,
+    pub retry: Retry,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<u32>,
+    /// One line, engine-authored.
+    pub message: String,
+    /// An exact command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    // Per code, documented in the registry; absent when the engine never answered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
+}
+
+/// The fields of `meta` an agent acts on; absent when empty. `seq` is absent only when the
+/// engine never answered.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+pub struct ToolMeta {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<Seq>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<Cursor>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub truncated: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<Warning>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub model_requests: Vec<ModelRequestRef>,
+}
+
 /// A warning attached to a reply.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Warning {

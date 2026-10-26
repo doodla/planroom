@@ -12,59 +12,10 @@ pub const BUNDLE: &str = "plugin/hooks/planroom-mod.js";
 pub const STATE_TYPES: &str = "plugin/types/index.d.ts";
 
 /// The atoms the mod keeps under `planroom`, each `Shaped<T>` so a reload that changes a value's
-/// idea can decline what older code stored.
+/// idea can decline what older code stored. Each atom's type is a contract type in
+/// `crates/contract/src/view.rs` (`EngineState`, `PaneState`, `LastSeq`, `TurnSeq`), which the
+/// output types above already hold (DR-81); only the host's module augmentation is written here.
 const ATOMS: &str = r#"
-/** Which pane the mod draws until the engine answers: `ready` draws the PaneModel (DR-57). */
-export type EngineStatus =
-  | "resolving"
-  | "fetching"
-  | "build_offered"
-  | "building"
-  | "failed"
-  | "unsupported_platform"
-  | "version_mismatch"
-  | "person_key_mismatch"
-  | "ready";
-
-/** The `engine` atom: written by session.start from the resolver's reply. */
-export interface EngineState {
-  status: EngineStatus;
-  /** The resolver, `<plugin root>/scripts/planroom`, once the plugin root is known. */
-  resolver: string | null;
-  /** The engine binary, once resolved. */
-  path: string | null;
-  version: string | null;
-  catalogue_hash: string | null;
-  backend: string | null;
-  /** The one status line for this state: the resolver's message where it gave one. */
-  line: string | null;
-  /** The exact command that fixes this state, when there is one. */
-  fix: string | null;
-}
-
-/** The `pane` atom: the last `focus --json`, its PaneModel or the error it returned. */
-export interface PaneState {
-  model: PaneModel | null;
-  error: string | null;
-}
-
-/**
- * The `lastSeq` atom: the `seq` of the last frame the watch loop read, so the loop starts again
- * from it after a reload (DR-6); null before the first frame.
- */
-export interface LastSeq {
-  seq: number | null;
-}
-
-/**
- * The `turnSeq` atom: the main loop's current turn and the latest `meta.seq` a tool returned to
- * the model in it, the default `base` of the tools' writes.
- */
-export interface TurnSeq {
-  turnId: string | null;
-  seq: number | null;
-}
-
 declare module "claude-code" {
   interface PluginState {
     planroom: {

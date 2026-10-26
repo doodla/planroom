@@ -59,6 +59,8 @@ export type ErrorCode =
       | "idempotency_mismatch"
       | "store_busy"
       | "port_in_use"
+      | "engine_fetching"
+      | "engine_unavailable"
       | "schema_mismatch"
       | "pack_invalid"
       | "git_failed"
@@ -335,6 +337,22 @@ export type Op = "put" | "set" | "retract";
  */
 export type EmptyReason = string;
 /**
+ * Which pane the mod draws until the engine answers: `ready` draws the `PaneModel` (DR-57, DR-60).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "EngineStatus".
+ */
+export type EngineStatus =
+  | "resolving"
+  | "fetching"
+  | "build_offered"
+  | "building"
+  | "failed"
+  | "unsupported_platform"
+  | "version_mismatch"
+  | "person_key_mismatch"
+  | "ready";
+/**
  * A stable warning code.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -358,7 +376,9 @@ export type Timestamp = string;
  */
 export type Status = "applied" | "ghost" | "conflict" | "open" | "closed";
 /**
- * The eight event kinds.
+ * An event's body, tagged by its kind. Event kinds are an open set: a body whose `kind` this
+ * version doesn't know decodes as `Unknown`, which holds the raw object, `kind` included, and
+ * serializes it back unchanged, so an older reader neither fails nor drops it.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "EventBody".
@@ -398,7 +418,10 @@ export type EventBody =
       stats: ScanStats;
       kind: "scan";
     }
-  | HandoffStep;
+  | HandoffStep
+  | {
+      kind: string;
+    };
 /**
  * A review's outcome.
  *
@@ -407,12 +430,12 @@ export type EventBody =
  */
 export type Verdict = "accept" | "reject";
 /**
- * The eight event kinds, as the `kind` tag of an `EventBody` spells them.
+ * An event's kind, as the `kind` tag of an `EventBody` spells it; an open set.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "EventKind".
  */
-export type EventKind = "edit" | "review" | "undo" | "version" | "decision" | "claim" | "scan" | "handoff";
+export type EventKind = ("edit" | "review" | "undo" | "version" | "decision" | "claim" | "scan" | "handoff") | string;
 /**
  * A kind, `<pack>.<name>`, such as `code.service`, `kernel.group` or `kernel.external`.
  *
@@ -470,6 +493,13 @@ export type Tone = "service" | "library" | "store" | "infra";
  * via the `definition` "ScanState".
  */
 export type ScanState = "never" | "running" | "done";
+/**
+ * The step that resolves the engine, in the order the resolver tries them.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ResolverStep".
+ */
+export type ResolverStep = "override" | "checkout" | "cache" | "download";
 
 /**
  * What Planroom emits (the serialize view).
@@ -498,6 +528,7 @@ export interface Ack {
   rows: {
     [k: string]: AckStatus;
   };
+  [k: string]: unknown;
 }
 /**
  * `planroom.answer/v1`: a read request's result, under `answers/<docId>`, or a view the snapshot
@@ -526,6 +557,7 @@ export interface Answer {
    * Why the read failed, when it did.
    */
   error?: ErrorObject | null;
+  [k: string]: unknown;
 }
 /**
  * The handle that asks for this view.
@@ -1051,6 +1083,34 @@ export interface Empty {
   next: Handle1;
 }
 /**
+ * The mod's `engine` atom: written by `session.start` from the resolver's reply (DR-81).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "EngineState".
+ */
+export interface EngineState {
+  status: EngineStatus;
+  /**
+   * The resolver, `<plugin root>/scripts/planroom`, once the plugin root is known.
+   */
+  resolver: string | null;
+  /**
+   * The engine binary, once resolved.
+   */
+  path: string | null;
+  version: string | null;
+  catalogue_hash: string | null;
+  backend: string | null;
+  /**
+   * The one status line for this state: the resolver's message where it gave one.
+   */
+  line: string | null;
+  /**
+   * The exact command that fixes this state, when there is one.
+   */
+  fix: string | null;
+}
+/**
  * The reply to one command.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -1517,6 +1577,17 @@ export interface InboxRow {
    * A paired device's HMAC-SHA256 over the docId and the row without its `sig` (DR-67).
    */
   sig?: string | null;
+  [k: string]: unknown;
+}
+/**
+ * The mod's `lastSeq` atom: the `seq` of the last frame the watch loop read, so the loop starts
+ * again from it after a reload (DR-6); null before the first frame (DR-82).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "LastSeq".
+ */
+export interface LastSeq {
+  seq: number | null;
 }
 /**
  * Where a view's layout is cached: the view and the hash of its structure.
@@ -1630,6 +1701,7 @@ export interface LiveHead {
    * Engine-authored lines for the conflicts the last import found.
    */
   conflicts: string[];
+  [k: string]: unknown;
 }
 /**
  * One block on the map.
@@ -1778,6 +1850,16 @@ export interface Handle3 {
   label: string;
 }
 /**
+ * The mod's `pane` atom: the last `focus --json`, its `PaneModel` or the error it returned.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PaneState".
+ */
+export interface PaneState {
+  model: PaneModel | null;
+  error: string | null;
+}
+/**
  * What `person init` returns: the registered key's fingerprint and when and from where it was
  * registered.
  *
@@ -1826,6 +1908,28 @@ export interface PublishArgs {
    * On the first publish.
    */
   icon: string;
+}
+/**
+ * What `scripts/planroom status --json` prints: the step that resolves the engine, and its path
+ * when one resolved without a fetch.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ResolverStatus".
+ */
+export interface ResolverStatus {
+  /**
+   * Whether an engine resolved without a fetch.
+   */
+  ok: boolean;
+  step: ResolverStep;
+  /**
+   * The engine binary; absent when the next run would fetch it.
+   */
+  path?: string | null;
+  /**
+   * The engine version this plugin names, from `engine.env`.
+   */
+  version: string;
 }
 /**
  * What `scan` returns: the map at the top level with the default lens, and the next action.
@@ -1974,6 +2078,7 @@ export interface Snapshot {
    */
   capabilities: string[];
   unavailable: Empty1;
+  [k: string]: unknown;
 }
 /**
  * Why a list or view is empty, and what to do next; no surface shows a blank state.
@@ -1981,6 +2086,69 @@ export interface Snapshot {
 export interface Empty1 {
   reason: EmptyReason;
   next: Handle1;
+}
+/**
+ * A tool result's error: the envelope's error whole (DR-66). Only an error the mod authors, when no
+ * engine answered, may leave out its category and details.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ToolError".
+ */
+export interface ToolError {
+  code: ErrorCode;
+  category?: Category | null;
+  retry: Retry;
+  retry_after_ms?: number | null;
+  /**
+   * One line, engine-authored.
+   */
+  message: string;
+  /**
+   * An exact command.
+   */
+  hint?: string | null;
+  details?: unknown;
+}
+/**
+ * The fields of `meta` an agent acts on; absent when empty. `seq` is absent only when the
+ * engine never answered.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ToolMeta".
+ */
+export interface ToolMeta {
+  seq?: number | null;
+  next?: Cursor | null;
+  truncated?: boolean;
+  warnings?: Warning[];
+  model_requests?: ModelRequestRef[];
+}
+/**
+ * What a mod tool handler returns, for success and failure alike, as compact JSON text: the
+ * envelope less what an agent doesn't act on. Empty fields are left out (DR-66).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ToolResult".
+ */
+export interface ToolResult {
+  ok: boolean;
+  result?: unknown;
+  /**
+   * On failure: the error, never dropped.
+   */
+  error?: ToolError | null;
+  meta: ToolMeta;
+}
+/**
+ * The mod's `turnSeq` atom: the main loop's current turn and the latest `meta.seq` a tool returned
+ * to the model in it, the default `base` of the tools' writes.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "TurnSeq".
+ */
+export interface TurnSeq {
+  turnId: string | null;
+  seq: number | null;
 }
 /**
  * What `version` returns; the mod and the resolver match an engine by its catalogue hash.

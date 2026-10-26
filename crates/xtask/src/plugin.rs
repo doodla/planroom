@@ -89,6 +89,12 @@ pub fn layout_problems(root: &Path) -> Result<Vec<String>, String> {
         Ok(_) => problems.push("plugin/scripts/planroom is not executable".into()),
         Err(_) => problems.push("plugin/scripts/planroom is missing".into()),
     }
+    // The resolver sources these two generated files from its own directory (DR-69).
+    for generated in ["scripts/engine.env", "scripts/contract.sh"] {
+        if !plugin.join(generated).is_file() {
+            problems.push(format!("plugin/{generated} is missing; run cargo xtask gen"));
+        }
+    }
 
     let market = read_json(&root.join(".claude-plugin/marketplace.json"))?;
     let entries = market["plugins"].as_array().cloned().unwrap_or_default();

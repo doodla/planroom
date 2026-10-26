@@ -54,6 +54,7 @@ EOF
 make_plugin() {
   mkdir -p "$1/plugin/scripts"
   cp "$resolver" "$1/plugin/scripts/planroom"
+  cp "$repo/plugin/scripts/contract.sh" "$1/plugin/scripts/contract.sh"
   printf 'PLANROOM_ENGINE_VERSION=%s\nPLANROOM_CATALOGUE_HASH=h%s\nPLANROOM_REPO=doodla/planroom\n' "$2" "$2" \
     >"$1/plugin/scripts/engine.env"
   if [ "${3:-}" = checkout ]; then
@@ -425,6 +426,42 @@ the_repo_checkout_resolves_its_own_build() {
   expect_contains "$out" '"step":"checkout"'
 }
 
+the_resolver_spells_no_code_or_reason_itself() {
+  contract="$repo/plugin/scripts/contract.sh"
+  codes=$(sed -n 's/.*"code":"\([a-z_]*\)".*/\1/p' "$contract")
+  reasons=$(sed -n 's/^contract_reason_[a-z_]*=//p' "$contract")
+  if [ -z "$codes" ] || [ -z "$reasons" ]; then
+    fail "contract.sh names no codes or reasons"
+  fi
+  for word in $codes $reasons; do
+    if grep -v '^[[:space:]]*#' "$resolver" | grep -q -w -- "$word"; then
+      fail "the resolver spells $word itself; take it from contract.sh"
+    fi
+  done
+}
+
+# Each --json output is one JSON document; an envelope's size counts its own bytes.
+resolver_outputs_are_one_document_with_their_size() {
+  d="$work/outputs"
+  make_plugin "$d" 1.0.0
+  sized='import json, sys
+text = sys.stdin.read()
+doc = json.loads(text)
+size = doc["meta"]["size"]
+assert size["bytes"] == len(text.encode()), (size, len(text.encode()))
+assert size["tokens_est"] == (size["bytes"] + 3) // 4, size
+print(doc["error"]["code"])'
+  PLANROOM_DATA="$d/data" PLANROOM_ENGINE="$d/nothing" run "$d/plugin/scripts/planroom" focus --json
+  expect_eq "$code" 7
+  expect_eq "$(printf '%s' "$out" | python3 -I -c "$sized")" engine_unavailable "$out"
+  PLANROOM_DATA="$d/data" PLANROOM_RESOLVE=bogus run "$d/plugin/scripts/planroom" focus --json
+  expect_eq "$code" 2
+  expect_eq "$(printf '%s' "$out" | python3 -I -c "$sized")" invalid_argument "$out"
+  PLANROOM_DATA="$d/data" PLANROOM_RESOLVE=release run "$d/plugin/scripts/planroom" status --json
+  expect_eq "$code" 1
+  expect_eq "$out" '{"ok":false,"step":"download","version":"1.0.0"}'
+}
+
 # --- runner -------------------------------------------------------------------------------------
 
 start_server
@@ -437,7 +474,8 @@ for t in override_runs_the_named_binary a_missing_override_is_engine_unavailable
   a_missing_toolchain_names_its_install resolve_checkout_skips_the_cache_and_the_download \
   a_stale_fetch_lock_is_broken prune_keeps_a_recently_used_version runs_with_no_claude_variables \
   a_checkout_build_builds_the_canvas_first a_build_without_node_has_no_canvas \
-  a_clone_build_is_cached_and_its_clone_removed the_repo_checkout_resolves_its_own_build; do
+  a_clone_build_is_cached_and_its_clone_removed the_repo_checkout_resolves_its_own_build \
+  the_resolver_spells_no_code_or_reason_itself resolver_outputs_are_one_document_with_their_size; do
   case $t in *"$filter"*) ;; *) continue ;; esac
   # Not an `if` condition: there `set -e` would be off, and a failed assertion would go on.
   set +e

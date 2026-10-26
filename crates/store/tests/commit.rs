@@ -195,6 +195,23 @@ fn the_tail_sees_every_commit_through_data_version() {
 }
 
 #[test]
+fn an_event_of_a_kind_a_later_version_added_reads_back_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = open(dir.path());
+    let raw = json!({"kind": "presence_ping", "who": "person:ann", "nested": {"at": [1, 2]}});
+    let mut event = version_event(1);
+    event.body = serde_json::from_value(raw.clone()).unwrap();
+    store
+        .commit(Write { idem: "k".into(), request_hash: "h".into(), events: vec![event] }, |_| json!(null))
+        .unwrap();
+    let events = store.events_after(0, 10).unwrap();
+    assert_eq!(events.len(), 1);
+    assert!(matches!(events[0].body, EventBody::Unknown(_)));
+    assert_eq!(events[0].body.kind().as_str(), "presence_ping");
+    assert_eq!(serde_json::to_value(&events[0].body).unwrap(), raw);
+}
+
+#[test]
 fn a_commit_hook_gets_each_committed_seq() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = open(dir.path());

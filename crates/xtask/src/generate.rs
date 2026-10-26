@@ -34,10 +34,12 @@ type Generator = fn(&Path) -> Result<Group, String>;
 const GENERATORS: &[Generator] = &[
     |_| schemas(),
     typescript,
+    format_ts,
     catalogue,
     dependency_cruiser,
     clippy_tomls,
     engine_env,
+    contract_sh,
     area_contracts,
     modgen::bundle,
     plugin_version,
@@ -86,6 +88,67 @@ fn typescript(root: &Path) -> Result<Group, String> {
         files.push(Generated { path: format!("packages/contract/src/generated/{name}"), contents: ts });
     }
     Ok(Group { name: "packages/contract/src/generated/ and plugin/types/", files })
+}
+
+/// `packages/contract/src/generated/format.ts`: the TypeScript port of `contract::format::check`,
+/// the one format check every reader of a persisted document uses (contracts.md, Versioning rules).
+fn format_ts(_: &Path) -> Result<Group, String> {
+    use planroom_contract::format::Document;
+    use planroom_contract::{Ack, Answer, ErrorCode, InboxRow, LiveHead, SCHEMA_VERSION, Snapshot};
+    let names = [Snapshot::NAME, LiveHead::NAME, InboxRow::NAME, Answer::NAME, Ack::NAME];
+    let names = names.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(" | ");
+    let mismatch = ErrorCode::SchemaMismatch.as_str();
+    let contents = format!(
+        "// {GENERATED_HEADER}
+// The TypeScript port of `contract::format::check` (crates/contract/src/format.rs).
+
+/** The major version of the whole public contract: a reader loads formats up to it. */
+export const SCHEMA_VERSION = {SCHEMA_VERSION};
+
+/** The documents a surface reads with a format tag, `planroom.<name>/v<N>`. */
+export type DocumentName = {names};
+
+/** The format tag this version writes for the document `name`, such as `planroom.inbox/v1`. */
+export function formatTag(name: DocumentName): string {{
+  return `planroom.${{name}}/v${{SCHEMA_VERSION}}`;
+}}
+
+/** What a document's `format` allows: read it (at version `version`), or refuse it. */
+export type FormatCheck =
+  | {{ readonly ok: true; readonly version: number }}
+  | {{
+      readonly ok: false;
+      /** `{mismatch}` for a newer format; `other` for another document or none. */
+      readonly code: \"{mismatch}\" | \"other\";
+      readonly found: string;
+      readonly supported: string;
+    }};
+
+/**
+ * Check `doc.format` against the document `name`: `planroom.<name>/vN` with `N` from 1 up to
+ * `SCHEMA_VERSION` loads; a newer `N` is `{mismatch}`; anything else names another document.
+ */
+export function checkFormat(doc: unknown, name: DocumentName): FormatCheck {{
+  const supported = formatTag(name);
+  const found =
+    typeof doc === \"object\" && doc !== null && typeof (doc as {{ format?: unknown }}).format === \"string\"
+      ? (doc as {{ format: string }}).format
+      : \"\";
+  const version = /^[1-9][0-9]*$/.exec(found.slice(`planroom.${{name}}/v`.length));
+  if (!found.startsWith(`planroom.${{name}}/v`) || version === null) {{
+    return {{ ok: false, code: \"other\", found, supported }};
+  }}
+  const n = Number(version[0]);
+  return n <= SCHEMA_VERSION
+    ? {{ ok: true, version: n }}
+    : {{ ok: false, code: \"{mismatch}\", found, supported }};
+}}
+"
+    );
+    Ok(Group {
+        name: "packages/contract/src/generated/format.ts",
+        files: vec![Generated { path: "packages/contract/src/generated/format.ts".into(), contents }],
+    })
 }
 
 /// `packages/contract/src/generated/catalogue.ts`: every catalogue leaf, for the mod's tools, `/room`
@@ -260,6 +323,116 @@ fn engine_env(root: &Path) -> Result<Group, String> {
         name: "plugin/scripts/engine.env",
         files: vec![Generated { path: "plugin/scripts/engine.env".into(), contents }],
     })
+}
+
+pub const CONTRACT_SH: &str = "plugin/scripts/contract.sh";
+
+/// A printf template from a contract value: each `"@@name@@"` string in its JSON becomes `%s`, and
+/// the names come back in the order the template takes them. The caller passes each as JSON (a
+/// quoted string, a number or an object).
+fn printf_template(value: &serde_json::Value) -> Result<(String, Vec<String>), String> {
+    let mut text = serde_json::to_string(value).map_err(|e| e.to_string())?;
+    let mut holes = Vec::new();
+    while let Some(start) = text.find("\"@@") {
+        let end = start + 3 + text[start + 3..].find("@@\"").ok_or("an unterminated hole")?;
+        holes.push(text[start + 3..end].to_owned());
+        text.replace_range(start..end + 3, "%s");
+    }
+    if text.contains('\'') || text.contains('\\') || text.matches('%').count() != holes.len() {
+        return Err(format!("a template the resolver can't quote or printf: {text}"));
+    }
+    Ok((text, holes))
+}
+
+/// `plugin/scripts/contract.sh`: what the resolver prints, from the contract (DR-69). The POSIX sh
+/// resolver sources it, so it spells no error code, exit code, retry class or output shape itself.
+fn contract_sh(_: &Path) -> Result<Group, String> {
+    use planroom_contract::{
+        CommandName, Envelope, ErrorCode, ErrorObject, Meta, ResolverStatus, ResolverStep, SCHEMA_VERSION,
+        Size, UnavailableReason,
+    };
+    let hole = |name: &str| json!(format!("@@{name}@@"));
+    let envelope = |code: ErrorCode| -> Result<serde_json::Value, String> {
+        let spec = code.spec();
+        let env: Envelope<()> = Envelope {
+            schema_version: SCHEMA_VERSION,
+            ok: false,
+            command: CommandName("@@command@@".into()),
+            summary: None,
+            result: None,
+            error: Some(ErrorObject {
+                code,
+                category: spec.category,
+                retry: spec.retry,
+                retry_after_ms: (code.retry() == planroom_contract::Retry::Later).then_some(1),
+                message: "@@message@@".into(),
+                hint: Some("@@hint@@".into()),
+                details: hole("details"),
+            }),
+            meta: Meta { size: Size { bytes: 1, tokens_est: 1 }, ..Meta::default() },
+        };
+        let mut v = serde_json::to_value(env).map_err(|e| e.to_string())?;
+        if v["error"].get("retry_after_ms").is_some() {
+            v["error"]["retry_after_ms"] = hole("retry_after_ms");
+        }
+        v["meta"]["size"]["bytes"] = hole("bytes");
+        v["meta"]["size"]["tokens_est"] = hole("tokens_est");
+        Ok(v)
+    };
+    let mut out = format!(
+        "# {GENERATED_HEADER}
+# shellcheck shell=sh disable=SC2034
+# The contract the resolver, plugin/scripts/planroom, prints from (contracts.md, The resolver's
+# environment; DR-69), generated from crates/contract: contract::ErrorCode and ResolverStatus.
+# The resolver sources this file, so it spells no code, exit code, retry class or output shape.
+#
+# Each *_template is a printf format whose %s holes take JSON values, in the order its *_args
+# names them: a string goes in quoted (the resolver's json_string), a number or an object as is.
+
+contract_schema_version={SCHEMA_VERSION}
+"
+    );
+    out.push_str("\n# The resolver's error codes: each one's exit code, from its category.\n");
+    for code in [ErrorCode::EngineUnavailable, ErrorCode::EngineFetching, ErrorCode::InvalidArgument] {
+        let spec = code.spec();
+        let (template, args) = printf_template(&envelope(code)?)?;
+        if args[args.len() - 2..] != ["bytes", "tokens_est"] {
+            return Err(format!("{}'s envelope must end with its size: {args:?}", code.as_str()));
+        }
+        let name = code.as_str();
+        out.push_str(&format!(
+            "# {name}: {category:?}, retry {retry:?}: {meaning}\ncontract_{name}_exit={exit}\ncontract_{name}_template='{template}'\ncontract_{name}_args='{args}'\n",
+            category = spec.category,
+            retry = spec.retry,
+            meaning = spec.meaning,
+            exit = code.exit_code(),
+            args = args.join(" "),
+        ));
+    }
+    out.push_str("\n# engine_unavailable's details.reason values.\n");
+    for reason in UnavailableReason::ALL {
+        out.push_str(&format!("contract_reason_{0}={0}\n", reason.as_str()));
+    }
+    out.push_str("\n# ResolverStatus, what status --json prints: the steps, then the two shapes.\n");
+    for step in ResolverStep::ALL {
+        out.push_str(&format!("contract_step_{0}={0}\n", step.as_str()));
+    }
+    for (name, path) in [("resolved", Some("@@path@@".to_owned())), ("unresolved", None)] {
+        let status = ResolverStatus {
+            ok: path.is_some(),
+            step: ResolverStep::Download,
+            path,
+            version: "@@version@@".into(),
+        };
+        let mut v = serde_json::to_value(status).map_err(|e| e.to_string())?;
+        v["step"] = hole("step");
+        let (template, args) = printf_template(&v)?;
+        out.push_str(&format!(
+            "contract_status_{name}_template='{template}'\ncontract_status_{name}_args='{}'\n",
+            args.join(" ")
+        ));
+    }
+    Ok(Group { name: CONTRACT_SH, files: vec![Generated { path: CONTRACT_SH.into(), contents: out }] })
 }
 
 /// Write every generated file.

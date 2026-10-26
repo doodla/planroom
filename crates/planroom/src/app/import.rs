@@ -20,9 +20,9 @@ use std::collections::BTreeMap;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
+use planroom_contract::format::{self, FormatError, ReadError};
 use planroom_contract::remote::{
-    ACK_FORMAT, ANSWER_FORMAT, BATCH_MAX_BYTES, BATCH_MAX_WRITES, DB_DOC_MAX_BYTES, INBOX_FORMAT,
-    LIVE_HEAD_FORMAT,
+    ACK_FORMAT, ANSWER_FORMAT, BATCH_MAX_BYTES, BATCH_MAX_WRITES, DB_DOC_MAX_BYTES, LIVE_HEAD_FORMAT,
 };
 use planroom_contract::{
     Ack, AckStatus, Answer, Command, CommandName, DbBatch, DbOp, DbWrite, Detail, ErrorCode, Handle,
@@ -140,25 +140,18 @@ pub fn run(
             reason: Some(reason),
             answer: None,
         };
-        let format = row.get("format").and_then(Value::as_str).unwrap_or_default().to_owned();
-        if format != INBOX_FORMAT {
-            let newer = format
-                .strip_prefix("planroom.inbox/v")
-                .and_then(|v| v.parse::<u32>().ok())
-                .is_some_and(|v| v > planroom_contract::SCHEMA_VERSION);
-            outcomes.push(refuse(if newer {
-                text::get("import.newer_format", &[("format", &format)])
-            } else {
-                text::get("import.malformed", &[("why", &"format")])
-            }));
-            continue;
-        }
-        match serde_json::from_value::<InboxRow>(row) {
+        match format::read::<InboxRow>(row) {
             Ok(row) if !row.instance.is_empty() => {
                 pending.push(Pending { path: parsed.path, uid, doc_id, version: parsed.version, row })
             }
             Ok(_) => outcomes.push(refuse(text::get("import.malformed", &[("why", &"instance")]))),
-            Err(e) => outcomes.push(refuse(text::get("import.malformed", &[("why", &e)]))),
+            Err(ReadError::Format(FormatError::Newer { found, .. })) => {
+                outcomes.push(refuse(text::get("import.newer_format", &[("format", &found)])))
+            }
+            Err(ReadError::Format(FormatError::Other { .. })) => {
+                outcomes.push(refuse(text::get("import.malformed", &[("why", &"format")])))
+            }
+            Err(ReadError::Shape(e)) => outcomes.push(refuse(text::get("import.malformed", &[("why", &e)]))),
         }
     }
 
@@ -229,6 +222,7 @@ fn read(root: &Path, command: &str, request: Value) -> Answer {
         seq: 0,
         result: Value::Null,
         error: Some(e.object()),
+        extra: Default::default(),
     };
     if command != "map" {
         let handle = Handle { command: CommandName(command.into()), args: vec![], label: command.into() };
@@ -258,6 +252,7 @@ fn read(root: &Path, command: &str, request: Value) -> Answer {
                 seq: reply.seq,
                 result: serde_json::to_value(&view).unwrap_or(Value::Null),
                 error: None,
+                extra: Default::default(),
             };
             if size(&answer) > DB_DOC_MAX_BYTES {
                 // Evidence is a `show` away; drop it before giving up on the view.
@@ -313,6 +308,7 @@ fn live_head(store: &Store, seq: Seq, snapshot_seq: Seq) -> Result<LiveHead, App
         cards: vec![],
         changes,
         conflicts: vec![],
+        extra: Default::default(),
     };
     while size(&head) > DB_DOC_MAX_BYTES && !head.changes.is_empty() {
         head.changes.remove(0);
@@ -348,6 +344,7 @@ fn batch_files(
                     format: ACK_FORMAT.into(),
                     imported_through: seq,
                     rows: BTreeMap::new(),
+                    extra: Default::default(),
                 })
                 .rows
                 .insert(doc_id.clone(), status);

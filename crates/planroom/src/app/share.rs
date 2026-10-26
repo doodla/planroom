@@ -53,6 +53,7 @@ pub fn run(req: &ShareReq, cwd: &Path) -> Result<Reply<ShareResult>, AppError> {
         cards: snapshot.cards.clone(),
         changes: vec![],
         conflicts: vec![],
+        extra: Default::default(),
     };
 
     let out = out_dir(cwd, &req.out)?;
@@ -156,6 +157,7 @@ fn snapshot(store: &Store, root: &Path, req: &ShareReq) -> Result<Snapshot, AppE
                 label: text::get("share.unavailable", &[]),
             },
         },
+        extra: Default::default(),
     })
 }
 

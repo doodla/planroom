@@ -11,14 +11,16 @@
  * `db.d.ts`, `user.d.ts`); `ArtifactHost` below is the slice of it this transport calls.
  */
 
-import type {
-  Answer,
-  Handle,
-  InboxRow,
-  LiveHead,
-  MapView,
-  Snapshot,
-  StreamFrame,
+import {
+  checkFormat,
+  formatTag,
+  type Answer,
+  type Handle,
+  type InboxRow,
+  type LiveHead,
+  type MapView,
+  type Snapshot,
+  type StreamFrame,
 } from "@planroom/contract";
 
 import { STRINGS } from "../strings";
@@ -96,7 +98,7 @@ export function viewKey(command: string, request: object): string {
   return command === "focus" ? "pane" : command;
 }
 
-const INBOX_FORMAT = "planroom.inbox/v1";
+const INBOX_FORMAT = formatTag("inbox");
 
 export function artifactTransport(env: ArtifactEnv): Transport {
   let snapshot: Snapshot | null = null;
@@ -109,6 +111,8 @@ export function artifactTransport(env: ArtifactEnv): Transport {
   const instance = env.instance();
   /** Answers by view key: precomputed in the snapshot, or arrived from a sync. */
   const answers = new Map<string, Answer>();
+  /** View keys whose answer arrived in a format this page can't read. */
+  const unreadable = new Set<string>();
   /** Read requests written and not yet answered, by view key. */
   const asked = new Map<string, string>();
   const listeners = new Set<(frame: StreamFrame) => void>();
@@ -146,8 +150,10 @@ export function artifactTransport(env: ArtifactEnv): Transport {
       // Subscribe once, for the page's life (db.d.ts: never from render code).
       db.doc("live/head").onSnapshot(
         (snap) => {
-          if (snap.exists) {
-            head = snap.data() as unknown as LiveHead;
+          const data = snap.exists ? snap.data() : undefined;
+          // A head a newer engine wrote isn't read; the page keeps drawing what it holds.
+          if (checkFormat(data, "live-head").ok) {
+            head = data as unknown as LiveHead;
             changed();
           }
         },
@@ -170,7 +176,12 @@ export function artifactTransport(env: ArtifactEnv): Transport {
           return;
         }
         done = true;
-        answers.set(key, snap.data() as unknown as Answer);
+        const data = snap.data();
+        if (checkFormat(data, "answer").ok) {
+          answers.set(key, data as unknown as Answer);
+        } else {
+          unreadable.add(key);
+        }
         asked.delete(key);
         stop?.();
         changed();
@@ -193,6 +204,13 @@ export function artifactTransport(env: ArtifactEnv): Transport {
     requested(command, request): Requested {
       const key = viewKey(command, request);
       const answer = answers.get(key);
+      if (unreadable.has(key)) {
+        return {
+          state: "refused",
+          line: STRINGS.refused,
+          problem: STRINGS.newerDocument,
+        };
+      }
       if (answer?.error) {
         return {
           state: "refused",
@@ -217,6 +235,7 @@ export function artifactTransport(env: ArtifactEnv): Transport {
       const key = viewKey(command, request);
       // A failed answer is asked for again.
       answers.delete(key);
+      unreadable.delete(key);
       counter += 1;
       const ref = db.collection(`inbox/${uid}/events`).doc();
       const at = env.now().toISOString();
@@ -229,7 +248,7 @@ export function artifactTransport(env: ArtifactEnv): Transport {
         base: head?.seq ?? snapshot?.seq ?? 0,
         at,
       };
-      await ref.set(row as unknown as Record<string, unknown>);
+      await ref.set(row);
       asked.set(key, ref.id);
       // Bump the viewer's own head, so the session can list who wrote.
       const own = db.doc(`inbox/${uid}`);
@@ -269,7 +288,17 @@ export function artifactTransport(env: ArtifactEnv): Transport {
       if (!response.ok) {
         throw new TransportError("unreachable", STRINGS.snapshotMissing);
       }
-      snapshot = (await response.json()) as Snapshot;
+      const doc: unknown = await response.json();
+      const format = checkFormat(doc, "snapshot");
+      if (!format.ok) {
+        throw new TransportError(
+          "unreachable",
+          format.code === "other"
+            ? STRINGS.snapshotMissing
+            : STRINGS.newerDocument,
+        );
+      }
+      snapshot = doc as Snapshot;
       for (const answer of snapshot.answers) {
         const handle: Handle = answer.handle;
         answers.set(viewKey(handle.command, requestOf(handle)), answer);

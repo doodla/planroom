@@ -9,9 +9,11 @@ pub mod decision;
 pub mod envelope;
 pub mod errors;
 pub mod event;
+pub mod format;
 pub mod model;
 mod open_set;
 pub mod remote;
+pub mod resolver;
 pub mod schema;
 pub mod stream;
 pub mod view;
@@ -25,7 +27,7 @@ pub use command::{
 pub use decision::{Band, DecisionRecord, Outcome};
 pub use envelope::{
     CommandName, Cursor, Empty, EmptyReason, Envelope, ErrorObject, Handle, Meta, ModelRequestRef, ModelUse,
-    SCHEMA_VERSION, Size, Usage, Warning,
+    SCHEMA_VERSION, Size, ToolError, ToolMeta, ToolResult, Usage, Warning,
 };
 pub use errors::{Category, ErrorCode, Retry, WarningCode};
 pub use event::{
@@ -40,9 +42,10 @@ pub use remote::{
     Ack, AckStatus, Answer, DbBatch, DbOp, DbWrite, ImportLine, ImportResult, ImportedRow, InboxHead,
     InboxRow, LiveHead, PublishArgs, SampleUse, ShareResult, SharedFile, Snapshot,
 };
+pub use resolver::{ResolverStatus, ResolverStep, UnavailableReason};
 pub use stream::StreamFrame;
 pub use view::{
-    BatchInfo, Choice, Crumb, DecisionCard, DiffLine, DriftLine, Focus, LayoutKey, LiftedEdge, MapNode,
-    MapView, MiniBlock, MiniEdge, MiniMap, PaneModel, Position, PresenceRow, Progress, ScanState, Stakes,
-    Tone,
+    BatchInfo, Choice, Crumb, DecisionCard, DiffLine, DriftLine, EngineState, EngineStatus, Focus, LastSeq,
+    LayoutKey, LiftedEdge, MapNode, MapView, MiniBlock, MiniEdge, MiniMap, PaneModel, PaneState, Position,
+    PresenceRow, Progress, ScanState, Stakes, Tone, TurnSeq,
 };
