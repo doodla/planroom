@@ -58,6 +58,7 @@ const RESULTS: &[(&str, &str)] = &[
     ("watch", "StreamFrame"),
     ("schema", "SchemaSummary"),
     ("version", "VersionInfo"),
+    ("person init", "PersonKey"),
 ];
 
 /// `schema --command LEAF`: the leaf's request and result types with their `$defs` closure.

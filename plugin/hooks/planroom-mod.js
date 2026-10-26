@@ -76,6 +76,18 @@ var CATALOGUE = [
     "undo": "query",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "person init",
+    "idea": "setup",
+    "summary": "Register this workspace's person key, read from stdin; --rekey replaces it.",
+    "actor": "person_only",
+    "class": "change",
+    "budget_tokens": 400,
+    "needs_base": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
   }
 ];
 var FALLBACK_PANES = {

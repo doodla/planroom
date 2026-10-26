@@ -314,6 +314,22 @@
             "command",
             "args"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "person_init"
+            },
+            "args": {
+              "$ref": "#/$defs/PersonInitReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
         }
       ],
       "description": "One variant per catalogue leaf; the request travels as `args`."
@@ -348,7 +364,8 @@
             "scan",
             "watch",
             "schema",
-            "version"
+            "version",
+            "person init"
           ]
         },
         {
@@ -752,6 +769,8 @@
             "ambiguous_ref",
             "workspace_not_found",
             "not_found",
+            "person_required",
+            "person_key_mismatch",
             "idempotency_mismatch",
             "store_busy",
             "schema_mismatch",
@@ -2066,6 +2085,80 @@
         "errors"
       ],
       "description": "A file an extractor read with errors, such as one that isn't UTF-8."
+    },
+    "PersonInitReq": {
+      "type": "object",
+      "properties": {
+        "rekey": {
+          "type": "boolean",
+          "description": "Replace the registered key with the one on stdin.",
+          "default": false
+        },
+        "base": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The `seq` of the view you acted on; required when the command writes user-authored state."
+        },
+        "idem": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The idempotency key; derived from the request when absent."
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The project the write belongs to."
+        }
+      },
+      "required": [
+        "rekey",
+        "base",
+        "idem",
+        "project"
+      ],
+      "description": "`planroom person init [--rekey]`: the public key arrives on stdin as the base64url of its\nuncompressed SEC1 point (`crypto.subtle.exportKey(\"raw\")`), and the call carries a\n`PLANROOM_PERSON_TOKEN` signed by the registered key or by the key on stdin (DR-72, DR-75)."
+    },
+    "PersonKey": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "type": "string",
+          "description": "The first 16 hex characters of the sha256 of the key's SEC1 bytes."
+        },
+        "registered_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "surface": {
+          "$ref": "#/$defs/Surface"
+        },
+        "rekeyed": {
+          "type": "boolean",
+          "description": "This call replaced another key."
+        }
+      },
+      "required": [
+        "summary",
+        "fingerprint",
+        "registered_at",
+        "surface",
+        "rekeyed"
+      ],
+      "description": "What `person init` returns: the registered key's fingerprint and when and from where it was\nregistered."
     },
     "Position": {
       "type": "object",

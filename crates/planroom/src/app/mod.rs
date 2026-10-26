@@ -1,9 +1,11 @@
 //! App services: orchestration only. Each command is one handler here; rules live in the kernel,
 //! storage in the store, extraction in extract.
 
+pub mod actor;
 pub mod error;
 pub mod focus;
 pub mod map;
+pub mod person;
 pub mod scan;
 pub mod version;
 pub mod workspace;

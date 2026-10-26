@@ -5,8 +5,8 @@ use serde_json::{Map, Value, json};
 
 use crate::{
     Command, CommandList, Edge, Envelope, ErrorCode, ErrorObject, Event, Evidence, FactBatch, FocusReq, Hint,
-    LeafSchema, MapReq, MapView, Node, PaneModel, ScanReq, ScanResult, SchemaReq, SchemaSummary, StreamFrame,
-    VersionInfo, VersionReq, Warning, WarningCode, WatchReq,
+    LeafSchema, MapReq, MapView, Node, PaneModel, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq,
+    SchemaSummary, StreamFrame, VersionInfo, VersionReq, Warning, WarningCode, WatchReq,
 };
 
 /// The first line, or the `$comment`, of every generated file.
@@ -67,6 +67,7 @@ pub fn generate(view: View) -> Value {
         WatchReq,
         SchemaReq,
         VersionReq,
+        PersonInitReq,
         MapView,
         PaneModel,
         ScanResult,
@@ -74,6 +75,7 @@ pub fn generate(view: View) -> Value {
         CommandList,
         LeafSchema,
         VersionInfo,
+        PersonKey,
         StreamFrame,
         Node,
         Edge,

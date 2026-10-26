@@ -10,12 +10,13 @@ use std::time::Instant;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
-    Command, CommandName, Envelope, FocusReq, MapReq, Meta, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, Size,
-    StreamFrame, VersionReq, Warning, WatchReq,
+    Command, CommandName, Envelope, FocusReq, MapReq, Meta, PersonInitReq, SCHEMA_VERSION, ScanReq,
+    SchemaReq, Seq, Size, StreamFrame, VersionReq, Warning, WatchReq,
 };
 use planroom_store::Tail;
 use serde::Serialize;
 
+use crate::app::actor::Caller;
 use crate::app::error::AppError;
 use crate::app::{self, Reply, workspace};
 use crate::live::Live;
@@ -45,9 +46,19 @@ enum Cmd {
     Schema(SchemaReq),
     /// This engine's version, target, schema version and catalogue hash.
     Version(VersionReq),
+    /// The person key that signs a person's actions.
+    #[command(subcommand)]
+    Person(PersonCmd),
+}
+
+#[derive(Subcommand)]
+enum PersonCmd {
+    /// Register this workspace's person key, read from stdin; --rekey replaces it.
+    Init(PersonInitReq),
 }
 
 pub fn main() -> ExitCode {
+    let caller = Caller::from_env();
     let cli = Cli::parse();
     let Some(command) = cli.command else {
         Cli::command().print_help().expect("help is written to stdout");
@@ -75,6 +86,11 @@ pub fn main() -> ExitCode {
         Cmd::Schema(req) => {
             let name = Command::Schema(req.clone()).name();
             finish(cli.json, &name.0, app::version::schema(&req), started)
+        }
+        Cmd::Person(PersonCmd::Init(req)) => {
+            let name = Command::PersonInit(req.clone()).name();
+            let reply = app::person::run(&req, &cwd, &caller, &mut std::io::stdin().lock());
+            finish(cli.json, &name.0, reply, started)
         }
         Cmd::Version(req) => {
             let name = Command::Version(req).name();

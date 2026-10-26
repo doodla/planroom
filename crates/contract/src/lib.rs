@@ -17,8 +17,8 @@ pub mod view;
 
 pub use command::{
     ActorRule, Class, Command, CommandList, CommandSpec, Detail, FocusReq, Idea, LeafListing, LeafSchema,
-    MapReq, ScanReq, ScanResult, SchemaReq, SchemaSummary, Tool, Undo, VersionInfo, VersionReq, WatchReq,
-    WriteCommon,
+    MapReq, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary, Tool, Undo, VersionInfo,
+    VersionReq, WatchReq, WriteCommon,
 };
 pub use decision::{Band, DecisionRecord, Outcome};
 pub use envelope::{

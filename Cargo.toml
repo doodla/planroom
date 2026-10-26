@@ -29,3 +29,4 @@ saphyr-parser = "=0.1.0"
 sha2 = "=0.11.0"
 tempfile = "=3.27.0"
 uuid = { version = "=1.28.0", features = ["v7"] }
+p256 = { version = "=0.14.0", default-features = false, features = ["ecdsa", "std"] }

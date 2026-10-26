@@ -87,11 +87,23 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "undo": "query",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "person init",
+    "idea": "setup",
+    "summary": "Register this workspace's person key, read from stdin; --rekey replaces it.",
+    "actor": "person_only",
+    "class": "change",
+    "budget_tokens": 400,
+    "needs_base": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
   }
 ];
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
-export const CATALOGUE_HASH = "01ba45f9afa2b267d1036467727e94fcd461d0258b906e5f4a41b505689016b4";
+export const CATALOGUE_HASH = "46f7dcd4aa89e48c1660a843dcd45c25f9956530aed0b3af6c2a78db6577792d";
 
 /** One pane the mod draws before the engine answers `focus` (DR-57). */
 export interface FallbackPane {

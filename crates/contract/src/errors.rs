@@ -103,6 +103,12 @@ error_codes! {
     WorkspaceNotFound = "workspace_not_found", NotFound, Never,
         "no repos at the path, or a read found no workspace store", ["path"];
     NotFound = "not_found", NotFound, Never, "unknown ID, question or file", ["closest"];
+    PersonRequired = "person_required", Permission, Never,
+        "a person-only command without a valid person token: missing, stale, spent, or for another command",
+        ["command", "reason"];
+    PersonKeyMismatch = "person_key_mismatch", Permission, Never,
+        "person init found another key registered; the pane's Use this session's key button runs person init --rekey",
+        ["registered_at", "surface"];
     IdempotencyMismatch = "idempotency_mismatch", Conflict, Never,
         "the same idem with a different request", ["idem", "stored_event"];
     StoreBusy = "store_busy", Unavailable, Now, "still locked after the 5 s busy timeout", [];

@@ -39,7 +39,7 @@ export type Band = "auto" | "card" | "escalate";
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "CommandName".
  */
-export type CommandName = ("map" | "focus" | "scan" | "watch" | "schema" | "version") | string;
+export type CommandName = ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init") | string;
 /**
  * An error's category; the exit code and the HTTP status follow it.
  *
@@ -108,6 +108,10 @@ export type Command =
   | {
       command: "version";
       args: VersionReq;
+    }
+  | {
+      command: "person_init";
+      args: PersonInitReq;
     };
 /**
  * The five fixed levels, from the plan down to the code.
@@ -284,6 +288,8 @@ export type ErrorCode =
       | "ambiguous_ref"
       | "workspace_not_found"
       | "not_found"
+      | "person_required"
+      | "person_key_mismatch"
       | "idempotency_mismatch"
       | "store_busy"
       | "schema_mismatch"
@@ -572,6 +578,32 @@ export interface SchemaReq {
  */
 export interface VersionReq {}
 /**
+ * `planroom person init [--rekey]`: the public key arrives on stdin as the base64url of its
+ * uncompressed SEC1 point (`crypto.subtle.exportKey("raw")`), and the call carries a
+ * `PLANROOM_PERSON_TOKEN` signed by the registered key or by the key on stdin (DR-72, DR-75).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PersonInitReq".
+ */
+export interface PersonInitReq {
+  /**
+   * Replace the registered key with the one on stdin.
+   */
+  rekey: boolean;
+  /**
+   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   */
+  base: number | null;
+  /**
+   * The idempotency key; derived from the request when absent.
+   */
+  idem: string | null;
+  /**
+   * The project the write belongs to.
+   */
+  project: NodeId | null;
+}
+/**
  * What `schema --commands` returns: every leaf, summary first.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -807,7 +839,7 @@ export interface Envelope {
   /**
    * A command name from the catalogue, its path joined with spaces.
    */
-  command: ("map" | "focus" | "scan" | "watch" | "schema" | "version") | string;
+  command: ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init") | string;
   result?: unknown;
   error?: ErrorObject | null;
   meta: Meta;
@@ -1329,6 +1361,26 @@ export interface Handle2 {
   command: CommandName;
   args: string[];
   label: string;
+}
+/**
+ * What `person init` returns: the registered key's fingerprint and when and from where it was
+ * registered.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PersonKey".
+ */
+export interface PersonKey {
+  summary: string;
+  /**
+   * The first 16 hex characters of the sha256 of the key's SEC1 bytes.
+   */
+  fingerprint: string;
+  registered_at: Timestamp;
+  surface: Surface;
+  /**
+   * This call replaced another key.
+   */
+  rekeyed: boolean;
 }
 /**
  * What `scan` returns: the map at the top level with the default lens, and the next action.

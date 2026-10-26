@@ -90,6 +90,7 @@ pub enum Command {
     Watch(WatchReq),
     Schema(SchemaReq),
     Version(VersionReq),
+    PersonInit(PersonInitReq),
 }
 
 const MAP: CommandSpec = CommandSpec {
@@ -202,9 +203,31 @@ const VERSION: CommandSpec = CommandSpec {
     room: false,
 };
 
+const PERSON_INIT: CommandSpec = CommandSpec {
+    path: &["person", "init"],
+    idea: Idea::Setup,
+    summary: "Register this workspace's person key, read from stdin; --rekey replaces it.",
+    actor: ActorRule::PersonOnly,
+    class: Class::Change,
+    budget_tokens: 400,
+    needs_base: false,
+    errors: &[
+        ErrorCode::InvalidArgument,
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::PersonRequired,
+        ErrorCode::PersonKeyMismatch,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Query,
+    tool: None,
+    room: false,
+};
+
 impl Command {
     /// Every leaf's spec, in catalogue order.
-    pub const SPECS: &'static [CommandSpec] = &[MAP, FOCUS, SCAN, WATCH, SCHEMA, VERSION];
+    pub const SPECS: &'static [CommandSpec] = &[MAP, FOCUS, SCAN, WATCH, SCHEMA, VERSION, PERSON_INIT];
 
     pub const fn spec(&self) -> &'static CommandSpec {
         match self {
@@ -214,6 +237,7 @@ impl Command {
             Command::Watch(_) => &WATCH,
             Command::Schema(_) => &SCHEMA,
             Command::Version(_) => &VERSION,
+            Command::PersonInit(_) => &PERSON_INIT,
         }
     }
 
@@ -374,6 +398,33 @@ pub struct SchemaReq {
 /// `planroom version`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct VersionReq {}
+
+/// `planroom person init [--rekey]`: the public key arrives on stdin as the base64url of its
+/// uncompressed SEC1 point (`crypto.subtle.exportKey("raw")`), and the call carries a
+/// `PLANROOM_PERSON_TOKEN` signed by the registered key or by the key on stdin (DR-72, DR-75).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct PersonInitReq {
+    /// Replace the registered key with the one on stdin.
+    #[arg(long)]
+    #[serde(default)]
+    pub rekey: bool,
+    #[serde(flatten)]
+    #[command(flatten)]
+    pub common: WriteCommon,
+}
+
+/// What `person init` returns: the registered key's fingerprint and when and from where it was
+/// registered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PersonKey {
+    pub summary: String,
+    /// The first 16 hex characters of the sha256 of the key's SEC1 bytes.
+    pub fingerprint: String,
+    pub registered_at: crate::event::Timestamp,
+    pub surface: crate::event::Surface,
+    /// This call replaced another key.
+    pub rekeyed: bool,
+}
 
 /// What `version` returns; the mod and the resolver match an engine by its catalogue hash.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

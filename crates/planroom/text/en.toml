@@ -8,15 +8,20 @@ store_busy = "The store is still locked by another Planroom process after 5 s."
 schema_mismatch = "This store is version {found}, newer than this engine reads ({supported})."
 git_failed = "git failed in {repo}: {what}"
 internal = "Planroom hit a bug: {what}"
+person_required = "Only a person can run {command}: press its button in the Planroom pane."
+person_key_mismatch = "Another person key is registered for this workspace, since {registered_at}."
 
 [hint]
 workspace_not_found = "planroom scan DIR"
 idempotency_mismatch = "pass a new --idem to make another write"
 store_busy = "retry the same command"
 schema_mismatch = "update Planroom, then retry"
+person_required = "press the action's button in the Planroom pane, or type it after /room"
+person_key_mismatch = "press Use this session's key in the Planroom pane"
 
 [argument]
 focus_unsupported = "--focus isn't available yet; run map without it."
+person_key = "stdin must hold the person key: the base64url of an uncompressed P-256 point."
 unknown_leaf = "No command {leaf} in the catalogue; planroom schema --commands lists them."
 
 [warning]
@@ -69,6 +74,11 @@ summary = "{count} at the top: {names}."
 scan = "Scanned {repo} at {commit}."
 version = "Tagged {label}."
 other = "A {kind} event."
+
+[person]
+registered = "Registered the person key {fingerprint} for this workspace."
+already = "The person key {fingerprint} is already registered for this workspace."
+rekeyed = "Replaced this workspace's person key with {fingerprint}."
 
 [version]
 summary = "planroom {version} for {target}, catalogue {hash}."
