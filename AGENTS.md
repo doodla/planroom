@@ -17,9 +17,9 @@ Shared instructions for coding agents (and people) working on Planroom, a shared
 
 ## Money and credentials
 
-- Configuration holds only the names of environment variables, never a secret. Never print, log, persist or put a credential in argv, a URL, a fixture or an error message.
-- Spend guards and the `live_tests_total_usd` ledger bound every paid call; a guard that stops work turns it into a card, never a silent drop.
-- Never send a credential to a host other than the configured provider origin.
+- A workspace's configuration holds only the names of environment variables, never a secret. The gateway key may sit only in the user-level config, at mode 0600. Never print, log, persist or put a credential in argv, a URL, a fixture or an error message.
+- Spend guards bound every paid call: the user-level ledger holds the daily cap, and `docs/evidence/spend.jsonl` holds the build's `live_tests_total_usd` cap. A decision past a guard keeps its kind's default and stays pending, never a card with no pick; a model-only command returns `budget_exceeded`.
+- Never send a credential to a host other than `ai-gateway.vercel.sh`, `api.typesafe.ai` or the host of a user-level `base_url`.
 
 ## Dependencies
 
@@ -29,10 +29,10 @@ Shared instructions for coding agents (and people) working on Planroom, a shared
 
 ## Tests
 
-- Tests are offline, free and deterministic: strict replay, the fixture built per run, the `patch` implementer, fake keys only.
-- Live tests are opt-in behind `PLANROOM_LIVE_*` and never run in CI.
+- Tests are offline, free and deterministic: strict replay, the fixture built per run, a temporary data root, the `patch` implementer, fake keys only.
+- Live calls are opt-in behind `PLANROOM_LIVE_*` and never run in CI. The build container's proxy is no credential without that flag, and every live call lands in `docs/evidence/spend.jsonl`, whose total stays under $3.
 - Test observable behavior through the CLI `--json` or the HTTP API; compare with `TRUTH.json` through `planroom-testkit::truth`.
-- A `feature_list.json` entry turns `passing` only when every test it lists passes on its CI path.
+- A `feature_list.json` entry turns `passing` only when every test it lists passes on its CI path. A test that needs a live session goes on the entry's evidence path, never in its `tests`.
 
 ## Documentation
 
@@ -44,16 +44,19 @@ Shared instructions for coding agents (and people) working on Planroom, a shared
 
 - `boundaries.toml` is the single source of the boundary rules for Rust, TypeScript and packs. `cargo xtask check boundaries` enforces the Rust side and `cargo xtask gen` writes `.dependency-cruiser.cjs` for the TypeScript side.
 - Library crates depend only on `planroom-contract`; only `planroom` composes them; `planroom-testkit` is a dev-dependency only.
-- The kernel is domain-free: no I/O, and no built-in pack kind ID in its string literals.
+- The kernel is domain-free: no I/O, and no built-in pack kind or relation name, with or without its `<pack>.` prefix, in its string literals.
 - Each top-level area's `AGENTS.md` (or `README.md` for `plugin/` and `packs/`) states what it owns, what it may depend on and how to test it.
 
 ## Conventions
 
+This section is the conventions' only home; `docs/contributing/repo-layout.md` links here.
+
 ### Naming
 
 - Crates are `planroom-<area>`; the binary is `planroom`; npm packages are `@planroom/<area>`.
-- Kinds are `<pack>.<snake_case>`; the kernel's own are `kernel.group` and `kernel.external`.
-- Node IDs are `<namespace>:<kind-short>:<key>`; edge IDs `e:<12 hex>`; plan items `plan:<project>:<key>`.
+- Kinds are `<pack>.<snake_case>`; the kernel's own are `kernel.group`, `kernel.external`, `kernel.project` and `kernel.item`, and its one relation is `kernel.touches`.
+- Node IDs are `<namespace>:<kind-short>:<key>`, where kind-short is the kind's `id_prefix`; edge IDs `e:<12 hex>`; plan items `plan:<project>:<key>`.
+- Extractor and linker names are pack-qualified: `<pack>/<name>`.
 - Commands are lowercase verbs or nouns in the catalogue; CLI flags are long-form only.
 - Format tags are `planroom.<kebab-name>/v<schema_version>`.
 - Rust modules are `snake_case`; TypeScript files are kebab-case and React components PascalCase.
@@ -61,46 +64,48 @@ Shared instructions for coding agents (and people) working on Planroom, a shared
 
 ### Error codes
 
-- Add a variant to `contract::ErrorCode` with its category, exit code, retryable flag, `details` shape and docs row; regenerate `docs/reference/errors.md`.
+- Add a variant to `contract::ErrorCode` with its category, exit code, retry class (`never`, `now`, `after_reread` or `later`), `details` shape and docs row; regenerate `docs/reference/errors.md`.
 - Never return an ad-hoc code string; a source scan fails on one outside the registry.
 - Messages are one line, engine-authored, from `crates/planroom/text/en.toml`; hints are exact commands.
 - Warnings use `contract::WarningCode` the same way.
 
 ### Logging
 
-- `tracing` to stderr only, so `--json` stdout stays one document; `PLANROOM_LOG=info` by default.
+- `tracing` to stderr, so `--json` stdout stays one document; `PLANROOM_LOG=info` by default.
+- `watch`, `serve` and duties also log to `DATA_ROOT/logs/<workspace_id>/<process>.log`, capped at 1 MiB with one rotation, because a detached process's stderr goes nowhere.
 - Never log prompts, slices, file contents, headers or the person key.
-- Redact anything matching the secret patterns in `kernel::redact` before it reaches a log, an error `details` or a snapshot.
+- Redact anything matching the secret patterns in `kernel::redact` before it reaches a log, an error `details`, a snapshot, a model request or a tool output.
 
 ### Configuration
 
-- One optional file, `.planroom/config.toml`; every key has a default in `crates/planroom/src/config/defaults.toml`.
-- Environment overrides are `PLANROOM_*`; keys never hold secrets, only the names of environment variables.
+- Two optional files of one schema: the workspace's `.planroom/config.toml`, loaded only when the workspace is trusted, and the user-level `${XDG_CONFIG_HOME:-$HOME/.config}/planroom/config.toml`; every key has a default in `crates/planroom/src/config/defaults.toml`.
+- Environment overrides are `PLANROOM_*`. Credential settings (backends, `base_url`, `api_key_env`, `api_key`) come only from the environment or the user-level file, and `api_key` only at mode 0600; a workspace's file never holds them.
 - `docs/reference/configuration.md` is generated from the defaults file.
 - A new setting needs a decision record saying why no default works (R14).
 
 ### Where new code goes
 
-| You are adding                     | It goes in                                                                                |
-| ---------------------------------- | ----------------------------------------------------------------------------------------- |
-| a language with a built-in grammar | a `.scm` file and `[[extractors]]` in `packs/code`, emitting the existing hint kinds      |
-| any other language                 | a `regex` extractor in a pack, emitting the existing hint kinds                           |
-| a file format that needs a parser  | a module in `crates/extract`, plus a `builtin` declaration in a pack                      |
-| a cross-repo join                  | a linker in `crates/extract/src/link/`, plus a `[[linkers]]` declaration                  |
-| a question                         | `[[questions]]` in a pack, as a pipeline of existing shapes                               |
-| a query shape                      | the kernel, with a decision record naming the two packs that need it                      |
-| a decision kind                    | `[[decisions]]` in a pack, plus `evals/`; a kernel role only with a decision record       |
-| a command                          | a `Command` variant with its `CommandSpec`, and one handler in `crates/planroom/src/app/` |
-| a canvas view                      | `packages/canvas/src/views/`, reached from one of the five concepts                       |
-| a pane section or key              | `packages/mod/src/pane.tsx` and the key map snapshot; hotkeys come from `@planroom/ui`    |
-| a public type                      | `crates/contract/src/`, then `cargo xtask gen`                                            |
-| a user-facing string               | `crates/planroom/text/en.toml`, or a pack label                                           |
-| a test helper                      | `crates/testkit` (Rust) or `tests/e2e/shims/` (browser)                                   |
-| a recorded model response          | `cargo xtask live record`, never by hand                                                  |
+| You are adding                     | It goes in                                                                                                          |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| a language with a built-in grammar | a `[[languages]]` entry, a `.scm` file and `[[extractors]]` in `packs/code`, emitting the existing hint kinds       |
+| any other language                 | a `[[languages]]` entry and a `regex` extractor in a pack, emitting the existing hint kinds                         |
+| a file format that needs a parser  | a module in `crates/extract`, plus a `builtin` declaration in a pack                                                |
+| a cross-repo join                  | a linker in `crates/extract/src/link/`, plus a `[[linkers]]` declaration                                            |
+| a question                         | `[[questions]]` in a pack, as a pipeline of existing shapes                                                         |
+| a query shape                      | the kernel, with a decision record naming the two packs that need it                                                |
+| a decision kind                    | `[[decisions]]` in a pack with its `stakes` and `default`, plus `evals/`; a kernel role only with a decision record |
+| a command                          | a `Command` variant with its `CommandSpec`, its undo class, and one handler in `crates/planroom/src/app/`           |
+| a canvas view                      | `packages/canvas/src/views/`, reached from one of the five concepts                                                 |
+| a pane section or key              | `packages/mod/src/pane.tsx` and the key map snapshot; hotkeys come from `@planroom/ui`                              |
+| a public type                      | `crates/contract/src/`, then `cargo xtask gen`                                                                      |
+| a user-facing string               | `crates/planroom/text/en.toml`, or a pack label                                                                     |
+| a test helper                      | `crates/testkit` (Rust) or `tests/e2e/shims/` (browser)                                                             |
+| a recorded model response          | `cargo xtask live record`, never by hand                                                                            |
 
 ## Working in this repository
 
 - Run `cargo xtask check` and `cargo xtask test` before claiming success, and say what was skipped. Agents and CI use only `cargo xtask` commands.
+- Before editing under an area, read its `AGENTS.md`, or its `README.md` for `plugin/` and `packs/`. A one-line `CLAUDE.md` beside each area's `AGENTS.md` imports it, so Claude Code loads it when you read files there.
 - Never edit `KICKOFF.md`, `examples/kickoff-snapshot.md` or `TRUTH.json` (the last only through a decision record).
 - Keep `.claude/carry.md` current and under 4,000 characters; keep `progress.md` as the full record.
 - Changing the layout, a boundary or a convention in this file needs a decision record in `docs/contributing/decisions.md` first.

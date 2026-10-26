@@ -1,7 +1,7 @@
 {
   "format": "planroom.feature-list/v1",
   "about": "One entry per acceptance scenario S1 to S15 from KICKOFF.md, plus tier C entries for things the design adds. ci_path is the deterministic path: named CLI --json queries and harness steps, compared with examples/TRUTH.json where a compare list is given, with every Jev and Claude call replayed and the fixture implementer in place of the implementer agent. evidence_path is run live once and recorded under docs/evidence/. Status turns passing only when every listed test passes on the CI path. Never weaken or delete an entry except through an approved infeasibility decision record.",
-  "fixture_note": "Every CI path builds its own fixture with cargo xtask fixture, which runs examples/build-fixture and writes OUT/.planroom/config.toml loading examples/packs/ruby, because TRUTH.json lists the healthcheck container and its edges (DR-13). S10 uses --no-packs.",
+  "fixture_note": "Every CI path builds its own fixture with cargo xtask fixture, which runs examples/build-fixture and writes OUT/.planroom/config.toml loading examples/packs/ruby, because TRUTH.json lists the healthcheck container and its edges (DR-13). S10 uses --no-packs. It also records OUT as a trusted workspace in a temporary data root (PLANROOM_DATA), so each run's ledger, backups, trust records and hand-off worktrees start empty (DR-48, DR-53), and strict replay counts as consent to every provider (DR-49). The Ruby pack is out of tree, so the first scan deals its one first-load card (DR-48).",
   "features": [
     {
       "id": "S1",
@@ -27,7 +27,7 @@
           "PLANROOM_MODELS=off planroom scan $OUT --json on a fresh fixture: the same truth comparison holds with every model call off"
         ],
         "compare": [
-          "TRUTH.containers (name, repo, kind, every evidence item)",
+          "TRUTH.containers (name, repo, kind matched against the container's role, every evidence item)",
           "TRUTH.components (path at any level of the hierarchy, container, kind)",
           "TRUTH.relations by (from, to, kind), every evidence item by path, line and contains",
           "TRUTH.repos.<repo>.languages as a minimum"
@@ -38,7 +38,8 @@
           "default lens is runtime",
           "exactly one next action",
           "roll-ups are faithful at every level (counts sum to leaf edges; zoom in and out returns the same MapView)",
-          "search finds every truth entity"
+          "search finds every truth entity",
+          "the first scan deals at most 3 cards, batched by cause (the Ruby pack's first-load card among them), with models replayed and with models off (DR-50)"
         ],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing"
@@ -56,9 +57,12 @@
         "crates/planroom/tests/s01_first_look.rs::zoom_to_code_and_back_is_faithful",
         "crates/planroom/tests/s01_first_look.rs::every_truth_container_component_and_relation_with_evidence",
         "crates/planroom/tests/s01_first_look.rs::search_finds_every_truth_entity",
+        "crates/planroom/tests/s01_first_look.rs::repo_languages_match_truth",
         "crates/planroom/tests/s01_first_look.rs::deterministic_with_models_off",
         "crates/kernel/tests/rollup.rs::rollup_is_faithful_at_every_level",
-        "tests/e2e/first-look.spec.ts"
+        "tests/e2e/first-look.spec.ts",
+        "crates/extract/tests/contract.rs::files_language_from_the_languages_table",
+        "crates/planroom/tests/first_run.rs::first_scan_deals_at_most_three_cards"
       ]
     },
     {
@@ -105,7 +109,11 @@
         "crates/planroom/tests/s02_questions.rs::stale_versions_match_truth",
         "crates/planroom/tests/s02_questions.rs::path_storefront_to_worker_has_each_hop_with_evidence",
         "crates/kernel/tests/query.rs::path_follows_flow_lens_only",
-        "crates/planroom/tests/budgets.rs::budgets_within_20_percent"
+        "crates/planroom/tests/budgets.rs::budgets_within_20_percent",
+        "crates/extract/tests/link.rs::metric_mentions_add_evidence_only",
+        "crates/extract/tests/link.rs::otel_counter_joins_its_prometheus_name",
+        "crates/extract/tests/formats.rs::changelog_sets_repo_version",
+        "crates/extract/tests/formats.rs::compose_kind_from_image_roles"
       ]
     },
     {
@@ -123,10 +131,10 @@
         "steps": [
           "planroom scan $OUT --json",
           "planroom intent new \"Add retries to the worker\" --json (person)",
-          "planroom intent next --stage S --json for S in intent, outcome, breakdown, next_actions, priorities, premortem (engine Claude, replayed; proposals land as ghosts)",
+          "planroom intent next --stage S --json for S in intent, outcome, breakdown, next_actions, priorities, premortem (engine Claude, replayed, with the plan pack's one shared prefix and the stage's method in the tail; proposals land as ghosts)",
           "planroom intent list --json: every proposal is a ghost and lint and reconciliation ignore it",
-          "planroom decide CARD accept --json with no person key: person_required",
-          "planroom decide CARD accept --base SEQ --json (person), one batch per stage; version 1 is tagged when the first batch lands",
+          "PLANROOM_ACTOR=agent:aaaaaaaa:chat planroom decide CARD accept --json: person_required",
+          "planroom decide CARD accept --base SEQ --json (person), one batch per stage; each accept writes a new edit copying the ghost's fields under the normal compare-and-set; version 1 is tagged when the first batch lands",
           "planroom intent propose --file plant.json --base SEQ --json (person): one vague next action and one next action with no done-test",
           "planroom decide --run --json (Jev replayed for next_action_concrete and plan_item_vagueness)",
           "planroom intent lint --json",
@@ -141,11 +149,12 @@
           "ghosts stay ghosts until a person accepts them",
           "lint flags exactly the vague action (Jev) and the missing done-test (structural)",
           "the accepted plan is version 2",
-          "the v1 to v2 diff is a Diff of kind Versions rendered by the same component as S4"
+          "the v1 to v2 diff is a Diff of kind Versions rendered by the same component as S4",
+          "after the first stage, the stage calls read at least 0.6 of their prefix tokens from the cache (replayed usage; DR-23)"
         ],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
-          "person steps run with PLANROOM_PERSON_KEY from $OUT/.planroom/person.key (the test harness acting as a person); agent steps run with no TTY and no key"
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
         ]
       },
       "evidence_path": {
@@ -162,7 +171,8 @@
         "crates/planroom/tests/s03_plan.rs::accepted_plan_is_version_2",
         "crates/planroom/tests/s03_plan.rs::version_diff_renders_in_the_shared_view",
         "crates/kernel/tests/lint.rs::next_action_needs_done_test",
-        "tests/e2e/plan.spec.ts"
+        "tests/e2e/plan.spec.ts",
+        "crates/planroom/tests/budgets.rs::s3_cache_hit_rate_at_least_0_6_after_the_first_stage"
       ]
     },
     {
@@ -186,7 +196,7 @@
           "planroom diff --intended --json (the intended-vs-actual diff with its impact radius, on the main state)",
           "planroom handoff start worker-status-via-api --implementer patch --patches examples/fixture/implementer/worker-status-via-api --json (person; the fixture implementer applies worker.patch and platform.patch with git apply and commits)",
           "planroom handoff collect worker-status-via-api --json",
-          "planroom handoff merge worker-status-via-api --json with no person key: person_required",
+          "PLANROOM_ACTOR=agent:aaaaaaaa:implementer planroom handoff merge worker-status-via-api --json: person_required",
           "planroom handoff merge worker-status-via-api --json (person; preflight every repo, then merge)",
           "planroom scan --json, then planroom diff --intended --json",
           "harness: git -C $OUT/storefront merge --no-ff teammates and git -C $OUT/worker merge --no-ff teammates (both conflict-free)",
@@ -197,12 +207,12 @@
           "TRUTH.scenarios.S4.impact_radius (must_include and must_exclude, at step 2 on main)",
           "TRUTH.scenarios.S4.post_handoff (relations, relations_added, relations_removed with absence checks, components_added, components_removed) against the collected and merged state",
           "TRUTH.scenarios.S4.post_merges (relations, relations_added_back with every evidence item, compose_unchanged)",
-          "TRUTH.scenarios.S4.reconciliation_after_merges (worker-status-via-api done with regressions [worker-audit-db-write]; storefront-gift-wrap unplanned; worker-audit-db-write regression against worker-status-via-api, not unplanned), matched by commit subject",
+          "TRUTH.scenarios.S4.reconciliation_after_merges (worker-status-via-api done with regressions [worker-audit-db-write]; storefront-gift-wrap unplanned; worker-audit-db-write regression against worker-status-via-api, not unplanned), matched by commit subject, read from the reconcile outcome on the last scan event; no merge commit is a change unit",
           "TRUTH.scenarios.S4.rescan_keeps_group: purchase survives both rescans"
         ],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
-          "person steps run with PLANROOM_PERSON_KEY from $OUT/.planroom/person.key (the test harness acting as a person); agent steps run with no TTY and no key",
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key",
           "the patch implementer is the fixture implementer"
         ]
       },
@@ -223,7 +233,11 @@
         "crates/kernel/tests/reconcile.rs::regression_over_unplanned",
         "crates/kernel/tests/reconcile.rs::resolved_stays_done",
         "crates/kernel/tests/impact.rs::impact_includes_via_endpoint_evidence",
-        "crates/extract/tests/link.rs::literal_dsn_resolves_by_host"
+        "crates/extract/tests/link.rs::literal_dsn_resolves_by_host",
+        "crates/kernel/tests/reconcile.rs::merge_commits_are_never_change_units",
+        "crates/kernel/tests/reconcile.rs::a_branch_from_an_older_main_keeps_its_regression",
+        "crates/kernel/tests/reconcile.rs::classes_survive_later_scans",
+        "crates/kernel/tests/reconcile.rs::a_partial_scan_raises_no_regression"
       ]
     },
     {
@@ -240,6 +254,7 @@
         "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise; examples/kickoff-snapshot.md copied to $TMP/kickoff-snapshot.md (never the root KICKOFF.md)",
         "steps": [
           "planroom scan $OUT --json",
+          "planroom scan $TMP/kickoff-snapshot.md --json (a file outside the workspace becomes a file: snapshot; reads never open outside files, DR-52)",
           "planroom ask breakdown $TMP/kickoff-snapshot.md --json",
           "planroom import examples/fixture/reviews/orders-pr-42.json --json",
           "planroom decide --run --json (Jev replayed for commit_addresses_thread)",
@@ -255,11 +270,12 @@
           "TRUTH.breakdowns.skill and TRUTH.breakdowns.ci_workflow (parts, part_names, triggers, evidence)"
         ],
         "asserts": [
-          "the edited breakdown yields a unified text diff with exactly one hunk against the copy"
+          "the edited breakdown yields a unified text diff with exactly one hunk against the copy",
+          "the breakdown derives at most 3 part_relation requests per part, all over markdown's mentions candidates, and deals no part_relation card (DR-50)"
         ],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
-          "person steps run with PLANROOM_PERSON_KEY from $OUT/.planroom/person.key (the test harness acting as a person); agent steps run with no TTY and no key"
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
         ]
       },
       "evidence_path": {
@@ -273,7 +289,9 @@
         "crates/planroom/tests/s05_anatomy.rs::pr_42_threads_and_touched_components",
         "crates/planroom/tests/s05_anatomy.rs::skill_and_ci_workflow_parts",
         "crates/planroom/tests/s05_anatomy.rs::breakdown_edit_gives_one_text_hunk",
-        "tests/e2e/anatomy.spec.ts"
+        "tests/e2e/anatomy.spec.ts",
+        "crates/planroom/tests/s05_anatomy.rs::part_relation_requests_are_at_most_three_per_part",
+        "crates/planroom/tests/s05_anatomy.rs::breakdown_deals_no_part_relation_card"
       ]
     },
     {
@@ -295,6 +313,7 @@
           "planroom ask unreachable --json",
           "planroom ask dead-ends --json",
           "planroom ask machine orders:machine:internal/order/lifecycle.go --step pay --step fulfil --step ship --json (ship refused without hasTrackingNumber)",
+          "planroom scan $TMP/kickoff-snapshot.md --json (the snapshot copy as a file: snapshot, DR-52)",
           "planroom ask machine $TMP/kickoff-snapshot.md --json (Claude segmentation replayed)",
           "planroom scan $PR --json, then planroom ask drift --json"
         ],
@@ -343,6 +362,7 @@
           "cargo xtask eval --verify-order (labels committed before the first recorded Jev response; cases digest matches)",
           "cargo nextest run -p planroom-models -E 'test(jev_contract)' (both codecs over every fixture built from the docs and the Phase 1 recordings)",
           "planroom scan $OUT --json, then planroom decide --run --json (warm cache on main)",
+          "planroom decide CARD keep --base SEQ --json (person) for the Ruby pack's first-load card, so the rescan starts with no open card (DR-48)",
           "harness: git -C $OUT/storefront checkout routine (the commit-triggered head move)",
           "planroom scan --json, then planroom decide --run --json, then planroom decide --json",
           "crates/planroom/tests/budgets.rs (S2 questions and the S3 plan against budgets.json)"
@@ -355,7 +375,8 @@
           "sum of meta.models.jev.cost_usd over the rescan is under 0.001 (replayed usage)",
           "at most one open card after the rescan",
           "auto_enabled only for kinds whose holdout precision is at least 0.95 on 60 or more cases in both runs, with at least 30 acted on",
-          "no budget grew by more than 20%; cache-hit rate within 0.1; no cache_regression"
+          "no budget grew by more than 20%; cache-hit rate within 0.1; no cache_regression",
+          "a kind-version bump, which invalidates every cached answer of that kind, raises no card burst: low-stakes requests prefill or stay pending within the per-scan budget (DR-50)"
         ],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing"
@@ -378,7 +399,8 @@
         "crates/kernel/tests/evals.rs::decision_policy_matches_eval_results",
         "crates/models/tests/jev_contract.rs::both_codecs_agree_on_every_fixture",
         "crates/planroom/tests/budgets.rs::budgets_within_20_percent",
-        "crates/planroom/tests/duties.rs::scan_never_waits_on_jev"
+        "crates/planroom/tests/duties.rs::scan_never_waits_on_jev",
+        "crates/planroom/tests/s07_decisions.rs::a_kind_version_bump_raises_no_card_burst"
       ]
     },
     {
@@ -393,9 +415,9 @@
         "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
         "steps": [
           "planroom scan $OUT --json; planroom intent new alpha --json (person); planroom intent new beta --json (person)",
-          "planroom serve --detach --json; a Playwright page logs in with the one-time code and subscribes to /api/v1/stream",
+          "planroom serve --detach --json; planroom open (person) registers a one-time code; a Playwright page trades it for a bearer token and reads /api/v1/stream through fetch with that token (DR-29)",
           "harness (crates/testkit/src/load.rs): agent A (PLANROOM_ACTOR=agent:aaaaaaaa:chat, project alpha) and agent B (agent:bbbbbbbb:chat, project beta) each run 300 CLI writes (planroom edit and planroom intent propose with --base); 10% of A's writes are killed after commit and before the reply (PLANROOM_TEST_FAULTS=exit_after_commit:0.1, test builds only) and retried with the same --idem; 5% are sent twice on purpose",
-          "the tab (person session) renames storefront:dir:src/cart with a base read before B's rename of the same field",
+          "agent B proposes a rename of storefront:dir:src/cart (a ghost); a mod press (the harness with PLANROOM_PERSON_KEY and PLANROOM_CLIENT=mod:<session>) renames the same field and supersedes the ghost; then the tab (person session, its own tab ID) renames it with a base read before the press",
           "planroom claim worker:container:worker --for 30m --json as agent A, then a write by B on it",
           "planroom who --json; planroom decide --json; planroom export --json"
         ],
@@ -403,11 +425,11 @@
         "asserts": [
           "no lost write: every ok reply's event is in the export; unique idem count equals event count",
           "retries and duplicates returned the stored reply with meta.replayed true; no event appears twice; a reused idem with another request is idempotency_mismatch",
-          "commit-to-SSE and commit-to-watch latency p99 under 1 s (p95 target 250 ms)",
+          "commit-to-rendered latency p99 under 1 s under the load: the tab's data-seq marker, and the pane's seq from the mod's refresh scheduler run over the recorded frames and focus durations (commit to stream: p95 target 250 ms)",
           "who lists both agents and the tab; B's write carried the claimed warning; the tab shows A's claim badge",
-          "the tab's stale rename returned stale_write, is stored as a conflict with base, theirs and yours, raised one person card, and the node still has B's name",
+          "the tab's stale rename returned stale_write, is stored as a conflict with base, theirs (the press) and yours, raised one person card, and the node still has the press's name; B's ghost is listed in Diffs as superseded and raised no card",
           "an agent's stale write is stored as a conflict and raised no card",
-          "for every user-authored field change, its base was at or above the previous authored revision by another actor",
+          "for every user-authored field change, its base was at or above the previous authored revision by another writer instance",
           "serve's incremental fold equals a fresh fold"
         ],
         "stand_ins": [
@@ -431,7 +453,13 @@
         "crates/planroom/tests/s08_concurrency.rs::incremental_fold_equals_full_fold",
         "crates/store/tests/interleavings.rs::writer_interleavings",
         "crates/store/tests/concurrency.rs::three_processes_five_hundred_writes",
-        "tests/e2e/s08-tab.spec.ts"
+        "tests/e2e/s08-tab.spec.ts::rendered_within_1_s",
+        "crates/kernel/tests/cas.rs::two_tabs_of_one_person_conflict",
+        "crates/kernel/tests/cas.rs::a_tab_and_a_mod_press_conflict",
+        "crates/kernel/tests/cas.rs::a_person_edit_supersedes_a_pending_ghost",
+        "crates/kernel/tests/cas.rs::an_accept_after_an_intervening_write_is_a_card",
+        "crates/kernel/tests/cas.rs::a_resolution_after_an_intervening_write_is_a_card",
+        "packages/mod/src/refresh.test.ts::pane_within_1_s_under_s8_frames"
       ]
     },
     {
@@ -446,16 +474,22 @@
       "ci_path": {
         "fixture": "none for the mod itself: claude plugin test answers process.run and model.complete with tests/golden/cli/*.json, which the Rust scenario tests produce on the fixture",
         "steps": [
-          "cargo xtask gen --mod",
-          "claude plugin test packages/mod: every /room subcommand, every pane hotkey, the band, the decision card, diffs, hand-off start and merge as presses, on all four surfaces",
-          "a keystroke-count table generated from the pane's key map, compared with its committed snapshot",
-          "the touch-set guard and the session broker with stubbed tool.check and model.complete"
+          "cargo xtask gen --mod (the plugin bundle and the target/mod-test/ harness, with the golden CLI outputs inlined as a generated module; DR-59)",
+          "claude plugin test target/mod-test: every /room subcommand, every pane hotkey and row key, the band, the decision card, diffs, hand-off start and merge as presses, every fallback pane and the not-yet-a-workspace state, on all four surfaces",
+          "scripted main flows (S1 to S4, a hand-off, a sync) driven by real key presses from pane focus, counting keys, including acting on the last visible row of each list; the key map compared with its committed snapshot",
+          "the touch-set, store, person-command and implementer guards and the session broker with stubbed tool.check and model.complete; the composed prompt section in every state; each tool result serialized as the handler returns it"
         ],
         "compare": [],
         "asserts": [
-          "every action is at most two keystrokes from pane focus (a slash command counts as one entry point)",
+          "every action in the scripted flows is at most two real key presses from pane focus, on any visible row (/room is the one entry point; ctrl+x tab reaches the band, not the pane)",
           "the next action is one keystroke from the empty prompt (band hotkey 1)",
-          "tool handlers always send an agent actor; presses and typed /room carry the person key"
+          "PaneModel.next and every band Button name only commands whose undo class isn't NotUndoable and whose class isn't handoff; a hand-off start or merge shows as a label that opens its card (DR-54)",
+          "tool handlers always send an agent actor; presses and typed /room carry the person key",
+          "the guard denies an agent's relative-path read of store.db, a write under .planroom/, and a person-only command inside script -qc; a spawned implementer writes only in its worktrees (DR-52)",
+          "the prompt.compose section is byte-identical with remote mode on and off, the engine missing and present, and any sync age; tools are registered before the engine resolves (DR-20)",
+          "tool-result tokens stay within budgets.json (DR-51)",
+          "at 49x34 the pane's sections fit in 34 body rows and the list keeps at least 10 rows (DR-54)",
+          "no pane is blank: every fallback state, the not-yet-a-workspace state and every error frame draws one next action; an engine whose catalogue hash differs shows one line (DR-57, DR-58)"
         ],
         "stand_ins": [
           "golden CLI outputs for process.run",
@@ -470,12 +504,23 @@
         ]
       },
       "tests": [
-        "packages/mod/src/keys.test.tsx::every_action_within_two_keys",
+        "packages/mod/src/keys.test.tsx::main_flows_within_two_keys",
         "packages/mod/src/keys.test.tsx::key_map_snapshot",
+        "packages/mod/src/keys.test.tsx::band_next_is_undoable",
         "packages/mod/src/surfaces.test.tsx",
+        "packages/mod/src/surfaces.test.tsx::rows_fit_at_49x34",
+        "packages/mod/src/surfaces.test.tsx::no_blank_pane",
         "packages/mod/src/actor.test.ts::tool_handlers_send_agent",
         "packages/mod/src/guard.test.ts::edit_on_touch_set_asks",
-        "packages/mod/src/broker.test.ts"
+        "packages/mod/src/broker.test.ts",
+        "packages/mod/src/guard.test.ts::implementer_cannot_reach_the_store_by_a_relative_path",
+        "packages/mod/src/guard.test.ts::implementer_writes_only_in_its_worktrees",
+        "packages/mod/src/guard.test.ts::a_pty_wrapped_person_command_is_denied",
+        "packages/mod/src/prompt.test.ts::section_is_byte_identical_across_states",
+        "packages/mod/src/tools.test.ts::tool_results_within_budget",
+        "packages/mod/src/engine.test.ts::a_catalogue_mismatch_shows_one_line",
+        "packages/mod/src/engine.test.ts::no_watch_until_a_store_exists",
+        "crates/planroom/tests/packs.rs::a_suggestion_cannot_name_an_irreversible_command"
       ]
     },
     {
@@ -490,6 +535,7 @@
       "ci_path": {
         "fixture": "cargo xtask fixture $OUT --no-packs (no Ruby pack configured); examples/packs/ruby and examples/packs/flags copied to $TMP/elsewhere/ outside the source tree",
         "steps": [
+          "sha256 of the prebuilt planroom binary, recorded before the first scan and again after the packs scan; the S1 CI path records the same",
           "planroom scan $OUT --json; planroom map --level container --json has no healthcheck container (the file is still a Code node from the universal tier)",
           "planroom doctor --pack $TMP/elsewhere/ruby --json; planroom doctor --pack $TMP/elsewhere/flags --json",
           "PLANROOM_PACKS=$TMP/elsewhere/ruby:$TMP/elsewhere/flags planroom scan --json",
@@ -497,7 +543,7 @@
           "planroom map --lens flags --json",
           "planroom decide --json",
           "planroom ask path healthcheck orders --lens runtime --json; planroom ask why healthcheck storefront --json",
-          "git diff --stat crates/ (empty) and a source scan for Ruby, .rb and flags under crates/ outside tests"
+          "a source scan of core, the shipped engine crates (crates/contract, kernel, store, extract, models, and planroom with build.rs) and packs/, not xtask or testkit, for the toy packs' identifiers (\\bruby\\b, \\.rb\\b, \\bflags\\.[a-z_], flag_stale, reads_flag)"
         ],
         "compare": [
           "TRUTH.scenarios.S10.ruby (container healthcheck, requires, calls to orders and storefront with evidence)",
@@ -507,7 +553,11 @@
         "asserts": [
           "flags.flag is listed only when the toy pack is loaded",
           "a flag_stale card exists for gift_wrap",
-          "the healthcheck edges' provenance is the Ruby pack's extractor through the runtime_wiring linker"
+          "the healthcheck edges' provenance is the Ruby pack's extractor (ruby/ruby-http) through the code/runtime_wiring linker, read from the edges' hint refs",
+          "healthcheck.rb has the language ruby only when the Ruby pack is loaded, from the pack's [[languages]] entry",
+          "gift_wrap's enabled prop is the boolean false, coerced by the kind's prop schema",
+          "no core file contains a toy pack identifier",
+          "the same planroom binary, by sha256, ran S1, the no-packs scan and the packs scan"
         ],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing"
@@ -524,6 +574,7 @@
         "crates/planroom/tests/s10_extensibility.rs::toy_pack_adds_kinds_lens_and_decision",
         "crates/planroom/tests/s10_extensibility.rs::healthcheck_edges_through_the_ruby_pack",
         "crates/planroom/tests/s10_extensibility.rs::no_engine_source_mentions_the_packs",
+        "crates/planroom/tests/s10_extensibility.rs::same_binary_runs_with_and_without_the_packs",
         "crates/planroom/tests/packs.rs::requires_is_inward_only"
       ]
     },
@@ -544,8 +595,11 @@
           "Playwright loads $D/page.html with tests/e2e/shims/claude.ts (a stubbed window.claude: user u_test, sample) and tests/e2e/shims/artifact-db.ts (a fake db with the real rules: page-side last-writer-wins, if_version session-side, {self} paths, onSnapshot push)",
           "the viewer renames storefront:dir:src/cart in the page; the fake db holds inbox/u_test/events/DOC_ID",
           "harness: the fake db's ArtifactData list writes inbox rows to $D/inbox (the same layout as out_dir)",
-          "planroom import $D/inbox --json; planroom show storefront:dir:src/cart --json",
-          "a second row with a stale base, a row whose body claims another actor, and a re-import of the first row; planroom import $D/inbox --json"
+          "PLANROOM_ACTOR=agent:aaaaaaaa:chat planroom import $D/inbox --json: person_required; then planroom import $D/inbox --json (person); planroom show storefront:dir:src/cart --json",
+          "a second row with a stale base, a row whose body claims another actor, a row under the owner's uid, a decide row, and a re-import of the first row; planroom import $D/inbox --json (person)",
+          "the page opens PathView and Anatomy, which the snapshot can't serve: both render the snapshot's empty state with its next action",
+          "after the import, the harness applies the live/head batch to the fake db: the renamed block shows on the page's map without a republish, and the page marks the row imported from acks/u_test",
+          "the viewer taps a card: it shows queued until acks/u_test lists it; a row naming handoff merge is refused and listed as refused"
         ],
         "compare": [],
         "asserts": [
@@ -554,7 +608,14 @@
           "the stale row becomes a person conflict reported back through live/head",
           "the forged actor is ignored: the path is the author",
           "the re-import is a no-op (meta.replayed)",
-          "Ask Claude calls sample.json with modelTier quick only on a tap"
+          "Ask Claude calls sample.json with modelTier quick only on a tap",
+          "u_test is not the owner; the owner's row and the decide row apply nothing and become one confirming card (DR-52)",
+          "the fake db lets only the owner read inbox; a contributor reads only its own inbox/{self}",
+          "the snapshot has no who unless share --include-presence is passed",
+          "views the snapshot doesn't serve show its engine-authored empty state, never a blank or an error (DR-56)",
+          "live/head carries the data delta since the snapshot, and the page applies it (DR-56)",
+          "an inbox row may name only edit, review, decide or intent propose (DR-56)",
+          "the publish arguments declare the comments capability for Send to Claude (DR-56)"
         ],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
@@ -564,7 +625,8 @@
       "evidence_path": {
         "dir": "docs/evidence/s11/",
         "steps": [
-          "the main session publishes the canvas as an Artifact; a phone edit is made in it; /room sync imports it as an attributed user edit; screenshots of both sides and the imported event"
+          "the main session publishes the canvas as an Artifact; a phone edit is made in it; /room sync imports it as an attributed user edit; screenshots of both sides and the imported event",
+          "WS8: comments.sendToClaude from the page wakes the publishing session's ArtifactComments watch"
         ]
       },
       "tests": [
@@ -574,7 +636,13 @@
         "crates/planroom/tests/s11_remote.rs::forged_actor_is_ignored",
         "crates/planroom/tests/s11_remote.rs::reimport_is_a_no_op",
         "crates/planroom/tests/s11_remote.rs::no_contains_by_default",
-        "tests/e2e/artifact.spec.ts"
+        "tests/e2e/artifact.spec.ts",
+        "crates/planroom/tests/s11_remote.rs::owner_rows_and_person_only_rows_become_one_card",
+        "crates/planroom/tests/actor.rs::agent_cannot_import_inbox_rows",
+        "crates/planroom/tests/s11_remote.rs::an_unlisted_inbox_command_is_refused",
+        "tests/e2e/artifact.spec.ts::views_it_cannot_serve_show_an_empty_state",
+        "tests/e2e/artifact.spec.ts::a_synced_edit_shows_on_the_map",
+        "tests/e2e/artifact.spec.ts::a_tapped_card_shows_queued_until_acked"
       ]
     },
     {
@@ -589,7 +657,7 @@
         "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
         "steps": [
           "planroom scan $OUT --json",
-          "planroom import examples/fixture/implementer-runs.jsonl --json",
+          "planroom import examples/fixture/implementer-runs.jsonl --json (person; runs an agent imports are kept untrusted and never mined, DR-52)",
           "planroom curate --json (template drafts refined by replayed Claude)",
           "PLANROOM_MODELS=off planroom curate --json on a fresh fixture (template drafts only)",
           "planroom decide --json: each proposal is one card with a Text diff"
@@ -600,6 +668,10 @@
         ],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing"
+        ],
+        "asserts": [
+          "each card names its source run IDs; a draft with a URL, command substitution, a shell pipe or allowed-tools is shown in full",
+          "an agent's import of the same runs into a fresh fixture yields no proposal"
         ]
       },
       "evidence_path": {
@@ -612,7 +684,9 @@
         "crates/planroom/tests/s12_curation.rs::proposes_worker_claude_md_redis_url",
         "crates/planroom/tests/s12_curation.rs::proposes_regenerate_orders_client_skill",
         "crates/planroom/tests/s12_curation.rs::both_with_replayed_claude_and_models_off",
-        "crates/planroom/tests/curate_triggers.rs::fires_after_five_reports_and_each_merge"
+        "crates/planroom/tests/curate_triggers.rs::fires_after_five_reports_and_each_merge",
+        "crates/planroom/tests/s12_curation.rs::agent_imported_runs_are_not_mined",
+        "crates/planroom/tests/s12_curation.rs::a_draft_with_a_url_or_shell_is_shown_in_full"
       ]
     },
     {
@@ -628,16 +702,20 @@
         "steps": [
           "cargo xtask gen --canvas; planroom scan $OUT --json; planroom serve --detach --json",
           "Playwright: 5 cold loads of the canvas, time from navigation to first interactive frame (performance marks)",
-          "Playwright at 390x844 with touch emulation: overflow check, tap-target sizes, pinch-zoom, tap-to-focus, one-tap decision cards",
+          "Playwright at 390x844 with touch emulation: overflow check, tap-target sizes, every gesture in design-language.md's gesture table (pinch and drag, tap to focus, the breadcrumb lid or a double tap to dive, the breadcrumb to go up, a long press for evidence), one-tap decision cards",
           "Playwright with prefers-reduced-motion: reduce, for the three motion moments",
-          "page.on('console') across every main view"
+          "Playwright: a CLI write while the canvas is open, timed from commit to the rendered data-seq marker",
+          "page.on('console') across every main view",
+          "vitest: every text token and every non-text mark token against --table and --card in both themes"
         ],
         "compare": [],
         "asserts": [
-          "interactive under 1 s: the median of 5 cold loads, every value recorded (DR-43, needs confirmation)",
-          "no horizontal overflow; every tap target at least 44 px; pinch-zoom and tap-to-focus work; decision cards take one tap",
+          "interactive under 1 s: every one of 5 cold loads, every value recorded, gated on ubuntu-24.04 only (DR-43)",
+          "no horizontal overflow; every tap target at least 44 px; pinch-zoom and tap-to-focus work, and every gesture does what the gesture table says; decision cards take one tap",
           "reduced motion swaps the three moments for crossfades",
-          "zero console errors"
+          "zero console errors",
+          "a live update renders within 1 s of its commit",
+          "text tokens reach 4.5:1 and non-text marks 3:1 on --table and --card, in both themes"
         ],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing"
@@ -655,9 +733,12 @@
         "tests/e2e/quality.spec.ts::no_overflow_at_390x844",
         "tests/e2e/quality.spec.ts::tap_targets_at_least_44_px",
         "tests/e2e/quality.spec.ts::pinch_and_tap_to_focus",
+        "tests/e2e/quality.spec.ts::gestures_follow_the_gesture_table",
         "tests/e2e/quality.spec.ts::cards_take_one_tap",
         "tests/e2e/quality.spec.ts::reduced_motion_swaps_to_crossfades",
-        "tests/e2e/quality.spec.ts::no_console_errors"
+        "tests/e2e/quality.spec.ts::no_console_errors",
+        "tests/e2e/quality.spec.ts::live_update_renders_within_1_s",
+        "packages/ui/src/tokens.test.ts::contrast_meets_the_bar"
       ]
     },
     {
@@ -673,19 +754,23 @@
         "fixture": "a fresh clone of the pushed branch; cargo xtask fixture $OUT",
         "steps": [
           "CI green on the pushed branch (every job in .github/workflows/ci.yml)",
-          "cargo xtask release-dry-run --target T for each of the four targets: cargo build --release --locked -p planroom, the canvas build, packaging twice with cmp, then scripts/smoke-test-release.sh (planroom version, planroom scan $OUT --json, planroom serve and a fetch of /)",
-          "sh tests/installer/run.sh: the resolver against a 127.0.0.1 server holding a locally built, checksummed archive; a corrupt archive and a missing SHA256SUMS line are refused; a concurrent prefetch and run; the dev-checkout path",
+          "cargo xtask release-dry-run --target T for each of the four targets: the canvas build, then cargo build --release --locked -p planroom, which embeds it, packaging twice with cmp, scripts/check-tag-version.sh against the workspace version, then scripts/smoke-test-release.sh (planroom version, planroom scan $OUT --json, planroom serve from target/release/ and from a cargo install --path root, and a fetch of /)",
+          "cargo xtask test --installer (ShellCheck, BusyBox sh, then tests/installer/run.sh): the resolver against a 127.0.0.1 server holding a locally built, checksummed archive; a corrupt archive and a missing SHA256SUMS line are refused; a concurrent prefetch and run; a killed prefetch's stale lock is broken; the dev-checkout path; a run under env -i HOME=... PATH=... with no CLAUDE_* variable finds engine.env and the data root's cache; a missing tag says so and offers --branch main; a missing cargo or C compiler names its install command instead of offering the build",
           "sh tests/plugin/validate.sh: claude plugin validate --strict on . and plugin/, versions agree, no bin/, no symlinks, skills have user-invocable: false",
-          "sh tests/plugin/install.sh: an isolated HOME and CLAUDE_CONFIG_DIR, claude plugin marketplace add $REPO, claude plugin install planroom@planroom --json, claude plugin list --json shows the skills, agents and mod"
+          "sh tests/plugin/install.sh: an isolated HOME and CLAUDE_CONFIG_DIR, claude plugin marketplace add $REPO, claude plugin install planroom@planroom --json, claude plugin list --json shows the skills, agents and mod; with mods turned off, the room skill's resolver path finds the engine and planroom focus --json returns a non-empty envelope"
         ],
         "compare": [],
         "asserts": [
           "install outcome ok",
           "the resolver verifies the sha256, extracts, and runs planroom version",
-          "docs, art, changelog and release notes present (docs tests)"
+          "docs, art, changelog and release notes present (docs tests)",
+          "the binary serves the embedded canvas at /, and a binary built without one serves the fix page (DR-58)",
+          "the release workflow's verify job fails a tag that differs from any manifest's version or lacks a CHANGELOG section (DR-58)",
+          "docs/contributing/releasing.md holds the owner checklist (DR-58)"
         ],
         "stand_ins": [
           "a local release server on 127.0.0.1",
+          "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
           "no credentials: a headless session that needs them runs only on the evidence path"
         ]
       },
@@ -693,7 +778,7 @@
         "dir": "docs/evidence/s14/",
         "steps": [
           "in a fresh session: /plugin marketplace add LOCAL_REPO_PATH, then /plugin install planroom@MARKETPLACE_NAME",
-          "the engine resolves on first use through the source-build path live, and through the release-asset path against a locally built, checksummed asset",
+          "the engine resolves on first use through the source-build path live, built from the checkout as a detached, logged child, and through the release-asset path against a locally built, checksummed asset; the pane draws its fallback states meanwhile",
           "/room works; the skills and agent types are listed; the init event's slash_commands holds only /room from Planroom",
           "an agent drives S1 and S2 using only the plugin's tools and skills; transcript recorded"
         ]
@@ -705,7 +790,10 @@
         "tests/plugin/install.sh",
         "crates/planroom/tests/release_pins.rs",
         "crates/planroom/tests/docs.rs::links_resolve",
-        "crates/planroom/tests/docs.rs::prose_rules_hold"
+        "crates/planroom/tests/docs.rs::prose_rules_hold",
+        "crates/planroom/tests/routes.rs::serves_the_embedded_canvas",
+        "crates/planroom/tests/routes.rs::serves_the_fix_page_without_a_canvas",
+        "crates/planroom/tests/docs.rs::releasing_has_the_owner_checklist"
       ]
     },
     {
@@ -725,19 +813,21 @@
           "planroom --help (snapshot); planroom schema --commands --json",
           "the mod's command list (ROOM_COMMANDS and /room help) snapshot",
           "cargo metadata: exactly one [[bin]] in the workspace's shipped crates",
-          "Playwright: data-concept audit on every top-level control; every view visited on the empty workspace must render its empty.next action and art",
-          "the error-code drift test; the undo test for every edit type",
-          "cargo xtask check boundaries --self-test (planted Rust, kernel-literal, TypeScript and pack crossings in a temporary copy)",
-          "sh tests/plugin/surface_tokens.sh (always-on tools, skills and prompt section at most 1,500 projected tokens)"
+          "Playwright: data-concept audit on every top-level control, the next-action card counted under Decisions; every view visited on the empty workspace, through the local transport and the Artifact page with the fake db, must render its empty.next action and art",
+          "claude plugin test target/mod-test: every fallback pane, the not-yet-a-workspace state and every error frame on all four surfaces; planroom focus --json in a directory with no store returns ok with an empty state and creates nothing",
+          "the error-code drift test; the undo test for every edit type; the undo-class snapshot of every catalogue leaf",
+          "cargo xtask check boundaries --self-test (an offline install and a clean control in a temporary copy, then planted Rust, kernel-literal, TypeScript, pack and layout crossings)",
+          "sh tests/plugin/surface_tokens.sh (the exact bytes of the non-deferred tool specs, the composed prompt section and the skill and agent frontmatter: at most 1,500 projected tokens, with tools 900, section 300, skills and agents 300; DR-51)",
+          "the static frontmatter check: every plugin SKILL.md has user-invocable: false"
         ],
         "compare": [],
         "asserts": [
           "one binary, one command family (room)",
           "exactly the five top-level concepts",
-          "no blank state",
+          "no blank state on any canvas view, through either transport, or any pane state",
           "errors table equals the registry both ways",
-          "for every Op x target kind, plus review, decision pick, version and claim: apply then undo gives the model before",
-          "every planted crossing fails with its rule name"
+          "for every Op x target kind, plus review, decision pick, version and claim: apply then undo gives the model before; every leaf has an undo class, and share is the only NotUndoable one (DR-55)",
+          "the clean copy passes, and every planted crossing fails with its rule name and no unresolvable import"
         ],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing"
@@ -747,20 +837,23 @@
         "dir": "docs/evidence/s15/",
         "steps": [
           "screenshots of every empty state at 1440x900 and 390x844 in both themes",
-          "the headless session's init event showing the slash command list"
+          "tests/plugin/slash_commands_snapshot.sh: a headless session's init event, whose slash_commands holds only /room from Planroom"
         ]
       },
       "tests": [
         "crates/planroom/tests/s15_surface.rs::one_binary_one_family",
         "crates/planroom/tests/s15_surface.rs::help_snapshot",
+        "crates/planroom/tests/s15_surface.rs::skills_are_not_user_invocable",
         "packages/mod/src/room.test.ts::room_commands_snapshot",
         "tests/e2e/surface.spec.ts::exactly_five_concepts",
         "tests/e2e/surface.spec.ts::empty_state_audit",
+        "packages/mod/src/surfaces.test.tsx::no_blank_pane",
+        "crates/planroom/tests/first_run.rs::focus_outside_a_workspace_creates_nothing",
         "crates/planroom/tests/envelope_schema.rs::the_documented_error_table_is_the_error_codes",
         "crates/kernel/tests/undo.rs::every_edit_type_undoes",
+        "crates/planroom/tests/catalogue.rs::undo_classes_snapshot",
         "cargo xtask check boundaries --self-test",
-        "tests/plugin/surface_tokens.sh",
-        "tests/plugin/slash_commands_snapshot.sh"
+        "tests/plugin/surface_tokens.sh"
       ]
     },
     {
@@ -776,15 +869,19 @@
       "ci_path": {
         "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
         "steps": [
-          "planroom decide CARD accept --json with no TTY and no key: person_required",
+          "planroom edit rename storefront:dir:src/cart Bag --base SEQ --json with no terminal, no PLANROOM_ACTOR and no key: actor_required; a read with none of them works",
+          "PLANROOM_ACTOR=agent:aaaaaaaa:chat planroom decide CARD accept --json: person_required; the same under a pty (script -qc) with no /dev/tty confirmation: still not a person",
           "PLANROOM_ACTOR=person:x planroom handoff merge KEY --json without the key: person_required",
           "the mod's tool handlers never send a person actor; a press does",
-          "the tool.check guard denies a Bash read of .planroom/person.key"
+          "the tool.check guard denies a Bash call that sets PLANROOM_PERSON_KEY or opens store.db; the key lives in the mod's $.store and store.db holds only its sha256",
+          "PLANROOM_ACTOR=agent:aaaaaaaa:chat planroom import EXPORT.ndjson --json and planroom import INBOX_DIR --json: person_required; a planroom.model-response/v1 file for a request the engine doesn't derive as pending is refused",
+          "PLANROOM_ACTOR=agent:aaaaaaaa:chat planroom open --json: person_required; a person's planroom open prints no code",
+          "planroom ask breakdown ~/.ssh/id_test --json (no person): path_refused; planroom --workspace $EMPTY ask kinds --json on a directory with no store: workspace_not_found, and no store is created"
         ],
         "compare": [],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
-          "person steps run with PLANROOM_PERSON_KEY from $OUT/.planroom/person.key (the test harness acting as a person); agent steps run with no TTY and no key"
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
         ]
       },
       "evidence_path": {
@@ -794,12 +891,21 @@
         ]
       },
       "tests": [
-        "crates/planroom/tests/actor.rs::no_tty_is_an_agent",
+        "crates/planroom/tests/actor.rs::an_unnamed_write_with_no_terminal_is_actor_required",
+        "crates/planroom/tests/actor.rs::a_pty_without_confirmation_is_no_person",
+        "crates/planroom/tests/actor.rs::reads_need_no_actor",
         "crates/planroom/tests/actor.rs::person_claim_without_key_is_refused",
         "crates/planroom/tests/actor.rs::tool_handlers_never_send_a_person",
-        "packages/mod/src/guard.test.ts::person_key_is_guarded"
+        "packages/mod/src/guard.test.ts::person_key_is_guarded",
+        "crates/planroom/tests/actor.rs::agent_cannot_import_inbox_rows",
+        "crates/planroom/tests/actor.rs::agent_cannot_import_an_event_export",
+        "crates/planroom/tests/actor.rs::model_responses_only_for_pending_requests",
+        "crates/planroom/tests/actor.rs::open_is_person_only_and_prints_no_code",
+        "crates/planroom/tests/actor.rs::a_read_outside_the_workspace_is_path_refused",
+        "crates/planroom/tests/actor.rs::a_credential_path_needs_a_person",
+        "crates/planroom/tests/actor.rs::workspace_flag_on_a_read_needs_an_existing_store"
       ],
-      "decision": "DR-4"
+      "decision": "DR-4, DR-52"
     },
     {
       "id": "C2",
@@ -813,14 +919,14 @@
       "ci_path": {
         "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
         "steps": [
-          "with [claude] backend = session, planroom intent next --stage intent --json lists meta.model_requests and writes .planroom/models/requests/ID.json",
+          "with [claude] backend = session in the user-level config, planroom intent next --stage intent --json lists meta.model_requests, each with its exact re-run handle, and writes .planroom/models/requests/ID.json with its prompt redacted",
           "the mod broker test fulfils it with a stubbed $.model.complete and runs planroom import RESPONSE --json",
           "rerunning the command uses the cached response and records provider session in the ledger"
         ],
         "compare": [],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
-          "person steps run with PLANROOM_PERSON_KEY from $OUT/.planroom/person.key (the test harness acting as a person); agent steps run with no TTY and no key"
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
         ]
       },
       "evidence_path": {
@@ -851,7 +957,7 @@
         "compare": [],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
-          "person steps run with PLANROOM_PERSON_KEY from $OUT/.planroom/person.key (the test harness acting as a person); agent steps run with no TTY and no key"
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
         ]
       },
       "evidence_path": {
@@ -867,7 +973,7 @@
     },
     {
       "id": "C4",
-      "title": "Cross-repo merge preflight",
+      "title": "Cross-repo merge preflight and revert",
       "tier": "C",
       "status": "failing",
       "requirements": [
@@ -876,12 +982,16 @@
       "ci_path": {
         "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
         "steps": [
-          "a planted conflict in platform's branch makes planroom handoff merge KEY --json return handoff_conflict, and neither worker nor platform is merged"
+          "a planted conflict in platform's branch makes planroom handoff merge KEY --json return handoff_conflict, and neither worker nor platform is merged",
+          "PLANROOM_TEST_FAULTS kills planroom handoff merge KEY after worker merges; a retry resumes from the merging step, skips worker and merges platform",
+          "after a merge, PLANROOM_ACTOR=agent:aaaaaaaa:chat planroom handoff revert KEY --json: person_required; a person's planroom handoff revert KEY --json reverts the merge in worker and platform, and a planted conflict in one repo leaves both merged",
+          "PLANROOM_TEST_FAULTS kills planroom handoff revert KEY after worker reverts; a retry resumes from the reverting step",
+          "planroom handoff cancel KEY on a started hand-off removes the worktrees and moves planroom/KEY to refs/planroom/archive/KEY"
         ],
         "compare": [],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
-          "person steps run with PLANROOM_PERSON_KEY from $OUT/.planroom/person.key (the test harness acting as a person); agent steps run with no TTY and no key"
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
         ]
       },
       "evidence_path": {
@@ -891,9 +1001,15 @@
         ]
       },
       "tests": [
-        "crates/planroom/tests/handoff_preflight.rs::a_conflict_in_the_second_repo_leaves_both_untouched"
+        "crates/planroom/tests/handoff_preflight.rs::a_conflict_in_the_second_repo_leaves_both_untouched",
+        "crates/planroom/tests/handoff_preflight.rs::a_crash_between_repos_resumes_on_retry",
+        "crates/planroom/tests/handoff_preflight.rs::a_revert_undoes_the_merge_in_every_repo",
+        "crates/planroom/tests/handoff_preflight.rs::a_revert_preflight_failure_leaves_every_repo_merged",
+        "crates/planroom/tests/handoff_preflight.rs::a_crash_mid_revert_resumes_on_retry",
+        "crates/planroom/tests/handoff_preflight.rs::cancel_archives_the_branch",
+        "crates/planroom/tests/actor.rs::agent_revert_is_person_required"
       ],
-      "decision": "DR-25"
+      "decision": "DR-25, DR-55"
     },
     {
       "id": "C5",
@@ -912,7 +1028,7 @@
         "compare": [],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
-          "person steps run with PLANROOM_PERSON_KEY from $OUT/.planroom/person.key (the test harness acting as a person); agent steps run with no TTY and no key"
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
         ]
       },
       "evidence_path": {
@@ -943,7 +1059,7 @@
         "compare": [],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
-          "person steps run with PLANROOM_PERSON_KEY from $OUT/.planroom/person.key (the test harness acting as a person); agent steps run with no TTY and no key"
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
         ]
       },
       "evidence_path": {
@@ -973,7 +1089,7 @@
         "compare": [],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
-          "person steps run with PLANROOM_PERSON_KEY from $OUT/.planroom/person.key (the test harness acting as a person); agent steps run with no TTY and no key"
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
         ]
       },
       "evidence_path": {
@@ -1003,7 +1119,7 @@
         "compare": [],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
-          "person steps run with PLANROOM_PERSON_KEY from $OUT/.planroom/person.key (the test harness acting as a person); agent steps run with no TTY and no key"
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
         ]
       },
       "evidence_path": {
@@ -1013,13 +1129,14 @@
         ]
       },
       "tests": [
-        "crates/models/tests/redact.rs::poison_values_never_recorded"
+        "crates/models/tests/redact.rs::poison_values_never_recorded",
+        "crates/planroom/tests/privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output"
       ],
       "decision": "security table"
     },
     {
       "id": "C9",
-      "title": "Engine upgrade drains an older server",
+      "title": "Engine upgrade drains an older server, and versions agree",
       "tier": "C",
       "status": "failing",
       "requirements": [
@@ -1029,12 +1146,14 @@
       "ci_path": {
         "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
         "steps": [
-          "an older serve is running; a newer binary asks it to drain before migrating; an older watch exits with schema_mismatch after the migration"
+          "an older serve is running; a newer binary asks it to drain before migrating; an older watch exits with schema_mismatch after the migration",
+          "a serve of the same version with another catalogue hash is drained by serve --detach and replaced; a newer serve is left running and the older engine says to restart",
+          "planroom version --json reports version, git_commit, schema_version and catalogue_hash"
         ],
         "compare": [],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
-          "person steps run with PLANROOM_PERSON_KEY from $OUT/.planroom/person.key (the test harness acting as a person); agent steps run with no TTY and no key"
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
         ]
       },
       "evidence_path": {
@@ -1044,9 +1163,276 @@
         ]
       },
       "tests": [
-        "crates/planroom/tests/server_auth.rs::serve_drains_for_newer_engine"
+        "crates/planroom/tests/server_auth.rs::serve_drains_for_newer_engine",
+        "crates/planroom/tests/server_auth.rs::serve_drains_for_another_catalogue"
       ],
-      "decision": "DR-1"
+      "decision": "DR-1, DR-58"
+    },
+    {
+      "id": "C10",
+      "title": "Workspace trust and credential settings",
+      "tier": "C",
+      "status": "failing",
+      "requirements": [
+        "R1",
+        "R11"
+      ],
+      "ci_path": {
+        "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
+        "steps": [
+          "a single-repo fixture whose repo commits .planroom/config.toml with [claude] base_url, api_key_env = \"GITHUB_TOKEN\" and packs: the config isn't loaded, one card says so, and the backend, key variable and packs are unchanged",
+          "[claude] base_url in a trusted workspace's config: config_key_ignored; api_key_env outside the allow-list in the user-level config: refused",
+          "a fake credential is sent only to an allow-listed host (a wiremock server stands in for each)",
+          "PLANROOM_PACKS with a copy of the flags pack whose evals/flag_stale.result.json claims auto_enabled: loading it deals no card (DR-60), and flag_stale deals cards, never applied edits"
+        ],
+        "compare": [],
+        "stand_ins": [
+          "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
+        ]
+      },
+      "evidence_path": {
+        "dir": null,
+        "steps": [
+          "none: CI only"
+        ]
+      },
+      "tests": [
+        "crates/planroom/tests/trust.rs::a_committed_planroom_config_is_not_loaded",
+        "crates/planroom/tests/trust.rs::credential_settings_come_only_from_user_config",
+        "crates/planroom/tests/trust.rs::api_key_env_outside_the_allow_list_is_refused",
+        "crates/planroom/tests/trust.rs::credentials_go_only_to_allow_listed_hosts",
+        "crates/planroom/tests/trust.rs::an_out_of_tree_pack_loads_without_a_card",
+        "crates/planroom/tests/trust.rs::an_out_of_tree_pack_cannot_enable_its_own_auto_action"
+      ],
+      "decision": "DR-48"
+    },
+    {
+      "id": "C11",
+      "title": "Live calls opt-in, consented and redacted",
+      "tier": "C",
+      "status": "failing",
+      "requirements": [
+        "R9"
+      ],
+      "ci_path": {
+        "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
+        "steps": [
+          "with HTTPS_PROXY set to a local recording proxy and no PLANROOM_LIVE_* flag: planroom scan, decide --run and intent next make zero outbound model requests (deterministic_fallback or replay_missing)",
+          "PLANROOM_REPLAY=off with a fake AI_GATEWAY_API_KEY in the environment: the first billable call deals one consent card with No pre-selected, and no request leaves until a person picks Yes",
+          "a fake STRIPE_SECRET_KEY and a DSN with user info planted in a temporary copy of a fixture repo: no recorded request, session-backend request file or tool output contains either; the CLI --json still shows the raw line"
+        ],
+        "compare": [],
+        "stand_ins": [
+          "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
+        ]
+      },
+      "evidence_path": {
+        "dir": null,
+        "steps": [
+          "none: CI only"
+        ]
+      },
+      "tests": [
+        "crates/planroom/tests/live_gate.rs::the_proxy_alone_makes_no_model_request",
+        "crates/planroom/tests/privacy.rs::the_first_billable_call_waits_for_consent",
+        "crates/planroom/tests/privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output"
+      ],
+      "decision": "DR-49"
+    },
+    {
+      "id": "C12",
+      "title": "Decisions prefill before they interrupt",
+      "tier": "C",
+      "status": "failing",
+      "requirements": [
+        "R9"
+      ],
+      "ci_path": {
+        "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
+        "steps": [
+          "the fixture's first scan, replayed and with models off: at most 3 cards, batched by cause, and no card without a pick",
+          "a generated 300-file repo with no Jev backend: at most 3 cards plus the one Jev setup card; low-stakes kinds keep their defaults",
+          "a budget of zero: every low-stakes request keeps its default and stays pending; a later run within budget answers it",
+          "a dependency_real false pick from a prefill marks the edge doubted and leaves it in place; a person-stakes card calls Claude only when it is on top or a person taps Ask Claude"
+        ],
+        "compare": [],
+        "stand_ins": [
+          "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
+        ]
+      },
+      "evidence_path": {
+        "dir": null,
+        "steps": [
+          "none: CI only"
+        ]
+      },
+      "tests": [
+        "crates/planroom/tests/first_run.rs::first_scan_deals_at_most_three_cards",
+        "crates/planroom/tests/first_run.rs::a_large_repo_first_scan_deals_at_most_three_cards",
+        "crates/kernel/tests/policy.rs::low_stakes_prefill_and_person_stakes_card",
+        "crates/kernel/tests/policy.rs::a_budget_past_the_cap_keeps_the_default",
+        "crates/kernel/tests/policy.rs::a_prefill_never_retracts",
+        "crates/kernel/tests/policy.rs::person_stakes_escalate_only_lazily"
+      ],
+      "decision": "DR-50"
+    },
+    {
+      "id": "C13",
+      "title": "Spend records and the measured always-on surface",
+      "tier": "C",
+      "status": "failing",
+      "requirements": [
+        "R9",
+        "R14"
+      ],
+      "ci_path": {
+        "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
+        "steps": [
+          "two workspaces in one temporary data root: the daily Claude cap counts both, from DATA_ROOT/ledger.db",
+          "PLANROOM_SPEND_LOG on a file whose total is $2.80: a live call that would pass the cap less $0.25 is refused before it is sent",
+          "sh tests/plugin/surface_tokens.sh with each sub-budget",
+          "the mod's agents test: the curator spawns only after its card or /room curate, and each spawned agent's turn.complete usage lands in the ledger"
+        ],
+        "compare": [],
+        "stand_ins": [
+          "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
+        ]
+      },
+      "evidence_path": {
+        "dir": null,
+        "steps": [
+          "none: CI only"
+        ]
+      },
+      "tests": [
+        "crates/store/tests/ledger.rs::the_daily_cap_spans_workspaces",
+        "crates/planroom/tests/live_gate.rs::the_spend_log_stops_live_calls_at_the_cap",
+        "tests/plugin/surface_tokens.sh",
+        "packages/mod/src/agents.test.ts::curator_spawns_only_after_the_card",
+        "packages/mod/src/agents.test.ts::agent_usage_goes_to_the_ledger"
+      ],
+      "decision": "DR-51"
+    },
+    {
+      "id": "C14",
+      "title": "Event backups and safe migrations",
+      "tier": "C",
+      "status": "failing",
+      "requirements": [
+        "R10"
+      ],
+      "ci_path": {
+        "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
+        "steps": [
+          "a single-repo fixture with person edits; git clean -xfd; planroom scan --json deals one restore card with Yes pre-selected, and accepting it brings every edit back",
+          "a migration fixture with a planted failure: the store rolls back, and the VACUUM INTO copy exists and passes integrity_check; a successful migration reports store_migrated with the copy's path",
+          "an older binary on a newer store: schema_mismatch, and the mod shows the restart line once without restarting it",
+          "PLANROOM_ACTOR=agent:aaaaaaaa:chat planroom doctor --restore BACKUP --json: person_required",
+          "planroom doctor --json warns when the newest backup is older than the last person-authored event"
+        ],
+        "compare": [],
+        "stand_ins": [
+          "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
+        ]
+      },
+      "evidence_path": {
+        "dir": null,
+        "steps": [
+          "none: CI only"
+        ]
+      },
+      "tests": [
+        "crates/planroom/tests/backup.rs::git_clean_then_scan_offers_one_restore_card",
+        "crates/planroom/tests/backup.rs::a_failed_migration_rolls_back",
+        "crates/planroom/tests/backup.rs::an_older_engine_says_restart_once",
+        "crates/planroom/tests/backup.rs::doctor_restore_is_person_only",
+        "crates/planroom/tests/backup.rs::doctor_warns_when_the_backup_is_behind"
+      ],
+      "decision": "DR-53"
+    },
+    {
+      "id": "C15",
+      "title": "Local server auth without an ambient cookie",
+      "tier": "C",
+      "status": "failing",
+      "requirements": [
+        "R13"
+      ],
+      "ci_path": {
+        "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
+        "steps": [
+          "planroom serve --detach; requests with no bearer token, with a missing Origin, with a foreign Origin, with a wrong Host, and with a reused or 61 s old code are refused",
+          "the store, its WAL files and serve.json are mode 0600 in a 0700 .planroom/"
+        ],
+        "compare": [],
+        "stand_ins": [
+          "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
+          "person steps run with the harness's PLANROOM_PERSON_KEY, whose sha256 the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no key"
+        ]
+      },
+      "evidence_path": {
+        "dir": null,
+        "steps": [
+          "none: CI only"
+        ]
+      },
+      "tests": [
+        "crates/planroom/tests/server_auth.rs::a_request_without_the_token_is_refused",
+        "crates/planroom/tests/server_auth.rs::a_missing_origin_is_refused",
+        "crates/planroom/tests/server_auth.rs::an_expired_or_reused_code_is_refused",
+        "crates/store/tests/fs_check.rs::store_files_are_0600_in_a_0700_directory"
+      ],
+      "decision": "DR-29"
+    },
+    {
+      "id": "C16",
+      "title": "Repo gates that fire",
+      "tier": "C",
+      "status": "failing",
+      "requirements": [
+        "R16",
+        "R15"
+      ],
+      "ci_path": {
+        "fixture": "a temporary copy of this repository made with git worktree add --detach, with pnpm install --frozen-lockfile --offline",
+        "steps": [
+          "cargo xtask check layout: a change to boundaries.toml with no new layout.lock entry fails; cargo xtask gen --layout-lock DR-n refuses a record that isn't in decisions.md",
+          "cargo xtask check layout --commits BASE..HEAD over a planted commit that changes layout.lock without adding the record's heading fails, and a missing BASE fails rather than skips",
+          "a schema change that removes a property without a schema_version bump fails the breaking-change guard against schema/baseline/",
+          "a commit that raises a gated number in budgets.json without a record fails; one that lowers it passes",
+          "ci_runs_only_xtask: a run: step in ci.yml that isn't a listed setup step or a cargo xtask command fails",
+          "feature_list_is_complete: a feature test that needs PLANROOM_LIVE_* or a live session fails",
+          "area_contracts_match_repo_layout: an edited area contract block in crates/kernel/AGENTS.md fails; every area in boundaries.toml has an AGENTS.md and a CLAUDE.md"
+        ],
+        "compare": [],
+        "stand_ins": [
+          "planted commits in the temporary copy"
+        ]
+      },
+      "evidence_path": {
+        "dir": null,
+        "steps": [
+          "none: CI only"
+        ]
+      },
+      "tests": [
+        "cargo xtask check boundaries --self-test",
+        "cargo xtask check layout",
+        "crates/xtask/tests/gates.rs::layout_gate_fails_without_a_record",
+        "crates/xtask/tests/gates.rs::a_missing_base_fails",
+        "crates/xtask/tests/gates.rs::budgets_raise_needs_a_record",
+        "crates/xtask/tests/gates.rs::ci_runs_only_xtask",
+        "crates/xtask/tests/gates.rs::feature_list_is_complete",
+        "crates/xtask/tests/gates.rs::area_contracts_match_repo_layout",
+        "crates/planroom/tests/envelope_schema.rs::breaking_change_guard",
+        "crates/planroom/tests/release_pins.rs::dependabot_cooldown_matches_minimum_release_age"
+      ],
+      "decision": "DR-59"
     }
   ]
 }
