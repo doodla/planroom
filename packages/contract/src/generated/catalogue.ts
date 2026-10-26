@@ -92,3 +92,54 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
 export const CATALOGUE_HASH = "01ba45f9afa2b267d1036467727e94fcd461d0258b906e5f4a41b505689016b4";
+
+/** One pane the mod draws before the engine answers `focus` (DR-57). */
+export interface FallbackPane {
+  readonly headline: string;
+  readonly detail: string | null;
+  readonly action: string | null;
+}
+
+/** The fallback panes' strings, from the engine's `crates/planroom/text/en.toml`. */
+export const FALLBACK_PANES: Readonly<Record<"resolving" | "fetching" | "build_offered" | "building" | "version_mismatch" | "unsupported_platform" | "failed" | "no_focus", FallbackPane>> = {
+  "resolving": {
+    "headline": "Looking for the Planroom engine…",
+    "detail": null,
+    "action": "Check again"
+  },
+  "fetching": {
+    "headline": "Getting the Planroom engine…",
+    "detail": null,
+    "action": "Check again"
+  },
+  "build_offered": {
+    "headline": "Build the engine from source, about 4 minutes?",
+    "detail": null,
+    "action": "Build it"
+  },
+  "building": {
+    "headline": "Building the engine from source…",
+    "detail": "This takes about 4 minutes.",
+    "action": "Check again"
+  },
+  "version_mismatch": {
+    "headline": "This engine doesn't match the plugin.",
+    "detail": null,
+    "action": "Try again"
+  },
+  "unsupported_platform": {
+    "headline": "Planroom can't run here.",
+    "detail": "Planroom v0.1 runs on macOS, Linux and WSL 2. Open this repo from WSL.",
+    "action": null
+  },
+  "failed": {
+    "headline": "The Planroom engine isn't available.",
+    "detail": null,
+    "action": "Try again"
+  },
+  "no_focus": {
+    "headline": "Planroom couldn't show this folder.",
+    "detail": null,
+    "action": "Try again"
+  }
+};

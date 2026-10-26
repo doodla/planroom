@@ -10,8 +10,8 @@ use std::time::Instant;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
-    Command, CommandName, Envelope, MapReq, Meta, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, Size, StreamFrame,
-    VersionReq, Warning, WatchReq,
+    Command, CommandName, Envelope, FocusReq, MapReq, Meta, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, Size,
+    StreamFrame, VersionReq, Warning, WatchReq,
 };
 use planroom_store::Tail;
 use serde::Serialize;
@@ -37,6 +37,8 @@ enum Cmd {
     Scan(ScanReq),
     /// The map at a level through a lens.
     Map(MapReq),
+    /// Where you are, the one open decision and the next action.
+    Focus(FocusReq),
     /// Stream the workspace's committed events as NDJSON frames.
     Watch(WatchReq),
     /// The contract schema's summary, or the command catalogue with --commands.
@@ -64,6 +66,10 @@ pub fn main() -> ExitCode {
         Cmd::Map(req) => {
             let name = Command::Map(req.clone()).name();
             finish(cli.json, &name.0, app::map::run(&req, &cwd), started)
+        }
+        Cmd::Focus(req) => {
+            let name = Command::Focus(req.clone()).name();
+            finish(cli.json, &name.0, app::focus::run(&req, &cwd), started)
         }
         Cmd::Watch(req) => watch(cli.json, &req, &cwd),
         Cmd::Schema(req) => {

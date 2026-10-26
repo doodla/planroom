@@ -2,9 +2,11 @@
  * What the pane and the band show before the engine answers `focus` (DR-57): one headline, one
  * detail line, and one action that runs the resolver or retries the mod's start-up.
  *
- * These strings belong in the engine's `en.toml`, generated into `FALLBACK_PANES`; until the engine
- * has a string catalog, they live here.
+ * The strings come from the engine's `en.toml`, generated into `FALLBACK_PANES`; this module only
+ * picks the pane and what its action runs.
  */
+
+import { FALLBACK_PANES } from "@planroom/contract";
 
 import type { EngineState } from "./state-types";
 
@@ -18,7 +20,22 @@ export interface Fallback {
   action: FallbackAction | null;
 }
 
-const RETRY: FallbackAction = { label: "Check again", run: "retry" };
+type PaneState = keyof typeof FALLBACK_PANES;
+
+/** The pane for `state`: its strings, a detail from the resolver when it has one, and its action. */
+function pane(
+  state: PaneState,
+  detail: string | null,
+  run: FallbackAction["run"] = "retry",
+): Fallback {
+  const strings = FALLBACK_PANES[state];
+  return {
+    status: state,
+    headline: strings.headline,
+    detail: detail ?? strings.detail,
+    action: strings.action === null ? null : { label: strings.action, run },
+  };
+}
 
 /** The fallback for an engine that isn't ready, or a `focus` that failed (`error`). */
 export function fallbackFor(
@@ -27,60 +44,20 @@ export function fallbackFor(
 ): Fallback {
   switch (engine.status) {
     case "resolving":
-      return {
-        status: "resolving",
-        headline: "Looking for the Planroom engine…",
-        detail: null,
-        action: RETRY,
-      };
+      return pane("resolving", null);
     case "fetching":
-      return {
-        status: "fetching",
-        headline: "Getting the Planroom engine…",
-        detail: engine.line,
-        action: RETRY,
-      };
+      return pane("fetching", engine.line);
     case "build_offered":
-      return {
-        status: "build_offered",
-        headline: "Build the engine from source, about 4 minutes?",
-        detail: engine.line,
-        action: { label: "Build it", run: "build" },
-      };
+      return pane("build_offered", engine.line, "build");
     case "building":
-      return {
-        status: "building",
-        headline: "Building the engine from source…",
-        detail: engine.line ?? "This takes about 4 minutes.",
-        action: RETRY,
-      };
+      return pane("building", engine.line);
     case "version_mismatch":
-      return {
-        status: "version_mismatch",
-        headline: "This engine doesn't match the plugin.",
-        detail: engine.line,
-        action: { label: "Try again", run: "retry" },
-      };
+      return pane("version_mismatch", engine.line);
     case "unsupported_platform":
-      return {
-        status: "unsupported_platform",
-        headline: "Planroom can't run here.",
-        detail: engine.line,
-        action: null,
-      };
+      return pane("unsupported_platform", engine.line);
     case "failed":
-      return {
-        status: "failed",
-        headline: "The Planroom engine isn't available.",
-        detail: engine.line,
-        action: { label: "Try again", run: "retry" },
-      };
+      return pane("failed", engine.line);
     case "ready":
-      return {
-        status: "no_focus",
-        headline: "Planroom couldn't show this folder.",
-        detail: focusError,
-        action: { label: "Try again", run: "retry" },
-      };
+      return pane("no_focus", focusError);
   }
 }

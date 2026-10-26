@@ -7,6 +7,7 @@
 
 mod commit;
 mod error;
+mod presence;
 mod read;
 mod tail;
 

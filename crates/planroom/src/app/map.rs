@@ -65,7 +65,8 @@ fn not_scanned(root: &Path, lens: String, level: Option<Level>) -> Result<Reply<
     Ok(Reply { text: text_of(&view), result: view, seq: 0, warnings: vec![] })
 }
 
-fn scan_empty(root: &Path, repos: usize) -> Empty {
+/// The empty state of a directory with no scan: map its repos, or find some first.
+pub(crate) fn scan_empty(root: &Path, repos: usize) -> Empty {
     let (reason, label) = if repos == 0 {
         ("no_repos", text::get("empty.no_repos", &[]))
     } else {

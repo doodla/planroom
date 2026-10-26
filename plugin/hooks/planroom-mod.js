@@ -78,6 +78,48 @@ var CATALOGUE = [
     "room": false
   }
 ];
+var FALLBACK_PANES = {
+  "resolving": {
+    "headline": "Looking for the Planroom engine…",
+    "detail": null,
+    "action": "Check again"
+  },
+  "fetching": {
+    "headline": "Getting the Planroom engine…",
+    "detail": null,
+    "action": "Check again"
+  },
+  "build_offered": {
+    "headline": "Build the engine from source, about 4 minutes?",
+    "detail": null,
+    "action": "Build it"
+  },
+  "building": {
+    "headline": "Building the engine from source…",
+    "detail": "This takes about 4 minutes.",
+    "action": "Check again"
+  },
+  "version_mismatch": {
+    "headline": "This engine doesn't match the plugin.",
+    "detail": null,
+    "action": "Try again"
+  },
+  "unsupported_platform": {
+    "headline": "Planroom can't run here.",
+    "detail": "Planroom v0.1 runs on macOS, Linux and WSL 2. Open this repo from WSL.",
+    "action": null
+  },
+  "failed": {
+    "headline": "The Planroom engine isn't available.",
+    "detail": null,
+    "action": "Try again"
+  },
+  "no_focus": {
+    "headline": "Planroom couldn't show this folder.",
+    "detail": null,
+    "action": "Try again"
+  }
+};
 
 // src/catalogue.ts
 function leaf(name) {
@@ -230,65 +272,33 @@ function engineMissing(engine) {
 }
 
 // src/fallback.ts
-var RETRY = { label: "Check again", run: "retry" };
+function pane(state, detail, run2 = "retry") {
+  const strings = FALLBACK_PANES[state];
+  return {
+    status: state,
+    headline: strings.headline,
+    detail: detail ?? strings.detail,
+    action: strings.action === null ? null : { label: strings.action, run: run2 }
+  };
+}
 function fallbackFor(engine, focusError = null) {
   switch (engine.status) {
     case "resolving":
-      return {
-        status: "resolving",
-        headline: "Looking for the Planroom engine…",
-        detail: null,
-        action: RETRY
-      };
+      return pane("resolving", null);
     case "fetching":
-      return {
-        status: "fetching",
-        headline: "Getting the Planroom engine…",
-        detail: engine.line,
-        action: RETRY
-      };
+      return pane("fetching", engine.line);
     case "build_offered":
-      return {
-        status: "build_offered",
-        headline: "Build the engine from source, about 4 minutes?",
-        detail: engine.line,
-        action: { label: "Build it", run: "build" }
-      };
+      return pane("build_offered", engine.line, "build");
     case "building":
-      return {
-        status: "building",
-        headline: "Building the engine from source…",
-        detail: engine.line ?? "This takes about 4 minutes.",
-        action: RETRY
-      };
+      return pane("building", engine.line);
     case "version_mismatch":
-      return {
-        status: "version_mismatch",
-        headline: "This engine doesn't match the plugin.",
-        detail: engine.line,
-        action: { label: "Try again", run: "retry" }
-      };
+      return pane("version_mismatch", engine.line);
     case "unsupported_platform":
-      return {
-        status: "unsupported_platform",
-        headline: "Planroom can't run here.",
-        detail: engine.line,
-        action: null
-      };
+      return pane("unsupported_platform", engine.line);
     case "failed":
-      return {
-        status: "failed",
-        headline: "The Planroom engine isn't available.",
-        detail: engine.line,
-        action: { label: "Try again", run: "retry" }
-      };
+      return pane("failed", engine.line);
     case "ready":
-      return {
-        status: "no_focus",
-        headline: "Planroom couldn't show this folder.",
-        detail: focusError,
-        action: { label: "Try again", run: "retry" }
-      };
+      return pane("no_focus", focusError);
   }
 }
 
@@ -863,11 +873,11 @@ async function refreshPane($) {
     3e4
   );
   const reply = parseReply(run2.stdout);
-  const pane = reply?.ok === true ? { model: reply.result, error: null } : {
+  const pane2 = reply?.ok === true ? { model: reply.result, error: null } : {
     model: null,
     error: reply?.error?.message ?? (run2.stderr.trim().split("\n")[0] || `focus exited ${run2.exitCode}`)
   };
-  await update($, paneAtom, () => pane);
+  await update($, paneAtom, () => pane2);
 }
 var starting = Promise.resolve();
 async function runCommand($, argv, env, stdin) {
@@ -1058,9 +1068,9 @@ export function register(on) {
   }));
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
     const engine = await read($, engineAtom);
-    const pane = await read($, paneAtom);
+    const pane2 = await read($, paneAtom);
     const columns = e.props.bodyColumns;
-    const rows = engine.status === "ready" && pane.model !== null ? paneRows(pane.model, columns, e.props.scroll.bodyRows) : fallbackRows(fallbackFor(engine, pane.error), columns);
+    const rows = engine.status === "ready" && pane2.model !== null ? paneRows(pane2.model, columns, e.props.scroll.bodyRows) : fallbackRows(fallbackFor(engine, pane2.error), columns);
     return draw($, e, rows);
   });
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
@@ -1068,8 +1078,8 @@ export function register(on) {
       return next(e);
     }
     const engine = await read($, engineAtom);
-    const pane = await read($, paneAtom);
-    const source = engine.status === "ready" && pane.model !== null ? { model: pane.model } : { fallback: fallbackFor(engine, pane.error) };
+    const pane2 = await read($, paneAtom);
+    const source = engine.status === "ready" && pane2.model !== null ? { model: pane2.model } : { fallback: fallbackFor(engine, pane2.error) };
     return draw($, e, [bandRow(source, e.props.bodyColumns)]);
   });
 }

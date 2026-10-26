@@ -2,6 +2,7 @@
 //! storage in the store, extraction in extract.
 
 pub mod error;
+pub mod focus;
 pub mod map;
 pub mod scan;
 pub mod version;

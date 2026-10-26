@@ -33,6 +33,35 @@ no_repos = "No git repos here. Run planroom scan PATH on a directory that holds 
 summary = "Mapped {repos} repos, {moved} of them moved: {containers} containers, {nodes} nodes, {hints} hints."
 next_label = "Show the map"
 
+[focus]
+summary = "{name} · {level} · lens {lens} · seq {seq}"
+blocks = "{count} at the top: {names}."
+next = "Next: {label}"
+next_containers = "Open the containers"
+no_drift = "No drift: no intended rule broken, no machine drift."
+
+# The panes the mod draws before the engine answers `focus` (DR-57). `cargo xtask gen` writes
+# them into `packages/contract/src/generated/catalogue.ts` as FALLBACK_PANES. Each state has a
+# headline, an optional detail and an optional action label.
+[fallback]
+resolving_headline = "Looking for the Planroom engine…"
+resolving_action = "Check again"
+fetching_headline = "Getting the Planroom engine…"
+fetching_action = "Check again"
+build_offered_headline = "Build the engine from source, about 4 minutes?"
+build_offered_action = "Build it"
+building_headline = "Building the engine from source…"
+building_detail = "This takes about 4 minutes."
+building_action = "Check again"
+version_mismatch_headline = "This engine doesn't match the plugin."
+version_mismatch_action = "Try again"
+unsupported_platform_headline = "Planroom can't run here."
+unsupported_platform_detail = "Planroom v0.1 runs on macOS, Linux and WSL 2. Open this repo from WSL."
+failed_headline = "The Planroom engine isn't available."
+failed_action = "Try again"
+no_focus_headline = "Planroom couldn't show this folder."
+no_focus_action = "Try again"
+
 [map]
 summary = "{count} at the top: {names}."
 
