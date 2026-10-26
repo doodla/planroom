@@ -561,14 +561,68 @@ function readDenied(path, places2) {
   }
   return null;
 }
+var STATE_WRITE = "Planroom's state directory changes only through the planroom CLI.";
+var DATA_WRITE = "The Planroom data root changes only through the planroom CLI.";
 function writeDenied(path, places2) {
-  if (inStateDir(path)) {
-    return "Planroom's state directory changes only through the planroom CLI.";
-  }
-  if (within(path, places2.dataRoot)) {
-    return "The Planroom data root changes only through the planroom CLI.";
-  }
+  if (inStateDir(path)) return STATE_WRITE;
+  if (within(path, places2.dataRoot)) return DATA_WRITE;
   return readDenied(path, places2);
+}
+function secretPlaces(places2) {
+  const data = places2.dataRoot;
+  return [
+    modStoreDir(places2),
+    places2.userConfig,
+    ...["stores", "backups", "open", "ledger.db"].map((s) => `${data}/${s}`)
+  ];
+}
+function engineDir(places2) {
+  return `${places2.dataRoot}/engine`;
+}
+function segmentsOf(path) {
+  return path.split("/").filter((s) => s !== "");
+}
+function segmentMay(segment, name) {
+  return GLOB.test(segment) ? segmentMatches(segment, name) : segment === name;
+}
+function mayName(path, target, mode) {
+  const p = segmentsOf(path);
+  const t = segmentsOf(target);
+  for (let i = 0; i < Math.min(p.length, t.length); i++) {
+    const segment = p[i] ?? "";
+    if (segment === "**") return true;
+    if (!segmentMay(segment, t[i] ?? "")) return false;
+  }
+  return mode === "within" ? p.length >= t.length : p.length <= t.length;
+}
+function mayBeInStateDir(path) {
+  const p = segmentsOf(path);
+  return p.some(
+    (s, i) => segmentMay(s, ".planroom") || segmentMay(s, ".git") && i + 1 < p.length && segmentMay(p[i + 1] ?? "", "planroom")
+  );
+}
+function writeTargetDenied(path, places2) {
+  if (!GLOB.test(path)) return writeDenied(path, places2);
+  if (mayBeInStateDir(path)) return STATE_WRITE;
+  if (mayName(path, places2.dataRoot, "within")) return DATA_WRITE;
+  return globDenied(path, places2);
+}
+function removeDenied(path, places2) {
+  const held = [
+    places2.dataRoot,
+    `${places2.cwd}/.planroom`,
+    `${places2.cwd}/.git/planroom`,
+    modStoreDir(places2),
+    places2.userConfig
+  ];
+  return held.some((h2) => mayName(path, h2, "above")) ? "This deletes a folder that holds Planroom's state, its data root, the person key or the gateway key." : null;
+}
+function treeDenied(path, hidden, places2) {
+  const reaches = (secret) => mayName(path, secret, "above") && (hidden || path.includes("**") || !segmentsOf(secret).slice(segmentsOf(path).length).some((s) => s.startsWith(".")));
+  const p = segmentsOf(path);
+  const last = p.at(-1) ?? "";
+  const state = segmentMay(last, ".planroom") || segmentMay(last, ".git") || segmentMay(p.at(-2) ?? "", ".git") && segmentMay(last, "planroom");
+  return state || secretPlaces(places2).some(reaches) ? "This reads, copies or links a whole folder that holds Planroom's private files: the person key, the gateway key, the stores, login pages or serve's token. Name a folder inside it that holds none of them." : null;
 }
 function unquote(command) {
   return command.replace(/\\\n/g, " ").replace(/["'\\]/g, "");
@@ -691,32 +745,300 @@ function expand(word, vars) {
     (_, braced, bare) => vars.get(braced ?? bare ?? "") ?? "*"
   ).replace(/\$[^/]*|`[^/]*/g, "*");
 }
-function bashPaths(command, places2) {
-  const vars = knownVariables(places2);
-  const tokens = unquote(command).split(/[\s;&|()<>`]+/).filter((w) => w !== "");
-  const candidates = [];
-  let bases = [places2.cwd];
-  let moved = false;
-  for (const [i, raw] of tokens.entries()) {
-    const eq = raw.indexOf("=");
-    const assigned = eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(raw.slice(0, eq));
-    const value = eq >= 0 ? expand(raw.slice(eq + 1), vars) : null;
-    if (assigned && value !== null) vars.set(raw.slice(0, eq), value);
-    const word = expand(raw, vars);
-    if (value !== null && value !== "") candidates.push(value);
-    if (!assigned && !word.startsWith("-")) candidates.push(word);
-    if (raw === "cd" || raw === "pushd") {
-      const next = tokens[i + 1];
-      const target = next === void 0 || next.startsWith("-") || /^[;&|]/.test(next) ? "~" : expand(next, vars);
-      const moves = bases.map((b) => normalize(target, b, places2.home));
-      bases = [.../* @__PURE__ */ new Set([...bases, ...moves])].slice(0, 8);
-      moved = true;
+function shellCommands(command) {
+  const text2 = unquote(command);
+  const out = [];
+  let cmd = { words: [], writes: [], reads: [] };
+  let cur = "";
+  let into = "word";
+  const flush = () => {
+    if (cur === "") return;
+    if (into === "word") cmd.words.push(cur);
+    else if (into === "write") cmd.writes.push(cur);
+    else if (into === "read") cmd.reads.push(cur);
+    else if (into === "dup" && !/^(\d+-?|-)$/.test(cur)) cmd.writes.push(cur);
+    cur = "";
+    into = "word";
+  };
+  const end = () => {
+    flush();
+    into = "word";
+    if (cmd.words.length + cmd.writes.length + cmd.reads.length > 0) {
+      out.push(cmd);
+    }
+    cmd = { words: [], writes: [], reads: [] };
+  };
+  const operator = () => {
+    if (/^\d+$/.test(cur)) cur = "";
+    else flush();
+  };
+  for (let i = 0; i < text2.length; i++) {
+    const ch = text2.charAt(i);
+    const next = text2.charAt(i + 1);
+    if (";|()`\n".includes(ch)) {
+      end();
+    } else if (/\s/.test(ch)) {
+      flush();
+    } else if (ch === "&" && next === ">") {
+      flush();
+      i += text2.charAt(i + 2) === ">" ? 2 : 1;
+      into = "write";
+    } else if (ch === "&") {
+      end();
+    } else if (ch === ">") {
+      operator();
+      if (next === ">" || next === "|") i++;
+      if (text2.charAt(i + 1) === "&") {
+        i++;
+        into = "dup";
+      } else into = "write";
+    } else if (ch === "<") {
+      operator();
+      if (next === "<") {
+        while (text2.charAt(i + 1) === "<" || text2.charAt(i + 1) === "-") i++;
+        into = "skip";
+      } else if (next === ">") {
+        i++;
+        into = "write";
+      } else if (next === "&") {
+        i++;
+        into = "skip";
+      } else into = "read";
+    } else cur += ch;
+  }
+  end();
+  return out;
+}
+var ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+var WRAPPERS = /* @__PURE__ */ new Map([
+  ["sudo", ["-u", "-g", "-C", "-h", "-p", "-U", "-D", "-r", "-t"]],
+  ["doas", ["-u", "-C"]],
+  ["env", ["-u", "-C", "-S"]],
+  ["xargs", ["-I", "-n", "-P", "-L", "-s", "-E", "-d", "-a"]],
+  ["timeout", ["-s", "-k"]],
+  ["nice", ["-n"]],
+  ["command", []],
+  ["builtin", []],
+  ["exec", ["-a"]],
+  ["nohup", []],
+  ["time", []],
+  ["stdbuf", []]
+]);
+var KEYWORDS = /* @__PURE__ */ new Set([
+  "!",
+  "{",
+  "}",
+  "if",
+  "then",
+  "else",
+  "elif",
+  "do",
+  "while",
+  "until"
+]);
+var SHELLS = /* @__PURE__ */ new Set(["sh", "bash", "zsh", "dash", "ksh"]);
+function commandStart(words) {
+  let i = 0;
+  while (i < words.length) {
+    const word = words[i] ?? "";
+    const name = basename(word);
+    const valued = WRAPPERS.get(name);
+    if (ASSIGNMENT.test(word) || KEYWORDS.has(word)) {
+      i++;
+    } else if (valued !== void 0) {
+      i++;
+      for (; i < words.length; i++) {
+        const w = words[i] ?? "";
+        if (valued.includes(w)) i++;
+        else if (!w.startsWith("-") && !ASSIGNMENT.test(w)) break;
+      }
+      if (name === "timeout" && /^\d/.test(words[i] ?? "")) i++;
+    } else if (SHELLS.has(name) && /^-[a-z]*c[a-z]*$/.test(words[i + 1] ?? "")) {
+      i += 2;
+    } else {
+      return i;
     }
   }
-  const words = candidates.filter(
-    (w) => w !== "" && (moved || w.includes("/") || w.startsWith("~") || GLOB.test(w) || STORE_FILE.test(w) || w === "store.pointer" || w === "serve.json")
+  return i;
+}
+var REMOVERS = /* @__PURE__ */ new Set([
+  "rm",
+  "rmdir",
+  "unlink",
+  "shred",
+  "trash",
+  "trash-put"
+]);
+var WRITERS = /* @__PURE__ */ new Set([
+  "tee",
+  "touch",
+  "mkdir",
+  "truncate",
+  "chmod",
+  "chown",
+  "chgrp",
+  "chattr",
+  "setfacl",
+  "mkfifo",
+  "mknod",
+  "tar"
+]);
+var COPIERS = /* @__PURE__ */ new Set(["cp", "install", "ln", "rsync", "scp"]);
+var IN_PLACE = /* @__PURE__ */ new Set(["sed", "perl", "ruby"]);
+var SEARCHERS = /* @__PURE__ */ new Set(["grep", "egrep", "fgrep", "zgrep", "rgrep", "ack"]);
+var SKIPPERS = /* @__PURE__ */ new Set(["rg", "ag", "fd", "fdfind"]);
+var FIND_ACTIONS = /* @__PURE__ */ new Set(["-exec", "-execdir", "-ok", "-okdir"]);
+function commandEffects(all, piped) {
+  const effects = {
+    writes: [],
+    removes: [],
+    trees: [],
+    refusal: null
+  };
+  const start = commandStart(all);
+  const name = basename(all[start] ?? "");
+  const args = all.slice(start + 1);
+  const ops = args.filter((a) => !a.startsWith("-"));
+  const short = (letters) => args.some(
+    (a) => /^-[^-]/.test(a) && [...a.slice(1)].some((c) => letters.includes(c))
   );
-  return { words: [...new Set(words)], bases };
+  const long = (...names) => args.some((a) => names.some((n) => a === n || a.startsWith(`${n}=`)));
+  const values = (letters, longs) => {
+    const out = [];
+    args.forEach((a, i) => {
+      const after = args[i + 1];
+      for (const n of longs) {
+        if (a === n && after !== void 0) out.push(after);
+        else if (a.startsWith(`${n}=`)) out.push(a.slice(n.length + 1));
+      }
+      if (!/^-[A-Za-z]/.test(a)) return;
+      const at = [...a.slice(1)].findIndex((c) => letters.includes(c));
+      if (at < 0) return;
+      const rest = a.slice(at + 2);
+      if (rest !== "") out.push(rest);
+      else if (after !== void 0) out.push(after);
+    });
+    return out;
+  };
+  const trees = (words, hidden = true) => {
+    effects.trees.push(...words.map((word) => ({ word, hidden })));
+  };
+  const roots = () => {
+    const given = values("ef", ["--regexp", "--file"]).length > 0 || long("--files");
+    const named = given ? ops : ops.slice(1);
+    return named.length > 0 ? named : ["."];
+  };
+  const target = values("t", ["--target-directory"]);
+  if (REMOVERS.has(name)) {
+    effects.writes.push(...ops);
+    effects.removes.push(...ops);
+  } else if (name === "mv") {
+    effects.writes.push(...ops);
+    effects.removes.push(
+      ...target.length > 0 ? ops.filter((o) => !target.includes(o)) : ops.slice(0, -1)
+    );
+  } else if (WRITERS.has(name)) {
+    effects.writes.push(...ops);
+    if (name === "tar") trees(ops);
+  } else if (COPIERS.has(name)) {
+    const last = ops.length >= 2 ? ops.slice(-1) : [];
+    effects.writes.push(
+      ...target,
+      ...name === "install" && short("d") ? ops : last
+    );
+    if (name === "rsync" || name === "cp" && (short("rRa") || long("--recursive", "--archive")) || name === "scp" && short("r") || name === "ln" && (short("s") || long("--symbolic"))) {
+      trees(ops);
+    }
+  } else if (IN_PLACE.has(name)) {
+    if (short("i") || long("--in-place")) effects.writes.push(...ops);
+  } else if (name === "dd") {
+    effects.writes.push(
+      ...args.filter((a) => a.startsWith("of=")).map((a) => a.slice(3))
+    );
+  } else if (name === "curl") {
+    effects.writes.push(...values("o", ["--output", "--output-dir"]));
+  } else if (name === "wget") {
+    effects.writes.push(
+      ...values("OP", ["--output-document", "--directory-prefix"])
+    );
+  } else if (name === "unzip") {
+    effects.writes.push(...values("d", []));
+  } else if (name === "zip") {
+    effects.writes.push(...ops.slice(0, 1));
+    if (short("rR") || long("--recurse-paths")) trees(ops);
+  } else if (name === "find") {
+    const expression = args.findIndex((a) => a.startsWith("-") || a === "!");
+    const paths = expression < 0 ? args : args.slice(0, expression);
+    const from = paths.length > 0 ? paths : ["."];
+    if (piped || args.some((a) => FIND_ACTIONS.has(a))) trees(from);
+    if (args.includes("-delete")) effects.writes.push(...from);
+  } else if (SEARCHERS.has(name)) {
+    const recursive = name === "rgrep" || name === "ack" || short("rR") || long("--recursive", "--dereference-recursive") || args.includes("--directories=recurse") || args.some((a, i) => a === "-d" && args[i + 1] === "recurse");
+    if (recursive) trees(roots());
+  } else if (SKIPPERS.has(name)) {
+    const fd = name === "fd" || name === "fdfind";
+    const hidden = long("--hidden", "--unrestricted") || args.some((a) => a.startsWith("--no-ignore")) || short(fd ? "uHI" : "u.");
+    trees(roots(), hidden);
+  } else if (name === "git" && ops.includes("clean")) {
+    const kept = !short("X") && values("e", ["--exclude"]).some((e) => /^\/?\.planroom\/?$/.test(e));
+    if (short("d") && short("xX") && !kept) {
+      effects.refusal = "git clean -x deletes the ignored .planroom/, Planroom's store with it: leave out -x, or add -e .planroom.";
+    }
+  }
+  return effects;
+}
+function bashPaths(command, places2) {
+  const vars = knownVariables(places2);
+  const commands = shellCommands(command);
+  const piped = commands.some(
+    (c) => c.words.some((w) => basename(w) === "xargs")
+  );
+  const candidates = [];
+  const effects = {
+    writes: [],
+    removes: [],
+    trees: [],
+    refusal: null
+  };
+  let bases = [places2.cwd];
+  let moved = false;
+  for (const simple of commands) {
+    const words2 = [];
+    for (const [i, raw] of simple.words.entries()) {
+      const eq = raw.indexOf("=");
+      const assigned = eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(raw.slice(0, eq));
+      const value = eq >= 0 ? expand(raw.slice(eq + 1), vars) : null;
+      if (assigned && value !== null) vars.set(raw.slice(0, eq), value);
+      const word = expand(raw, vars);
+      words2.push(word);
+      if (value !== null && value !== "") candidates.push(value);
+      if (!assigned && !word.startsWith("-")) candidates.push(word);
+      if (raw === "cd" || raw === "pushd") {
+        const next = simple.words[i + 1];
+        const target = next === void 0 || next.startsWith("-") ? "~" : expand(next, vars);
+        const moves = bases.map((b) => normalize(target, b, places2.home));
+        bases = [.../* @__PURE__ */ new Set([...bases, ...moves])].slice(0, 8);
+        moved = true;
+      }
+    }
+    const writes = simple.writes.map((w) => expand(w, vars));
+    candidates.push(...writes, ...simple.reads.map((w) => expand(w, vars)));
+    const own = commandEffects(words2, piped);
+    effects.writes.push(...writes, ...own.writes);
+    effects.removes.push(...own.removes);
+    effects.trees.push(...own.trees);
+    effects.refusal ??= own.refusal;
+  }
+  const named = candidates.filter(
+    (w) => moved || w.includes("/") || w.startsWith("~") || GLOB.test(w) || STORE_FILE.test(w) || w === "store.pointer" || w === "serve.json"
+  );
+  const operands = [
+    ...effects.writes,
+    ...effects.removes,
+    ...effects.trees.map((t) => t.word)
+  ];
+  const words = [...named, ...operands].filter((w) => w !== "");
+  return { words: [...new Set(words)], bases, effects };
 }
 function segmentPattern(segment) {
   let out = "";
@@ -845,7 +1167,7 @@ function guardCall(tool, input, resolved, places2) {
     for (const s of spell(p)) {
       const reason = GLOB.test(s) ? globDenied(s, places2) : readDenied(s, places2);
       if (reason !== null) return deny(reason);
-      if ((tool === "Grep" || tool === "Glob") && (inStateDir(s) || within(s, places2.dataRoot) || within(modStoreDir(places2), s))) {
+      if ((tool === "Grep" || tool === "Glob") && (inStateDir(s) || within(s, places2.dataRoot) || secretPlaces(places2).some((secret) => within(secret, s)))) {
         return deny(
           "Planroom's state is read through the planroom CLI, never directly."
         );
@@ -866,17 +1188,28 @@ function guardCall(tool, input, resolved, places2) {
   if (bash !== null) {
     const reason = bashDenied(bash);
     if (reason !== null) return deny(reason);
-    const { words, bases } = bashPaths(bash, places2);
-    for (const p of words) {
-      const spellings = [
-        ...bases.map((b) => normalize(p, b, places2.home)),
-        ...resolved(p)
-      ];
-      for (const s of spellings) {
-        const why = GLOB.test(s) ? globDenied(s, places2) : readDenied(s, places2);
-        if (why !== null) return deny(why);
+    const { words, bases, effects } = bashPaths(bash, places2);
+    if (effects.refusal !== null) return deny(effects.refusal);
+    const spellings = (p) => [
+      ...bases.map((b) => normalize(p, b, places2.home)),
+      ...resolved(p)
+    ];
+    const first = (paths, why2) => {
+      for (const p of paths) {
+        for (const s of spellings(p)) {
+          const reason2 = why2(s);
+          if (reason2 !== null) return reason2;
+        }
       }
-    }
+      return null;
+    };
+    const why = first(
+      words,
+      (s) => mayName(s, engineDir(places2), "within") ? "Planroom's engine cache runs with the person's authority: only the resolver writes it, and an agent's command never names it." : GLOB.test(s) ? globDenied(s, places2) : readDenied(s, places2)
+    ) ?? // security-r2-1: what the Write tool may not write, no command or redirection writes either.
+    first(effects.writes, (s) => writeTargetDenied(s, places2)) ?? first(effects.removes, (s) => removeDenied(s, places2)) ?? // security-r2-2: a whole-tree read reaches whatever its folder holds.
+    effects.trees.map((t) => first([t.word], (s) => treeDenied(s, t.hidden, places2))).find((r) => r !== null) ?? null;
+    if (why !== null) return deny(why);
   }
   return null;
 }
