@@ -87,6 +87,7 @@ pub enum Command {
     Map(MapReq),
     Focus(FocusReq),
     Scan(ScanReq),
+    Watch(WatchReq),
 }
 
 const MAP: CommandSpec = CommandSpec {
@@ -152,15 +153,35 @@ const SCAN: CommandSpec = CommandSpec {
     room: true,
 };
 
+const WATCH: CommandSpec = CommandSpec {
+    path: &["watch"],
+    idea: Idea::Setup,
+    summary: "Stream the workspace's committed events as NDJSON frames.",
+    actor: ActorRule::Any,
+    class: Class::Read,
+    budget_tokens: 0,
+    needs_base: false,
+    errors: &[
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Query,
+    tool: None,
+    room: false,
+};
+
 impl Command {
     /// Every leaf's spec, in catalogue order.
-    pub const SPECS: &'static [CommandSpec] = &[MAP, FOCUS, SCAN];
+    pub const SPECS: &'static [CommandSpec] = &[MAP, FOCUS, SCAN, WATCH];
 
     pub const fn spec(&self) -> &'static CommandSpec {
         match self {
             Command::Map(_) => &MAP,
             Command::Focus(_) => &FOCUS,
             Command::Scan(_) => &SCAN,
+            Command::Watch(_) => &WATCH,
         }
     }
 
@@ -229,6 +250,14 @@ pub struct ScanReq {
     #[serde(flatten)]
     #[command(flatten)]
     pub common: WriteCommon,
+}
+
+/// `planroom watch [--since SEQ]`: one `StreamFrame` per line on stdout until stopped.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct WatchReq {
+    /// Stream the events after this `seq`; the store's latest when absent.
+    #[arg(long)]
+    pub since: Option<Seq>,
 }
 
 /// What `scan` returns: the map at the top level with the default lens, and the next action.

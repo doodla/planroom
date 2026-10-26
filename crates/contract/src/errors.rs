@@ -37,18 +37,32 @@ impl Category {
     }
 }
 
-/// A registered error code, with its category, retryability, meaning and `details` fields.
+/// When a caller may retry a failed command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Retry {
+    /// Retrying the same request can't succeed; a person or another command must act first.
+    Never,
+    /// The same request may succeed at once.
+    Now,
+    /// Re-read, then retry with the new `seq` as `base`.
+    AfterReread,
+    /// Wait, then retry; `retry_after_ms` says how long when known.
+    Later,
+}
+
+/// A registered error code, with its category, retry class, meaning and `details` fields.
 pub struct ErrorSpec {
     pub code: ErrorCode,
     pub category: Category,
-    pub retryable: bool,
+    pub retry: Retry,
     pub meaning: &'static str,
     /// The keys of the error's `details` object.
     pub details: &'static [&'static str],
 }
 
 macro_rules! error_codes {
-    ($($variant:ident = $code:literal, $category:ident, $retryable:literal, $meaning:literal, [$($detail:literal),*];)*) => {
+    ($($variant:ident = $code:literal, $category:ident, $retry:ident, $meaning:literal, [$($detail:literal),*];)*) => {
         /// A stable error code. Older readers map an unknown code to its category.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
         #[serde(rename_all = "snake_case")]
@@ -66,7 +80,7 @@ macro_rules! error_codes {
                     $(ErrorCode::$variant => &ErrorSpec {
                         code: ErrorCode::$variant,
                         category: Category::$category,
-                        retryable: $retryable,
+                        retry: Retry::$retry,
                         meaning: $meaning,
                         details: &[$($detail),*],
                     },)*
@@ -84,17 +98,20 @@ macro_rules! error_codes {
 }
 
 error_codes! {
-    InvalidArgument = "invalid_argument", Usage, false, "bad flags or request", ["field"];
-    AmbiguousRef = "ambiguous_ref", Usage, false, "an ID suffix or name matched several records", ["candidates"];
-    WorkspaceNotFound = "workspace_not_found", NotFound, false, "no repos at the path", ["path"];
-    NotFound = "not_found", NotFound, false, "unknown ID, question or file", ["closest"];
-    StoreBusy = "store_busy", Unavailable, true, "still locked after the 5 s busy timeout", [];
-    SchemaMismatch = "schema_mismatch", Unavailable, false,
+    InvalidArgument = "invalid_argument", Usage, Never, "bad flags or request", ["field"];
+    AmbiguousRef = "ambiguous_ref", Usage, Never, "an ID suffix or name matched several records", ["candidates"];
+    WorkspaceNotFound = "workspace_not_found", NotFound, Never,
+        "no repos at the path, or a read found no workspace store", ["path"];
+    NotFound = "not_found", NotFound, Never, "unknown ID, question or file", ["closest"];
+    IdempotencyMismatch = "idempotency_mismatch", Conflict, Never,
+        "the same idem with a different request", ["idem", "stored_event"];
+    StoreBusy = "store_busy", Unavailable, Now, "still locked after the 5 s busy timeout", [];
+    SchemaMismatch = "schema_mismatch", Unavailable, Never,
         "the store or a file is from a newer version, or this process is older than the store",
-        ["found", "supported"];
-    PackInvalid = "pack_invalid", Failed, false, "a pack failed validation", ["file", "line", "reference"];
-    GitFailed = "git_failed", Failed, false, "git exited non-zero; stderr redacted", ["argv", "stderr"];
-    Internal = "internal", Internal, false, "a bug", ["report"];
+        ["found", "supported", "writer_version"];
+    PackInvalid = "pack_invalid", Failed, Never, "a pack failed validation", ["file", "line", "reference"];
+    GitFailed = "git_failed", Failed, Never, "git exited non-zero; stderr redacted", ["argv", "stderr"];
+    Internal = "internal", Internal, Never, "a bug", ["report"];
 }
 
 impl ErrorCode {
@@ -106,8 +123,8 @@ impl ErrorCode {
         self.category().exit_code()
     }
 
-    pub const fn retryable(self) -> bool {
-        self.spec().retryable
+    pub const fn retry(self) -> Retry {
+        self.spec().retry
     }
 }
 
@@ -159,6 +176,10 @@ warning_codes! {
     UnresolvedRef = "unresolved_ref", "an alias or a linker join had zero or several candidates; no edge was made";
     EvidenceDropped = "evidence_dropped", "an evidence item failed verification at ingest";
     PartialParse = "partial_parse", "a file parsed with error nodes; its facts are weak";
+    PartialScan = "partial_scan",
+        "an extractor reached its file or byte bound; details name the extractor, the repo and the uncovered paths";
+    WorkspaceNested = "workspace_nested",
+        "another workspace's .planroom/ sits inside this one, or this one inside it; details name the other root";
 }
 
 impl JsonSchema for WarningCode {

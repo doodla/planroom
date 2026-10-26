@@ -19,9 +19,6 @@
                 "null"
               ]
             },
-            "surface": {
-              "$ref": "#/$defs/Surface"
-            },
             "kind": {
               "type": "string",
               "const": "person"
@@ -30,8 +27,7 @@
           "required": [
             "kind",
             "id",
-            "name",
-            "surface"
+            "name"
           ],
           "description": "Such as `person:sridhar` or `person:artifact:u_123`."
         },
@@ -205,6 +201,22 @@
       ],
       "description": "One choice on a card."
     },
+    "Client": {
+      "type": "object",
+      "properties": {
+        "surface": {
+          "$ref": "#/$defs/Surface"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "surface",
+        "id"
+      ],
+      "description": "The client a writer writes from, such as `tab_01J...`, `mod:<sessionId>` or `cli:4242`."
+    },
     "Command": {
       "oneOf": [
         {
@@ -254,6 +266,22 @@
             "command",
             "args"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "watch"
+            },
+            "args": {
+              "$ref": "#/$defs/WatchReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
         }
       ],
       "description": "One variant per catalogue leaf; the request travels as `args`."
@@ -266,7 +294,8 @@
           "enum": [
             "map",
             "focus",
-            "scan"
+            "scan",
+            "watch"
           ]
         },
         {
@@ -670,6 +699,7 @@
             "ambiguous_ref",
             "workspace_not_found",
             "not_found",
+            "idempotency_mismatch",
             "store_busy",
             "schema_mismatch",
             "pack_invalid",
@@ -692,8 +722,17 @@
         "category": {
           "$ref": "#/$defs/Category"
         },
-        "retryable": {
-          "type": "boolean"
+        "retry": {
+          "$ref": "#/$defs/Retry"
+        },
+        "retry_after_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0,
+          "description": "With `later`, when the caller may try again."
         },
         "message": {
           "type": "string",
@@ -713,7 +752,7 @@
       "required": [
         "code",
         "category",
-        "retryable",
+        "retry",
         "message",
         "hint",
         "details"
@@ -745,6 +784,10 @@
         },
         "actor": {
           "$ref": "#/$defs/Actor"
+        },
+        "client": {
+          "$ref": "#/$defs/Client",
+          "description": "With `actor`, the writer instance that compare-and-set compares."
         },
         "project": {
           "anyOf": [
@@ -780,6 +823,7 @@
         "request_hash",
         "at",
         "actor",
+        "client",
         "project",
         "cause",
         "status",
@@ -922,6 +966,12 @@
               "format": "uint64",
               "minimum": 0
             },
+            "link": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "description": "The workspace link snapshot of the active set this scan committed."
+            },
             "stats": {
               "$ref": "#/$defs/ScanStats"
             },
@@ -936,6 +986,7 @@
             "commit",
             "branch",
             "snapshot",
+            "link",
             "stats"
           ]
         },
@@ -960,47 +1011,147 @@
       "description": "An event ID: a UUID v7.",
       "format": "uuid"
     },
+    "EventKind": {
+      "type": "string",
+      "enum": [
+        "edit",
+        "review",
+        "undo",
+        "version",
+        "decision",
+        "claim",
+        "scan",
+        "handoff"
+      ],
+      "description": "The eight event kinds, as the `kind` tag of an `EventBody` spells them."
+    },
     "Evidence": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "`<repo>/<repo-relative path>`."
+            },
+            "line": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 1,
+              "description": "1-based."
+            },
+            "contains": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The exact line, cut to 200 characters; omitted in a default Artifact snapshot.",
+              "maxLength": 200
+            },
+            "commit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "branch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "line"
+            }
+          },
+          "required": [
+            "type",
+            "path",
+            "line",
+            "commit",
+            "branch"
+          ],
+          "description": "A file fact: verified against the line index of the blob at `commit`."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "commit": {
+              "type": "string"
+            },
+            "ref": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Such as `refs/tags/v1.5.0` or `refs/heads/main`."
+            },
+            "type": {
+              "type": "string",
+              "const": "ref"
+            }
+          },
+          "required": [
+            "type",
+            "commit",
+            "ref"
+          ],
+          "description": "A git-derived fact (a tag, a commit, co-change, ownership, the tree at a commit): the commit\nis verified to exist, and the ref to name it."
+        }
+      ],
+      "description": "What a fact was read from, verified at ingest (DR-12)."
+    },
+    "FactBatch": {
       "type": "object",
       "properties": {
-        "path": {
+        "format": {
           "type": "string",
-          "description": "`<repo>/<repo-relative path>`."
+          "description": "`planroom.facts/v1`."
         },
-        "line": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 1,
-          "description": "1-based."
+        "extractor": {
+          "type": "string",
+          "description": "Pack-qualified, such as `code/files`."
         },
-        "contains": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "The exact line, cut to 200 characters; omitted in a default Artifact snapshot.",
-          "maxLength": 200
+        "tier": {
+          "$ref": "#/$defs/Tier"
         },
-        "commit": {
-          "type": [
-            "string",
-            "null"
-          ]
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Node"
+          }
         },
-        "branch": {
-          "type": [
-            "string",
-            "null"
-          ]
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Edge"
+          }
+        },
+        "hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Hint"
+          }
+        },
+        "partial": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PartialFile"
+          },
+          "description": "Files read with errors; their facts are weak."
         }
       },
       "required": [
-        "path",
-        "line",
-        "commit",
-        "branch"
+        "format",
+        "extractor",
+        "tier",
+        "nodes",
+        "edges",
+        "hints",
+        "partial"
       ],
-      "description": "A pointer to the line a fact was read from."
+      "description": "What every extractor and linker returns, sorted by ID."
     },
     "Focus": {
       "type": "object",
@@ -1126,6 +1277,11 @@
     "Hint": {
       "type": "object",
       "properties": {
+        "id": {
+          "type": "string",
+          "description": "12 hex characters of `sha256(kind ‖ scope ‖ key ‖ evidence)`.",
+          "pattern": "^[0-9a-f]{12}$"
+        },
         "kind": {
           "$ref": "#/$defs/Kind",
           "description": "Such as `code.url` or `code.env_read`."
@@ -1154,17 +1310,39 @@
           "items": {
             "$ref": "#/$defs/Evidence"
           }
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance",
+          "description": "Always `Extracted`."
         }
       },
       "required": [
+        "id",
         "kind",
         "scope",
         "key",
         "value",
         "attrs",
-        "evidence"
+        "evidence",
+        "provenance"
       ],
       "description": "A partial observation a linker joins with others, such as a URL literal or an environment read."
+    },
+    "HintRef": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "extractor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "extractor"
+      ],
+      "description": "A hint a linked edge joined: its ID and the pack-qualified extractor that emitted it."
     },
     "Kind": {
       "type": "string",
@@ -1438,6 +1616,15 @@
           "type": "boolean",
           "description": "An idempotent replay of a stored reply."
         },
+        "replayed_from": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "A replay of a derived key: the original `seq`; pass a new `--idem` to repeat the write."
+        },
         "warnings": {
           "type": "array",
           "items": {
@@ -1445,7 +1632,15 @@
           }
         },
         "models": {
-          "$ref": "#/$defs/ModelUse"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelUse"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Absent when no model was called."
         },
         "model_requests": {
           "type": "array",
@@ -1457,16 +1652,9 @@
       },
       "required": [
         "seq",
-        "took_ms",
-        "size",
-        "next",
-        "truncated",
-        "replayed",
-        "warnings",
-        "models",
-        "model_requests"
+        "size"
       ],
-      "description": "What every reply carries besides its result."
+      "description": "What every reply carries besides its result. Every field but `seq` and `size` is left out when\nempty, false, null or zero, and the schema gives each its default (DR-66)."
     },
     "MiniBlock": {
       "type": "object",
@@ -1737,6 +1925,25 @@
       ],
       "description": "What `focus` returns: the pane, the band and the status line; at most 4 KB."
     },
+    "PartialFile": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "`<repo>/<repo-relative path>`."
+        },
+        "errors": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "path",
+        "errors"
+      ],
+      "description": "A file an extractor read with errors, such as one that isn't UTF-8."
+    },
     "Position": {
       "type": "object",
       "properties": {
@@ -1861,7 +2068,7 @@
             "hints": {
               "type": "array",
               "items": {
-                "type": "string"
+                "$ref": "#/$defs/HintRef"
               }
             },
             "kind": {
@@ -1873,7 +2080,8 @@
             "kind",
             "linker",
             "hints"
-          ]
+          ],
+          "description": "The linker is pack-qualified, such as `code/runtime_wiring`."
         },
         {
           "type": "object",
@@ -1951,6 +2159,31 @@
         }
       ],
       "description": "An edge end: a node ID, or an alias another extractor defines, such as `host:orders`."
+    },
+    "Retry": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "never",
+          "description": "Retrying the same request can't succeed; a person or another command must act first."
+        },
+        {
+          "type": "string",
+          "const": "now",
+          "description": "The same request may succeed at once."
+        },
+        {
+          "type": "string",
+          "const": "after_reread",
+          "description": "Re-read, then retry with the new `seq` as `base`."
+        },
+        {
+          "type": "string",
+          "const": "later",
+          "description": "Wait, then retry; `retry_after_ms` says how long when known."
+        }
+      ],
+      "description": "When a caller may retry a failed command."
     },
     "ScanReq": {
       "type": "object",
@@ -2103,6 +2336,97 @@
       ],
       "description": "An event's state; set at commit and changed only by `review` and `undo` events."
     },
+    "StreamFrame": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "seq": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kind": {
+              "$ref": "#/$defs/EventKind"
+            },
+            "target": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/NodeId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "actor": {
+              "$ref": "#/$defs/Actor"
+            },
+            "status": {
+              "$ref": "#/$defs/Status"
+            },
+            "summary": {
+              "type": "string",
+              "description": "One engine-authored line, at most 2 KB."
+            },
+            "type": {
+              "type": "string",
+              "const": "event"
+            }
+          },
+          "required": [
+            "type",
+            "seq",
+            "kind",
+            "target",
+            "project",
+            "actor",
+            "status",
+            "summary"
+          ],
+          "description": "One committed event."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "seq": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "reset"
+            }
+          },
+          "required": [
+            "type",
+            "seq"
+          ],
+          "description": "The client is too far behind: refetch every view at `seq`."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ping"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "The stream is alive."
+        }
+      ],
+      "description": "One frame of the live stream."
+    },
     "Surface": {
       "type": "string",
       "enum": [
@@ -2112,7 +2436,7 @@
         "artifact",
         "test"
       ],
-      "description": "Where a person acted from."
+      "description": "Where a writer acted from."
     },
     "Target": {
       "oneOf": [
@@ -2144,14 +2468,23 @@
       "description": "What an edit or claim is about."
     },
     "Tier": {
-      "type": "string",
-      "enum": [
-        "universal",
-        "syntactic",
-        "config",
-        "pattern",
-        "inference",
-        "linked"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "universal",
+            "syntactic",
+            "config",
+            "pattern",
+            "inference",
+            "linked"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "precise",
+          "description": "SCIP or LSIF; no v0.1 extractor (DR-11)."
+        }
       ],
       "description": "How a fact was found, from the least to the most specific tier."
     },
@@ -2220,7 +2553,9 @@
             "truncated",
             "unresolved_ref",
             "evidence_dropped",
-            "partial_parse"
+            "partial_parse",
+            "partial_scan",
+            "workspace_nested"
           ]
         },
         {
@@ -2228,6 +2563,24 @@
           "pattern": "^[a-z][a-z0-9_]*$"
         }
       ]
+    },
+    "WatchReq": {
+      "type": "object",
+      "properties": {
+        "since": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Stream the events after this `seq`; the store's latest when absent."
+        }
+      },
+      "required": [
+        "since"
+      ],
+      "description": "`planroom watch [--since SEQ]`: one `StreamFrame` per line on stdout until stopped."
     }
   }
 }
