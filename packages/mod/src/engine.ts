@@ -4,6 +4,7 @@
  */
 
 import type {
+  Category,
   Retry,
   ToolError,
   ToolMeta,
@@ -158,13 +159,16 @@ export function pathFromStatus(run: RunResult): string | null {
 /** What a mod tool returns, for success and failure alike: the contract's type (contracts.md, DR-66). */
 export type { ToolResult };
 
-/** The envelope's error as a tool result carries it: everything but its category. */
+/** The envelope's error as a tool result carries it: whole (DR-66). */
 function toolError(error: ReplyError): ToolError {
   const out: ToolError = {
     code: error.code,
     retry: (error.retry ?? "never") as Retry,
     message: error.message,
   };
+  if (error.category !== undefined) {
+    out.category = error.category as Category;
+  }
   if (error.retry_after_ms !== undefined) {
     out.retry_after_ms = error.retry_after_ms;
   }

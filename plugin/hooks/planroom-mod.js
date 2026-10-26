@@ -102,6 +102,9 @@ function toolError(error) {
     retry: error.retry ?? "never",
     message: error.message
   };
+  if (error.category !== void 0) {
+    out.category = error.category;
+  }
   if (error.retry_after_ms !== void 0) {
     out.retry_after_ms = error.retry_after_ms;
   }

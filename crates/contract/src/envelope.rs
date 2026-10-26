@@ -140,10 +140,13 @@ pub struct ToolResult<T = Value> {
     pub meta: ToolMeta,
 }
 
-/// A tool result's error: the envelope's error less its category.
+/// A tool result's error: the envelope's error whole (DR-66). Only an error the mod authors, when no
+/// engine answered, may leave out its category and details.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ToolError {
     pub code: ErrorCode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<Category>,
     pub retry: Retry,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_after_ms: Option<u32>,

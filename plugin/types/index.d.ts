@@ -2084,13 +2084,15 @@ export interface Empty1 {
   next: Handle1;
 }
 /**
- * A tool result's error: the envelope's error less its category.
+ * A tool result's error: the envelope's error whole (DR-66). Only an error the mod authors, when no
+ * engine answered, may leave out its category and details.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "ToolError".
  */
 export interface ToolError {
   code: ErrorCode;
+  category?: Category | null;
   retry: Retry;
   retry_after_ms?: number | null;
   /**
