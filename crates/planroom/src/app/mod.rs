@@ -3,6 +3,7 @@
 
 pub mod actor;
 pub mod data;
+pub mod doctor;
 pub mod error;
 pub mod focus;
 pub mod import;

@@ -68,6 +68,9 @@ pub struct CommandSpec {
     pub budget_tokens: u32,
     /// Writes to user-authored state, so `base` is required.
     pub needs_base: bool,
+    /// Can make a paid model call, such as `intent next`, `decide --run` or `curate`. No band
+    /// Button, `PaneModel.next` or pack suggestion names a leaf that spends (DR-66).
+    pub spends: bool,
     pub errors: &'static [ErrorCode],
     pub undo: Undo,
     pub tool: Option<Tool>,
@@ -106,6 +109,7 @@ const MAP: CommandSpec = CommandSpec {
     class: Class::Read,
     budget_tokens: 1_500,
     needs_base: false,
+    spends: false,
     errors: &[
         ErrorCode::InvalidArgument,
         ErrorCode::AmbiguousRef,
@@ -128,6 +132,7 @@ const FOCUS: CommandSpec = CommandSpec {
     class: Class::Read,
     budget_tokens: 1_000,
     needs_base: false,
+    spends: false,
     errors: &[
         ErrorCode::WorkspaceNotFound,
         ErrorCode::StoreBusy,
@@ -147,6 +152,7 @@ const SCAN: CommandSpec = CommandSpec {
     class: Class::Change,
     budget_tokens: 1_500,
     needs_base: false,
+    spends: false,
     errors: &[
         ErrorCode::InvalidArgument,
         ErrorCode::WorkspaceNotFound,
@@ -169,6 +175,7 @@ const WATCH: CommandSpec = CommandSpec {
     class: Class::Read,
     budget_tokens: 0,
     needs_base: false,
+    spends: false,
     errors: &[
         ErrorCode::WorkspaceNotFound,
         ErrorCode::StoreBusy,
@@ -188,6 +195,7 @@ const SCHEMA: CommandSpec = CommandSpec {
     class: Class::Read,
     budget_tokens: 1_500,
     needs_base: false,
+    spends: false,
     errors: &[ErrorCode::InvalidArgument, ErrorCode::Internal],
     undo: Undo::Query,
     tool: None,
@@ -202,6 +210,7 @@ const VERSION: CommandSpec = CommandSpec {
     class: Class::Read,
     budget_tokens: 1_500,
     needs_base: false,
+    spends: false,
     errors: &[ErrorCode::Internal],
     undo: Undo::Query,
     tool: None,
@@ -216,6 +225,7 @@ const PERSON_INIT: CommandSpec = CommandSpec {
     class: Class::Change,
     budget_tokens: 400,
     needs_base: false,
+    spends: false,
     errors: &[
         ErrorCode::InvalidArgument,
         ErrorCode::WorkspaceNotFound,
@@ -238,6 +248,7 @@ const SERVE: CommandSpec = CommandSpec {
     class: Class::Read,
     budget_tokens: 0,
     needs_base: false,
+    spends: false,
     errors: &[
         ErrorCode::WorkspaceNotFound,
         ErrorCode::PortInUse,
@@ -258,6 +269,7 @@ const SHARE: CommandSpec = CommandSpec {
     class: Class::Handoff,
     budget_tokens: 800,
     needs_base: false,
+    spends: false,
     errors: &[
         ErrorCode::InvalidArgument,
         ErrorCode::WorkspaceNotFound,
@@ -279,6 +291,7 @@ const IMPORT: CommandSpec = CommandSpec {
     class: Class::Change,
     budget_tokens: 800,
     needs_base: false,
+    spends: false,
     errors: &[
         ErrorCode::InvalidArgument,
         ErrorCode::WorkspaceNotFound,
@@ -657,6 +670,16 @@ mod tests {
         assert_eq!(Command::Map(MapReq::default()).name().0, "map");
         assert_eq!(Command::Focus(FocusReq::default()).name().0, "focus");
         assert_eq!(Command::Scan(ScanReq::default()).name().0, "scan");
+    }
+
+    #[test]
+    fn only_a_leaf_that_can_make_a_paid_model_call_spends() {
+        // The leaves contracts.md's Command catalogue names as spending; a leaf joins this list
+        // only when it can make a paid model call.
+        const PAID: &[&str] = &["intent next", "decide run", "curate"];
+        for spec in Command::SPECS {
+            assert_eq!(spec.spends, PAID.contains(&spec.name().as_str()), "{}", spec.name());
+        }
     }
 
     #[test]

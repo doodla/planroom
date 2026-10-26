@@ -9,6 +9,7 @@ pub mod files;
 pub mod git;
 mod ids;
 mod lines;
+pub mod registry;
 pub mod verify;
 pub mod walk;
 mod yaml;

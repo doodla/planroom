@@ -1559,7 +1559,6 @@
         "crates/planroom/tests/s15_surface.rs::skills_are_not_user_invocable": "M1",
         "packages/mod/src/room.test.ts::room_commands_snapshot": "M1",
         "tests/e2e/src/surface.spec.ts::empty_state_audit": "M1",
-        "crates/planroom/tests/envelope_schema.rs::the_documented_error_table_is_the_error_codes": "M1",
         "crates/kernel/tests/undo.rs::every_edit_type_undoes": "M1",
         "crates/planroom/tests/catalogue.rs::undo_classes_snapshot": "M1",
         "tests/plugin/surface_tokens.sh": "M1",

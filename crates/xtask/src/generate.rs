@@ -44,6 +44,7 @@ const GENERATORS: &[Generator] = &[
     modgen::bundle,
     plugin_version,
     redact_fields,
+    errors_reference,
 ];
 
 /// Every generated file, grouped by drift check.
@@ -169,6 +170,8 @@ export interface CatalogueLeaf {{
   readonly class: \"read\" | \"change\" | \"handoff\";
   readonly budget_tokens: number;
   readonly needs_base: boolean;
+  /** Can make a paid model call; the band and `PaneModel.next` never name such a leaf (DR-66). */
+  readonly spends: boolean;
   readonly undo: \"edit\" | \"compensate\" | \"query\" | \"not_undoable\";
   readonly tool: \"room_query\" | \"room_change\" | \"room_handoff\" | null;
   readonly room: boolean;
@@ -261,6 +264,7 @@ fn leaf_json(spec: &CommandSpec) -> serde_json::Value {
         "class": snake(&format!("{:?}", spec.class)),
         "budget_tokens": spec.budget_tokens,
         "needs_base": spec.needs_base,
+        "spends": spec.spends,
         "undo": undo,
         "tool": tool,
         "room": spec.room,
@@ -465,6 +469,74 @@ contract_schema_version={SCHEMA_VERSION}
         ));
     }
     Ok(Group { name: CONTRACT_SH, files: vec![Generated { path: CONTRACT_SH.into(), contents: out }] })
+}
+
+pub const ERRORS_MD: &str = "docs/reference/errors.md";
+
+/// `docs/reference/errors.md`: every error and warning code, from `contract::ErrorCode` and
+/// `contract::WarningCode`, so the reference never drifts from what the engine can return.
+fn errors_reference(_: &Path) -> Result<Group, String> {
+    use planroom_contract::{ErrorCode, WarningCode};
+    let wire = |v: serde_json::Value| v.as_str().map(str::to_owned).ok_or("a non-string enum value");
+    let cell = |text: &str| text.replace('|', "\\|");
+    let keys = |keys: &[&str]| match keys {
+        [] => "none".to_owned(),
+        keys => keys.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "),
+    };
+    let mut out = format!(
+        "<!-- {GENERATED_HEADER} -->
+
+# Error and warning codes
+
+Every `--json` envelope that fails carries one error code, and any envelope may carry warnings.
+This page lists every code this version can return, from `contract::ErrorCode` and
+`contract::WarningCode` in `crates/contract/src/errors.rs`. For when each one is returned, see
+[Contracts](../contributing/contracts.md#error-codes).
+
+## Error codes
+
+The category sets the exit code. The retry class says when you may send the same request again:
+
+| Retry | What you do |
+|---|---|
+| `never` | Don't retry. A person or another command must act first; `hint` or `details` names it. |
+| `now` | Retry at once. |
+| `after_reread` | Read again, then retry with the new `meta.seq` as `base`. |
+| `later` | Wait, then retry; `retry_after_ms` says how long when known. |
+
+An older reader maps a code it doesn't know to its category and exit code.
+
+| Code | Category | Exit | Retry | Meaning | `details` |
+|---|---|---|---|---|---|
+"
+    );
+    for code in ErrorCode::ALL {
+        let spec = code.spec();
+        let category = wire(json!(spec.category))?;
+        let retry = wire(json!(spec.retry))?;
+        out.push_str(&format!(
+            "| `{}` | {category} | {} | {retry} | {} | {} |\n",
+            code.as_str(),
+            code.exit_code(),
+            cell(spec.meaning),
+            keys(spec.details),
+        ));
+    }
+    out.push_str(
+        "
+## Warning codes
+
+A warning never changes the exit code.
+
+| Code | Meaning | `details` |
+|---|---|---|
+",
+    );
+    for code in WarningCode::ALL {
+        let spec = code.spec();
+        out.push_str(&format!("| `{}` | {} | {} |\n", code.as_str(), cell(spec.meaning), keys(spec.details)));
+    }
+    Ok(Group { name: ERRORS_MD, files: vec![Generated { path: ERRORS_MD.into(), contents: out }] })
 }
 
 /// Write every generated file.

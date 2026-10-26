@@ -9,6 +9,8 @@ export interface CatalogueLeaf {
   readonly class: "read" | "change" | "handoff";
   readonly budget_tokens: number;
   readonly needs_base: boolean;
+  /** Can make a paid model call; the band and `PaneModel.next` never name such a leaf (DR-66). */
+  readonly spends: boolean;
   readonly undo: "edit" | "compensate" | "query" | "not_undoable";
   readonly tool: "room_query" | "room_change" | "room_handoff" | null;
   readonly room: boolean;
@@ -24,6 +26,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "class": "read",
     "budget_tokens": 1500,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": "room_query",
     "room": true
@@ -36,6 +39,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "class": "read",
     "budget_tokens": 1000,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": "room_query",
     "room": true
@@ -48,6 +52,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "class": "change",
     "budget_tokens": 1500,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": "room_change",
     "room": true
@@ -60,6 +65,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "class": "read",
     "budget_tokens": 0,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": null,
     "room": false
@@ -72,6 +78,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "class": "read",
     "budget_tokens": 1500,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": null,
     "room": false
@@ -84,6 +91,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "class": "read",
     "budget_tokens": 1500,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": null,
     "room": false
@@ -96,6 +104,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "class": "change",
     "budget_tokens": 400,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": null,
     "room": false
@@ -108,6 +117,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "class": "read",
     "budget_tokens": 0,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": null,
     "room": false
@@ -120,6 +130,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "class": "handoff",
     "budget_tokens": 800,
     "needs_base": false,
+    "spends": false,
     "undo": "not_undoable",
     "tool": "room_handoff",
     "room": true
@@ -132,6 +143,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "class": "change",
     "budget_tokens": 800,
     "needs_base": false,
+    "spends": false,
     "undo": "edit",
     "tool": null,
     "room": false

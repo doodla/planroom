@@ -298,6 +298,7 @@ var CATALOGUE = [
     "class": "read",
     "budget_tokens": 1500,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": "room_query",
     "room": true
@@ -310,6 +311,7 @@ var CATALOGUE = [
     "class": "read",
     "budget_tokens": 1e3,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": "room_query",
     "room": true
@@ -322,6 +324,7 @@ var CATALOGUE = [
     "class": "change",
     "budget_tokens": 1500,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": "room_change",
     "room": true
@@ -334,6 +337,7 @@ var CATALOGUE = [
     "class": "read",
     "budget_tokens": 0,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": null,
     "room": false
@@ -346,6 +350,7 @@ var CATALOGUE = [
     "class": "read",
     "budget_tokens": 1500,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": null,
     "room": false
@@ -358,6 +363,7 @@ var CATALOGUE = [
     "class": "read",
     "budget_tokens": 1500,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": null,
     "room": false
@@ -370,6 +376,7 @@ var CATALOGUE = [
     "class": "change",
     "budget_tokens": 400,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": null,
     "room": false
@@ -382,6 +389,7 @@ var CATALOGUE = [
     "class": "read",
     "budget_tokens": 0,
     "needs_base": false,
+    "spends": false,
     "undo": "query",
     "tool": null,
     "room": false
@@ -394,6 +402,7 @@ var CATALOGUE = [
     "class": "handoff",
     "budget_tokens": 800,
     "needs_base": false,
+    "spends": false,
     "undo": "not_undoable",
     "tool": "room_handoff",
     "room": true
@@ -406,6 +415,7 @@ var CATALOGUE = [
     "class": "change",
     "budget_tokens": 800,
     "needs_base": false,
+    "spends": false,
     "undo": "edit",
     "tool": null,
     "room": false
