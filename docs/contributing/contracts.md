@@ -317,8 +317,8 @@ The engine verifies the token against `meta.person_pubkey`, the registered publi
 | `POST /api/v1/{command path, slash-joined}` | the command's request JSON, including `base` and `idem`; `Idempotency-Key` header accepted | the envelope; HTTP status by category: usage 400, not_found 404, conflict 409, permission 403 (`unauthorized` 401), budget 429, unavailable 503, failed 422, internal 500 |
 | `GET /api/v1/stream?since=SEQ` | `Last-Event-ID` resumes; read with `fetch`, so the token goes in a header | SSE with `event: <type>`, `id: <seq>`, `data: <StreamFrame JSON>` |
 | `PUT /api/v1/layout` | `{view_key, structure_hash, positions}` | `204`; a cache, last-writer-wins |
-| `POST /api/v1/code` | `{code_sha256}`, with `Authorization: Bearer <control_token>` from `serve.json` | `204`; the code is valid once, for 60 s, for this `serve` process |
-| `POST /api/v1/session` | `{code}` from the URL fragment | `200 {token}`: a random bearer token the tab keeps in `sessionStorage`; a code works once, and a second try at it revokes the token the first issued (DR-64) |
+| `POST /api/v1/code` | `CodeReq {code_sha256}`, with `Authorization: Bearer <control_token>` from `serve.json` | `204`; the code is valid once, for 60 s, for this `serve` process |
+| `POST /api/v1/session` | `{code}` from the URL fragment | `200` with the envelope, `result: {token}`: a random bearer token the tab keeps in `sessionStorage`; a code works once, and a second try at it revokes the token the first issued (DR-64) |
 | `POST /api/v1/drain` | `{token}`, the control token from `serve.json` | `202`; the server finishes in-flight requests and exits |
 | `GET /`, `GET /assets/*` | | the canvas build embedded in the binary; a binary built without it serves one engine-rendered page naming `cargo xtask gen --canvas` (DR-58) |
 
@@ -338,7 +338,9 @@ pub struct PresenceRow { pub actor: Actor, pub surface: Surface, pub client_id: 
                          pub doing: Option<String>, pub focus: Option<NodeId>, pub seen_at: Timestamp }
 ```
 
-Every API request except `session`, `code` and `drain` carries the tab's `Authorization: Bearer <token>`. Every API request carries an exact `Origin` of `http://127.0.0.1:PORT` or `http://localhost:PORT`; a missing or foreign one is `unauthorized` [DR-29].
+Every API request except `session`, `code` and `drain` carries the tab's `Authorization: Bearer <token>`. A foreign `Origin` is always `unauthorized`. A browser sends no `Origin` on a same-origin `GET`, so a `GET` may instead prove its origin with `Sec-Fetch-Site: same-origin`; a `GET` with neither, or with `Sec-Fetch-Site` `cross-site`, `same-site` or `none`, is `unauthorized`. Every other request from the page carries an exact `Origin` of `http://127.0.0.1:PORT` or `http://localhost:PORT`. `code` and `drain`, which local processes call with the control token, may carry no `Origin`, never a foreign one [DR-29, DR-82].
+
+Every response carries exactly this CSP, what the canvas needs and no more (React Flow places blocks with inline styles): `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` [DR-82].
 
 `serve.json` (internal, mode 0600 in the 0700 state directory): `{format: "planroom.serve/v1", port, pid, version, catalogue_hash, control_token, started_at}`. `serve --detach` reuses a server only when `version` and `catalogue_hash` both match its own (DR-58). The port is the workspace's own, recorded in `workspaces.json` as `{root, workspace_id, port}`, and no two entries share one. `serve` binds only that port and exits with `port_in_use` when another program holds it; `serve --port N` records a new one (DR-78).
 
@@ -353,7 +355,7 @@ Every API request except `session`, `code` and `drain` carries the tab's `Author
 - The automatic backup, `DATA_ROOT/backups/<workspace_id>/events.ndjson`, is the same format, written through after each person-authored commit: under a lock on the file, every event above `meta.backup_seq` is appended and fsynced, then the mark advances. A restore sorts by `seq`, dedupes by `idem` and keeps each event's stored status. It skips `scan` events and writes one `scan` event holding the last reconcile outcome with `snapshot` and `link` 0, which the fold reads as no snapshot; the next scan rescans every repo and keeps that outcome's classes (DR-73). On a temporary host the same step also commits the file to `refs/planroom/backup/<workspace_id>` in the repo `meta.backup_ref` names, with git plumbing and hooks off, and `scan` restores from that ref when the data root has no backup (DR-53).
 - The ledger isn't in the store. It's `DATA_ROOT/ledger.db`, one per user, with its own migrations in `crates/store/ledger/` [DR-51].
 - The data root's shared files, `ledger.db` and `workspaces.json`, serve every engine version on the machine at once, so they change only by additions: a new table, column or key, never a rename or a removal. Each records the oldest engine version that can read it, `min_reader_version`, which a migration raises only when old readers would misread it, and an engine older than that refuses with `schema_mismatch` naming the file. So an update in one workspace never stops older sessions in others. Before each ledger migration the engine writes `VACUUM INTO DATA_ROOT/backups/ledger-vN.db`, and `doctor --restore` takes that copy too, so a downgrade keeps the daily guard's history (DR-78).
-- A live `watch` re-reads `PRAGMA user_version` whenever `PRAGMA data_version` changes, and an older one exits with `schema_mismatch` within 200 ms of a migration (DR-78).
+- A live `watch` re-reads `PRAGMA user_version` when it starts and whenever `PRAGMA data_version` changes, and an older one exits with `schema_mismatch` within one 200 ms poll of a migration plus its exit, under 400 ms (DR-78, DR-82). A client whose cursor is more than 5,000 events behind, or past the store's last `seq` (after a restore), gets one `reset` (DR-82).
 
 ## Graph model
 
