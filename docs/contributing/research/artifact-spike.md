@@ -28,7 +28,19 @@ capabilities: {
 
 ## Results from the page side
 
-The page saves its checks to `inbox/<viewer id>/probe/latest` the first time someone opens it: module script, relative fetch of the data file, `db` and `user` availability, a write to the viewer's own inbox, the write-to-server-confirmation time, and live `live/head` updates with their lag. The walking skeleton reads that document back and records the numbers here.
+The probe was opened once, on 2026-10-26 at 00:11 UTC, in the Claude app on Android (`Claude/1.261022.20`, Chrome 157 WebView). It saved its results to `inbox/<viewer id>/probe/latest`, read back with `ArtifactData get`:
+
+| Check | Result |
+|---|---|
+| Same-origin module script (`assets/probe.js`) | Runs: multi-file publishing with a module script passes the page's CSP |
+| Relative fetch of the published data file | Works: `./data/snapshot.json` loaded, 4 nodes and 3 edges |
+| `db` | Available |
+| `user` | Signed in; `can("data.write")` is `true` |
+| Write to the viewer's own inbox | Lands at `inbox/<uid>/events/<id>`, with the page-minted ID as its key |
+| Write to server confirmation | 787 ms on the phone |
+| `live/head` subscription | Delivered the head written earlier by the session, 3 snapshot callbacks; the lag shown (937 s) is the time since that write, not a live latency, because the session wrote the head before the page opened |
+
+So remote mode's mechanics work end to end on a real phone. The live latency of a session write reaching an open page is still unmeasured; the walking skeleton's WS7 measures it with the page open.
 
 ## Implications
 
