@@ -259,7 +259,7 @@ pub fn parse_lock(text: &str) -> Result<Lock, String> {
 
 pub fn render_lock(lock: &Lock) -> String {
     let mut out = format!(
-        "# {GENERATED_HEADER}\n# Written by `cargo xtask gen --layout-lock DR-n`, in a merge commit only: each gated\n# surface's sha256 and the decision record that approved it (repo-layout.md, Decision-record gate).\n"
+        "# {GENERATED_HEADER}\n# Written by `cargo xtask gen --layout-lock DR-n` in the commit that adds the record (when a\n# branch brought the change, its merge commit): each gated surface's sha256 and the decision\n# record that approved it (repo-layout.md, Decision-record gate).\n"
     );
     for (name, entry) in lock {
         let key = serde_json::to_string(name).unwrap_or_default();

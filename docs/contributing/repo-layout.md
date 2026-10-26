@@ -274,7 +274,7 @@ A wholly generated directory has a `GENERATED.md` stub; a generated file in a ha
 | `.dependency-cruiser.cjs` | `cargo xtask gen` from `boundaries.toml` | yes | `cargo xtask gen` |
 | `crates/{kernel,contract,store,extract}/clippy.toml` | `cargo xtask gen` from `boundaries.toml`: `no_io` for the kernel and contract, `std::net` for store and extract [DR-79] | yes [DR-59] | `cargo xtask gen` |
 | each area's contract block and Read first lines in its `AGENTS.md`, its marked region | `cargo xtask gen` from the two area tables on this page | yes [DR-59, DR-70] | `cargo xtask gen` |
-| `layout.lock` | `cargo xtask gen --layout-lock DR-n`, in a merge commit only | yes [DR-59] | a record in the merge commit, then `gen --layout-lock` with it |
+| `layout.lock` | `cargo xtask gen --layout-lock DR-n`, in the commit that adds the record (a branch's merge commit when a branch brought the change) | yes [DR-59] | a record in the merge commit, then `gen --layout-lock` with it |
 | `docs/reference/cli.md` and `configuration.md`; the marked tables in `errors.md` and `packs.md` | `cargo xtask gen` | yes | `cargo xtask gen` |
 | `tests/golden/` | `cargo xtask gen --golden`, which runs the Rust tests that write them on the built fixture, with `PLANROOM_GOLDEN=write`, which the engine never reads; a plain test run compares and never writes. Every file comes from a real engine run; `cli/map-empty.json` is `map --detail graph` before the first scan, with the temporary root written as `/home/you/shop` [DR-70, DR-79, DR-82] | yes | `cargo xtask gen --golden` |
 | `packs/*/evals/*.result.json` | `cargo xtask eval` | yes | `cargo xtask eval` |

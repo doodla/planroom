@@ -1,8 +1,8 @@
 # Candidate architecture: extensibility-first
 
-Phase 2 candidate, one of three. The lens: a domain-free kernel that never changes when a domain, language, lens or decision kind is added. Packs and adapters are the unit of growth, and the pack contract is clean enough that an out-of-tree pack or extractor is first-class. Every element below traces to a requirement or scenario in `KICKOFF.md`, and section 4.15 lists what is deliberately not extensible in v0.1.
+Phase 2 candidate, one of three. What it puts first: a domain-free kernel that never changes when a domain, language, lens or decision kind is added. Packs and adapters are the unit of growth, and the pack contract is clean enough that an out-of-tree pack or extractor is first-class. Every element below traces to a requirement or scenario in `KICKOFF.md`, and section 4.15 lists what is deliberately not extensible in v0.1.
 
-How to read it. Section 0 is the idea on one page. Sections 1 to 16 follow the order the brief asks for. A fact measured in Phase 1 cites its note in `docs/contributing/research/` (for example "[jev.md §5]"). A claim nobody has measured yet is marked **[A]**, and section 16.2 lists each one with the spike that settles it.
+How to read it. Section 0 is the idea on one page. Sections 1 to 16 follow the order `KICKOFF.md` asks for. A fact measured in Phase 1 cites its note in `docs/contributing/research/` (for example "[jev.md §5]"). A claim nobody has measured yet is marked **[A]**, and section 16.2 lists each one with the spike that settles it.
 
 ---
 
@@ -1671,7 +1671,7 @@ Kinds are open strings in every schema, so a new pack changes no schema (section
 ├── eslint.config.js  .prettierrc.json  .dependency-cruiser.cjs  .gitattributes  .gitignore
 ├── .cargo/config.toml         alias: xtask = "run --package xtask --"
 ├── .claude-plugin/marketplace.json   the marketplace: one plugin, source ./plugin
-├── .claude/                   guardrails (kept, run in CI), carry.md, project skills for building Planroom
+├── .claude/                   guardrails (kept, run in CI), the notes kept across compactions, project skills for building Planroom
 ├── .github/                   workflows: ci, release, advisories, toolchain; dependabot; issue and PR templates
 ├── crates/                    the engine (Rust)
 │   ├── AGENTS.md
@@ -1985,13 +1985,13 @@ Push the `v0.1.0` tag; approve the release run; set the social preview image (12
 
 ## 13. Milestones
 
-Estimates are agent-hours of focused build work, including tests and the milestone's review fixes. At twice a milestone's estimate, its tier A items are finished and the rest recorded, as `<acceptance_scenarios>` says. Within a milestone, slices marked with the same track letter run in one worktree; different letters can run in parallel.
+Estimates are hours of focused build work, including tests and the milestone's review fixes. At twice a milestone's estimate, its tier A items are finished and the rest recorded, as `<acceptance_scenarios>` says. Within a milestone, slices marked with the same group letter are built one after another in one git worktree; different letters can be built in parallel.
 
 ### 13.1 Walking skeleton (12 h)
 
 One thin slice through every surface, loaded through the plugin install from day one, with the engine built from source.
 
-| Slice | Track | Content | Hours |
+| Slice | Group | Content | Hours |
 |---|---|---|---|
 | WS-1 | A | Workspace skeleton: Cargo and pnpm workspaces, every directory in 9.1 with its `AGENTS.md`, `xtask check`, `test` and `gen` minimal, `boundaries.toml`, dependency-cruiser, the boundary self-test, `ci.yml` green on the branch | 3 |
 | WS-2 | A | `planroom-schema` with `Entity`, `Event`, `Envelope` and one op (`map`); `gen` to TS and to `plugin/types/index.d.ts` | 1.5 |
@@ -2002,7 +2002,7 @@ One thin slice through every surface, loaded through the plugin install from day
 
 ### 13.2 M1: kernel, store, code and plan packs, mod and canvas basics (48 h)
 
-| Slice | Track | Content | Hours |
+| Slice | Group | Content | Hours |
 |---|---|---|---|
 | M1-1 | A | Kernel: IDs, overlay precedence, fold, inverses, rebuild determinism; property tests | 6 |
 | M1-2 | A | Pack loader, manifest schema, registry, ladder merge, domain-free check, `planroom pack test` | 5 |
@@ -2017,7 +2017,7 @@ One thin slice through every surface, loaded through the plugin install from day
 
 ### 13.3 M2: diffs, reconciliation, hand-off, Jev decisions (44 h)
 
-| Slice | Track | Content | Hours |
+| Slice | Group | Content | Hours |
 |---|---|---|---|
 | M2-1 | A | Diff engine, all five kinds; canvas overlay; mod diff list; CLI | 6 |
 | M2-2 | A | Expectations, reconciler, impact radius, triggers | 6 |
@@ -2029,7 +2029,7 @@ One thin slice through every surface, loaded through the plugin install from day
 
 ### 13.4 M3: multi-repo, observability, release (28 h)
 
-| Slice | Track | Content | Hours |
+| Slice | Group | Content | Hours |
 |---|---|---|---|
 | M3-1 | A | Several projects per workspace, claims and presence on every surface, `.planroom/` export and import | 5 |
 | M3-2 | B | `obs` pack and its questions; S2's two observability questions | 7 |
@@ -2039,7 +2039,7 @@ One thin slice through every surface, loaded through the plugin install from day
 
 ### 13.5 M4: artifacts, state machines, anatomy (32 h)
 
-| Slice | Track | Content | Hours |
+| Slice | Group | Content | Hours |
 |---|---|---|---|
 | M4-1 | A | `anatomy` parsers: prompt tags, Markdown, `SKILL.md`, agent files, CI YAML, ADRs, issues and commits | 6 |
 | M4-2 | A | Claude segmentation, Jev part relations, missing parts, their evals | 5 |
@@ -2050,7 +2050,7 @@ One thin slice through every surface, loaded through the plugin install from day
 
 ### 13.6 M5: context curation, polish, release (40 h)
 
-| Slice | Track | Content | Hours |
+| Slice | Group | Content | Hours |
 |---|---|---|---|
 | M5-1 | A | `context` pack, curator agent and fixture curator, triggers, proposals; S12 passing | 6 |
 | M5-2 | B | Remote mode complete; S11 passing and its live evidence | 6 |
@@ -2060,7 +2060,7 @@ One thin slice through every surface, loaded through the plugin install from day
 | M5-6 | B | Release workflow, resolver and installer tests, the plugin install test; S14 passing | 6 |
 | M5-7 | all | Final review rounds | 4 |
 
-Total: 204 agent-hours.
+Total: 204 hours.
 
 ---
 
@@ -2149,7 +2149,7 @@ Each is a decision record to write in `docs/contributing/decisions.md`, naming t
 | 5 | Jev is confidently wrong on ambiguous cases [jev.md §5] | wrong auto-actions | A wide card band; auto only for reversible, low-stakes kinds that clear held-out evals with injection canaries; overrides feed the next eval |
 | 6 | The mod API is early access, and the band hotkey is unverified | S9 slips | CI pinned to Claude Code 2.1.310; the mod renders the engine's presentation model and holds no logic; every action has a two-key path without the band digit |
 | 7 | The Artifact can't wake the session on edits | stale remote view | Sync on `/room` open and by "Sync now" comments; the page shows its freshness; S11 needs only that an edit comes back attributed |
-| 8 | Eight packs and three surfaces is a lot of scope | late tier A | Milestones put tier A first; packs are independent tracks; the two-times-estimate rule |
+| 8 | Eight packs and three surfaces is a lot of scope | late tier A | Milestones put tier A first; packs can be built independently; the two-times-estimate rule |
 | 9 | ELK takes 1.1 to 1.5 s at 200 nodes [ts-stack.md §3.2] | slow canvas | Worker, persisted positions, per-compound incremental layout, folding by default |
 | 10 | Daemon lifecycle: stale locks, orphan daemons, a daemon older than the CLI | confusing failures | `fd-lock`, idle exit, a version handshake on `session.hello` that restarts an older daemon, `planroom doctor` |
 | 11 | Exec packs are slow on large repos | slow scans | Repo-granular requests (one process per repo per scan), input-hash caching, per-pack timing in `scan.completed` stats |

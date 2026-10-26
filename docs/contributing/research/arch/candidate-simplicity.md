@@ -1,6 +1,6 @@
 # Candidate architecture: simplicity first
 
-This page is one of three candidate architectures for Planroom, written in Phase 2 for the judges. Its lens is simplicity: the fewest processes, crates, packages, contracts and concepts that still meet every requirement (R1 to R16) and every scenario (S1 to S15) in full. Each moving part names the requirement that pays for it.
+This page is one of three candidate architectures for Planroom, written in Phase 2 to be compared with the other two. It puts simplicity first: the fewest processes, crates, packages, contracts and concepts that still meet every requirement (R1 to R16) and every scenario (S1 to S15) in full. Each moving part names the requirement that pays for it.
 
 Sources are cited as `[note §n]` for the Phase 1 notes in `docs/contributing/research/`, and `[TRUTH path]` for `examples/TRUTH.json`. `[A]` marks an assumption that the walking skeleton must check.
 
@@ -1232,7 +1232,7 @@ crates/contract/src/*.rs ──schemars──▶ schema/planroom.v1{,.input}.sch
 ```text
 planroom/
 ├── AGENTS.md                    invariants and conventions for agents and humans (9.6); CLAUDE.md imports it
-├── CLAUDE.md                    "@AGENTS.md", then the existing carry and subagent sections, unchanged
+├── CLAUDE.md                    "@AGENTS.md", then the existing sections on notes kept across compactions and on subagents, unchanged
 ├── README.md  CHANGELOG.md  CONTRIBUTING.md  SECURITY.md  CODE_OF_CONDUCT.md  LICENSE
 ├── Cargo.toml  Cargo.lock       the one Cargo workspace: crates/*
 ├── rust-toolchain.toml          channel = "1.97.0", components rustfmt and clippy, the four release targets
@@ -1242,7 +1242,7 @@ planroom/
 ├── feature_list.json            S1 to S15: tier, CI test, evidence path, status
 ├── budgets.json                 GENERATED, reviewed: token and time budgets (5.10)
 ├── .claude-plugin/marketplace.json     {"name": "planroom", "plugins": [{"name": "planroom", "source": "./plugin"}]}
-├── .claude/                     guardrails/ (hooks and tests, unchanged), settings.json, carry.md, skills/ (project skills)
+├── .claude/                     guardrails/ (hooks and tests, unchanged), settings.json, the notes kept across compactions, skills/ (project skills)
 ├── crates/
 │   ├── contract/   planroom-contract   every public type; the error registry; the command catalogue
 │   ├── kernel/     planroom-kernel     pure, domain-free logic (no I/O, no async)
@@ -1580,7 +1580,7 @@ Iris's pipeline [iris-release-bar §3], plus the canvas and the plugin:
 
 ## 13. Milestones
 
-Estimates are in agent-hours: hours of one focused build agent, including its own tests. Each milestone ends green and shippable, with a diff review, an architecture-drift check and a context review (KICKOFF `<process>`). Tracks that can run in parallel worktrees are marked **‖**.
+Estimates are in hours of focused build work, including tests. Each milestone ends green and shippable, with a diff review, an architecture-drift check and a context review (KICKOFF `<process>`). Slices that can be built in parallel git worktrees are marked **‖**.
 
 ### 13.0 Walking skeleton (about 20 h)
 
@@ -1661,7 +1661,7 @@ One thin slice through every surface, loaded through the plugin install from day
 | The release workflow, packaging, `SHA256SUMS`, the resolver suite, the plugin install test; S14 evidence (a fresh session, an agent driving S1 and S2) | R15, S14 | 9 |
 | Final reviews (up to 3 rounds), known gaps, changelog, `v0.1.0` notes | R15 | 6 |
 
-**Total: about 248 agent-hours.** Per KICKOFF, at twice a milestone's estimate the milestone finishes its tier A items, records the rest, and moves on.
+**Total: about 248 hours.** Per KICKOFF, at twice a milestone's estimate the milestone finishes its tier A items, records the rest, and moves on.
 
 ---
 

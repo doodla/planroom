@@ -1,6 +1,6 @@
 # Candidate architecture: concurrency- and agent-first
 
-This page is one of three independent candidate architectures for Planroom, written in Phase 2. Its lens is concurrency and agents: many agents, sessions, devices and projects writing at once with no lost write, and agents as the primary users of every interface. It still meets every requirement (R1 to R16) and scenario (S1 to S15) in `KICKOFF.md`. Judges score it against the requirements and the two principles; the synthesis may take any part of it.
+This page is one of three independent candidate architectures for Planroom, written in Phase 2. It puts concurrency and agents first: many agents, sessions, devices and projects writing at once with no lost write, and agents as the primary users of every interface. It still meets every requirement (R1 to R16) and scenario (S1 to S15) in `KICKOFF.md`. It is scored against the requirements and the two principles, and the final design may take any part of it.
 
 Evidence labels follow the Phase 1 notes: **[V]** was measured in a Phase 1 spike (the note is cited), **[D]** comes from docs, **[A]** is an assumption this design makes, and **[S]** marks a walking-skeleton spike that settles it. Every element names the requirement it serves.
 
@@ -1016,7 +1016,7 @@ stateDiagram-v2
 | Step | What happens | Where |
 |---|---|---|
 | Case generation | `cargo xtask eval cases --kind K` samples subjects from the fixture and from synthetic variants into `evals/K.pool.jsonl`, at least 90 per kind | pack `evals/` |
-| Independent labelling | A separate labeller agent (Opus, high effort) sees only the kind's definition and each slice, never Jev's output, and writes `{case, label, rationale}`. The main agent splits the cases into `tune` (30) and held-out `cases` (at least 60), stratified by label | `evals/K.cases.jsonl`, `evals/K.tune.jsonl` with `labeller` metadata |
+| Independent labelling | A separate labeller agent (Opus, high effort) sees only the kind's definition and each slice, never Jev's output, and writes `{case, label, rationale}`. Whoever runs the eval, not the labeller, splits the cases into `tune` (30) and held-out `cases` (at least 60), stratified by label | `evals/K.cases.jsonl`, `evals/K.tune.jsonl` with `labeller` metadata |
 | Tuning | Instructions, criteria and band edges are tuned on `tune` only, using the labeller's rationales | |
 | Measuring | `planroom eval run --kind K --live` (gated by `PLANROOM_LIVE_JEV=1`) runs held-out cases twice on `typesafe-ai/jev-1.14.0` through `/v1/evaluate` with option order shuffled, recording responses | `crates/adapters/jev/fixtures/evals/` |
 | Gate | `auto_enabled = precision_at_auto ≥ 0.95 on both runs ∧ cases ≥ 60 ∧ acted ≥ 30`. Coverage and the Wilson lower bound are reported too | `evals/K.results.json`, generated, never hand-edited |
@@ -1596,7 +1596,7 @@ The `u64` problem [V `rust-stack.md` G8] is avoided by policy: a schema lint in 
 ```text
 planroom/
 ├── AGENTS.md                      invariants for agents and humans; CLAUDE.md imports it on line 1
-├── CLAUDE.md                      @AGENTS.md, then the existing carry and subagent sections
+├── CLAUDE.md                      @AGENTS.md, then the existing sections on notes kept across compactions and on subagents
 ├── README.md  CONTRIBUTING.md  SECURITY.md  CODE_OF_CONDUCT.md  CHANGELOG.md  LICENSE
 ├── feature_list.json              one entry per scenario: tier, CI path, evidence path, status
 ├── progress.md                    build record
@@ -1607,7 +1607,7 @@ planroom/
 ├── deny.toml  about.toml  about.hbs  rustfmt.toml  .prettierrc.json  eslint.config.js  tsconfig.base.json
 ├── .cargo/config.toml             alias xtask = "run -p xtask --"
 ├── .claude-plugin/marketplace.json   {"name":"planroom","plugins":[{"name":"planroom","source":"./plugin"}]}
-├── .claude/                       guardrails (kept and run in CI), carry.md, settings.json, project skills
+├── .claude/                       guardrails (kept and run in CI), the notes kept across compactions, settings.json, project skills
 ├── .github/                       workflows (ci, release, advisories, toolchain), templates, dependabot
 ├── crates/
 │   ├── contract/                  planroom-contract   (ring 0)
@@ -1752,7 +1752,7 @@ A `release_pins` test, ported from Iris, fails when any file names a different v
 - **Logging.** `tracing` with JSON to `<ws>/.planroom/state/logs/engine.log` (rotated daily, 7 kept) and human output to stderr. Never log headers, keys, prompts or file contents; a redaction layer drops fields named `authorization`, `api_key`, `token`, `prompt`, `content`.
 - **Configuration.** Precedence: flags, then `PLANROOM_*` environment, then `planroom.toml` (workspace), then `~/.config/planroom/config.toml` (user), then defaults. Keys never live in files; config names the environment variable (`api_key_env`).
 - **Where new code goes.** A new domain is a `crates/domain/<name>` crate plus its `pack/` directory. A new format is a module in `adapters/formats`. A new external service is a new adapter crate. A new capability is an `OpSpec` first, then its handler. A new surface concept needs a decision record (R14).
-- **Changes to layout, boundaries or conventions** need a decision record in `docs/contributing/decisions.md` from the main agent before they land (R16).
+- **Changes to layout, boundaries or conventions** need a decision record in `docs/contributing/decisions.md` before they land (R16).
 
 ---
 
@@ -1829,7 +1829,7 @@ A `proptest` test in `planroom-store` (`writer_interleavings`) generates random 
 | Op output budgets | yes | the envelope encoder plus `tests/budgets.rs` |
 | Mobile layout at 390×844 (S13) | yes | Playwright with touch emulation |
 | Console errors (S13) | yes | Playwright `page.on('console')` |
-| Screenshots of every main view at 1440×900 and 390×844 in both themes | produced in `xtask e2e`, reviewed by the main agent | `docs/screenshots/` |
+| Screenshots of every main view at 1440×900 and 390×844 in both themes | produced in `xtask e2e`, reviewed by a person before the milestone closes | `docs/screenshots/` |
 
 ### 10.5 Plugin install tests
 
@@ -1975,7 +1975,7 @@ Content from scanned repos reaches Jev slices, Claude prompts and, through tool 
 
 ## 13. Milestones
 
-Each slice runs end to end, from the engine to at least one surface, and finishes with its `feature_list.json` entry passing. Estimates are agent-hours of focused implementation, including tests, not review rounds. Per KICKOFF, at twice a milestone's estimate the milestone finishes its tier A items and records the rest.
+Each slice runs end to end, from the engine to at least one surface, and finishes with its `feature_list.json` entry passing. Estimates are hours of focused implementation, including tests, not review rounds. Per KICKOFF, at twice a milestone's estimate the milestone finishes its tier A items and records the rest.
 
 ### 13.1 Walking skeleton (about 22 h)
 
@@ -2049,7 +2049,7 @@ Each slice runs end to end, from the engine to at least one surface, and finishe
 | M5.6 | S15 audits: concepts, empty states | S15 | 4 |
 | M5.7 | Final review fixes | all | 4 |
 
-Total: about 231 agent-hours.
+Total: about 231 hours.
 
 ---
 

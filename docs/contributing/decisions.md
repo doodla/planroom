@@ -5,7 +5,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 ## How to read a record
 
 - **Status** is `accepted`, `accepted, verify in WS` (it rests on an assumption the walking skeleton checks), `needs confirmation` (it binds only once it is confirmed), or `superseded by DR-n`. A record a later review amended says so in its Status, naming the rounds [DR-79].
-- **An amendment overrides.** An "Amended in review round N" bullet changes the record: where it differs from the bullets above it, the amendment holds, and a later round's holds over an earlier one's. An "Amended by DR-n" bullet does the same for a later record's decision, and the Status names that record. The design pages state the current rule, and `docs.rs::an_amended_record_says_so_in_its_status` checks the Status [DR-79].
+- **An amendment overrides.** An "Amended in review round N" bullet changes the record: where it differs from the bullets above it, the amendment holds, and a later round's holds over an earlier one's. An "Amended by DR-n" bullet does the same for a later record's decision, and the Status names that record. An "Extended by DR-n" bullet adds to the record without changing what it decided, and the Status names that record too. The design pages state the current rule, and `docs.rs::an_amended_record_says_so_in_its_status` checks the Status [DR-79].
 - **Starting point** names the `<design_starting_points>` item and whether this record keeps, replaces or extends it, or says "none" when the record serves a requirement or constraint the starting points don't cover.
 - **Origin** says where the idea came from: one of the three candidate designs (the simplicity-first, extensibility-first and concurrency-first designs, in `research/arch/candidate-*.md`) or the design reviews that compared them; the Phase 1 research; architecture review round N; the walking skeleton or its review round N; or an owner decision.
 - Sources are the Phase 1 notes in `docs/contributing/research/`, checked on 2026-10-25, plus `examples/TRUTH.json` and `examples/README.md`.
@@ -102,6 +102,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 86 | What the walking skeleton's review settled in round 2 | Extractors read the repo; Actors: agents never act as a person; Surfaces read one contract | extended | walking skeleton review round 2 (scan, budget, guard and canvas fixes) |
 | 87 | What the walking skeleton's review settled in round 3 | Extractors read the repo; Actors: agents never act as a person; Surfaces read one contract; Remote mode | extended | walking skeleton review round 3 (engine and guard fixes) |
 | 88 | The guard's residual risks, decided | Actors: agents never act as a person | extended | walking skeleton review round 3's residual risks |
+| 89 | What M1 builds, compares and leaves to later milestones | none (Milestones; S1, S3, S15 and the feature list's gate) | amended | M1's scope read against the tree |
 
 ## Where the design reviews disagreed
 
@@ -177,7 +178,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-3: Three edit operations and eight event kinds; a view is a value
 
-- **Status:** accepted. Amended in review rounds 1 and 2.
+- **Status:** accepted. Amended in review rounds 1 and 2. Amended by DR-89.
 - **Starting point:** extended "A typed property graph of four primitives: Entity, Relation, Event, View" (Entity is `Node`, Relation is `Edge`, Event kept; View dropped as a primitive).
 - **Origin:** the simplicity-first design (D4, §3.6).
 - **Context:** R6 lists many edit types (regroup, rename, re-scope, re-wire, hide, pin, edit a breakdown), and S15 needs an undo test for every one. One mechanism per edit type multiplies conflict, ghost and attribution rules.
@@ -189,6 +190,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: pin a layout is undoable and conflict-checked like any edit.
 - **Amended in review round 1:** `review` is a catalogue leaf, and `catalogue.rs::undo_classes_snapshot` pins every leaf's undo class, with `share` the only `NotUndoable` one (ux-3, principles-3) [DR-54, DR-55].
 - **Amended in review round 2:** an undo reverses every event of the command that wrote its target, and it is a write under compare-and-set with its own authored revisions (E4, correctness-5) [DR-61].
+- **Amended by DR-89:** a ninth event kind, `card`, holds a card a write deals before `decide` exists, and `review` picks it. The open cards are the `card` events no `review` names, so the store needs no new table.
 - **Sources (checked 2026-10-25):** candidate-simplicity §3.6, §15 D4; the design reviews (three edit ops).
 
 ## DR-4: Actor identity and actor rules
@@ -1220,7 +1222,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-59: Repo gates that fire
 
-- **Status:** accepted (decided in review round 1, D14). Amended in review rounds 2 and 3.
+- **Status:** accepted (decided in review round 1, D14). Amended in review rounds 2 and 3. Amended by DR-89.
 - **Starting point:** extended "Repo layout: a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` in TypeScript" and the one task entry point.
 - **Origin:** review round 1: repo-1, repo-2, repo-3, repo-4, repo-6 and repo-7; the minor findings operability-7, operability-10, operability-12, repo-8, repo-9, repo-10 and repo-11.
 - **Context:**
@@ -1254,6 +1256,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-6, DR-30, DR-36, DR-38 and DR-40.
 - **Amended in review round 2:** the per-commit walk covers only the commits a push or pull request adds, a state check runs every time, and the first lock comes with a new record. The gated surfaces add the area contracts table, the Boundaries section of `AGENTS.md` and each package's dependency names. Dependabot waits 14 days, the direct-pin age. `cargo xtask test` builds `target/mod-test/` and plain `gen` writes every committed output, replacing `gen --mod`, `PLANROOM_UPDATE_DOCS` and `PLANROOM_UPDATE_GOLDEN` (E14, repo-1, repo-2, repo-10, repo-11) [DR-70].
 - **Amended in review round 3:** every shipped crate has an allow-list, only `models` and `planroom` open sockets, `contract` carries the no-I/O lint, and a `skipped` check fails in CI unless declared (F18, repo-1, repo-2) [DR-79]. This replaces the forbid-list that kept a network client out of `store` and `extract`.
+- **Amended by DR-89:** `feature_list_is_complete` passes when every listed test resolves to a test that runs under a CI `cargo xtask` command with nothing live, or carries a `due` tag naming the milestone that builds it; a test that resolves carries no `due`. A raise is a larger value for a key `budgets.json` already holds. A new key isn't a raise and needs no record.
 - **Sources (checked 2026-10-26):** KICKOFF R16, S7, S15 and the repo-tooling constraint; [plugin-packaging §1] (`claude plugin test` needs a `modules` entry); [mod-api §1, §9]; [ts-stack §6.1]; [iris-release-bar §5, §7]; review round 1 findings above and owner decision D14.
 
 ## DR-60: Owner follow-ups after review round 1
@@ -1394,7 +1397,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-65: Cost gates that can fail
 
-- **Status:** accepted (decided in review round 2, E16). Amended in review round 3.
+- **Status:** accepted (decided in review round 2, E16). Amended in review round 3. Extended by DR-89.
 - **Starting point:** none; serves the constraint "Spend" and S7's token budgets.
 - **Origin:** review round 2: cost-1, cost-2, cost-3 and cost-5; the minor findings cost-6, cost-7, cost-8, cost-9 and cost-10.
 - **Context:**
@@ -1424,6 +1427,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Scenarios: S7's CI path writes `jev_per_scan_usd = 0.01` into its fixture's config.
   - It amends DR-18, DR-27, DR-50 and DR-51.
 - **Amended in review round 3:** a `scan` event triggers one `decide` duty run that spends that scan's budget, and leftovers wait for the next scan or a `decide --run` (cost-5). S7's warm phase repeats `decide --run` until none is pending (cost-4). `xtask live record` refuses a warm prefix before it pays, from the ledger's last write of that `prefix_hash` (cost-2). The live spend plan adds development re-records, aborted recordings and Phase 1's spend, and the walking skeleton seeds both spend logs (cost-1, cost-3). Bare `/room` returns no `text`, and any other `/room` text holds at most 300 tokens, gated as `room_text` (cost-6). Tests `duties.rs::one_scan_spends_at_most_its_budget_across_duty_runs`, `live_gate.rs::a_warm_prefix_is_refused_before_any_call`, `docs.rs::the_spend_log_starts_with_phase_1`, `packages/mod/src/room.test.ts::room_text_within_budget`.
+- **Extended by DR-89:** in M1 a live flag with no spend log is refused, and `intent next` answers from `tests/replay/` until M2's consent card and daily cap.
 - **Sources (checked 2026-10-26):** KICKOFF `<constraints>` Spend, S7 and R9; [claude-gateway §4] (a prefix below the minimum fails silently); [mod-api §6] (the session cache lasts 5 minutes); review round 2 cost-1 to cost-10 except cost-4, and owner decision E16.
 
 ## DR-66: An agent surface that reports errors, takes proposals inline and brings the diff back
@@ -1461,7 +1465,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 - **Status:** accepted (decided in review round 2, E8); verify in WS7. Amended in review rounds 2 and 3.
 - **Starting point:** kept and refined "Remote mode: ... Artifact edits land as events in a db collection; the session imports them ...".
-- **Origin:** review round 2: security-3 and the downgraded principles-8; the surfaces focus raised the same gap as ux-1.
+- **Origin:** review round 2: security-3 and the downgraded principles-8; the surfaces review raised the same gap as ux-1.
 - **Context:**
   - Import read inbox rows from `.planroom/share/inbox`, a folder any local process could write with Bash, and took the author from the folder's path. Any agent could plant rows that applied as another viewer.
   - The owner's own rows never applied, because the session writes `db` as the owner with no prompt. For the one user KICKOFF names, every phone edit and pick waited for a second confirmation at the desk.
@@ -1589,7 +1593,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Consequences:**
   - Contracts: the `layout.lock` surfaces; `area_contracts_match_repo_layout` covers every directory and the Read first lines.
   - Layout: `plugin/AGENTS.md`, `packs/AGENTS.md` and their `CLAUDE.md` files; area files for `scripts/`, `schema/`, `tests/replay/`, `tests/golden/`, `tests/installer/` and `tests/plugin/`; `boundaries.toml` gains the no-I/O list and `third_party`; `.claude/settings.json` gains `claudeMdExcludes`.
-  - Tests: `gates.rs::a_bad_commit_already_pushed_fails_no_later_run`, `the_first_lock_needs_a_new_record`, `a_lock_naming_a_missing_record_fails`, `a_duplicate_record_heading_fails`, `a_track_merge_lists_its_gated_changes`, `an_edited_area_row_needs_a_record`, `a_new_package_dependency_needs_a_record`, `a_dependency_version_bump_needs_none`; the self-test's `Path::exists` and third-party plants; `crates/planroom/tests/evals.rs` replaces `crates/kernel/tests/evals.rs`; `release_pins.rs::dependabot_cooldown_matches_the_pin_age` replaces `dependabot_cooldown_matches_minimum_release_age`.
+  - Tests: `gates.rs::a_bad_commit_already_pushed_fails_no_later_run`, `the_first_lock_needs_a_new_record`, `a_lock_naming_a_missing_record_fails`, `a_duplicate_record_heading_fails`, `a_branch_merge_lists_its_gated_changes`, `an_edited_area_row_needs_a_record`, `a_new_package_dependency_needs_a_record`, `a_dependency_version_bump_needs_none`; the self-test's `Path::exists` and third-party plants; `crates/planroom/tests/evals.rs` replaces `crates/kernel/tests/evals.rs`; `release_pins.rs::dependabot_cooldown_matches_the_pin_age` replaces `dependabot_cooldown_matches_minimum_release_age`.
   - Agents: one command runs one test, and one `gen` fixes any generated file.
   - Milestones: M1 gains a 3 h repo-gates slice.
   - It amends DR-19, DR-36, DR-38 and DR-59.
@@ -2003,7 +2007,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-83: What the walking skeleton's gates, remote slice and platform checks settled
 
-- **Status:** accepted (decided at the merges of the gates and remote-slice work, the CI repairs and the WS7 and WS8 checks, 2026-10-26). Amended by DR-87.
+- **Status:** accepted (decided at the merges of the gates and remote-slice work, the CI repairs and the WS7 and WS8 checks, 2026-10-26). Amended by DR-87 and DR-89.
 - **Starting point:** extended "Repo layout: a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` in TypeScript", Remote mode, and the release model.
 - **Origin:** the walking skeleton's gates and remote-slice work, CI's first runs on the merged tree, and the platform checks in `research/ws7-remote.md` and `research/ws8-install.md`.
 - **Context:**
@@ -2072,6 +2076,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It changes no gated surface beyond what the first lock records.
   - It amends DR-39, DR-52, DR-55, DR-56, DR-67, DR-70, DR-75, DR-78, DR-79 and DR-81.
 - **Amended by DR-87:** import's result carries `counts`, the first 5 rows' outcomes, `root` and `batch_files`, one file per `ArtifactData batch` call, in place of the batches inline; each batch keeps at most 50 writes and 1 MiB, with `live/head` last.
+- **Amended by DR-89:** a `#[redact]` mark is `#[schemars(extend("x-redact" = true))]` on the field. `cargo xtask gen` writes the marked field paths into `crates/kernel/src/redact_fields.rs`, and `kernel::redact` masks exactly those paths.
 - **Sources (checked 2026-10-26):** `research/ws7-remote.md`, `research/ws8-install.md`; the gates and remote-slice merge notes in `progress.md`; CI runs 36 to 46 on the working branch; RUSTSEC-2026-0386; `crates/planroom/src/app/{share,import}.rs`; `crates/xtask/src/{layout,tools,plugin}.rs`.
 
 ## DR-84: The umbrella skill is `planroom`, so the mod can own `/room`
@@ -2181,7 +2186,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - **Import's reply keeps to its budget.** `ImportResult` carries `counts` (`imported`, `held`, `conflict`, `refused`, `left`, `skipped`), the first 5 rows' outcomes (`IMPORT_ROWS_SAMPLE`), `root` (the sync's absolute directory) and `batch_files`: one `batch-N.json` per `ArtifactData batch` call, relative to `root`, each a `DbBatch` whose `file_path`s are absolute. `batches` is removed. Every row is still acked in `acks/<uid>`. This removes a field, which the versioning rules make a `schema_version` bump; no release has shipped, so it stays 1, as DR-86 did.
   - **The guard reads where the shell is.** It takes the shell's directory from `$.session.cwd()` on every call, and resolves relative words and its landing test against it; the places it derives from the environment stay cached. A `cd` or `pushd` into a guarded place is refused, so a host that didn't report the move still can't reach one through a relative word. When the shell's directory differs from the one the session started in, or the line runs `cd` or `pushd`, every word on the line is checked as a path.
   - **The guard checks every tool's paths.** Beyond Read, Grep, Glob, Edit, Write and Bash, it reads the path fields of Artifact (`file_path`, `file_paths`, `files` joined to `root`, `root`; `out_dir` as a write), ArtifactData (`file_path`, `writes[].file_path`, `batch[].file_path`; `out_dir` as a write), SendUserFile and its alias SendFile, LS, NotebookRead, LSP and Monitor (whose `command` is read as Bash). For a tool it doesn't know, every string that looks like a path is held to the read rule. A file sent off the machine must pass the read rule too, and from a state directory only `share/` may leave, where `share` and `import` write; nothing leaves from the data root.
-  - **The guard protects the mod's own files.** The write rule also covers the plugin's root (`$.plugin.root` and the real path it resolves to). The folders above it are covered by the delete and move rules, and by the refusal to `cd` into it. A Bash word that lands there is denied unless it's the program a command runs, so the `planroom` skill's `"<plugin>/scripts/planroom" map --json` still runs, and the Read tool can still read the plugin's files.
+  - **The guard protects the mod's own files.** The write rule also covers the plugin's root (`$.plugin.root` and the real path it resolves to). Deleting or moving the plugin's folder or a folder above it is refused, and so is a `cd` into the plugin's folder. A Bash word that lands there is denied unless it's the program a command runs, so the `planroom` skill's `"<plugin>/scripts/planroom" map --json` still runs, and the Read tool can still read the plugin's files.
   - **Developing Planroom with its own mod loaded.** When this repository's `plugin/` is loaded live as a mod, as `ws8-install.md` describes, it is the protected root: an agent can't edit `plugin/` until the mod is unloaded or a person makes the change. `plugin/AGENTS.md` says so.
   - **The mod reads the resolver's reason from the contract.** `UnavailableReason` becomes a schema root, and the mod switches on the generated type with a `never` default, so a reason the mod doesn't handle fails its build.
 - **Alternatives rejected:**
@@ -2229,3 +2234,107 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Milestones: the three M1 checks above join the actor, mod and serve slices.
   - It amends DR-58 (an absolute data root), DR-75 (when the mod registers its key) and DR-87 (the guard's rule for tools it doesn't know).
 - **Sources (checked 2026-10-26):** `packages/mod/src/guard.ts`, `register.tsx` and `person.ts`; `crates/planroom/src/app/data.rs`; `crates/planroom/src/server/routes.rs` (what the control token unlocks); `plugin/scripts/planroom`; [accepted risk](research/skeleton-review/accepted-risk.md).
+
+## DR-89: What M1 builds, compares and leaves to later milestones
+
+- **Status:** accepted (decided before M1's first change, 2026-10-26).
+- **Starting point:** none; it amends [Milestones](architecture.md#milestones) and serves S1, S3 and S15, and the feature list's gate (DR-59).
+- **Origin:** M1's scope, read against the tree after DR-88.
+- **Context:** M1's row in the Milestones table says it closes S1, S15 (most) and S3's deterministic part. Read against the code and `feature_list.json`, several things don't hold:
+  - S1 can't pass in M1. `first_run.rs::first_scan_deals_at_most_three_cards` needs M2's first-scan card budget, and the full truth comparison needs M3's observability pack and cross-repo joins (the `deploys` linker, package versions), since TRUTH.json lists `deploys`, `scrapes`, `exports_telemetry` and `queries` relations and three `observability` containers.
+  - Many tests `feature_list.json` lists don't exist at their paths: some exist under another name or file, some are planned for a later milestone, and the gate can't tell either from a typo.
+  - S3's `ci_path` accepts ghosts with `decide CARD accept` (steps 5 and 6), but `decide` and its batch accepts arrive with M2's decision runner. M1's plan-pack slice still says "batch review".
+  - M1 needs cards (workspace trust, a changed pack source, restore, and the Apply card for unsigned inbox edits) before `decide` exists, and no record says how a card is stored or picked.
+  - `intent next` asks Claude, and M1 has neither the consent card nor the daily cap that M2's models row brings.
+  - `budgets.json` has its shape in [Contracts](contracts.md) but no file yet; M2's budgets slice creates it, while M1's fold benchmark and surface numbers need it now. The rule that a raise needs a record doesn't say whether a new key is a raise.
+  - DR-83 replaces `kernel::redact`'s hand-written field list with `#[redact]` marks, but no form for the marks exists, and the kernel can't include a file from outside its crate.
+  - TRUTH.json's `healthcheck` container and its two `http` edges come only from the Ruby pack, which the Milestones table puts in M5.
+  - Scanning this repository maps `examples/fixture/`'s compose services as its own containers (`architecture.md:1632`).
+- **Decision:**
+  - **S1 turns passing in M3.** M1 compares a stated subset of the truth and asserts what it leaves out:
+    - **Containers:** all 11 by name, repo and every evidence item; kind and role for the 8 whose kind the code pack declares (3 `service`, 1 `library`, 2 `tooling`, `queue` and `datastore`), with the `queue` and `datastore` roles from the code pack's `[[image_roles]]`.
+    - **Components:** all 24.
+    - **Relations:** 7 of the 23: `http` ×3 (storefront to orders through a wrapper call, and healthcheck to orders and to storefront through the Ruby pack), `db` ×2, `queue_publish` and `queue_consume`, each with every evidence item. An evidence item that names a branch matches through the scan event that read it (DR-86).
+    - **Out of scope until M3:** `deploys` ×8, `scrapes` ×3, `exports_telemetry` ×3, `queries` ×1, `depends_on_package` ×1, and the `observability` kind of `otel-collector`, `prometheus` and `grafana`. `s01_first_look.rs::every_truth_item_the_loaded_packs_declare_matches_with_evidence` asserts that the out-of-scope set is exactly this list, so nothing drops silently. `s01_first_look.rs::truth_recall_never_drops` holds recall at or above a committed floor that only rises.
+    - **Still listed:** `every_truth_container_component_and_relation_with_evidence` is due M3, and `first_scan_deals_at_most_three_cards` is due M2. M1 emits `depends_on_package` without its `via`; M3 compares it.
+  - **The feature list's tests move, are renamed, split and tagged, and none is weakened.** Every assertion stays; only a test's path, name or milestone changes.
+    - **`due` tags:** each entry gains an optional `due` object from a listed test to the milestone that builds it, for example `"due": {"crates/planroom/tests/first_run.rs::first_scan_deals_at_most_three_cards": "M2"}`. The field is additive; the format stays `planroom.feature-list/v1`. A name that carried "(planned for M1)" or "(planned for M5)" becomes the bare name with a `due` tag. `tests/installer/run.sh::a_newer_dev_catalogue_misses_the_cache` moves from M5 to M1.
+    - **What `feature_list_is_complete` means:** every listed test resolves to a test that runs under a CI `cargo xtask` command with no `PLANROOM_LIVE_*` flag and nothing live, or carries a `due`. A test that resolves carries no `due`, and an entry marked `passing` carries none. A milestone closes only when no listed test still carries its `due`.
+    - **Moves:**
+
+      | Listed now | Moves to |
+      |---|---|
+      | `first_run.rs`: `submodules_are_repos`, `repos_two_levels_down_are_found`, `a_nested_workspace_warns`, `focus_lists_dirty_repos` | `discovery.rs` |
+      | `first_run.rs::same_named_repos_get_distinct_namespaces` | `namespaces.rs` |
+      | `first_run.rs::a_single_repo_workspace_keeps_its_state_in_the_git_dir` | `state_dir.rs` |
+      | `store/tests/fs_check.rs::a_single_repo_keeps_its_state_in_the_git_dir` | merged into `state_dir.rs`'s test of the same assertion |
+      | `first_run.rs::open_without_a_display_offers_share` | `open.rs` |
+      | `actor.rs::an_agent_does_not_conflict_with_itself` | `edit.rs` |
+      | `actor.rs`: `a_read_outside_the_workspace_is_path_refused`, `a_credential_path_needs_a_person`, `workspace_flag_on_a_read_needs_an_existing_store` | `confine.rs` |
+      | `s01_first_look.rs::top_level_has_one_next_action` | `next.rs` |
+      | `kernel/tests/fold.rs::the_link_snapshot_matches_the_active_set` | `crates/planroom/tests/link_snapshot.rs`, since it reads the store |
+      | `trust.rs::credentials_go_only_to_allow_listed_hosts` | `crates/models/tests/hosts.rs` |
+      | `privacy.rs::no_envelope_suggests_pushing_the_backup` | `backup.rs` |
+      | `envelope_schema.rs::golden_outputs_equal_engine_output` | `golden.rs` |
+      | `crates/planroom/tests/docs.rs`: `read_first_names_resolve`, `an_amended_record_says_so_in_its_status` | `crates/xtask/tests/docs.rs` |
+      | `gates.rs`: `a_dispatch_run_checks_state_only`, `a_tag_push_checks_state_only` | `crates/xtask/src/layout.rs`, which holds them |
+      | `crates/planroom/tests/docs.rs::every_image_has_its_prompt_and_spend_row` | `crates/xtask/tests/docs.rs` |
+      | `tests/e2e/*.spec.ts` | `tests/e2e/src/*.spec.ts` |
+      | `surfaces.test.tsx`, `keys.test.tsx` and `tools.test.ts` tests that already exist in `layout.test.ts` or `engine.test.ts` | the file that holds them |
+
+    - **Renames to tests that already assert the step:**
+
+      | Listed name | Existing test |
+      |---|---|
+      | `server_auth.rs::a_request_without_the_token_is_refused`, `a_missing_origin_is_refused` | `requests_without_a_token_or_from_another_origin_or_host_are_refused` |
+      | `server_auth.rs::a_code_exchanged_twice_revokes_its_token` | `a_login_code_works_once_and_a_second_try_revokes_its_token` |
+      | `server_auth.rs::a_taken_port_exits_with_port_in_use`, `serve_port_moves_only_when_asked` | `serve_keeps_its_port_and_another_program_on_it_is_port_in_use`, extended to cover a port moved only when asked |
+      | `routes.rs::serves_the_embedded_canvas` (traceability) | `the_canvas_or_its_fix_page_is_served_at_the_root` |
+      | `first_run.rs::focus_outside_a_workspace_creates_nothing` | `focus.rs::focus_outside_a_workspace_is_an_empty_state_and_creates_nothing` |
+
+    - **Stay where they are, due M1:** `gates.rs::ci_runs_only_xtask` and `gates.rs::area_contracts_match_repo_layout` name `cargo xtask check` steps today, not tests; M1's repo gates write them as tests under those names.
+
+    - **Written under their listed names,** because no existing test asserts them: `server_auth.rs::the_code_is_never_in_an_argv` (a stub opener records its argv, which holds a file path under `DATA_ROOT/open/` and never the code) and `server_auth.rs::an_expired_or_reused_code_is_refused` (a code 61 s old and a reused code are both refused; the test moves the code's clock rather than waiting). `the_control_token_registers_a_login_code_by_its_digest` checks neither.
+    - **The split:** `s03_plan.rs::lint_flags_vague_action_and_missing_done_test` becomes `lint_flags_a_missing_done_test` (M1, structural) and `lint_flags_a_vague_action` (M2, on Jev).
+  - **`review` stays per item in M1, and M2 adds batch review.** `review ID accept|reject` keeps its catalogue row (`contracts.md:321`).
+    - `s03_plan.rs::agent_accept_is_person_required` and `stages_produce_ghosts_until_accepted` land in M1 on `review GHOST accept`: an agent's accept is `person_required`, and a stage's ghosts stay ghosts until a person accepts them one by one.
+    - M2 extends both onto `decide CARD accept`, one batch per stage, which are S3's steps 5 and 6. Their M1 assertions stay. S3's `ci_path` doesn't change.
+    - `accepted_plan_is_version_2`, `next_actions_touch_the_three_targets`, `version_diff_renders_in_the_shared_view` and `tests/e2e/plan.spec.ts` are due M2, on batch accepts and the first version tag; `lint_flags_a_vague_action` is due M2, on Jev. S3 turns passing in M2, as before.
+  - **`intent next` replays only, until M2's consent card and daily cap.** In M1 it answers from `tests/replay/`. A live call is made only in record mode, under a `PLANROOM_LIVE_*` flag and the build's spend log. Every other live call is refused with `budget_exceeded` before it is sent. The spend log works as [Spend guards](architecture.md#spend-guards) gives it: under its lock, the engine sums `docs/evidence/spend.jsonl`, refuses a call past `live_tests_total_usd` less $0.25, and appends the call; a relative path, or a live flag with no spend log, is refused. M2's consent card and the user-level daily cap lift the replay-only rule.
+  - **Cards are an event kind.** A card is a `card` event (`EventBody::Card`) with `kind` (an open set: `apply`, `trust`, `pack_source`, `restore`), `subject`, `question` and `why` (their `en.toml` keys), `stakes`, `choices`, `default` and `dealt_by`. It fills `DecisionCard`: its question, its why line and its stakes come from the event, and `person_only` is true for every kind M1 deals.
+    - **Versioning:** event kinds are an open set, and an older reader keeps an unknown kind as `EventBody::Unknown` and writes it back unchanged (`contracts.md:13`). So the kind is additive, and `schema_version` stays 1. The store needs no new table: the open cards are the `card` events no `review` names.
+    - **Dealing:** only a write deals a card, never a read. `import` deals the Apply card when unsigned edit rows arrive. `scan` deals the trust card when the workspace's `.planroom/` is untrusted, the changed-source card when a loaded pack's source differs from its copy, and the restore card when the state directory is missing and a backup exists for the workspace root. No card is dealt twice while one of the same kind and subject is open. `scan` returns `workspace_untrusted` with the trust card it dealt, and `focus` carries it while that card is open.
+    - **Picking:** `review CARD accept|reject` picks a card through the existing `Review { of }` body, with no change to the command or the event. A second pick returns `already_resolved`, and an agent's pick `person_required`. `focus` lists the open cards and puts the first face up in `PaneModel.decision`; M2's `decide ID CHOICE` picks the same events, read beside its `DecisionRecord`s.
+    - **What each pick does:** accepting the trust card records the workspace as trusted and loads its config; rejecting keeps it unloaded. Accepting the changed-source card updates the pack's copy; rejecting keeps the old copy. Accepting the restore card restores from the backup, as `doctor --restore` does, which also resolves the card; rejecting starts empty. The Apply card is picked through its ghosts, one `review` each, and resolves with its last ghost; `review` on the card itself returns `invalid_argument`, whose hint names its ghosts, until M2's batch review picks it whole.
+  - **`budgets.json` arrives in M1, in the shape Contracts gives it, and a new key isn't a raise.**
+    - **The file:** M1 creates `budgets.json` at the repo root with the keys [Contracts](contracts.md) already defines (`fold.20k`, `fold.50k`, `surface`, `room_text`, `recorded` with its `token_ratio`, and the per-question keys as their questions land). `cargo xtask gen --budgets` stays in M2's budgets slice.
+    - **What a raise is:** a larger value for a key that already exists. A commit that raises one adds a decision record, as DR-59 says. A new key isn't a raise and needs none. A person lowers a value by hand.
+    - **The fold benchmark:** `crates/kernel/benches/fold.rs` builds its events in memory, so the kernel still does no I/O. `cargo xtask bench fold` runs `cargo bench fold` and compares the result with `fold.20k` and `fold.50k`; CI runs it on ubuntu-24.04 (`architecture.md:1495`).
+  - **Default excludes, with one setting** (R14). A scan skips directories named `fixture`, `fixtures`, `__fixtures__`, `testdata` or `test-data`, at any depth below a repo's root, so this repository no longer maps `examples/fixture/` as its own system. The setting `scan.exclude`, a list of globs relative to each repo's root, replaces that list. No default fits every workspace: the same directory name holds test data in one repo and product code in another, so a person needs a way to map one back in. The excludes are part of the scan's snapshot key (DR-86).
+  - **The `#[redact]` form.** A repo-derived free-text field carries `#[schemars(extend("x-redact" = true))]`. `cargo xtask gen` writes the field paths into `crates/kernel/src/redact_fields.rs`, inside the kernel, and `kernel::redact` masks exactly those paths. AGENTS.md's Logging rule says to mark such a field with that attribute.
+  - **The Ruby pack comes into M1,** whole, as [Ruby through the extractor contract](architecture.md#ruby-through-the-extractor-contract) gives it: `ruby-http`, the `ruby` `[[languages]]` entry and `ruby-script`. M5's toy-pack slice keeps the flags pack and S10.
+- **Alternatives rejected:**
+  - Keeping S1 in M1 by dropping the truth items M1 can't reach: that weakens the entry, which only an infeasibility record may do.
+  - Leaving unbuilt tests listed without a milestone: the gate couldn't tell an unbuilt test from a mistyped one.
+  - Bringing `decide` and batch accepts into M1: they belong with M2's decision runner, its batches per kind and its card budget, and would land without them.
+  - A new leaf that picks cards: a command and an undo class for a stopgap that `review` already covers.
+  - A card table in the store: a migration for what the event log already holds, and one more thing the backup and the event export would have to carry.
+  - Live `intent next` in M1 behind a per-call cap: without a consent card and a daily cap, a call could spend without a person's yes.
+  - Counting a new `budgets.json` key as a raise: every new gate would need a record for being added, which discourages adding gates.
+  - An `include!` of a generated list from outside the kernel: the kernel's path rule refuses it. A hand-kept list is the drift DR-83 removes.
+  - A setting with no default excludes: every first scan of a repo with test data would map it, as this repository's did.
+- **Consequences:**
+  - **Contracts:** the event kind `card` (`EventBody::Card`), so the event model has nine kinds; the optional `due` object in `feature_list.json`; the `scan.exclude` setting with its default. `schema_version` stays 1.
+  - **architecture.md, [Milestones](architecture.md#milestones):**
+    - M1's row: "S15 (most), S3 (deterministic part)", plus S1's M1 subset, which M1 builds without closing S1.
+    - M3's row: "S1, S2".
+    - M1's plan-pack slice: "ghosts and per-item review" in place of "ghosts and batch review".
+    - M2's decision runner slice: gains "batch review".
+    - M5's slice "The toy pack, the Ruby pack and S10" becomes "The toy pack and S10".
+  - **traceability.md:** S1's row notes that S1 closes in M3, with M1's subset; S3's row moves batch review to M2; every test path and name follows the moves, renames and split above.
+  - **contracts.md:** the Feature list row and the `feature_list.json` shape state the `due` rule and what a complete list means; the event model gains the `card` kind; the `Review` comment names cards beside ghosts, conflicts and inferred facts; `decide ID CHOICE` reads `card` events in M2.
+  - **architecture.md, elsewhere:** the counts table and the event-model section say nine event kinds.
+  - **Elsewhere:** AGENTS.md's `#[redact]` line; repo-layout.md's task table gains `cargo xtask bench fold`.
+  - **Tests:** the new and written-under-their-name tests above; `trust.rs::accepting_the_trust_card_loads_the_config`; `packs.rs::accepting_the_changed_source_card_updates_the_copy`; `backup.rs::a_lost_state_directory_then_scan_offers_one_restore_card`; `cards.rs` (a dealt card listed face up, a second pick `already_resolved`, an agent's pick `person_required`, no second open card, the Apply card resolved by its last ghost); `config.rs::fixture_and_test_data_trees_are_excluded_by_default`; `live_gate.rs` (the cap, its margin, a relative path, a live flag with no spend log, `intent next` without a record flag); `gates.rs::a_new_budgets_key_is_not_a_raise`, `feature_list_is_complete`.
+  - It amends DR-3 (a ninth event kind, `card`), DR-59 (what `feature_list_is_complete` checks, and what a raise is) and DR-83 (the form of the `#[redact]` marks), and extends DR-65 (in M1 a live flag with no spend log is refused, and `intent next` answers from replay).
+- **Sources (checked 2026-10-26):** `architecture.md` (Milestones `:1639-1715`, trust `:587`, the Ruby pack `:738-773`, `budgets.json` `:1049`, the spend log `:1061`, `intent next` `:1109`, the server's exposure `:1477`, the fold benchmark `:1495`, what the walking skeleton found `:1632`); `contracts.md` (open sets `:13`, Feature list `:86`, `review` `:321`, the event model `:489`); `feature_list.json` (S1, S3, C15); `examples/TRUTH.json` (`containers`, `relations`); `crates/contract/src/event.rs`; `crates/store/migrations/0001_init.sql`; `crates/planroom/tests/server_auth.rs`; `crates/planroom/src/server/auth.rs` (`CODE_LIFE`).
