@@ -37,7 +37,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 22 | A tiny surface with measured always-on cost | none (R14) | added | S, C |
 | 23 | Plan stages with their methods and structural lint | Jev policy: structural lint in code | extended | C |
 | 24 | Duties under leases instead of a jobs API | none | added | S; C graft (off the critical path) |
-| 25 | Engine-made worktrees, two implementers, a cross-repo merge preflight | none (research: an agent type with worktree isolation) | replaced the research suggestion | S, E |
+| 25 | Engine-made clones, two implementers, a cross-repo merge preflight | none (research: an agent type with worktree isolation) | replaced the research suggestion | S, E |
 | 26 | The hand-off guard asks the person | none | added | judges disagreed; E and C combined |
 | 27 | Curation drafts: templates, then Claude, then the curator agent | none | added | S, C |
 | 28 | Engine bootstrap without a SessionStart hook | Repo layout: engine bootstrap | kept, refined | S, E |
@@ -72,7 +72,19 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 57 | The pane before the engine and outside a workspace | none (principle 1, S14) | added | review round 1 (D15) |
 | 58 | One data root, a self-locating resolver, an embedded canvas and visible background work | Repo layout: engine bootstrap | kept, refined | review round 1 (D16) |
 | 59 | Repo gates that fire | Repo layout: boundary checks; `justfile` or `cargo xtask` | extended | review round 1 (D14) |
-| 60 | Owner follow-ups after review round 1: agent writer instances, system writes, the person key's first registration, no card for configured packs | Store: events carry the actor | extended | main agent |
+| 60 | Owner follow-ups after review round 1 | Store: events carry the actor; Packs: declarative files | extended | main agent |
+| 61 | Writes that keep the tree, undos and imports whole | Store: optimistic concurrency on entity versions; Kernel: everything derived from events | extended | review round 2 (E4) |
+| 62 | The pack set is workspace state | Packs: declarative files | extended | review round 2 (E6) |
+| 63 | Decision kinds express v0.1's kinds as data | Jev policy | extended | review round 2 (E7) |
+| 64 | Agents never hold the person's authority | Store: events carry the actor | extended | review round 2 (E15) |
+| 65 | Cost gates that can fail | none (constraint "Spend", S7) | added | review round 2 (E16) |
+| 66 | An agent surface that reports errors, takes proposals inline and brings the diff back | none (principles 1 and 2, R8) | added | review round 2 |
+| 67 | Paired owner devices, and inbox rows only from the mod | Remote mode | kept, refined | review round 2 (E8) |
+| 68 | The canvas edits by hand and answers to the keyboard | none (R6, R13, R14) | added | review round 2 (E9) |
+| 69 | Releases from main, a portable detach and a resolver contract | Repo layout: engine bootstrap | kept, refined | review round 2 (E11, E12, E13) |
+| 70 | Repo gates over the pushed commits and every boundary statement | Repo layout: boundary checks; `justfile` or `cargo xtask` | extended | review round 2 (E14) |
+| 71 | Everyday git moves: a tracked branch, the working tree and every repo layout | none (R1, R7, principle 1) | added | review round 2 (E17) |
+| 72 | Owner follow-ups after review round 2: signed person tokens, Git LFS filters, S7's fast-forward | DR-64; DR-71 | amended | main agent |
 
 ## Judge disagreements and how they were resolved
 
@@ -121,6 +133,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: nothing to keep running; the canvas starts `serve` on demand.
   - Fallback without a contract change: if WS4 or S8 shows contention, route CLI writes through `serve` when it runs.
 - **Amended in review round 1:** multi-process WAL needs a local filesystem (unasked-5). At store open the engine checks the filesystem `.planroom/` is on: network mounts, WSL `/mnt/*`, FUSE, and macOS network volumes and sync folders. On one of those it keeps the store at `DATA_ROOT/stores/<workspace_id>/store.db` with a `.planroom/store.pointer`, and says so in one line. `doctor` reports it, and `store/tests/fs_check.rs::unsafe_filesystem_moves_the_store` tests it. Before a migration the engine writes a `VACUUM INTO` copy under the data root, keeps the last 3, and migrates and folds in one transaction. When an older `watch` or `serve` meets a newer store, the mod says "Restart this session to use Planroom vX" once instead of restarting it [DR-53] (principles-4). The drain token is now the control token, which also registers login codes [DR-29] (security-7). `serve.json` also records the catalogue hash, and `serve --detach` drains a `serve` of an older version, or of the same version with another catalogue hash, not only before a migration, and the mod shows one line when its engine's catalogue doesn't match (operability-5) [DR-58].
+- **Amended in review round 2:** SQLite leaves `data_version` unchanged for a connection's own commits, so `watch` and `serve` poll it on a dedicated read-only connection that never writes, and each `store::commit` also hands its `seq` to the process's own live loop. `serve` applies its own committed `seq` to its fold before it replies (E2, correctness-2). Tests `stream.rs::two_sse_clients_on_one_serve_see_each_others_writes`, `a_serve_write_then_read_shows_the_write`, `a_watch_duty_rescan_sends_a_frame`.
 - **Sources (checked 2026-10-25):** [mod-api §7, §10, Design implications 1]; [rust-stack §5] (rusqlite, one writer); judge J3 (`synchronous = NORMAL` gap); candidate-simplicity §3.9, §16 R-1.
 
 ## DR-2: Store facts and events; derive the rest on read
@@ -140,6 +153,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Release: migrations are rare and small; `export` and `import` are the upgrade escape hatch.
   - Agents and users: a corrupted cache can't corrupt meaning; deleting `store.db` facts and rescanning restores them.
 - **Amended in review round 1:** one derived result is stored: the reconciler's outcome, on the `scan` event, so classes don't depend on when a scan ran [DR-44] (correctness-3). Per-file extractors' facts are cached per blob in an eleventh table [DR-47] (unasked-4). Claims and presence depend on the clock, so they are an overlay with an explicit `now`, outside the pure fold, and `now` is recorded in replays (correctness-12). The ledger moves to `DATA_ROOT/ledger.db`, shared by every workspace, so the store keeps ten tables [DR-51] (cost-2).
+- **Amended in review round 2:** a `scan` event, or an `undo` or `review` of an event at or below the cached `seq`, refolds `serve`'s and `watch`'s model from scratch, and subtree refolds stay out of v0.1. A kernel proptest checks the incremental fold against a full one outside S8 (E4, correctness-6) [DR-61].
 - **Sources (checked 2026-10-25):** candidate-simplicity §3.1, §3.7; [ts-stack §1] (layout cache is the one expensive derived value).
 
 ## DR-3: Three edit operations and eight event kinds; a view is a value
@@ -155,6 +169,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `kernel/tests/undo.rs` generates apply-then-undo for every `Op × target kind`, plus review, decision pick, version and claim.
   - Users: pin a layout is undoable and conflict-checked like any edit.
 - **Amended in review round 1:** `review` is a catalogue leaf, and `catalogue.rs::undo_classes_snapshot` pins every leaf's undo class, with `share` the only `NotUndoable` one (ux-3, principles-3) [DR-54, DR-55].
+- **Amended in review round 2:** an undo reverses every event of the command that wrote its target, and it is a write under compare-and-set with its own authored revisions (E4, correctness-5) [DR-61].
 - **Sources (checked 2026-10-25):** candidate-simplicity §3.6, §15 D4; judge J2 graft (three edit ops).
 
 ## DR-4: Actor identity and actor rules
@@ -183,6 +198,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: no prompts in the mod or the canvas, where person actions are the keys and taps they already make; at a terminal, one confirmation per write.
   - A Bash tool that allocates a TTY changes nothing: a terminal alone never makes a person.
 - **Amended in review round 1:** TTY-based person detection is dropped in favor of the `/dev/tty` confirmation; unnamed non-terminal writes are `actor_required`; the person key moves to the mod's `$.store` with only its hash in `store.db`; writes carry a client ID (owner decisions D1 and D2; correctness-2, security-3). `open` is person-only and never prints its code. Importing inbox rows and event exports is person-only and leaves `room_change`. The guard resolves paths, covers every file tool and pty-wrapped person-only commands, and keeps the implementer in worktrees under the data root (D15, D16; security-2, security-3, principles-1) [DR-52]. `handoff revert` is person-only, and `review` is a mixed catalogue leaf (ux-3, principles-3) [DR-54, DR-55]. A-3 settled by a live spike: the Bash tool runs with stdin and stdout not on a TTY, so an unnamed Bash write is always `actor_required`.
+- **Amended in review round 2:** the mod passes a one-time action token, `HMAC-SHA256(key, command ‖ canonical(args) ‖ idem ‖ base ‖ at)` through `crypto.subtle`, never the key, and `store.db` keeps the key itself so the engine can check one. The rejected alternative above assumed the mod had no crypto, but the mod runtime has `crypto.subtle` [mod-api, module rules]. The guard denies reads of the mod's `$.store` file, and `handoff start`, `merge` and `revert` refuse the `/dev/tty` path, since anyone with a pty can confirm it (E15; security-1, security-8) [DR-64].
 - **Sources (checked 2026-10-25):** [mod-api §3] (`CommandRunInput.origin`), [mod-api §8] (`tool.check` sees every tool); [plugin-packaging §3] (Bash environment lacks plugin variables); judges J2 and J3 fatal flaws on S; J2 fatal flaw on E.
 
 ## DR-5: Base required; field-level authored revisions
@@ -204,6 +220,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Agents: one number to pass, from the envelope they just read; the error hint says so.
   - Users: no spurious conflicts from background scans.
 - **Amended in review round 1:** compare-and-set compares writer instances, not actors (D1, correctness-2), and accepting is a new write (D3, correctness-4). Contracts gain `Event.client` and `WriteCommon.client`.
+- **Amended in review round 2:** an applied `undo` sets the authored revision of every field it changes back, so a write from an older base conflicts with it. An Artifact writer instance is one page load, `artifact:<uid>:<instance>`, so a viewer's two devices conflict like two tabs (E4, correctness-5, correctness-7) [DR-61].
 - **Sources (checked 2026-10-25):** candidate-simplicity §3.9; candidate-concurrency-agents §3.7; candidate-extensibility §3.10; judge J3 fatal flaw on S; J1 graft (field-level compare-and-set); J3 graft (fact version separate from user version).
 
 ## DR-6: The mod reaches the engine through the CLI
@@ -219,6 +236,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Agents: every mod action is also a CLI call an agent can make.
   - Fallback: `http.fetch` over `serve`'s socket with the same catalogue, if a surface lacks `process.run`.
 - **Amended in review round 1:** `claude plugin test` exits 1 on a package with no `modules` entry and gives tests no file system, so `cargo xtask gen --mod` also builds a harness in `target/mod-test/`: the mod and its tests bundled by esbuild, the workspace packages inlined, the golden CLI outputs inlined as a generated module, and a `hooks/hooks.json` naming the bundle. `claude plugin test target/mod-test` runs it (D14, repo-6) [DR-59]. A-10 settled by a live spike: `$.process.run` works in a cloud session, and `$.process.spawn` streams stdout as it's written.
+- **Amended in review round 2:** `cargo xtask test` builds the `target/mod-test/` harness before it runs `claude plugin test`, and plain `cargo xtask gen` builds the committed mod bundle, so `gen --mod` is gone (repo-10) [DR-70].
 - **Sources (checked 2026-10-25):** [mod-api §7]; candidate-simplicity §15 D6; judge J1 graft (golden CLI outputs for mod tests).
 
 ## DR-7: A stale write is stored; only a person's raises a card
@@ -253,6 +271,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: `meta.replayed`; error `idempotency_mismatch`; the `request_hash` column.
   - Tests: S8 retries and duplicates; `store/tests/idem.rs`; a mod test that reloads mid-write and checks one event.
 - **Amended in review round 1:** a command that writes several events keys them `idem#1`, `idem#2` and so on and stores the whole reply on the first; a replay of a derived key sets `meta.replayed_from` and hints to pass a new `--idem`; a decision event's key is `sha256(kind ‖ kind_version ‖ subject ‖ input_hash)` (correctness-11, correctness-9). Test `store/tests/idem.rs::multi_event_replay_returns_the_whole_reply`. A-8 settled by the spike's diagnostics: every `tool.call` input carries `tool_use_id`, which tool calls use as their key.
+- **Amended in review round 2:** a missing key is derived only for a `needs_base` command, where the base pins the intent. Every other command mints a fresh uuid v7 per invocation, and the mod, canvas and Artifact page mint one per user action. A scan keys each repo's event by `(repo, commit, packs_hash, previous active snapshot)`, so a move back to an earlier head records a new scan. `handoff merge` and `handoff revert` key each step and follow a step protocol: a retry with the same key resumes from the last committed step, a replay happens only after a terminal step, and a running detached duty is joined, never run twice (E1, correctness-1). Tests `retries.rs::base_less_commands_mint_a_fresh_key`, `a_rescan_after_a_head_move_writes_a_new_scan_event`, `a_move_back_to_an_earlier_head_records_a_new_scan`; `handoff_preflight.rs::a_retry_with_the_same_key_resumes_mid_merge`, `a_retry_joins_a_running_merge_duty`. Pending canvas edits move from `sessionStorage` to `localStorage`, keyed by workspace ID with their original keys, and any signed-in tab of the workspace flushes them, so a reload, a closed tab or a `serve` restart loses nothing (E10, principles-4) [DR-29]. Tests `tests/e2e/surface.spec.ts::reload_mid_edit_keeps_the_edit`, `serve_restart_keeps_pending_edits`.
 - **Sources (checked 2026-10-25):** [mod-api §7, §10]; candidate-concurrency-agents §3.8; judges J2, J3 grafts.
 
 ## DR-9: Packs are data; built-in extractors and linkers are declared by packs
@@ -269,6 +288,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `tests/packs.rs` (validation, the inward-only rule, no executables).
   - Users: a pack can't do what the declarative runner and built-ins can't; a format that needs a parser is a built-in.
 - **Amended in review round 1:** pack data gains `[[languages]]` and `[[image_roles]]`, typed emit props and ID prefixes, and extractor and linker names are pack-qualified [DR-46]. An out-of-tree pack is data but policy-bearing: its `auto_enabled` counts only after a person enables auto-action per kind (D19, security-5) [DR-48]. Its first-load card was dropped by DR-60. `code` is the base ring every domain pack attaches to, and the other packs form the outer ring: a pack may require only a pack in a lower ring, which in v0.1 means `code` or nothing. That is R16's "packs depend inward" for packs, and `packs.rs::requires_is_inward_only` enforces it (repo-5).
+- **Amended in review round 2:** rings are by origin. The built-in packs are the inner rings, and an out-of-tree pack may require any built-in pack but no other out-of-tree pack. A pack references only its own kinds, those of the packs it requires, and the kernel's (extensibility-7) [DR-62]. The self-test plants a built-in that requires an outer ring and an out-of-tree pack that requires another. Test `packs.rs::an_out_of_tree_pack_may_require_any_built_in`.
 - **Sources (checked 2026-10-25):** candidate-simplicity §4.1, §15 D11; candidate-extensibility §4.4, §4.11; judge J3 (exec packs run unsandboxed code).
 
 ## DR-10: A pack conformance kit
@@ -280,6 +300,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Decision:** `planroom doctor --pack DIR` validates the manifest, runs every extractor over the pack's `tests/inputs/`, compares sorted facts with `tests/expected.jsonl`, runs twice to prove determinism, and validates eval files. CI runs it on `packs/*` and `examples/packs/*`.
 - **Alternatives rejected:** a separate `pack` verb (more surface); the exec parity test (no exec packs).
 - **Consequences:** contracts gain the pack test layout; docs gain "Write a pack" in guides.
+- **Amended in review round 2:** a `pack` verb now exists, but only to change the workspace's pack set: `pack add DIR` and `pack remove ID`, both person-only. The conformance kit stays in `doctor --pack`, the only command that reads `PLANROOM_PACKS` (E6) [DR-62].
 - **Sources (checked 2026-10-25):** candidate-extensibility §4.10; judge J1 graft.
 
 ## DR-11: Scope cuts for v0.1
@@ -318,6 +339,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `extract/tests/link.rs` (including `metric_mentions_add_evidence_only` and `otel_counter_joins_its_prometheus_name`); `extract/tests/formats.rs::changelog_sets_repo_version`; `extract/tests/contract.rs::git_facts_carry_ref_evidence`; `s01_first_look.rs` (every truth relation with every evidence item); `s04_handoff.rs` (post-merge regression from the code alone); a docstring-is-not-evidence test.
   - Risk: call-site evidence by name may over-include; extra verified evidence is allowed ("a scan may find more" [TRUTH about]).
 - **Amended in review round 1:** comments may add evidence but never relations, `Evidence::Ref` covers git-derived facts, and a `changelog` extractor supplies Go repos' versions (D21; correctness-5, correctness-6). Hints carry IDs and provenance (extensibility-4). TRUTH needs `orders/internal/http/middleware.go:26` and `orders/CHANGELOG.md:7` [TRUTH questions.observability.alerts, questions.stale_versions].
+- **Amended in review round 2:** a scan that changes any repo's active snapshot links inside its committing `IMMEDIATE` transaction, from the stored hints of the then-active per-repo snapshots. The link snapshot is keyed by the sha256 of its sorted member snapshot IDs and `packs_hash`, and its ID is on the `scan` event (`Scan.link`) and in the reconcile outcome, so `fold(at)` finds the one link of the active set (E3, correctness-3). Tests `duties.rs::concurrent_rescans_link_the_final_active_set`; `kernel/tests/fold.rs::the_link_snapshot_matches_the_active_set`.
 - **Sources (checked 2026-10-25):** `examples/TRUTH.json` (relations, scenarios.S4); candidate-concurrency-agents §4.2; candidate-extensibility §4.6; judges J1 (fatal flaw on E, graft `*.db_dsn`), J3.
 
 ## DR-13: Ruby is an out-of-tree data pack the fixture workspace loads
@@ -336,6 +358,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: a real workspace with Ruby files gets the universal tier for them until the Ruby pack is added; the release archive ships `examples/packs/ruby` for that.
   - Open for the main agent: add one line to `examples/README.md` saying the fixture workspace loads `examples/packs/ruby` through its config (not a `TRUTH.json` change).
 - **Amended in review round 1:** the S10 check is restated: core is the shipped engine crates and `packs/`, matched on pack identifiers, plus a binary-identity proof in place of `git diff --stat crates/` (D12, extensibility-3). The Ruby pack declares its language in `[[languages]]` [DR-46].
+- **Amended in review round 2:** S10 adds the copies with the person's `planroom pack add`, because `PLANROOM_PACKS` no longer loads packs (E6) [DR-62].
 - **Sources (checked 2026-10-25):** `examples/README.md` (scenario hooks, S10); `examples/TRUTH.json` (containers, relations, scenarios.S10); judges J1 and J3 grafts and fatal flaws.
 
 ## DR-14: One command catalogue; no MCP server
@@ -375,6 +398,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Release: git is a runtime requirement; `doctor` checks the version.
   - Tests: CI on Linux and macOS; a hook fixture that must never fire.
   - Performance: `git log --numstat` took 0.90 s against 1.67 s for gix on 2,023 commits [rust-stack §6].
+- **Amended in review round 2:** git runs with `--no-ext-diff --no-textconv` on every `diff`, `show` and `log`, with `GIT_TERMINAL_PROMPT=0`, `GIT_LFS_SKIP_SMUDGE=1` and a cleared environment, at version 2.35.2 or later, so `safe.directory` refuses a repo another user owns. A checkout or merge in a repo whose local config names a command git would run (a filter, a diff command or textconv, a merge driver, an editor, a pager, an ssh command or an include) is refused with `repo_config_refused` and one card. The hand-off's writes are `clone --local --no-checkout` and `fetch`, not `worktree add` (E15; security-2, security-6) [DR-64]. Tests `git_hardening.rs::textconv_ext_diff_and_drivers_never_fire`, `a_repo_whose_config_names_a_command_is_refused_before_merge`.
 - **Sources (checked 2026-10-25):** [rust-stack §6]; judge J1 graft.
 
 ## DR-17: Kernel roles
@@ -387,6 +411,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Alternatives rejected:** naming pack kinds in the kernel (fails the domain-free scan); `reconcile.routine` (DR-20 makes it unneeded); `intent.stage` (stages are pack data already).
 - **Consequences:** contracts gain `Role`; tests `kernel/tests/roles.rs` and the domain-free literal scan.
 - **Amended in review round 1:** roles still bind decision kinds only; the node kinds and relation the kernel's algorithms need are kernel vocabulary instead [DR-45] (D10, extensibility-1). An unbound role no longer deals a card with no pick; it lists its item in Diffs (D9, principles-2) [DR-50].
+- **Amended in review round 2:** a kind bound to `rescan.retarget` or `reconcile.residual` takes the role itself as its subject, which the raiser supplies as `Subject::Role { role, key }`, and a `rescan.retarget` kind with `person` stakes may use the `retarget` effect (E7, extensibility-2) [DR-63].
 - **Sources (checked 2026-10-25):** candidate-extensibility §5.2; judge J1 graft.
 
 ## DR-18: Claude backends: the gateway, and the session's model through the mod
@@ -406,6 +431,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Cost: the spend guards cover session usage too.
   - Open for the main agent: confirm that the session backend, used whenever the gateway isn't configured, satisfies "the mod uses `$.model.complete`", or add a second mod-local use.
 - **Amended in review round 1:** the consent card is one case of the per-provider card before any billable call (D7, unasked-3) [DR-49]. The build container's proxy is a gateway credential only with `PLANROOM_LIVE_GATEWAY=1` (D8, cost-1). Session and spawned-agent usage is priced into the user-level ledger (D20; cost-2, cost-10) [DR-51]. A-9 settled by a live spike in a cloud session: `$.model.complete` with `cache: true` caches through the session's provider, a write of 14,403 tokens and then a read of 14,403.
+- **Amended in review round 2:** the session backend's 5-minute cache can't hold across person-paced stages, so the S3 hit-rate floor applies to gateway recordings, the session backend's rate is evidence only, and the session card says the cache lasts 5 minutes (cost-10). Session and spawned-agent usage is priced and reported in the ledger but no longer gated by the daily cap, which counts real dollars (cost-8) [DR-65].
 - **Sources (checked 2026-10-25):** [mod-api §6]; [claude-gateway §2, §7]; KICKOFF `<constraints>` Claude; judges J1, J2, J3 fatal flaws on S.
 
 ## DR-19: Eval protocol for thresholds
@@ -421,6 +447,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `kernel/tests/evals.rs`, `decision_policy_matches_eval_results`.
   - Spend: about $0.02 to $0.05 live for a full pass [jev §9], within the build's live spend plan [DR-51].
 - **Amended in review round 1:** eval runs append to the build's spend log and count against its $3 (D20, cost-2, cost-9) [DR-51]. An out-of-tree pack's `auto_enabled` waits for a person (D19, security-5) [DR-48].
+- **Amended in review round 2:** the recompute test reads pack files, so it moves to `crates/planroom/tests/evals.rs` as `evals_recompute_byte_for_byte` and `decision_policy_matches_eval_results`; the kernel's own tests take their data as values, so its no-I/O lint holds for every target (repo-8) [DR-70].
 - **Sources (checked 2026-10-25):** [jev §5, §8, §9, §10]; judges J1, J3 grafts.
 
 ## DR-20: One card at a time, batched by cause
@@ -455,6 +482,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Alternatives rejected:** per-surface prose; abbreviated keys.
 - **Consequences:** tests `envelope_schema.rs`, `same_output`, `empty_state_audit`; contracts in [Contracts](contracts.md#cli-json-envelope).
 - **Amended in review round 1:** `retryable: bool` becomes a `retry` class, `never`, `now`, `after_reread` or `later`, with an optional `retry_after_ms`, so `stale_write` tells an agent to re-read and retry. `model_unavailable` is an error for model-only commands only; `deterministic_fallback` is the one warning for that condition (principles-8). A pending session-backend request carries its exact re-run handle, and the tools' `focus` uses `--detail summary`, which drops the mini-map and keeps the top 3 presence rows (principles-10). Empty states cover every surface: before an engine responds, the mod draws fallback panes generated from `en.toml`; `focus` outside a workspace returns an empty state, not an error; and the audit runs through both canvas transports and on the pane (principles-5, ux-5) [DR-56, DR-57].
+- **Amended in review round 2:** a mod tool returns one `ToolResult` shape, so an error reaches the agent whole, with its code, retry class, hint and details. `meta` omits empty and default fields except `seq` and `size`, and drops `models` when both call counts are 0. `consent_required` has retry `never`, and a code only a person can clear always has `never` (principles-1, principles-10, principles-11) [DR-66].
 - **Sources (checked 2026-10-25):** [iris-release-bar §6]; candidates S §7.2, E §7.1 and §7.3, C §7.2; judges J2, J3 grafts.
 
 ## DR-22: A tiny surface with measured always-on cost
@@ -467,6 +495,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Alternatives rejected:** nine or eleven tools (C, E); an "Engine" concept heading (C).
 - **Consequences:** tests `s15_surface.rs`, `tests/plugin/surface_tokens.sh`; the configuration reference is generated from `defaults.toml`.
 - **Amended in review round 1:** the always-on number is measured from the exact bytes, because `claude plugin details` may miss runtime-registered tools. It has sub-budgets of 900 for tools, 300 for the section and 300 for skills and agents, and tool inputs are flat to fit. CI gates envelope and tool-result tokens, replayed Claude usage and the S3 cache-hit floor; `budgets.json` `recorded` holds the S02 chat usage and the token ratio (D20; cost-5, cost-8) [DR-51]. The user-level config is a second file of the same keys, for credential settings only [DR-48]. `room_change` is auto-allowed for its ghost-only leaves (`edit`, `intent`, `claim`, `curate`), while `scan` and `decide --run` keep the permission prompt (principles-7).
+- **Amended in review round 2:** `room_change` gains an optional `payload` input, passed on stdin to a leaf run with `--file -`, so a chat proposal needs no Write call and no prompt (principles-3) [DR-66]. Each skill body gets its own budget beside the always-on 1,500, since the questions' paths load them (cost-2) [DR-65].
 - **Sources (checked 2026-10-25):** [plugin-packaging §Design implications] (about 40 tokens per short skill); candidate-simplicity §7.4; judge J2 grafts.
 
 ## DR-23: Plan stages with their methods and structural lint
@@ -491,9 +520,10 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Alternatives rejected:** a jobs API with `job.wait` (C).
 - **Consequences:** contracts gain `duty` stream frames and the `{running}` reply; tests `duties.rs::duties_join_on_lease`, `s07_decisions.rs`.
 - **Amended in review round 1:** an inline rescan takes the same `scan:REPO` lease. A refresh read never waits on it and returns the current snapshot with `meta.stale_repos`; any other command waits up to 5 s and reuses the holder's snapshot. Leases carry an epoch that the committing transaction checks, and snapshot inserts are idempotent (correctness-7, correctness-9). Test `duties.rs::an_expired_holder_commits_nothing`.
+- **Amended in review round 2:** a lease records its holder's pid, process start time and host. A contender on that host takes over at once, with an epoch bump, when that process is gone, and `watch` releases its leases on `SIGTERM`. Presence is keyed by `(actor, surface, client_id)` and merged per actor only for display (correctness-12). Tests `duties.rs::a_dead_holders_lease_is_taken_over_at_once`, `stream.rs::presence_keeps_a_row_per_surface`.
 - **Sources (checked 2026-10-25):** [jev §3]; [mod-api §7]; judge J3 graft.
 
-## DR-25: Engine-made worktrees, two implementers, a cross-repo merge preflight
+## DR-25: Engine-made clones, two implementers, a cross-repo merge preflight
 
 - **Status:** accepted.
 - **Starting point:** none; replaces the research suggestion of `planroom:implementer` registered with `isolation: 'worktree'` [mod-api §5].
@@ -503,6 +533,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Alternatives rejected:** agent-type isolation; merging repo by repo with no preflight.
 - **Consequences:** contracts `ChangeSpec`, `ImplementerRun`; tests `s04_handoff.rs`, `handoff_preflight.rs::a_conflict_in_the_second_repo_leaves_both_untouched`.
 - **Amended in review round 1:** `handoff merge` commits a `merging` step with each repo's planned target before touching git, records each repo's result, then commits `merged`. A retry resumes from the step and skips a repo whose `HEAD` already contains `planroom/KEY` (correctness-10). Contracts gain `HandoffState::Merging`; test `handoff_preflight.rs::a_crash_between_repos_resumes_on_retry`. the hand-off directory, its spec and its worktrees live in `DATA_ROOT/handoffs/<workspace_id>/KEY/`, outside `.planroom/`, and the mod's guard keeps the implementer's Edit and Write inside its worktrees (D16, security-3) [DR-52]. `handoff revert` undoes a merge in every repo behind the same kind of preflight and resume, the `merging` step records each repo's head before the merge, and cancel or drop moves the branch to `refs/planroom/archive/KEY` (D15, principles-3) [DR-55].
+- **Amended in review round 2:** `handoff merge` and `handoff revert` run under a `handoff:KEY` lease and key each step, so a retry resumes and a second invocation joins (E1) [DR-8]. The preflight also checks that each repo's `HEAD` is on the spec's base branch, and before each repo's merge the command checks that `HEAD` is still the recorded `before`. On a mismatch, or a merge that fails after the preflight, it runs `git merge --abort`, returns `handoff_conflict` and deals one card, "Revert worker's merge, or retry?", with revert pre-selected, and the hand-off loop gains `merging --> reverting`. Contracts gain `SpecRepo.base_branch` (correctness-11). Test `handoff_preflight.rs::a_commit_after_preflight_aborts_cleanly`. The engine makes a separate local clone per touched repo instead of a linked worktree, and `handoff collect` fetches only each clone's `HEAD` into `planroom/KEY` in the real repo, so the implementer's Bash can't move or delete the person's refs. The title changes to match (E15, security-2) [DR-64]. The mod runs `collect` right after `report`, and `collect` deals the review card (principles-7) [DR-66].
 - **Sources (checked 2026-10-25):** [mod-api §5]; `examples/TRUTH.json` scenarios.S4; judge J1 graft.
 
 ## DR-26: The hand-off guard asks the person
@@ -527,6 +558,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Alternatives rejected:** Claude-only drafts; template-only drafts.
 - **Consequences:** contracts `CurationDraft`; tests `s12_curation.rs` (both paths).
 - **Amended in review round 1:** curation mines runs from `handoff report` and from a person's import only; agent-imported runs are kept untrusted. Cards name their source runs and show in full any draft with a URL, command substitution, a shell pipe or `allowed-tools` (security-9) [DR-52]. The curator spawns only after a person's card or `/room curate`, and its usage goes into the ledger (cost-10) [DR-51].
+- **Amended in review round 2:** a refinement call caches the shared curation prompt and puts the target file in the uncached tail, with the 5-minute TTL, since no two drafts share a target (cost-7) [DR-65]. The curator submits drafts on stdin with `edit propose --file -`, and the guard allows that and `curate --json` with no prompt (principles-3) [DR-66].
 - **Sources (checked 2026-10-25):** `examples/TRUTH.json` scenarios.S12; judge J1 graft.
 
 ## DR-28: Engine bootstrap without a SessionStart hook
@@ -539,6 +571,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Alternatives rejected:** a SessionStart prefetch hook; `releases/latest` (403 through the proxy).
 - **Consequences:** tests `tests/installer/run.sh`; release writes `plugin/scripts/engine.env`.
 - **Amended in review round 1:** the resolver uses no plugin variable, since the Bash tool sets none: it finds `engine.env` and the dev checkout from its own path, and its cache is `DATA_ROOT/engine/VERSION/`, shared by the mod, the Bash tool and agents. The source build runs from a checkout when the plugin is loaded from one, preflights cargo, a C compiler and the network, runs detached with a log and a pid file, and says so when the release tag doesn't exist yet. A stale fetch lock breaks (D16; operability-1, operability-3, unasked-8) [DR-58].
+- **Amended in review round 2:** `cargo xtask gen` writes `engine.env`, and `cargo xtask gen --version` its version, in the commit that bumps it; nothing writes it at release (operability-10) [DR-69].
 - **Sources (checked 2026-10-25):** [plugin-packaging §3, Design implications]; [iris-release-bar §3]; judge J2 graft.
 
 ## DR-29: Browser login with a one-time code
@@ -551,6 +584,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Alternatives rejected:** a bearer token in the query string (S); an `HttpOnly`, `SameSite=Strict` cookie, the first design, which a browser sends to every other server on `127.0.0.1`, since cookies ignore the port and every local port is one site.
 - **Consequences:** tests `crates/planroom/tests/server_auth.rs` (no token, a missing or foreign `Origin`, a wrong `Host`, a reused or expired code); `store/tests/fs_check.rs::store_files_are_0600_in_a_0700_directory`. Users: a reload of the tab asks for a new code, one `e` press.
 - **Amended in review round 1:** an in-memory bearer token sent as a header replaces the cookie, and every request needs an exact `Origin` (D17, security-7). The code has 128 bits and a 60 s life, reaches `serve` through the control token, and is never printed (security-3). `.planroom/` is 0700 and its files 0600.
+- **Amended in review round 2:** `open` writes the URL into a 0600 redirect page under `DATA_ROOT/open/` and opens that file, so the code is in no process's argv, and a second try at a code revokes the token the first exchange issued (E15, security-4) [DR-64]. The tab keeps its bearer token in `sessionStorage`, scoped to its origin and port, so a reload within one `serve` stays logged in. `serve` prefers the port its last `serve.json` recorded, so the origin and the tab's storage survive a restart. A tab with no valid token shows the engine-authored "This tab needs a fresh link" state with its pending edits counted, which the empty-state audit visits (E10, principles-4) [DR-8]. The consequence that a reload asks for a new code no longer holds. Tests `server_auth.rs::the_code_is_never_in_an_argv`, `a_code_exchanged_twice_revokes_its_token`, `serve_prefers_its_last_port`. Where no browser can be seen (no display on Linux, an SSH session, a container host, or an opener that fails), `open` opens nothing and returns `opened: false` with `/room share` as the next action, and on WSL it opens through `wslview` (ux-4, unasked-7).
 - **Sources (checked 2026-10-25):** candidate-concurrency-agents §12.2; judge J3 graft.
 
 ## DR-30: Skills hidden from the slash menu
@@ -575,6 +609,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Alternatives rejected:** all data in `db` shards (25,000-document cap, many batches); a 5 s mod timer auto-allowed through `tool.check` (C).
 - **Consequences:** contracts `Snapshot`, `LiveHead`, `InboxRow`; tests `s11_remote.rs`, `tests/e2e/artifact.spec.ts` with a fake `db` that has the real rules.
 - **Amended in review round 1:** Importing inbox rows is person-only and in no tool, and the owner's rows and person-only rows become one confirming card (D15; security-2, principles-1) [DR-52]. Only the owner reads `inbox`. A wake carries only "sync requested", and viewer text is data. The first-publish line comes from the snapshot's sections, and presence is left out unless `--include-presence` is passed (security-8). The sync hint is per-turn context, never the composed section (principles-9). The page logs each `sample` call for the ledger (cost-2) [DR-51]. The snapshot names what it serves and carries the empty state for the rest; `live/head` carries the data delta since the snapshot, which the page applies; the page marks its rows queued until `acks/<uid>` lists them; the manifest declares `comments` for Send to Claude; and an inbox row may name only `edit`, `review`, `decide` or `intent propose` (D15; ux-5, ux-7, ux-1) [DR-56].
+- **Amended in review round 2:** an inbox row carries the page's per-load `instance` and a per-instance `counter` in place of `seq`. The client is `artifact:<uid>:<instance>`, and import applies rows in `(instance, counter)` order (E4, correctness-7) [DR-61]. Import takes rows on stdin from the mod, from the `ArtifactData list` result it observed, and a paired owner device's signed rows apply directly (E8; security-3, principles-8) [DR-67].
 - **Sources (checked 2026-10-25):** [artifact §2, §5, §6]; [artifact-spike]; judges J2 (fatal flaw on C's timer), J2 graft (snippets).
 
 ## DR-32: The S8 concurrency harness
@@ -586,6 +621,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Decision:** two agent CLI writers on two projects, an HTTP writer as a canvas tab plus an SSE reader, 10% of writes killed after commit and before the reply and retried with the same key, 5% duplicated on purpose, a claim, and one field renamed by agent B (a ghost), then by a mod press, then by the tab from a base read before the press. Live latency is measured from commit to rendered: the tab's `data-seq` marker and the pane's `seq`. Faults are compiled only in test builds (`PLANROOM_TEST_FAULTS`). A `writer_interleavings` proptest checks the same invariants in-process; `incremental_fold_equals_full_fold` checks `serve`'s fold.
 - **Consequences:** layout `crates/testkit/src/load.rs`; tests `s08_concurrency.rs`.
 - **Amended in review round 1:** S8's stale write is two person writer instances, with B's ghost superseded (D4, correctness-1), and the latency gate is commit to rendered (D21, correctness-7).
+- **Amended in review round 2:** S8's agent writers commit constantly, which would hide a process that misses its own commits. So `stream.rs` adds two SSE clients on one `serve` with no other writer, and a kernel proptest checks the incremental fold outside S8 (correctness-2, correctness-6) [DR-1, DR-61].
 - **Sources (checked 2026-10-25):** candidate-concurrency-agents §10.3; judges J1, J3 grafts.
 
 ## DR-33: Freshness on read instead of a file watcher
@@ -598,6 +634,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Alternatives rejected:** `notify` 8.2 with `notify-debouncer-full` (C).
 - **Consequences:** S7's commit-triggered rescan is a head change seen by the poll or the next command.
 - **Amended in review round 1:** leading-plus-trailing refresh with a maximum wait, and no inline rescan in refresh reads (D21, correctness-7).
+- **Amended in review round 2:** freshness follows each repo's tracked branch, and `focus` and `map` also report the repos whose working tree has uncommitted changes, with no rescan (E17, unasked-12) [DR-71].
 - **Sources (checked 2026-10-25):** [rust-stack §2, G13]; candidate-simplicity §15 D8.
 
 ## DR-34: No per-repo export directory
@@ -631,6 +668,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Decision:** `boundaries.toml` is the single source. `cargo xtask check boundaries` reads it with `cargo metadata`; `cargo xtask gen` writes `.dependency-cruiser.cjs` from it. Also: the kernel's external-dependency allow-list, a scan that no string literal in `crates/kernel/src` equals a built-in pack kind or relation name, with or without its `<pack>.` prefix, and a self-test that plants a Rust, a TypeScript and a pack crossing in a temporary copy and expects each to fail.
 - **Alternatives rejected:** `eslint-plugin-boundaries` (missed 1 of 5 planted imports, mid-migration [ts-stack §6.1]); two hand-kept configs.
 - **Amended in review round 1:** the literal scan matches bare kind and relation names too, and the self-test plants a bare relation name (D10, extensibility-1) [DR-45]. The self-test installs JS dependencies offline in its copy, runs every check on the unmodified copy as a control, and plants a declared `workspace:*` crossing and a relative import, expecting exactly the rule's name and no unresolvable import. It also plants a layout change without a record (D14, repo-2) [DR-59].
+- **Amended in review round 2:** `boundaries.toml` also holds the kernel's no-I/O list as item paths and each TypeScript package's `third_party` allow-list, so the generated checks allow only what it names (repo-8, repo-9) [DR-70].
 - **Sources (checked 2026-10-25):** [ts-stack §6.1]; [rust-stack §10]; judges J1, J2 grafts.
 
 ## DR-37: One schema in two views, one version
@@ -651,6 +689,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Decision:** `cargo xtask {check, test, e2e, gen, release-dry-run, fixture, eval, live}`; nothing else is documented for agents. It never stops at the first failure and prints one line per check, like Iris's `check.sh`.
 - **Alternatives rejected:** `just` (extra install); a `scripts/check.sh` (a second language for task logic).
 - **Amended in review round 1:** every `cargo xtask` command sets `PLANROOM_REPLAY=strict`, `PLANROOM_SPEND_LOG=docs/evidence/spend.jsonl`, and for tests a temporary `PLANROOM_DATA`, and this repo's `.claude/settings.json` sets the first two for agents (D8, D20; cost-1, cost-2) [DR-49, DR-51]. `cargo xtask fixture` records its fixture as a trusted workspace [DR-48]. CI runs only `cargo xtask` commands, and `ci_runs_only_xtask` fails on any other `run:` step except a listed setup step. `cargo deny check` (licenses, bans, sources) joins `check`; advisories and `pnpm audit` become `check audit`; the installer suite becomes `test --installer`; the guardrails job runs `check guardrails`. Every command first installs JS dependencies from the lockfile, offline when it can (D14; repo-3, repo-11) [DR-59].
+- **Amended in review round 2:** `cargo xtask` sets `PLANROOM_SPEND_LOG` to the absolute path of the main checkout's `docs/evidence/spend.jsonl`, through `git rev-parse --git-common-dir`, and passes it into nested evidence sessions; `.claude/settings.json` sets only `PLANROOM_REPLAY=strict` (cost-1) [DR-65]. The three release helpers in `scripts/` stay POSIX sh: `release.yml`'s `verify` job runs before any Rust toolchain is installed, the resolver suite already needs sh, and `cargo xtask` calls them locally, so CI keeps one entry point (repo-5). `cargo xtask test` takes `-p CRATE`, a test-name filter and `--ts PATH`, and plain `cargo xtask gen` writes every committed output (repo-10) [DR-70].
 - **Sources (checked 2026-10-25):** [iris-release-bar §7]; `progress.md` A2.
 
 ## DR-39: Rust library choices
@@ -765,6 +804,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Store: snapshot pruning keeps the snapshots the last outcome names.
   - Tests: `kernel/tests/reconcile.rs::merge_commits_are_never_change_units`, `a_branch_from_an_older_main_keeps_its_regression`, `classes_survive_later_scans`, `a_partial_scan_raises_no_regression`; `s04_handoff.rs::reconciliation_after_merges_matches_truth`.
   - It amends DR-2: one derived result is stored.
+- **Amended in review round 2:** the outcome also records the link snapshot its delta ran to, and the scan reconciles inside its committing transaction against the link it just built (E3, correctness-3) [DR-12]. With no outcome yet, the first scan records a baseline that classifies no change units (correctness-10, in part). Test `kernel/tests/reconcile.rs::the_first_scan_is_a_baseline`. The window follows each repo's tracked branch: only a fast-forward move of it is reconciled, and any other head move re-anchors the map and skips the reconciler with no card (E17, unasked-2) [DR-71].
 - **Sources (checked 2026-10-26):** `examples/TRUTH.json` scenarios.S4; `examples/fixture/repos/worker/10-audit-rows/COMMIT.toml`; review round 1 correctness-3 and owner decision D5.
 
 ## DR-45: Intent is kernel vocabulary
@@ -788,6 +828,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Layout: the `domain_free` rule in `boundaries.toml` and a bare-name case in the self-test.
   - Tests: `kernel/tests/roles.rs`; `s03_plan.rs`; `cargo xtask check boundaries --self-test`.
   - Users: no visible change; plan items show their type as before.
+- **Amended in review round 2:** the domain-free scan also covers `crates/contract/src`, the kernel's one workspace dependency, so a constant there can't carry a pack name into the kernel. The self-test plants one, and the contract's area contract forbids such literals (E14, repo-3).
 - **Sources (checked 2026-10-26):** KICKOFF R11, R14, R16; review round 1 extensibility-1 and owner decision D10.
 
 ## DR-46: Pack data tables and typed emits
@@ -816,6 +857,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: `LanguageDecl`, `ImageRole`, `KindDecl.id_prefix`, `RelationDecl.props`, typed `EmitTemplate` props.
   - Tests: the conformance kit gains a boolean prop that a `when` selects and a commented URL that emits nothing; `extract/tests/contract.rs::files_language_from_the_languages_table`, `emit_props_coerce_to_the_prop_schema`, `regex_skips_comment_spans`; `extract/tests/formats.rs::compose_kind_from_image_roles`; `packs.rs::id_prefixes_are_owned_by_one_pack`, `extractor_names_are_pack_qualified`.
   - Users: a new language is one `[[languages]]` entry and its extractors.
+- **Amended in review round 2:** every Container-level kind uses the kernel's prefix `container`, so a pack that only adds an image role re-IDs no container (extensibility-4). Merged tables refuse a duplicate key, overlapping globs take the first match in load order, two default lenses are `pack_invalid` unless one is the code pack's, and `Tier` gains `Precise` for the SCIP reader DR-11 deferred (extensibility-6, in part). A reference in `from`, `to`, `parent` or `scope` takes the same forms, and a bare path such as `$file` is `pack_invalid`: templates write `@id:code.file:$file` (extensibility-8). Tests `packs.rs::a_pack_that_only_adds_an_image_role_keeps_every_container_id`, `duplicate_table_keys_are_pack_invalid`, `two_default_lenses_are_pack_invalid`; `extract/tests/contract.rs::a_bare_path_reference_is_pack_invalid`.
 - **Sources (checked 2026-10-26):** `examples/TRUTH.json` repos, containers, questions.unmonitored and scenarios.S10; review round 1 findings above and owner decisions D11, D13 and D21.
 
 ## DR-47: Deterministic scan bounds and a per-blob fact cache
@@ -835,6 +877,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Store: a `blob_facts` table.
   - Contracts: warning `partial_scan`.
   - Tests: `extract/tests/contract.rs::bounds_cut_in_sorted_path_order`, `unchanged_blobs_reuse_cached_facts`; `kernel/tests/reconcile.rs::a_partial_scan_raises_no_regression`.
+- **Amended in review round 2:** the `git` extractor reads at most the last 5,000 commits of the repo's tracked branch and reports older history as `partial_scan`, and the mod's tool handler runs `scan` with `process.run`'s 10-minute timeout (unasked-3, downgraded). Committing each repo's snapshot as it finishes, and a generated large-repo test, are known gaps.
 - **Sources (checked 2026-10-26):** [rust-stack §4] (690 files/s); review round 1 unasked-4 and owner decision D21.
 
 ## DR-48: Workspace trust, user-level credential settings and policy-bearing packs
@@ -858,8 +901,9 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Consequences:**
   - Contracts: the user-level config and the "Where" column in [Configuration](contracts.md#configuration); warnings `workspace_untrusted` and `config_key_ignored`.
   - Tests: `crates/planroom/tests/trust.rs::a_committed_planroom_config_is_not_loaded`, `credential_settings_come_only_from_user_config`, `api_key_env_outside_the_allow_list_is_refused`, `credentials_go_only_to_allow_listed_hosts`, `an_out_of_tree_pack_loads_without_a_card` (DR-60), `an_out_of_tree_pack_cannot_enable_its_own_auto_action`.
-  - Scenarios: the Ruby pack's first-load card is dealt on every fixture; S7's warm phase keeps it before the rescan.
+  - Scenarios: a fixture's out-of-tree pack loads with no card [DR-60], so no CI path decides one.
   - Users: a cloned repo with Planroom state asks once before its config counts.
+- **Amended in review round 2:** a pack loads only from the built-ins and a trusted config, which the person-only `pack add` and `pack remove` write. `PLANROOM_PACKS` no longer loads one, so an agent's environment can't add a policy-bearing pack (E6, extensibility-1) [DR-62]. Test `trust.rs::an_agent_cannot_add_a_pack`. The scenarios consequence no longer deals a first-load card on every fixture, which DR-60 removed, and S7's CI path no longer keeps one (principles-5).
 - **Sources (checked 2026-10-26):** KICKOFF `<constraints>` Claude; review round 1 security-1, security-5, security-11 and owner decisions D7 and D19.
 
 ## DR-49: Model calls are opt-in, consented and redacted
@@ -883,6 +927,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: error `consent_required`; `deterministic_fallback` covers "not allowed yet".
   - Tests: `crates/planroom/tests/live_gate.rs::the_proxy_alone_makes_no_model_request` (`scan`, `decide --run` and `intent next` with the proxy present and no flag); `privacy.rs::the_first_billable_call_waits_for_consent`, `a_planted_repo_secret_reaches_no_request_or_tool_output` (a fake key planted in a temporary fixture repo).
   - Agents: `AGENTS.md` says live calls need a flag and land in the spend log.
+- **Amended in review round 2:** redaction is on by default on every output path: CLI text and `--json`, Bash and skill calls, tool results, `/room` text, and every `live/head` and `acks` batch. It runs only over the fields the contract marks `#[redact]`, never an ID, handle, cursor or hash, so handles survive it. `PLANROOM_REDACT` is gone. Only the truth comparator opts out, with `PLANROOM_RAW=1`, which the guard denies to agents, so the rejected alternative "redacting the local CLI too" now holds through that one opt-out (E15; security-5, principles-2) [DR-64]. `privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output` covers the Bash path, `/room` text and `live/head`, and `packages/mod/src/tools.test.ts::handles_round_trip_after_redaction` re-issues every handle.
 - **Sources (checked 2026-10-26):** KICKOFF `<constraints>` Claude and Spend, `<verified_facts>` (the proxy injects `*.vercel.sh` credentials); `examples/TRUTH.json` (the fixture's DSN); review round 1 security-6, unasked-3, cost-1 and owner decisions D7 and D8.
 
 ## DR-50: Decisions prefill before they interrupt
@@ -906,6 +951,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: `DecisionKind.stakes`, `DecisionKind.default`, `Policy.auto_at: Option`, no `on_unavailable`; `Outcome::Prefilled`.
   - Tests: `kernel/tests/policy.rs::low_stakes_prefill_and_person_stakes_card`, `a_budget_past_the_cap_keeps_the_default`, `a_prefill_never_retracts`, `person_stakes_escalate_only_lazily`; `first_run.rs::first_scan_deals_at_most_three_cards` (the fixture replayed and with models off), `a_large_repo_first_scan_deals_at_most_three_cards`; `s05_anatomy.rs::part_relation_requests_are_at_most_three_per_part`; `s07_decisions.rs::a_kind_version_bump_raises_no_card_burst`.
   - Users: a first scan shows a map with defaults and a few cards, not a pile of "Pick one".
+- **Amended in review round 2:** a `person` card asks Claude only when the person taps "Ask Claude", which it offers only in the escalate band, so no read spends and a confident card never asks (principles-6). Accepting a batch accepts only the items the card showed (principles-9). Strict replay counts as a configured Jev backend, so no CI path deals the setup card, and the setup choice is recorded once per user under the data root, since whether a key exists is a fact about the person (principles-5). The setup card's cost comes from the shared estimator, at most `jev_per_scan_usd` a scan (cost-9) [DR-65]. Tests `kernel/tests/policy.rs::a_confident_person_card_never_asks_claude`, `focus_never_spends`, `batch_accept_is_bounded_by_base`; `first_run.rs::strict_replay_deals_no_setup_card`, `the_setup_choice_is_per_user`.
 - **Sources (checked 2026-10-26):** KICKOFF principle 1 and R9; [jev §4, §5, §9]; `examples/TRUTH.json` prompt_snapshot (13 parts); review round 1 findings above and owner decisions D9 and D20.
 
 ## DR-51: One spend record, a user-level ledger and a measured always-on surface
@@ -931,6 +977,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: the flat tool input; `budgets.json` `recorded`; the spend log.
   - Tests: `store/tests/ledger.rs::the_daily_cap_spans_workspaces`; `live_gate.rs::the_spend_log_stops_live_calls_at_the_cap`; `packages/mod/src/tools.test.ts::tool_results_within_budget`; `packages/mod/src/agents.test.ts::curator_spawns_only_after_the_card`, `agent_usage_goes_to_the_ledger`.
   - It amends DR-22, which read the number from `claude plugin details`.
+- **Amended in review round 2:** the spend log's path is absolute, resolved by `cargo xtask` through `git rev-parse --git-common-dir`, so every worktree and nested session shares one file, and a lock covers sum, check and append. `.claude/settings.json` no longer sets it, and the engine refuses a relative path (cost-1). `live evidence S02` compares each question's chat usage with `recorded` and refuses a regression, and `budgets.rs` gates a chat proxy per S2 question and each skill body (cost-2). Imported `sample` calls reach the spend log (cost-6). The daily cap counts real dollars only (cost-8) [DR-65].
 - **Sources (checked 2026-10-26):** KICKOFF `<constraints>` Spend; [claude-gateway §2] (prices); [mod-api §6, §9]; [plugin-packaging §1]; review round 1 findings above and owner decision D20.
 
 ## DR-52: What agents can reach: confined reads, person-only imports, and guarded worktrees
@@ -958,6 +1005,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `actor.rs::agent_cannot_import_inbox_rows`, `agent_cannot_import_an_event_export`, `model_responses_only_for_pending_requests`, `open_is_person_only_and_prints_no_code`, `a_read_outside_the_workspace_is_path_refused`, `a_credential_path_needs_a_person`, `workspace_flag_on_a_read_needs_an_existing_store`; `guard.test.ts::implementer_cannot_reach_the_store_by_a_relative_path`, `implementer_writes_only_in_its_worktrees`, `a_pty_wrapped_person_command_is_denied`; `s11_remote.rs::owner_rows_and_person_only_rows_become_one_card`; `s12_curation.rs::agent_imported_runs_are_not_mined`, `a_draft_with_a_url_or_shell_is_shown_in_full`.
   - Scenarios: S5 and S6 scan the snapshot copy before they ask about it; S5 and S12 import as a person.
   - Assumptions: A-12 (`tool.check` sees a spawned agent's `agentId`) and A-13 (the owner can't write another viewer's `inbox/{self}`).
+- **Amended in review round 2:** the guard also denies reads of the mod's `$.store` file and the login redirect pages, and any call that sets `PLANROOM_PERSON_TOKEN` or `PLANROOM_RAW`. The implementer works in separate clones, not linked worktrees, so `implementer_writes_only_in_its_worktrees` becomes `implementer_writes_only_in_its_clones`. It runs the commands the person approved with `handoff start` with no prompt, and any other Bash call is denied and listed on the review card, with a retry that allows it (E15; security-1, security-2, unasked-6) [DR-64]. Import takes inbox rows only on stdin from the mod, never from a folder any process could write (E8, security-3) [DR-67].
 - **Sources (checked 2026-10-26):** KICKOFF R5 and R8; [artifact §2], [artifact-spike] (session writes need no prompt); [mod-api §5, §8]; review round 1 findings above and owner decisions D15, D16 and D18.
 
 ## DR-53: Automatic event backups and safe migrations
@@ -979,6 +1027,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: the backup uses `planroom.event/v1`; warning `store_migrated`.
   - Tests: `crates/planroom/tests/backup.rs::git_clean_then_scan_offers_one_restore_card`, `a_failed_migration_rolls_back`, `an_older_engine_says_restart_once`, `doctor_restore_is_person_only`, `doctor_warns_when_the_backup_is_behind`.
   - It amends DR-1 (migrations) and DR-34 (backups).
+- **Amended in review round 2:** the backup is written through, not debounced, since most writers are one-shot CLI processes that can't flush a skipped write. Every person-authored commit appends the events above the high-water `meta.backup_seq` under a lock on the backup file, fsyncs and advances the mark, and any later process catches up a gap. A restore sorts by `seq` and dedupes by `idem`, and `doctor` warns when the mark is behind (E5, correctness-8). The ephemeral-host copy and the pre-restore copy in E5 answer other findings (operability-3, unasked-1, unasked-5). Tests `backup.rs::a_burst_of_three_edits_is_fully_backed_up`, `concurrent_appenders_keep_order`, `a_later_process_catches_up_a_gap`. These now apply. On a temporary host (`CLAUDE_CODE_REMOTE`, `CODESPACES`, `REMOTE_CONTAINERS`) the write-through also commits the backup file to `refs/planroom/backup/<workspace_id>` in one workspace repo, named in `meta.backup_ref`, with git plumbing and hooks off; the status line says once how to push it, and `scan` restores from it when the data root has none (unasked-1). A restore first writes a pre-restore copy, so restoring that copy undoes it, and sets the person-authored events above the restored copy aside as a replay set that the next successful migration replays through `store::commit` (unasked-5). Operability-3 is met by the write-through. The older engine's line now names its fix instead of always saying to restart (operability-8) [DR-69]. Tests `a_temporary_host_writes_the_backup_ref`, `scan_restores_from_the_backup_ref`, `a_restore_is_undone_by_its_pre_restore_copy`, `restore_then_upgrade_replays_set_aside_edits`.
 - **Sources (checked 2026-10-26):** KICKOFF principle 1 ("Never lose or overwrite what someone did"); review round 1 principles-4, operability-4, unasked-1 and unasked-2, and owner decision D6.
 
 ## DR-54: Surfaces act through catalogue verbs, reversibly, in real keystrokes
@@ -1005,6 +1054,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: `Command::Review`; the leaf table; the rule on `PaneModel.next` and `SuggestionDecl`.
   - Tests: `packages/mod/src/keys.test.tsx::main_flows_within_two_keys` (real presses), `band_next_is_undoable`, `key_map_snapshot`; `packages/mod/src/surfaces.test.tsx::rows_fit_at_49x34`; `crates/planroom/tests/packs.rs::a_suggestion_cannot_name_an_irreversible_command`; `kernel/tests/undo.rs` covers `review`; `tests/e2e/surface.spec.ts::exactly_five_concepts` counts the next-action card under Decisions.
   - Users: a stray digit can't merge, and the third diff is accepted with `7 y`.
+- **Amended in review round 2:** the band and `PaneModel.next` also never name a leaf that can spend (`CommandSpec.spends`), so a stray digit can't start a paid model call (principles-12). The review card that `collect` deals takes a second key to merge (principles-7) [DR-66]. With no open decision the pane draws `PaneModel.next` as its face-up card, so vscode and mobile, which have no band, still show the next action (ux-5). A band press from the empty prompt shows a toast of what it did, and for 10 s the band's primary is its undo (ux-6). Choices sit two to a row, and a fixed label holds 20 columns (ux-7). Below 34 body rows or 49 columns the pane draws a compact layout: a focus line, the card and the list (ux-8). Enter on a stage row under `i` runs that stage through its cost card, and an accepted stage makes `intent version` the next action (ux-11). Tests `surfaces.test.tsx::no_decision_shows_next_on_every_surface`, `rows_fit_compact_at_80x24_and_100x30`; `keys.test.tsx::a_band_press_from_the_prompt_offers_undo`. On the canvas, the action tray, lid drops, felt pins and chalk relations each run one catalogue `edit` leaf, so hand edits follow this record's rules too (ux-2) [DR-68].
 - **Sources (checked 2026-10-26):** [mod-spike] (bare digits, `ctrl+x tab`, the 49×34 dock, diff hunk headers); [mod-api §2] (at most 36 one-key actions per pane); KICKOFF S9, S15 and principle 1; review round 1 findings above and owner decision D15.
 
 ## DR-55: Hand-off revert and an enumerated irreversible list
@@ -1028,6 +1078,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `crates/planroom/tests/handoff_preflight.rs::a_revert_undoes_the_merge_in_every_repo`, `a_revert_preflight_failure_leaves_every_repo_merged`, `a_crash_mid_revert_resumes_on_retry`, `cancel_archives_the_branch`; `actor.rs::agent_revert_is_person_required`; `catalogue.rs::undo_classes_snapshot`; S6's own-loop check covers the new states.
   - Docs: `docs/concepts/hand-off.md` draws the new states, and the "Remove Planroom" guide lists the archive refs.
   - It amends DR-25.
+- **Amended in review round 2:** the implementer works in local clones under the hand-off directory, not linked worktrees, so `handoff cancel` and a drop first fetch each clone's `HEAD` into `planroom/KEY`, then remove the clones and archive the branch (E15) [DR-64]. The loop also gains `merging -> reverting`, for a merge that fails after the preflight when the person picks revert on its card (correctness-11) [DR-25].
 - **Sources (checked 2026-10-26):** KICKOFF principle 1 and R8; review round 1 principles-3 and unasked-9; owner decision D15.
 
 ## DR-56: The Artifact declares what it serves and shows synced edits
@@ -1053,6 +1104,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: `Snapshot.capabilities`, `Snapshot.unavailable`, `LiveHead.delta`, the rows in `acks/<uid>`, the `comments` capability, the inbox command list.
   - Tests: `tests/e2e/artifact.spec.ts::views_it_cannot_serve_show_an_empty_state`, `a_synced_edit_shows_on_the_map`, `a_tapped_card_shows_queued_until_acked`; `tests/e2e/surface.spec.ts::empty_state_audit` on both transports; `s11_remote.rs::an_unlisted_inbox_command_is_refused`. WS8 checks that `comments.sendToClaude` wakes the session's watch.
   - It amends DR-31.
+- **Amended in review round 2:** the queued rows and the Send to Claude button make the page's face-up Decisions card, so neither adds a top-level concept, and the unavailable state's button is "Back to the map", which a phone can press (ux-10). Test `tests/e2e/artifact.spec.ts::queued_rows_are_the_face_up_card`, and `exactly_five_concepts` on the page.
 - **Sources (checked 2026-10-26):** [artifact §2] (`comments.sendToClaude` is for writers only; `db` writes don't wake the session); [artifact-spike]; KICKOFF R13 and principle 1; review round 1 ux-5, ux-7 and ux-1; owner decision D15.
 
 ## DR-57: The pane before the engine and outside a workspace
@@ -1074,6 +1126,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: the `engine` atom's statuses; `FALLBACK_PANES`; `focus`'s empty state, while other reads keep `workspace_not_found`.
   - Tests: `packages/mod/src/surfaces.test.tsx::no_blank_pane`; `packages/mod/src/engine.test.ts::no_watch_until_a_store_exists`; `crates/planroom/tests/first_run.rs::focus_outside_a_workspace_creates_nothing`; `tests/plugin/install.sh` with mods off, where the skill path resolves the engine and `focus --json` returns a non-empty envelope.
   - Users: the first screen always names one next step.
+- **Amended in review round 2:** a `person_key_mismatch` fallback pane shows the one terminal line that re-keys the workspace, and the mods-off text lists the presses that go missing and which person-only commands a terminal can still run (unasked-4, downgraded) [DR-60].
 - **Sources (checked 2026-10-26):** KICKOFF principle 1, S14 and S15; [mod-api §7]; review round 1 principles-5, ux-6, unasked-7 and operability-8; owner decision D15.
 
 ## DR-58: One data root, a self-locating resolver, an embedded canvas and visible background work
@@ -1107,6 +1160,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `tests/installer/run.sh` adds a run under `env -i HOME=... PATH=...` with no `CLAUDE_*` variable, a killed prefetch's stale lock, a missing tag and a missing toolchain; `routes.rs::serves_the_embedded_canvas`, `serves_the_fix_page_without_a_canvas`; `server_auth.rs::serve_drains_for_another_catalogue`; `packages/mod/src/engine.test.ts::a_catalogue_mismatch_shows_one_line`, `windows_shows_one_line`; `duties.rs::a_failed_duty_warns_until_it_succeeds`; `docs.rs::releasing_has_the_owner_checklist`. The release smoke test runs `serve` from `target/release/` and from a `cargo install --path` root and fetches `/`.
   - Assumptions: A-14.
   - It amends DR-1 and DR-28.
+- **Amended in review round 2:** `main` is the integration branch with `-dev` versions between releases, which replaces the departure from Iris above. Prefetch and build detach without a `setsid` command, and `serve` daemonizes in Rust. A cached install's build clones the tag, or `main` for a `-dev` version, instead of `cargo install --git`, so it embeds the canvas. Pruning keeps every version used in the last 7 days (E11, E12, E13) [DR-69].
 - **Sources (checked 2026-10-26):** [plugin-packaging §3, Design implications]; [mod-api §7]; [iris-release-bar §1, §3]; KICKOFF constraints on packaging, the release bar and pushing tags; review round 1 findings above and owner decision D16.
 
 ## DR-59: Repo gates that fire
@@ -1143,6 +1197,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `cargo xtask check boundaries --self-test`, with its control and a layout-gate plant; `cargo xtask check layout`; `ci_runs_only_xtask`; `feature_list_is_complete`; `area_contracts_match_repo_layout`; `release_pins.rs::dependabot_cooldown_matches_minimum_release_age`.
   - Agents: one command reproduces any CI failure.
   - It amends DR-6, DR-30, DR-36, DR-38 and DR-40.
+- **Amended in review round 2:** the per-commit walk covers only the commits a push or pull request adds, a state check runs every time, and the first lock comes with a new record. The gated surfaces add the area contracts table, the Boundaries section of `AGENTS.md` and each package's dependency names. Dependabot waits 14 days, the direct-pin age. `cargo xtask test` builds `target/mod-test/` and plain `gen` writes every committed output, replacing `gen --mod`, `PLANROOM_UPDATE_DOCS` and `PLANROOM_UPDATE_GOLDEN` (E14, repo-1, repo-2, repo-10, repo-11) [DR-70].
 - **Sources (checked 2026-10-26):** KICKOFF R16, S7, S15 and the repo-tooling constraint; [plugin-packaging §1] (`claude plugin test` needs a `modules` entry); [mod-api §1, §9]; [ts-stack §6.1]; [iris-release-bar §5, §7]; review round 1 findings above and owner decision D14.
 
 ## DR-60: Owner follow-ups after review round 1
@@ -1157,5 +1212,361 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - A pack that a person lists in config or `PLANROOM_PACKS` loads with no card: listing it was the person's choice. `planroom doctor` lists every loaded pack with its kinds and the sha256 of its prompts. The safety that matters stays: an out-of-tree pack's `auto_enabled` counts only after a person enables auto-action per kind.
 - **Alternatives rejected:** a card on every first load of a pack (it interrupts for a choice the person already made, against principle 1); exempting all CLI writes from the actor rule (it would let unnamed agents author).
 - **Consequences:** contracts gain `Command::PersonInit` (person-only by construction, mod-only through the guard); `actor.rs` gains `scan_needs_no_actor` and `an_agent_does_not_conflict_with_itself`; `trust.rs` gains `an_out_of_tree_pack_loads_without_a_card`; `guard.test.ts` gains `agents_cannot_init_the_person_key`.
+- **Amended in review round 2:** a pack loads with no card because a person added it with `pack add`. `PLANROOM_PACKS` no longer lists packs, so the last bullet's "or `PLANROOM_PACKS`" no longer applies (E6) [DR-62]. `Command::PersonInit` joins the catalogue, the leaf table and the undo classes (`Query`), with `PersonPair` beside it [DR-67]. `person init` reads the key from stdin, `store.db` keeps the key itself rather than its hash, since checking a token needs it, and re-registering needs a token under the old key or a `/dev/tty` confirmation (principles-5, security-1) [DR-64]. `person init` returns `person_key_mismatch` when another key is registered, and `person init --rekey`, run at a terminal with a `/dev/tty` confirmation, clears the registered key, so the mod's next start registers its own (unasked-4).
 - **Sources:** `docs/contributing/research/arch-review/round-1/fixes.md` (the fix agents' notes), checked 2026-10-26.
+
+
+## DR-61: Writes that keep the tree, undos and imports whole
+
+- **Status:** accepted (decided by the main agent in review round 2, E4).
+- **Starting point:** extended "Optimistic concurrency on entity versions" and "Event (append-only; everything else is derived from events)".
+- **Origin:** review round 2: correctness-4, correctness-5, correctness-6 and correctness-7.
+- **Context:**
+  - Compare-and-set is per field, so two writers who each moved one node under the other both landed, and roll-up never ended on the cycle.
+  - An `undo` set no authored revision, so a write from a base older than the undo overwrote it with no conflict. Undo also targeted one event, while a regroup writes a `put` and a `set parent` per member, so undoing the `put` left members under a missing parent.
+  - The incremental fold refolded only a scanned repo's subtree. That misses the link snapshot and the workspace-level containers, and it can't express an undo or a review of an event it already applied.
+  - All of an Artifact viewer's devices were one writer instance, and import set no order for a viewer's rows, so one viewer's edits were last-writer-wins.
+- **Decision:**
+  - `store::commit` refuses a parent change that would make a cycle, with `invalid_argument` naming the cycle. The fold breaks any cycle an older store or an import holds: the higher-`seq` edit loses and is listed in Diffs. A parent that doesn't resolve falls back to the fact parent, listed in Diffs.
+  - An undo is a write. It carries `base`, passes the same compare-and-set, sets the authored revision of every field it changes back at its own `seq` and writer instance, and conflicts like any write.
+  - An undo is per command: `Undo { of, events, base }` reverses every event the command that wrote `of` wrote, in one transaction.
+  - A `scan` event, or an `undo` or `review` of an event at or below the cached `seq`, refolds `serve`'s and `watch`'s model from scratch. Subtree refolds stay out of v0.1.
+  - The Artifact page mints an instance ID per load and a counter per row. The client is `artifact:<uid>:<instance>`, and import applies rows in `(instance, counter)` order.
+- **Alternatives rejected:**
+  - Storing a cycle as a conflict with a card: the fold would still have to break it, and a refusal tells the writer at once.
+  - Undo by single event with a cleanup pass for orphans: a half-reverted regroup still shows in between, and the cleanup is a second mechanism.
+  - Subtree refolds that track the link snapshot: more code for a fold that already fits its 50 ms budget from scratch.
+  - One writer instance per viewer, ordered by `at`: two devices' clocks disagree, and their edits would still never conflict.
+- **Consequences:**
+  - Contracts: `Undo { of, events, base }`; `InboxRow.instance` and `InboxRow.counter` in place of `seq`; `invalid_argument` details gain `cycle`; the Artifact `Client` ID.
+  - Tests: `kernel/tests/fold.rs::a_parent_cycle_breaks_by_seq`, `an_unresolved_parent_falls_back_to_the_fact_parent`, `incremental_fold_equals_full_fold` (a proptest over scans of random repos, link changes, undos and reviews of older events); `kernel/tests/cas.rs::a_parent_change_that_makes_a_cycle_is_refused`, `a_write_over_an_undo_since_base_conflicts`; `kernel/tests/undo.rs::regroup_undo_is_atomic`; cycle cases in `store/tests/interleavings.rs::writer_interleavings`; `s11_remote.rs::one_instances_rows_apply_in_counter_order`, `two_instances_of_one_viewer_conflict`.
+  - Users: one undo after a regroup takes the whole regroup back, and a viewer's phone and laptop get the same three-way card two canvas tabs do.
+  - It amends DR-2, DR-3, DR-5 and DR-31.
+- **Sources (checked 2026-10-26):** KICKOFF R6, R10 and principle 1; review round 2 correctness-4 to correctness-7 and owner decision E4.
+
+## DR-62: The pack set is workspace state
+
+- **Status:** accepted (decided by the main agent in review round 2, E6).
+- **Starting point:** extended "Packs. Declarative files that add kinds, levels, roll-up rules, extractors, lenses, decision kinds and a default view."
+- **Origin:** review round 2, extensibility-1; the minor finding extensibility-7.
+- **Context:**
+  - Each process resolved its pack set from its own environment through `PLANROOM_PACKS`, while every process folds and scans one store. Two processes saw different models, the last scanner decided everyone's actual layer, and S10's later commands ran without the packs its scan had loaded.
+  - Any agent's Bash could set `PLANROOM_PACKS`, and a pack carries policy: its low-stakes prefills and `infer` outputs apply with no person involved.
+  - `requires` allowed only `[]` or `["code"]`, so an out-of-tree pack couldn't build on observability, release, artifacts or machines.
+- **Decision:**
+  - Packs come only from the built-ins and the trusted workspace config. `PLANROOM_PACKS` is read only by `planroom doctor --pack`.
+  - `planroom pack add DIR` and `planroom pack remove ID` are person-only (a press, a typed `/room` or a `/dev/tty` confirmation) and write the config. Each one's undo is the other.
+  - The store's `meta` records the resolved pack list and its `packs_hash`. A process whose resolved set differs refuses writes with `packs_mismatch`. A long-lived process reloads its packs once, an older engine says to restart, a newer engine records its own built-ins at its first write, and a hand edit of the config counts only after `pack add` or `pack remove`.
+  - A changed `packs_hash` makes every active snapshot stale, so the next freshness check rescans.
+  - Rings are by origin: a built-in pack requires `code` or nothing, and an out-of-tree pack may require any built-in pack but no other out-of-tree pack.
+- **Alternatives rejected:**
+  - Folding with the recorded set whatever a process resolved: the process would run extractors and prompts it never loaded.
+  - `scan --pack DIR` with a `/dev/tty` confirmation: it ties a lasting setting to one scan, and a verb of its own names the change it makes.
+  - Keeping `PLANROOM_PACKS` behind a `tool.check` deny: a guardrail for a variable no command needs.
+- **Consequences:**
+  - Contracts: `Command::PackAdd` and `Command::PackRemove`; error `packs_mismatch`; `meta.packs` and `meta.packs_hash`; no environment override for the `packs` key; `PackFile.requires` by origin.
+  - Layout: `boundaries.toml` gains `out_of_tree_requires`, and the self-test's pack plants change.
+  - Tests: `packs.rs::alternating_scans_with_different_environments_never_flip_the_snapshot`, `a_process_with_another_pack_set_refuses_writes`, `an_out_of_tree_pack_may_require_any_built_in`; `trust.rs::an_agent_cannot_add_a_pack`, `planroom_packs_loads_nothing_outside_doctor`; S10's CI path adds its packs with `pack add` from a directory outside the tree.
+  - Users: adding a pack is one command, and every session, tab and agent sees it.
+  - It amends DR-9, DR-10, DR-13, DR-48 and DR-60.
+- **Sources (checked 2026-10-26):** KICKOFF R5, R10, R11, R16 and S10; review round 2 extensibility-1 and extensibility-7, and owner decision E6.
+
+## DR-63: Decision kinds express v0.1's kinds as data
+
+- **Status:** accepted (decided by the main agent in review round 2, E7).
+- **Starting point:** extended "Jev policy. Each decision kind declares its question, thresholds and escalation."
+- **Origin:** review round 2, extensibility-2.
+- **Context:** `DecisionKind` had a node-or-edge subject, a field-value `when`, static choice options and five effects. Five of the eleven v0.1 kinds needed more. `machines_same` asks about a machine pair. `override_retarget` asks about an orphaned override and moves it. `file_component` and `attach_target` choose among candidates that differ per subject. The prechecks of `file_component` and `commit_addresses_thread` weren't field predicates. The way out was naming kinds in the engine, which DR-17 forbids.
+- **Decision:**
+  - A choice either lists static `options` or names `options_from = { shape, params, max }`, a query shape over the subject that yields its candidates. Jev gets them as the request's options, each eval case stores them as `options`, and an effect names the pick as `$pick`. `auto_choices` applies to static options only.
+  - A subject is a node or edge kind, or a role (`subject = { role = "rescan.retarget" }`) whose raiser supplies typed `Subject::Role { role, key }` subjects.
+  - `when` reads props that built-in extractors precompute. `files` sets `placed_by_rule`, `review_threads` sets `touched_after_anchor`, and the machines pack's `machine_pairing` linker emits `machines.describes` candidates with the Jaccard overlap as confidence and `paired` set at 0.8 or above.
+  - A sixth effect, `retarget`, copies an orphaned override onto the picked node. It is valid only for a `rescan.retarget` subject in a `person`-stakes kind. `set_prop` may set `parent`.
+  - A test checks that every v0.1 kind validates against the contract.
+- **Alternatives rejected:**
+  - Hard-coding the five kinds in `app`: it breaks DR-17 and R11, and a pack author couldn't copy the pattern.
+  - An expression language for `when`: a parser and an injection surface, where a precomputed prop is enough.
+  - Retargeting as the role's built-in effect: a hidden effect outside the closed set the injection tests check.
+- **Consequences:**
+  - Contracts: `SubjectKind`, `Subject`, `OptionsFrom`, `Effect::Retarget`, `EvalCase.options`.
+  - Tests: `packs.rs::every_v0_1_decision_kind_validates_against_the_contract`; `kernel/tests/effects.rs::retarget_needs_a_person_stakes_role_subject`; `kernel/tests/policy.rs::options_from_gives_per_subject_candidates`; `extract/tests/link.rs::machine_pairing_scores_state_overlap`.
+  - Pack authors: a "which owner?" kind is pack data.
+  - It amends DR-17.
+- **Sources (checked 2026-10-26):** KICKOFF R9 and R11; [jev §5]; review round 2 extensibility-2 and owner decision E7.
+
+## DR-64: Agents never hold the person's authority
+
+- **Status:** accepted (decided by the main agent in review round 2, E15); verify A-15 in WS8.
+- **Starting point:** extended "Events carry the workspace, project, actor, cause and an idempotency key" (who counts as a person) and "A single-writer local server per workspace" (its exposure).
+- **Origin:** review round 2: security-1, security-2, security-4, security-5, security-6, security-7 and unasked-6; the minor findings security-8 and security-10.
+- **Context:**
+  - Every person check rested on a key that sat in the mod's `$.store`, a plain JSON file no guard covered, and the CLI got the raw key in its environment on every press, where `/proc` and every git child could read it.
+  - The implementer worked in linked worktrees, which share the real repo's refs, so its Bash could move `main` or delete a branch before any review.
+  - `open` handed the login code to the browser opener's argv, which other local users and agents can read.
+  - Redaction ran only on the mod's tool outputs. Bash and skill calls, `/room` text and the `live/head` delta that every Artifact viewer reads carried raw secrets.
+  - Git disabled hooks and fsmonitor but still ran a repo's textconv, external diff, filter and merge drivers, and the minimum git predated `safe.directory`.
+  - Repo text reached terminals and the review diff with control, ANSI and bidi characters intact.
+  - A background implementer's tests, installs and commits each raised a permission prompt, or failed where nobody could respond.
+- **Decision:**
+  - **Action tokens.** The mod signs each person action as `HMAC-SHA256(key, command ‖ canonical(args) ‖ idem ‖ base ‖ at)` with `crypto.subtle` and passes it as `PLANROOM_PERSON_TOKEN`, never the key. The engine keeps the key in `store.db` `meta`, refuses a token older than 30 s or for another command, and spends each one. It removes the token from its environment at start and runs git and the browser opener with a cleared environment and an allow-list. The guard denies agent reads of the mod's `$.store` file [A-15].
+  - **Separate clones.** `handoff start` makes a local clone per touched repo under the hand-off directory, with hooks off. `handoff collect`, and a cancel or drop, fetch only each clone's `HEAD` into `planroom/KEY` in the real repo.
+  - **The login code in no argv.** `open` writes the URL into a 0600 redirect page under `DATA_ROOT/open/` and opens that file. A second try at a code revokes the token the first exchange issued.
+  - **Redaction everywhere, by field.** `kernel::redact` runs on every output path, over the fields the contract marks `#[redact]`, and never over an ID, handle, cursor or hash. Only the truth comparator opts out, with `PLANROOM_RAW=1`, which the guard denies to agents.
+  - **Git that runs no repo command.** `--no-ext-diff --no-textconv` on every `diff`, `show` and `log`; git 2.35.2 or later with `safe.directory` on; and before a checkout or merge, a repo whose local config names a filter, a diff command or textconv, a merge driver, an editor, a pager, an ssh command or an include is refused with one card.
+  - **One display-sanitizing pass.** `kernel::display::sanitize` and its port in `@planroom/ui` show C0 and C1 controls and ESC as visible escapes, and bidi and zero-width characters as visible markers, in every human-facing text. `collect` adds `hidden_characters` to a diff summary whose hunk holds them.
+  - **Approved commands.** `handoff start` is the person's one approval of the spec's bounded command list: its checks, the installs its lockfiles call for, and `git add` and `git commit`. The guard allows the implementer's matching Bash inside its clones with no prompt and denies the rest with a reason. The mod lists the denied commands in the run, and the review card offers a retry that allows them (`handoff start KEY --allow CMD`).
+  - **No terminal path for repo-changing commands.** `handoff start`, `handoff merge`, `handoff revert` and `person pair` need a mod press or a canvas tab, never a `/dev/tty` confirmation.
+  - **Comment text is guidance.** The platform delivers a Send to Claude comment's text into the turn it wakes, so the docs state the no-quoting rule as guidance, and the containment is the person-only gates.
+- **Alternatives rejected:**
+  - An Ed25519 key pair, so `store.db` would hold only a public key: stronger at rest, but HMAC is one primitive that the mod, the page and the engine all share, and the guard covers both files that hold the key. It stays the upgrade path if a store ever leaves its user's machine.
+  - Linked worktrees with a deny-list of ref-changing git commands: one encoded command defeats a name match.
+  - Overriding each driver with `-c` flags: git can't be told to disable a driver whose name it doesn't know, so refusing the repo is simpler.
+  - A prompt per implementer Bash call: the person gets prompts they can't judge, and a headless session fails the hand-off.
+- **Consequences:**
+  - Contracts: `PLANROOM_PERSON_TOKEN`; `meta.person_key` and `meta.spent_tokens`; `#[redact]` on repo-derived fields; `SpecRepo.clone`, `ChangeSpec.commands`, `ImplementerRun.denied`; `handoff start --allow`; error `repo_config_refused`; warning `hidden_characters`.
+  - Layout: `crates/kernel/src/display.rs`; `packages/ui/src/display.ts`; tests `crates/planroom/tests/git_hardening.rs` and `handoff_clone.rs`.
+  - Tests: `actor.rs::a_token_works_once_and_only_for_its_command`, `repo_changing_commands_refuse_the_terminal_path`, `children_never_inherit_the_token`; `guard.test.ts::the_mod_store_file_is_guarded`, `implementer_writes_only_in_its_clones`, `implementer_runs_spec_checks_without_prompts`, `implementer_unlisted_bash_is_denied_and_listed_once`; `handoff_clone.rs::the_implementer_cannot_move_the_real_repos_refs`, `a_hidden_character_hunk_warns`; `server_auth.rs::the_code_is_never_in_an_argv`, `a_code_exchanged_twice_revokes_its_token`; `privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output` on the Bash path, `/room` text and `live/head`; `tools.test.ts::handles_round_trip_after_redaction`; `git_hardening.rs::textconv_ext_diff_and_drivers_never_fire`, `a_repo_whose_config_names_a_command_is_refused_before_merge`; `kernel/tests/display.rs::controls_and_bidi_show_as_markers`; `packages/ui/src/display.test.ts::display_parity`.
+  - Release: git 2.35.2 is the minimum `doctor` checks.
+  - Conventions: `AGENTS.md` says to mark repo-derived fields `#[redact]`, to pass human-facing strings through the display-sanitizing pass, and that an agent never sets `PLANROOM_PERSON_TOKEN` or `PLANROOM_RAW`.
+  - Users: a hand-off runs unattended within its approved commands; commands outside them cost one card. A repo with a per-repo filter, such as a local Git LFS install, is refused for a merge with one card naming the keys; a global install isn't affected.
+  - It amends DR-4, DR-16, DR-25, DR-29, DR-49, DR-52 and DR-60.
+- **Sources (checked 2026-10-26):** KICKOFF R5, R8 and principle 1; [mod-api §7] (`$.store` is a JSON file under the Claude Code configuration directory) and its module rules (`crypto.subtle`); review round 2 security-1, security-2, security-4 to security-8, security-10 and unasked-6, and owner decision E15.
+
+## DR-65: Cost gates that can fail
+
+- **Status:** accepted (decided by the main agent in review round 2, E16).
+- **Starting point:** none; serves the constraint "Spend" and S7's token budgets.
+- **Origin:** review round 2: cost-1, cost-2, cost-3 and cost-5; the minor findings cost-6, cost-7, cost-8, cost-9 and cost-10.
+- **Context:**
+  - The spend log's path was relative, so each worktree, fixture directory and nested evidence session summed its own copy, and two callers could sum and append at once. The $3 cap wasn't enforced.
+  - S2's Claude tokens lived only in `budgets.json` `recorded`, which CI doesn't gate, and the command that re-measured them overwrote them. Skill bodies had no budget.
+  - S7's per-scan guard equalled its bound and deferred silently, so "under $0.001" held by construction.
+  - The decision input hash included evidence line numbers, so a commit that inserted a line above evidence re-asked decided items and re-dealt person cards.
+  - `sample` calls never reached the spend log, a prefix below the cache minimum went unnoticed, curation cached prefixes it never reused, one daily cap mixed real dollars with notional session usage, card copy disagreed with the cap, and the S3 floor assumed a cache the session backend doesn't keep.
+- **Decision:**
+  - `cargo xtask` sets `PLANROOM_SPEND_LOG` to the main checkout's file through `git rev-parse --git-common-dir`, and passes it into nested sessions. The engine refuses a relative path, and a `PLANROOM_LIVE_*` flag with no log, and holds a lock across sum, check and append. Each evidence run checks that its live calls reached the file.
+  - `budgets.rs` gates a CI proxy per S2 question: the always-on surface, the skill bodies its path loads and its tool results. Each skill body has its own budget. `cargo xtask live evidence S02` compares new chat usage with `recorded` and refuses a regression past 20%, or a hit-rate drop past 0.1, unless the commit adds a decision record.
+  - S7 runs with `jev_per_scan_usd = 0.01` and asserts zero budget deferrals and zero pending requests after the rescan. The Jev budget counts per `scan` event and per duty run.
+  - A slice serializes evidence `path` and `contains`, with an occurrence index for a repeated line, never `line`.
+  - Import appends priced `sample` calls to the spend log; the page logs the applied model.
+  - A marked prefix with no cache write and no read is `cache_not_applied`, which fails the budget test. `xtask live record` measures each prefix with `count_tokens`, needs 1,200 real tokens or `uncached`, and checks that a recording starts cold. Curation keeps the 5-minute TTL and puts the target file in the tail.
+  - The daily cap counts gateway and TypeSafe dollars only; session and agent usage is priced and reported, never gated, and no spawn is refused by a cap.
+  - Every cost figure on a card comes from one estimator, capped by its limit.
+  - The S3 floor applies to gateway recordings; the session backend's hit rate is evidence, and its card says the cache lasts 5 minutes.
+- **Alternatives rejected:**
+  - Setting the path in `.claude/settings.json`: its values are static, so it can't name the main checkout from a worktree.
+  - Per-worktree logs merged at the end: each worktree's check passes while the total doesn't.
+  - Gating `recorded` in CI: it needs a live session and a credential.
+  - Keeping `line` in the hash and carrying picks forward through a separate table: a second mechanism for what leaving `line` out does.
+- **Consequences:**
+  - Contracts: `invalid_argument` for a relative spend log; `budgets.json` `chat_proxy` and `surface.skill_bodies`; warning `cache_not_applied`; the meanings of `jev_per_scan_usd`, `claude_per_day_usd` and `live_tests_total_usd`; `inbox/<uid>` `sample` entries name their model; spend-log lines with `provider = sample`.
+  - Tests: `live_gate.rs::the_spend_log_is_shared_across_worktrees_and_cwds`, `concurrent_live_calls_serialize_on_the_spend_log`, `a_relative_spend_log_is_refused`; `budgets.rs::s2_chat_proxy_within_20_percent`, `a_prefix_that_never_caches_fails`; `s07_decisions.rs::a_line_shift_above_evidence_hits_the_cache`, `nothing_deferred_by_budget_on_the_rescan`; `store/tests/ledger.rs::session_and_agent_usage_is_reported_not_gated`; `packages/mod/src/agents.test.ts::a_spawn_is_never_refused_by_a_cap`; `text.rs::card_costs_match_the_estimator`; `s11_remote.rs::sample_calls_reach_the_spend_log`.
+  - Scenarios: S7's CI path writes `jev_per_scan_usd = 0.01` into its fixture's config.
+  - It amends DR-18, DR-27, DR-50 and DR-51.
+- **Sources (checked 2026-10-26):** KICKOFF `<constraints>` Spend, S7 and R9; [claude-gateway §4] (a prefix below the minimum fails silently); [mod-api §6] (the session cache lasts 5 minutes); review round 2 cost-1 to cost-10 except cost-4, and owner decision E16.
+
+## DR-66: An agent surface that reports errors, takes proposals inline and brings the diff back
+
+- **Status:** accepted (decided by the main agent in review round 2).
+- **Starting point:** none; implements principle 2's agent interfaces, principle 1's "interrupt a person only for decisions only they can make" and R8's "its result comes back as a diff for review".
+- **Origin:** review round 2: principles-1, principles-3 and principles-7; the minor findings principles-10, principles-11 and principles-12.
+- **Context:**
+  - Tool results carried the envelope's `result` and `meta.next`, so an error reached the agent as nothing: no code, no retry class, no candidates.
+  - A chat proposal needed a JSON file on disk first, so each batch cost a Write prompt and left a file in the person's tree.
+  - Nothing ran `handoff collect` after the implementer reported, and the pane had no key for it, so the diff didn't come back.
+  - `consent_required` told agents to retry later though only a person can clear it; every envelope carried about 90 tokens of empty `meta`; and the band could name a paid model call that a stray digit presses.
+- **Decision:**
+  - Every mod tool returns one `ToolResult`: `ok`, then `result` or the whole `error`, then the `meta` fields an agent acts on.
+  - `room_change` takes an optional `payload`, which the handler passes on stdin to `intent propose --file -` or `edit propose --file -`. The curator uses the same stdin form through its resolver, and the guard allows those calls with no prompt.
+  - On the implementer's `turn.complete`, the mod runs `handoff report` and then `handoff collect`, which deals one review card; merging takes a second key.
+  - A code only a person can clear has retry `never`; `consent_required` becomes `never`, with its card named.
+  - `meta` omits empty and default fields except `seq` and `size`.
+  - `CommandSpec.spends` marks the leaves that can make a paid model call, and the band and `PaneModel.next` never name one.
+- **Alternatives rejected:**
+  - The mod writing each proposal to a file under `.planroom/models/` and passing `--file`: a second path to clean up, where stdin needs none.
+  - A pane key for `collect`: an extra press for a deterministic step that isn't the person's decision.
+  - Keeping every `meta` field for readers' convenience: the schema defaults keep readers typed at no token cost.
+- **Consequences:**
+  - Contracts: `ToolResult`, `ToolError`, `ToolMeta`; `room_change.payload`; `--file -`; `CommandSpec.spends`; `Meta`'s skip rules; `consent_required`'s retry class and the registry rule.
+  - Tests: `packages/mod/src/tools.test.ts::error_envelopes_reach_the_model`, `a_stage_proposal_writes_no_file`; `packages/mod/src/agents.test.ts::report_then_collect_deals_the_review_card`; `packages/mod/src/keys.test.tsx::band_never_names_a_spending_leaf`; `packs.rs::a_suggestion_cannot_name_an_irreversible_command` covers spending leaves; `envelope_schema.rs::the_documented_error_table_is_the_error_codes` checks the rule.
+  - Budgets: `budgets.json` is re-baselined downward once the `meta` skip rules land.
+  - Conventions: `AGENTS.md` says a code only a person can clear has retry `never`.
+  - Users: S9's hand-off flow goes from report to the review card with no keystroke.
+  - It amends DR-21, DR-22, DR-25, DR-27 and DR-54.
+- **Sources (checked 2026-10-26):** KICKOFF principles 1 and 2, R8, S9 and S14; [mod-spike] (A-4: a tool result is a string or content blocks); review round 2 principles-1, principles-3, principles-7, principles-10, principles-11 and principles-12.
+
+## DR-67: Paired owner devices, and inbox rows only from the mod
+
+- **Status:** accepted (decided by the main agent in review round 2, E8); verify in WS7.
+- **Starting point:** kept and refined "Remote mode: ... Artifact edits land as events in a db collection; the session imports them ...".
+- **Origin:** review round 2: security-3 and the downgraded principles-8; the surfaces lens raised the same gap as ux-1.
+- **Context:**
+  - Import read inbox rows from `.planroom/share/inbox`, a folder any local process could write with Bash, and took the author from the folder's path. Any agent could plant rows that applied as another viewer.
+  - The owner's own rows never applied, because the session writes `db` as the owner with no prompt. For the one user KICKOFF names, every phone edit and pick waited for a second confirmation at the desk.
+- **Decision:**
+  - The mod's `tool.call` hook wraps the `ArtifactData list` call that `/room sync` asks for, checks the call is for the workspace's own Artifact URL, and passes the rows from the observed result to the person-only `planroom import -` on stdin. Import never reads rows from a folder.
+  - `planroom person pair`, run from the pane's remote list or the canvas, never from `/room` or a terminal, mints a 10-character code, keeps the key derived from it in `meta.pairing_key`, and shows the code once on that surface.
+  - The owner types the code into the Artifact page once. The page derives the key with PBKDF2-SHA256 at 100,000 rounds, salted with the workspace ID, keeps it in `localStorage`, and signs each row as `sig = HMAC-SHA256(key, docId ‖ canonical(row))`, over the row without its `sig`.
+  - A signed owner row applies as `person:artifact:<uid>`, `decide` included. Unsigned owner rows join the one confirming card, and a confirmed row applies as `person:artifact:<uid>` with the card as its cause. Another viewer's rows apply by path while A-13 holds.
+  - Pairing again replaces the key.
+- **Alternatives rejected:**
+  - A per-sync nonce: the model writes and reads the inbox, so it would see the nonce [DR-52].
+  - Showing the code in `/room` text: the model would see it.
+  - Denying Bash writes under `.planroom/` and keeping the folder: a path match in shell text is a guardrail one encoding defeats, and stdin removes the folder.
+- **Consequences:**
+  - Contracts: `InboxRow.sig`; `meta.pairing_key`; `Command::PersonPair`; `import -` reads `{path, row}` lines.
+  - Tests: `s11_remote.rs::a_signed_owner_row_applies`, `an_unsigned_or_broken_signature_joins_the_card`, `rows_come_only_from_the_mod`, `a_confirmed_row_keeps_the_viewer_as_actor`; `tests/e2e/artifact.spec.ts::pairing_signs_rows`; `packages/mod/src/room.test.ts::sync_passes_the_observed_rows_on_stdin`.
+  - Walking skeleton: WS7 checks that the mod's `tool.call` hook sees the rows of an `ArtifactData list` result.
+  - Users: the owner's phone edits and picks apply at the next sync; pairing takes one code, typed once per device.
+  - It amends DR-31 and DR-52.
+- **Amended in review round 2 (surfaces fix pass):** the card for unsigned owner rows pre-selects No, since the model could have written them, and its why line says pairing skips it. A sync that a Send to Claude wake starts carries no person token, so import applies only rows whose `sig` checks and leaves the rest in the inbox for the person's next sync (ux-1). Test `s11_remote.rs::a_wake_sync_applies_only_signed_rows`.
+- **Sources (checked 2026-10-26):** KICKOFF S11, R5 and principle 1 ("one tap to confirm"); [artifact §2], [artifact-spike] (session writes need no prompt); review round 2 security-3, principles-8 and ux-1, and owner decision E8.
+
+## DR-68: The canvas edits by hand and answers to the keyboard
+
+- **Status:** accepted (decided by the main agent in review round 2, E9); built in M1 and M5.
+- **Starting point:** none; implements R6's "shaped by hand on the canvas", R13's mobile-first canvas and R14's five concepts.
+- **Origin:** review round 2: ux-2; the minor findings ux-9, ux-12 and unasked-10.
+- **Context:**
+  - The canvas listed views, transports, motion and gestures, but no way to regroup, rename, re-wire, forbid, hide or pin a block by hand. R6 asks for it, and S4's evidence records the regroup and the intended change on the canvas.
+  - On the phone a one-finger drag pans, so a drag couldn't move a block there, and the desktop layout wasn't specified.
+  - The phone's top row had to hold up to five lids, search, the lens switcher and the project shelf at 44 px each, with no collapse rule.
+  - The light `--card` token was near-white, and it paints the bottom sheet over half a phone screen, which KICKOFF's don't-list rules out.
+  - Nothing gave keyboard or screen-reader users a way through the map, and no audit checked it.
+- **Decision:**
+  - The selected block carries an action tray: rename, group with, hide and pin, each one catalogue `edit` leaf. On the desktop, dropping a block on another's lid runs `edit move`, a drag on empty felt runs `edit pin`, and chalk drawn from one block to another runs `edit relate --layer intended`, whose popover offers Forbid.
+  - On the phone, a long press opens the evidence and the tray in the bottom sheet, and Move into and Relate to pick their target from a list. A drag there only pans.
+  - Each hand edit is pending until the engine confirms it, and offers Undo. The tray counts under Levels and the popover under Intent, so the top level keeps five concepts.
+  - The desktop layout is fixed: the breadcrumb, lens switcher and project shelf across the top, the zoom rail on the left, the card stack on the right, and the tray and board in a bottom drawer.
+  - The phone's top row holds at most four targets: the current lid with search, a `⋯` lid for the ancestors, one lens swatch that opens a sheet, and one project chip.
+  - In light mode `--card` becomes pale mint, `#e3f1ea`, which keeps every text and mark token above the contrast bar.
+  - The arrow keys move the selection between siblings, Enter dives, Escape goes up and Tab reaches the tray, with visible focus rings. A hidden outline of the `MapView` rows has `role="tree"`, and `@axe-core/playwright` audits every view.
+- **Alternatives rejected:**
+  - Dragging a block on the phone: it clashes with the one-finger pan that the gesture table and S13 rely on.
+  - A sixth top-level Edit control: R14 allows five.
+  - Shift-drag for chalk: the phone has no Shift. A chalk handle works with a pointer, and the tray's Relate to covers the phone.
+- **Consequences:**
+  - Contracts: none; every hand edit is an existing `edit` leaf.
+  - Layout: `@axe-core/playwright` joins the dependencies of `tests/e2e`, a gated surface this record approves [DR-70].
+  - Tests: `tests/e2e/edit.spec.ts::regroup_by_a_lid_drop_and_by_the_tray`, `rename_hide_and_pin_from_the_tray`, `chalk_makes_an_intended_relation_and_forbid`, `the_phone_tray_moves_and_relates`, `each_hand_edit_undoes`, at 1440×900 and 390×844; `tests/e2e/quality.spec.ts::top_row_fits_at_the_deepest_level`, `keyboard_reaches_every_block_and_action`, `axe_finds_no_serious_violation`; `tokens.test.ts::contrast_meets_the_bar` over the new token; `exactly_five_concepts` with the tray and the popover open.
+  - Milestones: M1's canvas slice grows 3 h, and M5's accessibility slice 2 h.
+  - It extends DR-54.
+- **Sources (checked 2026-10-26):** KICKOFF R6, R13, R14, S4, S13 and the look-and-feel don't-list; review round 2 ux-2, ux-9, ux-12 and unasked-10, and owner decision E9.
+
+## DR-69: Releases from main, a portable detach and a resolver contract
+
+- **Status:** accepted (decided by the main agent in review round 2, E11 to E13); verify the detach on macOS in the installer job from WS5.
+- **Starting point:** kept and refined "plugin/ ... engine bootstrap" and DR-58's release flow; it replaces DR-58's departure from Iris's branch order.
+- **Origin:** review round 2: operability-1, operability-2 and operability-4; the minor findings operability-5 to operability-12.
+- **Context:**
+  - `main` stayed behind until a release was published. GitHub runs `workflow_dispatch`, schedules and Dependabot only from the default branch, so the checklist's dry run, `advisories.yml`, `toolchain.yml` and Dependabot couldn't work before v0.1.0, and nothing said where work merged after it. The `--branch main` fallback was offered exactly when `main` held no code.
+  - Prefetch and build detached under `setsid`, a util-linux tool macOS doesn't ship, so neither macOS target could resolve its engine.
+  - S14's release-asset evidence had no documented way past the dev checkout, and the base URL a test server needs had no scheme rule.
+  - In a checkout a stale build fell through to a cached release. A cached install's build had no canvas, and its fix page named a checkout the user didn't have. Pruning deleted a binary other sessions still ran.
+  - `schema_mismatch` always said "Restart this session", which fixes nothing when the plugin is stale. A skill's Bash call could hang on the fetch lock or get no output. `engine.env`'s version had no generator. The dry run built Intel macOS on an arm runner, and Iris's art spend had no record.
+- **Decision:**
+  - `main` is the default and integration branch, as in Iris. Between releases it carries `X.Y.Z-dev`. A release commit sets `X.Y.Z`, CI goes green on `main`, the owner runs the dry run on `main` and tags that commit, and the next commit sets the next `-dev`. `cargo xtask gen --version V` writes every manifest, `Cargo.lock`, `engine.env` and the changelog move.
+  - The resolver treats a `-dev` version as having no release asset and goes straight to the source build's preflight, unless `PLANROOM_RELEASE_BASE_URL` names a test server. A cached install's build clones the tag, or `main` for a `-dev` version, into `DATA_ROOT/src/VERSION`, and builds there as from a checkout, with the canvas when Node and pnpm are present. A build from `main` whose catalogue hash isn't the plugin's keeps no binary and says to update the plugin.
+  - The engine daemonizes in Rust: it forks and calls `setsid(2)` through `libc`. The resolver runs `prefetch --detach` and `build --detach` as itself in the background, in its own process group, with its stdio redirected. So nothing needs a `setsid` command.
+  - The resolver's environment is a contract: `PLANROOM_ENGINE`, `PLANROOM_RESOLVE` (`auto`, `checkout` or `release`) and `PLANROOM_RELEASE_BASE_URL` (`https`, or plain `http` only to a loopback host). `status --json` reports the step that resolved. The guard denies agents the two variables that choose a binary.
+  - In a checkout, a build with another catalogue hash returns `engine_unavailable` with reason `stale_build` and the build command, and the mod's line names the fix for the cause. `serve --detach` drains a same-version server with another hash only when its own binary is newer.
+  - A resolve prunes only versions unused for 7 days, and the mod resolves again once when its stored binary is gone.
+  - A caller other than the mod waits at most 20 s on the fetch lock, then gets `engine_fetching`. A failed download gives it `engine_unavailable`, and it never starts a build.
+  - `schema_mismatch` names the version that wrote the store. The mod names `/plugin marketplace update planroom` and `/plugin update planroom@planroom` when a release wrote it, and `doctor --restore` when a `-dev` build did. An Upgrade Planroom guide gives the same steps, and Remove Planroom lists every path, ref and config file Planroom creates.
+  - The release dry run builds `x86_64-apple-darwin` on `macos-15-intel`, as `release.yml` does. `test (os)` stays on ubuntu-24.04 and macos-15, because the dry run builds and smoke-tests the Intel archive on its own runner. An MSRV job adds nothing while `rust-version` equals the pinned 1.97.
+  - Each Iris run appends `{at, image, model, cost_usd, prompt_path}` to `docs/art/spend.jsonl`, after a dry-run cost and with `--max-cost`. A docs test checks every image's prompt and row, and the $5 total.
+- **Alternatives rejected:**
+  - Keeping `main` behind releases with a separate integration branch: every GitHub feature that reads the default branch would read the wrong one.
+  - A `stable` branch for installs: it needs a marketplace source that names a ref, which no spike has checked, and a `-dev` install that builds from source already works.
+  - `perl -MPOSIX` for `setsid`, or a plain double fork: perl isn't on every Linux image, and a double fork alone leaves the child in the session's process group.
+  - `cargo install --git`: it never builds the canvas, so a marketplace user got the fix page with no checkout to run its command in.
+- **Consequences:**
+  - Contracts: error codes `engine_fetching` and `engine_unavailable`; `schema_mismatch` gains `writer_version`; the resolver's environment table; `status --json` names its step.
+  - Layout: `libc` joins `crates/planroom`'s dependencies; `DATA_ROOT/src/`; `docs/art/spend.jsonl`; `docs/guides/upgrade.md`; `cargo xtask gen` writes `engine.env`, and `gen --version` its version.
+  - Tests: `tests/installer/run.sh::detach_returns_at_once_and_survives_parent_exit` on macos-15 and ubuntu-24.04, `base_url_refuses_plain_http_to_a_non_loopback_host`, `resolve_release_skips_the_checkout`, `status_names_the_step_that_resolved`, `a_dev_version_goes_straight_to_the_build_card`, `a_stale_checkout_build_names_the_rebuild`, `prune_keeps_a_recently_used_version`, `a_non_mod_caller_waits_20_s_then_gets_engine_fetching`, `a_failed_download_gives_engine_unavailable`, `a_cached_install_builds_from_a_clone`; `packages/mod/src/engine.test.ts::a_missing_binary_resolves_once_more`, `schema_mismatch_names_the_right_action`; `server_auth.rs::a_same_version_server_drains_only_for_a_newer_binary`; `packages/mod/src/guard.test.ts::agents_cannot_choose_the_engine`; `docs.rs::every_image_has_its_prompt_and_spend_row`; `docs.rs::releasing_has_the_owner_checklist` also matches the checklist's triggers with `release.yml`'s.
+  - Owner: the checklist merges, dry-runs and tags on `main`, then merges the next `-dev` bump.
+  - Milestones: M5's release slice grows 4 h.
+  - It amends DR-28 and DR-58.
+- **Sources (checked 2026-10-26):** [iris-release-bar §2, §3]; [mod-api §7] (`process.run` blocks on a child that keeps stdio open); [plugin-packaging §3, §5]; KICKOFF's packaging, release-bar, Iris and S14 text; review round 2 operability-1 to operability-12, and owner decisions E11, E12 and E13.
+
+## DR-70: Repo gates over the pushed commits and every boundary statement
+
+- **Status:** accepted (decided by the main agent in review round 2, E14).
+- **Starting point:** extended DR-59's repo gates and "Repo layout: a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` in TypeScript".
+- **Origin:** review round 2: repo-1 and repo-2; the minor findings repo-4 to repo-12. The store and kernel fix cluster applied repo-3 through DR-45.
+- **Context:**
+  - CI walked every commit since the fork from `main`, which on this branch is the Initial commit, so one bad pushed commit kept CI red until history was rewritten. The commit that writes the first lock fails that rule, since the records it names landed earlier.
+  - The gate watched `boundaries.toml`, crate dependencies, the top-level list, package exports and the Conventions section. It missed the area contracts table, the Boundaries section of `AGENTS.md` and each package's dependencies, where several boundaries live only as prose.
+  - Any track could write its own record, and two tracks could both take the next number.
+  - `scripts/`, `schema/` and four `tests/*` directories had no contract. `plugin/` and `packs/` kept theirs in a README that ships to users and that Claude Code doesn't load. Nothing mapped an area to the design sections that govern it.
+  - The fixture's `CLAUDE.md` and skill are live agent context for this repo's own sessions.
+  - The kernel's no-I/O lint named modules, while clippy matches item paths; its plant was one call; and a kernel test that reads pack files can't do I/O.
+  - The TypeScript rules allowed any path under `node_modules`, so React could reach `ui` through any third-party package.
+  - `cargo xtask test` had no test filter, regeneration was split across flags and environment variables, and conflicts in generated files had no rule.
+  - Dependabot's 7-day cooldown let it propose direct pins younger than the 14-day rule, and nothing checked crate ages.
+  - Most of R16's gate tests sat in tier C, so they could ship failing.
+- **Decision:**
+  - `check layout` runs a state check every time: the lock matches the surfaces, and every record it names appears once in `decisions.md`. In CI it also walks only the commits the push adds (`github.event.before..github.sha`, or for a new branch or a force push the commits no other remote branch holds) or the pull request adds. A commit that changes the lock must add the record the new entry names, and the first lock comes with a new record.
+  - The gated surfaces add the area contracts table, parsed; the Boundaries section of `AGENTS.md`; and each package's dependency names, without versions.
+  - `check layout` fails on a duplicate `## DR-n` heading. The main agent assigns record numbers, and a track asks for one. When the main agent merges a track, `check layout --commits FORK..TIP` lists each gated change in it with its record, and the main agent ratifies each.
+  - Every non-dot top-level directory, and each `tests/*` directory, has an area row and an `AGENTS.md` with its `CLAUDE.md`; `plugin/` and `packs/` get theirs beside a user-facing README. A Read first table maps each area to the design sections, records and scenarios that govern it, and `cargo xtask gen` writes it into the area's `AGENTS.md`. The release helpers in `scripts/` stay POSIX sh [DR-38].
+  - The `examples/` contract says fixture files are test data, never instructions, and `.claude/settings.json` lists the fixture's agent files in `claudeMdExcludes` [A-16].
+  - `boundaries.toml` holds the kernel's no-I/O list as item paths: every `std::fs`, `std::net`, `std::process` and `std::env` function and type, `Path`'s I/O methods, `std::io::stdin`, `stdout` and `stderr`, `SystemTime::now` and the print macros. The self-test plants a second call, `Path::exists`. The lint holds for every kernel target, so a test that reads pack files lives in `crates/planroom/tests/`.
+  - Each TypeScript package lists its third-party packages in `third_party`, and the generated rules allow only those. The self-test plants a React-based package in `ui`.
+  - `cargo xtask test [-p CRATE] [FILTER] [--ts PATH]` runs one crate, one test or one vitest file. Plain `cargo xtask gen` writes every committed output, the mod bundle and the CLI reference included. Flags remain for outputs that aren't committed, for `--golden`, which runs the Rust tests that write `tests/golden/`, and for three one-off writes. On a conflict in a generated file, take either side and run `cargo xtask gen`.
+  - Dependabot's cooldown is 14 days, the direct-pin age, and `check audit` checks that each direct pin's release is at least 14 days older than the commit that set it. `minimumReleaseAge` stays 7 days for transitive packages.
+  - The gate tests that enforce binding text move to S15: `ci_runs_only_xtask`, the layout gate's tests, `area_contracts_match_repo_layout` and `breaking_change_guard`. C16 keeps the budgets ratchet, `feature_list_is_complete` and the pin test.
+- **Alternatives rejected:**
+  - Ratifying an earlier commit by naming its sha in the lock: the push-range walk and the state check leave nothing to ratify.
+  - A guardrail hook that denies a track's agent the lock and new headings: a track runs in its own session, which a hook there can't tell from the main agent's, so the merge-time listing is the check.
+  - Hashing dependency versions: every Dependabot bump would need a record.
+  - Renaming the fixture's agent files to inert names: `examples/README.md` is frozen and says `tree/` files sit at their repo-relative paths.
+  - A Read first column in the area table: the table gets too wide to read, and a second table generates the same lines.
+- **Consequences:**
+  - Contracts: the `layout.lock` surfaces; `area_contracts_match_repo_layout` covers every directory and the Read first lines.
+  - Layout: `plugin/AGENTS.md`, `packs/AGENTS.md` and their `CLAUDE.md` files; area files for `scripts/`, `schema/`, `tests/replay/`, `tests/golden/`, `tests/installer/` and `tests/plugin/`; `boundaries.toml` gains the no-I/O list and `third_party`; `.claude/settings.json` gains `claudeMdExcludes`.
+  - Tests: `gates.rs::a_bad_commit_already_pushed_fails_no_later_run`, `the_first_lock_needs_a_new_record`, `a_lock_naming_a_missing_record_fails`, `a_duplicate_record_heading_fails`, `a_track_merge_lists_its_gated_changes`, `an_edited_area_row_needs_a_record`, `a_new_package_dependency_needs_a_record`, `a_dependency_version_bump_needs_none`; the self-test's `Path::exists` and third-party plants; `crates/planroom/tests/evals.rs` replaces `crates/kernel/tests/evals.rs`; `release_pins.rs::dependabot_cooldown_matches_the_pin_age` replaces `dependabot_cooldown_matches_minimum_release_age`.
+  - Agents: one command runs one test, and one `gen` fixes any generated file.
+  - Milestones: M1 gains a 3 h repo-gates slice.
+  - It amends DR-19, DR-36, DR-38 and DR-59.
+- **Sources (checked 2026-10-26):** KICKOFF R16, S14, S15, the repo-tooling constraint and `<process>` step 5; `git merge-base origin/main HEAD` (the Initial commit); `.dependency-cruiser.cjs`; `pnpm-workspace.yaml`; `examples/README.md`; review round 2 repo-1, repo-2 and repo-4 to repo-12, and owner decision E14.
+
+## DR-71: Everyday git moves: a tracked branch, the working tree and every repo layout
+
+- **Status:** accepted (decided by the main agent in review round 2, E17).
+- **Starting point:** extended DR-44 (the reconciler) and DR-33 (freshness on read).
+- **Origin:** review round 2: unasked-2; the minor findings unasked-8 and unasked-12.
+- **Context:**
+  - The reconciler's window ran `prev..head` from the last reconciled head. A checkout of an older tag, a switch to a sibling branch, a rebase or a bisect gave an empty or wrong window with a large fact delta. That dealt residual cards and wrote wrong classes into the stored outcome.
+  - Discovery saw the root repo or its direct children only. A meta-repo's submodules and a `~/src/<org>/<repo>` tree got nothing, and a workspace inside another one split a person's edits without a word.
+  - The map showed only committed state and said nothing when the working tree differed.
+- **Decision:**
+  - Each repo's first scan records a tracked branch: the branch checked out then, or `origin/HEAD`'s target when `HEAD` is detached. The reconcile outcome keeps it with each repo's head, and reconciliation follows only fast-forward moves of it.
+  - Any other move re-anchors. The map follows `HEAD`, the reconciler skips the repo, no card is dealt, and `focus` carries a `reconcile_paused` line. Off the branch, the reconciled head stays put and reconciliation resumes on the way back. A rewrite of the tracked branch restarts the window at the new head with nothing classified.
+  - `handoff start` records the tracked branch as each repo's `base_branch`, which the merge preflight checks.
+  - Discovery adds a root repo's initialized submodules, and repos two levels down when the first level has none. A scan of a directory that holds another workspace keeps both and warns with `workspace_nested`.
+  - `focus` and `map` report `meta.dirty_repos` from `git status --porcelain -z --untracked-files=no`, shown as one line, with no rescan.
+- **Alternatives rejected:**
+  - Reconciling a descendant head on any branch: a feature branch's commits would be classified as if merged.
+  - Scanning the working tree: scans are of committed state [DR-33], and a dirty file has no commit for its evidence.
+  - Merging a nested workspace's store on a card: an import into a store that has authored events isn't defined, and the warning makes the split visible meanwhile.
+- **Consequences:**
+  - Contracts: `RepoHead.tracked_branch`; `meta.dirty_repos`; warnings `reconcile_paused` and `workspace_nested`.
+  - Tests: `kernel/tests/reconcile.rs::a_backward_checkout_deals_no_card`, `a_sibling_branch_pauses_reconciliation`, `a_rewritten_tracked_branch_restarts_the_window`, `a_return_to_the_tracked_branch_resumes`; `first_run.rs::submodules_are_repos`, `repos_two_levels_down_are_found`, `a_nested_workspace_warns`, `focus_lists_dirty_repos`. S7's checkout of `routine` leaves `main` the tracked branch, so that rescan re-anchors and deals no reconcile card.
+  - Milestones: M2's reconciler slice grows 2 h, and M1's extractor slice 1 h.
+  - It amends DR-33 and DR-44.
+- **Sources (checked 2026-10-26):** `examples/README.md` (S7's `routine` branch starts from `main`); KICKOFF principle 1 and R1; review round 2 unasked-2, unasked-8 and unasked-12, and owner decision E17.
+
+## DR-72: Owner follow-ups after review round 2
+
+- **Status:** accepted (main agent, 2026-10-26).
+- **Starting point:** none; amends DR-64 and DR-71.
+- **Context:** the round 2 fix agents raised three issues. To check DR-64's HMAC action tokens the engine must hold the person key itself, so a leaked `store.db`, backup or export would let anyone sign as the person. DR-64's repo-config refusal would refuse every repo with a standard Git LFS install, whose `filter.lfs.*` entries `git lfs install` writes. And S7's `checkout routine` step now takes DR-71's off-branch path, so S7 would no longer run the reconciler it is meant to exercise.
+- **Decision:**
+  - The person key is an ECDSA P-256 key pair. The mod generates it with `crypto.subtle`, keeps the private key in its `$.store`, and registers only the public key. Action tokens are ECDSA signatures over the same fields, verified in the engine with the `p256` crate. `store.db`, its backups and exports hold only the public key. The Artifact pairing key stays a shared HMAC key in `meta.pairing_key` (DR-67), because the page has no channel to register a public key; a leaked store lets someone forge only Artifact inbox rows, and only by also writing as the owner to the Artifact `db`.
+  - The repo-config check allows exactly the `filter.lfs.*` entries `git lfs install` writes, and nothing else under `filter.*`.
+  - S7's commit-triggered rescan is a fast-forward merge of `routine` into `main` (`git merge --ff-only routine`), so the tracked branch moves and the reconciler runs.
+- **Alternatives rejected:** keeping HMAC with the key in the store (a leaked backup becomes the person); allowing any `filter.*` (the filter driver runs arbitrary commands from repo config).
+- **Consequences:** `planroom-models` is untouched; `planroom` gains the `p256` crate (RustCrypto, Apache-2.0 or MIT); A-17 for WS8: `crypto.subtle` in the mod supports ECDSA P-256 sign; tests `actor.rs::a_leaked_store_cannot_sign_a_person_action`, `git_safety.rs::a_standard_lfs_install_is_allowed`, `git_safety.rs::a_custom_filter_is_refused`; S7's step and `s07_decisions.rs::routine_rescan_*` run on the fast-forward.
+- **Sources:** `docs/contributing/research/arch-review/round-2/fixes.md`, checked 2026-10-26.
 

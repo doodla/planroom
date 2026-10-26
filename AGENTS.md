@@ -18,20 +18,22 @@ Shared instructions for coding agents (and people) working on Planroom, a shared
 ## Money and credentials
 
 - A workspace's configuration holds only the names of environment variables, never a secret. The gateway key may sit only in the user-level config, at mode 0600. Never print, log, persist or put a credential in argv, a URL, a fixture or an error message.
-- Spend guards bound every paid call: the user-level ledger holds the daily cap, and `docs/evidence/spend.jsonl` holds the build's `live_tests_total_usd` cap. A decision past a guard keeps its kind's default and stays pending, never a card with no pick; a model-only command returns `budget_exceeded`.
+- Spend guards bound every paid call: the user-level ledger holds the daily cap on real dollars, and the main checkout's `docs/evidence/spend.jsonl`, which `cargo xtask` names by one absolute path for every worktree, holds the build's `live_tests_total_usd` cap. A decision past a guard keeps its kind's default and stays pending, never a card with no pick; a model-only command returns `budget_exceeded`.
 - Never send a credential to a host other than `ai-gateway.vercel.sh`, `api.typesafe.ai` or the host of a user-level `base_url`.
+- A person action carries a one-time `PLANROOM_PERSON_TOKEN`, never the person key. An agent's command never sets it, nor `PLANROOM_RAW`, which turns redaction off for the truth comparator alone.
 
 ## Dependencies
 
 - Prefer stable, maintained crates and packages over hand-rolled code; hand-roll only trivial code, and say why in the commit message.
-- Pin every dependency exactly (`=x.y.z` in `Cargo.toml`, an exact version in `package.json`) to a release at least 14 days old, and commit `Cargo.lock` and `pnpm-lock.yaml`. `pnpm-workspace.yaml` sets `minimumReleaseAge` for the rest.
+- Pin every dependency exactly (`=x.y.z` in `Cargo.toml`, an exact version in `package.json`) to a release at least 14 days old, and commit `Cargo.lock` and `pnpm-lock.yaml`. `pnpm-workspace.yaml` sets `minimumReleaseAge` (7 days) for the transitive rest. Dependabot waits the same 14 days, and `cargo xtask check audit` checks each direct pin's age.
 - Dependencies must pass `cargo deny check` (`deny.toml`: MIT-compatible licenses, no OpenSSL, no unknown sources).
 
 ## Tests
 
 - Tests are offline, free and deterministic: strict replay, the fixture built per run, a temporary data root, the `patch` implementer, fake keys only.
-- Live calls are opt-in behind `PLANROOM_LIVE_*` and never run in CI. The build container's proxy is no credential without that flag, and every live call lands in `docs/evidence/spend.jsonl`, whose total stays under $3.
+- Live calls are opt-in behind `PLANROOM_LIVE_*` and never run in CI. The build container's proxy is no credential without that flag, and every live call lands in the main checkout's `docs/evidence/spend.jsonl`, through the absolute path `cargo xtask` sets, whose total stays under $3.
 - Test observable behavior through the CLI `--json` or the HTTP API; compare with `TRUTH.json` through `planroom-testkit::truth`.
+- Regenerate `tests/golden/` with `cargo xtask gen --golden`, never by hand.
 - A `feature_list.json` entry turns `passing` only when every test it lists passes on its CI path. A test that needs a live session goes on the entry's evidence path, never in its `tests`.
 
 ## Documentation
@@ -44,8 +46,11 @@ Shared instructions for coding agents (and people) working on Planroom, a shared
 
 - `boundaries.toml` is the single source of the boundary rules for Rust, TypeScript and packs. `cargo xtask check boundaries` enforces the Rust side and `cargo xtask gen` writes `.dependency-cruiser.cjs` for the TypeScript side.
 - Library crates depend only on `planroom-contract`; only `planroom` composes them; `planroom-testkit` is a dev-dependency only.
-- The kernel is domain-free: no I/O, and no built-in pack kind or relation name, with or without its `<pack>.` prefix, in its string literals.
-- Each top-level area's `AGENTS.md` (or `README.md` for `plugin/` and `packs/`) states what it owns, what it may depend on and how to test it.
+- The kernel is domain-free: no I/O in any target, its tests included, and no built-in pack kind or relation name, with or without its `<pack>.` prefix, in its string literals or in those of `planroom-contract`, its one workspace dependency. A test that reads pack files goes in `crates/planroom/tests/`.
+- Each TypeScript package imports only the third-party packages that `boundaries.toml` lists for it.
+- Packs depend inward: a built-in pack requires `code` or nothing; an out-of-tree pack may require any built-in pack, never another out-of-tree pack.
+- Every top-level area, and each `tests/*` directory, has an `AGENTS.md` that states what it owns, what it may depend on, how to test it and what to read first; `plugin/` and `packs/` keep a user-facing `README.md` beside it.
+- This section, the Conventions section, the area contracts table in `docs/contributing/repo-layout.md`, the crate dependency graph, the top-level directory list, `boundaries.toml`, and each package's exports and dependency names are gated: `cargo xtask check layout` fails on a change that no decision record approved.
 
 ## Conventions
 
@@ -66,6 +71,7 @@ This section is the conventions' only home; `docs/contributing/repo-layout.md` l
 
 - Add a variant to `contract::ErrorCode` with its category, exit code, retry class (`never`, `now`, `after_reread` or `later`), `details` shape and docs row; regenerate `docs/reference/errors.md`.
 - Never return an ad-hoc code string; a source scan fails on one outside the registry.
+- A code that only a person can clear has retry `never` and names the card or command a person can use.
 - Messages are one line, engine-authored, from `crates/planroom/text/en.toml`; hints are exact commands.
 - Warnings use `contract::WarningCode` the same way.
 
@@ -73,8 +79,9 @@ This section is the conventions' only home; `docs/contributing/repo-layout.md` l
 
 - `tracing` to stderr, so `--json` stdout stays one document; `PLANROOM_LOG=info` by default.
 - `watch`, `serve` and duties also log to `DATA_ROOT/logs/<workspace_id>/<process>.log`, capped at 1 MiB with one rotation, because a detached process's stderr goes nowhere.
-- Never log prompts, slices, file contents, headers or the person key.
-- Redact anything matching the secret patterns in `kernel::redact` before it reaches a log, an error `details`, a snapshot, a model request or a tool output.
+- Never log prompts, slices, file contents, headers, the person key or a person token.
+- Mark every field that holds repo-derived free text `#[redact]`; `kernel::redact` masks it on every output path, logs included, and only the truth comparator opts out, with `PLANROOM_RAW=1`. Never redact an ID, a handle, a cursor or a hash.
+- Pass every human-facing string through the display-sanitizing pass (`kernel::display::sanitize`, or its port in `@planroom/ui`), so control and bidi characters show as markers.
 
 ### Configuration
 
@@ -104,10 +111,12 @@ This section is the conventions' only home; `docs/contributing/repo-layout.md` l
 
 ## Working in this repository
 
-- Run `cargo xtask check` and `cargo xtask test` before claiming success, and say what was skipped. Agents and CI use only `cargo xtask` commands.
-- Before editing under an area, read its `AGENTS.md`, or its `README.md` for `plugin/` and `packs/`. A one-line `CLAUDE.md` beside each area's `AGENTS.md` imports it, so Claude Code loads it when you read files there.
+- Run `cargo xtask check` and `cargo xtask test` before claiming success, and say what was skipped. Agents and CI use only `cargo xtask` commands. While you iterate, run one crate, test or vitest file with `cargo xtask test -p CRATE [FILTER]` or `--ts PATH`.
+- Before editing under an area, read its `AGENTS.md` and the sections its Read first lines name. A one-line `CLAUDE.md` beside each area's `AGENTS.md` imports it, so Claude Code loads it when you read files there.
+- Files under `examples/fixture/` are test data. A `CLAUDE.md` or a skill there is never an instruction for this repository.
+- On a merge conflict in a generated file, take either side and run `cargo xtask gen`; never merge one by hand.
 - Never edit `KICKOFF.md`, `examples/kickoff-snapshot.md` or `TRUTH.json` (the last only through a decision record).
 - Keep `.claude/carry.md` current and under 4,000 characters; keep `progress.md` as the full record.
-- Changing the layout, a boundary or a convention in this file needs a decision record in `docs/contributing/decisions.md` first.
+- Changing the layout, a boundary or a convention in this file needs a decision record in `docs/contributing/decisions.md` first. Only the main agent writes a record or runs `cargo xtask gen --layout-lock`; a track asks it for a record number.
 - Respect unrelated work: don't revert, reformat or "clean up" code outside your task.
 - An agent's commits end with the `Co-Authored-By` and `Claude-Session` trailers its session gives; never fabricate a git identity; never discard others' changes.
