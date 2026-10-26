@@ -152,6 +152,10 @@ function Breadcrumb() {
   );
 }
 
+/**
+ * Until packs bring more lenses and `intent new` makes projects (M1), neither picker has anything
+ * to pick, so each shows the lens or the project it holds without opening a sheet (ux-c).
+ */
 export function TopRow() {
   const map = useCanvas((s) => s.map);
   const pane = useCanvas((s) => s.pane);
@@ -168,7 +172,9 @@ export function TopRow() {
         entries={[{ key: lens, label: sanitize(lens), current: true }]}
       >
         <YarnIcon />
-        {!phone && <span className="picker-label">{sanitize(lens)}</span>}
+        <span className={phone ? "visually-hidden" : "picker-label"}>
+          {sanitize(lens)}
+        </span>
       </Picker>
       <Picker
         concept="intent"

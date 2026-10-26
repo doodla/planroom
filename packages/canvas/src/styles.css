@@ -385,6 +385,28 @@ button.lid-ancestor:hover {
   stroke-width: 2.5;
 }
 
+/* A picker with nothing to pick shows what it holds, flat on the felt: no shadow to press, and
+   an empty project shelf as a chalk outline where a project will sit. */
+.picker-face {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--target);
+  padding: 0 14px;
+  border: var(--border) solid var(--muted);
+  border-radius: var(--radius-button);
+  font-weight: 600;
+}
+
+.phone .lens-switcher .picker-face {
+  padding: 0 11px;
+}
+
+.project-shelf .picker-face {
+  border-style: dashed;
+  border-color: var(--chalk);
+}
+
 .picker-sheet {
   position: absolute;
   top: calc(100% + 10px);
