@@ -1,0 +1,144 @@
+{
+ "lens": "tests",
+ "review": {
+  "summary": "Round 2, TESTS AND EVIDENCE lens, on 30898ce, with HEAD 3156a41 adding only a carry note. I ran the built target/debug/planroom on copies of target/e2e/fixture/shop, with PLANROOM_DATA set to a scratch directory. I also ran a copy of packages/mod/src/guard.ts under `node --experimental-strip-types`, with only its CATALOGUE import stubbed. I did not run cargo, pnpm, vitest, Playwright or `claude plugin test`. Where I say a test \"would\" do something, I worked it out from the code; I did not run it.\n\nFix check for each round-1 material finding:\n- **Round-1 tests-***: none was material, and none is re-reported. tests-3 (wrong names in feature_list) is still a known gap. A script found that about 100 listed test names still don't resolve; that is not worse in kind.\n- **correctness-1 and unasked-3**: HOLD. Repro: an uncommitted compose service plus an untracked directory, scanned, then reverted and rescanned. Neither reached the map (`ghostsvc` absent at the container level). The new scan.rs and extract tests are sound, but one assertion in them can't fail (tests-r2-3).\n- **correctness-4 and unasked-1**: HOLD on reading. workspaces.rs has a three-process recorder test and an unknown-field test (not run).\n- **drift-1**: HOLDS. `map --bogus --json`, `map --level nope --json` and `nope --json` each print one `invalid_argument` envelope, exit 2. A related drift is in tests-r2-6.\n- **drift-2**: HOLDS. The resolver takes every code from contract.sh (plugin/scripts/planroom:73,83,191), and run.sh:429 checks it.\n- **unasked-8**: HOLDS. `map --level code --json` on the fixture gives 22 of 83 blocks with the `truncated` warning, and meta.size matches the real output bytes. But the cap introduced material finding tests-r2-1.\n- **ux-6**: HOLDS. In an empty folder, map and focus both return `no_repos` with next action `focus`.\n- **ux-3**: HOLDS. `map --level intent` returns `no_intent` with a way back.\n- **security-5**: HOLDS for the engine text, stderr and the mod's sanitize calls (code and tests read).\n- **security-3**: PARTLY HOLDS. All 18 listed forms are denied (my repro), but directory-recursive Bash reads still pass (tests-r2-2).\n- **ux-1 and ux-2**: HOLD in the harness only. The plugin tests use a stub reply with no `summary`, so the line a real engine produces is untested (tests-r2-4).\n- **ux-4**: e2e specs read, not run.\n- **ops-2 and ops-3**: HOLD. The resolver's build_canvas runs, the installer has three new tests, and the README install lines match marketplace.json's name `planroom`.\n- **repo-1**: HOLDS. main.rs:186 CHECK_NOT_BUILT prints `not built` lines.\n- **unasked-4**: HOLDS as scheduled work (architecture.md:1610, M1 track A).\n\nNew: 2 material, 5 minor.\n- The cap DR-85 put on agent-facing `map` stops S1's tier-A CI path from passing in M1. The fixture's component level is already cut to 21 of 38 blocks, and paging only comes in M2.\n- The security-3 guard still lets `grep -r`, `rg`, `cp -r`, `tar` and `zip` read whole directories that hold the person key and the store. The Grep tool is refused the same request.",
+  "findings": [
+   {
+    "id": "tests-r2-1",
+    "title": "DR-85's map cap makes S1's tier-A CI path unpassable in M1: the CLI map at --detail graph is truncated on the fixture, and paging waits for M2",
+    "severity": "material",
+    "where": [
+     "feature_list.json:22-24 (S1 ci_path steps)",
+     "docs/contributing/decisions.md:2101 (DR-85, map keeps its budget)",
+     "docs/contributing/architecture.md:1618 (M1: the S1 CI path and the truth comparator)",
+     "docs/contributing/architecture.md:1633 (M2: map's meta.next paging)",
+     "crates/planroom/src/app/map.rs (fit)",
+     "tests/e2e/src/surface.spec.ts:15-17 (engineMap uses the capped CLI as 'the map as the canvas asks for it')"
+    ],
+    "evidence": "Verified on a scanned copy of target/e2e/fixture/shop.\n- `planroom map --level component --detail graph --json` returns 21 of 38 blocks, with meta.truncated true and warning details {kept:21,total:38,budget_tokens:1500,next:{map --level container}}.\n- `map --level code --detail graph --json` returns 21 of 83 blocks.\n- S1's ci_path runs exactly `planroom map --level component --lens all --detail graph --json`. It compares the result with TRUTH.components (24 entries) and asserts 'roll-ups are faithful at every level ... zoom in and out returns the same MapView'.\n- DR-85 caps 'the CLI at any detail' and adds no cursor until M2. architecture.md:1633 puts paging in the M2 budgets slice; architecture.md:1618 puts the S1 CI path in M1.\n- The truncated warning's drill-down points only to a coarser level, so no CLI or room_query path reaches the rest of the component or code blocks.\n- Assumption (not run): M1's packs add components and relations, which makes the truncation worse.",
+    "why": "S1 is a tier-A scenario that milestone M1 closes. Its CI path reads the map through the CLI, which DR-85 caps with no way to page until M2. The truth comparison cannot see every component, and the zoom-faithfulness assert compares truncated views. DR-85 rejected capping the canvas's graph and exempted it, but missed that the truth comparator and S1 read through the CLI. The e2e helper engineMap makes the same assumption: it takes the capped CLI output as the ground truth for what serve returns whole.",
+    "fix": "Choose one before M1 starts: (a) move map's meta.next paging into M1's S1 slice, and have the comparator page through it; (b) have the truth comparator read the whole map through the uncapped route, `for_canvas` or serve's HTTP API; or (c) exempt `--detail graph` under PLANROOM_RAW=1. Then update S1's ci_path and DR-85 to match. Add a test that the comparator sees every component of the fixture."
+   },
+   {
+    "id": "tests-r2-2",
+    "title": "security-3's fix misses directory-recursive Bash reads: `grep -r`, `rg`, `cp -r`, `tar` and `zip` reach the mod's `$.store` (the person key) and `.planroom`",
+    "severity": "material",
+    "where": [
+     "packages/mod/src/guard.ts:555-562 (recursive-search rule applied only to the Grep and Glob tools)",
+     "packages/mod/src/guard.ts:582-596 (Bash path words checked only with readDenied and globDenied)",
+     "packages/mod/src/guard.test.ts:205-260 (BYPASSES and everyday lists, no recursive case)"
+    ],
+    "evidence": "Ran guard.ts unchanged, apart from a CATALOGUE stub, under `node --experimental-strip-types`, with places cwd=/work/shop and HOME=/home/u.\n\nAllowed:\n- `grep -rh secret ~/.claude/plugins`\n- `rg token ~/.claude`\n- `grep -r x .planroom`\n- `cp -r .planroom /tmp/p; cat /tmp/p/serve.json`\n- `cp -r ~/.claude/plugins /tmp/q`, then Read `/tmp/q/store/planroom_x.json`\n- `zip -r /tmp/a.zip .planroom`\n- `tar c .planroom`\n- `find ~/.claude -name 'planroom_*' -exec cat {} +`\n\nDenied:\n- the Grep tool with path /home/u/.claude/plugins\n- the Grep tool with path /work/shop/.planroom\n- `grep -r . ~/.claude/plugins/store`\n\nAll 18 BYPASSES are denied. The guard denies a Grep tool search rooted at a folder that holds the mod's store, but never applies that rule to a Bash path word. DR-85 lists the guard's known gaps as scripts run by path, variables set in an earlier call and dotglob; recursive directory commands are not among them.",
+    "why": "The mod's `$.store` holds the person key. Reading it lets an agent sign person tokens and act with the person's authority, which breaks the 'AI proposes, person disposes' principle (DR-64, DR-75). These are everyday commands, the same class security-3 was about. The test suite has no case for them, so it reports the fix as complete.",
+    "fix": "In guardCall's Bash branch, apply the Grep tool's rule to every path word: deny a word that is, or lies above, a state directory, the data root, or the folder holding the mod's store (`within(modStoreDir, s)`), whatever the command. Add `grep -r`, `rg`, `cp -r`, `tar` and `find -exec` cases to BYPASSES, and keep `rg -n 'fn main' crates/*/src` in the everyday list."
+   },
+   {
+    "id": "tests-r2-3",
+    "title": "scan.rs's 'the dirty edit never reaches extraction' assertion can't fail: it reads a top-level `warnings` that no envelope has",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/tests/scan.rs:333-336",
+     "crates/contract/src/envelope.rs:60-61"
+    ],
+    "evidence": "scan.rs:334 asserts `first[\"warnings\"].as_array().is_none_or(...)` on the scan envelope. Warnings live in `meta.warnings` (envelope.rs:61); budgets.rs uses `env[\"meta\"][\"warnings\"]`, and the real binary prints them there. `first[\"warnings\"]` is therefore always Null, `as_array()` is None, and `is_none_or` returns true. No `evidence_dropped` warning could make the assertion fail.",
+    "why": "DR-85 cites this test as evidence for the correctness-1 fix, and feature_list S1 lists it. One of its two checks is vacuous. The map-equality asserts still carry the test, but the check its message names does nothing.",
+    "fix": "Read `first[\"meta\"][\"warnings\"]`. Mutation-check it: inject a working-tree blob and make sure the assertion fires."
+   },
+   {
+    "id": "tests-r2-4",
+    "title": "The mod's ux-1 and ux-2 plugin tests run on a hand-written map reply with no `summary`, so they prove only the fallback line; the real engine sends '9 at the top: \u2026' for the container level",
+    "severity": "minor",
+    "where": [
+     "packages/mod/plugin-tests/surfaces.test.tsx:121-152 (CONTAINERS stub)",
+     "packages/mod/plugin-tests/surfaces.test.tsx:154-189 (ux-1, ux-2 tests)",
+     "packages/mod/plugin-tests/host.ts:146-152 (readyEngine map stub)",
+     "packages/mod/src/room.ts:66-88 (lineFor prefers the engine's summary)"
+    ],
+    "evidence": "The CONTAINERS stub and readyEngine's map reply carry no `summary`. Every real reply now carries one (DR-85), so the mod's lineFor falls back to its own '2 blocks at the container level', which the tests assert. On the fixture, the real `planroom map --level container --json` has summary '9 at the top: grafana; orders; orders-db; otel-collector; platform; prometheus; redis; storefront; worker.'. Commit 5401bae fixed the same seam in room.test.ts but left the plugin-tests stubs alone. No golden for a container-level map exists to feed the harness.",
+    "why": "Here a mock hides real behaviour. With a real engine, what the pane and band show after 'Open the containers', and what /room returns, is the engine's line. That line says 'at the top' at the container level (the ux-12 known gap), and no test exercises it. The ux-1 and ux-2 fixes are proven only on a path real engines don't take.",
+    "fix": "Add a real-engine golden for `map --level container --json` in golden.rs and use it in the harness instead of the hand-written stub. Keep the summary-less case as a separate fallback test."
+   },
+   {
+    "id": "tests-r2-5",
+    "title": "empty_states.rs guards ux-3 with a substring check: it would fail spuriously at 10, 20 or 30 blocks, and it misses the real wording defect",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/tests/empty_states.rs:31"
+    ],
+    "evidence": "The test asserts `!text.contains(\"0 at the top\")` for each level. Plain `map` on the fixture prints '10 at the top: \u2026', which contains that substring. The test passes today only because `map --level system` prints '5 at the top' (the drift-6 known gap). Meanwhile `map --level container` and `--level code` print '9 at the top' and '83 at the top', which the check accepts although those blocks aren't at the top.",
+    "why": "A test named for 'no blank states' can break when a fixture gains blocks. It also lets through the misleading line that ux-1 and ux-2 now put in front of the person.",
+    "fix": "Assert on structure: nodes is empty if and only if `empty` is set. Check the summary with an anchored pattern such as `^0 at`, or better, against the level's own text from en.toml."
+   },
+   {
+    "id": "tests-r2-6",
+    "title": "A usage error for a command group carries `command: \"person\"`, not the `planroom` DR-85 specifies, and `--since -5` reports field `_5`; usage.rs tests neither",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/decisions.md:2100 (DR-85, an error that names no leaf uses command planroom)",
+     "crates/planroom/src/cli.rs:256-290",
+     "crates/planroom/tests/usage.rs:28-60"
+    ],
+    "evidence": "Verified with the binary:\n- `planroom person --json` returns {command:\"person\", details:{field:null, synopsis:\"planroom COMMAND [--json]\", schema:{schema --commands}}}. `person` is not a leaf in the catalogue.\n- `planroom watch --since -5 --json` returns details.field \"_5\", not \"since\".\n- `planroom nope --json` correctly uses command \"planroom\".\n\nusage.rs's four cases cover only leaf-level flag errors and an unknown command.",
+    "why": "The envelope's `command` should name a catalogue leaf or `planroom`, and the mod's leaf() lookup finds neither 'person' nor a field named '_5'. Agents act on `details.field`. The tests cover only the shapes that already worked.",
+    "fix": "Map a group-without-subcommand error to command `planroom`, or to the group's first leaf. Strip clap's value-as-argument case to the flag's name. Add both cases to usage.rs."
+   },
+   {
+    "id": "tests-r2-7",
+    "title": "The stand-in's 'unscanned workspace' spec covers a state the real serve can't reach, and serve's refusal there contradicts map",
+    "severity": "minor",
+    "where": [
+     "tests/e2e/src/standin.spec.ts:69-96",
+     "crates/planroom/text/en.toml (workspace_not_found message)",
+     "crates/planroom/src/server/mod.rs"
+    ],
+    "evidence": "Verified on an unscanned copy of the fixture:\n- `planroom serve --json` returns workspace_not_found with the message 'No Planroom workspace or git repos at \u2026' and hint 'planroom scan DIR'.\n- `planroom map --json` in the same folder returns not_scanned with 'Map these 5 repos? About 2 s.'.\n\nThe e2e spec tests the canvas's empty map against the stand-in serving map-empty.json, so nothing exercises what a person actually gets: serve's refusal, whose message says there are no git repos.",
+    "why": "After ux-6, map and focus agree, but serve still contradicts them in the one state a first-time person meets. Its message is false: five repos are there. The stand-in hides this; nothing in the M1 overlay or stand-in notes records it.",
+    "fix": "Give serve the same no-store state map uses: serve the canvas, which draws the not_scanned empty state, or at least refuse with a message that counts the repos. Move the spec to the real engine once serve starts there, and record the gap in the stand-in spec's comment until then."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "tests-r2-1",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced on a scanned copy of target/e2e/fixture/shop: `map --level component --lens all --detail graph --json` returns 20 of 38 blocks (one fewer than the reviewer saw), with the `truncated` warning {kept:20,total:38,budget_tokens:1500,next:map --level container}. `--level code` returns 21 of 83 blocks. The kept component names leave out every worker and kit component in TRUTH.components, plus platform/tools/healthcheck.rb (checked with a rough name match). crates/planroom/src/app/map.rs:33-42 caps every CLI detail; only `for_canvas` (serve) leaves graph uncapped, and there is no flag or env opt-out. S1's ci_path (feature_list.json:22-31) runs exactly that CLI command and compares TRUTH.components and relations, and asserts that counts sum to leaf edges. DR-85 (decisions.md:2101) defers `meta.next` to M2 (architecture.md M2 Budgets row), while the S1 CI path and the truth comparator are in M1 (architecture.md:1618). The comparator isn't built yet, so this is a design gap rather than a failing test. As written, though, it makes tier-A S1 unpassable in M1, so material holds. One sub-claim is weak: engineMap in surface.spec.ts:15-17 reads the top-level map (10 nodes), which isn't truncated today."
+  },
+  {
+   "id": "tests-r2-2",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced with guard.ts copied to the scratchpad (contract import stubbed to an empty CATALOGUE) and run under node 22 --experimental-strip-types with cwd=/work/shop and HOME=/home/u. All of these return null (allowed): `grep -rh secret ~/.claude/plugins`, `rg token ~/.claude`, `grep -r x .planroom`, `cp -r .planroom /tmp/p; cat /tmp/p/serve.json`, `cp -r ~/.claude/plugins /tmp/q` followed by Read /tmp/q/store/planroom_x.json, `zip -r`, `tar c .planroom`, and `find ~/.claude ... -exec cat`. The Grep tool on the same roots is denied. The cause is guard.ts:555-562, which applies the recursive-root rule only when tool is Grep or Glob; the Bash branch (582-596) checks only readDenied and globDenied, which match the exact file. Round-1 security-3 (material) was about the person key exposed through routine shell forms. DR-85's listed residual gaps (scripts by path, earlier-call variables, dotglob) don't include recursive directory commands. guard.test.ts has no recursive case (its only rg line, 256, is the everyday one). So the security-3 fix doesn't fully hold, and the person-key exposure makes this material."
+  },
+  {
+   "id": "tests-r2-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "crates/planroom/tests/scan.rs:333-336 reads `first[\"warnings\"]`. The scan helper (scan.rs:45-50) returns the whole envelope. In Envelope (envelope.rs:24-38), warnings sit inside `meta` (line 61 is in Meta). The real binary's scan and map envelopes have top-level keys schema_version, ok, command, summary, result and meta, with no top-level `warnings` (checked: map's truncated warning appears under meta.warnings). `as_array()` on Null is None, so `is_none_or` is always true and the check is vacuous. The map-equality asserts still carry the test, so minor is right."
+  },
+  {
+   "id": "tests-r2-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "The CONTAINERS stub in surfaces.test.tsx:131-150 has no `summary`. The ux-1 test asserts the mod's fallback '2 blocks at the container level'. room.ts lineFor prefers `ran.summary` whenever it isn't null. The real engine on the fixture prints the summary '9 at the top: grafana; orders; orders-db; otel-collector; platform; prometheus; redis; storefront; worker.' for `map --level container --json`. tests/golden/cli/ holds only focus.json, map-empty.json, map-graph.json and watch-frames.json, with no container-level golden. So the tests cover only the fallback path. It's a coverage gap, so minor."
+  },
+  {
+   "id": "tests-r2-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "empty_states.rs:31 asserts `!text.contains(\"0 at the top\")` for intent, system, container, component and code. Today these print 5, 9, 38 and 83 '... at the top' (verified), so the test passes. A level with 10, 20, 30 or 40 blocks would trip it spuriously (component is at 38). The suggested structural fix is already mostly there: lines 32-37 assert that blocks>0 implies empty is null, and that no blocks implies an Empty with a reason. The 'misses the wording defect' part is the ux-12 known gap, not a test defect. It stays minor and fragile."
+  },
+  {
+   "id": "tests-r2-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Ran the binary. `planroom person --json` returns command \"person\", field null and the schema --commands handle. `person` is not a catalogue leaf (contract/src/command.rs:212 has path [person, init]), and DR-85 (decisions.md:2100) says an error that names no leaf uses command \"planroom\". `watch --since -5 --json` returns details.field \"_5\". `nope --json` correctly returns command \"planroom\". usage.rs:28-34 covers only map --level foo, map --bogus, watch --since abc and person init --nope. Confirmed as a small contract drift; minor."
+  },
+  {
+   "id": "tests-r2-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Partly holds. On an unscanned copy of the fixture, `serve --json` returns workspace_not_found, message 'No Planroom workspace or git repos at \u2026' and hint 'planroom scan DIR', exit 3. `map --json` and `focus --json` return not_scanned with 'Map these 5 repos? About 2 s.'. The message is false, since five repos are there. However, the claim that nothing records the gap is wrong. standin.spec.ts:71-72 says outright that today serve refuses a workspace with no store (workspace_not_found), and architecture.md:1620 schedules 'a start in a workspace with no store yet' in M1. The stand-in covering that state is its documented purpose (tests/e2e/AGENTS.md). Only the false message wording survives, which is minor."
+  }
+ ]
+}

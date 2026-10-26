@@ -1,0 +1,220 @@
+{
+ "lens": "drift",
+ "review": {
+  "summary": "Round-2 architecture-drift review of /home/user/planroom at 30898ce. I ran the prebuilt target/debug/planroom (binary mtime 14:13:10; the only later commits change docs, plus small map/scan/budgets edits at 6e07f6a) against copies of target/e2e/fixture/shop and small hand-made repos under /tmp/claude-0/-home-user-planroom/d26fcf29-d6d2-57f8-acca-1138f06b3754/scratchpad/driftR2.XuOb. Nothing was built and nothing under the repo was written. One caveat: my first few runs (version, usage errors, scan, map) used a PLANROOM_DATA folder another reviewer had already made at scratchpad/r2/data. The commands I ran there don't write the data root (scan doesn't record workspaces.json, drift-8), and every later run used my own folder.\n\nRound-1 material findings in this lens, checked on this tree:\n- drift-1 HOLDS. `map --level foo --json`, `map --bogus --json`, `watch --since abc --json`, `person init --bogus --json`, `--bogus --json` and `bogus --json` each print one `invalid_argument` envelope, exit 2, with nothing on stderr. Each carries details.field, details.synopsis and the details.schema handle, and the hint is `planroom schema --command LEAF` (or `--commands` with command \"planroom\" when no leaf is named). Non-clap invalid_argument paths get the same details through cli.rs `with_usage`: I checked share's bad --out and person init with a bad key. One defect the fix introduced is finding drift-6.\n- drift-2 HOLDS for every item it named:\n  - EngineState, EngineStatus, PaneState, LastSeq and TurnSeq are in crates/contract/src/view.rs:229-280.\n  - ToolResult, ToolError and ToolMeta are in envelope.rs:131-183.\n  - ResolverStatus, ResolverStep and UnavailableReason are in resolver.rs.\n  - ErrorCode in the schema now includes engine_fetching and engine_unavailable.\n  - plugin/scripts/contract.sh exists with the generated header. The resolver sources it (planroom:20-21) and spells codes, reasons and status shapes only through its variables.\n  - The mod's ToolResult is the generated type (engine.ts:6-13), and installer tests the_resolver_spells_no_code_or_reason_itself and resolver_outputs_are_one_document_with_their_size exist.\n  - What's left of the same constraint is finding drift-2r.\n- unasked-1 (contract versioning, adjacent to this lens) HOLDS:\n  - EventKind is anyOf enum+pattern in the schema, and EventBody has an Unknown variant (event.rs:141, store test commit.rs:209).\n  - Snapshot, LiveHead, InboxRow, Answer and Ack have additionalProperties true.\n  - contract::format is used by data.rs, server/mod.rs and import.rs, and checkFormat by canvas/src/transport/artifact.ts:155,180,292.\n  - A workspaces.json tagged planroom.workspaces/v2, or with min_reader_version 9.0.0, made `serve --json` exit 7 with schema_mismatch and details.file, and left the file byte-identical.\n\nAlso verified and holding as DR-85 describes:\n- Display sanitizing: an OSC 52 file name and RLO repo and directory names show as \\x1b and \u27e8U+202E\u27e9 in text mode, in the envelope summary and in error messages, while --json result data stays raw.\n- Empty states: no_repos with next `focus`, not_scanned, and no_intent.\n- map's truncation: kept/total/budget_tokens/next, with a coarser-level drill-down.\n- The HTTP `--detail graph` map stays whole: 85 blocks.\n- The plugin's -dev stamp: I recomputed g75664b73 from xtask's plugin_hash algorithm and it matches plugin.json.\n- The engine.env and catalogue.ts hash both equal version --json's 7a8e3030\u2026.\n\nNew findings, most important first:\n- Agent-facing replies break their documented budgets: schema --command at about 1,950 tokens against 1,500, and share at 1,366 against 800. DR-85's \"everything an agent can reach is capped\" is true only of map.\n- The mod still hand-copies the envelope and the version and status replies, although the generated types exist.\n- import answers the Artifact canvas's graph requests capped and silently cut.\n- Smaller drifts:\n  - tool descriptions carry summaries, not the generated synopses the docs promise;\n  - map's drill-down never reaches /room text, and the skill tells agents to page with a cursor map doesn't set;\n  - usage-error message defects;\n  - an unbuilt uint64 lint that check doesn't report;\n  - a stale restated VersionInfo field list in architecture.md;\n  - JSON escaping and a mislabelled reason in the resolver;\n  - a wrong refused count in import's summary.\n\nNot re-reported because the README logs them as known gaps, still present and no worse:\n- drift-3: CommandSpec has no spends or Budget, scan's idea and actor differ from the docs, and DR-81 still says spends exists.\n- drift-6: map vs map --level system.\n- drift-7: seq 0 on errors, and prose hints.\n- drift-8: scan doesn't register the workspace, and examples/packs/ruby is still missing.\n- drift-10: --focus is offered then refused; also --workspace and --limit don't exist, and `schema --out`/`--def` are refused.\n- drift-11.\n- drift-12: architecture's Skills table still names `room`.\n- tests-3: test names; most traceability and feature_list references are to future tests, and all 32 entries are failing.\n- repo-5: .gitattributes lacks contract.sh, plugin/types and hooks.\n- ops-10: architecture.md:1497 still says download_failed details carry URLs that contracts and DR-85 say are owed in M5.",
+  "findings": [
+   {
+    "id": "drift-r2-1",
+    "title": "Agent-facing replies exceed their documented budgets: `schema --command` (the hint of every usage error) and `share`; DR-85's 'everything an agent can reach is capped' holds only for map",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/version.rs (schema --command)",
+     "crates/planroom/src/app/share.rs (reply)",
+     "crates/contract/src/command.rs:254-259 (share budget_tokens 800)",
+     "docs/contributing/decisions.md:511 (DR-21 amendment: schema --command under 1,500 tokens)",
+     "docs/contributing/decisions.md DR-85 'map keeps its budget' / architecture.md:998",
+     "crates/planroom/tests/budgets.rs"
+    ],
+    "evidence": "Verified by running the binary (meta.size.tokens_est):\n- `schema --command map --json` gives 7,745 B, about 1,937 tokens; `focus` about 1,952; `scan` about 1,951. None sets meta.truncated, and the catalogue gives schema budget_tokens 1500.\n- `share --out DIR --json` gives 5,442 to 5,463 B, about 1,366 tokens, on both the mini repo and the 5-repo fixture, against share's catalogue budget of 800, with no truncation. Most of it is 17 asset files, each given as an absolute path twice in result.publish.files.\n- decisions.md:511 (DR-21 as amended) says `schema --command LEAF` returns its closure 'under 1,500 tokens'. DR-85 and architecture.md:998 say 'Everything an agent can reach is capped'.\n- DR-85 also made `schema --command LEAF` the hint and details.schema of every CLI invalid_argument, and cli.rs `with_usage` builds that handle.\n- `grep schema crates/planroom/tests/budgets.rs` finds nothing; budgets.rs checks only map. No record accepts either overrun.",
+    "why": "KICKOFF principle 2: every agent-facing output has a size budget. Here the budgets are declared but not kept, on the exact path DR-85 built for an agent's wrong argument: tool error, then the hint, then a read 30% over budget. share is reachable through room_handoff and `/room share`. The docs are right; the code drifted, and the test that should catch it covers only map.",
+    "fix": "Bring `schema --command` under 1,500 tokens: drop the duplicated summary and long descriptions from the $defs closure, or page it. Make share's publish arguments compact: relative `files` plus one `root`, which the Artifact tool accepts. If 800 can't hold the publish arguments, raise share's budget in a record. Extend budgets.rs to assert tokens_est at most budget_tokens for every built leaf's reply on the fixture."
+   },
+   {
+    "id": "drift-r2-2",
+    "title": "drift-2's fix left the mod hand-copying contract types: the envelope as `Reply`/`ReplyError`, and the version and resolver-status replies as ad-hoc shapes",
+    "severity": "material",
+    "where": [
+     "packages/mod/src/engine.ts:25-43 (Reply, ReplyError)",
+     "packages/mod/src/engine.ts:107-116 (version --json result)",
+     "packages/mod/src/engine.ts:147-160 (status --json)",
+     "packages/canvas/src/transport/local.ts:9,117-119 (uses the generated Envelope)",
+     "docs/contributing/contracts.md:9 ('nobody hand-copies a type across the language boundary')"
+    ],
+    "evidence": "Read the code.\n- engine.ts:25 declares `interface Reply { ok: boolean; command?: string; summary?: Envelope[\"summary\"]; result?: unknown; error?: ReplyError; meta?: Record<string, unknown> }`.\n- engine.ts:35 declares `ReplyError { code: string; category?: string; retry?: string; ... }`. toolError() then casts these back to the generated types (`error.category as Category`, `error.retry as Retry`).\n- engineFromVersion reads `{version?: string; catalogue_hash?: string}` instead of the generated VersionInfo.\n- pathFromStatus parses `{ok?: boolean; path?: unknown}` instead of the generated ResolverStatus, which DR-85 added to the contract for this consumer.\n- The canvas shows the generated Envelope is usable: local.ts imports and uses `Envelope` from @planroom/contract.\n- `grep -rn 'ok: boolean\\|code: string' packages/*/src` finds these hand-declared envelope shapes only in the mod.",
+    "why": "KICKOFF constraint 'One contract source ... Never hand-copy types across the language boundary'. Round 1 rated this same class of drift material (drift-2), and DR-85 says 'The contract owns what crosses the language boundary'. With `code: string`, a renamed ErrorCode or Envelope field compiles silently in the mod, the one surface that turns envelopes into tool results. Severity note: these are narrower 'as far as the mod reads it' copies, not full duplicates, but the constraint is absolute.",
+    "fix": "Type parseReply's result as the generated `Envelope` (with `ErrorObject`), and the version and status replies as `VersionInfo` and `ResolverStatus` from @planroom/contract. Then delete Reply, ReplyError and the inline shapes."
+   },
+   {
+    "id": "drift-r2-3",
+    "title": "import answers the Artifact canvas's `--detail graph` read requests through the agent-capped map, and drops the truncation, so the page silently draws a partial map",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/import.rs:245-268",
+     "crates/planroom/src/app/map.rs:33-43 (run vs for_canvas)",
+     "packages/canvas/src/store.ts:111 (mapRequest = {detail: 'graph', level})",
+     "docs/contributing/decisions.md DR-85 ('map keeps its budget'; alternatives rejected: 'Capping --detail graph for the canvas')"
+    ],
+    "evidence": "Verified. On the fixture copy I piped one inbox read-request line into `import - --json` with no person token: request {level:'code', detail:'graph'}, path inbox/u1/events/d1. The answer file share/sync/5-\u2026/answers/d1.json had keys [format, handle, seq, result], with 21 nodes and hidden 0. `map --level code` reports a total of 85 blocks, so nothing in the Answer says 64 are missing.\n- import.rs:245 calls `map::run` (capped), not `map::for_canvas`, and copies only `reply.result` into Answer, so meta.truncated and the truncated warning are lost.\n- The Artifact page asks for `detail: 'graph'` (canvas store.ts:111) for every view outside the snapshot.",
+    "why": "DR-85 contradicts itself here. It caps 'import's read answers' as agent-facing, yet rejects 'Capping --detail graph for the canvas: it would draw a partial map with no way to page'. The Artifact page is the canvas (DR-83), and these answers are its layout input. The code follows the first sentence, and with `hidden: 0` and no warning the cut is silent. Architecture says hidden nodes are 'never a silent loss'. The canvas side is right.",
+    "fix": "Answer `--detail graph` read requests with `map::for_canvas`, still held to DB_DOC_MAX_BYTES, which import already checks. Or keep the cap but carry the truncated warning (or set `hidden`) in the Answer, so the page can say so. Then correct DR-85's sentence in a record."
+   },
+   {
+    "id": "drift-r2-4",
+    "title": "Tool descriptions list leaf summaries, not the generated synopses contracts.md and architecture.md promise; catalogue.ts carries no tool specs or ROOM_COMMANDS",
+    "severity": "minor",
+    "where": [
+     "packages/mod/src/tools.ts:16-62",
+     "packages/contract/src/generated/catalogue.ts (exports only CatalogueLeaf, CATALOGUE, CATALOGUE_HASH, FALLBACK_PANES)",
+     "docs/contributing/contracts.md:39-40,77,941 ('The description holds one generated synopsis line per leaf')",
+     "docs/contributing/architecture.md:1332 ('Descriptions are generated, one synopsis line per leaf')"
+    ],
+    "evidence": "Read the code.\n- tools.ts builds each description as `${INTROS[name]}\\n` plus `leaves.map((l) => `${l.name}: ${l.summary}`)`. That gives 'map: The map at a level through a lens.' with no flags.\n- The INTROS strings are hand-written in the mod.\n- The engine already generates clap synopses ('planroom map [--level intent|system|\u2026] \u2026', cli.rs `synopsis`), but they reach an agent only inside an invalid_argument.\n- The Codegen flow says catalogue.ts holds 'tool input schemas, ROOM_COMMANDS'. `grep -rn 'ROOM_COMMANDS\\|TOOL_SPECS' packages crates` finds nothing.",
+    "why": "An agent on room_query isn't told `--level` exists, so its first try at a level is likely a wrong-argument round trip into the over-budget schema read (drift-r2-1). That is the token cost DR-51 and DR-66 designed the synopsis line to avoid. The docs are right.",
+    "fix": "Have `cargo xtask gen` write each leaf's clap synopsis into catalogue.ts. Build the tool description from those synopses, keeping the 900-character budget, and move the intros to en.toml."
+   },
+   {
+    "id": "drift-r2-5",
+    "title": "DR-85's map drill-down never reaches /room text, and the shipped skill tells agents to page with `meta.next`, which map doesn't set until M2",
+    "severity": "minor",
+    "where": [
+     "packages/mod/src/room.ts:96-114 (handlesOf)",
+     "plugin/skills/planroom/SKILL.md ('When meta.next is set, page with it')",
+     "docs/contributing/contracts.md:117 (meta.next is a Cursor)"
+    ],
+    "evidence": "Read the code.\n- handlesOf collects `result.meta[\"next\"]` (treated as Handle or Handle[]), `result.empty.next` and `result.next`. It never reads meta.warnings[].details.next, where DR-85 puts map's drill-down (verified: `map --level code --json` gives meta.truncated true, warnings[0].details.next = {map, [--level, component]}).\n- meta.next is an opaque Cursor string per contracts.md:117, so the isHandle filter always drops it.\n- So `/room map --level code` text is only the summary line '85 at the top: \u2026; and 73 more.', with no way down.\n- The planroom skill tells agents to page via meta.next, which map never sets until M2 (DR-85).",
+    "why": "DR-85 says the truncated warning names 'a drill-down that runs today', and that `/room` shows the summary with the reply's handles. On the /room surface that handle is lost. The person and the model see an apparently whole list with no next step, and the skill steers agents to a field that doesn't exist yet.",
+    "fix": "In handlesOf, add the `details.next` of any warning that carries a Handle, and stop reading meta.next as a Handle. In the skill, tell agents to follow a `truncated` warning's `details.next` until paging lands."
+   },
+   {
+    "id": "drift-r2-6",
+    "title": "Usage-error messages lose their content or nest a bug message: clap's first line only, and share's bad --out says 'Planroom hit a bug'",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/cli.rs:264-268 (usage_error: first rendered line only)",
+     "crates/planroom/src/app/share.rs:221-226 (bad_out wraps the internal error text)"
+    ],
+    "evidence": "Ran the binary.\n- `share --json` (missing --out) gives message \"The command line isn't valid: the following required arguments were not provided:.\". The argument's name is on clap's next line, which usage_error drops (`rendered.lines().next()`). The same happens for any multi-line clap error.\n- `share --out <existing file> --json` gives message \"--out must name a directory Planroom can write: Planroom hit a bug: \u2026/afile: File exists (os error 17)\". share.rs:221 maps ensure_dir's internal AppError message into invalid_argument.",
+    "why": "AGENTS.md conventions: 'Messages are one line, engine-authored'. A message that ends in a dangling colon, or calls a user's path mistake 'a bug', is wrong and costs a person or agent a second read. The first was introduced by drift-1's fix.",
+    "fix": "For MissingRequiredArgument, build the message from the error's InvalidArg context, as usage_field already does for `field`, instead of the first rendered line. In share.rs, pass the OS error's own text, not the internal error's display, into argument.share_out."
+   },
+   {
+    "id": "drift-r2-7",
+    "title": "The documented uint64 schema lint isn't built and isn't among the steps `check` prints as 'not built'; the schema has unannotated uint64 in 21 $defs",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/contracts.md:16",
+     "crates/xtask/src/main.rs:180-187 (CHECK_NOT_BUILT)",
+     "schema/planroom.v1.schema.json"
+    ],
+    "evidence": "- contracts.md:16: 'A schema lint in `xtask` fails on a `uint64` without an annotation [rust-stack G8]'.\n- `grep -rn 'uint64\\|2^53\\|MAX_SAFE' crates/xtask/src` finds nothing.\n- CHECK_NOT_BUILT lists six steps, and this isn't one.\n- The committed schema has 26 `\"format\": \"uint64\"` occurrences across 21 $defs (Meta, Snapshot, LiveHead, InboxRow, StreamFrame, ToolMeta, LastSeq, \u2026), none annotated.",
+    "why": "repo-1's fix (DR-85) promised that `check` names every documented gate nobody built. This one is missing from that list and has no milestone. A Seq above 2^53 would lose precision in the generated TS types with no gate to catch it.",
+    "fix": "Add the lint to `cargo xtask check`, or add it to CHECK_NOT_BUILT with its milestone and give it a row in the M1 plan."
+   },
+   {
+    "id": "drift-r2-8",
+    "title": "architecture.md restates VersionInfo without `target`, contradicting contracts.md and DR-82",
+    "severity": "minor",
+    "where": [
+     "docs/contributing/architecture.md CLI table, `export`/`schema`/`doctor`/`version` row ('version --json reports {version, git_commit, schema_version, catalogue_hash}')",
+     "docs/contributing/contracts.md (VersionInfo { version, git_commit, target, schema_version, catalogue_hash })"
+    ],
+    "evidence": "Read the docs and ran the binary.\n- `version --json` returns {version, git_commit, target, schema_version, catalogue_hash}.\n- contracts.md and DR-82 list `target`; architecture.md's CLI table omits it.",
+    "why": "AGENTS.md: every fact has one home, and others link to it. This restatement drifted when DR-82 added `target`. The code and contracts.md are right.",
+    "fix": "Replace the field list in architecture.md with a link to contracts.md's VersionInfo."
+   },
+   {
+    "id": "drift-r2-9",
+    "title": "The resolver's `--json` output isn't valid JSON when an interpolated value holds a control character",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:48-50 (json_string)",
+     "plugin/scripts/planroom:425 (override_missing message interpolates PLANROOM_ENGINE)"
+    ],
+    "evidence": "Ran `PLANROOM_ENGINE=\"$D/a<TAB>b\" sh plugin/scripts/planroom version --json`. Python's json.loads fails with 'Invalid control character at: line 1 column 259'. json_string escapes only backslash and double quote. Any message or details value built from a path, such as $data, $PLANROOM_ENGINE or $missing, can carry a raw control character or newline.",
+    "why": "AGENTS.md: '--json mode prints exactly one JSON document on stdout'. DR-85 made every resolver output a generated contract template, and the mod's parseReply then treats the reply as non-JSON and reports `failed`/`internal`.",
+    "fix": "Escape control characters in json_string (\\t, \\n, \\r, and \\u00XX for the rest), for example with an od/sed pass or awk. Add a case to the installer suite's one-document test."
+   },
+   {
+    "id": "drift-r2-10",
+    "title": "The resolver reports a data-root mkdir failure as `download_failed`, so the mod offers a source build for a permissions problem",
+    "severity": "minor",
+    "where": [
+     "plugin/scripts/planroom:180",
+     "packages/mod/src/engine.ts:133-138"
+    ],
+    "evidence": "Read the code.\n- planroom:180: `unavailable \"$contract_reason_download_failed\" \"Couldn't make $data/engine.\" \"check the permissions of $data\"`.\n- engine.ts maps reason `download_failed` (with no_release and no_build) to status `build_offered`.\n- contracts.md defines download_failed as 'the download failed or didn't verify'.",
+    "why": "A reason that doesn't match its documented meaning makes the mod deal a minutes-long source build card that can't succeed, because the build also writes under the data root. It also hides the fix line the resolver gave.",
+    "fix": "Use a distinct reason (add one to UnavailableReason and regenerate contract.sh) or `failed`, and leave the mod's mapping of download_failed to build_offered for real download failures."
+   },
+   {
+    "id": "drift-r2-11",
+    "title": "import's summary counts a refused row as not refused",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/import.rs (summary counts)"
+    ],
+    "evidence": "Ran `echo '{\"path\":\"x\"}' | planroom import - --json` in the mini workspace. Summary: \"Read requests answered: 0. Rows refused: 0. Rows left for a person's sync: 0.\", while result.rows[0] = {path:'x', status:null, reason:\"x isn't an inbox row's path, inbox/<uid>/events/<docId>.\"}.",
+    "why": "The engine-authored summary is now the whole of `/room sync`'s text (DR-85), so a person and the model are told nothing was refused when a row was.",
+    "fix": "Count rows rejected before classification, the ones with a reason and status null, as refused, or give them a status, and add a case to s11_remote.rs."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "drift-r2-1",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced on a scanned copy of target/e2e/fixture/shop. `schema --command map|focus|scan --json` gives meta.size.tokens_est 1937, 1952 and 1951, with no meta.truncated. SCHEMA's budget_tokens is 1_500 (crates/contract/src/command.rs:189), and DR-21 as amended (decisions.md:511) says `schema --command LEAF` returns its closure 'under 1,500 tokens'. `share --out DIR --json` gives tokens_est 1285 to 1323 against SHARE's budget_tokens 800 (command.rs:254-259). It is still about 910 tokens if --out is an 8-character path, because 19 absolute-path occurrences make up most of the reply and share canonicalizes --out. The only tests of these leaves are tests/version.rs:52, which checks `schema --commands` and not `--command LEAF`, and budgets.rs, which checks map and scan only. No record or README entry accepts either overrun. DR-85 (decisions.md:2101) and architecture.md:998 say everything an agent can reach is capped. Kept material: the budgets are declared but not kept, on the hint path DR-85 built for invalid_argument and on room_handoff, which is against KICKOFF principle 2 ('every agent-facing output has a size budget') and the design decision that set it."
+  },
+  {
+   "id": "drift-r2-2",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Confirmed by reading the code. packages/mod/src/engine.ts:25-43 hand-declares `Reply` and `ReplyError`, which duplicate the generated Envelope and ErrorObject (packages/contract/src/generated/output.ts:1119, 576). engineFromVersion reads an inline `{version?, catalogue_hash?}` instead of VersionInfo (output.ts:2159), and pathFromStatus reads an inline `{ok?, path?}` instead of ResolverStatus (output.ts:1919), which DR-85 (decisions.md:2098) moved into the contract for this consumer. One part of the 'why' is wrong: the generated ErrorCode is itself an open `(...) | string` union (output.ts:50), so typing `code` from the contract would not catch a renamed code either. A renamed or retyped Envelope, ErrorObject, VersionInfo or ResolverStatus field would still compile silently in the mod. This is the same class of defect, under the same absolute KICKOFF constraint (KICKOFF.md:239, 'Never hand-copy types across the language boundary'), that round 1's drift-2 kept material. The Reply interface predates that fix (commit 8818cad), and DR-85's list of types to move didn't name it."
+  },
+  {
+   "id": "drift-r2-3",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced on the fixture copy. One read request {level:'code', detail:'graph'} piped to `import - --json` with no token wrote an Answer with keys [format, handle, seq, result], 21 nodes and hidden 0. The CLI's `map --level code --detail graph` reports meta.truncated true and warnings[0].details {kept:21, total:83}. import.rs:245 calls `map::run` (capped) rather than `map::for_canvas` (map.rs:33-43) and copies only reply.result, so the truncation signal is lost. The canvas asks for detail 'graph' (packages/canvas/src/store.ts:111). DR-85's text does list 'import's read answers' as capped, so the cap follows the record. The defect is the silent cut: hidden is 0 and no warning reaches the page. s11_remote.rs compares the answer only with the capped CLI map, so no test catches it. Minor, since it affects only the remote canvas's views outside the snapshot."
+  },
+  {
+   "id": "drift-r2-4",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. packages/mod/src/tools.ts:16-22 hand-writes INTROS, and line 49 builds each description from `${l.name}: ${l.summary}`. CatalogueLeaf in packages/contract/src/generated/catalogue.ts has no synopsis field, and the file exports only CatalogueLeaf, CATALOGUE, CATALOGUE_HASH, FallbackPane and FALLBACK_PANES. `grep ROOM_COMMANDS|TOOL_SPECS` finds them only in docs: contracts.md:40,77,79 and old research. contracts.md:941 and architecture.md:1004,1332 promise one generated synopsis line per leaf. No round-1 finding covers this. Minor: the description still works, it is just less informative than documented."
+  },
+  {
+   "id": "drift-r2-5",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. handlesOf (packages/mod/src/room.ts:94-111) collects only meta.next, result.empty.next and result.next. It never reads meta.warnings[].details.next, even though ToolMeta carries warnings (output.ts:2119-2125). meta.next is a Cursor (contracts.md:117), so isHandle drops it. On the fixture, `map --level code --json` sets meta.next None, a truncated warning whose details.next is {map, [--level, component]}, and the summary '83 at the top: ...; and 71 more.'. So /room text offers no drill-down. plugin/skills/planroom/SKILL.md:36 tells agents to page with meta.next, which map doesn't set until M2 (DR-85). The tool path still delivers the warning to the model, which keeps this minor."
+  },
+  {
+   "id": "drift-r2-6",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced. `share --json` without --out gives message \"The command line isn't valid: the following required arguments were not provided:.\" because cli.rs:265 keeps only the first rendered line of clap's error. details.field 'out' and the synopsis do survive, which softens the impact. `share --out <existing file> --json` gives \"--out must name a directory Planroom can write: Planroom hit a bug: .../afile: File exists (os error 17)\", because share.rs:221 passes ensure_dir's internal AppError message into argument.share_out. This breaks the one-line engine-authored message rule. Minor."
+  },
+  {
+   "id": "drift-r2-7",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. contracts.md:16 says an xtask schema lint fails on an unannotated uint64. A grep of crates/xtask/src for uint64, 2^53 or MAX_SAFE finds nothing, and the only mention of 2^53 in crates is a doc comment at crates/contract/src/model.rs:13. CHECK_NOT_BUILT (crates/xtask/src/main.rs:180-187) lists six steps, and this lint isn't one. schema/planroom.v1.schema.json has 26 `\"format\": \"uint64\"` occurrences. A mitigating point: CHECK_NOT_BUILT covers steps 'repo-layout.md puts in check', and repo-layout.md doesn't name this lint, so the gap is undocumented and unscheduled rather than a broken promise of repo-1's fix. Minor."
+  },
+  {
+   "id": "drift-r2-8",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. architecture.md:1249 says `version --json` reports `{version, git_commit, schema_version, catalogue_hash}`. contracts.md:340 (the home, per DR-82) lists `target` as well, and the binary returns it. This is a doc restatement that drifted. Minor."
+  },
+  {
+   "id": "drift-r2-9",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced. PLANROOM_ENGINE set to a path containing a tab, with PLANROOM_DATA in scratch, made `sh plugin/scripts/planroom version --json` exit 7 and print a document that json.load rejects ('Invalid control character at: line 1 column 248'). json_string (plugin/scripts/planroom:48-50) escapes only backslash and double quote. Minor: the trigger is unusual, but it breaks the one-JSON-document rule."
+  },
+  {
+   "id": "drift-r2-10",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Confirmed. In take_lock (plugin/scripts/planroom:178-181), a failed `mkdir -p \"$data/engine\"` reports reason download_failed. contracts.md:211 gives download_failed the meaning 'the download failed'. engine.ts maps download_failed to build_offered. The 'hides the fix line' claim is overstated, because build_offered carries `fix`. The misclassification is real but rare. Minor."
+  },
+  {
+   "id": "drift-r2-11",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced. `echo '{\"path\":\"x\"}' | planroom import - --json` returns ok true with summary 'Read requests answered: 0. Rows refused: 0. Rows left for a person's sync: 0.' while rows[0] has status null and a reason. import.rs:173 counts only status == Refused. Such a row isn't acked refused in the db sense, but the summary, which is /room sync's whole text, reports nothing wrong. Minor."
+  }
+ ]
+}

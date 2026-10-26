@@ -1,0 +1,183 @@
+{
+ "lens": "correctness",
+ "review": {
+  "summary": "Round 2 of the CORRECTNESS AND CONCURRENCY lens, run on commit 30898ce. The binary target/debug/planroom was built at 14:13:10, after the last source change (scan.rs at 14:13:01), so it matches the tree. I read crates/store (commit, read, tail, layouts, presence, lib), crates/extract (walk, git, files, compose, verify), crates/kernel (tree, facts, keys, display), crates/planroom/src/app (scan, map, focus, share, import, person, actor, data, workspace), live.rs, server/mod.rs and server/routes.rs, and text.rs. I ran the binary on fresh copies of the fixture from examples/build-fixture, in the scratchpad, with PLANROOM_DATA pointed at temporary directories. I didn't run cargo, pnpm or xtask, and I wrote nothing under the repository.\n\nFix check for the round-1 material findings in this lens:\n- correctness-1 and unasked-3: the fix holds. On a fresh copy I made three changes before the first scan: a dirty edit to platform/docker-compose.yml, kit/CHANGELOG.md moved away, and an untracked kit/scratch/deep/notes.txt plus an empty kit/EMPTY_UNTRACKED. The first scan kept all 9 containers. A read-only look at store.db showed kit:file:CHANGELOG.md present and no scratch or EMPTY_UNTRACKED facts. So the correctness-2 symptom is gone too. One caveat: stores written before the fix are not healed (see correctness-19).\n- correctness-4: the fix holds. I seeded workspaces.json with a top-level \"future_key\" and an entry's \"label\". `serve --detach --port 41778` kept both fields, created workspaces.json.lock (mode 0600) and wrote min_reader_version. With min_reader_version set to 9.0.0, serve returned schema_mismatch with details.file set, and the file was unchanged (cmp showed it identical).\n- These also hold where they touch this lens:\n  - drift-1: a bad flag under --json gives one invalid_argument envelope with field, synopsis and schema.\n  - ux-6: map in an empty directory returns no_repos, ok, with a focus next action.\n  - unasked-1: EventBody::Unknown and the open EventKind are in contract/src/event.rs; I checked this by reading the code only.\n  - unasked-8 for map: the code level is cut to 22 of 83 blocks with the truncated warning.\n\nNew findings. All but correctness-21 were reproduced with the binary; correctness-21 and the second half of correctness-16 come from reading the code only:\n- Material:\n  - Snapshot facts depend on inputs outside the snapshot key: the workspace's repo set, which compose joins on, and the branch. The map then depends on scan history (correctness-13).\n  - A scan that started before a commit can land after a newer scan and move the repo back to the old commit, recorded as a real move (correctness-14).\n  - The DR-85 commit walk triggers lazy fetches in partial clones. These ran a command named in the scanned repo's local git config (correctness-15).\n  - One `git init`'d repo with no commits fails the whole workspace's scan, and the empty state's next action is that failing scan (correctness-16).\n  - scan's reply is uncapped through the partial_scan warning: 160 KB, about 40k tokens, for a 60k-file repo (correctness-17).\n- Minor:\n  - A tag that shares the branch's name drops the repo node and all its directories (correctness-18).\n  - The DR-85 extraction change didn't change packs_hash, so pre-fix stores keep their working-tree facts (correctness-19).\n  - Template substitution re-expands values: a repo named {commit} prints \"Scanned 0b305cb at 0b305cb.\" (correctness-20).\n  - The merged node's winner depends on snapshot insertion order (correctness-21).\n\nKnown gaps I saw but didn't re-report: correctness-3, 5, 6, 7, 8, 9, 10, 11 and 12, and security-1, 2 and 10. They are unchanged in the code.\n\nNote: a serve process I didn't start was running from scratchpad/r2, probably another reviewer's. I left it alone and stopped only my own servers.",
+  "findings": [
+   {
+    "id": "correctness-13",
+    "title": "A snapshot's facts still depend on things outside its key: the compose join reads the workspace's repo set, and evidence reads the branch, so the map depends on scan history",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/scan.rs:45",
+     "crates/planroom/src/app/scan.rs:133-135",
+     "crates/extract/src/compose.rs:189-193",
+     "crates/extract/src/files.rs:67-72",
+     "crates/store/src/commit.rs:154-163",
+     "crates/store/src/commit.rs:293-311"
+    ],
+    "evidence": "Verified with the binary.\n\nThe repo-set case, on a fresh fixture copy (scratchpad f1):\n1. Move `orders` out of the workspace and run `scan . --json`. Containers include ws:container:orders.\n2. Move orders back and scan again. The summary says 'Mapped 5 repos, 1 of them moved'. `map --level container` still lists ws:container:orders.\n3. Scan a third time: '0 of them moved'.\n4. A fresh store on an identical copy (f2) lists orders:container:orders instead.\n\nThe cause: compose gets `opts = {\"repos\": names}` (scan.rs:133-135) and joins a service to a repo namespace only if that repo is in the list (compose.rs:189-193). The snapshot key is (repo, commit, purpose, packs_hash) (commit.rs:301-305), and facts are inserted only when the snapshot is new (commit.rs:156). So platform's facts stay frozen at whatever repo set its commit first saw.\n\nThe branch case, on f2:\n1. `git -C kit checkout -b feature && git -C kit branch -D main`, then scan: '0 of them moved'.\n2. store.db (read-only) still has snapshots.branch='main', and kit:repo:kit's evidence is `{type: ref, ref: refs/heads/main}`, a ref that no longer exists.\n\nThe scan summary's node counts come from the fresh extraction, not from the stored facts, so the reply contradicts the map.",
+    "why": "DR-85 says a snapshot's facts are a function of its key. That claim fixed correctness-1, and here it is false. Two stores of the same workspace at the same commits give different maps, depending on the order repos arrived. This is the same defect class round 1 called material. Joins between repos (S2: 'How does the web app reach the worker?') and container namespaces then depend on history, and evidence can name refs that don't exist (R2).",
+    "fix": "Make every extractor input part of the key. Add the sorted workspace repo names (and later, compose's image_roles options) to the snapshot key or the packs_hash input, and drop branch from per-snapshot facts. Better still, move the cross-repo join out of the per-repo extractor into the link snapshot, as DR-12's linkers intend. Store the branch on the scan event only, and let Ref evidence name only the commit."
+   },
+   {
+    "id": "correctness-14",
+    "title": "A slower scan that started before a commit lands after a newer scan and moves the repo back to the old commit, recorded as a real move",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/scan.rs:47-61",
+     "crates/extract/src/git.rs:85-89",
+     "crates/store/src/commit.rs:148-176"
+    ],
+    "evidence": "Verified with the binary, with SIGSTOP standing in for a slow extraction. The fixture had an extra 4,000-file repo `zzz` (scratchpad f4).\n1. P1 = `scan . --json` in the background. It reads platform's HEAD (4a8b57c) early, then spends seconds on zzz.\n2. Stop P1 after 1.5 s.\n3. Commit to platform (HEAD 4ff4006).\n4. Run P2 = `scan` to completion: '1 of them moved', seq 7.\n5. Resume P1. It returns ok, '1 of them moved'.\n\nThe store's platform scan events read: `3 4a8b57c735`, `7 4ff4006576`, `8 4a8b57c735`. `git rev-parse HEAD` is 4ff4006. commit_scan only compares the extracted snapshot with the active one (commit.rs:159-160), so an older head counts as a move. Its key differs because `previous` differs, so it gets a fresh idem (commit.rs:164-173). The map now shows the old commit until someone rescans.",
+    "why": "R10 and S8: 'No write is lost' while several agents, the canvas (POST /api/v1/scan) and sessions all write at once. The newer scan's state is overwritten, last writer wins. The event log, which the M1 reconciler reads, permanently records a false A\u2192B\u2192A revert, which would be classed as a regression.",
+    "fix": "In commit_scan's transaction, refuse to move a repo to a commit its scan didn't see as current. One way: record each repo's scan-event seq when extraction starts, and skip a repo whose active scan event is newer and names another commit. Another: re-run `git rev-parse HEAD` inside the transaction and drop a repo whose HEAD has moved on (Unchanged, with a warning)."
+   },
+   {
+    "id": "correctness-15",
+    "title": "The DR-85 commit walk triggers lazy fetches in partial clones, which run a command named in the scanned repo's local config",
+    "severity": "material",
+    "where": [
+     "crates/extract/src/walk.rs:74-120",
+     "crates/extract/src/git.rs:50-62",
+     "crates/extract/src/git.rs:111-126"
+    ],
+    "evidence": "Verified with the binary, on git 2.43.0.\n\nSetup: `git clone --filter=blob:none --sparse file://.../orders ws/orders`, then `git -C ws/orders config remote.origin.uploadpack \"sh -c 'echo ran > $S/pwned'; git-upload-pack\"`.\n\nResult: `scan . --json` returned ok, and $S/pwned contained 'ran'. An earlier run under strace counted 16 `git fetch origin ... --filter=blob:none --stdin` executions in one scan of a 23-file repo.\n\nThe cause: walk() cat-files every blob of HEAD's tree, including those outside the sparse cone. Partial-clone promisor fetches pull each missing blob, and that runs remote.*.uploadpack and core.sshCommand from the repo's local .git/config. git.rs clears the environment and turns off hooks and fsmonitor, but not lazy fetch.\n\nAssumed, not run: the old working-tree walk read only checked-out files, which are present locally, so this path is new with the fix.",
+    "why": "crates/extract/AGENTS.md says extract must not run anything from a scanned repo except git with hooks, external diffs and textconv off (DR-16, DR-64). A scan now executes a repo-configured command and goes to the network, mutates the user's object store, and makes sparse monorepo scans slow, one fetch per blob.",
+    "fix": "Never fetch during a scan:\n- pass `--no-lazy-fetch`, or set `GIT_NO_LAZY_FETCH=1`, on git 2.44 and later;\n- on older git, detect `extensions.partialClone` / `remote.*.promisor` and read with `-c remote.<name>.promisor=false`, or fall back to an uncovered list for blobs that `cat-file --batch-check` reports missing locally;\n- treat a missing blob as skipped with a partial_scan warning;\n- add a test with a partial clone and a planted uploadpack."
+   },
+   {
+    "id": "correctness-16",
+    "title": "One repo with no commits (fresh `git init`) fails the whole workspace's scan, and the empty state's next action is that failing scan",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/scan.rs:47-49",
+     "crates/planroom/src/app/scan.rs:104-107",
+     "crates/extract/src/git.rs:85-89",
+     "crates/planroom/src/app/map.rs:222-249"
+    ],
+    "evidence": "Verified with the binary, on a fresh fixture copy plus `git init -q -b main shop/newrepo`.\n- `scan . --json` returned ok:false, git_failed, retry never, hint null: 'git failed in newrepo: fatal: Needed a single revision'. No store was written.\n- `focus` and `map` then say 'Map these 6 repos? About 2 s.', with next action `scan <root>`, which fails again.\n\nThe cause: scan extracts every repo with `?` before opening the store (scan.rs:47-49), so one unborn HEAD aborts all repos.\n\nFrom reading the code, not run: in an already-scanned workspace, adding such a repo makes every later scan fail, so the map stops updating.",
+    "why": "This is the dead end ux-6 was rated material for, in another everyday state (a new repo cloned or initialised into the workspace). The KICKOFF principle says never show a blank state, and the next action must work. R1 says no repo gets nothing; here every repo gets nothing.",
+    "fix": "Treat an unborn HEAD (and any per-repo extraction failure) as that repo's own warning: no snapshot, a `repo_skipped` or `partial_scan` warning naming it, and the scan commits the others. Have discover or the empty state count only repos with a commit, or say which one has none."
+   },
+   {
+    "id": "correctness-17",
+    "title": "scan's reply is still uncapped: the partial_scan warning carries every uncovered path (160 KB, about 40k tokens, for a 60k-file repo)",
+    "severity": "material",
+    "where": [
+     "crates/planroom/src/app/scan.rs:115-124",
+     "crates/planroom/src/app/scan.rs:155-161",
+     "crates/extract/src/walk.rs:113-116"
+    ],
+    "evidence": "Verified with the binary. One repo of 60,000 small committed files (scratchpad f9). `scan . --json` gave a 160,733-byte envelope, meta.size.tokens_est 40,183. Its one warning, partial_scan, serializes to 170,174 bytes: `details.uncovered` lists all 10,000 paths past the 50,000-file bound. scan.rs:122 puts `walked.uncovered` into the details uncut. partial_parse's `paths` (scan.rs:159) is also uncut; evidence_dropped already samples 5. The map in the same reply was cut to budget by 6e07f6a, but the warnings around it weren't.",
+    "why": "The KICKOFF principle says every agent-facing output has a size budget. DR-85 says 'Everything an agent can reach is capped ... the top-level map in scan's reply (to scan's own budget)'. The mod runs scan as a tool (packages/mod/src/tools.ts:144). This is the same class as unasked-8, which round 1 rated material: one big repo puts tens of thousands of tokens into an agent's context.",
+    "fix": "Cap warning details:\n- uncovered and paths become a count plus the first N, say 20 (as evidence_dropped samples 5);\n- add a handle to list the rest when one exists;\n- make the envelope check meta.size against the leaf's budget_tokens for every command, not only map;\n- add a budgets test with a repo past MAX_FILES."
+   },
+   {
+    "id": "correctness-18",
+    "title": "A tag with the same name as the checked-out branch drops the repo node and all its directories; the files float to the top level, frozen for that commit",
+    "severity": "minor",
+    "where": [
+     "crates/extract/src/git.rs:87",
+     "crates/extract/src/files.rs:67-72",
+     "crates/extract/src/verify.rs:113-124"
+    ],
+    "evidence": "Verified with the binary. On a fresh fixture copy, `git -C kit tag main`; `git symbolic-ref --short HEAD` now prints 'heads/main'. Scanning then gave:\n- the evidence_dropped warning: '5 evidence items in kit didn't match commit d77bb65';\n- kit:repo:kit is gone, and 11 kit:file:* blocks sit at the top level;\n- `map --level component` has no kit blocks.\n\nThe cause: Ref evidence names `refs/heads/heads/main`, which verify can't find, so the repo node and the 4 directory nodes, whose only evidence is that Ref, are dropped. Because of the snapshot key (correctness-13), deleting the tag doesn't fix that commit's snapshot.",
+    "why": "It breaks R1's faithful roll-up for any repo with a release branch and tag of the same name, and the damage persists until the next commit.",
+    "fix": "Read the branch with `git symbolic-ref -q HEAD` (the full refname) or `rev-parse --symbolic-full-name HEAD`, and keep the full ref. Don't promote a node whose parent was dropped to a top block: drop it with its parent, or keep the parent when its children verify."
+   },
+   {
+    "id": "correctness-19",
+    "title": "The DR-85 extraction change didn't change packs_hash, so stores scanned before the fix keep their working-tree facts for every unchanged commit",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/app/scan.rs:34-36",
+     "Cargo.toml:6",
+     "crates/store/src/commit.rs:154-160"
+    ],
+    "evidence": "From reading the code. packs_hash is sha256('planroom.packs/v1', 'builtin@' + CARGO_PKG_VERSION, '[]'), and the version stayed 0.1.0-dev across 89c1bd4. A store whose first scan of a commit read a dirty working tree (the correctness-1 bug) reuses that snapshot after the upgrade (`put_snapshot` ON CONFLICT DO NOTHING; previous == snapshot gives Unchanged). So the fix never corrects it. The same applies to any dev or source-built engine whose extractors change without a version bump: DR-62 says a changed engine re-extracts, and a -dev build never does.",
+    "why": "Every pre-release user on the resolver's source-build path (S14) keeps the wrong map that correctness-1 described until each repo's next commit.",
+    "fix": "Add an extractor-version constant (or the engine's build commit, for -dev builds) to packs_hash, and bump it with any change to what the built-ins emit, starting with DR-85's walk."
+   },
+   {
+    "id": "correctness-20",
+    "title": "Template substitution re-expands placeholders inside values: a repo named `{commit}` prints 'Scanned 0b305cb at 0b305cb.'",
+    "severity": "minor",
+    "where": [
+     "crates/planroom/src/text.rs:21-24"
+    ],
+    "evidence": "Verified with the binary. A workspace with one repo directory named `{commit}`, scanned, then `watch --since 0` printed '1 Scanned 0b305cb at 0b305cb.'. `map` printed the name correctly. text::get replaces each `{var}` in turn over the whole growing string, so a repo-derived value holding a later placeholder's name is substituted again.",
+    "why": "Engine-authored lines (DR-21) can say false things about repo-derived names in frames, summaries and warnings. The display-sanitizing pass doesn't cover this.",
+    "fix": "Substitute in one pass over the template, scanning for `{name}` tokens and writing each value once, so values are never re-scanned."
+   },
+   {
+    "id": "correctness-21",
+    "title": "Merging one node ID across repos picks its winner by snapshot insertion order, so a shared container's name and props depend on scan history",
+    "severity": "minor",
+    "where": [
+     "crates/kernel/src/facts.rs:31-53",
+     "crates/store/src/read.rs:311-325",
+     "crates/planroom/src/app/map.rs:91-98"
+    ],
+    "evidence": "From reading the code only; not run. map::top reads facts ordered by snapshot ID then fact ID (read.rs:314), and merge_nodes stable-sorts by ID. For a tie in tier, the earliest wins (facts.rs:51-53). Two repos' compose files that both define `redis` emit ws:container:redis at the Config tier. After only the alphabetically first repo moves, its new snapshot has a higher ID, so the other repo's node now wins: its props such as `image`, its name and its evidence order. A fresh store gives the first repo's.",
+    "why": "Nondeterminism of the same kind as correctness-13. The fixture has one compose file, so S1 and S2 are unaffected today.",
+    "fix": "Break tier ties with a key that doesn't depend on history: sort the facts by (repo name, fact ID) before merging, or by the snapshot's repo name rather than its ID."
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "correctness-13",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced with target/debug/planroom (HEAD 3156a41). On a fresh fixture copy: I moved orders out and scanned, then moved it back and scanned again. `map --level container` still listed ws:container:orders. A fresh store on an identical copy lists orders:container:orders. The code matches the claim. The compose join filters on the `repos` opt (scan.rs:133-135, compose.rs:189-192). put_snapshot's conflict key is (repo, commit_id, purpose, packs_hash) (commit.rs:296-306), and facts are inserted only when `created` (commit.rs:155-157). So platform's facts stay frozen at the repo set its commit first saw. Branch case, also reproduced: `git -C kit checkout -b feature; git branch -D main`, then a rescan. snapshots.branch is still 'main', and kit:repo:kit's evidence is {type: ref, ref: refs/heads/main} (files.rs:67-72), a ref that no longer exists. This contradicts DR-85's stated invariant that a snapshot's facts are a function of its key (decisions.md:1940, 2094). Cross-repo joins (S2) then depend on scan history in a common workflow: a repo cloned into the workspace after the first scan. Material stands."
+  },
+  {
+   "id": "correctness-14",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced with a PATH git wrapper that sleeps 4 s for a slow repo zzz, standing in for SIGSTOP. P1 read platform HEAD 4a8b57c and stalled. I then committed to platform (d76e822) and ran P2 to completion. The store's platform scan events read seq 3 4a8b57c, seq 7 d76e822, seq 8 4a8b57c (snapshot 3, link 7). The repo was reverted to the stale commit and the revert was recorded as a real move. commit_scan (commit.rs:148-176) compares only with the active snapshot, and an existing idem gets an '#after:' suffix. Nothing checks whether the commit is still HEAD or whether the active event is newer. I found no handling in ws4-concurrency.md or the DRs. A newer write is lost under concurrent scans (R10/S8), and the event log gets a false revert. Material stands."
+  },
+  {
+   "id": "correctness-15",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced on git 2.43.0. I set uploadpack.allowFilter on the source, ran `git clone --filter=blob:none --sparse file://.../orders ws/orders`, then set remote.origin.uploadpack to \"sh -c 'echo ran > $S/pwned'; git-upload-pack\". `planroom scan . --json` returned ok with no warnings, and $S/pwned contained 'ran'. git.rs:50-62 clears the environment and disables hooks and fsmonitor, but does not disable lazy fetch, and cat-file --batch over every HEAD blob triggers promisor fetches. crates/extract/AGENTS.md:9 says extract must not run anything from a scanned repo except git with hooks, external diffs and textconv off. DR-64 refuses even a checkout when local config names an ssh command or a similar command. A scan now runs a repo-configured command and goes to the network. This is a security issue, so material stands. Not verified: the claim that the old working-tree walk avoided this."
+  },
+  {
+   "id": "correctness-16",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced. I scanned a fixture copy, then ran `git init -b main newrepo`. `scan . --json` then returned ok:false, git_failed, retry never, hint null: 'git failed in newrepo: fatal: Needed a single revision'. The existing map stays stale because every later scan fails. With no store, `focus --json` says 'Map these 6 repos? About 2 s.' and its next action is `scan <root>`, which fails the same way. The cause is that scan.rs:47-49 extracts with `?` before opening the store, so one bad repo fails the whole scan. The repo is in an everyday state, and the next action is a dead end, against KICKOFF's working-next-action and no-blank-state principle. Material stands."
+  },
+  {
+   "id": "correctness-17",
+   "refuted": false,
+   "severity_after": "material",
+   "reason": "Reproduced with a 60,000-path repo built with git fast-import (one blob). `scan . --json` gave a 180,733-byte envelope, meta.size.tokens_est 45,183. Its partial_scan warning's details.uncovered lists all 10,000 paths past MAX_FILES. scan.rs:115-124 puts walked.uncovered into the warning uncut; partial_parse's paths (scan.rs:155-161) are likewise uncut, while evidence_dropped samples 5. Scan's budget_tokens is a few hundred to 1,500, and the map in the same reply is fitted to it, but the warnings are not. This breaks the KICKOFF size-budget principle and DR-85's 'everything an agent can reach is capped'. The README does not log it as a known gap. Material stands."
+  },
+  {
+   "id": "correctness-18",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Reproduced. `git -C kit tag main` makes `symbolic-ref -q --short HEAD` print 'heads/main' (git.rs:85-89). The scan warned '5 evidence items in kit didn't match commit d77bb65 and were dropped'. The map then had no kit:repo:kit, and 11 kit:file:* nodes sat at the top level. The cause is that files.rs:70 builds refs/heads/heads/main. The trigger is rare, so minor is right."
+  },
+  {
+   "id": "correctness-19",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Checked by reading, not run. packs_hash is sha256('planroom.packs/v1', 'builtin@'+CARGO_PKG_VERSION, '[]') (scan.rs:34-36), and Cargo.toml's version is 0.1.0-dev. Merge commit 89c1bd4 changed extraction but not the version or the hash input. With put_snapshot's ON CONFLICT DO NOTHING and the previous==snapshot check giving Unchanged, a store scanned before the fix keeps its old facts for every unchanged commit. scan.rs's own comment claims a changed engine re-extracts (DR-62), and a -dev build never does. This affects only pre-release stores, so minor is right."
+  },
+  {
+   "id": "correctness-20",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Checked by reading, not run. text.rs:21-24 replaces each {var} in turn over the growing output. en.toml:105 has 'Scanned {repo} at {commit}.', and repo comes first, so a repo named '{commit}' is expanded again. The defect is real but rare, so minor is right."
+  },
+  {
+   "id": "correctness-21",
+   "refuted": false,
+   "severity_after": "minor",
+   "reason": "Checked by reading, not run. read.rs:89-103 returns facts by sorted snapshot ID, then fact ID. merge_nodes sorts stably by ID, and merge_group breaks specificity ties on the lowest index (Reverse(i)) (facts.rs:31-53). The tie winner therefore depends on snapshot insertion order, which is history. The fixture has a single compose file, so no current scenario is affected. Minor is right."
+  }
+ ]
+}
