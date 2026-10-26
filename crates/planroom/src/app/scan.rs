@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use planroom_contract::{
-    Actor, Client, CommandName, FactBatch, Handle, ScanReq, ScanResult, ScanStats, Surface, Warning,
+    Actor, Client, Command, CommandName, FactBatch, Handle, ScanReq, ScanResult, ScanStats, Surface, Warning,
     WarningCode,
 };
 use planroom_extract::git::Git;
@@ -60,7 +60,10 @@ pub fn run(req: &ScanReq, cwd: &Path) -> Result<Reply<ScanResult>, AppError> {
     };
     let done = store.commit_scan(&write, RULES)?;
     let recorded = done.repos.iter().filter(|(_, o)| matches!(o, RepoOutcome::Recorded { .. })).count();
-    let view = map::top(&store, &ws.root, None)?;
+    // The top-level map an agent reads in scan's reply keeps to scan's budget, as map's does.
+    let mut view = map::top(&store, &ws.root, None)?;
+    let budget = Command::Scan(ScanReq::default()).spec().budget_tokens;
+    warnings.extend(map::fit(&mut view, budget, None));
     let containers = map::top(&store, &ws.root, Some(planroom_contract::Level::Container))?.nodes.len();
     let summary = text::get(
         "scan.summary",

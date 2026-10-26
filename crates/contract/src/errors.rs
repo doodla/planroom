@@ -125,7 +125,7 @@ error_codes! {
         ["reason", "fix", "est_minutes", "canvas", "missing"];
     SchemaMismatch = "schema_mismatch", Unavailable, Never,
         "the store or a file is from a newer version, or this process is older than the store",
-        ["found", "supported", "writer_version"];
+        ["found", "supported", "writer_version", "file"];
     PackInvalid = "pack_invalid", Failed, Never, "a pack failed validation", ["file", "line", "reference"];
     GitFailed = "git_failed", Failed, Never, "git exited non-zero; stderr redacted", ["argv", "stderr"];
     Internal = "internal", Internal, Never, "a bug", ["report"];

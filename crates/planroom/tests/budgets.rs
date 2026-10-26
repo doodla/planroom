@@ -96,3 +96,26 @@ fn the_canvas_graph_over_serve_takes_every_block() {
     let reply = planroom::app::map::for_canvas(&req, tmp.path()).unwrap();
     assert!(reply.result.nodes.len() < 2_000 && !reply.warnings.is_empty());
 }
+
+/// `scan`'s reply carries the top-level map, which an agent reads too: it keeps to `scan`'s own
+/// budget. One compose file of 200 services puts 200 parentless containers at the top.
+#[test]
+fn scan_keeps_its_top_level_map_to_its_budget() {
+    let tmp = tempfile::tempdir().unwrap();
+    let services: String =
+        (1..=200).map(|n| format!("  service{n}:\n    image: example/service{n}:1\n")).collect();
+    git_repo(
+        &tmp.path().join("platform"),
+        &[("docker-compose.yml".into(), format!("services:\n{services}").into_bytes())],
+    );
+    let env = planroom(tmp.path(), &["scan", "--json"]);
+    let budget = u64::from(Leaf::Scan(planroom_contract::ScanReq::default()).spec().budget_tokens);
+    let meta = &env["meta"];
+    assert!(meta["size"]["tokens_est"].as_u64().unwrap() <= budget, "{meta}");
+    assert_eq!(meta["truncated"], true);
+    let warning = meta["warnings"].as_array().unwrap().iter().find(|w| w["code"] == "truncated").unwrap();
+    assert_eq!(warning["details"]["total"], 201, "the repo and its 200 containers");
+    let kept = env["result"]["map"]["nodes"].as_array().unwrap().len() as u64;
+    assert!(kept > 0 && kept < 201, "the first page is kept: {kept}");
+    assert_eq!(warning["details"]["kept"], kept);
+}

@@ -88,6 +88,8 @@ export function createCanvasStore(
   let unsubscribe: (() => void) | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let lastFetch = 0;
+  /** Counts loads; a load that a newer one overtook drops its result. */
+  let loads = 0;
 
   return createStore<CanvasState>()((set, get) => {
     const fail = (e: unknown) => {
@@ -101,6 +103,10 @@ export function createCanvasStore(
     };
 
     async function load(): Promise<void> {
+      // A load awaits the transport and the layout worker, and the level can change meanwhile:
+      // only the newest load writes, so an older one never puts back a view the person left.
+      const generation = ++loads;
+      const stale = () => generation !== loads;
       const level = get().level;
       const mapRequest = { detail: "graph", level };
       const partial = transport.partial;
@@ -110,6 +116,9 @@ export function createCanvasStore(
         const pane = partial.serves("focus", {})
           ? await transport.query<PaneModel>("focus", {})
           : null;
+        if (stale()) {
+          return;
+        }
         set({
           request: {
             ...partial.requested("map", mapRequest),
@@ -143,6 +152,9 @@ export function createCanvasStore(
           positionsOf(await layout(elkGraph(blocks, edgesOf(map)))),
         );
         laidOut = true;
+        if (stale()) {
+          return;
+        }
         // Stored under the key the engine named for this view and structure, so the next map
         // it serves carries these positions. A map with no key has nowhere to store them.
         const key = map.layout ?? null;
@@ -151,6 +163,9 @@ export function createCanvasStore(
           // A cache: a failed write only means the next tab lays out again.
           transport.saveLayout(write).catch(() => undefined);
         }
+      }
+      if (stale()) {
+        return;
       }
       const selected = get().selected;
       set({

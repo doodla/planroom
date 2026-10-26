@@ -362,6 +362,34 @@ describe("a transport that holds only some views", () => {
     });
   });
 
+  test("a load that started before a level change never overwrites that level's state", async () => {
+    const f = partialFake();
+    let release: () => void = () => undefined;
+    const slow = new Promise<void>((resolve) => (release = resolve));
+    let calls = 0;
+    const layout = vi.fn(async (g: ElkGraphIn) => {
+      calls += 1;
+      if (calls > 1) {
+        await slow;
+      }
+      return f.layout(g);
+    });
+    const store = createCanvasStore(f.transport, layout);
+    await store.getState().start();
+    // A live frame's refresh starts at the top level and waits on the layout worker...
+    const stale = store.getState().refresh();
+    await vi.waitFor(() => expect(calls).toBe(2));
+    // ...while the person dives into a level the transport doesn't hold.
+    await store.getState().showLevel("component");
+    expect(store.getState().request?.state).toBe("unavailable");
+    release();
+    await stale;
+    expect(store.getState()).toMatchObject({
+      level: "component",
+      request: { state: "unavailable", canAsk: true },
+    });
+  });
+
   test("a map handle, such as the pane's next action, shows its level", async () => {
     const f = partialFake();
     const store = createCanvasStore(f.transport, f.layout);
