@@ -18,7 +18,7 @@ export const CHOICE_COLUMNS = 20;
 /** What pressing a Button does. */
 export type Action =
   | { kind: "run"; command: string; args: string[]; label: string }
-  | { kind: "fallback"; run: "retry" | "build" };
+  | { kind: "fallback"; run: "retry" | "build" | "rekey" };
 
 export interface ButtonSpec {
   key: string;
@@ -354,6 +354,15 @@ export function bandRow(
     const f = source.fallback;
     if (f.action === null) {
       return text("band", f.headline, columns, "dim");
+    }
+    if (f.action.run === "rekey") {
+      // Replacing the registered key is a pane press, never a stray digit at the prompt (DR-75).
+      return text(
+        "band",
+        truncate(`${f.headline} /room to open it`, columns),
+        columns,
+        "dim",
+      );
     }
     const label = truncate(`${f.headline} ${f.action.label}`, columns - 3);
     return {

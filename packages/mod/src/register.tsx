@@ -14,7 +14,7 @@ import type {
 } from "claude-code";
 
 import { engineAtom, paneAtom } from "./atoms";
-import { roomLeaves } from "./catalogue";
+import { leaf, roomLeaves } from "./catalogue";
 import {
   engineFromVersion,
   engineMissing,
@@ -34,19 +34,50 @@ import {
   type Row,
 } from "./layout";
 import { binary, clientEnv, refreshPane, runProcess, watchStop } from "./live";
+import { personEnv, personKey, registerKey } from "./person";
 import { completions, helpText, parseRoom } from "./room-args";
 import type { EngineState } from "./state-types";
 import { timeoutFor, toolArgv, toolSpecs, type ToolInput } from "./tools";
 import type { ToolName } from "./catalogue";
+import { hasStore } from "./watch";
 
 const PANE = "planroom";
 const TITLE = "Planroom";
 
 type $ = EngineInterface;
 
+/** The session's working directory, which names the workspace a key is registered in. */
+let workspace = "";
+
 async function setEngine($: $, state: EngineState): Promise<void> {
   await update($, engineAtom, () => state);
   $.ui.status(state.status === "ready" ? undefined : (state.line ?? undefined));
+}
+
+/**
+ * Once focus answers from a store, register the person key with it, once per workspace; a
+ * workspace that knows another key turns the pane to its `person_key_mismatch` fallback.
+ */
+async function registerOnce($: $, rekey = false): Promise<void> {
+  const engine = await read($, engineAtom);
+  const pane = await read($, paneAtom);
+  const bin = binary(engine);
+  if (bin === null || pane.model === null || !hasStore(pane.model)) {
+    return;
+  }
+  const outcome = await registerKey($, bin, workspace, rekey);
+  if (outcome.kind === "mismatch") {
+    await setEngine($, {
+      ...engine,
+      status: "person_key_mismatch",
+      line: outcome.error.message,
+    });
+  } else if (
+    outcome.kind === "registered" &&
+    engine.status === "person_key_mismatch"
+  ) {
+    await setEngine($, { ...engine, status: "ready", line: null });
+  }
 }
 
 /**
@@ -56,6 +87,8 @@ async function setEngine($: $, state: EngineState): Promise<void> {
  */
 async function startEngine($: $): Promise<void> {
   watchStop();
+  // The person key is made on the first start and kept in $.store across sessions (DR-72).
+  await personKey($);
   const root = await $.env.get("CLAUDE_PLUGIN_ROOT");
   if (root === undefined) {
     await setEngine($, {
@@ -88,6 +121,7 @@ async function startEngine($: $): Promise<void> {
   await setEngine($, state);
   if (state.status === "ready") {
     await refreshPane($);
+    await registerOnce($);
   }
 }
 
@@ -112,8 +146,36 @@ async function runCommand(
   );
 }
 
-/** What a press does: a fallback's resolver step, or a catalogue command. */
+/**
+ * Run a catalogue command as the person: a press, a submit or a `/room` they typed. It carries a
+ * one-time token for exactly this line and never `PLANROOM_ACTOR` (DR-64). A write gets a fresh
+ * `idem` for this action, and a leaf that needs a base gets the pane's `seq`.
+ */
+async function personRun(
+  $: $,
+  command: string,
+  args: readonly string[],
+): Promise<ToolResult> {
+  const path = command.split(" ");
+  const spec = leaf(command);
+  const argv = [...path, ...args];
+  if (spec !== undefined && spec.class !== "read" && !args.includes("--idem")) {
+    argv.push("--idem", crypto.randomUUID());
+  }
+  if (spec?.needs_base === true && !args.includes("--base")) {
+    const pane = await read($, paneAtom);
+    if (pane.model !== null) argv.push("--base", String(pane.model.focus.seq));
+  }
+  argv.push("--json");
+  return runCommand($, argv, await personEnv($, argv, path.length));
+}
+
+/** What a press does: a fallback's resolver step, the key's re-registration, or a command. */
 async function act($: $, action: Action): Promise<void> {
+  if (action.kind === "fallback" && action.run === "rekey") {
+    await registerOnce($, true);
+    return;
+  }
   if (action.kind === "fallback") {
     if (action.run === "build") {
       const engine = await read($, engineAtom);
@@ -144,17 +206,14 @@ async function act($: $, action: Action): Promise<void> {
     await starting;
     return;
   }
-  const result = await runCommand(
-    $,
-    [...action.command.split(" "), ...action.args, "--json"],
-    await clientEnv($),
-  );
+  const result = await personRun($, action.command, action.args);
   $.ui.toast(
     result.ok
       ? `${action.label}: done`
       : (result.error?.message ?? `${action.label} failed`),
   );
   await refreshPane($);
+  await registerOnce($);
 }
 
 /** Rows as elements, sized by the layout to the body they draw in. */
@@ -264,6 +323,7 @@ async function handleTool(
 // level, its parameter spelled `on`. The bundle step keeps it that way (crates/xtask/src/modgen.rs).
 export function register(on: Parameters<Register>[0]): void {
   on("session.start", async ($, e, next) => {
+    workspace = e.cwd;
     await $.command.register({
       name: "room",
       description:
@@ -300,13 +360,18 @@ export function register(on: Parameters<Register>[0]): void {
       case "error":
         return { text: request.message };
       case "run": {
-        const argv = [
-          ...request.leaf.name.split(" "),
-          ...request.args,
-          "--json",
-        ];
-        const result = await runCommand($, argv, await clientEnv($));
+        // A /room the person typed acts as the person; one a plugin or the SDK ran doesn't.
+        const typed =
+          e.origin.kind === "composer" || e.origin.kind === "bridge";
+        const result = typed
+          ? await personRun($, request.leaf.name, request.args)
+          : await runCommand(
+              $,
+              [...request.leaf.name.split(" "), ...request.args, "--json"],
+              await clientEnv($),
+            );
         await refreshPane($);
+        await registerOnce($);
         return { text: JSON.stringify(result) };
       }
     }

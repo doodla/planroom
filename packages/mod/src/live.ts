@@ -67,9 +67,14 @@ export async function clientEnv($: $): Promise<Record<string, string>> {
   return { PLANROOM_CLIENT: `mod:${await $.session.id()}` };
 }
 
-/** The engine binary, once resolved. */
+/**
+ * The engine binary, once resolved. A person key the workspace doesn't know stops presses from
+ * acting as the person, not the engine, so reads, tools and the watch loop still run.
+ */
 export function binary(engine: EngineState): string | null {
-  return engine.status === "ready" ? (engine.path ?? engine.resolver) : null;
+  return engine.status === "ready" || engine.status === "person_key_mismatch"
+    ? (engine.path ?? engine.resolver)
+    : null;
 }
 
 /**

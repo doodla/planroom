@@ -1254,6 +1254,7 @@ export type EngineStatus =
   | "failed"
   | "unsupported_platform"
   | "version_mismatch"
+  | "person_key_mismatch"
   | "ready";
 
 /** The `engine` atom: written by session.start from the resolver's reply. */

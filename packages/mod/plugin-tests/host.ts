@@ -139,6 +139,13 @@ export function readyEngine(argv: readonly string[]): Answer {
   if (argv[0] === ENGINE && argv[1] === "focus") {
     return { exitCode: 0, stdout: JSON.stringify(focusReply) };
   }
+  if (argv[0] === ENGINE && argv[1] === "person" && argv[2] === "init") {
+    return {
+      exitCode: 0,
+      stdout:
+        '{"schema_version":1,"ok":true,"command":"person init","result":{"registered":true},"meta":{"seq":412}}',
+    };
+  }
   if (argv[0] === ENGINE && argv[1] === "map") {
     return {
       exitCode: 0,

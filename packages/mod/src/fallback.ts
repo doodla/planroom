@@ -9,7 +9,10 @@
 import type { EngineState } from "./state-types";
 
 /** What a fallback's one action does. */
-export type FallbackAction = { label: string; run: "retry" | "build" };
+export type FallbackAction = {
+  label: string;
+  run: "retry" | "build" | "rekey";
+};
 
 export interface Fallback {
   status: EngineState["status"] | "no_focus";
@@ -60,6 +63,16 @@ export function fallbackFor(
         headline: "This engine doesn't match the plugin.",
         detail: engine.line,
         action: { label: "Try again", run: "retry" },
+      };
+    case "person_key_mismatch":
+      // A pane Button only, never the band's, so a stray digit can't replace a key (DR-75).
+      return {
+        status: "person_key_mismatch",
+        headline: "This workspace knows another person key.",
+        detail:
+          engine.line ??
+          "Presses from this session can't act as you until you use its key.",
+        action: { label: "Use this session's key", run: "rekey" },
       };
     case "unsupported_platform":
       return {
