@@ -10,8 +10,8 @@ The full record of the build that `KICKOFF.md` describes. A later session should
 | Phase | State |
 |---|---|
 | 1. Understand | research done; mod and Artifact spikes in main session |
-| 2. Architecture | not started |
-| 3. Architecture review | not started |
+| 2. Architecture | done: 3 candidates, 3 judges, synthesis; main agent decided DR-43 |
+| 3. Architecture review | round 1 running |
 | 4. Walking skeleton | not started |
 | 5. Milestones M1–M5 | not started |
 | 6. Release | not started |
@@ -54,15 +54,42 @@ Each note under `docs/contributing/research/` separates verified facts from docs
 
 Phase 1 live spend: Jev $0.00517 (282 calls), Claude on the gateway about $0.022.
 
+### Phase 2 (Architecture)
+
+1. **A candidate built on an unmeasured bet.** Prevented by giving every architect the measured research and requiring each bet to name its proof and fallback (the synthesized design's "Biggest bets" table).
+2. **A scenario with no deterministic CI path.** Prevented by the judges' requirements lens scoring each tier A and B scenario's CI path, and `feature_list.json` naming one per scenario.
+3. **Constraint violations hidden in grafts** (the simplicity candidate dropped `$.model.complete`). Prevented by judges listing fatal flaws and the synthesis fixing each (DR-18).
+4. **Docs that contradict each other.** Prevented by one synthesizer writing all six deliverables, then the Phase 3 consistency checks.
+5. **A layout agents can't navigate.** Prevented by the R16 lens, `repo-layout.md`'s area contracts and the "where new code goes" table.
+
+### Phase 3 (Architecture review)
+
+1. **Reviewers anchored on the synthesis's framing.** Prevented by giving reviewers the documents and the brief only, never the synthesis notes or my reasoning, with one distinct lens each.
+2. **Real problems refuted away, or noise kept.** Prevented by a separate refuter per lens that must cite evidence to refute, and by materiality defined exactly as KICKOFF defines it.
+3. **Fixes applied in one doc but not its other homes.** Prevented by a fix pass that edits every home a fact has (architecture, decisions, contracts, layout, traceability, feature list), then a consistency check.
+4. **Lenses voting each other down.** Prevented by judging each finding within its own lens; a security finding never needs the UX reviewer's agreement.
+5. **Unbounded review.** Capped at 3 rounds; what's left is recorded as accepted risk with a one-line reason.
+
 ## Effort estimates
 
-Recorded per milestone at the end of Phase 2.
+From the synthesized architecture, in agent-hours of one focused build agent. Per KICKOFF, at twice a milestone's estimate, finish its tier A items, record the rest, and move on.
+
+| Milestone | Estimate | Twice | Actual |
+|---|---|---|---|
+| Walking skeleton | 26 h | 52 h | |
+| M1 kernel, store, code and plan packs, mod and canvas basics | 66 h | 132 h | |
+| M2 diffs, reconciliation, hand-off, Jev decisions | 68 h | 136 h | |
+| M3 multi-repo, observability, release | 30 h | 60 h | |
+| M4 artifacts, state machines, anatomy | 34 h | 68 h | |
+| M5 context curation, polish, release | 56 h | 112 h | |
+| Total | 280 h | | |
 
 ## Spend log
 
 | Phase | Agent tokens (rough) | Live model spend |
 |---|---|---|
 | 1. Understand (research + fixture) | about 3.1M subagent tokens | Jev $0.005, Claude gateway $0.022, Iris $0.27 |
+| 2. Architecture | about 3.1M subagent tokens | none |
 
 ## Log
 
