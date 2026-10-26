@@ -183,7 +183,7 @@ test("no_blank_pane: every fallback has a headline and at most one action, withi
 test("band_next_is_undoable: the band presses only a leaf a stray digit can't hurt", () => {
   const map = bandRow({ model: golden }, 80);
   expect(map.kind === "buttons" && map.buttons[0]?.hotkey).toBe("1");
-  // scan isn't undoable in the catalogue, so the band only names it.
+  // scan is a query (DR-81), so the band presses it; share can't be undone, so the band only names it.
   const scan = bandRow(
     {
       model: {
@@ -193,7 +193,17 @@ test("band_next_is_undoable: the band presses only a leaf a stray digit can't hu
     },
     80,
   );
-  expect(scan.kind).toBe("text");
+  expect(scan.kind).toBe("buttons");
+  const share = bandRow(
+    {
+      model: {
+        ...golden,
+        next: { command: "share", args: [], label: "Share as an Artifact" },
+      },
+    },
+    80,
+  );
+  expect(share.kind).toBe("text");
   const unknown = bandRow(
     {
       model: {

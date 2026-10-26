@@ -156,7 +156,7 @@ const SCAN: CommandSpec = CommandSpec {
         ErrorCode::SchemaMismatch,
         ErrorCode::Internal,
     ],
-    undo: Undo::NotUndoable("a scan records what the repos hold; scan again instead"),
+    undo: Undo::Query,
     tool: Some(Tool::RoomChange),
     room: true,
 };

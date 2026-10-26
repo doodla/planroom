@@ -48,7 +48,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "class": "change",
     "budget_tokens": 1500,
     "needs_base": false,
-    "undo": "not_undoable",
+    "undo": "query",
     "tool": "room_change",
     "room": true
   },
@@ -139,7 +139,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
 ];
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
-export const CATALOGUE_HASH = "4602c6652ecfaad917c01d06a2a1eccb47de05dfc27cf4baee8f0c155852556b";
+export const CATALOGUE_HASH = "7a8e3030f5d39bc230f10f8aa5565538b8c27fcb3a97666a1a9e58b021b0389d";
 
 /** One pane the mod draws before the engine answers `focus` (DR-57). */
 export interface FallbackPane {

@@ -105,6 +105,8 @@ test("a scan gets process.run's longest wait", () => {
 
 test("the band may press reads, never an irreversible or unknown leaf", () => {
   expect(bandMayRun("map")).toBe(true);
-  expect(bandMayRun("scan")).toBe(false);
+  // scan is a query (DR-81): a stray digit only maps the repos again.
+  expect(bandMayRun("scan")).toBe(true);
+  expect(bandMayRun("share")).toBe(false);
   expect(bandMayRun("handoff merge")).toBe(false);
 });

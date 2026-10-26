@@ -200,7 +200,7 @@ var CATALOGUE = [
     "class": "change",
     "budget_tokens": 1500,
     "needs_base": false,
-    "undo": "not_undoable",
+    "undo": "query",
     "tool": "room_change",
     "room": true
   },
