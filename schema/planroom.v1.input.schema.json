@@ -215,6 +215,19 @@
       ],
       "description": "The client a writer writes from, such as `tab_01J...`, `mod:<sessionId>` or `cli:4242`."
     },
+    "CodeReq": {
+      "type": "object",
+      "properties": {
+        "code_sha256": {
+          "type": "string",
+          "description": "The lowercase hex sha256 of the code."
+        }
+      },
+      "required": [
+        "code_sha256"
+      ],
+      "description": "`POST /api/v1/code`: a login code to register, by its sha256, sent with the control token from\n`serve.json`, so the code itself never reaches the server's memory or any argv (DR-29, DR-64)."
+    },
     "Command": {
       "oneOf": [
         {

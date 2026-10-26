@@ -27,7 +27,7 @@ person_key_mismatch = "press Use this session's key in the Planroom pane"
 focus_unsupported = "--focus isn't available yet; run map without it."
 person_key = "stdin must hold the person key: the base64url of an uncompressed P-256 point."
 bad_body = "The request body isn't valid: {why}"
-http_scan_dir = "scan over HTTP always maps the workspace it serves; leave dir out."
+http_scan_dir = "scan over HTTP always maps the workspace it serves; leave dir out or name that workspace."
 http_command = "command {command} on this server"
 unknown_leaf = "No command {leaf} in the catalogue; planroom schema --commands lists them."
 

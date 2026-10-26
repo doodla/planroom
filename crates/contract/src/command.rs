@@ -491,6 +491,14 @@ pub struct SessionReq {
     pub code: String,
 }
 
+/// `POST /api/v1/code`: a login code to register, by its sha256, sent with the control token from
+/// `serve.json`, so the code itself never reaches the server's memory or any argv (DR-29, DR-64).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CodeReq {
+    /// The lowercase hex sha256 of the code.
+    pub code_sha256: String,
+}
+
 /// The tab's bearer token, kept in `sessionStorage` and sent as `Authorization: Bearer`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SessionToken {

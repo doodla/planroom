@@ -215,6 +215,7 @@ fn serve(prepared: Prepared) -> Result<(), AppError> {
         root: prepared.root.clone(),
         store_path: prepared.store_path.clone(),
         auth: Mutex::new(prepared.auth),
+        control_token: prepared.control_token.clone(),
         store: Mutex::new(store),
         frames,
         login_page: Mutex::new(Some(prepared.page.clone())),

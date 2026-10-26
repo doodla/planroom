@@ -16,9 +16,10 @@ pub mod stream;
 pub mod view;
 
 pub use command::{
-    ActorRule, Class, Command, CommandList, CommandSpec, Detail, FocusReq, Idea, LayoutPut, LeafListing,
-    LeafSchema, MapReq, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo,
-    ServeReq, SessionReq, SessionToken, Tool, Undo, VersionInfo, VersionReq, WatchReq, WriteCommon,
+    ActorRule, Class, CodeReq, Command, CommandList, CommandSpec, Detail, FocusReq, Idea, LayoutPut,
+    LeafListing, LeafSchema, MapReq, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary,
+    ServeInfo, ServeReq, SessionReq, SessionToken, Tool, Undo, VersionInfo, VersionReq, WatchReq,
+    WriteCommon,
 };
 pub use decision::{Band, DecisionRecord, Outcome};
 pub use envelope::{
