@@ -132,6 +132,7 @@ const FALLBACK_STATES: &[&str] = &[
     "build_offered",
     "building",
     "version_mismatch",
+    "person_key_mismatch",
     "unsupported_platform",
     "failed",
     "no_focus",

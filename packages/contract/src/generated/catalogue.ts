@@ -125,7 +125,7 @@ export interface FallbackPane {
 }
 
 /** The fallback panes' strings, from the engine's `crates/planroom/text/en.toml`. */
-export const FALLBACK_PANES: Readonly<Record<"resolving" | "fetching" | "build_offered" | "building" | "version_mismatch" | "unsupported_platform" | "failed" | "no_focus", FallbackPane>> = {
+export const FALLBACK_PANES: Readonly<Record<"resolving" | "fetching" | "build_offered" | "building" | "version_mismatch" | "person_key_mismatch" | "unsupported_platform" | "failed" | "no_focus", FallbackPane>> = {
   "resolving": {
     "headline": "Looking for the Planroom engine…",
     "detail": null,
@@ -150,6 +150,11 @@ export const FALLBACK_PANES: Readonly<Record<"resolving" | "fetching" | "build_o
     "headline": "This engine doesn't match the plugin.",
     "detail": null,
     "action": "Try again"
+  },
+  "person_key_mismatch": {
+    "headline": "This workspace knows another person key.",
+    "detail": "Presses from this session can't act as you until you use its key.",
+    "action": "Use this session's key"
   },
   "unsupported_platform": {
     "headline": "Planroom can't run here.",

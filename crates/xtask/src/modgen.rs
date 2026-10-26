@@ -23,6 +23,7 @@ export type EngineStatus =
   | "failed"
   | "unsupported_platform"
   | "version_mismatch"
+  | "person_key_mismatch"
   | "ready";
 
 /** The `engine` atom: written by session.start from the resolver's reply. */
@@ -47,11 +48,30 @@ export interface PaneState {
   error: string | null;
 }
 
+/**
+ * The `lastSeq` atom: the `seq` of the last frame the watch loop read, so the loop starts again
+ * from it after a reload (DR-6); null before the first frame.
+ */
+export interface LastSeq {
+  seq: number | null;
+}
+
+/**
+ * The `turnSeq` atom: the main loop's current turn and the latest `meta.seq` a tool returned to
+ * the model in it, the default `base` of the tools' writes.
+ */
+export interface TurnSeq {
+  turnId: string | null;
+  seq: number | null;
+}
+
 declare module "claude-code" {
   interface PluginState {
     planroom: {
       engine: Shaped<EngineState>;
       pane: Shaped<PaneState>;
+      lastSeq: Shaped<LastSeq>;
+      turnSeq: Shaped<TurnSeq>;
     };
   }
 }

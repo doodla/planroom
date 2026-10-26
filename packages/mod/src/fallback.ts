@@ -11,7 +11,10 @@ import { FALLBACK_PANES } from "@planroom/contract";
 import type { EngineState } from "./state-types";
 
 /** What a fallback's one action does. */
-export type FallbackAction = { label: string; run: "retry" | "build" };
+export type FallbackAction = {
+  label: string;
+  run: "retry" | "build" | "rekey";
+};
 
 export interface Fallback {
   status: EngineState["status"] | "no_focus";
@@ -53,6 +56,9 @@ export function fallbackFor(
       return pane("building", engine.line);
     case "version_mismatch":
       return pane("version_mismatch", engine.line);
+    case "person_key_mismatch":
+      // A pane Button only, never the band's, so a stray digit can't replace a key (DR-75).
+      return pane("person_key_mismatch", engine.line, "rekey");
     case "unsupported_platform":
       return pane("unsupported_platform", engine.line);
     case "failed":

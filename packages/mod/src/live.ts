@@ -1,0 +1,266 @@
+/**
+ * Running the engine, and the watch loop (architecture.md, "Wiring" step 4; DR-6):
+ * `planroom watch --json` through `$.process.spawn` in a detached loop, each frame moving
+ * `lastSeq` and scheduling a `focus` refetch, and the child started again from `lastSeq` when it
+ * ends. A reload kills the child and the loop with the module; `session.start` then starts a new
+ * one from the `lastSeq` `$.state` kept.
+ *
+ * The host reads `$` only as `$.noun.call(...)` or passed to a function declared in the module,
+ * so this file is plain functions over module state, never methods that take `$`.
+ */
+
+import { read, update } from "claude-code";
+import type {
+  EngineInterface,
+  HookStream,
+  ProcessSpawnChunk,
+  ProcessSpawnResult,
+  Timer,
+} from "claude-code";
+import type { PaneModel, StreamFrame } from "@planroom/contract";
+
+import { engineAtom, lastSeqAtom, paneAtom } from "./atoms";
+import { parseReply, type Reply, type RunResult } from "./engine";
+import type { EngineState, PaneState } from "./state-types";
+import {
+  frameRefreshes,
+  frameSeq,
+  hasStore,
+  IDLE,
+  LineReader,
+  onFrame,
+  onTick,
+  parseLine,
+  restartDelay,
+  stopsTheLoop,
+  type Debounce,
+  type Step,
+} from "./watch";
+
+type $ = EngineInterface;
+type Child = HookStream<ProcessSpawnChunk, ProcessSpawnResult>;
+
+/** Run one process; a refusal to start reads as a failed run, never a throw. */
+export async function runProcess(
+  $: $,
+  argv: string[],
+  env: Record<string, string>,
+  timeoutMs: number,
+  stdin?: string,
+): Promise<RunResult> {
+  try {
+    const init =
+      stdin === undefined ? { env, timeoutMs } : { env, timeoutMs, stdin };
+    const { exitCode, stdout, stderr } = await $.process.run(argv, init);
+    return { exitCode, stdout, stderr };
+  } catch (err) {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/** The writer instance every engine run names: this mod session (DR-60). */
+export async function clientEnv($: $): Promise<Record<string, string>> {
+  return { PLANROOM_CLIENT: `mod:${await $.session.id()}` };
+}
+
+/**
+ * The engine binary, once resolved. A person key the workspace doesn't know stops presses from
+ * acting as the person, not the engine, so reads, tools and the watch loop still run.
+ */
+export function binary(engine: EngineState): string | null {
+  return engine.status === "ready" || engine.status === "person_key_mismatch"
+    ? (engine.path ?? engine.resolver)
+    : null;
+}
+
+/**
+ * Run `focus --json` and keep its PaneModel, or its error, for the pane and the band; once the
+ * workspace has a store, make sure the watch loop runs.
+ */
+export async function refreshPane($: $): Promise<void> {
+  const bin = binary(await read($, engineAtom));
+  if (bin === null) {
+    return;
+  }
+  const session = await $.session.id();
+  const run = await runProcess(
+    $,
+    [bin, "focus", "--json", "--session", session],
+    await clientEnv($),
+    30_000,
+  );
+  const reply = parseReply(run.stdout);
+  const pane: PaneState =
+    reply?.ok === true
+      ? { model: reply.result as PaneModel, error: null }
+      : {
+          model: null,
+          error:
+            reply?.error?.message ??
+            (run.stderr.trim().split("\n")[0] ||
+              `focus exited ${run.exitCode}`),
+        };
+  await update($, paneAtom, () => pane);
+  if (pane.model !== null && hasStore(pane.model)) {
+    watchEnsure($);
+  }
+}
+
+/** The loop's state in this module's life. A start or stop bumps `generation`; an older loop ends. */
+let generation = 0;
+let running = false;
+let child: Child | null = null;
+let debounce: Debounce = IDLE;
+let timer: Timer | null = null;
+let refreshing = false;
+let owed = false;
+
+/** Start the loop, ending any loop this module already runs. */
+export function watchStart($: $): void {
+  watchStop();
+  const gen = generation;
+  running = true;
+  void watchLoop($, gen)
+    .catch(() => undefined)
+    .finally(() => {
+      if (gen === generation) running = false;
+    });
+}
+
+/** Start the loop unless one runs. */
+export function watchEnsure($: $): void {
+  if (!running) watchStart($);
+}
+
+/** End the loop and its child. */
+export function watchStop(): void {
+  generation += 1;
+  running = false;
+  timer?.cancel();
+  timer = null;
+  debounce = IDLE;
+  const old = child;
+  child = null;
+  if (old !== null) {
+    void old.return({ code: null, signal: "SIGTERM" }).catch(() => undefined);
+  }
+}
+
+async function watchLoop($: $, gen: number): Promise<void> {
+  let failures = 0;
+  while (gen === generation) {
+    const bin = binary(await read($, engineAtom));
+    if (bin === null) return;
+    const { seq } = await read($, lastSeqAtom);
+    const argv = [bin, "watch", "--json"];
+    if (seq !== null) argv.push("--since", String(seq));
+    argv.push("--session", await $.session.id());
+    const env = await clientEnv($);
+    if (gen !== generation) return;
+    const stream = $.process.spawn({ argv, env });
+    child = stream;
+    const reader = new LineReader();
+    let streamed = false;
+    let refusal: Reply | null = null;
+    try {
+      for (;;) {
+        const piece = await stream.next();
+        if (gen !== generation) return;
+        if (piece.done === true) break;
+        if (piece.value.stream !== "stdout") continue;
+        const got = await readLines($, gen, reader.push(piece.value.text));
+        streamed ||= got.frames > 0;
+        refusal = got.refusal ?? refusal;
+      }
+      const got = await readLines($, gen, reader.flush());
+      streamed ||= got.frames > 0;
+      refusal = got.refusal ?? refusal;
+    } catch {
+      // The child couldn't start, or died under the loop: start it again below.
+    }
+    if (gen !== generation) return;
+    child = null;
+    const code = refusal?.error?.code;
+    if (refusal !== null && code !== undefined && stopsTheLoop(code)) {
+      // No store yet stays silent: the pane shows focus's not-yet-a-workspace state, and the first
+      // scan starts the loop. Anything else is one status line, never a restart (DR-53).
+      if (code !== "workspace_not_found") {
+        $.ui.status(refusal.error?.hint ?? refusal.error?.message);
+      }
+      return;
+    }
+    failures = streamed ? 0 : failures + 1;
+    await $.clock.sleep(restartDelay(failures));
+  }
+}
+
+/** Read whole lines: move `lastSeq` past their frames and schedule the refetch. */
+async function readLines(
+  $: $,
+  gen: number,
+  lines: string[],
+): Promise<{ frames: number; refusal: Reply | null }> {
+  const frames: StreamFrame[] = [];
+  let refusal: Reply | null = null;
+  for (const line of lines) {
+    const parsed = parseLine(line);
+    if (parsed.kind === "frame") frames.push(parsed.frame);
+    if (parsed.kind === "reply" && !parsed.reply.ok) refusal = parsed.reply;
+  }
+  if (frames.some((f) => frameSeq(f) !== null)) {
+    await update($, lastSeqAtom, (held) => ({
+      seq: frames.reduce<number | null>((at, f) => {
+        const seq = frameSeq(f);
+        // A reset names the seq to refetch from; an event only moves the cursor on.
+        if (seq === null) return at;
+        if (f.type === "reset") return seq;
+        return at === null ? seq : Math.max(at, seq);
+      }, held.seq),
+    }));
+  }
+  if (gen === generation && frames.some(frameRefreshes)) {
+    // The frames of one piece arrive at one moment, so they count as one for the schedule.
+    const now = await $.clock.now();
+    applyStep($, onFrame(debounce, now), now);
+  }
+  return { frames: frames.length, refusal };
+}
+
+function applyStep($: $, step: Step, now: number): void {
+  debounce = step.state;
+  if (step.run) refetch($);
+  if (step.wakeAt !== null) {
+    timer?.cancel();
+    const gen = generation;
+    timer = $.clock.after(Math.max(0, step.wakeAt - now), () => {
+      if (gen === generation) void tick($);
+    });
+  }
+}
+
+async function tick($: $): Promise<void> {
+  const now = await $.clock.now();
+  applyStep($, onTick(debounce, now), now);
+}
+
+/** One `focus` at a time; a run asked for meanwhile follows when it ends. */
+function refetch($: $): void {
+  if (refreshing) {
+    owed = true;
+    return;
+  }
+  refreshing = true;
+  void refreshPane($)
+    .catch(() => undefined)
+    .finally(() => {
+      refreshing = false;
+      if (owed) {
+        owed = false;
+        refetch($);
+      }
+    });
+}

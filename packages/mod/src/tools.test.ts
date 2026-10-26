@@ -2,7 +2,14 @@ import { CATALOGUE } from "@planroom/contract";
 import { expect, test } from "vitest";
 
 import { bandMayRun } from "./catalogue";
-import { timeoutFor, toolArgv, toolSpecs } from "./tools";
+import {
+  changeNeedsNoPrompt,
+  ROOM_TEXT_CHARS,
+  roomText,
+  timeoutFor,
+  toolArgv,
+  toolSpecs,
+} from "./tools";
 
 test("tool_schemas_equal_catalogue: each tool's command enum is its catalogue leaves", () => {
   const specs = toolSpecs();
@@ -40,9 +47,46 @@ test("a tool call becomes the leaf's CLI line", () => {
       payload: { items: [] },
     }),
   ).toEqual({
-    argv: ["scan", ".", "--base", "12", "--idem", "t1", "--json"],
+    argv: [
+      "scan",
+      ".",
+      "--base",
+      "12",
+      "--idem",
+      "t1",
+      "--file",
+      "-",
+      "--json",
+    ],
     stdin: '{"items":[]}',
   });
+});
+
+test("a write's idem defaults to the call's id; a read takes neither base nor idem", () => {
+  expect(
+    toolArgv("room_change", { command: "scan" }, { idem: "toolu_1", base: 9 }),
+  ).toEqual({ argv: ["scan", "--idem", "toolu_1", "--json"] });
+  expect(
+    toolArgv(
+      "room_query",
+      { command: "map", base: 3, idem: "x" },
+      { idem: "toolu_1", base: 9 },
+    ),
+  ).toEqual({ argv: ["map", "--json"] });
+});
+
+test("edit, intent, claim and curate need no prompt; scan and decide --run do", () => {
+  for (const c of ["edit group", "intent propose", "claim", "curate"])
+    expect(changeNeedsNoPrompt(c)).toBe(true);
+  for (const c of ["scan", "decide", 3, undefined])
+    expect(changeNeedsNoPrompt(c)).toBe(false);
+});
+
+test("room_text_within_budget: /room text is compact JSON cut to about 300 tokens", () => {
+  expect(roomText({ ok: true })).toBe('{"ok":true}');
+  const long = roomText({ ok: true, result: "x".repeat(5_000) });
+  expect(long.length).toBe(ROOM_TEXT_CHARS);
+  expect(long.endsWith("…")).toBe(true);
 });
 
 test("a tool refuses a leaf it doesn't serve and arguments that aren't strings", () => {

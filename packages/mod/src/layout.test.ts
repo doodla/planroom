@@ -151,6 +151,7 @@ const STATES: EngineState["status"][] = [
   "building",
   "failed",
   "version_mismatch",
+  "person_key_mismatch",
   "unsupported_platform",
   "ready",
 ];
@@ -208,4 +209,13 @@ test("band_next_is_undoable: the band presses only a leaf a stray digit can't hu
     30,
   );
   expect(rowWidth(fetching)).toBeLessThanOrEqual(30);
+});
+
+test("a person key mismatch is a pane Button and never the band's", () => {
+  const f = fallbackFor({ ...INITIAL_ENGINE, status: "person_key_mismatch" });
+  expect(buttons(fallbackRows(f, DOCK.columns))[0]?.action).toEqual({
+    kind: "fallback",
+    run: "rekey",
+  });
+  expect(bandRow({ fallback: f }, 80).kind).toBe("text");
 });

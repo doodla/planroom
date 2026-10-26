@@ -5,7 +5,7 @@
  * tested by `claude plugin test` through the target/mod-test harness.
  */
 
-import { atom, read, update } from "claude-code";
+import { read, update } from "claude-code";
 import type {
   EngineInterface,
   RenderInput,
@@ -13,20 +13,27 @@ import type {
   Register,
 } from "claude-code";
 
-import { roomLeaves } from "./catalogue";
+import { engineAtom, paneAtom, turnSeqAtom } from "./atoms";
+import { leaf, roomLeaves } from "./catalogue";
 import {
   engineFromVersion,
   engineMissing,
   INITIAL_ENGINE,
   isWindowsRoot,
-  parseReply,
   pathFromStatus,
   toolResult,
   unsupportedPlatform,
-  type RunResult,
   type ToolResult,
 } from "./engine";
 import { fallbackFor } from "./fallback";
+import {
+  guardCall,
+  guardPlaces,
+  namedPaths,
+  normalize,
+  type Denial,
+  type GuardPlaces,
+} from "./guard";
 import {
   bandRow,
   fallbackRows,
@@ -34,61 +41,69 @@ import {
   type Action,
   type Row,
 } from "./layout";
+import { binary, clientEnv, refreshPane, runProcess, watchStop } from "./live";
+import { personEnv, personKey, registerKey } from "./person";
 import { completions, helpText, parseRoom } from "./room-args";
-import type { EngineState, PaneState } from "./state-types";
-import { timeoutFor, toolArgv, toolSpecs, type ToolInput } from "./tools";
+import type { EngineState } from "./state-types";
+import {
+  changeNeedsNoPrompt,
+  roomText,
+  timeoutFor,
+  toolArgv,
+  toolSpecs,
+  type ToolInput,
+} from "./tools";
 import type { ToolName } from "./catalogue";
-import type { PaneModel } from "@planroom/contract";
+import { hasStore } from "./watch";
 
 const PANE = "planroom";
 const TITLE = "Planroom";
 
-const engineAtom = atom(
-  { plugin: "planroom", key: "engine" } as const,
-  INITIAL_ENGINE,
-  { shape: "engine-1" },
-);
-const INITIAL_PANE: PaneState = { model: null, error: null };
-const paneAtom = atom(
-  { plugin: "planroom", key: "pane" } as const,
-  INITIAL_PANE,
-  { shape: "pane-1" },
-);
-
 type $ = EngineInterface;
 
-async function runProcess(
-  $: $,
-  argv: string[],
-  env: Record<string, string>,
-  timeoutMs: number,
-  stdin?: string,
-): Promise<RunResult> {
-  try {
-    const init =
-      stdin === undefined ? { env, timeoutMs } : { env, timeoutMs, stdin };
-    const { exitCode, stdout, stderr } = await $.process.run(argv, init);
-    return { exitCode, stdout, stderr };
-  } catch (err) {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
-async function clientEnv($: $): Promise<Record<string, string>> {
-  return { PLANROOM_CLIENT: `mod:${await $.session.id()}` };
-}
+/** The session's working directory, which names the workspace a key is registered in. */
+let workspace = "";
 
 async function setEngine($: $, state: EngineState): Promise<void> {
   await update($, engineAtom, () => state);
   $.ui.status(state.status === "ready" ? undefined : (state.line ?? undefined));
 }
 
-/** Resolve the engine through the resolver, then draw the workspace's focus. Idempotent. */
+/**
+ * Once focus answers from a store, register the person key with it, once per workspace; a
+ * workspace that knows another key turns the pane to its `person_key_mismatch` fallback.
+ */
+async function registerOnce($: $, rekey = false): Promise<void> {
+  const engine = await read($, engineAtom);
+  const pane = await read($, paneAtom);
+  const bin = binary(engine);
+  if (bin === null || pane.model === null || !hasStore(pane.model)) {
+    return;
+  }
+  const outcome = await registerKey($, bin, workspace, rekey);
+  if (outcome.kind === "mismatch") {
+    await setEngine($, {
+      ...engine,
+      status: "person_key_mismatch",
+      line: outcome.error.message,
+    });
+  } else if (
+    outcome.kind === "registered" &&
+    engine.status === "person_key_mismatch"
+  ) {
+    await setEngine($, { ...engine, status: "ready", line: null });
+  }
+}
+
+/**
+ * Resolve the engine through the resolver, then draw the workspace's focus, which starts the watch
+ * loop once the workspace has a store. Idempotent: a second start in one module's life (a retry,
+ * or session.start again) replaces the loop, which restarts from the `lastSeq` `$.state` kept.
+ */
 async function startEngine($: $): Promise<void> {
+  watchStop();
+  // The person key is made on the first start and kept in $.store across sessions (DR-72).
+  await personKey($);
   const root = await $.env.get("CLAUDE_PLUGIN_ROOT");
   if (root === undefined) {
     await setEngine($, {
@@ -121,38 +136,8 @@ async function startEngine($: $): Promise<void> {
   await setEngine($, state);
   if (state.status === "ready") {
     await refreshPane($);
+    await registerOnce($);
   }
-}
-
-function binary(engine: EngineState): string | null {
-  return engine.status === "ready" ? (engine.path ?? engine.resolver) : null;
-}
-
-/** Run `focus --json` and keep its PaneModel, or its error, for the pane and the band. */
-async function refreshPane($: $): Promise<void> {
-  const bin = binary(await read($, engineAtom));
-  if (bin === null) {
-    return;
-  }
-  const session = await $.session.id();
-  const run = await runProcess(
-    $,
-    [bin, "focus", "--json", "--session", session],
-    await clientEnv($),
-    30_000,
-  );
-  const reply = parseReply(run.stdout);
-  const pane: PaneState =
-    reply?.ok === true
-      ? { model: reply.result as PaneModel, error: null }
-      : {
-          model: null,
-          error:
-            reply?.error?.message ??
-            (run.stderr.trim().split("\n")[0] ||
-              `focus exited ${run.exitCode}`),
-        };
-  await update($, paneAtom, () => pane);
 }
 
 /** The engine's start-up in this module's life; session.start sets it, a reload starts it again. */
@@ -176,8 +161,36 @@ async function runCommand(
   );
 }
 
-/** What a press does: a fallback's resolver step, or a catalogue command. */
+/**
+ * Run a catalogue command as the person: a press, a submit or a `/room` they typed. It carries a
+ * one-time token for exactly this line and never `PLANROOM_ACTOR` (DR-64). A write gets a fresh
+ * `idem` for this action, and a leaf that needs a base gets the pane's `seq`.
+ */
+async function personRun(
+  $: $,
+  command: string,
+  args: readonly string[],
+): Promise<ToolResult> {
+  const path = command.split(" ");
+  const spec = leaf(command);
+  const argv = [...path, ...args];
+  if (spec !== undefined && spec.class !== "read" && !args.includes("--idem")) {
+    argv.push("--idem", crypto.randomUUID());
+  }
+  if (spec?.needs_base === true && !args.includes("--base")) {
+    const pane = await read($, paneAtom);
+    if (pane.model !== null) argv.push("--base", String(pane.model.focus.seq));
+  }
+  argv.push("--json");
+  return runCommand($, argv, await personEnv($, argv, path.length));
+}
+
+/** What a press does: a fallback's resolver step, the key's re-registration, or a command. */
 async function act($: $, action: Action): Promise<void> {
+  if (action.kind === "fallback" && action.run === "rekey") {
+    await registerOnce($, true);
+    return;
+  }
   if (action.kind === "fallback") {
     if (action.run === "build") {
       const engine = await read($, engineAtom);
@@ -208,17 +221,14 @@ async function act($: $, action: Action): Promise<void> {
     await starting;
     return;
   }
-  const result = await runCommand(
-    $,
-    [...action.command.split(" "), ...action.args, "--json"],
-    await clientEnv($),
-  );
+  const result = await personRun($, action.command, action.args);
   $.ui.toast(
     result.ok
       ? `${action.label}: done`
       : (result.error?.message ?? `${action.label} failed`),
   );
   await refreshPane($);
+  await registerOnce($);
 }
 
 /** Rows as elements, sized by the layout to the body they draw in. */
@@ -294,12 +304,23 @@ const HANDLER_FAILED = JSON.stringify({
   meta: {},
 } satisfies ToolResult);
 
+/**
+ * One tool call, as the chat agent: `PLANROOM_ACTOR=agent:<session8>:chat`, never a person token.
+ * A write's `idem` defaults to the call's `tool_use_id`, its `base` to the latest `meta.seq`
+ * returned to the model this turn, else the pane's. The reply is one JSON string, the error object
+ * whole on a failure (DR-66).
+ */
 async function handleTool(
   $: $,
   tool: ToolName,
-  input: ToolInput,
+  input: ToolInput & { tool_use_id?: unknown },
 ): Promise<{ result: string }> {
-  const built = toolArgv(tool, input);
+  const turn = await read($, turnSeqAtom);
+  const pane = await read($, paneAtom);
+  const built = toolArgv(tool, input, {
+    idem: typeof input.tool_use_id === "string" ? input.tool_use_id : undefined,
+    base: turn.seq ?? pane.model?.focus.seq,
+  });
   if ("refused" in built) {
     const refused: ToolResult = {
       ok: false,
@@ -313,26 +334,80 @@ async function handleTool(
     return { result: JSON.stringify(refused) };
   }
   const session = await $.session.id();
-  const env = {
+  const env: Record<string, string> = {
     PLANROOM_ACTOR: `agent:${session.slice(0, 8)}:chat`,
     PLANROOM_CLIENT: `mod:${session}`,
   };
+  if (turn.turnId !== null) env["PLANROOM_CAUSE"] = `turn:${turn.turnId}`;
   const result = await runCommand($, built.argv, env, built.stdin);
+  const seq = result.meta["seq"];
+  if (typeof seq === "number") {
+    await update($, turnSeqAtom, (held) => ({ ...held, seq }));
+  }
   if (tool === "room_change" && result.ok) {
+    // A first scan makes the store: focus then starts the watch loop and the key registers.
     await refreshPane($);
+    await registerOnce($);
   }
   return { result: JSON.stringify(result) };
+}
+
+/** Where the guard looks, read once per module from the session's environment. */
+let places: GuardPlaces | null = null;
+
+async function guardPlacesFor($: $): Promise<GuardPlaces> {
+  if (places === null) {
+    places = guardPlaces(workspace === "" ? await $.session.cwd() : workspace, {
+      HOME: await $.env.get("HOME"),
+      CLAUDE_CONFIG_DIR: await $.env.get("CLAUDE_CONFIG_DIR"),
+      PLANROOM_DATA: await $.env.get("PLANROOM_DATA"),
+      XDG_DATA_HOME: await $.env.get("XDG_DATA_HOME"),
+      XDG_CONFIG_HOME: await $.env.get("XDG_CONFIG_HOME"),
+    });
+  }
+  return places;
+}
+
+/** Where a path lands, symlinks followed: the file's real path, else its folder's plus its name. */
+async function landing($: $, path: string): Promise<string[]> {
+  const own = await $.fs.stat(path, { resolve: true }).catch(() => undefined);
+  if (own?.realPath !== undefined) return [own.realPath];
+  const cut = path.lastIndexOf("/");
+  const folder = await $.fs
+    .stat(cut <= 0 ? "/" : path.slice(0, cut), { resolve: true })
+    .catch(() => undefined);
+  return folder?.realPath === undefined
+    ? []
+    : [`${folder.realPath.replace(/\/+$/, "")}/${path.slice(cut + 1)}`];
+}
+
+/** The guard's verdict on one call, every path it names resolved first (DR-52). */
+async function guardVerdict(
+  $: $,
+  tool: string,
+  input: unknown,
+): Promise<Denial | null> {
+  const at = await guardPlacesFor($);
+  const real = new Map<string, string[]>();
+  for (const p of namedPaths(tool, input)) {
+    real.set(p, await landing($, normalize(p, at.cwd, at.home)));
+  }
+  return guardCall(tool, input, (p) => real.get(p) ?? [], at);
 }
 
 // The host reads `register` off the bundle's source: a function declared and exported at the top
 // level, its parameter spelled `on`. The bundle step keeps it that way (crates/xtask/src/modgen.rs).
 export function register(on: Parameters<Register>[0]): void {
   on("session.start", async ($, e, next) => {
+    workspace = e.cwd;
+    places = null;
+    // Immediate, so /room focuses the pane mid-turn, while the model is still working (A-22).
     await $.command.register({
       name: "room",
       description:
         "Planroom: focus the pane, or run a map command (/room help lists them)",
       argumentHint: "[help | map | focus | scan …]",
+      immediate: true,
     });
     // Awaited, so the tools are listed from turn one and the list never changes later (DR-20).
     for (const spec of toolSpecs()) {
@@ -357,23 +432,37 @@ export function register(on: Parameters<Register>[0]): void {
     const request = parseRoom(e.args, roomLeaves());
     switch (request.kind) {
       case "focus":
+        // Bare /room focuses the pane and returns no text, so it costs the model nothing (DR-77).
         await $.ui.open({ id: PANE, title: TITLE, focus: true });
-        return { text: "Opened the Planroom pane." };
+        return {};
       case "help":
         return { text: helpText(roomLeaves()) };
       case "error":
         return { text: request.message };
       case "run": {
-        const argv = [
-          ...request.leaf.name.split(" "),
-          ...request.args,
-          "--json",
-        ];
-        const result = await runCommand($, argv, await clientEnv($));
+        // A /room the person typed acts as the person; one a plugin or the SDK ran doesn't.
+        const typed =
+          e.origin.kind === "composer" || e.origin.kind === "bridge";
+        const result = typed
+          ? await personRun($, request.leaf.name, request.args)
+          : await runCommand(
+              $,
+              [...request.leaf.name.split(" "), ...request.args, "--json"],
+              await clientEnv($),
+            );
         await refreshPane($);
-        return { text: JSON.stringify(result) };
+        await registerOnce($);
+        return { text: roomText(result) };
       }
     }
+  });
+
+  // The main loop's turn: its id is each tool write's cause, and the base resets with it.
+  on("turn.start", async ($, e, next) => {
+    if (e.agentId === undefined) {
+      await update($, turnSeqAtom, () => ({ turnId: e.turnId, seq: null }));
+    }
+    return next(e);
   });
 
   on("prompt.autocomplete", async ($, e, next) => {
@@ -395,10 +484,29 @@ export function register(on: Parameters<Register>[0]): void {
     handleTool($, "room_handoff", e as unknown as ToolInput),
   ).catch(() => ({ result: HANDLER_FAILED }));
 
-  // Reads are confined to the workspace, so they need no prompt (DR-52).
-  on("tool.check", { tool: "mcp__planroom__room_query" }, () => ({
-    decision: "allow" as const,
-  }));
+  // The guard, for every tool call of every agent. Planroom's reads are confined to the workspace,
+  // and an agent's edit, intent, claim and curate writes are ghosts or proposals, so those need no
+  // prompt (DR-52); everything else the guard lets through goes on to the session's own rules.
+  on("tool.check", async ($, e, next) => {
+    if (e.tool === "mcp__planroom__room_query") {
+      return { decision: "allow" as const };
+    }
+    if (e.tool === "mcp__planroom__room_change") {
+      const command = (e.input as { command?: unknown } | null)?.command;
+      return changeNeedsNoPrompt(command)
+        ? { decision: "allow" as const }
+        : next(e);
+    }
+    const denial = await guardVerdict($, e.tool, e.input);
+    return denial ?? next(e);
+  }).catch(($, e, next) =>
+    next.called
+      ? next(e)
+      : {
+          decision: "ask" as const,
+          reason: "The Planroom guard couldn't check this call.",
+        },
+  );
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
     const engine = await read($, engineAtom);
