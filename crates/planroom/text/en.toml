@@ -130,6 +130,8 @@ summary = "Planroom contract schema version {version}: {id}"
 commands = "{count} commands in the catalogue."
 commands_label = "List every command"
 leaf = "{leaf} takes {request} and returns {result}."
+leaf_brief = "{leaf} takes {request} and returns {result}; to keep to the budget, only the request's types keep their descriptions."
+leaf_bare = "{leaf} takes {request} and returns {result}; to keep to the budget, the types leave out their descriptions."
 
 # share and import: the Artifact bundle and the inbox (architecture.md, Remote mode).
 [share]
