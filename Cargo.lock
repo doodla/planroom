@@ -2797,6 +2797,7 @@ name = "xtask"
 version = "0.1.0-dev"
 dependencies = [
  "planroom-contract",
+ "planroom-kernel",
  "planroom-models",
  "serde",
  "serde_json",

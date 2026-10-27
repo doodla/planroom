@@ -9,10 +9,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use xtask::report::Report;
-use xtask::tools::{self, Tool};
+use xtask::testrun::skips;
+use xtask::tools::{self, Tool, pin_age};
 use xtask::{
-    areas, boundaries, canvas, docs, features, fixture, generate, layout, live, modgen, plugin, testrun,
-    util, workflows,
+    areas, boundaries, canvas, docs, features, fixture, generate, layout, live, modgen, plugin, schema_guard,
+    secrets, testrun, util, workflows,
 };
 
 const USAGE: &str = "\
@@ -23,7 +24,8 @@ usage: cargo xtask <command>
                               the boundary rules alone, or with the planted crossings
   check layout [--commits RANGE]
                               the state check of layout.lock, and the walk over RANGE's commits
-  check audit                 cargo deny check advisories and pnpm audit --prod (network)
+  check audit                 cargo deny check advisories, pnpm audit --prod and the pin-age
+                              audit (network)
   check guardrails            the two guardrails test files alone
   test [-p CRATE [FILTER]]    the canvas build, the Rust tests (nextest when installed) and vitest;
                               with -p, one crate's tests, those whose name holds FILTER
@@ -33,6 +35,8 @@ usage: cargo xtask <command>
   gen --mod                   write only the mod bundle, plugin/hooks/planroom-mod.js
   gen --golden                rerun the Rust tests that write tests/golden/ from real engine runs
   gen --canvas                build the canvas into target/canvas/ (not committed)
+  gen --schema-baseline       copy both schema views into schema/baseline/, only with a
+                              schema_version bump
   gen --layout-lock DR-n      ratify the gated surfaces with record DR-n, in the commit
                               that adds the record (a branch's merge commit when a
                               branch brought the change)
@@ -136,6 +140,18 @@ fn run(root: &Path, args: &[&str]) -> ExitCode {
                 }
             };
         }
+        ["gen", "--schema-baseline"] => {
+            return match schema_guard::write_baseline(&root) {
+                Ok(written) => {
+                    written.iter().for_each(|p| println!("wrote {p}"));
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("cargo xtask gen --schema-baseline refused: {e}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
         ["gen", "--canvas"] => {
             return match canvas::build(&root) {
                 Ok(files) => {
@@ -233,16 +249,6 @@ const PNPM_FIX: &str = "pnpm install --frozen-lockfile, then fix what the output
 /// The unscanned fixture workspace `cargo xtask e2e` builds for the specs to copy.
 const E2E_FIXTURE: &str = "target/e2e/fixture/shop";
 
-/// The steps repo-layout.md puts in `check` that nobody has built yet, with the milestone that
-/// builds each (architecture.md, Milestones; DR-85).
-const CHECK_NOT_BUILT: [(&str, &str); 5] = [
-    ("breaking-change guard over schema/baseline/", "M1"),
-    ("secret scan over tests/replay/ and docs/evidence/", "M1"),
-    ("release_pins", "M1"),
-    ("docs tests (links, prose rules, CLI reference)", "M5"),
-    ("scripts/check-tag-version.sh", "M5"),
-];
-
 fn check(root: &Path, r: &mut Report) {
     r.tool(root, "cargo fmt --check", "cargo", &["fmt", "--all", "--check"], "cargo fmt --all");
     r.tool(
@@ -295,8 +301,61 @@ fn check(root: &Path, r: &mut Report) {
         ),
         Err(e) => r.failed("feature_list_is_complete", &e, "fix feature_list.json"),
     }
-    for (name, milestone) in CHECK_NOT_BUILT {
-        r.not_built(name, milestone);
+    schema_checks(root, r);
+    secret_scan(root, r);
+    r.tool(
+        root,
+        "release_pins",
+        "cargo",
+        &["test", "--locked", "-p", "planroom", "--test", "release_pins"],
+        "make the file the failure names agree with the pin's home (repo-layout.md, Toolchain pins)",
+    );
+    r.not_built_in("check");
+}
+
+/// The schema lint and the breaking-change guard (contracts.md, Versioning rules).
+fn schema_checks(root: &Path, r: &mut Report) {
+    let name = "schema lint: every 64-bit integer has its 2^53 - 1 maximum";
+    let found: Vec<String> = planroom_contract::schema::View::ALL
+        .iter()
+        .flat_map(|&v| {
+            let file = v.file_name();
+            schema_guard::lint(&planroom_contract::schema::generate(v))
+                .into_iter()
+                .map(move |p| format!("{file}{p}"))
+        })
+        .collect();
+    if found.is_empty() {
+        r.ok(name)
+    } else {
+        r.failed(
+            name,
+            &found.join("\n"),
+            "annotate each field with #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]",
+        )
+    }
+    let name = "breaking-change guard over schema/baseline/";
+    match schema_guard::guard(root) {
+        Ok(g) if g.problems.is_empty() => r.ok(&format!("{name} ({})", g.compared.join("; "))),
+        Ok(g) => r.failed(
+            name,
+            &g.problems.join("\n"),
+            "restore what the lines above name, or bump schema_version with a decision record and run cargo xtask gen --schema-baseline",
+        ),
+        Err(e) => r.failed(name, &e, "fix the error above"),
+    }
+}
+
+fn secret_scan(root: &Path, r: &mut Report) {
+    let name = "secret scan over tests/replay/ and docs/evidence/";
+    match secrets::scan(root) {
+        Ok(found) if found.is_empty() => r.ok(name),
+        Ok(found) => r.failed(
+            name,
+            &found.join("\n"),
+            "remove the secret from the file and its history, rotate it, and record again with a fake key",
+        ),
+        Err(e) => r.failed(name, &e, "fix the error above"),
     }
 }
 
@@ -336,9 +395,45 @@ fn audit(root: &Path, r: &mut Report) {
             &["audit", "--prod"],
             "update the package the advisory names",
         );
+        pin_ages(root, r);
     } else {
         r.skipped("cargo deny check advisories", "offline: the npm registry didn't answer");
         r.skipped("pnpm audit --prod", "offline: the npm registry didn't answer");
+        r.skipped(PIN_AGE, "offline: the npm registry didn't answer");
+    }
+    r.not_built_in("check audit");
+}
+
+const PIN_AGE: &str = "pin ages: each direct pin's release at least 14 days older than its commit";
+
+/// Each direct pin's release date from its registry against the commit that set it, with DR-83's
+/// advisory exceptions (AGENTS.md, Dependencies; DR-70, DR-83).
+fn pin_ages(root: &Path, r: &mut Report) {
+    let decisions = match std::fs::read_to_string(root.join(layout::DECISIONS)) {
+        Ok(t) => t,
+        Err(e) => return r.failed(PIN_AGE, &format!("{}: {e}", layout::DECISIONS), "fix the error above"),
+    };
+    let exceptions = pin_age::exceptions(&decisions);
+    let pins = match pin_age::direct_pins(root) {
+        Ok(p) => p,
+        Err(e) => return r.failed(PIN_AGE, &e, "fix the error above"),
+    };
+    let mut problems = Vec::new();
+    for pin in &pins {
+        let dates = pin_age::set_at(root, pin).and_then(|set| Ok((set, pin_age::released_at(root, pin)?)));
+        match dates {
+            Ok((set, released)) => problems.extend(pin_age::verdict(pin, set, released, &exceptions)),
+            Err(e) => problems.push(format!("{} {}: {e}", pin.name, pin.version)),
+        }
+    }
+    if problems.is_empty() {
+        r.ok(&format!("{PIN_AGE} ({} pins, {} advisory exceptions)", pins.len(), exceptions.len()))
+    } else {
+        r.failed(
+            PIN_AGE,
+            &problems.join("\n"),
+            "pin an older release, or, for a release that fixes an advisory in the tree, name it in DR-83's list and the commit",
+        )
     }
 }
 
@@ -579,6 +674,14 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>, filter: Option<&str>) 
         ];
         args.extend(&scope);
         r.tool(root, "cargo nextest run", "cargo", &args, "fix the failing tests above");
+        // nextest's list names each #[ignore]d test the run skipped.
+        let name = "in-test skips (cargo)";
+        match util::capture(root, "cargo", &skips::nextest_list_args(&scope))
+            .and_then(|j| skips::nextest_ignored(&j))
+        {
+            Ok(ignored) => skips::report(r, "cargo nextest", &ignored),
+            Err(e) => r.failed(name, &e, "fix the error above"),
+        }
         let mut args = vec!["test", "--doc", "--locked"];
         args.extend(&scope);
         r.tool(root, "cargo test --doc", "cargo", &args, "fix the failing doctests above");
@@ -587,18 +690,41 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>, filter: Option<&str>) 
         // Every test binary runs, so one failure doesn't hide the next (a CI run shows them all).
         let mut args = vec!["test", "--locked", "--no-fail-fast"];
         args.extend(&scope);
-        r.tool(root, "cargo test", "cargo", &args, "fix the failing tests above");
+        let (ok, out) = util::run(root, "cargo", &args);
+        if ok {
+            r.ok("cargo test")
+        } else {
+            r.failed("cargo test", &out, "fix the failing tests above")
+        }
+        skips::report(r, "cargo test", &skips::libtest_ignored(&out));
     }
     match krate {
         Some(k) => r.skipped("vitest run", &format!("only {k} was asked for")),
-        None if root.join("node_modules").is_dir() => {
-            r.tool(root, "vitest run", "pnpm", &["exec", "vitest", "run"], "fix the failing tests above")
-        }
+        None if root.join("node_modules").is_dir() => vitest(root, r),
         None => r.failed("vitest run", "node_modules is missing", PNPM_FIX),
     }
     match krate {
         Some(k) => r.skipped("claude plugin test target/mod-test", &format!("only {k} was asked for")),
         None => mod_tests(root, r),
+    }
+    if krate.is_none() {
+        r.not_built_in("test");
+    }
+}
+
+/// vitest over the workspace, with its JSON report read for each test that skipped itself.
+fn vitest(root: &Path, r: &mut Report) {
+    let report = root.join(skips::VITEST_REPORT);
+    let _ = std::fs::remove_file(&report);
+    let out_file = format!("--outputFile.json={}", report.display());
+    let args = ["exec", "vitest", "run", "--reporter=default", "--reporter=json", &out_file];
+    r.tool(root, "vitest run", "pnpm", &args, "fix the failing tests above");
+    let found = std::fs::read_to_string(&report)
+        .map_err(|e| format!("{}: {e}", skips::VITEST_REPORT))
+        .and_then(|json| skips::vitest(&json, &root.display().to_string()));
+    match found {
+        Ok(skipped) => skips::report(r, "vitest", &skipped),
+        Err(e) => r.failed("in-test skips (vitest)", &e, "fix the error above"),
     }
 }
 
@@ -723,16 +849,22 @@ fn e2e(root: &Path, r: &mut Report, screens: bool) {
         Err(e) => return r.failed("fixture", &e, &format!("cargo xtask fixture {E2E_FIXTURE}")),
     }
     let name = if screens { "playwright test (with screenshots)" } else { "playwright test" };
+    // The screenshots are a project of their own (tests/e2e/playwright.config.ts), which only
+    // --screens runs, so no spec skips itself on a plain run.
+    let mut args = vec!["--dir", "tests/e2e", "exec", "playwright", "test"];
+    if !screens {
+        args.extend(["--project", "specs"]);
+    }
+    let report = root.join(skips::PLAYWRIGHT_REPORT);
+    let _ = std::fs::remove_file(&report);
     let mut command = std::process::Command::new("pnpm");
     command
-        .args(["--dir", "tests/e2e", "exec", "playwright", "test"])
+        .args(&args)
         .current_dir(root)
         .env("PLANROOM_E2E_BIN", root.join("target/debug/planroom"))
         .env("PLANROOM_E2E_FIXTURE", &fixture);
-    if screens {
-        command.env("PLANROOM_SCREENS", "1");
-    }
-    match command.stdin(std::process::Stdio::null()).output() {
+    let ran = command.stdin(std::process::Stdio::null()).output();
+    match ran {
         Ok(out) => {
             let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
             text.push_str(&String::from_utf8_lossy(&out.stderr));
@@ -745,4 +877,12 @@ fn e2e(root: &Path, r: &mut Report, screens: bool) {
         }
         Err(e) => r.failed(name, &format!("could not run pnpm: {e}"), PNPM_FIX),
     }
+    let found = std::fs::read_to_string(&report)
+        .map_err(|e| format!("{}: {e}", skips::PLAYWRIGHT_REPORT))
+        .and_then(|json| skips::playwright(&json));
+    match found {
+        Ok(skipped) => skips::report(r, "playwright", &skipped),
+        Err(e) => r.failed("in-test skips (playwright)", &e, "fix the error above"),
+    }
+    r.not_built_in("e2e");
 }

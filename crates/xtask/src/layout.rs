@@ -454,6 +454,28 @@ pub fn walk(root: &Path, rev_list: &[String]) -> Result<Walk, String> {
         if !gated.is_empty() {
             walk.lines.push(format!("{short} {subject}: gated surfaces changed: {}", gated.join(", ")));
         }
+        let budgets_after = Source::Commit(root, sha.to_owned()).read(BUDGETS);
+        let budgets_before = parent.as_ref().and_then(|p| Source::Commit(root, p.clone()).read(BUDGETS));
+        if budgets_after != budgets_before {
+            match budget_raises_between(budgets_before.as_deref(), budgets_after.as_deref()) {
+                Ok(raises) if raises.is_empty() => {}
+                Ok(raises) => {
+                    let added = added_headings(root, sha, parent.as_deref())?;
+                    if let Some(record) = added.iter().next_back() {
+                        walk.lines.push(format!(
+                            "{short} {subject}: DR-{record} records the {BUDGETS} raises: {}",
+                            raises.join("; ")
+                        ));
+                    } else {
+                        walk.failures.push(format!(
+                            "{short} {subject}: raises gated numbers in {BUDGETS} without adding a record to {DECISIONS}: {}",
+                            raises.join("; ")
+                        ));
+                    }
+                }
+                Err(e) => walk.failures.push(format!("{short} {subject}: {e}")),
+            }
+        }
         let lock_after = read_lock(&Source::Commit(root, sha.to_owned()))?;
         let lock_before = match &parent {
             Some(p) => read_lock(&Source::Commit(root, p.clone()))?,
@@ -499,6 +521,59 @@ pub fn walk(root: &Path, rev_list: &[String]) -> Result<Walk, String> {
         }
     }
     Ok(walk)
+}
+
+/// The hand-ratcheted budgets file at the repo root (contracts.md, budgets.json; DR-59, DR-89).
+pub const BUDGETS: &str = "budgets.json";
+
+/// The raises from one `budgets.json` to the next, each `key: what changed`; a file that appears
+/// raises nothing, and one removed removes every key.
+pub fn budget_raises_between(before: Option<&str>, after: Option<&str>) -> Result<Vec<String>, String> {
+    let parse = |text: &str| serde_json::from_str::<Value>(text).map_err(|e| format!("{BUDGETS}: {e}"));
+    let Some(before) = before else { return Ok(Vec::new()) };
+    let after = match after {
+        Some(text) => parse(text)?,
+        None => Value::Null,
+    };
+    Ok(budget_raises(&parse(before)?, &after))
+}
+
+/// Each gated number `new` raises over `old`, as `key: what changed`. A ceiling is raised by a
+/// larger value, a floor (a key ending in `_rate`, such as `cache_hit_rate`) by a smaller one,
+/// and any gated key by its removal or by a number set back to null or replaced by another shape.
+/// A key that is new, or a null that gets its first number, is no raise (DR-89); `recorded`
+/// changes only with the command it names, so it is no gate here (DR-51).
+pub fn budget_raises(old: &Value, new: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(old) = old.as_object() {
+        for (key, value) in old.iter().filter(|(k, _)| k.as_str() != "recorded") {
+            raises_at(key, key, value, new.get(key), &mut out);
+        }
+    }
+    out
+}
+
+fn raises_at(path: &str, key: &str, old: &Value, new: Option<&Value>, out: &mut Vec<String>) {
+    let floor = key.ends_with("_rate");
+    match (old, new) {
+        (_, None) => out.push(format!("{path}: removed")),
+        (Value::Null, Some(_)) => {}
+        (Value::Number(a), Some(Value::Number(b))) => {
+            let (a, b) = (a.as_f64().unwrap_or(0.0), b.as_f64().unwrap_or(0.0));
+            if floor && b < a {
+                out.push(format!("{path}: a floor lowered from {a} to {b}"));
+            } else if !floor && b > a {
+                out.push(format!("{path}: raised from {a} to {b}"));
+            }
+        }
+        (Value::Number(a), Some(Value::Null)) => out.push(format!("{path}: {a} set back to null")),
+        (Value::Object(a), Some(Value::Object(b))) => {
+            for (k, v) in a {
+                raises_at(&format!("{path}.{k}"), k, v, b.get(k), out);
+            }
+        }
+        (_, Some(other)) => out.push(format!("{path}: replaced by {other}")),
+    }
 }
 
 /// The record headings `sha` adds to `decisions.md` over its first parent.

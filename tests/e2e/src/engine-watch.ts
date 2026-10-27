@@ -8,7 +8,7 @@
  * commit in two repos, `scan` again, then move the store's `user_version` past this engine's, as a
  * newer engine's migration would, so the child ends with its `schema_mismatch` envelope (DR-78).
  * It needs `target/debug/planroom`, which `cargo xtask test` builds before vitest runs; without
- * it the test is skipped and says why.
+ * it the test is skipped and says why, except under `CI=true`, where it fails.
  */
 
 import { execFileSync, spawn } from "node:child_process";
@@ -21,6 +21,8 @@ import { fileURLToPath } from "node:url";
 export interface WatchRun {
   /** Why the run didn't happen, or null when it did. */
   skipped: string | null;
+  /** Whether a missing run fails the test rather than skipping it: under `CI=true`. */
+  required: boolean;
   /** The `--since` the child started from. */
   since: number;
   /** Each piece of stdout as it arrived, with its time in ms since the child started. */
@@ -71,6 +73,7 @@ export default async function setup(project: Project): Promise<() => void> {
   if (!existsSync(bin)) {
     project.provide("watchRun", {
       skipped: `${bin} isn't built; cargo xtask test builds it before vitest`,
+      required: process.env.CI === "true",
       since: 0,
       chunks: [],
       scans: [],
@@ -176,6 +179,7 @@ export default async function setup(project: Project): Promise<() => void> {
     await until("watch to exit on the migration", () => exitCode !== undefined);
     project.provide("watchRun", {
       skipped: null,
+      required: process.env.CI === "true",
       since,
       chunks,
       scans: [first, second],

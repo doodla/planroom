@@ -13,6 +13,11 @@ use crate::event::{Actor, EventId};
 /// A store version: the global event order. Always below 2^53.
 pub type Seq = u64;
 
+/// The largest integer a JSON reader holds exactly, 2^53 - 1. Every `u64` in the contract carries
+/// it as its schema `maximum`, so a JavaScript reader never rounds one (Contracts, Versioning
+/// rules: Integers).
+pub const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
 /// A node ID, `<namespace>:<kind-short>:<key>`, such as `orders:pkg:internal/http`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]

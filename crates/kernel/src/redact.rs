@@ -35,8 +35,8 @@ struct Rules {
 fn rules() -> &'static Rules {
     static RULES: OnceLock<Rules> = OnceLock::new();
     RULES.get_or_init(|| Rules {
-        // scheme://user:password@host
-        dsn: Regex::new(r"([A-Za-z][A-Za-z0-9+.\-]*://)[^\s/:@]+:[^\s/@]+@").expect("a valid pattern"),
+        // scheme://user:password@host, or scheme://:password@host with no user name
+        dsn: Regex::new(r"([A-Za-z][A-Za-z0-9+.\-]*://)[^\s/:@]*:[^\s/@]+@").expect("a valid pattern"),
         private_key: Regex::new(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?s:.*?)(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\z)")
             .expect("a valid pattern"),
         // NAME_KEY=value, NAME_SECRET: value, "api_token":"value". An `=` always assigns; a `:`
@@ -112,6 +112,38 @@ fn named(s: &str) -> String {
     let out = r.dsn.replace_all(&out, format!("${{1}}{MASK}@").as_str());
     let out = r.assignment.replace_all(&out, format!("${{1}}${{2}}{MASK}").as_str());
     r.known.replace_all(&out, MASK).into_owned()
+}
+
+/// One named secret shape found in a text: which shape, and the byte range of the secret itself
+/// (for an assignment, its value alone).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedSecret {
+    pub shape: &'static str,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// Every named secret shape in `s`, in the order the shapes are listed: a private key, a DSN's user
+/// info, an assignment's value and a known token shape. These are the shapes [`text`] masks
+/// wherever they are; the high-entropy rule isn't one of them, so a hash or an ID alone is never
+/// found. The repo's secret scan over committed recordings and evidence reads them here.
+pub fn named_secrets(s: &str) -> Vec<NamedSecret> {
+    let r = rules();
+    let at = |shape, start, end| NamedSecret { shape, start, end };
+    let mut out: Vec<NamedSecret> =
+        r.private_key.find_iter(s).map(|m| at("a private key", m.start(), m.end())).collect();
+    // A DSN's user info: what follows the scheme, up to the `@`.
+    out.extend(r.dsn.captures_iter(s).filter_map(|c| {
+        let (whole, scheme) = (c.get(0)?, c.get(1)?);
+        Some(at("a DSN's user info", scheme.end(), whole.end() - 1))
+    }));
+    out.extend(
+        r.assignment
+            .captures_iter(s)
+            .filter_map(|c| c.get(3).map(|v| at("a secret assignment's value", v.start(), v.end()))),
+    );
+    out.extend(r.known.find_iter(s).map(|m| at("a known token shape", m.start(), m.end())));
+    out
 }
 
 /// `s`, text that holds no ID, with every high-entropy run masked.
@@ -336,6 +368,7 @@ mod tests {
             text("DATABASE_URL=postgres://app:hunter2@db:5432/orders"),
             "DATABASE_URL=postgres://[redacted]@db:5432/orders"
         );
+        assert_eq!(text("redis://:secretpw@cache:6379"), "redis://[redacted]@cache:6379");
         assert_eq!(text("STRIPE_SECRET=abc123"), "STRIPE_SECRET=[redacted]");
         assert_eq!(text("api_token: \"tok\""), "api_token: \"[redacted]\"");
         assert_eq!(text("export DB_PASSWORD='p'"), "export DB_PASSWORD='[redacted]'");
@@ -346,6 +379,38 @@ mod tests {
             "[redacted]"
         );
         assert_eq!(text("token wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"), "token [redacted]");
+    }
+
+    #[test]
+    fn named_secrets_finds_each_named_shape_and_never_a_hash_or_an_id() {
+        let found = |s: &str| -> Vec<(&str, String)> {
+            named_secrets(s).into_iter().map(|f| (f.shape, s[f.start..f.end].to_owned())).collect()
+        };
+        assert_eq!(
+            found("DATABASE_URL=postgres://app:hunter2@db:5432/orders"),
+            [("a DSN's user info", "app:hunter2".to_owned())]
+        );
+        // A password with no user name is user info too.
+        assert_eq!(
+            found("REDIS_URL=redis://:secretpw@cache:6379"),
+            [("a DSN's user info", ":secretpw".to_owned())]
+        );
+        assert_eq!(found("STRIPE_SECRET=abc123"), [("a secret assignment's value", "abc123".to_owned())]);
+        assert_eq!(
+            found("key AKIAIOSFODNN7EXAMPLE here"),
+            [("a known token shape", "AKIAIOSFODNN7EXAMPLE".to_owned())]
+        );
+        let key = "-----BEGIN EC PRIVATE KEY-----\nMHcC\n-----END EC PRIVATE KEY-----";
+        assert_eq!(found(key), [("a private key", key.to_owned())]);
+        // A sha256, a commit, a high-entropy run and an ID are the entropy rule's, never a named shape.
+        for s in [
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "commit 104c10e9f2a1",
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            "orders:pkg:internal/http e:0123456789ab",
+        ] {
+            assert_eq!(found(s), [], "{s}");
+        }
     }
 
     #[test]

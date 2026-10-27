@@ -20,3 +20,4 @@ Read first, from [Repo layout](../docs/contributing/repo-layout.md#read-first-pe
 ## Layout
 
 - `planroom.v1.schema.json`, `planroom.v1.input.schema.json`: the two schema views `cargo xtask gen` writes from `crates/contract`.
+- `baseline/`: copies of both views at the last `schema_version` bump, or, before any, at the commit that added them; `cargo xtask gen --schema-baseline` writes them, only with a bump, and the breaking-change guard in `cargo xtask check` compares the schema with them.

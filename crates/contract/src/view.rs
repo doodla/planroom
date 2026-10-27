@@ -112,6 +112,7 @@ pub struct Focus {
     pub level: Level,
     pub lens: String,
     pub project: Option<NodeId>,
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub seq: Seq,
 }
 
@@ -281,6 +282,7 @@ pub struct PaneState {
 /// again from it after a reload (DR-6); null before the first frame (DR-82).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct LastSeq {
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub seq: Option<Seq>,
 }
 
@@ -290,6 +292,7 @@ pub struct LastSeq {
 pub struct TurnSeq {
     #[serde(rename = "turnId")]
     pub turn_id: Option<String>,
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub seq: Option<Seq>,
 }
 

@@ -1400,7 +1400,6 @@
         "cargo xtask release-dry-run": "M5",
         "tests/plugin/validate.sh": "M5",
         "tests/plugin/install.sh": "M5",
-        "crates/planroom/tests/release_pins.rs": "M1",
         "crates/planroom/tests/docs.rs::links_resolve": "M5",
         "crates/planroom/tests/docs.rs::prose_rules_hold": "M5",
         "crates/planroom/tests/docs.rs::releasing_has_the_owner_checklist": "M5",
@@ -1494,7 +1493,7 @@
         "crates/xtask/tests/gates.rs::a_dependency_version_bump_needs_none_and_a_new_dependency_needs_a_record",
         "crates/xtask/tests/gates.rs::ci_runs_only_xtask",
         "crates/xtask/tests/gates.rs::area_contracts_match_repo_layout",
-        "crates/planroom/tests/envelope_schema.rs::breaking_change_guard",
+        "crates/xtask/tests/schema_guard.rs::breaking_change_guard",
         "crates/planroom/tests/catalogue.rs::every_leaf_has_a_budget_or_streams",
         "packages/mod/src/tools.test.ts::a_wrong_argument_returns_the_leaf_synopsis",
         "crates/planroom/tests/s15_surface.rs::help_shows_five_ideas",
@@ -1532,7 +1531,6 @@
         "tests/plugin/surface_tokens.sh": "M1",
         "crates/xtask/tests/gates.rs::ci_runs_only_xtask": "M1",
         "crates/xtask/tests/gates.rs::area_contracts_match_repo_layout": "M1",
-        "crates/planroom/tests/envelope_schema.rs::breaking_change_guard": "M1",
         "crates/planroom/tests/catalogue.rs::every_leaf_has_a_budget_or_streams": "M1",
         "packages/mod/src/tools.test.ts::a_wrong_argument_returns_the_leaf_synopsis": "M1",
         "crates/planroom/tests/s15_surface.rs::help_shows_five_ideas": "M5",
@@ -2351,11 +2349,6 @@
         "crates/xtask/tests/gates.rs::a_listed_test_resolves_only_where_ci_runs_it",
         "crates/xtask/tests/gates.rs::a_mistyped_filter_fails"
       ],
-      "due": {
-        "crates/xtask/tests/gates.rs::budgets_raise_needs_a_record": "M1",
-        "crates/planroom/tests/release_pins.rs::dependabot_cooldown_matches_the_pin_age": "M1",
-        "crates/xtask/tests/gates.rs::a_new_budgets_key_is_not_a_raise": "M1"
-      },
       "decision": "DR-59, DR-70"
     },
     {

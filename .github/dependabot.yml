@@ -1,0 +1,36 @@
+# Weekly, grouped updates against main, each waiting out a 14-day cooldown: the direct-pin age in
+# AGENTS.md (Dependencies), which `cargo xtask check audit` also enforces. pnpm's
+# minimumReleaseAge keeps 7 days for transitive packages (repo-layout.md, Toolchain pins; DR-70).
+# release_pins.rs::dependabot_cooldown_matches_the_pin_age holds the three cooldowns to that age.
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    groups:
+      cargo:
+        patterns: ["*"]
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    groups:
+      npm:
+        patterns: ["*"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    groups:
+      actions:
+        patterns: ["*"]

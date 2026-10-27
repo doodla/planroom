@@ -78,6 +78,19 @@ impl CiSkips {
     }
 }
 
+/// The steps repo-layout.md puts in a command that nobody has built yet, keyed by the subcommand
+/// that prints them, with the milestone that builds each (architecture.md, Milestones; DR-85).
+/// Each prints a `not built` line, never `ok` or `skipped`, so a green run never reads as one that
+/// ran it. `check` names none that M1 builds.
+pub const NOT_BUILT: &[(&str, &str, &str)] = &[
+    ("check", "docs tests (links, prose rules, CLI reference)", "M5"),
+    ("check", "scripts/check-tag-version.sh", "M5"),
+    ("test", "the tests/plugin/ scripts", "M1"),
+    ("test", "eval recompute (cargo xtask eval)", "M2"),
+    ("e2e", "the empty-state audit through both transports", "M1"),
+    ("e2e", "the plugin install smoke in an isolated HOME, with mods on and off", "M5"),
+];
+
 /// Whether this run is CI's: `CI=true`, as GitHub Actions sets it.
 pub fn under_ci() -> bool {
     std::env::var("CI").is_ok_and(|v| v == "true")
@@ -131,6 +144,13 @@ impl Report {
     /// passes nor fails, so a green run never reads as one that ran it.
     pub fn not_built(&mut self, name: &str, milestone: &str) {
         self.line(format!("not built {name} ({milestone})"));
+    }
+
+    /// The `not built` line of each step [`NOT_BUILT`] keys to `subcommand`.
+    pub fn not_built_in(&mut self, subcommand: &str) {
+        for (_, name, milestone) in NOT_BUILT.iter().filter(|(s, _, _)| *s == subcommand) {
+            self.not_built(name, milestone);
+        }
     }
 
     pub fn failed(&mut self, name: &str, output: &str, fix: &str) {

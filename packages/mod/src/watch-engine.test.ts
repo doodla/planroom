@@ -3,7 +3,8 @@
  * child wrote, as `$.process.spawn` would hand them over, go through `LineReader`, `parseLine`,
  * `advanceCursor` and the refetch schedule, and the two must agree on every line. The run itself
  * happens in the vitest global setup, `tests/e2e/src/engine-watch.ts`, since the mod has no Node
- * APIs; it is skipped, saying why, when `target/debug/planroom` isn't built.
+ * APIs; it is skipped, saying why, when `target/debug/planroom` isn't built, and fails then under
+ * `CI=true`, where every test must run.
  */
 
 import { expect, inject, test } from "vitest";
@@ -25,6 +26,7 @@ import {
 /** What the global setup provides; `tests/e2e/src/engine-watch.ts` declares the same shape. */
 interface WatchRun {
   skipped: string | null;
+  required: boolean;
   since: number;
   chunks: { at: number; text: string }[];
   scans: number[];
@@ -41,10 +43,15 @@ const run = inject("watchRun");
 const NAME =
   "the engine's watch --json reads through the mod's watch loop, line for line";
 
-// A skipped run names its reason in the test's name, which the reporter prints.
-test.skipIf(run.skipped !== null)(
-  run.skipped === null ? NAME : `${NAME} (skipped: ${run.skipped})`,
+// A skipped run names its reason in the test's name, which the reporter prints. Under CI the
+// run is required, so a missing one fails here instead.
+test.skipIf(run.skipped !== null && !run.required)(
+  run.skipped === null
+    ? NAME
+    : `${NAME} (${run.required ? "missing" : "skipped"}: ${run.skipped})`,
   () => {
+    if (run.skipped !== null)
+      throw new Error(`the engine's watch run is missing: ${run.skipped}`);
     const reader = new LineReader();
     const frames: StreamFrame[] = [];
     const replies: Envelope[] = [];

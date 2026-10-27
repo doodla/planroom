@@ -26,6 +26,7 @@ pub struct Timestamp(#[schemars(extend("format" = "date-time"))] pub String);
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Event {
     /// One global order: the stream cursor and the store version.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub seq: Seq,
     pub id: EventId,
     /// The idempotency key.
@@ -129,8 +130,10 @@ pub enum EventBody {
         repo: String,
         commit: String,
         branch: String,
+        #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
         snapshot: u64,
         /// The workspace link snapshot of the active set this scan committed.
+        #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
         link: u64,
         /// The renames git reports since the repo's last snapshot, files and wholly moved
         /// directories; the fold resolves a vanished edit target through them (DR-74).
@@ -300,6 +303,7 @@ pub struct Edit {
     /// `put`: the whole node or edge; `set`: the changed fields.
     pub fields: BTreeMap<String, Value>,
     /// The `seq` of the view the writer acted on.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub base: Seq,
     /// The fact values the fields override, for scan-drift checks.
     pub over: BTreeMap<String, Value>,

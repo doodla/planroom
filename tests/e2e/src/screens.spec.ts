@@ -1,5 +1,6 @@
 /**
- * The walking skeleton's screenshots, written only by `cargo xtask e2e --screens`, at 1440x900
+ * The walking skeleton's screenshots, written only by `cargo xtask e2e --screens`, which alone
+ * runs the `screens` project this file is in (playwright.config.ts), at 1440x900
  * and 390x844, in both themes, into docs/screenshots/: the main view from the real
  * `planroom serve` on the scanned fixture, and the empty state from the real `planroom serve` on
  * the fixture before its first scan. Two more show
@@ -63,11 +64,6 @@ const VIEWS: readonly View[] = [
     },
   },
 ];
-
-test.skip(
-  process.env.PLANROOM_SCREENS !== "1",
-  "screenshots are written by cargo xtask e2e --screens",
-);
 
 for (const view of VIEWS) {
   for (const viewport of view.phone === false ? [DESKTOP] : [DESKTOP, PHONE]) {

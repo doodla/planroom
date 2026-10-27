@@ -515,3 +515,184 @@ fn every_test_that_runs_alone_exists() {
         assert!(text.contains(&format!("#[test]\nfn {name}(")), "{binary} has no test {name}");
     }
 }
+
+/// `budgets.json` with `fold.20k`'s `ms` and the S3 cache-hit floor set, the rest as committed.
+fn budgets(ms: serde_json::Value, rate: serde_json::Value) -> String {
+    let doc = serde_json::json!({
+        "S03.plan": {"claude": {"cache_hit_rate": rate}},
+        "fold.20k": {"ms": ms},
+        "fold.50k": {},
+        "surface": {"skill_bodies": {}},
+        "room_text": null,
+        "recorded": {"token_ratio": null}
+    });
+    format!("{}\n", serde_json::to_string_pretty(&doc).unwrap())
+}
+
+#[test]
+fn budgets_raise_needs_a_record() {
+    let c = Clone::new("budgets-raise");
+    fs::write(c.path(layout::BUDGETS), budgets(400.into(), 0.6.into())).unwrap();
+    let base = c.commit("set the fold and cache-hit budgets");
+    let fails = |c: &Clone, what: &str| {
+        let walk = c.walk(&format!("{base}..HEAD"));
+        assert!(
+            walk.failures.iter().any(|f| f.contains("without adding a record") && f.contains(what)),
+            "{what}: {walk:?}"
+        );
+    };
+    // A larger ceiling fails without a record.
+    fs::write(c.path(layout::BUDGETS), budgets(500.into(), 0.6.into())).unwrap();
+    c.commit("raise the fold budget");
+    fails(&c, "fold.20k.ms: raised from 400 to 500");
+    // A lower floor is a raise too, and so are a number set back to null and a removed key.
+    git(&c.dir, &["reset", "--quiet", "--hard", &base]);
+    fs::write(c.path(layout::BUDGETS), budgets(400.into(), 0.5.into())).unwrap();
+    c.commit("lower the cache-hit floor");
+    fails(&c, "S03.plan.claude.cache_hit_rate: a floor lowered from 0.6 to 0.5");
+    git(&c.dir, &["reset", "--quiet", "--hard", &base]);
+    fs::write(c.path(layout::BUDGETS), budgets(serde_json::Value::Null, 0.6.into())).unwrap();
+    c.commit("drop the fold number");
+    fails(&c, "fold.20k.ms: 400 set back to null");
+    git(&c.dir, &["reset", "--quiet", "--hard", &base]);
+    c.replace(layout::BUDGETS, "  \"room_text\": null,\n", "");
+    c.commit("drop a gated key");
+    fails(&c, "room_text: removed");
+    // The same raise with a record in its commit passes, and the walk names the record.
+    git(&c.dir, &["reset", "--quiet", "--hard", &base]);
+    fs::write(c.path(layout::BUDGETS), budgets(500.into(), 0.6.into())).unwrap();
+    let record = c.add_record();
+    c.commit("raise the fold budget, with its record");
+    let walk = c.walk(&format!("{base}..HEAD"));
+    assert!(walk.failures.is_empty(), "{walk:?}");
+    let named = format!("{record} records the budgets.json raises");
+    assert!(walk.lines.iter().any(|l| l.contains(&named)), "{walk:?}");
+    // Lowering a ceiling, or raising a floor, needs none.
+    git(&c.dir, &["reset", "--quiet", "--hard", &base]);
+    fs::write(c.path(layout::BUDGETS), budgets(300.into(), 0.7.into())).unwrap();
+    c.commit("tighten both budgets");
+    let walk = c.walk(&format!("{base}..HEAD"));
+    assert!(walk.failures.is_empty(), "{walk:?}");
+}
+
+#[test]
+fn a_new_budgets_key_is_not_a_raise() {
+    let c = Clone::new("budgets-new-key");
+    fs::write(c.path(layout::BUDGETS), budgets(serde_json::Value::Null, 0.6.into())).unwrap();
+    let base = c.commit("the budgets with no fold number yet");
+    // A number for a null key, a new key, and a `recorded` change: none is a raise (DR-89).
+    let mut doc: serde_json::Value = serde_json::from_str(&budgets(400.into(), 0.6.into())).unwrap();
+    doc["S02.q1"] = serde_json::json!({"tool_tokens": 1200});
+    doc["room_text"] = 300.into();
+    doc["recorded"]["token_ratio"] = 1.3.into();
+    fs::write(c.path(layout::BUDGETS), serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+    c.commit("first numbers and a new question");
+    let walk = c.walk(&format!("{base}..HEAD"));
+    assert!(walk.failures.is_empty(), "{walk:?}");
+    // A budgets file that first appears raises nothing.
+    let first = layout::budget_raises_between(None, Some("{\"fold.20k\": {\"ms\": 9}}")).unwrap();
+    assert!(first.is_empty(), "{first:?}");
+}
+
+#[test]
+fn an_in_test_skip_fails_under_ci() {
+    use xtask::report::{CiSkips, Report, Skip};
+    use xtask::testrun::skips;
+    let vitest = r#"{"testResults": [{"name": "/repo/packages/mod/src/watch-engine.test.ts", "assertionResults": [
+        {"fullName": "runs", "status": "passed"},
+        {"fullName": "the engine's watch run (skipped: no engine)", "status": "skipped"},
+        {"fullName": "later", "status": "todo"}]}]}"#;
+    let playwright = r#"{"suites": [{"title": "screens.spec.ts", "specs": [], "suites": [{"title": "views",
+        "specs": [{"title": "main-1440x900-light.png", "file": "screens.spec.ts",
+                   "tests": [{"projectName": "specs", "status": "skipped"}, {"projectName": "screens", "status": "expected"}]}]}]}]}"#;
+    let nextest = r#"{"rust-suites": {"planroom::scan": {"testcases": {
+        "a_slow_scan": {"ignored": true, "filter-match": {"status": "mismatch", "reason": "ignored"}},
+        "a_fast_scan": {"ignored": false, "filter-match": {"status": "matches"}},
+        "a_filtered_scan": {"ignored": true, "filter-match": {"status": "mismatch", "reason": "string"}}}}}}"#;
+    let cargo = "test scan::a_slow_scan ... ignored\ntest scan::a_fast_scan ... ok\n";
+    let found = [
+        ("vitest", skips::vitest(vitest, "/repo").unwrap()),
+        ("playwright", skips::playwright(playwright).unwrap()),
+        ("cargo nextest", skips::nextest_ignored(nextest).unwrap()),
+        ("cargo test", skips::libtest_ignored(cargo)),
+    ];
+    assert_eq!(
+        found[0].1,
+        [
+            "packages/mod/src/watch-engine.test.ts > the engine's watch run (skipped: no engine)",
+            "packages/mod/src/watch-engine.test.ts > later"
+        ]
+    );
+    assert_eq!(found[1].1, ["screens.spec.ts > main-1440x900-light.png [specs]"]);
+    assert_eq!(found[2].1, ["planroom::scan a_slow_scan"]);
+    assert_eq!(found[3].1, ["scan::a_slow_scan"]);
+    for (runner, tests) in &found {
+        // Under CI each one fails; locally it is a skipped line; ci_skips.toml can declare one.
+        let mut ci = Report::with(true, CiSkips::default());
+        skips::report(&mut ci, runner, tests);
+        assert!(ci.has_failed(), "{runner}: {:?}", ci.lines());
+        assert!(ci.lines()[0].starts_with(&format!("FAILED   {runner}: ")), "{:?}", ci.lines());
+        let mut local = Report::with(false, CiSkips::default());
+        skips::report(&mut local, runner, tests);
+        assert!(!local.has_failed() && local.lines()[0].starts_with("skipped  "), "{:?}", local.lines());
+        let declared = CiSkips::from_entries(tests.iter().map(|t| Skip {
+            check: format!("{runner}: {t}"),
+            reason: "no runner has it".into(),
+            record: "DR-79".into(),
+        }));
+        let mut ci = Report::with(true, declared);
+        skips::report(&mut ci, runner, tests);
+        assert!(!ci.has_failed(), "{:?}", ci.lines());
+    }
+}
+
+#[test]
+fn a_uint64_without_its_annotation_fails() {
+    use planroom_contract::schema::{View, generate};
+    use xtask::schema_guard::lint;
+    // The committed contract's every 64-bit integer carries its maximum.
+    for view in View::ALL {
+        assert_eq!(lint(&generate(view)), Vec::<String>::new(), "{view:?}");
+    }
+    // One without it fails, by its path; one above 2^53 - 1 fails too; a signed one needs a minimum.
+    let planted = serde_json::json!({"$defs": {
+        "Meta": {"properties": {
+            "seq": {"type": "integer", "format": "uint64", "minimum": 0},
+            "big": {"type": "integer", "format": "uint64", "minimum": 0, "maximum": 18446744073709551615u64},
+            "delta": {"type": "integer", "format": "int64", "maximum": 9007199254740991u64},
+            "count": {"type": "integer", "format": "uint32", "minimum": 0},
+            "ok": {"type": ["integer", "null"], "format": "uint64", "minimum": 0, "maximum": 9007199254740991u64}
+        }}
+    }});
+    let found = lint(&planted);
+    assert_eq!(found.len(), 3, "{found:?}");
+    for p in ["/$defs/Meta/properties/seq:", "/$defs/Meta/properties/big:", "/$defs/Meta/properties/delta:"] {
+        assert!(found.iter().any(|f| f.starts_with(p)), "{p}: {found:?}");
+    }
+}
+
+#[test]
+fn check_names_no_m1_gap() {
+    use xtask::report::{CiSkips, NOT_BUILT, Report};
+    // `check` names nothing M1 builds as not built; the gates M1 built run instead.
+    let m1: Vec<_> = NOT_BUILT.iter().filter(|(cmd, _, m)| *cmd == "check" && *m == "M1").collect();
+    assert!(m1.is_empty(), "{m1:?}");
+    for built in ["breaking-change guard", "secret scan", "release_pins", "feature_list_is_complete"] {
+        assert!(!NOT_BUILT.iter().any(|(_, name, _)| name.contains(built)), "{built} is built");
+    }
+    let mut r = Report::with(true, CiSkips::default());
+    r.not_built_in("check");
+    assert!(!r.has_failed());
+    assert!(r.lines().iter().all(|l| l.starts_with("not built ") && l.ends_with("(M5)")), "{:?}", r.lines());
+    // test and e2e name theirs the same way, each keyed to its own subcommand.
+    for subcommand in ["test", "e2e"] {
+        let mut r = Report::with(true, CiSkips::default());
+        r.not_built_in(subcommand);
+        assert!(!r.lines().is_empty() && !r.has_failed(), "{subcommand}: {:?}", r.lines());
+    }
+    // Each key is a command that prints its lines.
+    let main = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/main.rs")).unwrap();
+    for (cmd, _, _) in NOT_BUILT {
+        assert!(main.contains(&format!("r.not_built_in(\"{cmd}\")")), "{cmd} never prints its lines");
+    }
+}

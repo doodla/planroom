@@ -20,8 +20,8 @@ sha256 = "a6105d6353b9c5565b2138d173f59ae0bf63bcddd9320549167eb64a88586ca5"
 record = "DR-93"
 
 ["crate dependencies"]
-sha256 = "e697493002dcaeaa347ab888c9e0fafb223c59d968c069a43cd3c1b1ae231e42"
-record = "DR-93"
+sha256 = "ba9f235626be545b2cb4de4730f86fbb48a028c771336ee0cfaa9faff31ef115"
+record = "DR-95"
 
 ["package ."]
 sha256 = "0bec0983d78642afcbf49d7e11e4bb50a272bfb3ad832848bcfaefa5232e7c0b"

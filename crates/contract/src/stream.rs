@@ -12,6 +12,7 @@ use crate::model::{NodeId, Seq};
 pub enum StreamFrame {
     /// One committed event.
     Event {
+        #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
         seq: Seq,
         kind: EventKind,
         target: Option<String>,
@@ -23,7 +24,10 @@ pub enum StreamFrame {
         summary: String,
     },
     /// The client is too far behind: refetch every view at `seq`.
-    Reset { seq: Seq },
+    Reset {
+        #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
+        seq: Seq,
+    },
     /// The stream is alive.
     Ping,
 }

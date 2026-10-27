@@ -14,6 +14,8 @@ pub mod modgen;
 pub mod plugin;
 pub mod report;
 pub mod rustlex;
+pub mod schema_guard;
+pub mod secrets;
 pub mod testrun;
 pub mod tools;
 pub mod util;

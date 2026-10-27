@@ -538,6 +538,7 @@ impl LeafListing {
 pub struct WriteCommon {
     /// The `seq` of the view you acted on; required when the command writes user-authored state.
     #[arg(long)]
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub base: Option<Seq>,
     /// The idempotency key; derived from the request when absent.
     #[arg(long)]
@@ -611,6 +612,7 @@ pub struct ScanReq {
 pub struct WatchReq {
     /// Stream the events after this `seq`; the store's latest when absent.
     #[arg(long)]
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub since: Option<Seq>,
     /// The Claude Code session this stream serves, as the mod starts it.
     #[arg(long)]

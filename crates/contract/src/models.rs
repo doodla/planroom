@@ -54,6 +54,7 @@ pub struct RecordedResponse {
 /// What the recording run measured; never part of the key.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Measured {
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub wall_ms: u64,
     /// RFC 3339, UTC.
     pub recorded_at: String,

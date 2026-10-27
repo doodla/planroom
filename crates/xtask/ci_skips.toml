@@ -7,4 +7,8 @@
 # reason = "why it can't run in CI"
 # record = "DR-n"
 #
-# None today: CI installs what each step needs (crates/xtask/src/tools.rs).
+# A test that skips itself prints as `RUNNER: TEST`, such as `cargo nextest: planroom::scan a_test`,
+# `vitest: packages/mod/src/x.test.ts > name` or `playwright: surface.spec.ts > title [specs]`
+# (crates/xtask/src/testrun.rs), and is declared under that name.
+#
+# None today: CI installs what each step needs (crates/xtask/src/tools.rs), and no test skips itself.

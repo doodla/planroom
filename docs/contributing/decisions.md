@@ -108,6 +108,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 92 | The truth comparator's floor, edit's first ops, the dirty count's git call, and test-only seams | DR-71, DR-73, DR-75, DR-86, DR-89, DR-91 | extended | the merges of M1's truth comparator, discovery, person authority and edit work |
 | 93 | The model adapter's crate edges, its transport's crypto provider, and an environment variable's own hint | DR-39, DR-48, DR-66, DR-85 | extended | the merge of M1's Claude adapter |
 | 94 | Declared IDs at most 64 characters, and the listing's own left-out count | DR-15, DR-46, DR-86 | extended | the merge of M1's questions and `ask` |
+| 95 | The check gates' edges: what a budgets raise is, how the baseline and the release are found, and what the secret scan exempts | DR-59, DR-79, DR-83, DR-85, DR-89 | extended, amends DR-89 | the merge of M1's check gates |
 
 ## Where the design reviews disagreed
 
@@ -2247,7 +2248,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-89: What M1 builds, compares and leaves to later milestones
 
-- **Status:** accepted (decided before M1's first change, 2026-10-26). Amended by DR-91.
+- **Status:** accepted (decided before M1's first change, 2026-10-26). Amended by DR-91 and DR-95.
 - **Starting point:** none; it amends [Milestones](architecture.md#milestones) and serves S1, S3 and S15, and the feature list's gate (DR-59).
 - **Origin:** milestone planning: M1's scope, read against the tree after DR-88.
 - **Context:** M1's row in the Milestones table says it closes S1, S15 (most) and S3's deterministic part. Read against the code and `feature_list.json`, several things don't hold:
@@ -2358,6 +2359,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - **Tests:** the new and written-under-their-name tests above, among them `s01_first_look.rs::every_truth_item_the_loaded_packs_declare_matches_with_evidence` and `truth_recall_never_drops`; `trust.rs::accepting_the_trust_card_loads_the_config`; `packs.rs::accepting_the_changed_source_card_updates_the_copy`; `backup.rs::a_lost_state_directory_then_scan_offers_one_restore_card`; `cards.rs` (a dealt card listed face up, a second pick `already_resolved`, an agent's pick `person_required`, no second open card, the Apply card resolved by its last ghost); `config.rs::fixture_and_test_data_trees_are_excluded_by_default`; `live_gate.rs` (the cap, its margin, a relative path, a live flag with no spend log, `intent next` without a record flag); `gates.rs::a_new_budgets_key_is_not_a_raise`, `feature_list_is_complete`.
   - It amends DR-3 (a ninth event kind, `card`), DR-12 (full evidence recall is verified in M3, with a stated subset in M1), DR-59 (what `feature_list_is_complete` checks, and what a raise is) and DR-83 (the form of the `#[redact]` marks), and extends DR-65 (in M1, `intent next` answers from replay).
 - **Amended by DR-91:** a card's own kind travels as `card_kind`, since `kind` tags the event body, and a card carries `vars`, the values its question and why lines name.
+- **Amended by DR-95:** a budgets raise is a larger ceiling, a smaller `_rate` floor, a removed key, a number set back to null or a number replaced by another shape; a new key, a first number and `recorded` are none.
 - **Sources (checked 2026-10-26):** `architecture.md` ([Milestones](architecture.md#milestones), trust in [Where the workspace lives](architecture.md#where-the-workspace-lives), [Ruby through the extractor contract](architecture.md#ruby-through-the-extractor-contract), `budgets.json` in [Token budgets](architecture.md#token-budgets-s7), [Spend guards](architecture.md#spend-guards), `intent next` in [Planning](architecture.md#planning-stages-ghosts-and-lint-r5), the server's exposure in [Security and privacy](architecture.md#security-and-privacy), the fold benchmark in [Performance budgets](architecture.md#performance-budgets), [Found by dogfooding](architecture.md#found-by-dogfooding)); `contracts.md` (open sets in [Versioning rules](contracts.md#versioning-rules), the Feature list row in [Every public contract](contracts.md#every-public-contract), `review` in [Command catalogue](contracts.md#command-catalogue), [Event model](contracts.md#event-model)); `feature_list.json` (S1, S3, C15); `examples/TRUTH.json` (`containers`, `relations`); `crates/contract/src/event.rs`; `crates/store/migrations/0001_init.sql`; `crates/planroom/tests/server_auth.rs`; `crates/planroom/src/server/auth.rs` (`CODE_LIFE`).
 
 ## DR-90: The guard lets everyday work through, and closes three more doors
@@ -2491,3 +2493,30 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `packs.rs::a_declared_id_past_64_characters_is_refused`.
   - Known gap, for M2's linkers: `path` misses a route that enters a repo through its root file and leaves toward a block inside it, since roll-up lifts an edge into that file to the repo and steps an edge out of it down to the file.
 - **Sources (checked 2026-10-27):** `crates/planroom/src/packs/validate.rs` (`syntax`, `bounded`); `crates/planroom/src/app/ask.rs`; [Contracts](contracts.md#pack-manifest).
+
+## DR-95: The check gates' edges: what a budgets raise is, how the baseline and the release are found, and what the secret scan exempts
+
+- **Status:** accepted (decided at the merge of M1's check gates, 2026-10-27).
+- **Starting point:** extended DR-59, DR-79, DR-83 and DR-85; amends DR-89.
+- **Origin:** the merge of the check gates, read against the docs by an independent check over two rounds.
+- **Context:**
+  - DR-89 calls a raise "a larger value for a key that already exists", but `cache_hit_rate` is a floor, so a smaller value loosens it, and removing a key or setting it back to null drops its bound altogether.
+  - The breaking-change guard compares with "the last release", which the docs don't say how to find, and a release commit dates its CHANGELOG section before the owner tags it.
+  - `gen --schema-baseline` moves the baseline only with a `schema_version` bump, while no release exists yet.
+  - The secret scan must never fail on a hash or an ID, yet a credential can be hex or digits.
+  - The scan reaches the kernel's named shapes, a new crate edge `xtask -> planroom-kernel`; the crate graph is gated.
+- **Decision:**
+  - **A raise** is a larger ceiling, a smaller `_rate` floor, a removed key, a number set back to null, or a number replaced by another shape; a new key, a first number and `recorded` are none. Each needs a record in the same change. This amends DR-89.
+  - **The last release** is the newest `## [X.Y.Z]` section of CHANGELOG.md other than the tree's own version; its `vX.Y.Z` tag must be present, or the check fails. Before CHANGELOG.md names one, only the baseline is compared.
+  - **The baseline** moves only with a bump. Until v0.1.0 it is the schema of the tree that merged the guard; additive changes since pass the guard.
+  - **The secret scan** exempts a hash, number or ID only under a handle field Planroom itself writes (`view_key`), and an already-masked value or a literal anywhere; under any other name every value is a finding. The list fails safe and grows only in a reviewed change.
+  - **The `xtask -> planroom-kernel` edge** is ratified with the layout lock.
+- **Alternatives rejected:**
+  - DR-89's literal wording: it lets a lowered floor or a deleted ceiling through without a record.
+  - The workspace version or `git tag -l` for the last release: one moves before the tag exists, the other depends on what was fetched.
+  - A list of credential names: a credential named in no list passes.
+- **Consequences:**
+  - Contracts: the budgets.json paragraph's raise sentence; the breaking-change guard's test home in `crates/xtask/tests/schema_guard.rs`.
+  - Accepted: the guard pairs an untagged variant with the new variant holding all its properties, so a change that removes a property and also adds a variant that keeps it can pass as additive.
+  - Tests: `crates/xtask/tests/{schema_guard, gates}.rs`; `crates/planroom/tests/release_pins.rs`; xtask's secrets unit tests.
+- **Sources (checked 2026-10-27):** `crates/xtask/src/{schema_guard, secrets, layout, testrun, report}.rs`; `crates/kernel/src/redact.rs`; [Contracts](contracts.md); [Repo layout](repo-layout.md).

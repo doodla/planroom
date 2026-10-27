@@ -65,6 +65,7 @@ pub struct Snapshot {
     pub format: String,
     pub workspace_id: String,
     /// The store `seq` the snapshot reflects.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub seq: Seq,
     pub published_at: Timestamp,
     /// Whether evidence keeps its `contains` text; false by default.
@@ -98,6 +99,7 @@ pub struct Answer {
     /// The handle that asks for this view.
     pub handle: Handle,
     /// The store `seq` the result reflects.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub seq: Seq,
     /// The command's result, as its `--json` envelope carries it; null when it failed.
     pub result: Value,
@@ -124,8 +126,10 @@ pub struct LiveHead {
     /// `planroom.live-head/v1`.
     pub format: String,
     /// The store `seq` this head reflects.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub seq: Seq,
     /// The `seq` of the published snapshot it extends.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub snapshot_seq: Seq,
     /// The top open cards.
     pub cards: Vec<DecisionCard>,
@@ -149,6 +153,7 @@ pub struct InboxRow {
     #[schemars(length(min = 1, max = 200))]
     pub instance: String,
     /// Per instance, monotonic; import applies rows in `(instance, counter)` order.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub counter: u64,
     /// `edit`, `review`, `decide` or `intent propose`; or a read request: `map`, `show`, `find`,
     /// `diff`, or an `ask` question that doesn't spend. Import refuses any other.
@@ -156,6 +161,7 @@ pub struct InboxRow {
     /// That command's request JSON.
     pub request: Value,
     /// The snapshot or live-head `seq` the viewer saw.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub base: Seq,
     pub at: Timestamp,
     /// `sample` when the row came from Ask Claude.
@@ -175,6 +181,7 @@ pub struct InboxRow {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct InboxHead {
     /// The page's last row counter.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub seq: u64,
     pub updated_at: Timestamp,
     /// Each Ask Claude call and the model the platform applied, for the ledger.
@@ -211,6 +218,7 @@ pub struct Ack {
     /// `planroom.ack/v1`.
     pub format: String,
     /// The store `seq` the import that wrote it reached.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub imported_through: Seq,
     /// Each row's outcome, by its docId.
     pub rows: BTreeMap<String, AckStatus>,
@@ -232,6 +240,7 @@ pub struct ImportLine {
     pub row: Option<Value>,
     /// The document's version as the list result showed it.
     #[serde(default)]
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub version: Option<u64>,
 }
 
@@ -247,6 +256,7 @@ pub struct DbWrite {
     pub file_path: Option<String>,
     /// The version the document was read at; absent when the write creates it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub if_version: Option<u64>,
 }
 
@@ -290,6 +300,7 @@ pub struct SharedFile {
     /// The published path, such as `assets/main.js` or `data/snapshot.json`; the page itself is
     /// `page.html`.
     pub path: String,
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub bytes: u64,
 }
 

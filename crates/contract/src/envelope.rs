@@ -45,6 +45,7 @@ pub struct Envelope<T = Value> {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Meta {
     /// The store version this reply reflects; pass it back as `base`.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub seq: Seq,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub took_ms: u32,
@@ -58,6 +59,7 @@ pub struct Meta {
     pub replayed: bool,
     /// A replay of a derived key: the original `seq`; pass a new `--idem` to repeat the write.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub replayed_from: Option<Seq>,
     /// `scan`, `focus` and `map` only: the repos with uncommitted changes, untracked files
     /// included, which never reach the map. At most the first 5 by name; `more_dirty_repos`
@@ -212,6 +214,7 @@ pub struct ToolError {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 pub struct ToolMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub seq: Option<Seq>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next: Option<Cursor>,
