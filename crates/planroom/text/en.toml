@@ -188,8 +188,8 @@ pane = "Show where you are"
 
 # `find TEXT`: its summary line, and the labels of the handles each match carries.
 [find]
-summary = "{count} blocks match {text}: {names}."
-summary_one = "1 block matches {text}: {names}."
+summary = "{count} blocks match {text} ({names})."
+summary_one = "1 block matches {text} ({names})."
 none_fit = "{count} blocks match {text}, and none fits within this reply's budget."
 none_fit_one = "1 block matches {text}, and it doesn't fit within this reply's budget."
 narrower = "Search with more of the name"

@@ -2,7 +2,7 @@
 //! that comes from a repo before it reaches any output. It masks DSN user info, the values of
 //! variables whose names end in `_KEY`, `_SECRET`, `_TOKEN` or `_PASSWORD`, private-key blocks,
 //! well-known token shapes and high-entropy strings. It is deterministic. A token shaped like a node
-//! ID is left whole by every rule (see [`text`]).
+//! ID is exempt from the high-entropy rule alone (see [`text`]).
 //!
 //! It masks by field (DR-89): exactly the fields the contract marks
 //! `#[schemars(extend("x-redact" = true))]`, through the paths `cargo xtask gen` writes into
@@ -72,7 +72,9 @@ pub fn text(s: &str) -> String {
         let core = word.trim_start_matches(OPENERS);
         let start = token.start() + (word.len() - core.len());
         let core = core.trim_end_matches(CLOSERS);
-        if id_shaped(core) {
+        // A token the named shapes have already masked part of held a secret, not an ID: masking
+        // can remove the `=` that kept it from reading as one.
+        if id_shaped(core) && !core.contains(MASK) {
             out.push_str(&entropy(&named[from..start]));
             out.push_str(core);
             from = start + core.len();
@@ -379,9 +381,9 @@ mod tests {
 
     #[test]
     fn an_id_stays_whole_by_its_shape() {
-        // A whitespace-delimited token shaped like `namespace:kind-short:key` is an ID: no rule
-        // touches it, whatever its namespace or key looks like, while the text around it is masked
-        // as before.
+        // A whitespace-delimited token shaped like `namespace:kind-short:key` is an ID: the
+        // high-entropy rule leaves it whole, whatever its namespace or key looks like, while the text
+        // around it is masked as before.
         for s in [
             "--focus OAuth2PKCEFlow.ts names 2 blocks, such as alpha:file:lib/v3/OAuth2PKCEFlow.ts, beta:file:lib/v3/OAuth2PKCEFlow.ts; pass one of their IDs.",
             "x:file:internal/pkg/xdg/b64url/Encode.go",
@@ -413,6 +415,15 @@ mod tests {
         );
         assert_eq!(text("ghp_0123456789abcdefghijABCDEFGHIJ012345:repo:x"), "[redacted]:repo:x");
         assert_eq!(text("API_KEY= kit:dir:src"), "API_KEY= [redacted]");
+        // A masked assignment can take the `=` that kept a token from reading as an ID; the rest of
+        // that token is still weighed by the high-entropy rule.
+        for s in [
+            "kit:file:\"api_token\":\"p=q\"k7Gq2ZpX9vLm3RtY8wNc5HbJ4dFs6QaE1uKo",
+            "kit:file:api_token:\"p=q\"k7Gq2ZpX9vLm3RtY8wNc5HbJ4dFs6QaE1uKo",
+        ] {
+            let masked = text(s);
+            assert!(!masked.contains("k7Gq2ZpX9vLm3RtY8wNc5HbJ4dFs6QaE1uKo"), "{masked}");
+        }
     }
 
     #[test]
