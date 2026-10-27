@@ -172,7 +172,7 @@ models   = { may_depend = ["contract"], net = true,
 planroom = { may_depend = ["contract", "kernel", "store", "extract", "models"], net = true,
              external_allow = ["axum", "tower-http", "tokio", "tokio-stream", "tracing", "anyhow", "clap", "serde", "serde_json",
                                "toml", "uuid", "libc", "p256"] }
-testkit  = { may_depend = ["contract"], dev_only = true }
+testkit  = { may_depend = ["contract"], dev_only = true, external_allow = ["assert_cmd", "tempfile", "serde_json"] }
 xtask    = { may_depend = ["*"], ships = false }
            # net: of the crates that ship, only models and planroom (the server) may open a socket. Every other shipped
            # crate's generated clippy.toml disallows std::net, and no network crate is on its allow-list [DR-79]

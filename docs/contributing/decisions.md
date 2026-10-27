@@ -1605,7 +1605,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-71: Everyday git moves: a tracked branch, the working tree and every repo layout
 
-- **Status:** accepted (decided in review round 2, E17). Amended in review round 3, and by DR-85.
+- **Status:** accepted (decided in review round 2, E17). Amended in review round 3, and by DR-85 and DR-92.
 - **Starting point:** extended DR-44 (the reconciler) and DR-33 (freshness on read).
 - **Origin:** review round 2: unasked-2; the minor findings unasked-8 and unasked-12.
 - **Context:**
@@ -1629,6 +1629,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-33 and DR-44.
 - **Amended in review round 3:** the S7 consequence above gives way to DR-72's fast-forward. The reconciler runs on S7's rescan and classifies the `routine` commit `unplanned`, which deals no card (correctness-10). Test `s07_decisions.rs::the_routine_commit_is_unplanned`. A single-repo workspace's state directory is `.git/planroom/` [DR-74].
 - **Amended by DR-85:** `meta.dirty_repos` counts untracked files. Uncommitted work never reaches the map, and an untracked file is the commonest uncommitted work, so the signal runs `git status --porcelain=v1 -z --untracked-files=normal`, which honours `.gitignore`, in place of `--untracked-files=no`.
+- **Amended by DR-92:** the call turns off every filter driver git's config names and adds `--ignore-submodules=dirty`, so counting runs no command the repo or a submodule configures; a submodule the workspace maps reports its own status.
 - **Sources (checked 2026-10-26):** `examples/README.md` (S7's `routine` branch starts from `main`); KICKOFF principle 1 and R1; review round 2 unasked-2, unasked-8 and unasked-12, and owner decision E17.
 
 ## DR-72: Owner follow-ups after review round 2: signed person tokens, Git LFS filters, S7's fast-forward
@@ -2380,7 +2381,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-91: The contract M1 builds on: cards on the wire, the edit ops, and the redaction marks
 
-- **Status:** accepted (decided at M1's first change, 2026-10-26).
+- **Status:** accepted (decided at M1's first change, 2026-10-26). Amended by DR-92.
 - **Starting point:** none; it settles details of [Contracts](contracts.md) and AGENTS.md's Logging convention.
 - **Origin:** M1's first change, read against the docs: the contract types M1 builds on (every documented error and warning code, the card event, the pack manifest, the vocabulary, M1's request shapes), the kernel's `resolve` and `fold` signatures, and the redaction marks DR-89 gave a form.
 - **Context:**
@@ -2407,3 +2408,38 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `crates/contract/tests/schema.rs::every_redacted_field_is_listed`; `crates/contract/src/card.rs`'s round trips; `crates/contract/src/requests.rs::an_edit_parses_from_its_op_and_travels_with_it_flattened`.
   - It amends DR-89 (the card's wire name and `vars`) and DR-83 (the marked fields).
 - **Sources (checked 2026-10-26):** `crates/contract/src/{card.rs, event.rs, requests.rs, model.rs, view.rs, schema.rs}`; `crates/kernel/src/redact.rs`; [Contracts](contracts.md) (CLI JSON envelope's redaction paragraph, Event model, the requests sketch); [CLI](architecture.md#one-command-catalogue) and [Design language](design-language.md#edit-by-hand) for the edit ops.
+- **Amended by DR-92:** `set`, `text` and `propose` arrive with the plan pack's intent leaves, which fix their fields, rather than with the `edit` leaf; `forbid` with no kind waits for a stored form of a rule over every kind.
+
+## DR-92: The truth comparator's floor, edit's first ops, the dirty count's git call, and test-only seams
+
+- **Status:** accepted (decided at the merges of M1's truth comparator, discovery, person authority and edit work, 2026-10-27).
+- **Starting point:** extended DR-71 (as DR-85 amended it), DR-73, DR-75, DR-86, DR-89 and DR-91.
+- **Origin:** the merges of the truth comparator, the dirty-repo count, person authority and the `edit` leaf, each read against the docs by an independent check or at merge.
+- **Context:**
+  - The comparator lives in `planroom-testkit`, whose area contract lists `assert_cmd`, `tempfile` and `serde_json`, but whose `boundaries.toml` row had no allow-list, and `boundaries.toml` is gated.
+  - The recall floor only fell: a change that raised recall passed with a note, so what it gained stayed unprotected.
+  - No read shows a block's own evidence (`MapNode` has none), and a lifted edge carries at most 3 evidence items, so a container's evidence and a relation with 4 truth items can't match through the map.
+  - `set`, `text` and `propose` take fields that only the plan pack's intent leaves fix, and `forbid` with no kind has no stored form: an edge needs one kind.
+  - An HTTP edit with no client fell back to one shared ID, so two tabs of one person were one writer instance; and a base past the store's head passed compare-and-set as covering every write before it.
+  - DR-71, as DR-85 amended it, names `git status --porcelain=v1 -z --untracked-files=normal` as the dirty signal, but plain `status` runs a clean filter the repo's config names, and a submodule's own filters in its working tree.
+  - `open` and the login code need a way for tests to stand in for the system opener and to age a code past 60 s with no real wait, and neither may become a setting a person or an agent can reach (DR-75).
+- **Decision:**
+  - **The testkit's allow-list** is `assert_cmd`, `tempfile` and `serde_json`, as its area contract already says.
+  - **The floor fails both ways:** `truth_recall_never_drops` fails when a floor check no longer holds and when a check holds that the floor doesn't name, so a change that raises recall raises the floor in the same change.
+  - **Two reads are owed** before full evidence recall: a block's own evidence and a relation's whole evidence. Until they exist, those checks count as missing, never as passing.
+  - **`edit`'s first ops** are `move`, `group`, `rename`, `hide`, `pin`, `relate`, `unrelate`, `forbid` with a kind, and `undo`. `set`, `text` and `propose` arrive with the plan pack's intent leaves, which fix their fields; `forbid` with no kind is `invalid_argument` until a rule over every kind has a stored form.
+  - **An HTTP write names its tab's client,** or it is `invalid_argument` on `client`, so each tab is its own writer instance (DR-5, DR-73). **A base past the head** is `invalid_argument` on `base`, checked inside the write transaction.
+  - **The dirty count's git call** turns off every filter driver git's config names, through `GIT_CONFIG_KEY_n`, and adds `--ignore-submodules=dirty`; a submodule the workspace maps reports its own status. The adapter's hooks, fsmonitor and transports stay off as for every git call.
+  - **Test-only seams:** the opener is `PLANROOM_TEST_OPENER`, read only in builds with `debug_assertions`, so release builds compile it out, and the mod blanks it for every engine run as it blanks `PLANROOM_RAW`; the login code's clock is a constructor only tests call. Neither is documented as a setting.
+- **Alternatives rejected:**
+  - Lowering the floor when a change trades one check for another: a floor that can fall guards nothing.
+  - Fixing `set`, `text` and `propose`'s fields now: they would be guessed, and the intent leaves would change them.
+  - A shared default client over HTTP: it merges tabs a person keeps apart.
+  - Plain `git status`: it runs repo-configured commands.
+  - An environment variable for the clock: an agent could set it.
+- **Consequences:**
+  - Boundaries: `boundaries.toml`'s testkit row, ratified with the layout lock.
+  - Contracts: `WriteCommon.client` required over HTTP; `EditOp::Forbid`'s `None` refused; the pending ops' comment.
+  - Tests: `crates/testkit/tests/truth.rs`; `s01_first_look.rs::truth_recall_never_drops`; `edit.rs::a_base_past_the_head_is_refused`, `an_http_write_without_its_client_is_refused`; the git adapter's `counting_uncommitted_files_runs_no_filter_the_repo_or_a_submodule_names`; `server_auth.rs::an_expired_or_reused_code_is_refused`; `open.rs`.
+  - It amends DR-71 (the dirty count's git call) and DR-91 (when `set`, `text` and `propose` arrive).
+- **Sources (checked 2026-10-27):** `crates/testkit/src/truth.rs`; `crates/planroom/src/app/{edit, open, dirty}.rs`; `crates/planroom/src/server/auth.rs`; `crates/extract/src/git.rs`; [Testing strategy](architecture.md#testing-strategy); [Contracts](contracts.md).

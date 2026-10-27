@@ -12,6 +12,7 @@ Paths used in the tables below, grouped by area.
 | Store | `crates/store/tests/{commit,concurrency,crash,idem,interleavings,migrations,fs_check,ledger}.rs` |
 | Extract | `crates/extract/tests/{contract,link,git,formats}.rs` |
 | Models | `crates/models/tests/{jev_contract,claude_decoders,session_backend,redact,replay,hosts}.rs` |
+| Testkit | `crates/testkit/tests/truth.rs` (the truth comparator: branch evidence through its scan event, out-of-scope items listed, a missing evidence item failing its relation) |
 | Engine and scenarios | `crates/planroom/tests/s01_first_look.rs` to `s15_surface.rs`; `{actor,budgets,packs,envelope_schema,catalogue,docs,evals,id_stability,handoff_preflight,handoff_clone,git_hardening,curate_triggers,server_auth,duties,release_pins,stream,trust,privacy,live_gate,backup,first_run,retries,text,scan,workspaces,usage,empty_states,display,discovery,namespaces,state_dir,open,edit,confine,next,link_snapshot,golden,focus,config,cards,map_read}.rs` |
 | Mod | `packages/mod/src/{keys,guard,outbox,broker,actor,surfaces,layout,room,refresh,prompt,tools,agents,engine,host}.test.ts(x)`, run by `vitest` and by `claude plugin test target/mod-test`, the generated harness, which also runs `packages/mod/plugin-tests/*.test.tsx` |
 | UI package | `packages/ui/src/{machine-step,rows,hotkeys,tokens,display}.test.ts` |
