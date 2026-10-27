@@ -67,6 +67,12 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
 
+/// [`git`] with arguments that need not be UTF-8, such as a Latin-1 path.
+fn git_os(dir: &Path, args: &[&OsStr]) {
+    let out = Command::new("git").args(args).current_dir(dir).stdin(Stdio::null()).output().unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+}
+
 /// A test directory with a data root of its own, and the workspace directory inside it.
 fn workspace() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
@@ -294,10 +300,25 @@ fn scan_text_prints_its_warnings() {
     let legacy = ws.join("legacy");
     fs::create_dir_all(&legacy).unwrap();
     fs::write(legacy.join("ok.py"), "ok = 1\n").unwrap();
-    fs::write(legacy.join(OsStr::from_bytes(b"caf\xe9.py")), "x = 1\n").unwrap();
     git(&legacy, &["init", "-q", "-b", "main"]);
     git(&legacy, &["add", "-A"]);
+    // Latin-1 `café.py`, as a repo committed elsewhere holds it: into the index directly, since a
+    // filesystem may refuse the name (APFS does) while a git tree never does, and kept out of the
+    // working tree's status so the repo stays clean.
+    let blob = git(&legacy, &["hash-object", "-w", "ok.py"]);
+    let cafe = OsStr::from_bytes(b"caf\xe9.py");
+    let info = [b"100644,".as_slice(), blob.trim().as_bytes(), b",", cafe.as_bytes()].concat();
+    git_os(
+        &legacy,
+        &[
+            OsStr::new("update-index"),
+            OsStr::new("--add"),
+            OsStr::new("--cacheinfo"),
+            OsStr::from_bytes(&info),
+        ],
+    );
     git(&legacy, &["commit", "-q", "-m", "init"]);
+    git_os(&legacy, &[OsStr::new("update-index"), OsStr::new("--skip-worktree"), cafe]);
     fs::write(ws.join("api/draft.md"), "draft\n").unwrap();
 
     let env = reply(&ws, &["scan", ".", "--json"]);

@@ -380,11 +380,22 @@ mod tests {
         git(root, &["init", "-q", "-b", "main"]);
         fs::create_dir_all(root.join("src")).unwrap();
         fs::write(root.join("src/ok.py"), "ok = 1\n").unwrap();
-        // Latin-1 `café.py`, and names holding a backslash and a newline.
-        fs::write(root.join(OsStr::from_bytes(b"src/caf\xe9.py")), "x = 1\n").unwrap();
+        // Names holding a backslash and a newline.
         fs::write(root.join("src/a\\b.py"), "y = 1\n").unwrap();
         fs::write(root.join("src/two\nlines.py"), "z = 1\n").unwrap();
         git(root, &["add", "-A"]);
+        // Latin-1 `café.py`, as a repo committed elsewhere holds it. It goes into the index
+        // directly, since a filesystem may refuse the name (APFS does) while a git tree never does.
+        let blob =
+            Command::new("git").args(["hash-object", "-w", "src/ok.py"]).current_dir(root).output().unwrap();
+        let info = [b"100644,".as_slice(), blob.stdout.trim_ascii(), b",src/caf\xe9.py"].concat();
+        let added = Command::new("git")
+            .args([OsStr::new("update-index"), OsStr::new("--add"), OsStr::new("--cacheinfo")])
+            .arg(OsStr::from_bytes(&info))
+            .current_dir(root)
+            .output()
+            .unwrap();
+        assert!(added.status.success(), "{}", String::from_utf8_lossy(&added.stderr));
         git(root, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"]);
 
         let git = Git::new(root);
