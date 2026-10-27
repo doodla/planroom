@@ -103,7 +103,7 @@ macro_rules! error_codes {
 }
 
 error_codes! {
-    InvalidArgument = "invalid_argument", Usage, Never, "bad flags or request", ["field", "synopsis", "schema"];
+    InvalidArgument = "invalid_argument", Usage, Never, "bad flags or request", ["field", "synopsis", "schema", "cycle", "lenses"];
     AmbiguousRef = "ambiguous_ref", Usage, Never, "an ID suffix or name matched several records", ["candidates"];
     WorkspaceNotFound = "workspace_not_found", NotFound, Never,
         "no repos at the path, or a read found no workspace store", ["path"];

@@ -341,3 +341,25 @@ id = "history"
 label = "History"
 relations = ["code.co_change", "code.owned_by"]
 level = "component"
+
+# Suggestions: the candidates for the pane's one next action (DR-54). The highest priority whose
+# `when` holds on the map wins, so a workspace with containers opens on them, and one with only
+# directories and files opens on those instead of on an empty level.
+
+[[suggestions]]
+when = { kinds = ["code.service", "code.datastore", "code.queue", "code.library", "code.tooling"] }
+text = "Open the containers"
+action = { command = "map", args = ["--level", "container"] }
+priority = 30
+
+[[suggestions]]
+when = { kinds = ["code.package", "code.module", "code.directory", "code.api_spec"] }
+text = "Open the components"
+action = { command = "map", args = ["--level", "component"] }
+priority = 20
+
+[[suggestions]]
+when = { kind = "code.file" }
+text = "Open the files"
+action = { command = "map", args = ["--level", "code"] }
+priority = 10

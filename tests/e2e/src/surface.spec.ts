@@ -89,15 +89,16 @@ async function topRowHolds(page: Page): Promise<void> {
 }
 
 /**
- * The fixture has one lens and no project, so neither picker has anything to pick: each shows what
- * it holds, isn't a button, and a press opens no sheet (ux-c).
+ * The map shows the default lens and the fixture has no project, and until the lens picker lands
+ * neither picker has anything to pick: each shows what it holds, isn't a button, and a press opens
+ * no sheet.
  */
 async function offersOnlyWhatWorks(page: Page, phone: boolean) {
   const lens = page.locator(".top-row [data-concept=lenses]");
   const shelf = page.locator(".top-row [data-concept=intent]");
   await expect(lens.locator(".yarn")).toBeVisible();
   // The lens's name; on the phone it's for a screen reader, beside the swatch.
-  await expect(lens).toContainText("all");
+  await expect(lens).toContainText("runtime");
   await expect(shelf).toContainText("No project");
   await expect(lens.getByRole("button")).toHaveCount(0);
   await expect(shelf.getByRole("button")).toHaveCount(0);
@@ -137,7 +138,8 @@ test.describe("at 1440x900", () => {
     expect(
       (await page.locator(".block-name").allTextContents()).sort(),
     ).toEqual(view.nodes.map((n) => n.name).sort());
-    // The engine's kinds carry no tone yet (M1): each draws as a plain card with its kind label.
+    // Each block draws in its kind's tone from the code pack (DR-46): a container in its block
+    // color, and a repo, whose kind has no tone, as a plain card.
     const looks = await blocks.evaluateAll((els) => {
       const probe = document.createElement("div");
       probe.style.background = "var(--card)";
@@ -145,11 +147,18 @@ test.describe("at 1440x900", () => {
       const card = getComputedStyle(probe).backgroundColor;
       probe.remove();
       return els.map((e) => ({
+        name: e.querySelector(".block-name")?.textContent ?? "",
         tone: e.getAttribute("data-tone"),
         card: getComputedStyle(e).backgroundColor === card,
       }));
     });
-    expect(looks.every((l) => l.tone === "none" && l.card)).toBe(true);
+    const tones = new Map(view.nodes.map((n) => [n.name, n.tone ?? "none"]));
+    for (const look of looks) {
+      expect(look.tone).toBe(tones.get(look.name));
+      expect(look.card).toBe(look.tone === "none");
+    }
+    // The five containers no repo holds carry a tone; the five repos don't.
+    expect(looks.filter((l) => l.tone !== "none")).toHaveLength(5);
     const orders = page.locator(".block", { hasText: /^orders\s*repo/ });
     await expect(orders.locator(".block-kind")).toHaveText("repo");
     await expect(orders.locator(".block-counts")).toHaveText(

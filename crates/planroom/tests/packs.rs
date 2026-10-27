@@ -735,6 +735,30 @@ fn a_suggestion_cannot_name_an_irreversible_command() {
     assert_invalid(&doctor(&dir), "teleport", "can't name teleport");
     let dir = pack_dir(tmp.path(), "look", &["code"], &suggestion("map"));
     assert_eq!(doctor(&dir)["ok"], true);
+    // `find` is a read, so a suggestion may name it, with the text it searches for; a flag it
+    // doesn't take is refused as the CLI refuses it.
+    let action = |args: &str| {
+        format!(
+            "[[suggestions]]\ntext = \"Search\"\naction = {{ command = \"find\", args = [{args}] }}\npriority = 1\n"
+        )
+    };
+    let dir = pack_dir(tmp.path(), "search", &["code"], &action("\"checkout\""));
+    assert_eq!(doctor(&dir)["ok"], true, "a suggestion may name find");
+    let dir = pack_dir(tmp.path(), "searched", &["code"], &action("\"checkout\", \"--lens\", \"runtime\""));
+    assert_invalid(&doctor(&dir), "find", "the action find checkout --lens runtime doesn't parse");
+    // Every suggestion a built-in pack ships names a leaf the band may name: one that can be
+    // undone, hands nothing off and never spends, so the pane's next action always is one.
+    let loaded = packs::builtins().expect("the built-in packs load");
+    assert!(!loaded.vocabulary.suggestions.is_empty(), "the code pack suggests a next action");
+    for s in &loaded.vocabulary.suggestions {
+        let spec = planroom_contract::Command::SPECS
+            .iter()
+            .find(|spec| spec.name() == s.action.command.0)
+            .unwrap_or_else(|| panic!("{} is a leaf", s.action.command.0));
+        assert!(!matches!(spec.undo, planroom_contract::Undo::NotUndoable(_)), "{}", spec.name());
+        assert_ne!(spec.class, planroom_contract::Class::Handoff, "{}", spec.name());
+        assert!(!spec.spends, "{}", spec.name());
+    }
 }
 
 #[test]

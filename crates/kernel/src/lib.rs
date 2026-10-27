@@ -3,9 +3,12 @@
 pub mod cas;
 pub mod display;
 pub mod facts;
+pub mod find;
 pub mod fold;
 pub mod keys;
+pub mod lens;
 pub mod model;
+pub mod next;
 pub mod redact;
 pub mod redact_fields;
 pub mod resolve;

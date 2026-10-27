@@ -95,15 +95,25 @@ export const MARK_TOKENS = [
 /** The contrast bar (WCAG 2): text, then marks. Block borders hold the text bar [DR-77]. */
 export const CONTRAST_BAR = { text: 4.5, mark: 3, border: 4.5 } as const;
 
+/**
+ * The palette tokens that paint a block of each tone a pack's kind may declare [DR-46]. Typed
+ * against the contract's `Tone`, so a tone the contract adds fails to type-check until it has
+ * tokens here.
+ */
+export const TONE_TOKENS = {
+  service: { fill: "block-service", border: "block-service-border" },
+  library: { fill: "block-library", border: "block-library-border" },
+  store: { fill: "block-store", border: "block-store-border" },
+  infra: { fill: "block-infra", border: "block-infra-border" },
+} as const satisfies Record<Tone, { fill: ColorToken; border: ColorToken }>;
+
 /** The CSS variables that paint a block of `tone`; no tone draws as a plain card. */
 export function toneVars(tone: Tone | null): { fill: string; border: string } {
   if (tone === null) {
     return { fill: "var(--card)", border: "var(--muted)" };
   }
-  return {
-    fill: `var(--block-${tone})`,
-    border: `var(--block-${tone}-border)`,
-  };
+  const { fill, border } = TONE_TOKENS[tone];
+  return { fill: `var(--${fill})`, border: `var(--${border})` };
 }
 
 /** The three faces; each is OFL-1.1 and self-hosted by the canvas. */

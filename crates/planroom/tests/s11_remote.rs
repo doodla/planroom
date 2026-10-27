@@ -135,7 +135,7 @@ fn snapshot_validates_and_is_under_1_mb() {
     assert_eq!(snapshot["format"], "planroom.snapshot/v1");
     assert_eq!(snapshot["maps"][0]["level"], "system");
     assert_eq!(snapshot["maps"][0]["nodes"].as_array().unwrap().len(), 10);
-    assert_eq!(snapshot["capabilities"], json!(["map:system:all", "pane"]));
+    assert_eq!(snapshot["capabilities"], json!(["map:system:runtime", "pane"]));
     assert_eq!(snapshot["unavailable"]["next"]["label"], "Not in this snapshot. Ask your computer for it");
 
     // The publish's exact arguments: the fragment, the stable-named assets and the data file,

@@ -8,13 +8,14 @@ Planroom embeds it in the binary, so every workspace loads it first.
 
 | Table | What the code pack puts there |
 |---|---|
-| `[[kinds]]` | `workspace`, `repo`, `service`, `datastore`, `queue`, `library`, `tooling`, `package`, `module`, `directory`, `file`, `api_spec`, `endpoint`, `person`, `commit`. Every Container-level kind uses the kernel's `container` ID prefix. |
+| `[[kinds]]` | `workspace`, `repo`, `service`, `datastore`, `queue`, `library`, `tooling`, `package`, `module`, `directory`, `file`, `api_spec`, `endpoint`, `person`, `commit`. Every Container-level kind uses the kernel's `container` ID prefix and has a tone, the block color surfaces draw it in: `service` for a service, `store` for a datastore or a queue, `library` for a library, `infra` for tooling. |
 | `[[relations]]` | `http`, `queue_publish`, `queue_consume`, `db`, `imports`, `depends_on_package`, `co_change`, `owned_by` |
 | `[[languages]]` | TypeScript, TSX, JavaScript, Python, Go, Rust, YAML and JSON, by file extension |
 | `[[image_roles]]` | `postgres*` and `mysql*` are a `datastore`; `redis*` and `rabbitmq*` are a `queue` |
 | `[[hints]]` | `url`, `env_read`, `env_set`, `depends_on`, `route_serve`, `route_call`, `queue_op`, `db_open`, `sql`, `def`, `call` |
 | `[[extractors]]` | the `files` and `compose` built-ins |
 | `[[lenses]]` | `runtime` (the default), `flow`, `dependencies`, `history` |
+| `[[suggestions]]` | the pane's next action: open the containers when the map has any, else the components, else the files |
 
 A compose service whose image no image role matches is a `service`.
 
@@ -28,6 +29,7 @@ Your pack may:
 
 - name the code pack's kinds and relations, qualified, such as `code.file`, and its lenses by ID, such as `runtime`, in a question step, a rule, a decision effect or a `when` predicate, under the keys its shape, rule type, effect or the predicate declares;
 - name its lenses and IDs in a suggestion's action, whose arguments must parse as the `planroom` CLI parses them;
+- declare a lens of its own, under any ID but `all`, which `--lens all` already takes for every relation of every loaded pack;
 - write a literal node ID whose kind-short is one of the code pack's ID prefixes, such as `web:file:src/app.ts`;
 - add a language whose extensions no loaded pack claims;
 - add an image role for a glob no loaded pack claims;

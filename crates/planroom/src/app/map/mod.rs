@@ -6,10 +6,11 @@
 //! caught up one event at a time (DR-61, `live::model`).
 //!
 //! The leaf honors its catalogue budget (`CommandSpec::budget_tokens`) at every detail: over it,
-//! the map gives its first page, the blocks that fit taken by level and then ID and listed in
-//! their documented order ([`page`]), with the lifted edges that land there, and `meta.next`, the
-//! cursor `--cursor` takes for the page after it, with a `truncated` warning whose
-//! `details.next` is a drill-down that works today. Only the canvas's layout input, `--detail
+//! the map gives its first page, the blocks that fit taken in cut order (the lens's kinds' blocks,
+//! then the rest, each by level and then ID) and listed in the lens's display order ([`page`]),
+//! with the lifted edges that land there, and `meta.next`, the cursor `--cursor` takes for the
+//! page after it, with a `truncated` warning whose `details.next` is a drill-down that works
+//! today. Only the canvas's layout input, `--detail
 //! graph` over `serve` and in the `share` snapshot, takes the whole graph, until M2 pages it
 //! (architecture.md, Token budgets).
 //!
@@ -17,7 +18,7 @@
 //! budget ([`page`]); [`focus`] finds the node `--focus` names, whose blocks the view shows.
 
 mod focus;
-pub(crate) mod lens;
+pub mod lens;
 pub(crate) mod page;
 mod read;
 
@@ -37,8 +38,6 @@ pub(crate) use page::fit_beside;
 pub(crate) use read::{not_scanned_view, scan_empty};
 pub use read::{top, top_in};
 
-/// The lens a map shows when none is asked for; no pack declares a default lens yet.
-const ALL_LENSES: &str = "all";
 /// Block names the one-line summary lists before "and N more".
 const SUMMARY_NAMES: usize = 12;
 
@@ -66,14 +65,16 @@ fn budget_tokens() -> u32 {
 }
 
 fn run_within(req: &MapReq, cwd: &Path, budget: Option<u32>) -> Result<Paged<MapView>, AppError> {
-    let lens_id = req.lens.clone().unwrap_or_else(|| ALL_LENSES.into());
+    let vocabulary = crate::packs::vocabulary()?;
+    let lens_id = lens::asked(vocabulary, req.lens.as_deref())?;
+    let level = level_of(req, vocabulary);
     let whole = |reply: Reply<MapView>| Paged { reply, next: None };
     // Outside a workspace, the same empty state `focus` shows (DR-57).
     let Some(root) = workspace::find_root(cwd) else {
-        return read::not_scanned(cwd, lens_id, req.level, 0).map(whole);
+        return read::not_scanned(cwd, lens_id, level, 0).map(whole);
     };
     let Some(store) = Store::open_existing(&workspace::store_path(&root))? else {
-        return read::not_scanned(&root, lens_id, req.level, 0).map(whole);
+        return read::not_scanned(&root, lens_id, level, 0).map(whole);
     };
     reply_in(&store.snapshot()?, &root, req, budget)
 }
@@ -85,13 +86,13 @@ fn reply_in(
     req: &MapReq,
     budget: Option<u32>,
 ) -> Result<Paged<MapView>, AppError> {
-    let lens_id = req.lens.clone().unwrap_or_else(|| ALL_LENSES.into());
+    let vocabulary = crate::packs::vocabulary()?;
+    let lens_id = lens::asked(vocabulary, req.lens.as_deref())?;
+    let level = level_of(req, vocabulary);
     let seq = snapshot.seq();
-    // No pack is loaded yet, so the lens keeps the whole view.
-    let vocabulary = Vocabulary::default();
-    let (mut view, under) = read::view(snapshot, root, req.level, req.focus.as_deref(), &vocabulary)?;
+    let (mut view, under) = read::view(snapshot, root, level, req.focus.as_deref(), vocabulary)?;
     view.lens = lens_id.clone();
-    let mut view = lens::filter(view, &vocabulary, &lens_id);
+    let mut view = lens::filter(view, vocabulary, &lens_id);
     if view.empty.is_none() {
         match req.detail {
             // Positions come from the whole map's layout, whichever page shows them.
@@ -100,14 +101,23 @@ fn reply_in(
             Detail::Summary => view.edges.iter_mut().for_each(|e| e.evidence_sample.clear()),
         }
     }
-    // The page is cut from the view as the reply carries it, so it is measured as it is sent.
-    let page = page::cut(view, req, seq, budget)?;
-    let mut text = text_of(&page.view, page.total, req.level, under.as_deref());
+    // The page is cut from the view as the reply carries it, so it is measured as it is sent. The
+    // level the lens defaults to is the level the page, its cursor and its drill-down name.
+    let req = MapReq { level, ..req.clone() };
+    let page = page::cut(view, &req, seq, budget, lens::kinds(vocabulary, &lens_id))?;
+    let mut text = text_of(&page.view, page.total, level, under.as_deref());
     for warning in &page.warnings {
         text.push('\n');
         text.push_str(&warning.message);
     }
     Ok(Paged { reply: Reply { text, result: page.view, seq, warnings: page.warnings }, next: page.next })
+}
+
+/// The level a request shows: the one it names, or with `--lens X` alone and no `--focus`, the
+/// lens's own (DR-15). With neither, the top of the map.
+fn level_of(req: &MapReq, vocabulary: &Vocabulary) -> Option<Level> {
+    req.level
+        .or_else(|| req.focus.is_none().then(|| lens::level_of(vocabulary, req.lens.as_deref())).flatten())
 }
 
 /// The text mode's first line, which the envelope also carries as `summary`: the empty state's

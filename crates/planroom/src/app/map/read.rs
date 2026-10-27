@@ -16,7 +16,7 @@ use planroom_kernel::tree;
 use planroom_store::{Snapshot, Store};
 
 use crate::app::error::AppError;
-use crate::app::map::{ALL_LENSES, focus};
+use crate::app::map::{focus, lens};
 use crate::app::workspace;
 use crate::app::{Reply, empty_view};
 use crate::{live, text};
@@ -30,7 +30,11 @@ pub fn top(store: &Store, root: &Path, level: Option<Level>) -> Result<MapView, 
 /// [`top`] inside a read transaction the caller holds, so the rest of its reply, such as the
 /// pane's `seq`, comes from the same version of the store.
 pub fn top_in(snapshot: &Snapshot<'_>, root: &Path, level: Option<Level>) -> Result<MapView, AppError> {
-    Ok(view(snapshot, root, level, None, &Vocabulary::default())?.0)
+    let vocabulary = crate::packs::vocabulary()?;
+    let mut view = view(snapshot, root, level, None, vocabulary)?.0;
+    view.lens = lens::default_id(vocabulary);
+    let lens = view.lens.clone();
+    Ok(lens::filter(view, vocabulary, &lens))
 }
 
 /// The map in `snapshot`: the blocks at `level` (the top, the system level, when it is `None`),
@@ -45,7 +49,8 @@ pub(super) fn view(
     vocabulary: &Vocabulary,
 ) -> Result<(MapView, Option<String>), AppError> {
     if snapshot.active_set()?.repos.is_empty() {
-        return Ok((not_scanned(root, ALL_LENSES.into(), level, snapshot.seq())?.result, None));
+        let lens = lens::default_id(vocabulary);
+        return Ok((not_scanned(root, lens, level, snapshot.seq())?.result, None));
     }
     let model = live::model(snapshot, vocabulary)?;
     let (nodes, edges) = (&model.nodes, &model.edges);
@@ -73,7 +78,7 @@ pub(super) fn view(
     };
     let view = MapView {
         level: shown,
-        lens: ALL_LENSES.into(),
+        lens: lens::default_id(vocabulary),
         focus: under.map(|n| n.id.clone()),
         nodes: blocks,
         edges,
@@ -164,8 +169,26 @@ pub(super) fn not_scanned(
 /// The top of the map of a workspace a scan wrote nothing for, since git could read none of its
 /// repos: the same empty state `map` returns there.
 pub(crate) fn not_scanned_view(root: &Path) -> Result<MapView, AppError> {
-    Ok(not_scanned(root, ALL_LENSES.into(), None, 0)?.result)
+    Ok(not_scanned(root, lens::default_id(crate::packs::vocabulary()?), None, 0)?.result)
 }
+
+/// The repo names an empty state's line lists: the first [`LINE_NAMES`], each cut to
+/// [`NAME_CHARS`] characters, then how many more, so the line stays short whatever the repos are
+/// called and every reply that carries it keeps to its budget.
+fn listed(names: &[String]) -> String {
+    let shown: Vec<String> = names.iter().take(LINE_NAMES).map(|n| text::short(n, NAME_CHARS)).collect();
+    let more = names.len() - shown.len();
+    if more == 0 {
+        shown.join(", ")
+    } else {
+        text::get("map.more", &[("names", &shown.join(", ")), ("more", &more)])
+    }
+}
+
+/// Repo names an empty state's line lists before "and N more".
+const LINE_NAMES: usize = 3;
+/// Characters of a repo's name an empty state's line quotes.
+const NAME_CHARS: usize = 40;
 
 /// The empty state of a directory with no scan: map the repos a scan can map, those with a commit.
 /// With none, no scan can map anything, so the line says what to do (make a first commit, or see
@@ -181,11 +204,11 @@ pub(crate) fn scan_empty(root: &Path, repos: &workspace::Scannable) -> Empty {
         },
     };
     if repos.readable == 0 && !repos.unborn.is_empty() {
-        let names = repos.unborn.join(", ");
+        let names = listed(&repos.unborn);
         return check_again("repos_unborn", text::get("empty.repos_unborn", &[("names", &names)]));
     }
     if repos.readable == 0 && !repos.unreadable.is_empty() {
-        let names = repos.unreadable.join(", ");
+        let names = listed(&repos.unreadable);
         return check_again("repos_unreadable", text::get("empty.repos_unreadable", &[("names", &names)]));
     }
     if repos.readable == 0 {

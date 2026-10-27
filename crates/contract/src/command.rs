@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::envelope::{CommandName, Cursor, Handle};
 use crate::errors::ErrorCode;
 use crate::model::{Level, NodeId, Seq};
+use crate::requests::FindReq;
 use crate::view::MapView;
 
 /// Which of the five ideas (plus setup) a command belongs to; help is grouped by it.
@@ -90,6 +91,7 @@ impl CommandSpec {
 #[serde(tag = "command", content = "args", rename_all = "snake_case")]
 pub enum Command {
     Map(MapReq),
+    Find(FindReq),
     Focus(FocusReq),
     Scan(ScanReq),
     Watch(WatchReq),
@@ -115,6 +117,27 @@ const MAP: CommandSpec = CommandSpec {
         ErrorCode::InvalidArgument,
         ErrorCode::AmbiguousRef,
         ErrorCode::NotFound,
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Query,
+    tool: Some(Tool::RoomQuery),
+    room: true,
+};
+
+const FIND: CommandSpec = CommandSpec {
+    path: &["find"],
+    idea: Idea::Levels,
+    summary: "Search the map's blocks by name or ID, best match first.",
+    actor: ActorRule::Any,
+    class: Class::Read,
+    budget_tokens: 600,
+    needs_base: false,
+    spends: false,
+    errors: &[
+        ErrorCode::InvalidArgument,
         ErrorCode::WorkspaceNotFound,
         ErrorCode::StoreBusy,
         ErrorCode::SchemaMismatch,
@@ -325,11 +348,12 @@ const DOCTOR: CommandSpec = CommandSpec {
 impl Command {
     /// Every leaf's spec, in catalogue order.
     pub const SPECS: &'static [CommandSpec] =
-        &[MAP, FOCUS, SCAN, WATCH, SCHEMA, VERSION, PERSON_INIT, SERVE, SHARE, IMPORT, DOCTOR];
+        &[MAP, FIND, FOCUS, SCAN, WATCH, SCHEMA, VERSION, PERSON_INIT, SERVE, SHARE, IMPORT, DOCTOR];
 
     pub const fn spec(&self) -> &'static CommandSpec {
         match self {
             Command::Map(_) => &MAP,
+            Command::Find(_) => &FIND,
             Command::Focus(_) => &FOCUS,
             Command::Scan(_) => &SCAN,
             Command::Watch(_) => &WATCH,

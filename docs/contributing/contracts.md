@@ -176,14 +176,18 @@ No level or view is blank: an empty one carries an `Empty`, whose `next` runs to
 |---|---|---|
 | `not_scanned` | `focus` or `map` in a directory with no store, where at least one repo has a commit; `N` counts only those repos (DR-57, DR-87) | `scan DIR`, "Map these N repos? About 2 s" |
 | `no_repos` | `focus` or `map` in a directory with no repos and no store; `map` returns it `ok`, not `workspace_not_found` | `focus`, "check again": no `scan` there could succeed (DR-85) |
-| `repos_unborn` | `focus` or `map` with nothing at the top, where no repo has a commit and at least one has none yet; the line names those repos | `focus`, "check again" after a first commit: a `scan` there would map nothing (DR-87) |
-| `repos_unreadable` | `focus` or `map` with nothing at the top, where git can read none of the workspace's repos; the line names them. When no repo has a commit and at least one is unborn, `repos_unborn` wins and names only the unborn repos | `focus`, "check again" after `git status` in each: a `scan` there would map nothing (DR-86, DR-87) |
+| `repos_unborn` | `focus` or `map` with nothing at the top, where no repo has a commit and at least one has none yet; the line names those repos, the first three, each cut to 40 characters, and counts the rest | `focus`, "check again" after a first commit: a `scan` there would map nothing (DR-87) |
+| `repos_unreadable` | `focus` or `map` with nothing at the top, where git can read none of the workspace's repos; the line names them as `repos_unborn`'s does. When no repo has a commit and at least one is unborn, `repos_unborn` wins and names only the unborn repos | `focus`, "check again" after `git status` in each: a `scan` there would map nothing (DR-86, DR-87) |
 | `no_intent` | `map --level intent` before any plan, while the top has blocks | `map`, "Show the top of the map" (DR-85, DR-87) |
 | `empty_level` | `map --level L` where the workspace has nothing at `L`, while the top has blocks | `map`, "Show the top of the map" (DR-85, DR-87) |
 | `nothing_mapped` | the top of the map after a scan found nothing to map, while a repo with a commit could be mapped | `scan ROOT`, "Scan again" (DR-85, DR-87) |
+| `no_match` | `find TEXT` where no node's name or ID matches the text | `map`, "Show the top of the map" |
 | `nothing_under` | `map --focus ID` where nothing lies under that node at the level shown | `map --level L --focus PARENT`, the node among the blocks beside it at its own level `L`; `map --level L` for a node with no parent (DR-85) |
 | `not_in_snapshot` | the Artifact's request state for a view the snapshot doesn't hold | the read request row (DR-77) |
 | `nothing_after_cursor` | a `map --cursor` page whose map moved on, so no block is left after the cursor's; the page also carries `stale_page` | `map` with the same flags and no cursor, "Show the first page" (DR-73) |
+| `lens_shows_nothing` | `map --lens X` where X has `kinds` and leaves none of the level's blocks: none is of its kinds or touched by its relations; the line names the lens and the level | `map --level L --lens all`, with the same `--focus`, "Show every block at this level" (DR-21) |
+
+`find` returns the `not_scanned`, `no_repos`, `repos_unborn` or `repos_unreadable` state `map` returns in the same directory, as long as nothing is scanned there.
 
 Redaction is by field [DR-64]. A field that holds repo-derived free text carries the `#[redact]` mark, `#[schemars(extend("x-redact" = true))]`, in `crates/contract/src/`: `Evidence.contains`, `Hint.value` and `Hint.attrs`, `Node.name`, the string values of `Node.props` and `Edge.props`, the names a view shows (`MapNode.name`, `Crumb.name`, `MiniBlock.name`, `AskItem.name`, `FindItem.name`), `DiffLine.hunk`, `PresenceRow.doing`, `HandoffStep.note` (a note can quote a test's output) and `Card.vars` (the names a card's lines fill in) [DR-91]; the engine lines built from that text: `Envelope.summary`, `Empty.line`, `Warning.message`, `ErrorObject.message` and `ToolError.message`, an event frame's `summary`, `DecisionCard.question` and `why`, `DiffLine.summary`, `DriftLine.summary`, `PaneState.error`, `AskResult.summary`, `AskItem.why`, `FindResult.summary` and `ImportedRow.reason`; and, as their types land, `ContextExcerpt.excerpt`, `RunStep::Command.output_excerpt` and prompt text. An error's or a warning's `details` are masked by key: each code's registry entry in `crates/contract/src/errors.rs` names, in its `redact`, the keys that hold repo-derived free text, such as `git_failed`'s `stderr` and the `repo` of `repo_unborn` and the other scan warnings, and `docs/reference/errors.md` marks them (masked). A key that is a handle, an ID, a field name or a command, such as `details.next`, `details.field` or `details.closest`, is never marked, and neither is a `hint`: it is an exact command, like a handle's `args`. `cargo xtask gen` writes the marked field paths into `crates/kernel/src/redact_fields.rs`: for each output type that holds a marked field, the paths from it to each one, such as `MapView`'s `nodes[].name` (`.` joins fields, `[]` is an array's items, `{}` a map's values); and, for each output type that holds an error or a warning, the path to each one, beside each code's masked `details` keys. `kernel::redact` masks secrets in every string under exactly those fields, keys excepted, on every output path [DR-89], CLI text and `--json` included; text mode masks each line it prints, since each is one of those fields. The engine tokens in a masked line stay whole: commit SHAs, seqs, counts and levels. So does an ID: a whitespace-delimited token shaped like a node ID, `namespace:kind-short:key` with a lowercase `snake_case` kind-short and neither the namespace nor the key holding `=` or `://`, is left alone by the high-entropy rule, since an ID is never redacted and the reply carries the same ID unmasked in its ID fields. So `access_token:dir:src` and `alpha:file:lib/v3/OAuth2PKCEFlow.ts` stay whole, while an ID-like token that holds `=` or `://`, such as `db_PASSWORD=hunter2:dir:src`, is masked like any other text. The named shapes (a private key, a DSN's user info, an assignment's value, a known token shape) are masked wherever they sit, an ID-shaped token included, so a secret never hides behind the shape. An `=` always assigns, and a `:` assigns only when whitespace or a quote follows it or a quote comes before it (`DB_PASSWORD: x`, `"api_token":"x"`) (`kernel::redact`'s `the_engine_tokens_of_a_line_survive_masking`, `an_id_stays_whole_by_its_shape`, `an_id_shaped_token_holding_an_assignment_or_a_url_is_masked`, `a_named_secret_shape_is_masked_inside_an_id_shaped_token` and `a_colon_assigns_only_before_whitespace_or_a_quote_or_after_a_quote`). `contract/tests/schema.rs::every_redacted_field_is_listed` checks that every mark is listed and that none is on an ID. It never touches an ID, a handle, a cursor or a hash, so a handle's `label` names no repo text: it is a short action, and the line beside it names what it acts on (`planroom::text::LABELS`, checked by `text.rs::no_label_takes_repo_text`); join keys such as `Hint.key`, `Edge.via` and `Node.aliases` stay unmarked, and an edit's `fields` and `over` stay unmarked until the `edit` leaf gives them types [DR-91]. `PLANROOM_RAW=1` turns it off for the truth comparator alone, and only on a read command's `--json` stdout: model requests, session request files, the snapshot, `live/head`, acks, tool results and logs stay redacted whatever it says. The mod's guard denies that variable to agents (DR-75).
 
@@ -193,7 +197,7 @@ Redaction is by field [DR-64]. A field that holds repo-derived free text carries
 
 | Code | Category | Exit | Retry | Meaning | `details` |
 |---|---|---|---|---|---|
-| `invalid_argument` | usage | 2 | never | bad flags or request, a parent change that would make a cycle, or a relative `PLANROOM_SPEND_LOG` (DR-65). Under `--json` a bad flag or value is one envelope, never clap's text; one that names no leaf has `command: "planroom"` (DR-85) | `field`, the request field the error names; `synopsis`, the leaf's one-line synopsis, generated from clap; `schema`, the `schema --command LEAF` handle, or `schema --commands` with no leaf, which `hint` names as an exact command (DR-66, DR-85); `cycle`, the node IDs, for a parent cycle. Every CLI `invalid_argument` carries `field`, `synopsis` and `schema`; one over HTTP doesn't until M2's budgets slice, and the resolver's carries only `field` |
+| `invalid_argument` | usage | 2 | never | bad flags or request, a parent change that would make a cycle, or a relative `PLANROOM_SPEND_LOG` (DR-65). Under `--json` a bad flag or value is one envelope, never clap's text; one that names no leaf has `command: "planroom"` (DR-85) | `field`, the request field the error names; `synopsis`, the leaf's one-line synopsis, generated from clap; `schema`, the `schema --command LEAF` handle, or `schema --commands` with no leaf, which `hint` names as an exact command (DR-66, DR-85); `cycle`, the node IDs, for a parent cycle; `lenses`, the lenses a request may name (`all` and each loaded pack's), for an unknown `--lens`. Every CLI `invalid_argument` carries `field`, `synopsis` and `schema`; one over HTTP doesn't until M2's budgets slice, and the resolver's carries only `field` |
 | `ambiguous_ref` | usage | 2 | never | an ID suffix matched several records | `candidates` |
 | `base_required` | usage | 2 | never | a write to user-authored state without `base` | `hint` names `meta.seq` |
 | `actor_required` | usage | 2 | never | a write with no `PLANROOM_ACTOR`, no person token and no terminal | `hint` shows `PLANROOM_ACTOR=agent:<id>:<role>` |
@@ -335,7 +339,9 @@ pub struct AskItem { pub id: String /* a node, or with ask alone a kind, lens or
                      pub why: String, pub handles: Vec<Handle> }
 pub struct FindReq { pub text: String }
 pub struct FindResult { pub summary: String, pub items: Vec<FindItem>, pub empty: Option<Empty> }
-pub struct FindItem { pub id: NodeId, pub name: String, pub level: Level, pub kind: Kind }
+pub struct FindItem { pub id: NodeId, pub name: String, pub level: Level, pub kind: Kind,
+                      pub handles: Vec<Handle> /* map --level L [--focus PARENT], the match among the blocks beside it;
+                                                  then map --focus ID when it holds blocks */ }
 pub struct DoctorReq { pub pack: Option<String> /* --pack DIR */, pub update: bool /* rewrite tests/expected.jsonl */ }
                                              // --restore and the general report join it as flags
 ```
@@ -676,7 +682,7 @@ pub struct MapView {
     pub level: Level, pub lens: String, pub focus: Option<NodeId>,
     pub nodes: Vec<MapNode>,                 // id, kind, tone (the kind's, so surfaces style from the view model, DR-46), name,
                                              // level, parent, counts, position, ghost, claimed_by; under a lens with kinds, its
-                                             // kinds' nodes come first (DR-15)
+                                             // kinds' nodes come first, then by the lifted edges each carries (DR-15)
     pub edges: Vec<LiftedEdge>,
     pub hidden: u32,
     pub empty: Option<Empty>,
@@ -761,6 +767,7 @@ pub struct LensDecl { pub id: String, pub label: String, pub relations: Vec<Stri
                                                 or none, and `map --lens` alone takes the lens's level (DR-15) */,
                       pub level: Level,
                       pub default: bool /* two defaults are pack_invalid unless one is the code pack's, which wins */,
+                      /* id: never "all", which --lens all takes for every relation of every loaded pack */
                       pub empty_text: Option<String>, pub empty_action: Option<String> }
 pub struct QuestionDecl { pub id: String, pub args: Vec<ArgDecl>, pub steps: Vec<ShapeStep> /* 1 to 3 */,
                           pub summary: String, pub budget_tokens: Option<u32> /* clamped to 3,000; None takes ask's 1,500 (DR-21) */ }
@@ -790,7 +797,9 @@ pub struct PromptDecl { pub id: String, pub file: String, pub tier: ModelTier /*
                         pub ttl: CacheTtl /* M5 (default) | H1 for person-paced purposes */ }
 pub struct SuggestionDecl { pub when: Predicate /* the filter shape's predicate, as a decision kind's when, through
                                                     PREDICATE_PARAMS; its kinds may be node or edge kinds */,
-                            pub text: String, pub action: ActionDecl, pub priority: u32 /* higher ranks first */ }
+                            pub text: String /* the next action's label */, pub action: ActionDecl,
+                            pub priority: u32 /* higher ranks first: the pane's next is the highest whose when holds on
+                                                 some node or edge of the map, the first in load order on a tie */ }
 pub struct ActionDecl { pub command: CommandName, pub args: Vec<String> /* parsed by the CLI's own clap tree, so a flag the
                         leaf doesn't take is pack_invalid; every lens and node ID they name is in the pack's scope */ }
 ```

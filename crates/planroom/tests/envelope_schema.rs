@@ -86,3 +86,36 @@ fn the_documented_error_table_is_the_error_codes() {
         "contracts.md's warning table and contract::WarningCode list other codes"
     );
 }
+
+/// The `details` keys a row's last cell introduces: each `;`-separated part that starts with a
+/// key in backticks and a comma, such as "`field`, the request field the error names".
+fn introduced_keys(details: &str) -> Vec<&str> {
+    details
+        .split("; ")
+        .filter_map(|part| part.trim().strip_prefix('`'))
+        .filter_map(|rest| rest.split_once("`, ").map(|(key, _)| key))
+        .filter(|key| key.chars().all(|c| c.is_ascii_lowercase() || c == '_'))
+        .collect()
+}
+
+#[test]
+fn invalid_argument_declares_every_details_key_its_row_introduces_and_documents_each_it_declares() {
+    let errors = table_after("### Error codes");
+    let code = ErrorCode::InvalidArgument;
+    let details = &errors[code.as_str()][5];
+    let declared = code.spec().details;
+    let introduced = introduced_keys(details);
+    assert!(introduced.contains(&"field"), "{details}");
+    for key in introduced {
+        assert!(
+            declared.contains(&key),
+            "the row documents `{key}`, which the registry doesn't declare: {declared:?}"
+        );
+    }
+    for key in declared {
+        assert!(
+            details.contains(&format!("`{key}`")),
+            "the registry declares `{key}`, which the row doesn't name"
+        );
+    }
+}

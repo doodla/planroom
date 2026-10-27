@@ -116,6 +116,18 @@ pub fn builtins() -> Result<Loaded, AppError> {
     resolve(embed::sources())
 }
 
+/// The vocabulary the views read: the built-in packs', loaded once per process. A workspace's
+/// own packs come from its config, which loads only once the workspace is trusted, so none
+/// loads yet, as in `scan`.
+pub fn vocabulary() -> Result<&'static Vocabulary, AppError> {
+    static LOADED: std::sync::OnceLock<Vocabulary> = std::sync::OnceLock::new();
+    if let Some(vocabulary) = LOADED.get() {
+        return Ok(vocabulary);
+    }
+    let vocabulary = builtins()?.vocabulary;
+    Ok(LOADED.get_or_init(|| vocabulary))
+}
+
 /// Load, check and merge `sources`, the built-ins first.
 pub fn resolve(sources: Vec<Source>) -> Result<Loaded, AppError> {
     let mut packs = sources.into_iter().map(load::parse).collect::<Result<Vec<Pack>, AppError>>()?;

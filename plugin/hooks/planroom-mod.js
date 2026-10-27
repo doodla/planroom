@@ -307,6 +307,19 @@ var CATALOGUE = [
     "room": true
   },
   {
+    "name": "find",
+    "idea": "levels",
+    "summary": "Search the map's blocks by name or ID, best match first.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 600,
+    "needs_base": false,
+    "spends": false,
+    "undo": "query",
+    "tool": "room_query",
+    "room": true
+  },
+  {
     "name": "focus",
     "idea": "levels",
     "summary": "Where you are, the one open decision and the next action.",

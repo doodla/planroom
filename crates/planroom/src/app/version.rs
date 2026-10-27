@@ -53,6 +53,7 @@ pub enum SchemaReply {
 /// own schema; `a_schema_handle_resolves_for_every_leaf` checks this table covers the catalogue.
 const RESULTS: &[(&str, &str)] = &[
     ("map", "MapView"),
+    ("find", "FindResult"),
     ("focus", "PaneModel"),
     ("scan", "ScanResult"),
     ("watch", "StreamFrame"),

@@ -1,20 +1,24 @@
 //! A map cut to fit: a page after a cursor, and the blocks that fit the leaf's budget.
 //!
-//! Pages are cut in stable-ID order: by level, then ID (architecture.md, The CLI: Pagination).
-//! A map over its leaf's budget gives its first page, the blocks that fit taken in that order,
-//! and each page lists its blocks in the map's documented order (level, name, ID, as
-//! `kernel::tree` sorts them), so a map that fits on one page reads as it always has. `meta.next`
-//! is an opaque cursor over the `seq` the page read, a hash of the request's filters, and the
-//! level and ID of the page's last block in cut order; `--cursor` continues with the first block
-//! after it. Each lifted edge lands on the page that gives the later of its two blocks in cut
-//! order, so the pages joined hold every block and every edge exactly once.
+//! Pages are cut in a stable order (architecture.md, The CLI: Pagination): by lens group, then
+//! level, then ID. Group 0 is the blocks of the lens's kinds, when its `kinds` is non-empty, and
+//! group 1 every other block, so with no kinds the order is level, then ID. A map over its leaf's
+//! budget gives its first page, the blocks that fit taken in that order, so the lens's kinds'
+//! blocks reach it first. Each page lists its blocks in the lens's display order (its kinds
+//! first, then by lifted edges, then level, name, ID, as `kernel::lens::apply` orders them), so a
+//! map that fits on one page reads as it always has; ranking by lifted edges orders blocks within
+//! a page only, since lifted-edge counts change between versions and a cursor stays exact.
+//! `meta.next` is an opaque cursor over the `seq` the page read, a hash of the request's filters,
+//! and the group, level and ID of the page's last block in cut order; `--cursor` continues with
+//! the first block after it. Each lifted edge lands on the page that gives the later of its two
+//! blocks in cut order, so the pages joined hold every block and every edge exactly once.
 //!
 //! A cursor from another request's filters is `invalid_argument`. One whose `seq` is behind reads
-//! the current map, warns `stale_page` and continues the same way. A block whose ID and level are
-//! the same in both versions keeps its place in cut order, whatever names changed and whatever
-//! rows came or went, so it is given exactly once across the pages (DR-73); a block whose level
-//! changed is a changed row and may move. A cursor with no block after it gives the empty state
-//! `nothing_after_cursor`.
+//! the current map, warns `stale_page` and continues the same way. A block whose ID, level and
+//! kind are the same in both versions keeps its place in cut order, whatever names and edges
+//! changed and whatever rows came or went, so it is given exactly once across the pages (DR-73);
+//! a block whose level or kind changed is a changed row and may move. A cursor with no block
+//! after it gives the empty state `nothing_after_cursor`.
 //!
 //! The cursor carries no name: names are repo-derived text and redacted, and a cursor never is.
 //! An ID is never redacted either, so the cursor holds one.
@@ -22,8 +26,8 @@
 use std::collections::HashSet;
 
 use planroom_contract::{
-    CommandName, Cursor, Detail, Empty, EmptyReason, Handle, Level, LiftedEdge, MapNode, MapReq, MapView,
-    NodeId, Seq, Warning, WarningCode,
+    CommandName, Cursor, Detail, Empty, EmptyReason, Handle, Kind, Level, LiftedEdge, MapNode, MapReq,
+    MapView, NodeId, Seq, Warning, WarningCode,
 };
 use planroom_kernel::{keys, tree};
 use serde::{Deserialize, Serialize};
@@ -45,32 +49,47 @@ pub(crate) struct Page {
     pub warnings: Vec<Warning>,
 }
 
-/// What a cursor holds: the `seq` its page read, the filters hash, and the level and ID of the
-/// page's last block in cut order. Never a name.
+/// What a cursor holds: the `seq` its page read, the filters hash, and the lens group, level and
+/// ID of the page's last block in cut order. Never a name.
 #[derive(Serialize, Deserialize)]
 struct Mark {
     #[serde(rename = "s")]
     seq: Seq,
     #[serde(rename = "f")]
     filters: String,
+    #[serde(rename = "g")]
+    group: u8,
     #[serde(rename = "l")]
     level: Level,
     #[serde(rename = "i")]
     id: NodeId,
 }
 
-/// A map's blocks in cut order, by level then ID, each with its place in the map's own order.
+/// A map's blocks in cut order, by lens group, level and ID, each with its place in the map's own
+/// order.
 type Ordered = Vec<(usize, MapNode)>;
 
+/// A block's lens group: 0 for a block of one of `about`, the kinds the lens is about, and 1 for
+/// every other block. With no kinds, every block is in group 1.
+fn group(node: &MapNode, about: &[Kind]) -> u8 {
+    u8::from(!about.contains(&node.kind))
+}
+
+/// Where `node` sits in cut order: its lens group, level and ID, all of which a cursor holds.
+fn key<'a>(node: &'a MapNode, about: &[Kind]) -> (u8, Level, &'a NodeId) {
+    (group(node, about), node.level, &node.id)
+}
+
 /// `nodes`, which come in the map's own order, sorted into cut order.
-fn in_cut_order(nodes: Vec<MapNode>) -> Ordered {
+fn in_cut_order(nodes: Vec<MapNode>, about: &[Kind]) -> Ordered {
     let mut ordered: Ordered = nodes.into_iter().enumerate().collect();
-    ordered.sort_by(|(_, a), (_, b)| (a.level, &a.id).cmp(&(b.level, &b.id)));
+    ordered.sort_by(|(_, a), (_, b)| key(a, about).cmp(&key(b, about)));
     ordered
 }
 
 /// The page that gives `shown`, blocks in cut order, after the blocks in `given`: `shown` listed
-/// in the map's own order, and the lifted edges that land on it.
+/// in the map's own order, which is the lens's display order, and the lifted edges that land on
+/// it.
 fn page_of(
     shown: &[(usize, MapNode)],
     given: &HashSet<NodeId>,
@@ -84,18 +103,20 @@ fn page_of(
 }
 
 /// The page of `view`, which the store read at `seq`, after `req`'s cursor, within
-/// `budget_tokens`; with no budget, everything after the cursor.
+/// `budget_tokens`; with no budget, everything after the cursor. `about` is the kinds the view's
+/// lens is about, whose blocks come first in cut order.
 pub(crate) fn cut(
     view: MapView,
     req: &MapReq,
     seq: Seq,
     budget_tokens: Option<u32>,
+    about: &[Kind],
 ) -> Result<Page, AppError> {
     let total = view.nodes.len();
     let filters = filters_hash(req, &view.lens);
     let mut warnings = Vec::new();
     let mut view = view;
-    let ordered = in_cut_order(std::mem::take(&mut view.nodes));
+    let ordered = in_cut_order(std::mem::take(&mut view.nodes), about);
     let edges = std::mem::take(&mut view.edges);
 
     // Where this page starts in cut order: the blocks before it are the ones earlier pages gave.
@@ -109,7 +130,7 @@ pub(crate) fn cut(
             if mark.seq != seq {
                 warnings.push(stale_page());
             }
-            ordered.partition_point(|(_, n)| (n.level, &n.id) <= (mark.level, &mark.id))
+            ordered.partition_point(|(_, n)| key(n, about) <= (mark.group, mark.level, &mark.id))
         }
     };
     let given: HashSet<NodeId> = ordered[..start].iter().map(|(_, n)| n.id.clone()).collect();
@@ -130,7 +151,7 @@ pub(crate) fn cut(
     // page that ends at the last block has no cursor.
     let cursor_bytes = rest[..rest.len().saturating_sub(1)]
         .iter()
-        .map(|(_, n)| 2 * mark_json(n, seq, &filters).len())
+        .map(|(_, n)| 2 * mark_json(n, seq, &filters, about).len())
         .max()
         .unwrap_or(0);
     let limit = limit(budget, &warnings).saturating_sub(2 * cursor_bytes);
@@ -151,7 +172,7 @@ pub(crate) fn cut(
     if fits == rest.len() {
         return Ok(Page { view, next: None, total, warnings });
     }
-    let next = mark_after(&rest[fits - 1].1, seq, &filters);
+    let next = mark_after(&rest[fits - 1].1, seq, &filters, about);
     let drill = drill_down(req.level.unwrap_or(view.level), req.level.is_none());
     let message = text::get(
         "warning.paged",
@@ -226,9 +247,9 @@ fn filters_hash(req: &MapReq, lens: &str) -> String {
 /// The cursor of the page after one whose last block in cut order is `last`, in the map read at
 /// `seq`: its mark as JSON, hex-encoded, so it passes as one shell word and no redaction pass
 /// mistakes it for a secret.
-fn mark_after(last: &MapNode, seq: Seq, filters: &str) -> Cursor {
+fn mark_after(last: &MapNode, seq: Seq, filters: &str, about: &[Kind]) -> Cursor {
     const HEX: &[u8; 16] = b"0123456789abcdef";
-    let json = mark_json(last, seq, filters);
+    let json = mark_json(last, seq, filters, about);
     Cursor(
         json.iter()
             .flat_map(|b| [HEX[usize::from(b >> 4)], HEX[usize::from(b & 15)]])
@@ -238,8 +259,14 @@ fn mark_after(last: &MapNode, seq: Seq, filters: &str) -> Cursor {
 }
 
 /// The mark of the page after one whose last block in cut order is `last`, as JSON.
-fn mark_json(last: &MapNode, seq: Seq, filters: &str) -> Vec<u8> {
-    let mark = Mark { seq, filters: filters.into(), level: last.level, id: last.id.clone() };
+fn mark_json(last: &MapNode, seq: Seq, filters: &str, about: &[Kind]) -> Vec<u8> {
+    let mark = Mark {
+        seq,
+        filters: filters.into(),
+        group: group(last, about),
+        level: last.level,
+        id: last.id.clone(),
+    };
     serde_json::to_vec(&mark).expect("a mark serializes")
 }
 
@@ -274,23 +301,24 @@ fn limit(budget_tokens: u32, beside: &[Warning]) -> usize {
 }
 
 /// Keep the map's first page within `budget_tokens`: the blocks that fit, taken in cut order and
-/// listed in the map's own order, as `map`'s first page takes them, and the lifted edges between
+/// listed in the lens's display order, as `map`'s first page takes them, and the lifted edges between
 /// them, leaving room for the warnings the reply carries beside the map, such as `scan`'s
 /// `partial_scan`. Returns the `truncated` warning when it cut anything. `scan`'s reply carries
 /// the top-level map this way, with no cursor; the envelope's own check summarises warnings past
-/// the rest (`cli::fit_warnings`).
+/// the rest (`cli::fit_warnings`). `about` is the kinds the view's lens is about, as for [`cut`].
 pub(crate) fn fit_beside(
     view: &mut MapView,
     budget_tokens: u32,
     level: Option<Level>,
     beside: &[Warning],
+    about: &[Kind],
 ) -> Option<Warning> {
     let limit = limit(budget_tokens, beside);
     let size = |v: &MapView| serde_json::to_string(v).map_or(usize::MAX, |s| s.len());
     if size(view) <= limit {
         return None;
     }
-    let ordered = in_cut_order(std::mem::take(&mut view.nodes));
+    let ordered = in_cut_order(std::mem::take(&mut view.nodes), about);
     let edges = std::mem::take(&mut view.edges);
     let total = ordered.len();
     let first = |count: usize| page_of(&ordered[..count], &HashSet::new(), &edges);
@@ -384,11 +412,16 @@ mod tests {
     }
 
     /// Every page from `req`'s cursor on, each read with `read`.
-    fn follow(mut req: MapReq, read: impl Fn() -> (MapView, Seq)) -> Vec<Page> {
+    fn follow(req: MapReq, read: impl Fn() -> (MapView, Seq)) -> Vec<Page> {
+        follow_through(req, &[], read)
+    }
+
+    /// [`follow`] through a lens about the kinds `about`.
+    fn follow_through(mut req: MapReq, about: &[Kind], read: impl Fn() -> (MapView, Seq)) -> Vec<Page> {
         let mut pages = Vec::new();
         loop {
             let (view, seq) = read();
-            let page = cut(view, &req, seq, Some(1_500)).unwrap();
+            let page = cut(view, &req, seq, Some(1_500), about).unwrap();
             req.cursor = page.next.clone();
             pages.push(page);
             if req.cursor.is_none() {
@@ -435,7 +468,7 @@ mod tests {
         let before = numbered(120);
         let names: Vec<&str> = before.iter().map(String::as_str).collect();
         let old = view(&names, vec![]);
-        let first = cut(old.clone(), &MapReq::default(), 4, Some(1_500)).unwrap();
+        let first = cut(old.clone(), &MapReq::default(), 4, Some(1_500), &[]).unwrap();
         let last = first.view.nodes.last().unwrap().id.clone();
         // The map moves on: a block before the cursor and one after it go, a block lands on each
         // side of it, a block after it is renamed, and so is the cursor's own block.
@@ -471,7 +504,7 @@ mod tests {
         let names = numbered(120);
         let whole = view(&names.iter().map(String::as_str).collect::<Vec<_>>(), vec![]);
         let summary = MapReq { level: Some(Level::Code), ..MapReq::default() };
-        let next = cut(whole.clone(), &summary, 4, Some(1_500)).unwrap().next;
+        let next = cut(whole.clone(), &summary, 4, Some(1_500), &[]).unwrap().next;
         assert!(next.is_some());
         for other in [
             MapReq { detail: Detail::Graph, ..summary.clone() },
@@ -480,20 +513,20 @@ mod tests {
             MapReq { focus: Some("a:file:001".into()), ..summary.clone() },
         ] {
             let req = MapReq { cursor: next.clone(), ..other };
-            let e = cut(whole.clone(), &req, 4, Some(1_500)).err().expect("refused");
+            let e = cut(whole.clone(), &req, 4, Some(1_500), &[]).err().expect("refused");
             assert_eq!(e.code, planroom_contract::ErrorCode::InvalidArgument);
             assert_eq!(e.details["field"], "cursor");
         }
         let mut lens = whole.clone();
         lens.lens = "runtime".into();
         let req = MapReq { cursor: next.clone(), ..summary.clone() };
-        assert!(cut(lens, &req, 4, Some(1_500)).is_err(), "another lens");
-        assert!(cut(whole, &req, 4, Some(1_500)).is_ok(), "the same flags continue");
+        assert!(cut(lens, &req, 4, Some(1_500), &[]).is_err(), "another lens");
+        assert!(cut(whole, &req, 4, Some(1_500), &[]).is_ok(), "the same flags continue");
     }
 
     #[test]
     fn a_cursor_round_trips_and_a_foreign_one_is_refused() {
-        let cursor = mark_after(&node("a:file:x", "x"), 7, "0123456789abcdef");
+        let cursor = mark_after(&node("a:file:x", "x"), 7, "0123456789abcdef", &[]);
         let mark = decode(&cursor).unwrap();
         assert_eq!((mark.seq, mark.filters.as_str()), (7, "0123456789abcdef"));
         assert_eq!((mark.level, mark.id), (Level::Code, NodeId("a:file:x".into())));
@@ -519,7 +552,7 @@ mod tests {
 
     /// The key of the block the first page of `old` gives last in cut order, by level then ID.
     fn last_key(old: &MapView) -> String {
-        let first = cut(old.clone(), &MapReq::default(), 4, Some(1_500)).unwrap();
+        let first = cut(old.clone(), &MapReq::default(), 4, Some(1_500), &[]).unwrap();
         let last = first.view.nodes.iter().map(|n| (n.level, &n.id)).max().unwrap().1;
         last.0.trim_start_matches("a:file:").to_owned()
     }
@@ -527,7 +560,7 @@ mod tests {
     /// Reads `old`'s first page, then the rest from `new` at a later seq, and checks that every
     /// row the two maps share by ID and level, renamed or not, is given exactly once.
     fn resumes_exactly(old: &MapView, new: &MapView) {
-        let first = cut(old.clone(), &MapReq::default(), 4, Some(1_500)).unwrap();
+        let first = cut(old.clone(), &MapReq::default(), 4, Some(1_500), &[]).unwrap();
         assert!(first.next.is_some(), "the map pages");
         let req = MapReq { cursor: first.next.clone(), ..MapReq::default() };
         let rest = follow(req, || (new.clone(), 9));
@@ -583,7 +616,7 @@ mod tests {
     fn a_cursor_carries_no_name() {
         let rows: Vec<(String, String)> =
             (0..120).map(|i| (format!("{i:03}"), format!("db_PASSWORD=hunter{i:03}"))).collect();
-        let first = cut(named(&rows), &MapReq::default(), 4, Some(1_500)).unwrap();
+        let first = cut(named(&rows), &MapReq::default(), 4, Some(1_500), &[]).unwrap();
         let cursor = first.next.unwrap();
         let bytes: Vec<u8> = (0..cursor.0.len())
             .step_by(2)
@@ -598,12 +631,12 @@ mod tests {
         let names = numbered(120);
         let old = view(&names.iter().map(String::as_str).collect::<Vec<_>>(), vec![]);
         let req = MapReq { level: Some(Level::Code), lens: Some("all".into()), ..MapReq::default() };
-        let first = cut(old.clone(), &req, 4, Some(1_500)).unwrap();
+        let first = cut(old.clone(), &req, 4, Some(1_500), &[]).unwrap();
         // The map moves on, and every block after the first page goes.
         let mut new = old.clone();
         new.nodes.truncate(first.view.nodes.len());
         let req = MapReq { cursor: first.next.clone(), ..req };
-        let page = cut(new, &req, 9, Some(1_500)).unwrap();
+        let page = cut(new, &req, 9, Some(1_500), &[]).unwrap();
         assert!(page.view.nodes.is_empty());
         assert!(page.next.is_none());
         assert!(page.warnings.iter().any(|w| w.code == WarningCode::StalePage), "{:?}", page.warnings);
@@ -629,11 +662,11 @@ mod tests {
         let rows: Vec<(String, String)> =
             (0..120).map(|i| (format!("{i:03}"), format!("db_PASSWORD=hunter{:03}", 119 - i))).collect();
         let req = MapReq::default();
-        let first = cut(named(&rows), &req, 4, Some(1_500)).unwrap();
+        let first = cut(named(&rows), &req, 4, Some(1_500), &[]).unwrap();
         let held = decoded(first.next.as_ref().expect("the map pages"));
         // The last block in the order pages are cut in, level then ID.
         let last = first.view.nodes.iter().map(|n| (n.level, &n.id)).max().unwrap();
-        assert_eq!(held, json!({"s": 4, "f": filters_hash(&req, "all"), "l": "code", "i": last.1.0}));
+        assert_eq!(held, json!({"s": 4, "f": filters_hash(&req, "all"), "g": 1, "l": "code", "i": last.1.0}));
         let text = held.to_string();
         assert!(!text.contains("hunter") && !text.contains("PASSWORD"), "{text}");
         assert!(first.view.nodes.iter().all(|n| !text.contains(&n.name)), "{text}");
@@ -690,13 +723,13 @@ mod tests {
         view
     }
 
-    /// The pages of `old`, read at seq 4, up to the first that takes the blocks given past half
-    /// the map, and the cursor of the page after it.
-    fn to_the_middle(old: &MapView) -> (Vec<Page>, Cursor) {
+    /// The pages of `old`, read at seq 4 through a lens about `about`, up to the first that takes
+    /// the blocks given past half the map, and the cursor of the page after it.
+    fn to_the_middle(old: &MapView, about: &[Kind]) -> (Vec<Page>, Cursor) {
         let mut req = MapReq::default();
         let mut pages: Vec<Page> = Vec::new();
         loop {
-            let page = cut(old.clone(), &req, 4, Some(1_500)).unwrap();
+            let page = cut(old.clone(), &req, 4, Some(1_500), about).unwrap();
             let next = page.next.clone().expect("the map pages past its middle");
             pages.push(page);
             if pages.iter().map(|p| p.view.nodes.len()).sum::<usize>() >= old.nodes.len() / 2 {
@@ -706,18 +739,19 @@ mod tests {
         }
     }
 
-    /// Pages the rest of `new` from `cursor` at a later seq, and checks that every block `old`
-    /// and `new` share by ID and level is given exactly once across `given` and those pages, and
-    /// so is every edge between two such blocks.
+    /// Pages the rest of `new` from `cursor` at a later seq, through a lens about `about`, and
+    /// checks that every block `old` and `new` share by ID, level and kind is given exactly once
+    /// across `given` and those pages, and so is every edge between two such blocks.
     fn gives_every_unchanged_row_once(
         old: &MapView,
         given: &[Page],
         cursor: &Cursor,
         new: &MapView,
+        about: &[Kind],
         case: &str,
     ) {
         let req = MapReq { cursor: Some(cursor.clone()), ..MapReq::default() };
-        let rest = follow(req, || (new.clone(), 9));
+        let rest = follow_through(req, about, || (new.clone(), 9));
         assert!(rest[0].warnings.iter().any(|w| w.code == WarningCode::StalePage), "{case}");
         let pages: Vec<&Page> = given.iter().chain(&rest).collect();
         let mut blocks: HashMap<&NodeId, usize> = HashMap::new();
@@ -726,9 +760,10 @@ mod tests {
             page.view.nodes.iter().for_each(|n| *blocks.entry(&n.id).or_default() += 1);
             page.view.edges.iter().for_each(|e| *edges.entry((&e.from, &e.to)).or_default() += 1);
         }
-        let before: HashSet<(Level, &NodeId)> = old.nodes.iter().map(|n| (n.level, &n.id)).collect();
+        let before: HashSet<(Level, &NodeId, &Kind)> =
+            old.nodes.iter().map(|n| (n.level, &n.id, &n.kind)).collect();
         let kept: HashSet<&NodeId> =
-            new.nodes.iter().filter(|n| before.contains(&(n.level, &n.id))).map(|n| &n.id).collect();
+            new.nodes.iter().filter(|n| before.contains(&(n.level, &n.id, &n.kind))).map(|n| &n.id).collect();
         for id in &kept {
             let times = blocks.get(id).copied().unwrap_or(0);
             assert_eq!(times, 1, "{case}: {} given {times} times", id.0);
@@ -741,6 +776,38 @@ mod tests {
 
     #[test]
     fn a_stale_cursor_gives_every_unchanged_row_once_whatever_changed_around_it() {
+        every_change_around_the_cursor(&|_| false);
+    }
+
+    #[test]
+    fn through_a_lens_with_kinds_a_stale_cursor_gives_every_unchanged_row_once() {
+        // Most blocks are of the lens's kind, so the cursor sits among them, and the rest follow.
+        every_change_around_the_cursor(&|i| i % 4 != 0);
+        // A few blocks with high IDs are, so they come first and the cursor sits past them.
+        every_change_around_the_cursor(&|i| i >= 40 && i % 2 == 0);
+    }
+
+    /// The kind of the blocks a test lens is about.
+    const FLAG: &str = "test.flag";
+
+    /// `view` through a lens about [`FLAG`], with the blocks whose key `flagged` names of that
+    /// kind: listed first, as `kernel::lens::apply` lists them, and otherwise in the view's order.
+    fn flag(mut view: MapView, flagged: &dyn Fn(usize) -> bool) -> MapView {
+        for node in &mut view.nodes {
+            let key = node.id.0.trim_start_matches("a:file:");
+            if key.len() == 3 && key.parse().is_ok_and(flagged) {
+                node.kind = Kind(FLAG.into());
+            }
+        }
+        view.nodes.sort_by_key(|n| n.kind.0 != FLAG);
+        view
+    }
+
+    /// Pages a map of 120 blocks to its middle, then, for each of many changes to the blocks
+    /// around the cursor, pages the rest of the changed map and checks that every unchanged block
+    /// and edge is given once. The blocks whose key `flagged` names are of the kind the lens is
+    /// about, so they come first in cut order.
+    fn every_change_around_the_cursor(flagged: &dyn Fn(usize) -> bool) {
         let rows = alike();
         // A chain, and a jump from every block, so edges cross every page.
         let links: Vec<(String, String)> = (0..120)
@@ -749,10 +816,14 @@ mod tests {
             })
             .filter(|(a, b)| a != b)
             .collect();
-        let old = linked(&rows, &links);
-        let (given, cursor) = to_the_middle(&old);
-        // In ID order, the given blocks and the rest meet once; the cursor sits there.
-        let keys: Vec<String> = (0..120).map(|i| format!("{i:03}")).collect();
+        let about: Vec<Kind> = if (0..120).any(flagged) { vec![Kind(FLAG.into())] } else { vec![] };
+        let build = |rows: &[(String, String)]| flag(linked(rows, &links), flagged);
+        let old = build(&rows);
+        let (given, cursor) = to_the_middle(&old, &about);
+        // In cut order, the lens's kinds then the rest, each by ID, the given blocks and the rest
+        // meet once; the cursor sits there.
+        let mut keys: Vec<String> = (0..120).map(|i| format!("{i:03}")).collect();
+        keys.sort_by_key(|k| !flagged(k.parse().unwrap()));
         let seen: HashSet<String> = given
             .iter()
             .flat_map(|p| p.view.nodes.iter().map(|n| n.id.0.trim_start_matches("a:file:").to_owned()))
@@ -807,8 +878,75 @@ mod tests {
         for case in &cases {
             let mut changed = rows.clone();
             case.iter().for_each(|c| c.apply(&mut changed));
-            let new = linked(&changed, &links);
-            gives_every_unchanged_row_once(&old, &given, &cursor, &new, &format!("{case:?}"));
+            let new = build(&changed);
+            gives_every_unchanged_row_once(&old, &given, &cursor, &new, &about, &format!("{case:?}"));
         }
+    }
+
+    /// A vocabulary with one lens, `flags`, that lifts `test.uses` and is about `kinds`.
+    fn flags_lens(kinds: &[&str]) -> planroom_contract::Vocabulary {
+        planroom_contract::Vocabulary {
+            kinds: vec![],
+            relations: vec![],
+            lenses: vec![planroom_contract::LensVocab {
+                id: "flags".into(),
+                label: "Flags".into(),
+                relations: vec![Kind("test.uses".into())],
+                flow: Default::default(),
+                kinds: kinds.iter().map(|k| Kind((*k).into())).collect(),
+                level: Level::Code,
+                default: false,
+            }],
+            suggestions: vec![],
+        }
+    }
+
+    #[test]
+    fn a_block_of_the_lenss_kind_with_a_high_id_reaches_the_first_page() {
+        let names = numbered(400);
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut whole = view(&names, (0..399).map(|i| edge(i, i + 1)).collect());
+        whole.lens = "flags".into();
+        whole.nodes.iter_mut().filter(|n| n.id.0 == "a:file:399").for_each(|n| n.kind = Kind(FLAG.into()));
+        let vocabulary = flags_lens(&[FLAG]);
+        let seen = planroom_kernel::lens::apply(whole, &vocabulary, vocabulary.lenses.first());
+        assert_eq!(seen.nodes[0].id.0, "a:file:399", "the lens lists its kind first");
+        let about = [Kind(FLAG.into())];
+        let first = cut(seen.clone(), &MapReq::default(), 4, Some(1_500), &about).unwrap();
+        assert!(first.next.is_some(), "the map pages");
+        assert_eq!(first.view.nodes[0].id.0, "a:file:399", "{:?}", first.view.nodes.first());
+        // The pages joined still give every block once.
+        let pages = follow_through(MapReq::default(), &about, || (seen.clone(), 4));
+        let mut given: Vec<&str> =
+            pages.iter().flat_map(|p| p.view.nodes.iter().map(|n| n.id.0.as_str())).collect();
+        given.sort_unstable();
+        let mut want: Vec<&str> = seen.nodes.iter().map(|n| n.id.0.as_str()).collect();
+        want.sort_unstable();
+        assert_eq!(given, want);
+    }
+
+    #[test]
+    fn within_a_page_a_block_with_more_lifted_edges_is_listed_first() {
+        let names = numbered(120);
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        // Block 119 carries 119 lifted edges, block 060 three, every other at most two.
+        let edges: Vec<LiftedEdge> =
+            (0..119).map(|i| edge(i, 119)).chain([edge(60, 61), edge(60, 59)]).collect();
+        let mut whole = view(&names, edges);
+        whole.lens = "flags".into();
+        let vocabulary = flags_lens(&[]);
+        let seen = planroom_kernel::lens::apply(whole, &vocabulary, vocabulary.lenses.first());
+        let carried = |id: &NodeId| seen.edges.iter().filter(|e| &e.from == id || &e.to == id).count();
+        let pages = follow(MapReq::default(), || (seen.clone(), 4));
+        assert!(pages.len() > 1, "the map pages");
+        for page in &pages {
+            let counts: Vec<usize> = page.view.nodes.iter().map(|n| carried(&n.id)).collect();
+            assert!(counts.windows(2).all(|w| w[0] >= w[1]), "most lifted edges first: {counts:?}");
+        }
+        // With no kinds, the pages are cut by level and ID, so block 119 is on the last page,
+        // listed first there.
+        assert_eq!(pages.last().unwrap().view.nodes[0].id.0, "a:file:119");
+        let holds_060 = pages.iter().find(|p| p.view.nodes.iter().any(|n| n.id.0 == "a:file:060")).unwrap();
+        assert_eq!(holds_060.view.nodes[0].id.0, "a:file:060");
     }
 }

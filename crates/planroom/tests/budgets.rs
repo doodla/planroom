@@ -317,6 +317,36 @@ fn a_focused_map_pages_to_every_block_under_its_node() {
     }
 }
 
+/// An empty state's line quotes repo names it doesn't bound, so it lists the first three, each
+/// cut short, and counts the rest: `map`, `focus` and `find` in a directory of unborn repos with
+/// long names keep to their budgets.
+#[test]
+fn an_empty_state_lists_a_few_repos_and_counts_the_rest() {
+    let tmp = tempfile::tempdir().unwrap();
+    for i in 0..12 {
+        let repo = tmp.path().join(format!("r{i:02}{}", "x".repeat(240)));
+        std::fs::create_dir(&repo).unwrap();
+        let init = Command::new("git").args(["init", "-q", "-b", "main"]).current_dir(&repo).output();
+        assert!(init.unwrap().status.success());
+    }
+    for (args, leaf) in [
+        (vec!["map"], Leaf::Map(MapReq::default())),
+        (vec!["focus"], Leaf::Focus(Default::default())),
+        (vec!["find", "x"], Leaf::Find(Default::default())),
+    ] {
+        let env = planroom(tmp.path(), &[&args[..], &["--json"]].concat());
+        let empty = &env["result"]["empty"];
+        assert_eq!(empty["reason"], "repos_unborn", "{env}");
+        let line = empty["line"].as_str().unwrap();
+        assert!(line.contains("; and 9 more"), "{args:?}: {line}");
+        assert!(line.chars().count() < 300, "{args:?}: {line}");
+        let budget = u64::from(leaf.spec().budget_tokens);
+        assert!(env["meta"]["size"]["tokens_est"].as_u64().unwrap() <= budget, "{args:?}: {}", env["meta"]);
+        let warnings = env["meta"]["warnings"].as_array().map_or(&[][..], |w| w.as_slice());
+        assert!(!warnings.iter().any(|w| w["message"].as_str().unwrap().contains("budget")), "{warnings:?}");
+    }
+}
+
 #[test]
 fn a_cursor_from_other_flags_is_invalid_argument() {
     let tmp = tempfile::tempdir().unwrap();
@@ -328,7 +358,8 @@ fn a_cursor_from_other_flags_is_invalid_argument() {
     for other in [
         vec!["--level", "code"],
         vec!["--level", "component", "--detail", "graph"],
-        vec!["--level", "component", "--lens", "runtime"],
+        // The default lens is the code pack's `runtime`, so another lens is `all`.
+        vec!["--level", "component", "--lens", "all"],
     ] {
         let mut args = vec!["map"];
         args.extend(other.iter().copied());
@@ -678,6 +709,8 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
     }
     run(&["map"], "", &[]);
     run(&["focus"], "", &[]);
+    // `find` at its widest: a letter most blocks' names or IDs hold.
+    run(&["find", "o"], "", &[]);
     run(&["schema"], "", &[]);
     run(&["schema", "--commands"], "", &[]);
     let leaves: Vec<String> = Leaf::SPECS.iter().map(|s| s.name()).collect();

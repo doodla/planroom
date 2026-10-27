@@ -174,6 +174,10 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
         for (i, lens) in pack.file.lenses.iter().enumerate() {
             let at = root.key("lenses").at(i);
             syntax(src, &at.key("id"), &lens.id)?;
+            // `--lens all` means every relation of every loaded pack, so no lens may take its name.
+            if lens.id == ALL_LENSES {
+                return Err(src.invalid_at(&at.key("id"), At::Value, &lens.id, "lens_all", &[]));
+            }
             if let Some(other) = lenses.insert(&lens.id, id) {
                 return Err(claimed(&ctx, &at.key("id"), &lens.id, "lenses", other));
             }
@@ -592,7 +596,9 @@ impl Ctx<'_> {
             }
             Command::Scan(req) => project(&req.common)?,
             Command::PersonInit(req) => project(&req.common)?,
-            Command::Focus(_)
+            // The text `find` searches for names no kind, relation, lens or ID.
+            Command::Find(_)
+            | Command::Focus(_)
             | Command::Watch(_)
             | Command::Schema(_)
             | Command::Version(_)

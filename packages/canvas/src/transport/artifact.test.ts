@@ -385,6 +385,10 @@ describe("the artifact transport", () => {
 
 test("a view key names the map's level and lens", () => {
   expect(viewKey("map", { level: null })).toBe("map:system:all");
+  expect(viewKey("map", { level: null }, "runtime")).toBe("map:system:runtime");
+  expect(viewKey("map", { level: null, lens: "all" }, "runtime")).toBe(
+    "map:system:all",
+  );
   expect(viewKey("map", { level: "container", lens: "deploy" })).toBe(
     "map:container:deploy",
   );

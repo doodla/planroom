@@ -89,11 +89,18 @@ export function browserArtifactEnv(): ArtifactEnv {
   };
 }
 
-/** The view key a request names, as `Snapshot.capabilities` lists views: `map:<level>:<lens>`. */
-export function viewKey(command: string, request: object): string {
+/**
+ * The view key a request names, as `Snapshot.capabilities` lists views: `map:<level>:<lens>`. A
+ * map request that names no lens shows the default lens, `defaultLens`: the pane's lens.
+ */
+export function viewKey(
+  command: string,
+  request: object,
+  defaultLens = "all",
+): string {
   if (command === "map") {
     const r = request as { level?: string | null; lens?: string | null };
-    return `map:${r.level ?? "system"}:${r.lens ?? "all"}`;
+    return `map:${r.level ?? "system"}:${r.lens ?? defaultLens}`;
   }
   return command === "focus" ? "pane" : command;
 }
@@ -116,6 +123,9 @@ export function artifactTransport(env: ArtifactEnv): Transport {
   /** Read requests written and not yet answered, by view key. */
   const asked = new Map<string, string>();
   const listeners = new Set<(frame: StreamFrame) => void>();
+  /** A request's view key: a map with no lens is the snapshot's default lens, the pane's. */
+  const keyOf = (command: string, request: object): string =>
+    viewKey(command, request, snapshot?.pane.focus.lens);
 
   /** Tell the store to refetch: an answer arrived, the head moved, or the store came up. */
   const changed = () => {
@@ -195,14 +205,14 @@ export function artifactTransport(env: ArtifactEnv): Transport {
 
   const partial: PartialViews = {
     serves(command, request) {
-      const key = viewKey(command, request);
+      const key = keyOf(command, request);
       if (command === "map") {
         return mapOf(key) !== null;
       }
       return key === "pane";
     },
     requested(command, request): Requested {
-      const key = viewKey(command, request);
+      const key = keyOf(command, request);
       const answer = answers.get(key);
       if (unreadable.has(key)) {
         return {
@@ -232,7 +242,7 @@ export function artifactTransport(env: ArtifactEnv): Transport {
       if (db === null || uid === null) {
         throw new TransportError("unreachable", "no shared store");
       }
-      const key = viewKey(command, request);
+      const key = keyOf(command, request);
       // A failed answer is asked for again.
       answers.delete(key);
       unreadable.delete(key);
@@ -301,7 +311,7 @@ export function artifactTransport(env: ArtifactEnv): Transport {
       snapshot = doc as Snapshot;
       for (const answer of snapshot.answers) {
         const handle: Handle = answer.handle;
-        answers.set(viewKey(handle.command, requestOf(handle)), answer);
+        answers.set(keyOf(handle.command, requestOf(handle)), answer);
       }
       void connect();
       return true;
@@ -316,7 +326,7 @@ export function artifactTransport(env: ArtifactEnv): Transport {
       if (command === "focus") {
         return Promise.resolve(snapshot.pane as T);
       }
-      const map = command === "map" ? mapOf(viewKey(command, request)) : null;
+      const map = command === "map" ? mapOf(keyOf(command, request)) : null;
       if (map !== null) {
         return Promise.resolve(map as T);
       }

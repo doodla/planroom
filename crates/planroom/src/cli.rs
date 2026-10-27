@@ -12,9 +12,9 @@ use std::time::Instant;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
-    Class, Command, CommandName, DoctorReq, Envelope, ErrorCode, FocusReq, Handle, ImportReq, MapReq, Meta,
-    PersonInitReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq, ShareReq, Size, StreamFrame,
-    VersionReq, Warning, WarningCode, WatchReq,
+    Class, Command, CommandName, DoctorReq, Envelope, ErrorCode, FindReq, FocusReq, Handle, ImportReq,
+    MapReq, Meta, PersonInitReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq, ShareReq, Size,
+    StreamFrame, VersionReq, Warning, WarningCode, WatchReq,
 };
 use planroom_kernel::display::{sanitize, sanitize_lines};
 use planroom_kernel::redact;
@@ -45,6 +45,8 @@ enum Cmd {
     Scan(ScanReq),
     /// The map at a level through a lens.
     Map(MapReq),
+    /// Search the map's blocks by name or ID, best match first.
+    Find(FindReq),
     /// Where you are, the one open decision and the next action.
     Focus(FocusReq),
     /// Stream the workspace's committed events as NDJSON frames.
@@ -82,6 +84,7 @@ pub fn parse_leaf(command: &str, args: &[String]) -> Result<Command, clap::Error
     Ok(match cmd {
         Cmd::Scan(req) => Command::Scan(req),
         Cmd::Map(req) => Command::Map(req),
+        Cmd::Find(req) => Command::Find(req),
         Cmd::Focus(req) => Command::Focus(req),
         Cmd::Watch(req) => Command::Watch(req),
         Cmd::Schema(req) => Command::Schema(req),
@@ -120,6 +123,10 @@ pub fn main() -> ExitCode {
         Cmd::Map(req) => {
             let name = Command::Map(req.clone()).name();
             finish_paged(cli.json, &name.0, app::map::run(&req, &cwd), started)
+        }
+        Cmd::Find(req) => {
+            let name = Command::Find(req.clone()).name();
+            finish(cli.json, &name.0, app::find::run(&req, &cwd), started)
         }
         Cmd::Focus(req) => {
             let name = Command::Focus(req.clone()).name();

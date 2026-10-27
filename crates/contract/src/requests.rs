@@ -180,7 +180,7 @@ pub struct FindReq {
 /// What `find` returns: the matches, best first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct FindResult {
-    /// One engine-authored line, which can name the matches.
+    /// The matches counted, with the first few names, which are repo-derived text.
     #[schemars(extend("x-redact" = true))]
     pub summary: String,
     pub items: Vec<FindItem>,
@@ -195,6 +195,10 @@ pub struct FindItem {
     pub name: String,
     pub level: Level,
     pub kind: Kind,
+    /// Exact invocations that drill down from the match: the map at its level among the blocks
+    /// beside it, then the blocks under it when it holds any.
+    #[serde(default)]
+    pub handles: Vec<Handle>,
 }
 
 #[cfg(test)]

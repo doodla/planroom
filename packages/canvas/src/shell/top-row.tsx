@@ -154,7 +154,7 @@ function Breadcrumb() {
 
 /**
  * Until packs bring more lenses and `intent new` makes projects (M1), neither picker has anything
- * to pick, so each shows the lens or the project it holds without opening a sheet (ux-c).
+ * to pick, so each shows the lens or the project it holds without opening a sheet.
  */
 export function TopRow() {
   const map = useCanvas((s) => s.map);

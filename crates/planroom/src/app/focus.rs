@@ -13,10 +13,8 @@ use planroom_store::{Snapshot, Store};
 
 use crate::app::error::AppError;
 use crate::app::{Reply, map, workspace};
-use crate::{clock, text};
+use crate::{clock, live, text};
 
-/// The lens the pane shows until lenses load from packs.
-const LENS: &str = "all";
 /// Blocks the mini-map holds at most.
 pub const MINIMAP_BLOCKS: usize = 60;
 /// The `PaneModel` stays within this many bytes of JSON.
@@ -57,6 +55,7 @@ pub fn pane(store: &Store, root: &Path) -> Result<PaneModel, AppError> {
 fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneModel, AppError> {
     let seq = snapshot.seq();
     let view = map::top_in(snapshot, root, None)?;
+    let next = next_in(snapshot)?;
     let since = clock::rfc3339(clock::unix_micros().saturating_sub(PRESENT_FOR_MICROS));
     let mut who = store.presence_since(&planroom_contract::Timestamp(since))?;
     who.truncate(WHO_ROWS);
@@ -76,7 +75,7 @@ fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneMo
         focus: Focus {
             breadcrumb: vec![workspace_crumb(root)],
             level: Level::System,
-            lens: LENS.into(),
+            lens: view.lens.clone(),
             project: None,
             seq,
         },
@@ -86,11 +85,7 @@ fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneMo
         diffs: vec![],
         drift: no_drift(),
         who,
-        next: Handle {
-            command: CommandName("map".into()),
-            args: vec!["--level".into(), "container".into()],
-            label: text::label("focus.next_containers", &[]),
-        },
+        next,
         minimap: MiniMap { level: Level::System, blocks, edges },
         empty: None,
     };
@@ -101,6 +96,27 @@ fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneMo
     }
     fit(&mut pane);
     Ok(pane)
+}
+
+/// The one next action at the top: the loaded packs' highest-priority suggestion whose `when`
+/// holds on the model this pane reads (DR-54), its text the button's label. The loader refused
+/// every suggestion that names a leaf the band may not, so this one can be undone, hands nothing
+/// off and never spends. With none that holds, the top of the map.
+fn next_in(snapshot: &Snapshot<'_>) -> Result<Handle, AppError> {
+    let vocabulary = crate::packs::vocabulary()?;
+    let model = live::model(snapshot, vocabulary)?;
+    Ok(match planroom_kernel::next::next(&model, &vocabulary.suggestions) {
+        Some(suggestion) => Handle {
+            command: suggestion.action.command.clone(),
+            args: suggestion.action.args.clone(),
+            label: suggestion.text.clone(),
+        },
+        None => Handle {
+            command: CommandName("map".into()),
+            args: vec![],
+            label: text::label("empty.top_next", &[]),
+        },
+    })
 }
 
 /// Drop mini-map blocks, last first, until the pane fits its byte budget.
@@ -127,7 +143,13 @@ fn no_drift() -> DriftLine {
 fn not_a_workspace(dir: &Path) -> Result<Reply<PaneModel>, AppError> {
     let empty = map::scan_empty(dir, &workspace::scannable(dir));
     let pane = PaneModel {
-        focus: Focus { breadcrumb: vec![], level: Level::System, lens: LENS.into(), project: None, seq: 0 },
+        focus: Focus {
+            breadcrumb: vec![],
+            level: Level::System,
+            lens: map::lens::default_id(crate::packs::vocabulary()?),
+            project: None,
+            seq: 0,
+        },
         decision: None,
         more_decisions: 0,
         progress: Progress { stage: None, done: 0, total: 0, handoffs_running: 0, scan: ScanState::Never },

@@ -75,6 +75,8 @@ config = "{source} sets {key} in a way Planroom can't use: {why}."
 config_syntax = "{file} isn't valid TOML at line {line}, so Planroom can't load it."
 config_unreadable = "Planroom can't read {file}: {why}."
 config_type = "it must be {type}"
+unknown_lens = "No loaded pack declares the lens {lens}; the lenses are {known}."
+find_text = "find needs text to search for"
 cursor_unreadable = "--cursor takes the meta.next a map gave; this one isn't one."
 cursor_filters = "This cursor came from a map with other flags; run map with the flags that gave it, or without --cursor."
 
@@ -91,6 +93,7 @@ scan_superseded_repos_changed = "The workspace's repos changed while this scan r
 truncated = "This map has {total} blocks; the first {kept} fit its {budget}-token budget. Next: {label}."
 paged = "This map has {total} blocks, and this page holds {kept} within its {budget}-token budget. For the next page, run map with the same flags and --cursor {cursor}. Or: {label}."
 warnings_left_out = "{count} more warnings ({codes}) were left out to keep this reply to its {budget}-token budget."
+find_none_fit = "No match fits within this reply's {budget}-token budget. Next: {label}."
 reply_over_budget = "This reply passes its {budget}-token budget; that's a bug, so please report it."
 claimed = "{by} claimed this until {until}."
 deterministic_fallback = "No model was reachable, allowed or within budget, so this answer is the deterministic one."
@@ -129,6 +132,9 @@ nothing_after_cursor_next = "Show the first page"
 repos_unborn = "No commits yet in {names}, so there's nothing to map. Make a first commit, then check again."
 repos_unreadable = "git can't read {names} here, so there's nothing to map yet. Run git status in each to see why, then check again."
 check_again_next = "Check again"
+no_match = "Nothing on the map matches {text}."
+lens_shows_nothing = "The {lens} lens shows nothing at the {level} level."
+lens_shows_nothing_next = "Show every block at this level"
 
 # The fix a repo_skipped warning names, by its reason.
 [fix]
@@ -144,7 +150,6 @@ next_label = "Show the map"
 summary = "{name} · {level} · lens {lens} · seq {seq}"
 blocks = "{count} at the top: {names}."
 next = "Next: {label}"
-next_containers = "Open the containers"
 no_drift = "No drift: no intended rule broken, no machine drift."
 
 # The panes the mod draws before the engine answers `focus` (DR-57). `cargo xtask gen` writes
@@ -180,6 +185,16 @@ focus_missing = "block {target} on this map"
 more = "{names}; and {more} more"
 coarser = "Show the {level} level"
 pane = "Show where you are"
+
+# `find TEXT`: its summary line, and the labels of the handles each match carries.
+[find]
+summary = "{count} blocks match {text}: {names}."
+summary_one = "1 block matches {text}: {names}."
+none_fit = "{count} blocks match {text}, and none fits within this reply's budget."
+none_fit_one = "1 block matches {text}, and it doesn't fit within this reply's budget."
+narrower = "Search with more of the name"
+show = "Show it on the map"
+inside = "Show the blocks under it"
 
 [frame]
 scan = "Scanned {repo} at {commit}."
@@ -293,6 +308,7 @@ param_value = "{key} names something: give a name, a list of names or an in list
 kind_is_relation = "{reference} is a relation, but {key} names node kinds"
 lens_flow = "the lens {lens} gives a flow for {relation}, which it doesn't lift"
 default_lens = "the lenses {first} and {second} are both the default; only the code pack's may share it"
+lens_all = "no lens may be called all: --lens all already means every relation of every loaded pack"
 question_builtin = "{id} is a question the engine serves itself, so no pack declares it"
 steps = "the question {id} has {count} steps; a question has one to three"
 suggestion = "a suggestion can't name {command}: it must be a command that can be undone, doesn't hand off and never spends"

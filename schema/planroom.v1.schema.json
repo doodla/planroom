@@ -599,6 +599,22 @@
           "properties": {
             "command": {
               "type": "string",
+              "const": "find"
+            },
+            "args": {
+              "$ref": "#/$defs/FindReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
               "const": "focus"
             },
             "args": {
@@ -783,6 +799,7 @@
           "type": "string",
           "enum": [
             "map",
+            "find",
             "focus",
             "scan",
             "watch",
@@ -2595,13 +2612,22 @@
         },
         "kind": {
           "$ref": "#/$defs/Kind"
+        },
+        "handles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Handle"
+          },
+          "description": "Exact invocations that drill down from the match: the map at its level among the blocks\nbeside it, then the blocks under it when it holds any.",
+          "default": []
         }
       },
       "required": [
         "id",
         "name",
         "level",
-        "kind"
+        "kind",
+        "handles"
       ],
       "description": "One match, with its level and kind."
     },
@@ -2622,7 +2648,7 @@
       "properties": {
         "summary": {
           "type": "string",
-          "description": "One engine-authored line, which can name the matches.",
+          "description": "The matches counted, with the first few names, which are repo-derived text.",
           "x-redact": true
         },
         "items": {

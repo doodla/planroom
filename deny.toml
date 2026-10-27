@@ -26,6 +26,8 @@ allow = [
     "Apache-2.0",
     "BSD-3-Clause",
     "MIT-0",
+    # nucleo-matcher, the kernel's fuzzy search for `find`; DR-39 lists MPL-2.0 in the wider set.
+    "MPL-2.0",
     "Unicode-3.0",
     "Zlib",
 ]

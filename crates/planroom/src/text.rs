@@ -51,6 +51,7 @@ pub fn get(key: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
 pub const LABELS: &[&str] = &[
     "argument.schema_label",
     "empty.check_again_next",
+    "empty.lens_shows_nothing_next",
     "empty.not_scanned_next",
     "empty.nothing_after_cursor_next",
     "empty.nothing_mapped_next",
@@ -64,7 +65,9 @@ pub const LABELS: &[&str] = &[
     "fallback.person_key_mismatch_action",
     "fallback.resolving_action",
     "fallback.version_mismatch_action",
-    "focus.next_containers",
+    "find.inside",
+    "find.narrower",
+    "find.show",
     "import.map_label",
     "map.coarser",
     "map.pane",
@@ -82,6 +85,16 @@ pub fn label(key: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
     assert!(LABELS.contains(&key), "{key} isn't in text::LABELS");
     assert!(vars.iter().all(|(name, _)| LABEL_VARS.contains(name)), "{key} takes a value a label can't name");
     get(key, vars)
+}
+
+/// `text` trimmed, and past `chars` characters, its prefix and an ellipsis: how a line quotes
+/// text it doesn't bound, such as a search or a repo's name, so the line stays short.
+pub fn short(text: &str, chars: usize) -> String {
+    let text = text.trim();
+    match text.char_indices().nth(chars) {
+        Some((cut, _)) => format!("{}…", text[..cut].trim_end()),
+        None => text.to_owned(),
+    }
 }
 
 /// The string at `section.key`, when the catalog has one.

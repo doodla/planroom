@@ -165,7 +165,8 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     drop(snapshot);
     // The top-level map an agent reads in scan's reply keeps to scan's budget, as map's does.
     let budget = Command::Scan(ScanReq::default()).spec().budget_tokens;
-    let cut = map::fit_beside(&mut view, budget, None, &warnings);
+    let about = map::lens::kinds(crate::packs::vocabulary()?, &view.lens).to_vec();
+    let cut = map::fit_beside(&mut view, budget, None, &warnings, &about);
     warnings.extend(cut);
     let summary = summary(&write, containers, recorded);
     Ok(Reply { result: ScanResult { map: view, next: next() }, seq, warnings, text: summary })

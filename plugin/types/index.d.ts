@@ -17,6 +17,7 @@ export type AckStatus = "imported" | "held" | "conflict" | "refused";
 export type CommandName =
   | (
       | "map"
+      | "find"
       | "focus"
       | "scan"
       | "watch"
@@ -230,6 +231,10 @@ export type Command =
   | {
       command: "map";
       args: MapReq;
+    }
+  | {
+      command: "find";
+      args: FindReq;
     }
   | {
       command: "focus";
@@ -1136,6 +1141,7 @@ export interface Card {
   dealt_by:
     | (
         | "map"
+        | "find"
         | "focus"
         | "scan"
         | "watch"
@@ -1211,6 +1217,15 @@ export interface MapReq {
    * The cursor `meta.next` gave, to read the page after it.
    */
   cursor?: Cursor | null;
+}
+/**
+ * `planroom find TEXT`: fuzzy search over node names and IDs.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "FindReq".
+ */
+export interface FindReq {
+  text: string;
 }
 /**
  * `planroom focus [--session ID]`.
@@ -1838,6 +1853,7 @@ export interface Envelope {
   command:
     | (
         | "map"
+        | "find"
         | "focus"
         | "scan"
         | "watch"
@@ -2181,15 +2197,11 @@ export interface FindItem {
   name: string;
   level: Level;
   kind: Kind;
-}
-/**
- * `planroom find TEXT`: fuzzy search over node names and IDs.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "FindReq".
- */
-export interface FindReq {
-  text: string;
+  /**
+   * Exact invocations that drill down from the match: the map at its level among the blocks
+   * beside it, then the blocks under it when it holds any.
+   */
+  handles: Handle1[];
 }
 /**
  * What `find` returns: the matches, best first.
@@ -2199,7 +2211,7 @@ export interface FindReq {
  */
 export interface FindResult {
   /**
-   * One engine-authored line, which can name the matches.
+   * The matches counted, with the first few names, which are repo-derived text.
    */
   summary: string;
   items: FindItem[];
@@ -2425,6 +2437,7 @@ export interface InboxRow {
   command:
     | (
         | "map"
+        | "find"
         | "focus"
         | "scan"
         | "watch"

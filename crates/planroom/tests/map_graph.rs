@@ -41,15 +41,15 @@ fn the_graph_carries_cached_positions_and_its_layout_key() {
     assert_eq!(view["nodes"], summary["result"]["nodes"], "the same top-level blocks");
     assert!(view["nodes"].as_array().unwrap().iter().all(|n| n["position"].is_null()));
     let key = &view["layout"];
-    assert_eq!(key["view_key"], "map:system:all");
+    assert_eq!(key["view_key"], "map:system:runtime");
 
     let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
     let positions = json!({"orders:repo:orders": {"x": 10.0, "y": 20.0}});
     store
-        .put_layout("map:system:all", key["structure_hash"].as_str().unwrap(), &positions.to_string())
+        .put_layout("map:system:runtime", key["structure_hash"].as_str().unwrap(), &positions.to_string())
         .unwrap();
     // A layout cached for another structure is never used.
-    store.put_layout("map:system:all", "stale", r#"{"kit:repo:kit": {"x": 1.0, "y": 1.0}}"#).unwrap();
+    store.put_layout("map:system:runtime", "stale", r#"{"kit:repo:kit": {"x": 1.0, "y": 1.0}}"#).unwrap();
     drop(store);
 
     let placed = map(&root, &["--detail", "graph"]);

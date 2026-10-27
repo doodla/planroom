@@ -63,7 +63,11 @@ test("typeahead offers the command words that continue the draft", () => {
   expect(completions("/room map --le", 14, leaves)).toEqual([]);
   expect(completions("/roomy m", 8, leaves)).toEqual([]);
   expect(completions("hello /room m", 13, leaves)).toEqual([]);
-  expect(completions("/room f", 7, leaves)[0]).toMatchObject({
+  expect(completions("/room f", 7, leaves).map((s) => s.text)).toEqual([
+    "find",
+    "focus",
+  ]);
+  expect(completions("/room fo", 8, leaves)[0]).toMatchObject({
     label: "/room focus",
   });
 });

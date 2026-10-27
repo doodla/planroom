@@ -1,3 +1,4 @@
+import type { Tone } from "@planroom/contract";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -7,6 +8,7 @@ import {
   PALETTE,
   SURFACES,
   TEXT_TOKENS,
+  TONE_TOKENS,
   contrast,
   over,
   tokensCss,
@@ -76,6 +78,37 @@ test("no cream or off-white background, and no banned face", () => {
     expect(g).toBeGreaterThan(b ?? 0);
   }
   expect(tokensCss()).not.toMatch(/Inter|Roboto|Arial|system-ui|Space Grotesk/);
+});
+
+describe("every_tone_has_a_token", () => {
+  // Every tone the contract gives a kind, spelled out here so the type checker refuses a list
+  // that misses one or names one the contract doesn't have.
+  const tones = {
+    service: true,
+    library: true,
+    store: true,
+    infra: true,
+  } as const satisfies Record<Tone, true>;
+
+  test("the tone table names exactly the contract's tones", () => {
+    expect(Object.keys(TONE_TOKENS).sort()).toEqual(Object.keys(tones).sort());
+  });
+
+  for (const theme of THEMES) {
+    test.each(Object.keys(tones) as Tone[])(
+      `${theme}: %s has a fill and a border token`,
+      (tone) => {
+        const { fill, border } = TONE_TOKENS[tone];
+        expect(PALETTE[theme][fill].hex).toMatch(/^#[0-9a-f]{6}$/);
+        expect(PALETTE[theme][border].hex).toMatch(/^#[0-9a-f]{6}$/);
+        expect(MARK_TOKENS).toContain(border);
+        expect(toneVars(tone)).toEqual({
+          fill: `var(--${fill})`,
+          border: `var(--${border})`,
+        });
+      },
+    );
+  }
 });
 
 test("a block takes its tone's fill and border, and no tone draws as a card", () => {
