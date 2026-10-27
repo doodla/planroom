@@ -181,7 +181,16 @@ fn metadata(root: &Path, no_deps: bool) -> Result<Value, String> {
     if no_deps {
         args.push("--no-deps");
     }
-    let out = util::capture(root, "cargo", &args)?;
+    // Offline first, so the check reads no network when every locked crate is already here. A
+    // crate only another platform builds (a Windows console crate on Linux) may be missing from a
+    // cache, since no build here fetched it: fetch the locked set once, then read again.
+    let out = match util::capture(root, "cargo", &args) {
+        Err(e) if e.contains("--offline was specified") => {
+            util::capture(root, "cargo", &["fetch", "--locked", "--manifest-path", "Cargo.toml"])?;
+            util::capture(root, "cargo", &args)?
+        }
+        other => other?,
+    };
     serde_json::from_str(&out).map_err(|e| format!("cargo metadata: {e}"))
 }
 
