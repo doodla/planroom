@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 
 use planroom_contract::remote::{LIVE_HEAD_FORMAT, SNAPSHOT_FORMAT, SNAPSHOT_PATH};
 use planroom_contract::{
-    CommandName, DbBatch, DbOp, DbWrite, Detail, Empty, EmptyReason, ErrorCode, FocusReq, Handle, LiveHead,
-    MapReq, PublishArgs, ShareReq, ShareResult, SharedFile, Snapshot,
+    CommandName, DbBatch, DbOp, DbWrite, Detail, Empty, EmptyReason, ErrorCode, Handle, LiveHead, MapReq,
+    PublishArgs, ShareReq, ShareResult, SharedFile, Snapshot,
 };
 use planroom_kernel::redact;
 use planroom_store::Store;
@@ -127,10 +127,17 @@ pub fn run(req: &ShareReq, cwd: &Path) -> Result<Reply<ShareResult>, AppError> {
 
 /// The snapshot: the top-level map with its cached layout and the pane, redacted.
 fn snapshot(store: &Store, root: &Path, req: &ShareReq) -> Result<Snapshot, AppError> {
-    let seq = store.seq()?;
-    let mut top = map::for_canvas(&MapReq { detail: Detail::Graph, ..MapReq::default() }, root)?.result;
+    // The map, the pane, and the `seq` the snapshot records all come from one read transaction,
+    // so the snapshot never holds an event past its `seq`, nor a pane from another version of the
+    // store than its map (DR-73).
+    let read = store.snapshot()?;
+    let map = map::for_canvas_in(&read, root, &MapReq { detail: Detail::Graph, ..MapReq::default() })?;
+    let seq = map.seq;
+    let mut top = map.result;
+    let mut pane = focus::reply_in(store, &read, root)?.result;
+    let workspace_id = read.meta("workspace_id")?.unwrap_or_default();
+    drop(read);
     redact::map_view(&mut top, req.include_snippets);
-    let mut pane = focus::run(&FocusReq::default(), root)?.result;
     let who = req.include_presence.then(|| pane.who.clone());
     if !req.include_presence {
         pane.who.clear();
@@ -142,7 +149,6 @@ fn snapshot(store: &Store, root: &Path, req: &ShareReq) -> Result<Snapshot, AppE
     });
     let capabilities =
         vec![format!("map:{}:{}", planroom_kernel::tree::level_name(top.level), top.lens), "pane".into()];
-    let workspace_id = store.meta("workspace_id")?.unwrap_or_default();
     Ok(Snapshot {
         format: SNAPSHOT_FORMAT.into(),
         workspace_id,

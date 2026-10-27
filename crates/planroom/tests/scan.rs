@@ -270,7 +270,7 @@ fn map_outside_a_workspace_is_the_empty_state_focus_shows() {
     assert_eq!(empty["reason"], "no_repos");
     assert_eq!(empty, &focus["result"]["empty"], "map and focus agree");
     assert_eq!(map["result"]["nodes"], serde_json::json!([]));
-    assert_eq!(map["summary"], empty["next"]["label"]);
+    assert_eq!(map["summary"], empty["line"]);
     // Its one next action works: no scan that would answer workspace_not_found.
     let next = &empty["next"];
     assert_ne!(next["command"], "scan");
@@ -608,8 +608,10 @@ fn assert_unborn_everywhere(root: &Path, when: &str) {
     assert_eq!(empty["reason"], "repos_unborn", "{when}: {focus}");
     assert_eq!(empty["next"]["command"], "focus", "{when}");
     assert_eq!(empty["next"]["args"], serde_json::json!([]), "{when}");
-    let label = empty["next"]["label"].as_str().unwrap();
+    // The line says why and what to do; the action beside it checks again.
+    let label = empty["line"].as_str().unwrap();
     assert!(label.contains("app") && label.contains("first commit"), "{when}: {label}");
+    assert_eq!(empty["next"]["label"], "Check again", "{when}");
     assert_eq!(focus["result"]["next"], empty["next"], "{when}: the pane's next action is the empty one");
     for args in [&["map"][..], &["map", "--level", "container"], &["map", "--level", "code"]] {
         let mut json = args.to_vec();
@@ -680,7 +682,7 @@ fn a_workspace_git_can_read_none_of_offers_no_scan() {
     let empty = &focus["result"]["empty"];
     assert_eq!(empty["reason"], "repos_unreadable", "{focus}");
     assert_eq!(empty["next"]["command"], "focus");
-    assert!(empty["next"]["label"].as_str().unwrap().contains("broken"), "{empty}");
+    assert!(empty["line"].as_str().unwrap().contains("broken"), "{empty}");
     // The scan itself answers ok, with the warning, and writes no store.
     let env = scan(&root);
     assert_eq!(warnings_of(&env, "repo_skipped").len(), 1, "{env}");

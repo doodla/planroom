@@ -155,14 +155,20 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
         .zip(&write.repos)
         .filter(|((_, o), repo)| matches!(o, RepoOutcome::Recorded { .. }) && !repo.commit.is_empty())
         .count();
+    // The reply's map, its container count and its seq come from one read transaction, as map's
+    // do (DR-73): another writer that commits after this scan shows in all of them or none, so
+    // the map never holds an event past the reply's `meta.seq`.
+    let snapshot = store.snapshot()?;
+    let seq = snapshot.seq();
+    let mut view = map::top_in(&snapshot, &ws.root, None)?;
+    let containers = map::top_in(&snapshot, &ws.root, Some(planroom_contract::Level::Container))?.nodes.len();
+    drop(snapshot);
     // The top-level map an agent reads in scan's reply keeps to scan's budget, as map's does.
-    let mut view = map::top(&store, &ws.root, None)?;
     let budget = Command::Scan(ScanReq::default()).spec().budget_tokens;
     let cut = map::fit_beside(&mut view, budget, None, &warnings);
     warnings.extend(cut);
-    let containers = map::top(&store, &ws.root, Some(planroom_contract::Level::Container))?.nodes.len();
     let summary = summary(&write, containers, recorded);
-    Ok(Reply { result: ScanResult { map: view, next: next() }, seq: done.seq, warnings, text: summary })
+    Ok(Reply { result: ScanResult { map: view, next: next() }, seq, warnings, text: summary })
 }
 
 /// The scan's one line: the repos it mapped, those with a commit, and how many moved; then the

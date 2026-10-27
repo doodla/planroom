@@ -60,7 +60,7 @@ pack_invalid = "planroom doctor --pack DIR"
 newer_file = "{file} is {found}, newer than this engine reads ({supported}). Update Planroom, then retry."
 
 [argument]
-focus_unsupported = "--focus isn't available yet; run map without it."
+focus_ambiguous = "--focus {target} names {count} blocks, such as {ids}; pass one of their IDs."
 person_key = "stdin must hold the person key: the base64url of an uncompressed P-256 point."
 bad_body = "The request body isn't valid: {why}"
 http_scan_dir = "scan over HTTP always maps the workspace it serves; leave dir out or name that workspace."
@@ -107,14 +107,22 @@ temporary_host = "This host loses its files with its container, so a redacted ba
 reconcile_paused = "{repo}'s HEAD left {tracked_branch}, so the map follows it and reconciling waits."
 duty_failed = "The background {duty} failed at {at}; its log is {log}."
 
+# Each empty state's line, which every surface shows (`Empty.line`), and the short label of its
+# next action (`_next`), which a surface puts on the button beside it.
 [empty]
-not_scanned = "Map these {count} repos? About 2 s."
+not_scanned = "Nothing is mapped here yet; {count} repos can be."
+not_scanned_next = "Map these {count} repos? About 2 s."
 no_repos = "No git repos here. Open Planroom in a folder that holds your repos, or clone one here, then check again."
-no_intent = "No plans at the intent level yet. Show the top of the map."
-empty_level = "Nothing at the {level} level here. Show the top of the map."
-nothing_mapped = "The last scan found nothing to map. Scan again."
+no_intent = "No plans at the intent level yet."
+empty_level = "Nothing at the {level} level here."
+top_next = "Show the top of the map"
+nothing_mapped = "The last scan found nothing to map."
+nothing_mapped_next = "Scan again"
+nothing_under = "Nothing under {name} at the {level} level."
+nothing_under_next = "Show {name} and the blocks beside it"
 repos_unborn = "No commits yet in {names}, so there's nothing to map. Make a first commit, then check again."
 repos_unreadable = "git can't read {names} here, so there's nothing to map yet. Run git status in each to see why, then check again."
+check_again_next = "Check again"
 
 # The fix a repo_skipped warning names, by its reason.
 [fix]
@@ -160,6 +168,9 @@ no_focus_action = "Try again"
 
 [map]
 summary = "{count} at the top: {names}."
+summary_level = "{count} at the {level} level: {names}."
+summary_under = "{count} under {name} at the {level} level: {names}."
+focus_missing = "block {target} on this map"
 more = "{names}; and {more} more"
 coarser = "Show the {level} level"
 pane = "Show where you are"

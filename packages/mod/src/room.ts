@@ -85,7 +85,10 @@ export function lineFor(command: string, label: string, ran: Ran): string {
   const map = mapOf(result.result);
   if (map !== null) {
     const next = map.empty?.next;
+    const said: unknown = map.empty?.line;
     if (map.nodes.length === 0) {
+      // The empty state's line says why, where its action's label alone ("Check again") doesn't.
+      if (typeof said === "string" && said !== "") return oneLine(said);
       return oneLine(
         isHandle(next) ? next.label : `No blocks at the ${map.level} level`,
       );

@@ -32,6 +32,39 @@ pub fn at_level(nodes: &[Node], level: Level) -> Vec<MapNode> {
     blocks(nodes, &index, |n| n.level == level)
 }
 
+/// The blocks a map draws at `level`, inside the subtree under `under` when it names a node:
+/// every node at `level` there, and every finer node with no node at or above `level` between it
+/// and the top of that subtree. So the system level holds the repos and, beside them, a container
+/// no repo holds, the same blocks as the top of the map; and the blocks under a repo at the
+/// component level include a directory no container holds. The intent level holds only intent
+/// nodes. Each block counts its descendants by level; sorted like [`top_level`].
+pub fn blocks_at(nodes: &[Node], level: Level, under: Option<&NodeId>) -> Vec<MapNode> {
+    let index: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.0.as_str(), n)).collect();
+    let parent_of = |n: &Node| n.parent.as_ref().and_then(|p| index.get(p.0.as_str()).copied());
+    let selected: std::collections::HashSet<&str> = nodes
+        .iter()
+        .filter(|n| {
+            if n.level == level {
+                // At the level: anywhere in the subtree.
+                let mut at = *n;
+                for _ in 0..nodes.len() {
+                    let Some(parent) = parent_of(at) else { return under.is_none() };
+                    if under == Some(&parent.id) {
+                        return true;
+                    }
+                    at = parent;
+                }
+                return false;
+            }
+            // Finer than the level: only the top of its own chain inside the subtree, since any
+            // node above it there either holds it at the level or is finer and drawn instead.
+            level != Level::Intent && n.level > level && parent_of(n).map(|p| &p.id) == under
+        })
+        .map(|n| n.id.0.as_str())
+        .collect();
+    blocks(nodes, &index, |n| selected.contains(n.id.0.as_str()))
+}
+
 /// The nodes `is_block` selects, each counting every descendant whose nearest selected ancestor
 /// it is. A parent cycle, which only bad facts can hold, counts nowhere.
 fn blocks<'a>(
@@ -231,6 +264,31 @@ mod tests {
         let hash = structure_hash(&blocks, &lifted);
         assert_eq!(hash, structure_hash(&blocks, &lifted));
         assert_ne!(hash, structure_hash(&blocks, &[]));
+    }
+
+    #[test]
+    fn a_level_keeps_the_finer_nodes_nothing_at_it_holds() {
+        let nodes = vec![
+            node("r:repo:r", Level::System, None),
+            node("r:container:r", Level::Container, Some("r:repo:r")),
+            node("r:dir:app", Level::Component, Some("r:container:r")),
+            node("r:dir:docs", Level::Component, Some("r:repo:r")),
+            node("r:file:docs/a", Level::Code, Some("r:dir:docs")),
+            node("ws:container:db", Level::Container, None),
+        ];
+        let ids = |blocks: Vec<MapNode>| -> Vec<String> { blocks.into_iter().map(|b| b.id.0).collect() };
+        // The system level is the top of the map: the repo, and the container no repo holds.
+        assert_eq!(ids(blocks_at(&nodes, Level::System, None)), ids(top_level(&nodes)));
+        assert_eq!(ids(blocks_at(&nodes, Level::System, None)), ["r:repo:r", "ws:container:db"]);
+        // Under the repo at the container level: its container, and the directory no container holds.
+        let repo = NodeId("r:repo:r".into());
+        let under = blocks_at(&nodes, Level::Container, Some(&repo));
+        assert_eq!(ids(under.clone()), ["r:container:r", "r:dir:docs"]);
+        assert_eq!(under[1].counts, BTreeMap::from([("code".into(), 1)]));
+        assert_eq!(ids(blocks_at(&nodes, Level::Component, Some(&repo))), ["r:dir:app", "r:dir:docs"]);
+        // Nothing under a leaf, and only intent nodes at the intent level.
+        assert!(blocks_at(&nodes, Level::Code, Some(&NodeId("r:file:docs/a".into()))).is_empty());
+        assert!(blocks_at(&nodes, Level::Intent, None).is_empty());
     }
 
     #[test]

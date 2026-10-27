@@ -137,6 +137,43 @@ test("an empty level says its empty state's next action", () => {
   );
 });
 
+test("an_empty_map_says_its_empty_states_line_before_its_label", () => {
+  const unborn = (line: string) =>
+    JSON.stringify({
+      ...withoutSummary,
+      result: {
+        ...mapReply.result,
+        nodes: [],
+        empty: {
+          reason: "repos_unborn",
+          line,
+          next: { command: "focus", args: [], label: "Check again" },
+        },
+      },
+    });
+  expect(
+    lineFor(
+      "map",
+      "map",
+      ran(
+        unborn(
+          "No commits yet in worker. Make a first commit, then check again.",
+        ),
+      ),
+    ),
+  ).toBe("No commits yet in worker. Make a first commit, then check again.");
+  // The line is engine text over a repo's name, so it passes the display-sanitizing pass.
+  const said = lineFor(
+    "map",
+    "map",
+    ran(unborn(`No commits yet in evil${RLO}abc${OSC52}.`)),
+  );
+  expect(said).toContain("⟨U+202E⟩");
+  expect(said).toContain("\\x1b]52");
+  expect(said).not.toContain(RLO);
+  expect(said).not.toContain("\u001b");
+});
+
 test("security-5: an OSC 52 or RLO in a name or the summary never reaches the transcript raw", () => {
   const evil = `evil${OSC52}name${RLO}abc`;
   const reply = JSON.stringify({

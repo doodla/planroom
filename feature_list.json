@@ -684,7 +684,6 @@
         "crates/planroom/tests/duties.rs::a_dead_holders_lease_is_taken_over_at_once": "M2",
         "crates/planroom/tests/retries.rs::base_less_commands_mint_a_fresh_key": "M1",
         "crates/planroom/tests/retries.rs::a_move_back_to_an_earlier_head_records_a_new_scan": "M1",
-        "crates/store/tests/interleavings.rs::meta_seq_never_exceeds_the_folded_view": "M1",
         "tests/e2e/src/surface.spec.ts::a_flush_by_another_tab_keeps_the_original_writer": "M1",
         "tests/e2e/src/surface.spec.ts::a_flush_of_a_committed_edit_replays": "M1"
       }

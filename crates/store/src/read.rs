@@ -1,11 +1,13 @@
-//! Reads: the active snapshot set, its facts and the event log.
+//! Reads: the active snapshot set, its facts and the event log, alone or inside one read
+//! transaction ([`Snapshot`]), so that a reply folded from them and its `meta.seq` come from one
+//! version of the store (DR-73).
 
 use std::collections::BTreeMap;
 
 use planroom_contract::{Event, EventBody, EventId, NodeId, Seq, Timestamp};
-use rusqlite::{Connection, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 
-use crate::{Store, StoreError};
+use crate::{Store, StoreError, layouts};
 
 /// Which of the four fact shapes a row holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -70,43 +72,120 @@ impl ActiveSet {
 }
 
 impl Store {
-    /// The active snapshot set at the latest `seq`.
+    /// The active snapshot set at the latest `seq`. Each call reads on its own; a reply that
+    /// reads more than one thing reads them through one [`Store::snapshot`].
     pub fn active_set(&self) -> Result<ActiveSet, StoreError> {
-        let repos = active_snapshots(&self.conn)?.into_iter().map(|(repo, a)| (repo, a.snapshot)).collect();
-        let link = self
-            .conn
-            .query_row("SELECT body FROM events WHERE kind = 'scan' ORDER BY seq DESC LIMIT 1", [], |r| {
-                r.get::<_, String>(0)
-            })
-            .map(Some)
-            .or_else(|e| if e == rusqlite::Error::QueryReturnedNoRows { Ok(None) } else { Err(e) })?
-            .map(|body| scan_body(&body).map(|(_, link)| link))
-            .transpose()?;
-        Ok(ActiveSet { repos, link })
+        active_set(&self.conn)
     }
 
     /// Every fact of the given snapshots, sorted by snapshot then ID.
     pub fn facts(&self, snapshots: &[u64]) -> Result<Vec<FactRow>, StoreError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, shape, kind, hash, body FROM facts WHERE snapshot = ?1 ORDER BY id")?;
-        let mut out = Vec::new();
-        for &snapshot in snapshots {
-            let rows = stmt.query_map(params![snapshot as i64], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-            })?;
-            for row in rows {
-                let (id, shape, kind, hash, body) = row?;
-                out.push(FactRow { id, shape: Shape::parse(&shape)?, kind, hash, body });
-            }
-        }
-        Ok(out)
+        facts(&self.conn, snapshots)
     }
 
     /// Events with `seq > after`, at most `limit`, in order.
     pub fn events_after(&self, after: Seq, limit: u32) -> Result<Vec<Event>, StoreError> {
         events_after(&self.conn, after, limit)
     }
+
+    /// One read transaction on this connection: everything read through it comes from the
+    /// version of the store at its `seq`, whatever other connections commit meanwhile.
+    pub fn snapshot(&self) -> Result<Snapshot<'_>, StoreError> {
+        Snapshot::begin(&self.conn)
+    }
+}
+
+/// One read transaction, a deferred `BEGIN` that WAL serves from one version of the database.
+/// Its `seq` is the highest `seq` it sees, read first, and the active set, the facts, the events
+/// and the cached layouts read through it all come from that same version. So a reply folded
+/// from one snapshot never carries a `meta.seq` newer than what it folded, nor a repo set from
+/// one scan beside a link from another (DR-73). It writes nothing, and ends when dropped.
+pub struct Snapshot<'a> {
+    tx: Transaction<'a>,
+    seq: Seq,
+}
+
+impl<'a> Snapshot<'a> {
+    pub(crate) fn begin(conn: &'a Connection) -> Result<Snapshot<'a>, StoreError> {
+        let tx = conn.unchecked_transaction()?;
+        // The first read takes the version every later read in the transaction sees.
+        let seq = max_seq(&tx)?;
+        Ok(Snapshot { tx, seq })
+    }
+
+    /// The highest `seq` in this version of the store: the `meta.seq` of a reply read here.
+    pub fn seq(&self) -> Seq {
+        self.seq
+    }
+
+    /// The active snapshot set at [`Snapshot::seq`].
+    pub fn active_set(&self) -> Result<ActiveSet, StoreError> {
+        active_set(&self.tx)
+    }
+
+    /// Every fact of the given snapshots, sorted by snapshot then ID.
+    pub fn facts(&self, snapshots: &[u64]) -> Result<Vec<FactRow>, StoreError> {
+        facts(&self.tx, snapshots)
+    }
+
+    /// Every event with `seq > after`, up to [`Snapshot::seq`], in order.
+    pub fn events_after(&self, mut after: Seq) -> Result<Vec<Event>, StoreError> {
+        let mut out = Vec::new();
+        loop {
+            let page = events_after(&self.tx, after, EVENT_PAGE)?;
+            let Some(last) = page.last() else { return Ok(out) };
+            after = last.seq;
+            out.extend(page);
+        }
+    }
+
+    /// The event at `seq`, if this version of the store holds one.
+    pub fn event_at(&self, seq: Seq) -> Result<Option<Event>, StoreError> {
+        let Some(before) = seq.checked_sub(1) else { return Ok(None) };
+        Ok(events_after(&self.tx, before, 1)?.into_iter().find(|e| e.seq == seq))
+    }
+
+    /// One `meta` value, such as the `workspace_id` that names this store.
+    pub fn meta(&self, key: &str) -> Result<Option<String>, StoreError> {
+        Ok(self.tx.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)).optional()?)
+    }
+
+    /// The cached positions (JSON) for `view_key` at `structure_hash`, if any.
+    pub fn layout(&self, view_key: &str, structure_hash: &str) -> Result<Option<String>, StoreError> {
+        layouts::cached(&self.tx, view_key, structure_hash)
+    }
+}
+
+/// Events a snapshot reads per query when it reads them all.
+const EVENT_PAGE: u32 = 1_000;
+
+fn active_set(conn: &Connection) -> Result<ActiveSet, StoreError> {
+    let repos = active_snapshots(conn)?.into_iter().map(|(repo, a)| (repo, a.snapshot)).collect();
+    let link = conn
+        .query_row("SELECT body FROM events WHERE kind = 'scan' ORDER BY seq DESC LIMIT 1", [], |r| {
+            r.get::<_, String>(0)
+        })
+        .map(Some)
+        .or_else(|e| if e == rusqlite::Error::QueryReturnedNoRows { Ok(None) } else { Err(e) })?
+        .map(|body| scan_body(&body).map(|(_, link)| link))
+        .transpose()?;
+    Ok(ActiveSet { repos, link })
+}
+
+fn facts(conn: &Connection, snapshots: &[u64]) -> Result<Vec<FactRow>, StoreError> {
+    let mut stmt =
+        conn.prepare_cached("SELECT id, shape, kind, hash, body FROM facts WHERE snapshot = ?1 ORDER BY id")?;
+    let mut out = Vec::new();
+    for &snapshot in snapshots {
+        let rows = stmt.query_map(params![snapshot as i64], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })?;
+        for row in rows {
+            let (id, shape, kind, hash, body) = row?;
+            out.push(FactRow { id, shape: Shape::parse(&shape)?, kind, hash, body });
+        }
+    }
+    Ok(out)
 }
 
 /// Each repo's last `scan` event: the snapshot it made active.

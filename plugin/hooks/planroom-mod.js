@@ -77,6 +77,9 @@ function truncate(text2, columns) {
   }
   return points.slice(0, columns - 1).join("") + ELLIPSIS;
 }
+function width(text2) {
+  return Array.from(text2).length;
+}
 
 // src/atoms.ts
 import { atom } from "claude-code";
@@ -2872,7 +2875,9 @@ function lineFor(command, label2, ran) {
   const map = mapOf(result.result);
   if (map !== null) {
     const next = map.empty?.next;
+    const said = map.empty?.line;
     if (map.nodes.length === 0) {
+      if (typeof said === "string" && said !== "") return oneLine(said);
       return oneLine(
         isHandle(next) ? next.label : `No blocks at the ${map.level} level`
       );
@@ -3001,6 +3006,23 @@ function text(key, value, columns, tone) {
   const shown2 = truncate(sanitize(value), columns);
   return tone === void 0 ? { kind: "text", key, text: shown2 } : { kind: "text", key, text: shown2, tone };
 }
+var EMPTY_LINE_ROWS = 3;
+function wrapped(key, value, columns, most) {
+  const lines = [];
+  let line = "";
+  for (const word of sanitize(value).split(" ")) {
+    const longer = line === "" ? word : `${line} ${word}`;
+    if (line === "" || width(longer) <= columns) {
+      line = longer;
+    } else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  lines.push(line);
+  const kept = lines.length > most ? [...lines.slice(0, most - 1), lines.slice(most - 1).join(" ")] : lines;
+  return kept.map((l, i) => text(`${key}-${i}`, l, columns));
+}
 function label(value, columns) {
   return truncate(sanitize(value), columns);
 }
@@ -3072,8 +3094,9 @@ function cardRows(model, columns, shown2) {
         }
       ];
     }
+    const line = model.empty?.line;
     return [
-      text("card-title", "Next", columns, "dim"),
+      ...line === void 0 || line === null || line === "" ? [text("card-title", "Next", columns, "dim")] : wrapped("card-empty", line, columns, EMPTY_LINE_ROWS),
       {
         kind: "buttons",
         key: "card-next",

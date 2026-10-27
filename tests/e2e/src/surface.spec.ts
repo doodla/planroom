@@ -580,6 +580,10 @@ test.describe("an unscanned workspace", () => {
         await page.goto(await engine.loginUrl());
         const empty = page.locator("[data-empty]");
         await expect(empty.locator("img")).toBeVisible();
+        // The engine's line says why the page is empty, beside its one short action.
+        await expect(empty.locator(".empty-line")).toHaveText(
+          "Nothing is mapped here yet; 5 repos can be.",
+        );
         await expect(page.getByRole("button")).toHaveCount(1);
         await page
           .getByRole("button", { name: "Map these 5 repos? About 2 s." })

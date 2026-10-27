@@ -5,6 +5,7 @@ import { Shell } from "./shell/shell";
 import { STRINGS } from "./strings";
 import { useCanvas } from "./use-canvas";
 import { EmptyState } from "./views/empty-state";
+import { emptyWords } from "./views/engine-empty";
 
 export function App() {
   const phase = useCanvas((s) => s.phase);
@@ -42,12 +43,16 @@ export function App() {
       );
     case "ready":
       if (empty !== null) {
+        // The engine's line says why the page is empty and what to do; the button is its short
+        // action, which says little alone ("Check again").
+        const words = emptyWords(empty);
         return (
           <main className="page">
             <EmptyState
               art={emptyMap}
+              line={words.line}
               action={{
-                label: empty.next.label,
+                label: words.label,
                 onPress: () => void run(empty.next),
               }}
             />

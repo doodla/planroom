@@ -253,6 +253,60 @@ test("no_decision_shows_next: with no open decision the card is the next action"
   });
 });
 
+test("an_empty_pane_shows_its_empty_states_line_above_its_short_action", () => {
+  const line =
+    "No commits yet in orders, worker, so there's nothing to map. Make a first commit, then check again.";
+  const check = { command: "focus", args: [], label: "Check again" };
+  const model: PaneModel = {
+    ...golden,
+    decision: null,
+    next: check,
+    minimap: { ...golden.minimap, blocks: [], edges: [] },
+    empty: { reason: "repos_unborn", line, next: check },
+  };
+  for (const [columns, rows] of [
+    [DOCK.columns, DOCK.rows],
+    [80, 8],
+  ] as const) {
+    const laid = paneRows(model, columns, rows);
+    // The whole line, broken over rows that fit, takes the title's place; the press follows it.
+    const said = laid.filter((r) => r.key.startsWith("card-empty-"));
+    expect(texts(said).join(" ")).toBe(line);
+    expect(laid.some((r) => r.key === "card-title")).toBe(false);
+    expect(buttons(laid).find((b) => b.key === "next")?.label).toBe(
+      "Check again",
+    );
+    expect(height(laid)).toBeLessThanOrEqual(rows);
+    expect(widest(laid)).toBeLessThanOrEqual(columns);
+  }
+  // A pane with no empty state, or an empty state with no line, keeps its title.
+  expect(
+    paneRows({ ...golden, decision: null }, DOCK.columns, DOCK.rows).some(
+      (r) => r.key === "card-title",
+    ),
+  ).toBe(true);
+  const bare = { ...model, empty: { reason: "repos_unborn", next: check } };
+  expect(
+    paneRows(bare, DOCK.columns, DOCK.rows).some((r) => r.key === "card-title"),
+  ).toBe(true);
+  // The line passes the display-sanitizing pass.
+  const evil = paneRows(
+    {
+      ...model,
+      empty: {
+        reason: "repos_unborn",
+        line: "evil‮abc\u001b]52;c;x\u0007",
+        next: check,
+      },
+    },
+    DOCK.columns,
+    DOCK.rows,
+  );
+  const drawn = texts(evil).join("\n");
+  expect(drawn).toContain("⟨U+202E⟩");
+  expect(hasRaw(drawn)).toBe(false);
+});
+
 test("a cut hunk keeps a header that counts its lines", () => {
   expect(
     cutHunk(["@@ -10,4 +10,5 @@ fn main", " a", "-b", "+c", "+d", " e"], 2),

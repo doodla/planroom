@@ -1,6 +1,6 @@
 //! The layout cache: auto-layout positions per view and structure, last writer wins.
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::{Store, StoreError};
 
@@ -22,13 +22,22 @@ impl Store {
 
     /// The cached positions (JSON) for `view_key` at `structure_hash`, if any.
     pub fn layout(&self, view_key: &str, structure_hash: &str) -> Result<Option<String>, StoreError> {
-        Ok(self
-            .conn
-            .query_row(
-                "SELECT positions FROM layouts WHERE view_key = ?1 AND structure_hash = ?2",
-                params![view_key, structure_hash],
-                |r| r.get(0),
-            )
-            .optional()?)
+        cached(&self.conn, view_key, structure_hash)
     }
+}
+
+/// The cached positions for `view_key` at `structure_hash`, read on `conn`, which may be inside
+/// a read snapshot.
+pub(crate) fn cached(
+    conn: &Connection,
+    view_key: &str,
+    structure_hash: &str,
+) -> Result<Option<String>, StoreError> {
+    Ok(conn
+        .query_row(
+            "SELECT positions FROM layouts WHERE view_key = ?1 AND structure_hash = ?2",
+            params![view_key, structure_hash],
+            |r| r.get(0),
+        )
+        .optional()?)
 }

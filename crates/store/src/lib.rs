@@ -25,7 +25,7 @@ pub use commit::{
     Committed, NewEvent, RepoOutcome, RepoScan, ScanCommitted, ScanKey, ScanRules, ScanWrite, Write,
 };
 pub use error::StoreError;
-pub use read::{ActiveSet, FactRow, Shape};
+pub use read::{ActiveSet, FactRow, Shape, Snapshot};
 pub use tail::Tail;
 
 /// How long a connection waits for the write lock before `store_busy`. SQLite's busy handler

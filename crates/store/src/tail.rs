@@ -57,6 +57,12 @@ impl Tail {
         read::events_after(&self.conn, after, limit)
     }
 
+    /// One read transaction on this connection, as [`crate::Store::snapshot`] takes one: what
+    /// the live loop reads to keep its fold (DR-61).
+    pub fn snapshot(&self) -> Result<read::Snapshot<'_>, StoreError> {
+        read::Snapshot::begin(&self.conn)
+    }
+
     /// How many events have `seq > after`.
     pub fn count_after(&self, after: Seq) -> Result<u64, StoreError> {
         let n: i64 =

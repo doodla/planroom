@@ -81,7 +81,7 @@ fn map_keeps_to_its_budget_and_says_where_to_go_next() {
         args.push("--json");
         let coarser = planroom(tmp.path(), &args);
         assert!(coarser["meta"]["size"]["tokens_est"].as_u64().unwrap() <= budget);
-        assert!(coarser["summary"].as_str().unwrap().starts_with("21 at the top"), "{coarser}");
+        assert!(coarser["summary"].as_str().unwrap().starts_with("21 at the component level"), "{coarser}");
     }
 }
 

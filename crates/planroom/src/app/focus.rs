@@ -9,7 +9,7 @@ use planroom_contract::{
     CommandName, Crumb, DriftLine, Focus, FocusReq, Handle, Level, MiniBlock, MiniMap, NodeId, PaneModel,
     Progress, ScanState, Seq,
 };
-use planroom_store::Store;
+use planroom_store::{Snapshot, Store};
 
 use crate::app::error::AppError;
 use crate::app::{Reply, map, workspace};
@@ -33,18 +33,30 @@ pub fn run(_req: &FocusReq, cwd: &Path) -> Result<Reply<PaneModel>, AppError> {
     let Some(store) = Store::open_existing(&workspace::store_path(&root))? else {
         return not_a_workspace(&root);
     };
-    if store.active_set()?.repos.is_empty() {
-        return not_a_workspace(&root);
+    reply_in(&store, &store.snapshot()?, &root)
+}
+
+/// `focus` inside a read transaction the caller holds on `store`, so the rest of what it builds,
+/// such as `share`'s map, comes from the same version of the store as the pane.
+pub fn reply_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<Reply<PaneModel>, AppError> {
+    if snapshot.active_set()?.repos.is_empty() {
+        return not_a_workspace(root);
     }
-    let pane = pane(&store, &root)?;
+    let pane = pane_in(store, snapshot, root)?;
     let seq = pane.focus.seq;
     Ok(Reply { text: text_of(&pane), result: pane, seq, warnings: vec![] })
 }
 
 /// The pane of a scanned workspace.
 pub fn pane(store: &Store, root: &Path) -> Result<PaneModel, AppError> {
-    let seq = store.seq()?;
-    let view = map::top(store, root, None)?;
+    pane_in(store, &store.snapshot()?, root)
+}
+
+/// [`pane`] inside a read transaction on `store`: the pane's seq and its mini-map come from that
+/// one version of the store (DR-73).
+fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneModel, AppError> {
+    let seq = snapshot.seq();
+    let view = map::top_in(snapshot, root, None)?;
     let since = clock::rfc3339(clock::unix_micros().saturating_sub(PRESENT_FOR_MICROS));
     let mut who = store.presence_since(&planroom_contract::Timestamp(since))?;
     who.truncate(WHO_ROWS);
@@ -131,7 +143,7 @@ fn not_a_workspace(dir: &Path) -> Result<Reply<PaneModel>, AppError> {
 
 fn text_of(pane: &PaneModel) -> String {
     if let Some(empty) = &pane.empty {
-        return empty.next.label.clone();
+        return empty.line.clone().unwrap_or_else(|| empty.next.label.clone());
     }
     let name = pane.focus.breadcrumb.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(" › ");
     let seq: Seq = pane.focus.seq;

@@ -23,6 +23,7 @@ import { STRINGS } from "../strings";
 import { PHONE, useCanvas, useMedia } from "../use-canvas";
 import { BlockNodeComponent, type BlockNode } from "./block-node";
 import { EmptyState } from "./empty-state";
+import { emptyWords } from "./engine-empty";
 import { Outline } from "./outline";
 
 const NODE_TYPES = { block: BlockNodeComponent };
@@ -179,8 +180,8 @@ function MapFlow({ moment }: { moment: Moment }) {
 
 /**
  * A level with no blocks is never bare felt (design-language.md, "Empty states"; ux-3): the
- * engine's empty state when it sends one, its next action as the button; otherwise a line, and
- * the way back up to the top.
+ * engine's empty state when it sends one, its line and its next action as the button; otherwise
+ * a line of the canvas's own, and the way back up to the top.
  */
 function LevelEmpty() {
   const map = useCanvas((s) => s.map);
@@ -191,15 +192,16 @@ function LevelEmpty() {
     return null;
   }
   const next = map.empty?.next ?? null;
+  const words = map.empty == null ? null : emptyWords(map.empty);
   return (
     <div className="level-empty">
       <EmptyState
         art={emptyMap}
         concept="levels"
-        line={STRINGS.emptyLevel(sanitize(map.level))}
+        line={words?.line ?? STRINGS.emptyLevel(sanitize(map.level))}
         action={
-          next !== null
-            ? { label: sanitize(next.label), onPress: () => void run(next) }
+          next !== null && words !== null
+            ? { label: words.label, onPress: () => void run(next) }
             : { label: STRINGS.backTo(top), onPress: () => void back() }
         }
       />

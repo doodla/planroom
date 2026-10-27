@@ -85,6 +85,38 @@ function text(
     : { kind: "text", key, text: shown, tone };
 }
 
+/** Rows an empty state's line takes at most. */
+const EMPTY_LINE_ROWS = 3;
+
+/**
+ * `value` as text rows of at most `columns`, sanitized, broken at spaces: at most `most` rows, the
+ * last cut to fit when the text runs longer.
+ */
+function wrapped(
+  key: string,
+  value: string,
+  columns: number,
+  most: number,
+): Row[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of sanitize(value).split(" ")) {
+    const longer = line === "" ? word : `${line} ${word}`;
+    if (line === "" || width(longer) <= columns) {
+      line = longer;
+    } else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  lines.push(line);
+  const kept =
+    lines.length > most
+      ? [...lines.slice(0, most - 1), lines.slice(most - 1).join(" ")]
+      : lines;
+  return kept.map((l, i) => text(`${key}-${i}`, l, columns));
+}
+
 /** A Button's label: sanitized, then cut to `columns`. */
 function label(value: string, columns: number): string {
   return truncate(sanitize(value), columns);
@@ -178,8 +210,13 @@ function cardRows(
         },
       ];
     }
+    // An empty state's action is short ("Check again"), so its line, which says why the pane is
+    // empty and what to do, takes the title's place above it.
+    const line = model.empty?.line;
     return [
-      text("card-title", "Next", columns, "dim"),
+      ...(line === undefined || line === null || line === ""
+        ? [text("card-title", "Next", columns, "dim")]
+        : wrapped("card-empty", line, columns, EMPTY_LINE_ROWS)),
       {
         kind: "buttons",
         key: "card-next",
