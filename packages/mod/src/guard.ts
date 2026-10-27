@@ -64,6 +64,13 @@ export interface GuardPlaces {
   /** `$ZDOTDIR`, where zsh reads its start-up files, when the environment sets an absolute one. */
   zdotdir?: string;
   /**
+   * The git directories that a `.git` file names at the workspace's root and at the shell's
+   * directory, a linked worktree's or a submodule's, each absolute and normal: the state directory
+   * is `planroom/` inside it (DR-74). register.tsx reads them; without them, the state directory's
+   * path patterns still hold.
+   */
+  gitDirs?: readonly string[];
+  /**
    * Why the guard can't place what it guards, when the environment gives no absolute `HOME`: it
    * then asks before every call rather than check against the wrong folders (tests-3-1).
    */
@@ -194,9 +201,136 @@ function basename(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
 }
 
-/** Whether a path is in a workspace's state directory: `.planroom/`, or a repo's `.git/planroom/`. */
-function inStateDir(path: string): boolean {
-  return /(^|\/)(\.planroom|\.git\/planroom)(\/|$)/.test(path);
+/**
+ * The entries git keeps in a git directory (gitrepository-layout(5)), which a later segment of a
+ * submodule's name is read never to be: so a branch named planroom
+ * (`.git/modules/lib/refs/heads/planroom`) isn't state, and `rm -f .git/modules/lib/index.lock`
+ * deletes no folder above any.
+ */
+const GIT_DIR_ENTRY = new RegExp(
+  "^(" +
+    [
+      "refs|logs|objects|hooks|info|branches|remotes|lfs|rr-cache",
+      "rebase-merge|rebase-apply|sequencer",
+      "index|packed-refs|config|config\\.worktree|description|shallow",
+      "commondir|gitdir|locked|gc\\.log|gc\\.pid|sharedindex\\..*",
+      "HEAD|ORIG_HEAD|FETCH_HEAD|MERGE_HEAD|MERGE_MSG|MERGE_MODE|MERGE_RR",
+      "CHERRY_PICK_HEAD|REVERT_HEAD|AUTO_MERGE|COMMIT_EDITMSG|SQUASH_MSG",
+      "TAG_EDITMSG|BISECT_.*|.*\\.lock",
+    ].join("|") +
+    ")$",
+);
+
+/**
+ * The indexes of the segments that may each end a state directory (DR-74): `.planroom`, or
+ * `planroom` directly inside a git directory, as `git rev-parse --absolute-git-dir` names it. That
+ * is a repo's `.git`, a linked worktree's `.git/worktrees/<name>`, or a submodule's
+ * `.git/modules/<name>`, whose name may take several segments, at any depth of `modules/` and with
+ * its own `worktrees/`. `may` says whether a segment, maybe a glob, may be a name.
+ *
+ * A `**` stands for any number of folders, so wherever it stands in a git directory, for a
+ * worktree's name or a submodule's included, it may reach a `planroom/` below, as `.git/**` does:
+ * `.git/worktrees/**` and `.git/modules/**` both may. A `**` matches no hidden folder, so it never
+ * reaches a `.git` it doesn't spell; a git directory under no hidden folder, such as a bare repo's,
+ * is held through the `.git` file that names it (`namedGitDirs`). A `*` or `?` stands for one name,
+ * as a literal name does.
+ */
+function stateDirEnds(
+  p: readonly string[],
+  may: (segment: string, name: string) => boolean,
+): number[] {
+  const ends = new Set<number>();
+  p.forEach((s, i) => {
+    if (may(s, ".planroom")) ends.add(i);
+  });
+  for (let g = 0; g < p.length; g++) {
+    if (!may(p[g] ?? "", ".git")) continue;
+    // Each index where a git directory's own entries start, each walked once.
+    const seen = new Set<number>();
+    const todo = [g + 1];
+    for (let k = todo.pop(); k !== undefined; k = todo.pop()) {
+      if (k >= p.length || seen.has(k)) continue;
+      seen.add(k);
+      const s = p[k] ?? "";
+      if (may(s, "planroom")) ends.add(k);
+      // A `**` here may stand for no folder, or for the path down to another git directory.
+      if (isGlobstar(s)) todo.push(k + 1);
+      const named = may(s, "worktrees") || may(s, "modules");
+      if (may(s, "worktrees")) todo.push(k + 2);
+      if (may(s, "modules")) {
+        // The name's first segment may be anything; it goes on until an entry git keeps.
+        for (let n = k + 2; n <= p.length; n++) {
+          todo.push(n);
+          if (GIT_DIR_ENTRY.test(p[n] ?? "")) break;
+        }
+      }
+      // A `**` for the name may stand for the name and what's below it in its git directory.
+      if (named && isGlobstar(p[k + 1] ?? "")) todo.push(k + 1);
+    }
+  }
+  return [...ends];
+}
+
+/** Whether two names are one, for a path the guard reads as written, with no glob in it. */
+function same(segment: string, name: string): boolean {
+  return segment === name;
+}
+
+/**
+ * The git directories a `.git` file names, each with the state directory in it (DR-74), wherever
+ * its path lies: a separate git directory such as `/srv/git/app`, or a submodule's whose name the
+ * path patterns stop reading early, such as `.git/modules/app/config`.
+ */
+function namedGitDirs(
+  places: GuardPlaces,
+): { gitDir: string; state: string }[] {
+  return (places.gitDirs ?? []).map((g) => {
+    const gitDir = g.replace(/\/+$/, "");
+    return { gitDir, state: `${gitDir}/planroom` };
+  });
+}
+
+/**
+ * Whether a path is in a workspace's state directory: `.planroom/`, or `planroom/` in a repo's,
+ * a linked worktree's or a submodule's git directory, or in the git directory a `.git` file names.
+ */
+function inStateDir(path: string, places: GuardPlaces): boolean {
+  return (
+    stateDirEnds(segmentsOf(path), same).length > 0 ||
+    namedGitDirs(places).some(({ state }) => within(path, state))
+  );
+}
+
+/**
+ * Whether a path, maybe a glob, may name a state directory, or a folder above one in a git
+ * directory from the `.git` down: `.git`, `.git/planroom`, `.git/worktrees`, `.git/worktrees/wt`,
+ * `.git/modules/lib`, and a git directory a `.git` file names. Not `.git/refs`, nor a folder
+ * inside a state directory.
+ */
+function mayHoldState(path: string, places: GuardPlaces): boolean {
+  const p = segmentsOf(path);
+  return (
+    [["planroom"], ["wt", "planroom"]].some((more) =>
+      stateDirEnds([...p, ...more], segmentMay).some((k) => k >= p.length - 1),
+    ) ||
+    namedGitDirs(places).some(
+      ({ gitDir, state }) =>
+        mayName(path, gitDir, "within") && mayName(path, state, "above"),
+    )
+  );
+}
+
+/**
+ * The git directory a `.git` file names, read as git reads it, or null: a linked worktree's or a
+ * submodule's `.git` is a file whose `gitdir: ` line gives the path, relative to the folder the
+ * file is in unless absolute. `folder` is absolute and normal.
+ */
+export function gitFileDir(text: string, folder: string): string | null {
+  const body = text.replace(/[\r\n]+$/, "");
+  if (!body.startsWith("gitdir: ")) return null;
+  const dir = body.slice("gitdir: ".length);
+  if (dir === "" || dir.trim() !== dir || /[\r\n]/.test(dir)) return null;
+  return normalize(dir.startsWith("/") ? dir : `${folder}/${dir}`, "/", "/");
 }
 
 const STORE_FILE = /^(store|ledger)\.db(-wal|-shm|-journal)?$/;
@@ -224,11 +358,11 @@ export function readDenied(path: string, places: GuardPlaces): string | null {
   // (held below), so an app's own `store.db` elsewhere is the app's.
   if (
     (STORE_FILE.test(name) || name === "store.pointer") &&
-    (inStateDir(path) || globbedFolder(path))
+    (inStateDir(path, places) || globbedFolder(path))
   ) {
     return "Planroom's store is read through the planroom CLI, never directly.";
   }
-  if (inStateDir(path) && name === "serve.json") {
+  if (inStateDir(path, places) && name === "serve.json") {
     return "serve.json holds the canvas server's control token.";
   }
   const data = places.dataRoot;
@@ -289,7 +423,7 @@ function hostPluginLists(places: GuardPlaces): string[] {
 
 /** Why an agent may not write this path (absolute and normal), or null. */
 export function writeDenied(path: string, places: GuardPlaces): string | null {
-  if (inStateDir(path)) return STATE_WRITE;
+  if (inStateDir(path, places)) return STATE_WRITE;
   if (within(path, places.dataRoot)) return DATA_WRITE;
   if (
     pluginFolders(places).some((p) => within(path, p)) ||
@@ -301,8 +435,12 @@ export function writeDenied(path: string, places: GuardPlaces): string | null {
 }
 
 /** Whether a path is in a state directory's `share/` folder, which `share` and `import` write. */
-function inShareDir(path: string): boolean {
-  return /(^|\/)(\.planroom|\.git\/planroom)\/share(\/|$)/.test(path);
+function inShareDir(path: string, places: GuardPlaces): boolean {
+  const p = segmentsOf(path);
+  return (
+    stateDirEnds(p, same).some((k) => p[k + 1] === "share") ||
+    namedGitDirs(places).some(({ state }) => within(path, `${state}/share`))
+  );
 }
 
 /**
@@ -317,7 +455,7 @@ function uploadDenied(path: string, places: GuardPlaces): string | null {
     ? globDenied(path, places)
     : readDenied(path, places);
   if (read !== null) return read;
-  if (inStateDir(path) && !inShareDir(path)) {
+  if (inStateDir(path, places) && !inShareDir(path, places)) {
     return "Of Planroom's state directory, only share/, which planroom share and import write for the Artifact, leaves this machine.";
   }
   if (within(path, places.dataRoot)) {
@@ -333,7 +471,7 @@ function uploadDenied(path: string, places: GuardPlaces): string | null {
  * (security-r3-1).
  */
 function cdDenied(path: string, places: GuardPlaces): string | null {
-  return mayBeInStateDir(path) ||
+  return mayBeInStateDir(path, places) ||
     heldFolders(places).some((h) => mayName(path, h, "within"))
     ? "An agent doesn't cd into Planroom's state, its data root, the mod's store, the user config's folder or the plugin's own folder; name the file from where you are, or use the planroom CLI."
     : null;
@@ -356,7 +494,8 @@ function heldFolders(places: GuardPlaces): string[] {
  */
 function shellSitsDenied(places: GuardPlaces): string | null {
   const cwd = places.cwd;
-  return inStateDir(cwd) || heldFolders(places).some((h) => within(cwd, h))
+  return inStateDir(cwd, places) ||
+    heldFolders(places).some((h) => within(cwd, h))
     ? `The shell sits in a folder Planroom protects, where any program may change its files. Start the line with a cd out of it, such as cd ${places.workspace}.`
     : null;
 }
@@ -453,14 +592,14 @@ function isGlobstar(segment: string): boolean {
 
 /**
  * Whether `path` (absolute and normal, maybe a glob) may name `target` or something inside it
- * ("within"), or `target` or a folder above it ("above"). A `**` stands for no folder or any
- * number of them, none hidden unless the line turns dotglob on, as in Bash: `src/**` never
- * reaches `src/.planroom`, and `dir/**` names `dir/` itself.
+ * ("within"), `target` or a folder above it ("above"), or `target` itself ("is"). A `**` stands
+ * for no folder or any number of them, none hidden unless the line turns dotglob on, as in Bash:
+ * `src/**` never reaches `src/.planroom`, and `dir/**` names `dir/` itself.
  */
 function mayName(
   path: string,
   target: string,
-  mode: "within" | "above",
+  mode: "within" | "above" | "is",
 ): boolean {
   const p = segmentsOf(path);
   const t = segmentsOf(target);
@@ -473,6 +612,7 @@ function mayName(
     if (j === t.length) {
       out = mode === "within" || p.slice(i).every(isGlobstar);
     } else if (i === p.length) {
+      // `mode` is "above" or "is" here: the path stops at a folder above the target.
       out = mode === "above";
     } else {
       const segment = p[i] ?? "";
@@ -487,22 +627,22 @@ function mayName(
   return from(0, 0);
 }
 
-/** Whether a path, maybe a glob, may lie in a state directory: `.planroom/` or `.git/planroom/`. */
-function mayBeInStateDir(path: string): boolean {
-  const p = segmentsOf(path);
-  return p.some(
-    (s, i) =>
-      segmentMay(s, ".planroom") ||
-      (segmentMay(s, ".git") &&
-        i + 1 < p.length &&
-        segmentMay(p[i + 1] ?? "", "planroom")),
+/**
+ * Whether a path, maybe a glob, may lie in a state directory: `.planroom/`, or `planroom/` in a
+ * repo's, a linked worktree's or a submodule's git directory, or in the git directory a `.git`
+ * file names.
+ */
+function mayBeInStateDir(path: string, places: GuardPlaces): boolean {
+  return (
+    stateDirEnds(segmentsOf(path), segmentMay).length > 0 ||
+    namedGitDirs(places).some(({ state }) => mayName(path, state, "within"))
   );
 }
 
 /** Why an agent may not write, create or change what this path names, maybe a glob, or null. */
 function writeTargetDenied(path: string, places: GuardPlaces): string | null {
   if (!GLOB.test(path)) return writeDenied(path, places);
-  if (mayBeInStateDir(path)) return STATE_WRITE;
+  if (mayBeInStateDir(path, places)) return STATE_WRITE;
   if (mayName(path, places.dataRoot, "within")) return DATA_WRITE;
   if (
     [...pluginFolders(places), ...hostPluginLists(places)].some((p) =>
@@ -518,17 +658,32 @@ function writeTargetDenied(path: string, places: GuardPlaces): string | null {
 function removeDenied(path: string, places: GuardPlaces): string | null {
   const held = [
     places.dataRoot,
-    ...[places.workspace, places.cwd].flatMap((w) => [
-      `${w}/.planroom`,
-      `${w}/.git/planroom`,
-    ]),
+    ...ownStateFolders(places),
     modStoreDir(places),
     places.userConfig,
     ...pluginFolders(places),
   ];
-  return held.some((h) => mayName(path, h, "above"))
+  // In the workspace's own `.git`, a linked worktree's or a submodule's git directory holds its state.
+  const gitState = [places.workspace, places.cwd].some(
+    (w) => mayName(path, `${w}/.git`, "within") && mayHoldState(path, places),
+  );
+  return gitState || held.some((h) => mayName(path, h, "above"))
     ? "This deletes a folder that holds Planroom's state, its data root, the person key, the gateway key or the Planroom plugin."
     : null;
+}
+
+/**
+ * The state directories of the workspace and of the repo the shell is in: `.planroom/`, the
+ * repo's `.git/planroom/`, and `planroom/` in the git directory a `.git` file names.
+ */
+function ownStateFolders(places: GuardPlaces): string[] {
+  return [
+    ...[places.workspace, places.cwd].flatMap((w) => [
+      `${w}/.planroom`,
+      `${w}/.git/planroom`,
+    ]),
+    ...namedGitDirs(places).map(({ state }) => state),
+  ];
 }
 
 /**
@@ -541,20 +696,24 @@ function treeDenied(
   hidden: boolean,
   places: GuardPlaces,
 ): string | null {
-  const reaches = (secret: string): boolean =>
+  const reaches = (secret: string, dots = hidden): boolean =>
     mayName(path, secret, "above") &&
-    (hidden ||
+    (dots ||
       path.includes("**") ||
       !segmentsOf(secret)
         .slice(segmentsOf(path).length)
         .some((s) => s.startsWith(".")));
-  const p = segmentsOf(path);
-  const last = p.at(-1) ?? "";
-  const state =
-    segmentMay(last, ".planroom") ||
-    segmentMay(last, ".git") ||
-    (segmentMay(p.at(-2) ?? "", ".git") && segmentMay(last, "planroom"));
-  return state || secretPlaces(places).some(reaches)
+  // The state directory in a git directory a `.git` file names, which may lie under no hidden
+  // folder, as a bare repo's worktree or a separate git directory does: held as a secret place
+  // where the path to it crosses none. A read whose path to it crosses a hidden folder, or one
+  // rooted at the workspace, stays as the workspace's own `.planroom/` leaves it.
+  const named =
+    path !== places.workspace &&
+    namedGitDirs(places).some(({ state }) => reaches(state, false));
+  // A state directory, or a folder above one in a git directory: `.git`, `.git/worktrees/wt`.
+  return mayHoldState(path, places) ||
+    named ||
+    secretPlaces(places).some((secret) => reaches(secret))
     ? "This reads, copies or links a whole folder that holds Planroom's private files: the person key, the gateway key, the stores, login pages or serve's token. Name a folder inside it that holds none of them."
     : null;
 }
@@ -2498,17 +2657,14 @@ export function globDenied(
       );
     }
   }
-  // A store or serve file sits in a state directory: `.planroom/`, or a repo's `.git/planroom/`.
+  // A store or serve file sits in a state directory: `.planroom/`, or `planroom/` in a git directory.
   const folders = segments.slice(0, -1);
   const last = segments.at(-1) ?? "";
   const stateFolder =
-    inStateDir(prefix) ||
-    folders.some(
-      (s, i) =>
-        segmentMatches(s, ".planroom") ||
-        (segmentMatches(s, ".git") &&
-          i + 1 < folders.length &&
-          segmentMatches(folders[i + 1] ?? "", "planroom")),
+    inStateDir(prefix, places) ||
+    stateDirEnds(folders, segmentMatches).length > 0 ||
+    namedGitDirs(places).some(({ state }) =>
+      mayName(`/${folders.join("/")}`, state, "within"),
     );
   if (stateFolder && STATE_SECRETS.some((n) => segmentMatches(last, n))) {
     return "Planroom's store is read through the planroom CLI, never directly.";
@@ -2749,9 +2905,11 @@ const EMPTY_STATE = ["store.db-wal", "store.db-journal"];
 
 /**
  * The protected places at or below `root` (absolute and normal) that a deleting `find` there must
- * not select: the workspace's state directory and its store, a repo's `.git` with the state it may
- * hold, the data root and its engine, the mod's store, the user config and the plugin's folders;
- * and, under a root at or above the home folder, another workspace's state directory.
+ * not select: the workspace's state directory and its store, a repo's `.git` with the state it and
+ * its linked worktrees' and submodules' git directories may hold, the state directory in the git
+ * directory a `.git` file names, the data root and its engine, the mod's store, the user config
+ * and the plugin's folders; and, under a root at or above the home folder, another workspace's
+ * state directory.
  */
 function protectedSamples(root: string, places: GuardPlaces): Sample[] {
   const out: Sample[] = [];
@@ -2766,11 +2924,38 @@ function protectedSamples(root: string, places: GuardPlaces): Sample[] {
   };
   const state = (w: string): void => {
     add(`${w}/.git`, true);
-    for (const folder of [`${w}/.planroom`, `${w}/.git/planroom`]) {
+    // A linked worktree's git directory and a submodule's, each with its own state (DR-74).
+    for (const git of ["worktrees", "worktrees/wt", "modules", "modules/lib"]) {
+      add(`${w}/.git/${git}`, true);
+    }
+    for (const folder of [
+      `${w}/.planroom`,
+      `${w}/.git/planroom`,
+      `${w}/.git/worktrees/wt/planroom`,
+      `${w}/.git/modules/lib/planroom`,
+    ]) {
       store(folder, [...STATE_SECRETS, "config.toml"]);
     }
   };
-  for (const w of new Set([places.workspace, places.cwd])) state(w);
+  for (const w of new Set([places.workspace, places.cwd])) {
+    state(w);
+    // Rooted deeper in its `.git`, such as at `.git/modules/vendor`, a find reaches the state
+    // directory of any git directory below.
+    if (within(root, `${w}/.git`)) {
+      for (const more of ["planroom", "wt/planroom"]) {
+        const folder = `${root.replace(/\/+$/, "")}/${more}`;
+        const p = segmentsOf(folder);
+        if (stateDirEnds(p, same).includes(p.length - 1)) {
+          store(folder, [...STATE_SECRETS, "config.toml"]);
+        }
+      }
+    }
+  }
+  // The git directory a `.git` file names, wherever that is, and the state directory in it.
+  for (const { gitDir, state } of namedGitDirs(places)) {
+    add(gitDir, true);
+    store(state, [...STATE_SECRETS, "config.toml"]);
+  }
   if (within(places.home, root)) state(`${root.replace(/\/+$/, "")}/project`);
   const data = places.dataRoot;
   add(data, true);
@@ -2791,6 +2976,88 @@ function protectedSamples(root: string, places: GuardPlaces): Sample[] {
   }
   for (const f of hostPluginLists(places)) add(f, false);
   return out;
+}
+
+/** One name a glob segment (not `**`) may stand for, or null when the guard can't spell one. */
+function exampleName(segment: string): string | null {
+  let out = "";
+  for (let i = 0; i < segment.length; i++) {
+    const ch = segment[i] ?? "";
+    if (ch === "*") continue;
+    if (ch === "?") out += "x";
+    else if (ch === "[" && segment.indexOf("]", i + 2) > 0) {
+      const end = segment.indexOf("]", i + 2);
+      const set = segment.slice(i + 1, end);
+      out += /^[!^]/.test(set) ? "x" : set.charAt(0);
+      i = end;
+    } else if (ch === "{" && segment.indexOf("}", i) > 0) {
+      const end = segment.indexOf("}", i);
+      out += exampleName(segment.slice(i + 1, end).split(",")[0] ?? "") ?? "";
+      i = end;
+    } else out += ch;
+  }
+  const name = out === "" ? "x" : out;
+  return segmentMatches(segment, name) ? name : null;
+}
+
+/**
+ * The folders a `find` root that holds a glob (absolute and normal) may name, as the shell
+ * expands it before find runs, read as rm's operands are: each protected place below its literal
+ * folder, and each folder above one, that the glob may name; and the glob with each segment that
+ * can't be a protected place's name spelled as some name it may stand for, such as a worktree's.
+ * A root with no literal folder written before its glob (`**`, `*`) never names the folder it
+ * runs in.
+ */
+function globRoots(
+  root: string,
+  written: string,
+  places: GuardPlaces,
+): string[] {
+  const p = segmentsOf(root);
+  const first = p.findIndex((s) => GLOB.test(s));
+  const base = `/${p.slice(0, first).join("/")}`;
+  const out = new Set<string>();
+  for (const sample of [
+    base,
+    ...protectedSamples(base, places).map((s) => s.path),
+  ]) {
+    const s = segmentsOf(sample);
+    for (let n = first; n <= s.length; n++) {
+      const folder = `/${s.slice(0, n).join("/")}`;
+      if (mayName(root, folder, "is")) out.add(folder);
+    }
+    if (!p.some(isGlobstar)) {
+      const names = p.map((segment, i) =>
+        i < first || segmentMay(segment, s[i] ?? "")
+          ? (s[i] ?? segment)
+          : exampleName(segment),
+      );
+      if (names.every((n) => n !== null)) out.add(`/${names.join("/")}`);
+    }
+  }
+  const bare =
+    !written.startsWith("/") && GLOB.test(written.split("/")[0] ?? "");
+  return [...out].filter((f) => !bare || f !== base);
+}
+
+/**
+ * How a find spells `folder`, one of the folders its root `written` (as written) may name when
+ * the shell expands it: the root's literal folder as written, then the folder's names below it.
+ */
+function globWritten(written: string, root: string, folder: string): string {
+  const w = written.split("/");
+  const prefix = w
+    .slice(
+      0,
+      w.findIndex((s) => GLOB.test(s)),
+    )
+    .join("/");
+  const literal = segmentsOf(root).findIndex((s) => GLOB.test(s));
+  const tail = segmentsOf(folder).slice(literal).join("/");
+  if (prefix === "") {
+    return written.startsWith("/") ? `/${tail}` : tail === "" ? "." : tail;
+  }
+  return tail === "" ? prefix : `${prefix}/${tail}`;
 }
 
 const FIND_DELETE =
@@ -3033,7 +3300,7 @@ function localVerdict(
       // store, the user-level config or the data root's private files reaches what's inside it.
       if (
         (tool === "Grep" || tool === "Glob") &&
-        (inStateDir(s) ||
+        (inStateDir(s, places) ||
           within(s, places.dataRoot) ||
           secretPlaces(places).some((secret) => within(secret, s)))
       ) {
@@ -3043,18 +3310,58 @@ function localVerdict(
       }
     }
   }
-  // A Grep's file filter and a Glob's pattern match at any depth, a state directory's included.
-  const filter = (input as Record<string, unknown> | null)?.[
-    tool === "Grep" ? "glob" : "pattern"
-  ];
+  // A Grep's file filter matches at any depth below the search's root, a state directory's
+  // included, as ripgrep matches a glob; a Glob's pattern is anchored at its path, where a `**`
+  // still spans folders. Either names only files below its root, the call's path or else the
+  // shell's directory, so a relative one is read from there: `**/*.ts` from the workspace never
+  // reaches a git directory a `.git` file names elsewhere, and `.git/*` lists what `*` from
+  // `.git` does.
+  const fields = (input ?? {}) as Record<string, unknown>;
+  const filter = fields[tool === "Grep" ? "glob" : "pattern"];
+  const rootField = fields["path"];
+  const root = normalize(
+    typeof rootField === "string" && rootField !== "" ? rootField : ".",
+    places.cwd,
+    places.home,
+  );
+  const anchored = (f: string): string => normalize(f, root, places.home);
+  // The Glob tool lists files, so its pattern's last name is a file's: it reaches a state
+  // directory's files only when the folders before it may lie in one, or a `**` ends it.
+  const folderOf = (f: string): string => {
+    const p = segmentsOf(f);
+    return isGlobstar(p.at(-1) ?? "") ? f : `/${p.slice(0, -1).join("/")}`;
+  };
+  const below = (f: string): string[] =>
+    tool === "Glob"
+      ? [folderOf(anchored(f))]
+      : [anchored(f), ...(/^(\/|~)/.test(f) ? [] : [anchored(`**/${f}`)])];
   if (
     (tool === "Grep" || tool === "Glob") &&
     typeof filter === "string" &&
-    (segmentsOf(filter).some(namesStateFile) || mayBeInStateDir(filter))
+    (segmentsOf(filter).some(namesStateFile) ||
+      // ripgrep matches a filter's folders wherever they sit below its root.
+      (tool === "Grep" &&
+        stateDirEnds(segmentsOf(filter), segmentMay).length > 0) ||
+      below(filter).some((f) => mayBeInStateDir(f, places)))
   ) {
     return deny(
       "Planroom's store is read through the planroom CLI, never directly.",
     );
+  }
+  // ripgrep skips hidden folders below its root, not the root: rooted at a git directory, or a
+  // folder above a worktree's or a submodule's, a Grep reads the state directory's files as
+  // `rg` there does, unless its filter keeps every state file out.
+  if (tool === "Grep" && typeof rootField === "string" && rootField !== "") {
+    const keepsOut =
+      typeof filter === "string" &&
+      !filter.startsWith("!") &&
+      !STATE_SECRETS.some((n) =>
+        segmentMatches(segmentsOf(filter).at(-1) ?? "", n),
+      );
+    for (const s of spell(rootField)) {
+      const reason = keepsOut ? null : treeDenied(s, false, places);
+      if (reason !== null) return deny(reason);
+    }
   }
   // An unknown tool's string that reads like text counts by the folder it spells and where it
   // lands: not by its last name, which prose such as "check .planroom/store.db" would match.
@@ -3187,23 +3494,30 @@ function bashLineDenied(
     }
     return null;
   };
-  /** Whether a deleting find under this root (as written) selects a protected place. */
+  /**
+   * Whether a deleting find under this root (as written) selects a protected place: under each
+   * folder it may name, when it holds a glob the shell expands.
+   */
   const findReaches = (selects: Selection, root: string): string | null =>
-    first([root], (s) =>
-      protectedSamples(s, places).some((sample) => {
-        const rel = sample.path.slice(s.replace(/\/+$/, "").length);
-        const written =
-          root === "/" ? rel : `${root.replace(/\/+$/, "")}${rel}`;
-        return selects(
-          written,
-          sample.dir,
-          segmentsOf(rel).length,
-          sample.empty,
-        );
-      })
+    first([root], (s) => {
+      const roots: [string, string][] = GLOB.test(s)
+        ? globRoots(s, root, places).map((f) => [f, globWritten(root, s, f)])
+        : [[s, root]];
+      return roots.some(([at, as]) =>
+        protectedSamples(at, places).some((sample) => {
+          const rel = sample.path.slice(at.replace(/\/+$/, "").length);
+          const written = as === "/" ? rel : `${as.replace(/\/+$/, "")}${rel}`;
+          return selects(
+            written,
+            sample.dir,
+            segmentsOf(rel).length,
+            sample.empty,
+          );
+        }),
+      )
         ? FIND_DELETE
-        : null,
-    );
+        : null;
+    });
   return (
     first(words, (s) =>
       mayName(s, engineDir(places), "within")

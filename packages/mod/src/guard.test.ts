@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 
 import {
   bashDenied,
+  gitFileDir,
   guardCall,
   guardPlaces,
   namedPaths,
@@ -2329,4 +2330,580 @@ test("review2-10: a glob names a managed settings file only by its full path; -d
   ]) {
     expect(verdict("Bash", { command })?.decision, command).not.toBeUndefined();
   }
+});
+
+/**
+ * The calls refused on a repo's `.git/planroom/`, spelled for one state directory: `state` is the
+ * folder, and `holder` a folder above its git directory, such as `.git/worktrees`, which a
+ * deleting find over reaches it from.
+ */
+function stateCalls(
+  state: string,
+  holder: string,
+): [string, Record<string, unknown>][] {
+  return [
+    ["Read", { file_path: `${state}/store.db` }],
+    ["Read", { file_path: `${state}/serve.json` }],
+    ["Bash", { command: `sqlite3 ${state}/store.db .dump` }],
+    ["Write", { file_path: `${state}/store.db`, content: "" }],
+    [
+      "Edit",
+      { file_path: `${state}/config.toml`, old_string: "a", new_string: "b" },
+    ],
+    ["Bash", { command: `echo x > ${state}/config.toml` }],
+    ["Bash", { command: `rm -rf ${state}` }],
+    ["Bash", { command: `mv ${state} /tmp/state` }],
+    ["Bash", { command: `cd ${state}` }],
+    ["Bash", { command: `cp -r ${state} /tmp/state` }],
+    ["Bash", { command: "find .git -name '*.db' -delete" }],
+    ["Bash", { command: `find ${holder} -name '*.db' -delete` }],
+    ["Bash", { command: `find ${holder} -type f -delete` }],
+    ["Grep", { pattern: "x", path: state }],
+    ["Grep", { pattern: "x", glob: `${state}/store.db` }],
+    ["Glob", { pattern: `**/${state}/*` }],
+    ["SendUserFile", { files: [`${state}/config.toml`] }],
+  ];
+}
+
+/**
+ * A linked worktree's state directory and a submodule's, with a two-segment submodule name, a
+ * nested submodule and a submodule's own linked worktree (DR-74).
+ */
+const GIT_DIR_STATES: [string, string][] = [
+  [".git/worktrees/wt1/planroom", ".git/worktrees"],
+  [".git/modules/lib/planroom", ".git/modules"],
+  [".git/modules/vendor/json/planroom", ".git/modules/vendor"],
+  [".git/modules/a/modules/b/planroom", ".git/modules/a"],
+  [".git/modules/lib/worktrees/wt1/planroom", ".git/modules/lib"],
+];
+
+test("a linked worktree's and a submodule's state directories are refused as a repo's .git/planroom is", () => {
+  const verdicts = (state: string, holder: string) =>
+    stateCalls(state, holder).map(
+      ([tool, input]) => verdict(tool, input)?.decision ?? null,
+    );
+  const plain = verdicts(".git/planroom", ".git");
+  // Every call is refused or asked for a repo's own `.git/planroom/` ...
+  expect(plain).not.toContain(null);
+  // ... and the same way for each other place a git directory may be.
+  for (const [state, holder] of GIT_DIR_STATES) {
+    expect(verdicts(state, holder), state).toEqual(plain);
+  }
+  // Their share/ folder leaves the machine, as a repo's does.
+  for (const state of [
+    ".git/planroom",
+    ".git/worktrees/wt1/planroom",
+    ".git/modules/lib/planroom",
+  ]) {
+    expect(
+      verdict("SendUserFile", {
+        files: [`/work/${state}/share/sync/1-2/live/head.json`],
+      }),
+      state,
+    ).toBeNull();
+  }
+});
+
+test("removing or copying the git directory a worktree's or submodule's state sits in is refused", () => {
+  for (const command of [
+    "rm -rf .git/worktrees",
+    "rm -rf .git/worktrees/wt1",
+    "rm -rf .git/modules",
+    "rm -rf .git/modules/lib",
+    "rm -rf .git/modules/vendor/json",
+    "mv .git/modules /tmp/m",
+    "tar czf /tmp/w.tgz .git/worktrees/wt1",
+    "cp -r .git/modules /tmp/m",
+    "find .git -name '*.db' -not -path '.git/planroom/*' -delete",
+    "find . -name planroom -exec rm -rf {} +",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+});
+
+test("everyday git work in worktrees and submodules still passes", () => {
+  for (const [tool, input] of [
+    ["Read", { file_path: ".git/worktrees/wt1/HEAD" }],
+    ["Read", { file_path: ".git/modules/lib/config" }],
+    ["Read", { file_path: ".git/modules/lib/refs/heads/planroom" }],
+    ["Grep", { pattern: "x", path: ".git/worktrees/wt1/logs" }],
+    ["Bash", { command: "cat .git/worktrees/wt1/HEAD" }],
+    ["Bash", { command: "cat .git/worktrees/wt1/gitdir" }],
+    ["Bash", { command: "git worktree add ../app-wt main" }],
+    ["Bash", { command: "git worktree add -b fix/parser ../app-fix" }],
+    ["Bash", { command: "git worktree list" }],
+    ["Bash", { command: "git worktree list --porcelain" }],
+    ["Bash", { command: "git submodule update --init --recursive" }],
+    ["Bash", { command: "git submodule status" }],
+    ["Bash", { command: "git submodule foreach git pull" }],
+    ["Bash", { command: "ls .git/modules" }],
+    ["Bash", { command: "ls -la .git/worktrees" }],
+    ["Bash", { command: "cd .git/worktrees/wt1 && cat HEAD" }],
+    ["Bash", { command: "rm -f .git/worktrees/wt1/index.lock" }],
+    ["Bash", { command: "rm -f .git/modules/lib/index.lock" }],
+    ["Bash", { command: "tar czf /tmp/refs.tgz .git/modules/lib/refs" }],
+    // git's own commands that remove a worktree or a submodule take its state with them; a backup restores it.
+    ["Bash", { command: "git worktree remove ../app-wt" }],
+    ["Bash", { command: "git worktree prune" }],
+    ["Bash", { command: "git submodule deinit -f lib" }],
+  ] as const) {
+    expect(verdict(tool, input), `${tool} ${JSON.stringify(input)}`).toBeNull();
+  }
+});
+
+test("a .git file's gitdir line is read as git reads it, relative to the worktree", () => {
+  expect(gitFileDir("gitdir: /src/app/.git/worktrees/wt1\n", "/work")).toBe(
+    "/src/app/.git/worktrees/wt1",
+  );
+  expect(gitFileDir("gitdir: ../.git/modules/lib\r\n", "/super/lib")).toBe(
+    "/super/.git/modules/lib",
+  );
+  expect(gitFileDir("gitdir: ~/x\n", "/work")).toBe("/work/~/x");
+  for (const text of [
+    "",
+    "ref: refs/heads/main\n",
+    "gitdir:\n",
+    "gitdir: a\nb\n",
+    "gitdir:  /x\n",
+  ]) {
+    expect(gitFileDir(text, "/work"), JSON.stringify(text)).toBeNull();
+  }
+});
+
+test("the state directory a .git file names is held as the workspace's own", () => {
+  // The workspace is a linked worktree of /src/app, or a repo whose git directory lies elsewhere.
+  const at = {
+    ...places,
+    gitDirs: ["/src/app/.git/worktrees/work", "/srv/git/app"],
+  };
+  const check = (command: string) =>
+    guardCall("Bash", { command }, () => [], at)?.decision ?? null;
+  for (const command of [
+    "rm -rf /src/app/.git",
+    "rm -rf /src/app/.git/worktrees",
+    "mv /src/app/.git /tmp/g",
+    "find /src/app -name '*.db' -not -path '*/.planroom/*' -delete",
+    "rm -rf /srv/git",
+    "find /srv/git -name '*.db' -delete",
+  ]) {
+    expect(check(command), command).toBe("deny");
+    // Without the .git file read, only the workspace's own `.git` holds it.
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+  for (const command of [
+    "rm -rf /src/app/build",
+    "find /src/app/.git -name '*.orig' -delete",
+  ]) {
+    expect(check(command), command).toBeNull();
+  }
+});
+
+test("a ** over a worktree's or a submodule's name reaches the state directory below, as .git/** does", () => {
+  for (const command of [
+    "shopt -s globstar; cat .git/worktrees/**/serve.json",
+    "shopt -s globstar; cat .git/modules/**/serve.json",
+    "grep token .git/worktrees/**/serve.json",
+    "cp .git/worktrees/**/serve.json /tmp",
+    "cat .git/modules/lib/worktrees/**/store.db",
+    "cat .git/modules/vendor/**/serve.json",
+    "cd .git/worktrees/**",
+    "rm -rf .git/worktrees/**/wt1/planroom",
+    "tar czf /tmp/w.tgz .git/worktrees/**",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const [tool, input] of [
+    ["Grep", { pattern: "x", glob: ".git/worktrees/**/*.json" }],
+    ["Grep", { pattern: "x", glob: ".git/modules/**/*.json" }],
+    ["Grep", { pattern: "x", path: ".git", glob: "**/worktrees/**/*.json" }],
+    ["Glob", { pattern: ".git/worktrees/**" }],
+    ["Glob", { pattern: ".git/modules/**" }],
+  ] as const) {
+    expect(
+      verdict(tool, input)?.decision,
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBe("deny");
+  }
+  // A `**` matches no hidden folder, so from the workspace it never reaches `.git`: an app's own
+  // `modules/` and `worktrees/` folders stay searchable.
+  for (const [tool, input] of [
+    ["Grep", { pattern: "x", glob: "**/worktrees/**/*.json" }],
+    ["Glob", { pattern: "**/modules/**/*.ts" }],
+    ["Glob", { pattern: "src/**/modules/**" }],
+    ["Grep", { pattern: "x", path: "src", glob: "modules/**" }],
+    ["Grep", { pattern: "x", path: "src", glob: "**/modules/**/*.ts" }],
+    ["Bash", { command: "shopt -s globstar; grep -r foo src/**/modules" }],
+  ] as const) {
+    expect(verdict(tool, input), `${tool} ${JSON.stringify(input)}`).toBeNull();
+  }
+  // A `*` or `?` stands for one name, as a literal name does.
+  for (const [tool, input] of [
+    ["Bash", { command: "cat .git/worktrees/*/HEAD" }],
+    ["Bash", { command: "ls .git/worktrees/*" }],
+    ["Bash", { command: "rm -f .git/worktrees/*/index.lock" }],
+    ["Bash", { command: "cat .git/modules/?ib/config" }],
+    ["Bash", { command: "cd .git/worktrees/wt?" }],
+    ["Glob", { pattern: ".git/worktrees/*/HEAD" }],
+    ["Grep", { pattern: "x", glob: ".git/modules/*/config" }],
+  ] as const) {
+    expect(verdict(tool, input), `${tool} ${JSON.stringify(input)}`).toBeNull();
+  }
+});
+
+/**
+ * A repo whose git directory lies apart from it, and submodules whose names go on past a segment
+ * named as an entry git keeps (`config`, `hooks`).
+ */
+const NAMED_GIT_DIRS = [
+  "/srv/git/app",
+  "/work/.git/modules/app/config",
+  "/work/.git/modules/tools/hooks",
+];
+
+test("the state directory in a git directory a .git file names is refused as a repo's .git/planroom is", () => {
+  const at = { ...places, gitDirs: NAMED_GIT_DIRS };
+  const decide = (tool: string, input: unknown) =>
+    guardCall(tool, input, () => [], at)?.decision ?? null;
+  const verdicts = (state: string, holder: string) =>
+    stateCalls(state, holder)
+      // A Glob's `**/` before an absolute path names nothing; the calls below spell its pattern.
+      .filter(([tool]) => tool !== "Glob")
+      .map(([tool, input]) => decide(tool, input));
+  const plain = verdicts(".git/planroom", ".git");
+  expect(plain).not.toContain(null);
+  for (const gitDir of NAMED_GIT_DIRS) {
+    const state = `${gitDir}/planroom`;
+    const holder = gitDir.slice(0, gitDir.lastIndexOf("/"));
+    expect(verdicts(state, holder), state).toEqual(plain);
+    for (const [tool, input] of [
+      ["Bash", { command: `cat ${state}/serve.json` }],
+      ["Bash", { command: `cat ${gitDir}/*/serve.json` }],
+      ["Bash", { command: `cat ${gitDir}/plan*/serve.json` }],
+      ["Bash", { command: `echo x > ${gitDir}/*/config.toml` }],
+      ["Bash", { command: `cd ${gitDir}/plan*` }],
+      ["Bash", { command: `tar czf /tmp/g.tgz ${gitDir}` }],
+      ["Bash", { command: `grep -r token ${state}` }],
+      ["Read", { file_path: `${state}/store.db-wal` }],
+      ["Write", { file_path: `${state}/share/x.json`, content: "" }],
+      ["SendUserFile", { files: [`${state}/store.db`] }],
+      ["Artifact", { file_path: `${state}/config.toml` }],
+      ["Glob", { pattern: `${state}/*` }],
+      ["Glob", { pattern: `${gitDir}/**` }],
+      ["Glob", { pattern: "planroom/*", path: gitDir }],
+      ["Grep", { pattern: "x", path: gitDir, glob: "planroom/*" }],
+      ["Grep", { pattern: "x", path: `${state}/share` }],
+    ] as const) {
+      expect(decide(tool, input), `${tool} ${JSON.stringify(input)}`).toBe(
+        "deny",
+      );
+      // Without the .git file read, a git directory outside the workspace is any other folder.
+      if (!gitDir.startsWith("/work/")) {
+        expect(
+          verdict(tool, input),
+          `${tool} ${JSON.stringify(input)}`,
+        ).toBeNull();
+      }
+    }
+    // Its share/ folder leaves the machine, as a repo's does.
+    expect(
+      decide("SendUserFile", {
+        files: [`${state}/share/sync/1-2/live/head.json`],
+      }),
+      state,
+    ).toBeNull();
+    // A shell that sits in it runs nothing but a cd out.
+    const inState = (command: string) =>
+      guardCall("Bash", { command }, () => [], { ...at, cwd: state })
+        ?.decision ?? null;
+    expect(inState("cat serve.json")).toBe("deny");
+    expect(inState("cd /work && ls")).toBeNull();
+    // The git directory's own files are git's, read and changed as ever.
+    for (const [tool, input] of [
+      ["Read", { file_path: `${gitDir}/HEAD` }],
+      ["Bash", { command: `cat ${gitDir}/config` }],
+      ["Bash", { command: `ls ${gitDir}` }],
+      ["Bash", { command: `rm -f ${gitDir}/index.lock` }],
+      ["Bash", { command: `cd ${gitDir} && cat HEAD` }],
+      ["Bash", { command: `tar czf /tmp/refs.tgz ${gitDir}/refs` }],
+      ["Grep", { pattern: "x", path: `${gitDir}/logs` }],
+      ["Glob", { pattern: `${gitDir}/refs/**` }],
+      ["Bash", { command: "git log --oneline -5" }],
+      ["Bash", { command: "git submodule update --init --recursive" }],
+    ] as const) {
+      expect(
+        decide(tool, input),
+        `${tool} ${JSON.stringify(input)}`,
+      ).toBeNull();
+    }
+  }
+});
+
+test("a Grep rooted where a state directory is reachable through unhidden folders is refused", () => {
+  const at = { ...places, gitDirs: ["/srv/git/app"] };
+  const decide = (input: Record<string, unknown>) =>
+    guardCall("Grep", input, () => [], at)?.decision ?? null;
+  // Rooted at a git directory, or a folder above a worktree's or a submodule's, planroom/ is an
+  // ordinary child, which ripgrep enters as Bash's grep -r does.
+  for (const path of [
+    ".git",
+    ".git/worktrees",
+    ".git/worktrees/wt1",
+    ".git/modules",
+    ".git/modules/lib",
+    "/work/.git",
+    "/srv/git/app",
+  ]) {
+    expect(decide({ pattern: "token", path }), path).toBe("deny");
+    expect(
+      decide({ pattern: "token", path, output_mode: "content" }),
+      path,
+    ).toBe("deny");
+  }
+  expect(verdict("Bash", { command: "grep -r token .git" })?.decision).toBe(
+    "deny",
+  );
+  expect(
+    verdict("Bash", { command: "rg token .git/worktrees" })?.decision,
+  ).toBe("deny");
+  // A filter that may single out a state file keeps the refusal.
+  for (const glob of ["serve.json", "*.json", "*", "!*.pack", "**"]) {
+    expect(decide({ pattern: "token", path: ".git", glob }), glob).toBe("deny");
+  }
+  // ripgrep skips hidden folders below its root, so from the workspace or src/ it never enters
+  // .git or .planroom; nor does a Grep rooted inside a git directory's own entries.
+  for (const path of [
+    ".",
+    "/work",
+    "src",
+    "/srv/git/app/logs",
+    ".git/logs",
+    ".git/worktrees/wt1/logs",
+    ".git/modules/lib/refs",
+  ]) {
+    expect(decide({ pattern: "token", path }), path).toBeNull();
+  }
+  expect(decide({ pattern: "token" })).toBeNull();
+  // A filter that keeps out every state file passes the root rule; DR-90's filter rule still
+  // refuses one that may lie in a state directory, as `*.pack` below .git may.
+  expect(
+    decide({ pattern: "x", path: ".git", glob: "/work/.git/logs/*.log" }),
+  ).toBeNull();
+  expect(decide({ pattern: "x", path: ".git", glob: "*.pack" })).toBe("deny");
+});
+
+test("a deleting find whose root is a glob is read as every folder the glob may name", () => {
+  for (const command of [
+    "find .git/w* -name '*.db' -delete",
+    "find .git/m* -name '*.db' -delete",
+    "find .git/worktrees/* -name '*.db' -delete",
+    "find .git/modules/l?b -type f -delete",
+    "find .gi? -name '*.db' -delete",
+    "find .[g]it -name serve.json -delete",
+    "find .git/** -name '*.db' -delete",
+    "find ./.gi? -name '*.db' -exec rm {} +",
+    "find /work/.gi? -name '*.db' -delete",
+    "find .planr* -type f -delete",
+    // A segment that can't be a protected place's name stands for any name it may match.
+    "find .gi?/worktrees/w?1 -name '*.db' -delete",
+    "find /* -name '*.db' -delete",
+    // rm with the same globs is refused, as before.
+    "rm -rf .git/w*",
+    "rm -rf .git/m*",
+    "rm -rf .gi?",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  const at = { ...places, gitDirs: ["/srv/git/app"] };
+  for (const command of [
+    "find /srv/git/* -name '*.db' -delete",
+    "find /srv/g*/app -name '*.db' -delete",
+  ]) {
+    expect(
+      guardCall("Bash", { command }, () => [], at)?.decision,
+      command,
+    ).toBe("deny");
+    // Without the .git file read, a git directory outside the workspace is any other folder.
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+  // A glob root that names no protected folder, or a find that selects none of what's there.
+  for (const command of [
+    "find src/* -name '*.orig' -delete",
+    "find * -name '*.db' -delete",
+    "find .git/w* -name index.lock -delete",
+    "find .git/worktrees/* -name '*.lock' -delete",
+    "find .gi? -name '*.orig' -delete",
+    "find .git/w* -name '*.db' -not -path '.git/worktrees/*' -delete",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});
+
+test("a Glob pattern is anchored at its path, and a Grep filter matches at any depth below it", () => {
+  // The Glob tool matches its pattern from its path down: `HEAD` there is that folder's HEAD.
+  for (const input of [
+    { pattern: "HEAD", path: ".git/worktrees/wt1" },
+    { pattern: "*/HEAD", path: ".git/worktrees" },
+    { pattern: "*", path: ".git" },
+    { pattern: "refs/**", path: ".git/modules/lib" },
+    { pattern: "*/config", path: ".git/modules" },
+    { pattern: "logs/**", path: ".git/worktrees/wt1" },
+  ]) {
+    expect(verdict("Glob", input), JSON.stringify(input)).toBeNull();
+  }
+  // A `**` in it still spans folders, a state directory's included.
+  for (const input of [
+    { pattern: "**", path: ".git" },
+    { pattern: "**/HEAD", path: ".git/worktrees" },
+    { pattern: "*/planroom/*", path: ".git/worktrees" },
+    { pattern: "planroom/*", path: ".git" },
+    { pattern: "planroom/**", path: ".git/modules/lib" },
+    { pattern: "lib/**", path: ".git/modules" },
+  ]) {
+    expect(verdict("Glob", input)?.decision, JSON.stringify(input)).toBe(
+      "deny",
+    );
+  }
+  // ripgrep matches a Grep glob at any depth, so one below a git directory may lie in its state.
+  for (const input of [
+    { pattern: "x", glob: "HEAD", path: ".git/worktrees" },
+    { pattern: "x", glob: "*.pack", path: ".git" },
+  ]) {
+    expect(verdict("Grep", input)?.decision, JSON.stringify(input)).toBe(
+      "deny",
+    );
+  }
+});
+
+/**
+ * Git directories a `.git` file names that lie under no hidden folder: a worktree of a bare repo,
+ * and a repo made with --separate-git-dir.
+ */
+const UNHIDDEN_GIT_DIRS = [
+  "/home/u/code/app.git/worktrees/feat",
+  "/srv/git/app",
+];
+
+test("a relative ** filter or pattern names only files below its search root, not a git directory elsewhere", () => {
+  for (const gitDir of UNHIDDEN_GIT_DIRS) {
+    const at = { ...places, gitDirs: [gitDir] };
+    const decide = (tool: string, input: unknown) =>
+      guardCall(tool, input, () => [], at)?.decision ?? null;
+    for (const [tool, input] of [
+      ["Glob", { pattern: "**/*.ts" }],
+      ["Glob", { pattern: "**/*.ts", path: "src" }],
+      ["Glob", { pattern: "**/package.json" }],
+      ["Glob", { pattern: "**/*" }],
+      ["Glob", { pattern: "**/*.test.ts", path: "/work/packages" }],
+      ["Grep", { pattern: "x", glob: "**/*.tsx" }],
+      ["Grep", { pattern: "x", glob: "**/*.rs", path: "crates" }],
+      ["Grep", { pattern: "x", path: "/work", glob: "**/*.md" }],
+      // Both list .git's children, none inside a state directory.
+      ["Glob", { pattern: ".git/*" }],
+      ["Glob", { pattern: "*", path: ".git" }],
+    ] as const) {
+      expect(
+        decide(tool, input),
+        `${gitDir} ${tool} ${JSON.stringify(input)}`,
+      ).toBeNull();
+    }
+    // Rooted at the git directory, a pattern may still reach its state.
+    for (const [tool, input] of [
+      ["Glob", { pattern: "**/*.json", path: gitDir }],
+      ["Glob", { pattern: "planroom/*", path: gitDir }],
+      ["Glob", { pattern: `${gitDir}/**/*.json` }],
+      ["Grep", { pattern: "x", path: gitDir, glob: "**/*.json" }],
+      ["Grep", { pattern: "x", glob: `${gitDir}/**` }],
+    ] as const) {
+      expect(
+        decide(tool, input),
+        `${gitDir} ${tool} ${JSON.stringify(input)}`,
+      ).toBe("deny");
+    }
+  }
+  // The two Globs over .git get one verdict without a .git file read too.
+  expect(verdict("Glob", { pattern: ".git/*" })).toBeNull();
+  expect(verdict("Glob", { pattern: "*", path: ".git" })).toBeNull();
+});
+
+test("a tree read above a git directory a .git file names, through unhidden folders, is refused", () => {
+  const at = { ...places, gitDirs: ["/home/u/code/app.git/worktrees/feat"] };
+  const decide = (tool: string, input: unknown) =>
+    guardCall(tool, input, () => [], at)?.decision ?? null;
+  for (const [tool, input] of [
+    ["Grep", { pattern: "token", path: "/home/u/code/app.git/worktrees" }],
+    ["Grep", { pattern: "token", path: "/home/u/code/app.git" }],
+    ["Grep", { pattern: "token", path: "/home/u/code" }],
+    ["Grep", { pattern: "token", path: "~/code/app.git" }],
+    ["Bash", { command: "rg x /home/u/code/app.git/worktrees" }],
+    ["Bash", { command: "grep -r x /home/u/code/app.git" }],
+    ["Bash", { command: "tar czf /tmp/a.tgz /home/u/code/app.git" }],
+    ["Bash", { command: "zip -r /tmp/a.zip /home/u/code/app.git/worktrees" }],
+    ["Bash", { command: "cp -r /home/u/code/app.git /tmp/y" }],
+  ] as const) {
+    expect(decide(tool, input), `${tool} ${JSON.stringify(input)}`).toBe(
+      "deny",
+    );
+    // Without the .git file read, they are any other folder.
+    expect(verdict(tool, input), `${tool} ${JSON.stringify(input)}`).toBeNull();
+  }
+  // The same reads over the workspace's own .git/worktrees are refused, as before.
+  for (const [tool, input] of [
+    ["Grep", { pattern: "token", path: ".git/worktrees" }],
+    ["Bash", { command: "rg x .git/worktrees" }],
+    ["Bash", { command: "grep -r x .git" }],
+    ["Bash", { command: "tar czf /tmp/a.tgz .git/worktrees" }],
+  ] as const) {
+    expect(
+      verdict(tool, input)?.decision,
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBe("deny");
+  }
+  // A git directory's own entries, another folder, and a tree read from the workspace keep
+  // their verdicts.
+  for (const [tool, input] of [
+    ["Grep", { pattern: "token", path: "/home/u/code/app.git/refs" }],
+    [
+      "Grep",
+      { pattern: "token", path: "/home/u/code/app.git/worktrees/feat/logs" },
+    ],
+    ["Grep", { pattern: "token", path: "/home/u/code/other" }],
+    ["Grep", { pattern: "token", path: "/work" }],
+    ["Grep", { pattern: "token" }],
+    ["Bash", { command: "rg x /home/u/code/other" }],
+    ["Bash", { command: "rg x ." }],
+    ["Bash", { command: "tar czf /tmp/r.tgz /home/u/code/app.git/refs" }],
+    ["Bash", { command: "cp -r /home/u/code/app.git/hooks /tmp/h" }],
+    ["Bash", { command: "git log --oneline -5" }],
+    ["Bash", { command: "git worktree list" }],
+  ] as const) {
+    expect(decide(tool, input), `${tool} ${JSON.stringify(input)}`).toBeNull();
+  }
+  // A tree read from the workspace root, or one whose path to the state crosses a hidden
+  // folder, keeps the verdict the workspace's own .planroom/ gives it.
+  for (const gitDir of [
+    "/work/gitdata",
+    "/srv/.repos/app.git/worktrees/feat",
+  ]) {
+    const other = { ...places, gitDirs: [gitDir] };
+    for (const [tool, input] of [
+      ["Bash", { command: "grep -rn foo ." }],
+      ["Bash", { command: "rg foo" }],
+      ["Bash", { command: "grep -r x /srv" }],
+      ["Bash", { command: "tar czf /tmp/s.tgz /srv" }],
+      ["Grep", { pattern: "x", path: "/work" }],
+      ["Grep", { pattern: "x", path: "/srv" }],
+    ] as const) {
+      expect(
+        guardCall(tool, input, () => [], other)?.decision ?? null,
+        `${gitDir} ${tool} ${JSON.stringify(input)}`,
+      ).toBeNull();
+    }
+  }
+  // Below the workspace, a read above such a git directory reaches its state.
+  expect(
+    guardCall("Bash", { command: "grep -r x /work/gitdata" }, () => [], {
+      ...places,
+      gitDirs: ["/work/gitdata"],
+    })?.decision,
+  ).toBe("deny");
 });

@@ -582,8 +582,71 @@ function modStoreDir(places2) {
 function basename(path) {
   return path.slice(path.lastIndexOf("/") + 1);
 }
-function inStateDir(path) {
-  return /(^|\/)(\.planroom|\.git\/planroom)(\/|$)/.test(path);
+var GIT_DIR_ENTRY = new RegExp(
+  "^(" + [
+    "refs|logs|objects|hooks|info|branches|remotes|lfs|rr-cache",
+    "rebase-merge|rebase-apply|sequencer",
+    "index|packed-refs|config|config\\.worktree|description|shallow",
+    "commondir|gitdir|locked|gc\\.log|gc\\.pid|sharedindex\\..*",
+    "HEAD|ORIG_HEAD|FETCH_HEAD|MERGE_HEAD|MERGE_MSG|MERGE_MODE|MERGE_RR",
+    "CHERRY_PICK_HEAD|REVERT_HEAD|AUTO_MERGE|COMMIT_EDITMSG|SQUASH_MSG",
+    "TAG_EDITMSG|BISECT_.*|.*\\.lock"
+  ].join("|") + ")$"
+);
+function stateDirEnds(p, may) {
+  const ends = /* @__PURE__ */ new Set();
+  p.forEach((s, i) => {
+    if (may(s, ".planroom")) ends.add(i);
+  });
+  for (let g = 0; g < p.length; g++) {
+    if (!may(p[g] ?? "", ".git")) continue;
+    const seen = /* @__PURE__ */ new Set();
+    const todo = [g + 1];
+    for (let k = todo.pop(); k !== void 0; k = todo.pop()) {
+      if (k >= p.length || seen.has(k)) continue;
+      seen.add(k);
+      const s = p[k] ?? "";
+      if (may(s, "planroom")) ends.add(k);
+      if (isGlobstar(s)) todo.push(k + 1);
+      const named = may(s, "worktrees") || may(s, "modules");
+      if (may(s, "worktrees")) todo.push(k + 2);
+      if (may(s, "modules")) {
+        for (let n = k + 2; n <= p.length; n++) {
+          todo.push(n);
+          if (GIT_DIR_ENTRY.test(p[n] ?? "")) break;
+        }
+      }
+      if (named && isGlobstar(p[k + 1] ?? "")) todo.push(k + 1);
+    }
+  }
+  return [...ends];
+}
+function same(segment, name) {
+  return segment === name;
+}
+function namedGitDirs(places2) {
+  return (places2.gitDirs ?? []).map((g) => {
+    const gitDir = g.replace(/\/+$/, "");
+    return { gitDir, state: `${gitDir}/planroom` };
+  });
+}
+function inStateDir(path, places2) {
+  return stateDirEnds(segmentsOf(path), same).length > 0 || namedGitDirs(places2).some(({ state }) => within(path, state));
+}
+function mayHoldState(path, places2) {
+  const p = segmentsOf(path);
+  return [["planroom"], ["wt", "planroom"]].some(
+    (more) => stateDirEnds([...p, ...more], segmentMay).some((k) => k >= p.length - 1)
+  ) || namedGitDirs(places2).some(
+    ({ gitDir, state }) => mayName(path, gitDir, "within") && mayName(path, state, "above")
+  );
+}
+function gitFileDir(text2, folder) {
+  const body = text2.replace(/[\r\n]+$/, "");
+  if (!body.startsWith("gitdir: ")) return null;
+  const dir = body.slice("gitdir: ".length);
+  if (dir === "" || dir.trim() !== dir || /[\r\n]/.test(dir)) return null;
+  return normalize(dir.startsWith("/") ? dir : `${folder}/${dir}`, "/", "/");
 }
 var STORE_FILE = /^(store|ledger)\.db(-wal|-shm|-journal)?$/;
 var PROC_SECRETS = /^\/proc\/[^/]+\/(task\/[^/]+\/)?(environ|mem)$/;
@@ -595,10 +658,10 @@ function readDenied(path, places2) {
     return "Another process's environment and memory may hold a person token.";
   }
   const name = basename(path);
-  if ((STORE_FILE.test(name) || name === "store.pointer") && (inStateDir(path) || globbedFolder(path))) {
+  if ((STORE_FILE.test(name) || name === "store.pointer") && (inStateDir(path, places2) || globbedFolder(path))) {
     return "Planroom's store is read through the planroom CLI, never directly.";
   }
-  if (inStateDir(path) && name === "serve.json") {
+  if (inStateDir(path, places2) && name === "serve.json") {
     return "serve.json holds the canvas server's control token.";
   }
   const data = places2.dataRoot;
@@ -639,20 +702,21 @@ function hostPluginLists(places2) {
   );
 }
 function writeDenied(path, places2) {
-  if (inStateDir(path)) return STATE_WRITE;
+  if (inStateDir(path, places2)) return STATE_WRITE;
   if (within(path, places2.dataRoot)) return DATA_WRITE;
   if (pluginFolders(places2).some((p) => within(path, p)) || hostPluginLists(places2).includes(path)) {
     return PLUGIN_WRITE;
   }
   return readDenied(path, places2);
 }
-function inShareDir(path) {
-  return /(^|\/)(\.planroom|\.git\/planroom)\/share(\/|$)/.test(path);
+function inShareDir(path, places2) {
+  const p = segmentsOf(path);
+  return stateDirEnds(p, same).some((k) => p[k + 1] === "share") || namedGitDirs(places2).some(({ state }) => within(path, `${state}/share`));
 }
 function uploadDenied(path, places2) {
   const read3 = GLOB.test(path) ? globDenied(path, places2) : readDenied(path, places2);
   if (read3 !== null) return read3;
-  if (inStateDir(path) && !inShareDir(path)) {
+  if (inStateDir(path, places2) && !inShareDir(path, places2)) {
     return "Of Planroom's state directory, only share/, which planroom share and import write for the Artifact, leaves this machine.";
   }
   if (within(path, places2.dataRoot)) {
@@ -661,7 +725,7 @@ function uploadDenied(path, places2) {
   return null;
 }
 function cdDenied(path, places2) {
-  return mayBeInStateDir(path) || heldFolders(places2).some((h2) => mayName(path, h2, "within")) ? "An agent doesn't cd into Planroom's state, its data root, the mod's store, the user config's folder or the plugin's own folder; name the file from where you are, or use the planroom CLI." : null;
+  return mayBeInStateDir(path, places2) || heldFolders(places2).some((h2) => mayName(path, h2, "within")) ? "An agent doesn't cd into Planroom's state, its data root, the mod's store, the user config's folder or the plugin's own folder; name the file from where you are, or use the planroom CLI." : null;
 }
 function heldFolders(places2) {
   const config = places2.userConfig.slice(0, places2.userConfig.lastIndexOf("/"));
@@ -674,7 +738,7 @@ function heldFolders(places2) {
 }
 function shellSitsDenied(places2) {
   const cwd = places2.cwd;
-  return inStateDir(cwd) || heldFolders(places2).some((h2) => within(cwd, h2)) ? `The shell sits in a folder Planroom protects, where any program may change its files. Start the line with a cd out of it, such as cd ${places2.workspace}.` : null;
+  return inStateDir(cwd, places2) || heldFolders(places2).some((h2) => within(cwd, h2)) ? `The shell sits in a folder Planroom protects, where any program may change its files. Start the line with a cd out of it, such as cd ${places2.workspace}.` : null;
 }
 function landingTargets(places2) {
   return [
@@ -744,15 +808,12 @@ function mayName(path, target, mode) {
   };
   return from(0, 0);
 }
-function mayBeInStateDir(path) {
-  const p = segmentsOf(path);
-  return p.some(
-    (s, i) => segmentMay(s, ".planroom") || segmentMay(s, ".git") && i + 1 < p.length && segmentMay(p[i + 1] ?? "", "planroom")
-  );
+function mayBeInStateDir(path, places2) {
+  return stateDirEnds(segmentsOf(path), segmentMay).length > 0 || namedGitDirs(places2).some(({ state }) => mayName(path, state, "within"));
 }
 function writeTargetDenied(path, places2) {
   if (!GLOB.test(path)) return writeDenied(path, places2);
-  if (mayBeInStateDir(path)) return STATE_WRITE;
+  if (mayBeInStateDir(path, places2)) return STATE_WRITE;
   if (mayName(path, places2.dataRoot, "within")) return DATA_WRITE;
   if ([...pluginFolders(places2), ...hostPluginLists(places2)].some(
     (p) => mayName(path, p, "within")
@@ -764,22 +825,29 @@ function writeTargetDenied(path, places2) {
 function removeDenied(path, places2) {
   const held = [
     places2.dataRoot,
-    ...[places2.workspace, places2.cwd].flatMap((w) => [
-      `${w}/.planroom`,
-      `${w}/.git/planroom`
-    ]),
+    ...ownStateFolders(places2),
     modStoreDir(places2),
     places2.userConfig,
     ...pluginFolders(places2)
   ];
-  return held.some((h2) => mayName(path, h2, "above")) ? "This deletes a folder that holds Planroom's state, its data root, the person key, the gateway key or the Planroom plugin." : null;
+  const gitState = [places2.workspace, places2.cwd].some(
+    (w) => mayName(path, `${w}/.git`, "within") && mayHoldState(path, places2)
+  );
+  return gitState || held.some((h2) => mayName(path, h2, "above")) ? "This deletes a folder that holds Planroom's state, its data root, the person key, the gateway key or the Planroom plugin." : null;
+}
+function ownStateFolders(places2) {
+  return [
+    ...[places2.workspace, places2.cwd].flatMap((w) => [
+      `${w}/.planroom`,
+      `${w}/.git/planroom`
+    ]),
+    ...namedGitDirs(places2).map(({ state }) => state)
+  ];
 }
 function treeDenied(path, hidden, places2) {
-  const reaches = (secret) => mayName(path, secret, "above") && (hidden || path.includes("**") || !segmentsOf(secret).slice(segmentsOf(path).length).some((s) => s.startsWith(".")));
-  const p = segmentsOf(path);
-  const last = p.at(-1) ?? "";
-  const state = segmentMay(last, ".planroom") || segmentMay(last, ".git") || segmentMay(p.at(-2) ?? "", ".git") && segmentMay(last, "planroom");
-  return state || secretPlaces(places2).some(reaches) ? "This reads, copies or links a whole folder that holds Planroom's private files: the person key, the gateway key, the stores, login pages or serve's token. Name a folder inside it that holds none of them." : null;
+  const reaches = (secret, dots = hidden) => mayName(path, secret, "above") && (dots || path.includes("**") || !segmentsOf(secret).slice(segmentsOf(path).length).some((s) => s.startsWith(".")));
+  const named = path !== places2.workspace && namedGitDirs(places2).some(({ state }) => reaches(state, false));
+  return mayHoldState(path, places2) || named || secretPlaces(places2).some((secret) => reaches(secret)) ? "This reads, copies or links a whole folder that holds Planroom's private files: the person key, the gateway key, the stores, login pages or serve's token. Name a folder inside it that holds none of them." : null;
 }
 function joinLines(text2) {
   return text2.replace(/(?<!\\)((?:\\\\)*)\\\n/g, "$1");
@@ -2180,8 +2248,8 @@ function globDenied(pattern, places2) {
   }
   const folders = segments.slice(0, -1);
   const last = segments.at(-1) ?? "";
-  const stateFolder = inStateDir(prefix) || folders.some(
-    (s, i) => segmentMatches(s, ".planroom") || segmentMatches(s, ".git") && i + 1 < folders.length && segmentMatches(folders[i + 1] ?? "", "planroom")
+  const stateFolder = inStateDir(prefix, places2) || stateDirEnds(folders, segmentMatches).length > 0 || namedGitDirs(places2).some(
+    ({ state }) => mayName(`/${folders.join("/")}`, state, "within")
   );
   if (stateFolder && STATE_SECRETS.some((n) => segmentMatches(last, n))) {
     return "Planroom's store is read through the planroom CLI, never directly.";
@@ -2345,11 +2413,34 @@ function protectedSamples(root, places2) {
   };
   const state = (w) => {
     add(`${w}/.git`, true);
-    for (const folder of [`${w}/.planroom`, `${w}/.git/planroom`]) {
+    for (const git of ["worktrees", "worktrees/wt", "modules", "modules/lib"]) {
+      add(`${w}/.git/${git}`, true);
+    }
+    for (const folder of [
+      `${w}/.planroom`,
+      `${w}/.git/planroom`,
+      `${w}/.git/worktrees/wt/planroom`,
+      `${w}/.git/modules/lib/planroom`
+    ]) {
       store(folder, [...STATE_SECRETS, "config.toml"]);
     }
   };
-  for (const w of /* @__PURE__ */ new Set([places2.workspace, places2.cwd])) state(w);
+  for (const w of /* @__PURE__ */ new Set([places2.workspace, places2.cwd])) {
+    state(w);
+    if (within(root, `${w}/.git`)) {
+      for (const more of ["planroom", "wt/planroom"]) {
+        const folder = `${root.replace(/\/+$/, "")}/${more}`;
+        const p = segmentsOf(folder);
+        if (stateDirEnds(p, same).includes(p.length - 1)) {
+          store(folder, [...STATE_SECRETS, "config.toml"]);
+        }
+      }
+    }
+  }
+  for (const { gitDir, state: state2 } of namedGitDirs(places2)) {
+    add(gitDir, true);
+    store(state2, [...STATE_SECRETS, "config.toml"]);
+  }
   if (within(places2.home, root)) state(`${root.replace(/\/+$/, "")}/project`);
   const data = places2.dataRoot;
   add(data, true);
@@ -2370,6 +2461,63 @@ function protectedSamples(root, places2) {
   }
   for (const f of hostPluginLists(places2)) add(f, false);
   return out;
+}
+function exampleName(segment) {
+  let out = "";
+  for (let i = 0; i < segment.length; i++) {
+    const ch = segment[i] ?? "";
+    if (ch === "*") continue;
+    if (ch === "?") out += "x";
+    else if (ch === "[" && segment.indexOf("]", i + 2) > 0) {
+      const end = segment.indexOf("]", i + 2);
+      const set = segment.slice(i + 1, end);
+      out += /^[!^]/.test(set) ? "x" : set.charAt(0);
+      i = end;
+    } else if (ch === "{" && segment.indexOf("}", i) > 0) {
+      const end = segment.indexOf("}", i);
+      out += exampleName(segment.slice(i + 1, end).split(",")[0] ?? "") ?? "";
+      i = end;
+    } else out += ch;
+  }
+  const name = out === "" ? "x" : out;
+  return segmentMatches(segment, name) ? name : null;
+}
+function globRoots(root, written, places2) {
+  const p = segmentsOf(root);
+  const first = p.findIndex((s) => GLOB.test(s));
+  const base = `/${p.slice(0, first).join("/")}`;
+  const out = /* @__PURE__ */ new Set();
+  for (const sample of [
+    base,
+    ...protectedSamples(base, places2).map((s) => s.path)
+  ]) {
+    const s = segmentsOf(sample);
+    for (let n = first; n <= s.length; n++) {
+      const folder = `/${s.slice(0, n).join("/")}`;
+      if (mayName(root, folder, "is")) out.add(folder);
+    }
+    if (!p.some(isGlobstar)) {
+      const names = p.map(
+        (segment, i) => i < first || segmentMay(segment, s[i] ?? "") ? s[i] ?? segment : exampleName(segment)
+      );
+      if (names.every((n) => n !== null)) out.add(`/${names.join("/")}`);
+    }
+  }
+  const bare = !written.startsWith("/") && GLOB.test(written.split("/")[0] ?? "");
+  return [...out].filter((f) => !bare || f !== base);
+}
+function globWritten(written, root, folder) {
+  const w = written.split("/");
+  const prefix = w.slice(
+    0,
+    w.findIndex((s) => GLOB.test(s))
+  ).join("/");
+  const literal = segmentsOf(root).findIndex((s) => GLOB.test(s));
+  const tail = segmentsOf(folder).slice(literal).join("/");
+  if (prefix === "") {
+    return written.startsWith("/") ? `/${tail}` : tail === "" ? "." : tail;
+  }
+  return tail === "" ? prefix : `${prefix}/${tail}`;
 }
 var FIND_DELETE = "This find deletes or moves what it selects, which may include Planroom's state, its data root, the person key, the gateway key or the plugin. Keep them out, such as with -not -path '*/.planroom/*' -not -path '*/.git/*', or name a folder that holds none of them.";
 var GUARDED_NAME = new RegExp(
@@ -2512,18 +2660,41 @@ function localVerdict(tool, input, resolved, places2, readOnly) {
       if (reason !== null) return deny(reason);
       const write = writesToo ? writeTargetDenied(s, places2) : null;
       if (write !== null) return ask(write);
-      if ((tool === "Grep" || tool === "Glob") && (inStateDir(s) || within(s, places2.dataRoot) || secretPlaces(places2).some((secret) => within(secret, s)))) {
+      if ((tool === "Grep" || tool === "Glob") && (inStateDir(s, places2) || within(s, places2.dataRoot) || secretPlaces(places2).some((secret) => within(secret, s)))) {
         return deny(
           "Planroom's state is read through the planroom CLI, never directly."
         );
       }
     }
   }
-  const filter = input?.[tool === "Grep" ? "glob" : "pattern"];
-  if ((tool === "Grep" || tool === "Glob") && typeof filter === "string" && (segmentsOf(filter).some(namesStateFile) || mayBeInStateDir(filter))) {
+  const fields = input ?? {};
+  const filter = fields[tool === "Grep" ? "glob" : "pattern"];
+  const rootField = fields["path"];
+  const root = normalize(
+    typeof rootField === "string" && rootField !== "" ? rootField : ".",
+    places2.cwd,
+    places2.home
+  );
+  const anchored = (f) => normalize(f, root, places2.home);
+  const folderOf = (f) => {
+    const p = segmentsOf(f);
+    return isGlobstar(p.at(-1) ?? "") ? f : `/${p.slice(0, -1).join("/")}`;
+  };
+  const below = (f) => tool === "Glob" ? [folderOf(anchored(f))] : [anchored(f), .../^(\/|~)/.test(f) ? [] : [anchored(`**/${f}`)]];
+  if ((tool === "Grep" || tool === "Glob") && typeof filter === "string" && (segmentsOf(filter).some(namesStateFile) || // ripgrep matches a filter's folders wherever they sit below its root.
+  tool === "Grep" && stateDirEnds(segmentsOf(filter), segmentMay).length > 0 || below(filter).some((f) => mayBeInStateDir(f, places2)))) {
     return deny(
       "Planroom's store is read through the planroom CLI, never directly."
     );
+  }
+  if (tool === "Grep" && typeof rootField === "string" && rootField !== "") {
+    const keepsOut = typeof filter === "string" && !filter.startsWith("!") && !STATE_SECRETS.some(
+      (n) => segmentMatches(segmentsOf(filter).at(-1) ?? "", n)
+    );
+    for (const s of spell(rootField)) {
+      const reason = keepsOut ? null : treeDenied(s, false, places2);
+      if (reason !== null) return deny(reason);
+    }
   }
   for (const p of linked ?? []) {
     const lexical = normalize(p, places2.cwd, places2.home);
@@ -2619,19 +2790,21 @@ function bashLineDenied(line, resolved, places2) {
     }
     return null;
   };
-  const findReaches = (selects, root) => first(
-    [root],
-    (s) => protectedSamples(s, places2).some((sample) => {
-      const rel = sample.path.slice(s.replace(/\/+$/, "").length);
-      const written = root === "/" ? rel : `${root.replace(/\/+$/, "")}${rel}`;
-      return selects(
-        written,
-        sample.dir,
-        segmentsOf(rel).length,
-        sample.empty
-      );
-    }) ? FIND_DELETE : null
-  );
+  const findReaches = (selects, root) => first([root], (s) => {
+    const roots = GLOB.test(s) ? globRoots(s, root, places2).map((f) => [f, globWritten(root, s, f)]) : [[s, root]];
+    return roots.some(
+      ([at, as]) => protectedSamples(at, places2).some((sample) => {
+        const rel = sample.path.slice(at.replace(/\/+$/, "").length);
+        const written = as === "/" ? rel : `${as.replace(/\/+$/, "")}${rel}`;
+        return selects(
+          written,
+          sample.dir,
+          segmentsOf(rel).length,
+          sample.empty
+        );
+      })
+    ) ? FIND_DELETE : null;
+  });
   return first(
     words,
     (s) => mayName(s, engineDir(places2), "within") ? "Planroom's engine cache runs with the person's authority: only the resolver writes it, and an agent's command never names it." : GLOB.test(s) ? globDenied(s, places2) : readDenied(s, places2)
@@ -6510,7 +6683,23 @@ async function guardPlacesFor($) {
       ]
     });
   }
-  return { ...places, cwd };
+  const gitDirs = [
+    .../* @__PURE__ */ new Set([
+      ...await gitDirOf($, places.workspace),
+      ...await gitDirOf($, cwd)
+    ])
+  ];
+  return { ...places, cwd, ...gitDirs.length > 0 ? { gitDirs } : {} };
+}
+var gitFiles = /* @__PURE__ */ new Map();
+async function gitDirOf($, folder) {
+  const known = gitFiles.get(folder);
+  if (known !== void 0) return known;
+  const text2 = await $.fs.read(`${folder.replace(/\/+$/, "")}/.git`).catch(() => void 0);
+  const dir = text2 === void 0 ? null : gitFileDir(text2, folder);
+  const out = dir === null ? [] : [dir];
+  gitFiles.set(folder, out);
+  return out;
 }
 async function landing($, path) {
   const own = await $.fs.stat(path, { resolve: true }).catch(() => void 0);
@@ -6540,6 +6729,7 @@ export function register(on) {
     workspace = e.cwd;
     places = null;
     startEnv = null;
+    gitFiles = /* @__PURE__ */ new Map();
     pinDataRoot(placeEnv($).then(pinnedDataRoot));
     await $.command.register({
       name: "room",

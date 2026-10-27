@@ -476,3 +476,57 @@ test("a call on another attached machine or outside the sandbox is asked, and a 
   });
   expect(glob.decision).toBe("allow");
 });
+
+test("a linked worktree's state is held where its .git file points, read as git reads it", async ($, on) => {
+  // The workspace is a linked worktree of /src/app: its `.git` is a file naming its git directory
+  // relative to the worktree, and its state directory is `planroom/` in there (DR-74).
+  const h = host(on, undefined, {
+    files: { "/work/.git": "gitdir: ../src/app/.git/worktrees/work\n" },
+  });
+  allowBeneath(on);
+  await $.session.start(START);
+  await h.clock.settle();
+  const bash = (command: string) =>
+    $.tool.check({ tool: "Bash", input: { command } });
+
+  for (const command of [
+    "rm -rf /src/app/.git",
+    "rm -rf /src/app/.git/worktrees",
+    "find /src/app/.git -name '*.db' -delete",
+    "find /src/app -name '*.db' -not -path '*/.planroom/*' -delete",
+    "rm -rf /src/app/.git/worktrees/work/planroom",
+  ]) {
+    expect((await bash(command)).decision, command).toBe("deny");
+  }
+  const read = await $.tool.check({
+    tool: "Read",
+    input: { file_path: "/src/app/.git/worktrees/work/planroom/store.db" },
+  });
+  expect(read.decision).toBe("deny");
+  // The main repo's other git work goes on.
+  for (const command of [
+    "cat /src/app/.git/worktrees/work/HEAD",
+    "git worktree list",
+    "rm -rf /src/app/build",
+  ]) {
+    expect((await bash(command)).decision, command).toBe("allow");
+  }
+});
+
+test("without a readable .git file, a worktree's state is still held by its path", async ($, on) => {
+  const h = host(on);
+  allowBeneath(on);
+  await $.session.start(START);
+  await h.clock.settle();
+  const bash = (command: string) =>
+    $.tool.check({ tool: "Bash", input: { command } });
+
+  for (const command of [
+    "rm -rf /src/app/.git/worktrees/work/planroom",
+    "cat /src/app/.git/worktrees/work/planroom/store.db",
+  ]) {
+    expect((await bash(command)).decision, command).toBe("deny");
+  }
+  // Another repo's git directory above it is that repo's own, as another repo's `.git` is.
+  expect((await bash("rm -rf /src/app/.git/worktrees")).decision).toBe("allow");
+});

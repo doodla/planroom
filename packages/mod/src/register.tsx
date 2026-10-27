@@ -29,6 +29,7 @@ import {
 } from "./engine";
 import { fallbackFor } from "./fallback";
 import {
+  gitFileDir,
   guardCall,
   guardPlaces,
   namedPaths,
@@ -499,7 +500,31 @@ async function guardPlacesFor($: $): Promise<GuardPlaces> {
       ],
     });
   }
-  return { ...places, cwd };
+  // DR-74: a linked worktree's or a submodule's state directory is in the git directory its `.git`
+  // file names, so the guard holds that one as the workspace's own.
+  const gitDirs = [
+    ...new Set([
+      ...(await gitDirOf($, places.workspace)),
+      ...(await gitDirOf($, cwd)),
+    ]),
+  ];
+  return { ...places, cwd, ...(gitDirs.length > 0 ? { gitDirs } : {}) };
+}
+
+/** The git directory each folder's `.git` file names, read once per session; a `.git` folder names none. */
+let gitFiles = new Map<string, string[]>();
+
+/** The git directory the `.git` file in `folder` names, read as git reads it, or none. */
+async function gitDirOf($: $, folder: string): Promise<string[]> {
+  const known = gitFiles.get(folder);
+  if (known !== undefined) return known;
+  const text = await $.fs
+    .read(`${folder.replace(/\/+$/, "")}/.git`)
+    .catch(() => undefined);
+  const dir = text === undefined ? null : gitFileDir(text, folder);
+  const out = dir === null ? [] : [dir];
+  gitFiles.set(folder, out);
+  return out;
 }
 
 /** Where a path lands, symlinks followed: the file's real path, else its folder's plus its name. */
@@ -550,6 +575,7 @@ export function register(on: Parameters<Register>[0]): void {
     workspace = e.cwd;
     places = null;
     startEnv = null;
+    gitFiles = new Map();
     // First, before any run can start: each names the data root the session starts with, the one
     // the guard holds, and waits for it to be read.
     pinDataRoot(placeEnv($).then(pinnedDataRoot));

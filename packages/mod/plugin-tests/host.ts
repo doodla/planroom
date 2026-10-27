@@ -183,6 +183,8 @@ export function host(
     home?: string | null;
     /** More of the session's environment, beside HOME. */
     env?: Record<string, string>;
+    /** Files `fs.read` reads, by absolute path; any other read is refused, as a missing file's is. */
+    files?: Record<string, string>;
   } = {},
 ): Host {
   const clock = mock.clock(on, { now: 1_800_000_000_000 });
@@ -237,6 +239,10 @@ export function host(
         ...(e.resolve ? { realPath } : {}),
       },
     };
+  });
+  on("fs.read", (_$, e) => {
+    const text = options.files?.[e.path];
+    return text === undefined ? { deny: `ENOENT: ${e.path}` } : { value: text };
   });
   on("process.spawn", async function* (_$, e, next) {
     const script = options.watch?.(children.length) ?? [
