@@ -28,6 +28,7 @@ export type CommandName =
       | "share"
       | "import"
       | "doctor"
+      | "open"
     )
   | string;
 /**
@@ -276,6 +277,10 @@ export type Command =
   | {
       command: "doctor";
       args: DoctorReq;
+    }
+  | {
+      command: "open";
+      args: OpenReq;
     };
 /**
  * The five fixed levels, from the plan down to the code.
@@ -1153,6 +1158,7 @@ export interface Card {
         | "share"
         | "import"
         | "doctor"
+        | "open"
       )
     | string;
 }
@@ -1398,6 +1404,15 @@ export interface DoctorReq {
    */
   update: boolean;
 }
+/**
+ * `planroom open`: the canvas in the browser, through a login page under the data root, so the
+ * one-time code is in no argv and no output (DR-29, DR-64). Person only, from a mod press; a
+ * `/dev/tty` confirmation serves only where no person key is registered (DR-75, DR-81).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "OpenReq".
+ */
+export interface OpenReq {}
 /**
  * What `schema --commands` returns: every leaf, summary first.
  *
@@ -1868,6 +1883,7 @@ export interface Envelope {
         | "share"
         | "import"
         | "doctor"
+        | "open"
       )
     | string;
   /**
@@ -2463,6 +2479,7 @@ export interface InboxRow {
         | "share"
         | "import"
         | "doctor"
+        | "open"
       )
     | string;
   /**
@@ -2841,6 +2858,17 @@ export interface MiniMap {
   level: Level;
   blocks: MiniBlock[];
   edges: MiniEdge[];
+}
+/**
+ * What `open` returns: whether a browser was opened. Where none can be seen (no display, an SSH
+ * session, or an opener that fails), nothing is opened, and `empty.next` names `share` (DR-29).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "OpenResult".
+ */
+export interface OpenResult {
+  opened: boolean;
+  empty?: Empty | null;
 }
 /**
  * One conformance check `doctor --pack` passed.

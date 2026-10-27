@@ -1,5 +1,13 @@
-//! Actor resolution for person-only commands: a person is a call that carries a valid
-//! `PLANROOM_PERSON_TOKEN` (architecture.md, Actors; DR-64, DR-72, DR-75).
+//! Actor resolution and the actor rules (architecture.md, Actors and Actor rules; DR-4, DR-64,
+//! DR-72, DR-75, DR-81). The engine resolves who is acting before anything else:
+//!
+//! - A read needs no actor, and `scan`, which only records what it observed, is the system's.
+//! - An agent names itself with `PLANROOM_ACTOR=agent:<id>:<role>`, and is never a person,
+//!   whatever else its call carries.
+//! - A person is a call that carries a valid `PLANROOM_PERSON_TOKEN`, or a terminal write the
+//!   person confirms on `/dev/tty`, for every command but those that refuse that path. A terminal
+//!   alone never makes a person.
+//! - A write with no actor, no token and no terminal is `actor_required`.
 //!
 //! The token is `<at>.<sig>`: `at` the Unix time in seconds, and `sig` the base64url of the raw
 //! `r ‖ s` ECDSA P-256 SHA-256 signature, by the person key, over
@@ -7,14 +15,18 @@
 //! older than 30 s (or more than 30 s ahead), one for another command or other arguments, and one
 //! already spent, and records each spent token's digest in `meta.spent_tokens` until it expires.
 
+use std::fs::OpenOptions;
+use std::io::{BufRead, BufReader, IsTerminal, Write};
+
 use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature, VerifyingKey};
-use planroom_contract::{Actor, Client, CommandSpec, ErrorCode, Surface};
+use planroom_contract::{Actor, ActorRule, Client, Command, CommandSpec, ErrorCode, Surface};
 use planroom_kernel::keys;
 use planroom_store::Store;
 use serde_json::json;
 
 use crate::app::error::AppError;
+use crate::text;
 
 /// How long a token is good for, either side of its `at`.
 pub const TOKEN_WINDOW_SECS: u64 = 30;
@@ -86,7 +98,7 @@ pub fn fingerprint(text: &str) -> String {
     keys::sha256_plain_hex(&bytes)[..16].to_owned()
 }
 
-/// Why a token was refused.
+/// Why a call wasn't a person's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refused {
     Missing,
@@ -94,8 +106,12 @@ pub enum Refused {
     Stale,
     BadSignature,
     Spent,
-    /// `PLANROOM_ACTOR` named someone other than a person with no token.
+    /// `PLANROOM_ACTOR` named an agent: never a person, whatever else the call carries.
     NotAPerson,
+    /// A terminal confirmation, for a command that refuses that path (DR-64, DR-75).
+    TerminalRefused,
+    /// The person at the terminal didn't confirm.
+    NotConfirmed,
 }
 
 impl Refused {
@@ -107,6 +123,8 @@ impl Refused {
             Refused::BadSignature => "bad_signature",
             Refused::Spent => "spent",
             Refused::NotAPerson => "not_a_person",
+            Refused::TerminalRefused => "terminal_refused",
+            Refused::NotConfirmed => "not_confirmed",
         }
     }
 }
@@ -128,11 +146,7 @@ pub fn check(
     now: u64,
 ) -> Result<String, Refused> {
     let Some(token) = caller.token.as_deref() else {
-        return Err(if caller.actor.as_deref().is_some_and(|a| !a.starts_with("person:")) {
-            Refused::NotAPerson
-        } else {
-            Refused::Missing
-        });
+        return Err(Refused::Missing);
     };
     let (at, sig) = token.split_once('.').ok_or(Refused::Malformed)?;
     let at: u64 = at.parse().map_err(|_| Refused::Malformed)?;
@@ -150,27 +164,263 @@ pub fn check(
     Ok(keys::sha256_plain_hex(token.as_bytes()))
 }
 
-/// Spend a checked token's digest; a second use is refused.
-pub fn spend(store: &mut Store, digest: &str, now: u64, command: &str) -> Result<(), AppError> {
+/// Spend a checked token's digest; a second use is refused, naming the way a person runs
+/// `command` along `path`, the terminal path the command took.
+pub fn spend(
+    store: &mut Store,
+    digest: &str,
+    now: u64,
+    command: &str,
+    path: TerminalPath,
+) -> Result<(), AppError> {
     // Kept past both ends of the window, so a token can't come back after its digest expires.
     if store.spend_token(digest, now, now + 2 * TOKEN_WINDOW_SECS + 1)? {
         Ok(())
     } else {
-        Err(person_required(command, Refused::Spent))
+        Err(person_required(command, Refused::Spent, path))
     }
 }
 
 /// The person this OS user is.
-pub fn person() -> Actor {
+pub fn os_person() -> Actor {
     let user =
         std::env::var("USER").or_else(|_| std::env::var("LOGNAME")).unwrap_or_else(|_| "unknown".into());
     Actor::Person { id: user, name: None }
 }
 
-/// `person_required`, naming the command a person can run and why the call wasn't one.
-pub fn person_required(command: &str, why: Refused) -> AppError {
+/// Whether a command takes a `/dev/tty` confirmation in place of a token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalPath {
+    Takes,
+    /// Anyone who controls a pty can confirm a prompt there, so the commands that change repos,
+    /// pair a device or hand out the authority the others check take only a press or a canvas tab
+    /// (DR-64, DR-75).
+    Refused,
+}
+
+/// The terminal path for `command`, in a workspace that has a person key registered or not:
+///
+/// - `handoff start`, `handoff merge`, `handoff revert` and `person pair` change repos or pair a
+///   device, and refuse it (DR-64).
+/// - `person init` refuses it: a first registration proves it holds the key with a token under the
+///   key on its stdin, and `--rekey` takes a token under the old key or a press (DR-75).
+/// - `open` refuses it once a mod has registered a key; before that no mod can press, so a
+///   confirmation that names it serves (DR-81).
+/// - Every other person-only command or input takes it.
+pub fn terminal_path(command: &str, key_registered: bool) -> TerminalPath {
+    match command {
+        "handoff start" | "handoff merge" | "handoff revert" | "person pair" | "person init" => {
+            TerminalPath::Refused
+        }
+        "open" if key_registered => TerminalPath::Refused,
+        _ => TerminalPath::Takes,
+    }
+}
+
+/// Where a person confirms an action: the process's terminal, or none.
+pub trait Terminal {
+    /// Whether there is a terminal to ask.
+    fn present(&mut self) -> bool;
+    /// Ask `question`, a yes or no; `None` where there is no terminal.
+    fn confirm(&mut self, question: &str) -> Option<bool>;
+}
+
+/// The process's own terminal: `/dev/tty`, and only when its stdin or its stdout is a terminal
+/// too, so `planroom import - < rows` run at a terminal can ask. A process the Bash tool runs has
+/// neither on a terminal, so an agent's unnamed write never reaches a prompt (A-3); one run under
+/// a pty does, and only a confirmation there makes it a person's.
+pub struct Tty;
+
+impl Tty {
+    fn attached() -> bool {
+        std::io::stdin().is_terminal() || std::io::stdout().is_terminal()
+    }
+}
+
+impl Terminal for Tty {
+    fn present(&mut self) -> bool {
+        Tty::attached() && OpenOptions::new().read(true).write(true).open("/dev/tty").is_ok()
+    }
+
+    fn confirm(&mut self, question: &str) -> Option<bool> {
+        if !Tty::attached() {
+            return None;
+        }
+        let mut tty = OpenOptions::new().read(true).write(true).open("/dev/tty").ok()?;
+        write!(tty, "{question} [y/N] ").ok()?;
+        tty.flush().ok()?;
+        let mut answer = String::new();
+        BufReader::new(tty).read_line(&mut answer).ok()?;
+        Some(matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
+    }
+}
+
+/// No terminal: for a caller that never prompts, such as a request over HTTP.
+pub struct NoTerminal;
+
+impl Terminal for NoTerminal {
+    fn present(&mut self) -> bool {
+        false
+    }
+
+    fn confirm(&mut self, _question: &str) -> Option<bool> {
+        None
+    }
+}
+
+/// Who acts, and the token digest to spend when the action commits: none for an agent or for a
+/// terminal confirmation, which carry no token.
+#[derive(Debug, Clone)]
+pub struct Acting {
+    pub actor: Actor,
+    pub digest: Option<String>,
+}
+
+/// Resolve the caller of a person-only command or input as a person, or refuse it with
+/// `person_required` naming why (DR-4, DR-64, DR-75):
+///
+/// - `PLANROOM_ACTOR` naming anyone but a person is never a person, even with a token beside it,
+///   so a tool handler's call can't act as one.
+/// - A token decides when there is one; `keys_allowed` are the public keys that may have signed it.
+/// - `PLANROOM_ACTOR` naming a person without a token is refused: a claim isn't a key.
+/// - With neither, a terminal confirmation that names the action serves where `path` takes it.
+pub fn person(
+    caller: &Caller,
+    spec: &CommandSpec,
+    bound: &Bound<'_>,
+    keys_allowed: &[&VerifyingKey],
+    now: u64,
+    path: TerminalPath,
+    terminal: &mut dyn Terminal,
+) -> Result<Acting, AppError> {
+    let command = spec.name();
+    if caller.actor.as_deref().is_some_and(|a| !a.starts_with("person:")) {
+        return Err(person_required(&command, Refused::NotAPerson, path));
+    }
+    if caller.token.is_some() {
+        let digest = check(caller, spec, bound, keys_allowed, now)
+            .map_err(|why| person_required(&command, why, path))?;
+        return Ok(Acting { actor: os_person(), digest: Some(digest) });
+    }
+    if caller.actor.is_some() {
+        return Err(person_required(&command, Refused::Missing, path));
+    }
+    if path == TerminalPath::Refused {
+        let why = if terminal.present() { Refused::TerminalRefused } else { Refused::Missing };
+        return Err(person_required(&command, why, path));
+    }
+    match terminal.confirm(&question(&command)) {
+        None => Err(person_required(&command, Refused::Missing, path)),
+        Some(false) => Err(person_required(&command, Refused::NotConfirmed, path)),
+        Some(true) => Ok(Acting { actor: os_person(), digest: None }),
+    }
+}
+
+/// Who writes to user-authored state, and the token digest to spend when it commits
+/// (architecture.md, Actors; DR-4, DR-60). A person-only command resolves as [`person`] does.
+/// Otherwise the agent `PLANROOM_ACTOR` names, a person's token, or a person who confirms on the
+/// terminal; with none of them, `actor_required`, so every Bash agent names itself.
+pub fn writer(
+    caller: &Caller,
+    spec: &CommandSpec,
+    bound: &Bound<'_>,
+    keys_allowed: &[&VerifyingKey],
+    now: u64,
+    terminal: &mut dyn Terminal,
+) -> Result<Acting, AppError> {
+    let command = spec.name();
+    if spec.actor == ActorRule::PersonOnly {
+        let path = terminal_path(&command, !keys_allowed.is_empty());
+        return person(caller, spec, bound, keys_allowed, now, path, terminal);
+    }
+    match caller.actor.as_deref() {
+        Some(named) if named.starts_with("person:") => {
+            return person(caller, spec, bound, keys_allowed, now, TerminalPath::Takes, terminal);
+        }
+        Some(named) => {
+            return agent(named)
+                .map(|actor| Acting { actor, digest: None })
+                .ok_or_else(|| AppError::invalid_argument("PLANROOM_ACTOR", "argument.actor"));
+        }
+        None => {}
+    }
+    if caller.token.is_some() {
+        return person(caller, spec, bound, keys_allowed, now, TerminalPath::Takes, terminal);
+    }
+    match terminal.confirm(&question(&command)) {
+        Some(true) => Ok(Acting { actor: os_person(), digest: None }),
+        // No terminal, or nobody there confirmed: nobody stands behind the write.
+        None | Some(false) => Err(actor_required(&command)),
+    }
+}
+
+/// The terminal confirmation's question, naming the action and the person it acts as.
+fn question(command: &str) -> String {
+    let who = match os_person() {
+        Actor::Person { id, .. } => id,
+        _ => String::new(),
+    };
+    text::get("actor.confirm", &[("command", &command), ("person", &who)])
+}
+
+/// `PLANROOM_ACTOR=agent:<id>:<role>` as an actor; none for any other spelling.
+pub fn agent(named: &str) -> Option<Actor> {
+    let mut parts = named.split(':');
+    let (Some("agent"), Some(id), Some(role), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return None;
+    };
+    let word = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-.".contains(&b));
+    (word(id) && word(role)).then(|| Actor::Agent { session: id.into(), role: role.into(), key: None })
+}
+
+/// `actor_required` for `command`: its hint shows how an agent names itself.
+pub fn actor_required(command: &str) -> AppError {
+    AppError::new(ErrorCode::ActorRequired, &[("command", &command)])
+}
+
+/// `person_required`, naming the command a person can run and why the call wasn't one. Its hint
+/// names a way a person runs the command that exists in this build, along `path`, the terminal
+/// path the refused call met, from [`person_path`].
+pub fn person_required(command: &str, why: Refused, path: TerminalPath) -> AppError {
     AppError::new(ErrorCode::PersonRequired, &[("command", &command)])
+        .with_hint(person_path(command, path))
         .details(json!({"command": command, "reason": why.as_str()}))
+}
+
+/// The ways a person runs `command` where its terminal path is `path` (see [`terminal_path`]):
+///
+/// - `person init`: the mod's own start in this workspace, which registers its key, and whose
+///   mismatch pane's button runs `--rekey`.
+/// - A leaf `/room` serves: `/room COMMAND`, which the mod runs as the person's own action.
+/// - Where the terminal path is taken: the exact line from the person's own terminal as well,
+///   which asks them to confirm it. Where it is refused, never the terminal.
+/// - A leaf with neither: the action's button in the Planroom pane.
+pub fn person_path(command: &str, path: TerminalPath) -> String {
+    let room = Command::SPECS.iter().any(|s| s.name() == command && s.room);
+    let typed = format!("/room {command}");
+    match (command, path) {
+        ("person init", _) => text::get("hint.person_required_key", &[]),
+        (_, TerminalPath::Refused) if room => text::get("hint.person_required_room", &[("line", &typed)]),
+        (_, TerminalPath::Refused) => text::get("hint.person_required", &[]),
+        (_, TerminalPath::Takes) if room => text::get(
+            "hint.person_required_room_or_terminal",
+            &[("room", &typed), ("line", &terminal_line(command))],
+        ),
+        (_, TerminalPath::Takes) => {
+            text::get("hint.person_required_terminal", &[("line", &terminal_line(command))])
+        }
+    }
+}
+
+/// The exact line that runs `command` from a terminal: its path, and `-` for `import`, whose rows
+/// come on stdin.
+pub fn terminal_line(command: &str) -> String {
+    match command {
+        "import" => "planroom import -".to_owned(),
+        _ => format!("planroom {command}"),
+    }
 }
 
 /// base64url without padding (RFC 4648 §5), as `crypto.subtle` keys and signatures travel.
@@ -221,5 +471,16 @@ mod tests {
         assert_eq!(caller.leaf_args(spec).unwrap(), ["--rekey"]);
         let other = Caller { argv: vec!["map".into()], ..Caller::default() };
         assert!(other.leaf_args(spec).is_none());
+    }
+
+    #[test]
+    fn only_a_well_formed_agent_is_an_agent() {
+        assert_eq!(
+            agent("agent:1a2b3c4d:chat"),
+            Some(Actor::Agent { session: "1a2b3c4d".into(), role: "chat".into(), key: None })
+        );
+        for named in ["agent:1a2b3c4d", "agent::chat", "agent:a b:chat", "agent:a:b:c", "system:scan"] {
+            assert_eq!(agent(named), None, "{named}");
+        }
     }
 }

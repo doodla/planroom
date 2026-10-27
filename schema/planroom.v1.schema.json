@@ -769,6 +769,22 @@
             "command",
             "args"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "open"
+            },
+            "args": {
+              "$ref": "#/$defs/OpenReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
         }
       ],
       "description": "One variant per catalogue leaf; the request travels as `args`."
@@ -809,7 +825,8 @@
             "serve",
             "share",
             "import",
-            "doctor"
+            "doctor",
+            "open"
           ]
         },
         {
@@ -4224,6 +4241,32 @@
         "retract"
       ],
       "description": "The three edit operations."
+    },
+    "OpenReq": {
+      "type": "object",
+      "description": "`planroom open`: the canvas in the browser, through a login page under the data root, so the\none-time code is in no argv and no output (DR-29, DR-64). Person only, from a mod press; a\n`/dev/tty` confirmation serves only where no person key is registered (DR-75, DR-81)."
+    },
+    "OpenResult": {
+      "type": "object",
+      "properties": {
+        "opened": {
+          "type": "boolean"
+        },
+        "empty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Empty"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "opened"
+      ],
+      "description": "What `open` returns: whether a browser was opened. Where none can be seen (no display, an SSH\nsession, or an opener that fails), nothing is opened, and `empty.next` names `share` (DR-29)."
     },
     "OptionsFrom": {
       "type": "object",

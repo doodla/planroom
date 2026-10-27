@@ -11,6 +11,8 @@
 //! - `edit`, `review`, `decide` and `intent propose` arrive in M1 and M2. Until then, with a person
 //!   token they are acked `refused`; without one they stay in the inbox, unacked, for a person's
 //!   sync, as a tokenless sync leaves every row it can't apply.
+//! - An agent (`PLANROOM_ACTOR=agent:...`) is never a person: its import of any such row, or of an
+//!   event export, is `person_required` and changes nothing (DR-4, DR-52).
 //!
 //! Import writes each document the session must write under the state directory's
 //! `share/sync/<seq>-<µs>/` (`.planroom/`, or a single repo's `.git/planroom/`),
@@ -36,7 +38,7 @@ use planroom_store::Store;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::app::actor::{self, Bound, Caller};
+use crate::app::actor::{self, Bound, Caller, Refused, Terminal, TerminalPath};
 use crate::app::error::AppError;
 use crate::app::share::SNAPSHOT_SEQ_META;
 use crate::app::{Paged, Reply, data, map, workspace};
@@ -75,6 +77,7 @@ pub fn run(
     cwd: &Path,
     caller: &Caller,
     stdin: &mut dyn BufRead,
+    terminal: &mut dyn Terminal,
 ) -> Result<Reply<ImportResult>, AppError> {
     if req.source != "-" {
         return Err(AppError::invalid_argument("source", "argument.import_stdin"));
@@ -84,15 +87,23 @@ pub fn run(
     let mut store = Store::open_existing(&workspace::store_path(&root))?
         .ok_or_else(|| AppError::workspace_not_found(&root))?;
 
-    // A token makes this a person's import; a tokenless sync only answers reads (DR-77).
-    let person = caller.token.is_some();
-    if person {
-        let registered = store.meta("person_pubkey")?;
-        let keys: Vec<_> = registered.as_deref().and_then(actor::parse_key).into_iter().collect();
-        let now = clock::unix_micros() / 1_000_000;
-        let digest = actor::check(caller, spec, &Bound::default(), &keys.iter().collect::<Vec<_>>(), now)
-            .map_err(|why| actor::person_required(&spec.name(), why))?;
-        actor::spend(&mut store, &digest, now, &spec.name())?;
+    // A token, or a person's claim, makes this a person's import, checked before anything is read;
+    // a tokenless sync only answers reads and leaves the rest (DR-77). An agent is never a person,
+    // and may import nothing a person must (below).
+    let registered = store.meta("person_pubkey")?;
+    let keys: Vec<_> = registered.as_deref().and_then(actor::parse_key).into_iter().collect();
+    let keys: Vec<_> = keys.iter().collect();
+    let now = clock::unix_micros() / 1_000_000;
+    let claims_person = caller.actor.as_deref().is_some_and(|a| a.starts_with("person:"));
+    let agent = caller.actor.is_some() && !claims_person;
+    let mut person = false;
+    if (caller.token.is_some() && !agent) || claims_person {
+        let acting =
+            actor::person(caller, spec, &Bound::default(), &keys, now, TerminalPath::Takes, terminal)?;
+        if let Some(digest) = acting.digest {
+            actor::spend(&mut store, &digest, now, &spec.name(), TerminalPath::Takes)?;
+        }
+        person = true;
     }
 
     let mut outcomes = Vec::new();
@@ -109,6 +120,13 @@ pub fn run(
         let line = text_in.trim();
         if line.is_empty() {
             continue;
+        }
+        if is_event_export(line) {
+            // An event export replays a whole timeline: a person's alone, never a sync's (DR-52).
+            if !person {
+                actor::person(caller, spec, &Bound::default(), &keys, now, TerminalPath::Takes, terminal)?;
+            }
+            return Err(AppError::invalid_argument("source", "import.event_export_not_yet"));
         }
         let parsed: ImportLine = match serde_json::from_str(line) {
             Ok(parsed) => parsed,
@@ -156,6 +174,19 @@ pub fn run(
             }
             Err(ReadError::Shape(e)) => outcomes.push(refuse(text::get("import.malformed", &[("why", &e)]))),
         }
+    }
+
+    // An agent may have read requests answered, as any sync does, but rows that change the
+    // workspace need a person, so its import of one changes nothing at all (DR-52).
+    let changes = pending.iter().any(|p| CHANGES.contains(&p.row.command.0.as_str()));
+    if agent && changes {
+        return Err(actor::person_required(&spec.name(), Refused::NotAPerson, TerminalPath::Takes));
+    }
+    // A person at a terminal confirms such rows as theirs; without a yes, the import is a sync
+    // with no person, which leaves them (DR-4).
+    if changes && !person && caller.actor.is_none() && terminal.present() {
+        person =
+            actor::person(caller, spec, &Bound::default(), &keys, now, TerminalPath::Takes, terminal).is_ok();
     }
 
     // One viewer's later row never lands before an earlier one (DR-61).
@@ -469,6 +500,15 @@ fn write_doc<T: Serialize>(
 
 fn size<T: Serialize>(doc: &T) -> usize {
     serde_json::to_vec(doc).map_or(usize::MAX, |b| b.len())
+}
+
+/// Whether a line on stdin is an event export's header or event, `planroom.event/v<n>`, rather
+/// than an inbox row.
+fn is_event_export(line: &str) -> bool {
+    serde_json::from_str::<Value>(line)
+        .ok()
+        .and_then(|v| v.get("format").and_then(Value::as_str).map(|f| f.starts_with("planroom.event/")))
+        .unwrap_or(false)
 }
 
 /// `inbox/<uid>/events/<docId>`, each segment in the `db` path grammar.

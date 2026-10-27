@@ -388,7 +388,7 @@ A person action carries `PLANROOM_PERSON_TOKEN=<at>.<sig>`, made with the mod's 
 
 The engine verifies the token against `meta.person_pubkey`, the registered public key; no store, backup or export holds anything that can sign (DR-72). It refuses a token more than 30 s from its own clock, one for another command, and one already spent, and removes it from every child's environment (DR-64). With no key registered, `person init`'s token must verify under the key on its own stdin.
 
-`planroom open --json` returns `OpenResult { opened: bool, empty: Option<Empty> }`: `opened` is false where no browser can be seen, and `empty.next` then names `share`, which the pane offers as `/room share` (DR-29).
+`planroom open --json` returns `OpenResult { opened: bool, empty: Option<Empty> }`: `opened` is false where no browser can be seen, and `empty` then has the reason `no_browser` and a `next` that names `share`, which the pane offers as `/room share` (DR-29).
 
 `planroom version --json` returns `VersionInfo { version, git_commit, target, schema_version, catalogue_hash }`, `target` being the Rust target triple the binary was built for (DR-82). The catalogue hash is the sha256 of the whole catalogue as `planroom schema --commands` lists it across its pages, which `cargo xtask gen` also writes into `catalogue.ts`, so the mod and `serve` detect a mismatched engine (DR-58).
 

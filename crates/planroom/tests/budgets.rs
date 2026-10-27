@@ -679,10 +679,10 @@ fn b64url(bytes: &[u8]) -> String {
     out
 }
 
-/// A person token over `person init` with no arguments, made now.
-fn person_init_token(key: &SigningKey) -> String {
+/// A person token over `command` with no arguments, made now.
+fn person_token(key: &SigningKey, command: &str) -> String {
     let at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let sig: Signature = key.sign(&person_token_message("person init", &[], "", "", at));
+    let sig: Signature = key.sign(&person_token_message(command, &[], "", "", at));
     format!("{at}.{}", b64url(&sig.to_bytes()))
 }
 
@@ -751,7 +751,15 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
     run(&["import", "-"], &format!("{}\n", others.join("\n")), &[]);
     let key = key();
     let public = b64url(&key.verifying_key().to_sec1_point(false).to_bytes());
-    run(&["person", "init"], &public, &[("PLANROOM_PERSON_TOKEN", &person_init_token(&key))]);
+    run(&["person", "init"], &public, &[("PLANROOM_PERSON_TOKEN", &person_token(&key, "person init"))]);
+    // A press of `open`, where no browser can be seen: its opener, were one looked for, can't start.
+    let open = [
+        ("PLANROOM_PERSON_TOKEN", person_token(&key, "open")),
+        ("PLANROOM_TEST_OPENER", "/nonexistent/opener".to_owned()),
+        ("DISPLAY", String::new()),
+        ("WAYLAND_DISPLAY", String::new()),
+    ];
+    run(&["open"], "", &open.iter().map(|(k, v)| (*k, v.as_str())).collect::<Vec<_>>());
 
     let mut covered = BTreeSet::new();
     for (args, stdin, env) in &runs {
@@ -767,6 +775,11 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
             assert!(warning["details"].get("left_out").is_none(), "{args:?}: {warning}");
         }
         covered.insert(name);
+    }
+    // `open` started the workspace's server in the background: stop it.
+    for record in std::fs::read_dir(root.join(".data/serve")).into_iter().flatten().flatten() {
+        let record: Value = serde_json::from_str(&std::fs::read_to_string(record.path()).unwrap()).unwrap();
+        let _ = Command::new("kill").arg(record["pid"].to_string()).status();
     }
     let budgeted: BTreeSet<String> =
         Leaf::SPECS.iter().filter(|s| s.budget_tokens > 0).map(|s| s.name()).collect();

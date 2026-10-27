@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::envelope::{CommandName, Cursor, Handle};
+use crate::envelope::{CommandName, Cursor, Empty, Handle};
 use crate::errors::ErrorCode;
 use crate::model::{Level, NodeId, Seq};
 use crate::requests::FindReq;
@@ -102,6 +102,7 @@ pub enum Command {
     Share(ShareReq),
     Import(ImportReq),
     Doctor(DoctorReq),
+    Open(OpenReq),
 }
 
 const MAP: CommandSpec = CommandSpec {
@@ -345,10 +346,32 @@ const DOCTOR: CommandSpec = CommandSpec {
     room: false,
 };
 
+const OPEN: CommandSpec = CommandSpec {
+    path: &["open"],
+    idea: Idea::Levels,
+    summary: "Open the canvas in your browser, signed in with a one-time code it never prints.",
+    actor: ActorRule::PersonOnly,
+    class: Class::Read,
+    budget_tokens: 300,
+    needs_base: false,
+    spends: false,
+    errors: &[
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::PersonRequired,
+        ErrorCode::PortInUse,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Query,
+    tool: None,
+    room: true,
+};
+
 impl Command {
     /// Every leaf's spec, in catalogue order.
     pub const SPECS: &'static [CommandSpec] =
-        &[MAP, FIND, FOCUS, SCAN, WATCH, SCHEMA, VERSION, PERSON_INIT, SERVE, SHARE, IMPORT, DOCTOR];
+        &[MAP, FIND, FOCUS, SCAN, WATCH, SCHEMA, VERSION, PERSON_INIT, SERVE, SHARE, IMPORT, DOCTOR, OPEN];
 
     pub const fn spec(&self) -> &'static CommandSpec {
         match self {
@@ -364,6 +387,7 @@ impl Command {
             Command::Share(_) => &SHARE,
             Command::Import(_) => &IMPORT,
             Command::Doctor(_) => &DOCTOR,
+            Command::Open(_) => &OPEN,
         }
     }
 
@@ -572,6 +596,21 @@ pub struct ServeReq {
     #[arg(long)]
     #[serde(default)]
     pub port: Option<u16>,
+}
+
+/// `planroom open`: the canvas in the browser, through a login page under the data root, so the
+/// one-time code is in no argv and no output (DR-29, DR-64). Person only, from a mod press; a
+/// `/dev/tty` confirmation serves only where no person key is registered (DR-75, DR-81).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct OpenReq {}
+
+/// What `open` returns: whether a browser was opened. Where none can be seen (no display, an SSH
+/// session, or an opener that fails), nothing is opened, and `empty.next` names `share` (DR-29).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct OpenResult {
+    pub opened: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub empty: Option<Empty>,
 }
 
 /// `planroom share --out DIR [--include-snippets] [--include-presence]`: the canvas built for an

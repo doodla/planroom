@@ -1173,7 +1173,6 @@
         "crates/planroom/tests/s11_remote.rs::stale_row_becomes_a_conflict": "M5",
         "crates/planroom/tests/s11_remote.rs::reimport_is_a_no_op": "M5",
         "crates/planroom/tests/s11_remote.rs::unpaired_owner_edits_wait_on_one_apply_card": "M5",
-        "crates/planroom/tests/actor.rs::agent_cannot_import_inbox_rows": "M1",
         "tests/e2e/src/artifact.spec.ts::a_synced_edit_shows_on_the_map": "M5",
         "tests/e2e/src/artifact.spec.ts::a_tapped_card_shows_queued_until_acked": "M5",
         "crates/planroom/tests/s11_remote.rs::two_instances_of_one_viewer_conflict": "M5",
@@ -1588,6 +1587,7 @@
         "crates/planroom/tests/actor.rs::an_unnamed_write_with_no_terminal_is_actor_required",
         "crates/planroom/tests/actor.rs::a_pty_without_confirmation_is_no_person",
         "crates/planroom/tests/actor.rs::reads_need_no_actor",
+        "crates/planroom/tests/actor.rs::scan_needs_no_actor",
         "crates/planroom/tests/actor.rs::person_claim_without_key_is_refused",
         "crates/planroom/tests/actor.rs::tool_handlers_never_send_a_person",
         "packages/mod/src/guard.test.ts::person_key_is_guarded",
@@ -1601,6 +1601,9 @@
         "crates/planroom/tests/actor.rs::a_token_works_once_and_only_for_its_command",
         "crates/planroom/tests/actor.rs::repo_changing_commands_refuse_the_terminal_path",
         "crates/planroom/tests/actor.rs::children_never_inherit_the_token",
+        "crates/planroom/tests/actor.rs::person_required_names_a_path_that_exists",
+        "packages/mod/plugin-tests/engine-token.test.tsx::a_token_the_mod_signed_is_the_one_the_engine_verifies",
+        "crates/planroom/tests/actor.rs::a_token_the_mod_signed_verifies_in_the_engine",
         "packages/mod/src/guard.test.ts::the_mod_store_file_is_guarded",
         "packages/mod/src/guard.test.ts::agents_cannot_choose_the_engine",
         "crates/planroom/tests/actor.rs::a_mismatched_key_returns_person_key_mismatch",
@@ -1622,31 +1625,14 @@
         "tests/installer/run.sh::a_swapped_cached_engine_is_refused"
       ],
       "due": {
-        "crates/planroom/tests/actor.rs::an_unnamed_write_with_no_terminal_is_actor_required": "M1",
-        "crates/planroom/tests/actor.rs::a_pty_without_confirmation_is_no_person": "M1",
-        "crates/planroom/tests/actor.rs::reads_need_no_actor": "M1",
-        "crates/planroom/tests/actor.rs::person_claim_without_key_is_refused": "M1",
-        "crates/planroom/tests/actor.rs::tool_handlers_never_send_a_person": "M1",
         "packages/mod/src/guard.test.ts::person_key_is_guarded": "M1",
-        "crates/planroom/tests/actor.rs::agent_cannot_import_inbox_rows": "M1",
-        "crates/planroom/tests/actor.rs::agent_cannot_import_an_event_export": "M1",
         "crates/planroom/tests/actor.rs::model_responses_only_for_pending_requests": "M2",
-        "crates/planroom/tests/actor.rs::open_is_person_only_and_prints_no_code": "M1",
         "crates/planroom/tests/confine.rs::a_read_outside_the_workspace_is_path_refused": "M1",
         "crates/planroom/tests/confine.rs::a_credential_path_needs_a_person": "M1",
         "crates/planroom/tests/confine.rs::workspace_flag_on_a_read_needs_an_existing_store": "M1",
-        "crates/planroom/tests/actor.rs::a_token_works_once_and_only_for_its_command": "M1",
-        "crates/planroom/tests/actor.rs::repo_changing_commands_refuse_the_terminal_path": "M1",
-        "crates/planroom/tests/actor.rs::children_never_inherit_the_token": "M1",
         "packages/mod/src/guard.test.ts::agents_cannot_choose_the_engine": "M1",
-        "crates/planroom/tests/actor.rs::a_mismatched_key_returns_person_key_mismatch": "M1",
-        "crates/planroom/tests/actor.rs::rekey_needs_the_old_key_or_a_press": "M1",
-        "crates/planroom/tests/actor.rs::rekey_and_open_refuse_the_terminal_path": "M1",
-        "crates/planroom/tests/actor.rs::open_takes_the_terminal_path_only_with_no_mod_key": "M1",
-        "crates/planroom/tests/actor.rs::a_leaked_store_cannot_sign_a_person_action": "M1",
         "packages/mod/src/guard.test.ts::the_user_config_is_guarded": "M1",
-        "packages/mod/src/guard.test.ts::an_agent_push_of_planroom_refs_is_denied": "M1",
-        "crates/planroom/tests/server_auth.rs::the_opener_gets_a_fixed_path": "M1"
+        "packages/mod/src/guard.test.ts::an_agent_push_of_planroom_refs_is_denied": "M1"
       },
       "decision": "DR-4, DR-52, DR-64, DR-72, DR-75, DR-85, DR-86"
     },
@@ -2335,12 +2321,9 @@
         "crates/planroom/tests/server_auth.rs::a_moved_workspace_keeps_its_port"
       ],
       "due": {
-        "crates/planroom/tests/server_auth.rs::an_expired_or_reused_code_is_refused": "M1",
         "crates/store/tests/fs_check.rs::store_files_are_0600_in_a_0700_directory": "M1",
-        "crates/planroom/tests/server_auth.rs::the_code_is_never_in_an_argv": "M1",
         "tests/e2e/src/surface.spec.ts::reload_mid_edit_keeps_the_edit": "M1",
-        "tests/e2e/src/surface.spec.ts::serve_restart_keeps_pending_edits": "M1",
-        "crates/planroom/tests/open.rs::open_without_a_display_offers_share": "M1"
+        "tests/e2e/src/surface.spec.ts::serve_restart_keeps_pending_edits": "M1"
       },
       "decision": "DR-29, DR-64, DR-78"
     },

@@ -173,11 +173,24 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "undo": "query",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "open",
+    "idea": "levels",
+    "summary": "Open the canvas in your browser, signed in with a one-time code it never prints.",
+    "actor": "person_only",
+    "class": "read",
+    "budget_tokens": 300,
+    "needs_base": false,
+    "spends": false,
+    "undo": "query",
+    "tool": null,
+    "room": true
   }
 ];
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
-export const CATALOGUE_HASH = "0450d520c44295baec1d935ccb55510fd2fb03f952078a4b9dd067ae89bf1d8c";
+export const CATALOGUE_HASH = "64a944373fbd1bf4225d746fc3f2b84d35848a8fd82d658f0dad06f25dad0476";
 
 /** One pane the mod draws before the engine answers `focus` (DR-57). */
 export interface FallbackPane {

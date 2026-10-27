@@ -930,3 +930,188 @@ fn a_login_page_whose_code_expires_unused_is_removed() {
     }
     assert!(!page.exists(), "the sweep removes a page whose code expired unused");
 }
+
+// --- `open`: the person's way in (DR-29, DR-64, DR-75). ---
+
+/// A test person key from a fixed scalar, registered for the workspace at `root` with a token
+/// under itself; returns it.
+fn person_key(root: &Path, seed: u8) -> p256::ecdsa::SigningKey {
+    let mut bytes = [0u8; 32];
+    bytes[0] = 1;
+    bytes[31] = seed;
+    let key = p256::ecdsa::SigningKey::from_slice(&bytes).unwrap();
+    let public = b64url(&key.verifying_key().to_sec1_point(false).to_bytes());
+    let mut child = planroom(root)
+        .args(["person", "init", "--json"])
+        .env("PLANROOM_PERSON_TOKEN", press(&key, "person init", 1))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(public.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
+    key
+}
+
+fn b64url(bytes: &[u8]) -> String {
+    const ABC: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let n = chunk.iter().enumerate().fold(0u32, |acc, (i, b)| acc | (u32::from(*b) << (16 - 8 * i)));
+        for i in 0..=chunk.len() {
+            out.push(ABC[(n >> (18 - 6 * i) & 63) as usize] as char);
+        }
+    }
+    out
+}
+
+/// A press's token over `command` with no arguments, signed `ago` seconds back.
+fn press(key: &p256::ecdsa::SigningKey, command: &str, ago: u64) -> String {
+    use p256::ecdsa::signature::Signer;
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() - ago;
+    let sig: p256::ecdsa::Signature =
+        key.sign(&planroom_kernel::keys::person_token_message(command, &[], "", "", at));
+    format!("{at}.{}", b64url(&sig.to_bytes()))
+}
+
+/// A stand-in for the browser opener: it writes its argv, one word per line, and its environment
+/// into `dir`, keeps a copy of the page it was given, and opens nothing.
+fn stub_opener(dir: &Path) -> PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join("opener");
+    let script = format!(
+        "#!/bin/sh\nfor a in \"$0\" \"$@\"; do echo \"$a\"; done > '{d}/argv'\nenv > '{d}/env'\ncat \"$1\" > '{d}/page'\n",
+        d = dir.display()
+    );
+    std::fs::write(&path, script).unwrap();
+    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    path
+}
+
+/// `planroom open --json` as a press, with `opener` standing in for the browser's, a display to
+/// open on and the caller's `PATH` set to `path`; its envelope, and the server it started in the
+/// background, stopped when the guard drops.
+fn open_with(root: &Path, key: &p256::ecdsa::SigningKey, opener: &Path, path: &str) -> (Value, Detached) {
+    let out = planroom(root)
+        .args(["open", "--json"])
+        .env("PLANROOM_PERSON_TOKEN", press(key, "open", 0))
+        .env("PLANROOM_TEST_OPENER", opener)
+        .env("DISPLAY", ":0")
+        .env("PATH", path)
+        .env_remove("SSH_CONNECTION")
+        .env_remove("SSH_TTY")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let env: Value = serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&out.stdout)));
+    let record = std::fs::read_dir(root.join(".data/serve")).unwrap().next().unwrap().unwrap().path();
+    let record: Value = serde_json::from_str(&std::fs::read_to_string(record).unwrap()).unwrap();
+    (env, Detached(record["pid"].as_u64().unwrap() as u32))
+}
+
+#[test]
+fn the_opener_gets_a_fixed_path() {
+    let (tmp, root) = workspace();
+    let key = person_key(&root, 31);
+    // The caller's PATH starts with a folder that holds an opener of each name of its own.
+    let shims = tmp.path().join("shims");
+    std::fs::create_dir_all(&shims).unwrap();
+    for name in ["xdg-open", "open", "wslview"] {
+        std::fs::write(shims.join(name), "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(shims.join(name), std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
+    }
+    let caller_path = format!("{}:{}", shims.display(), std::env::var("PATH").unwrap());
+    let seen = tmp.path().join("opener");
+    let (env, _served) = open_with(&root, &key, &stub_opener(&seen), &caller_path);
+    assert_eq!(env["result"]["opened"], true, "{env}");
+    let opener_env = std::fs::read_to_string(seen.join("env")).unwrap();
+    // The fixed system PATH, never the caller's, and nothing beyond the allow-list: no token.
+    assert!(opener_env.lines().any(|l| l == "PATH=/usr/bin:/bin"), "{opener_env}");
+    assert!(!opener_env.contains(&shims.display().to_string()), "{opener_env}");
+    // What the shell running the stand-in adds itself is its own, not the opener's environment.
+    let allowed = [
+        "PATH",
+        "HOME",
+        "LC_ALL",
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "XAUTHORITY",
+        "XDG_RUNTIME_DIR",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "PWD",
+        "OLDPWD",
+        "SHLVL",
+        "_",
+    ];
+    for var in opener_env.lines().filter_map(|l| l.split_once('=').map(|(k, _)| k)) {
+        assert!(allowed.contains(&var), "the opener got {var}: {opener_env}");
+    }
+    assert!(!opener_env.contains("PLANROOM_"), "{opener_env}");
+}
+
+#[test]
+fn the_code_is_never_in_an_argv() {
+    let (tmp, root) = workspace();
+    let key = person_key(&root, 32);
+    let seen = tmp.path().join("opener");
+    let (env, served) = open_with(&root, &key, &stub_opener(&seen), &std::env::var("PATH").unwrap());
+    assert_eq!(env["result"]["opened"], true, "{env}");
+    // The opener's argv is the program and the login page's path under DATA_ROOT/open/.
+    let argv: Vec<String> =
+        std::fs::read_to_string(seen.join("argv")).unwrap().lines().map(str::to_owned).collect();
+    assert_eq!(argv.len(), 2, "{argv:?}");
+    let open_dir = root.join(".data/open").canonicalize().unwrap();
+    let page_dir = Path::new(&argv[1]).parent().map(|p| p.canonicalize().unwrap());
+    assert_eq!(page_dir, Some(open_dir), "{argv:?}");
+    // The code is in the page, and in no argv: not the opener's, not `open`'s, not the server's.
+    let html = std::fs::read_to_string(seen.join("page")).unwrap();
+    let code = html.split("#code=").nth(1).unwrap().split('"').next().unwrap().to_owned();
+    assert_eq!(code.len(), 32);
+    assert!(argv.iter().all(|a| !a.contains(&code)), "{argv:?}");
+    if let Ok(cmdline) = std::fs::read(format!("/proc/{}/cmdline", served.0)) {
+        assert!(!String::from_utf8_lossy(&cmdline).contains(&code));
+    }
+    assert!(!env.to_string().contains(&code), "{env}");
+    // And it signs a tab in, once.
+    let record = std::fs::read_dir(root.join(".data/serve")).unwrap().next().unwrap().unwrap().path();
+    let port: u16 = record.file_stem().unwrap().to_str().unwrap().parse().unwrap();
+    let body = json!({"code": code}).to_string();
+    assert_eq!(http(port, "POST", "/api/v1/session", &[("Origin", &origin(port))], &body).0, 200);
+    assert_eq!(http(port, "POST", "/api/v1/session", &[("Origin", &origin(port))], &body).0, 401);
+}
+
+#[test]
+fn an_expired_or_reused_code_is_refused() {
+    use std::sync::{Arc, Mutex};
+
+    use planroom::server::auth::{Auth, CODE_LIFE, Refused, code_digest};
+
+    // The code's clock, which the test moves: no real wait.
+    let start = Instant::now();
+    let offset = Arc::new(Mutex::new(Duration::ZERO));
+    let clock = {
+        let offset = offset.clone();
+        Arc::new(move || start + *offset.lock().unwrap())
+    };
+    let mut auth = Auth::with_clock(41_873, clock);
+    let advance = |by: Duration| *offset.lock().unwrap() += by;
+
+    // A code 61 s old is refused, and stays refused.
+    auth.add_code(code_digest("old-code"));
+    advance(CODE_LIFE + Duration::from_secs(1));
+    assert_eq!(auth.exchange("old-code"), Err(Refused::Expired));
+    assert_eq!(auth.exchange("old-code"), Err(Refused::Expired));
+
+    // A fresh one works at 59 s, once. A reuse is refused and revokes the token the first try
+    // issued, and the code never works again, though its 60 s haven't passed.
+    auth.add_code(code_digest("new-code"));
+    advance(Duration::from_secs(59));
+    let token = auth.exchange("new-code").unwrap();
+    assert!(auth.bearer_ok(Some(&format!("Bearer {token}"))));
+    assert_eq!(auth.exchange("new-code"), Err(Refused::UsedTwice));
+    assert!(!auth.bearer_ok(Some(&format!("Bearer {token}"))), "the reuse revoked the first token");
+    assert_eq!(auth.exchange("new-code"), Err(Refused::Expired));
+}

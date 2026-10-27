@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Read;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use planroom_kernel::keys;
@@ -28,15 +29,21 @@ pub fn code_digest(code: &str) -> String {
 
 struct Code {
     expires: Instant,
-    /// The token the first exchange issued.
+    /// The token the first exchange issued, until a second try revokes it.
     issued: Option<String>,
+    /// Exchanged once already: the code never works again, whatever the clock says.
+    spent: bool,
 }
+
+/// The clock a code's life runs on.
+pub type Clock = Arc<dyn Fn() -> Instant + Send + Sync>;
 
 /// Login codes and the tokens they issued.
 pub struct Auth {
     pub port: u16,
     codes: HashMap<String, Code>,
     tokens: HashSet<String>,
+    clock: Clock,
 }
 
 /// Why an exchange failed.
@@ -49,28 +56,41 @@ pub enum Refused {
 
 impl Auth {
     pub fn new(port: u16) -> Auth {
-        Auth { port, codes: HashMap::new(), tokens: HashSet::new() }
+        Auth::with_clock(port, Arc::new(Instant::now))
+    }
+
+    /// An `Auth` whose codes age on `clock` instead of the monotonic clock: the seam a test moves
+    /// a code's age through, past [`CODE_LIFE`], with no real wait. Only tests call it; `serve`
+    /// uses [`Auth::new`], and nothing a person or an agent sets reaches it.
+    pub fn with_clock(port: u16, clock: Clock) -> Auth {
+        Auth { port, codes: HashMap::new(), tokens: HashSet::new(), clock }
+    }
+
+    fn now(&self) -> Instant {
+        (self.clock)()
     }
 
     /// Register a code by its digest, good once for [`CODE_LIFE`].
     pub fn add_code(&mut self, digest: String) {
-        self.codes.insert(digest, Code { expires: Instant::now() + CODE_LIFE, issued: None });
+        let expires = self.now() + CODE_LIFE;
+        self.codes.insert(digest, Code { expires, issued: None, spent: false });
     }
 
     /// Exchange a code for a new bearer token.
     pub fn exchange(&mut self, code: &str) -> Result<String, Refused> {
+        let now = self.now();
         let entry = self.codes.get_mut(&code_digest(code)).ok_or(Refused::Unknown)?;
         if let Some(token) = entry.issued.take() {
             // Used twice: both tabs lose their sessions; a fresh code is one press away.
             self.tokens.remove(&token);
             return Err(Refused::UsedTwice);
         }
-        if entry.expires < Instant::now() {
+        if entry.spent || entry.expires < now {
             return Err(Refused::Expired);
         }
         let token = random_hex(32).map_err(|_| Refused::Unknown)?;
         entry.issued = Some(token.clone());
-        entry.expires = Instant::now();
+        entry.spent = true;
         self.tokens.insert(token.clone());
         Ok(token)
     }

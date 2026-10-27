@@ -135,6 +135,9 @@ pub const PATHS: &[(&str, &[&str])] = &[
         "name",
         "props",
     ]),
+    ("OpenResult", &[
+        "empty.line",
+    ]),
     ("PaneModel", &[
         "decision.question",
         "decision.why",

@@ -15,9 +15,9 @@ use crate::{
 };
 use crate::{
     CodeReq, Command, CommandList, DoctorReq, DrainReq, Edge, Envelope, ErrorCode, ErrorObject, Event,
-    Evidence, FactBatch, FocusReq, Hint, LayoutPut, LeafSchema, MapReq, MapView, Node, PaneModel,
-    PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq,
-    SessionToken, StreamFrame, VersionInfo, VersionReq, Warning, WarningCode, WatchReq,
+    Evidence, FactBatch, FocusReq, Hint, LayoutPut, LeafSchema, MapReq, MapView, Node, OpenReq, OpenResult,
+    PaneModel, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq,
+    SessionReq, SessionToken, StreamFrame, VersionInfo, VersionReq, Warning, WarningCode, WatchReq,
 };
 use crate::{EngineState, LastSeq, PaneState, ResolverStatus, ToolResult, TurnSeq, UnavailableReason};
 
@@ -94,6 +94,8 @@ pub fn generate(view: View) -> Value {
         VersionInfo,
         PersonKey,
         ServeInfo,
+        OpenReq,
+        OpenResult,
         SessionToken,
         StreamFrame,
         Node,

@@ -84,6 +84,15 @@ const ENGINE_UNPICKED: Readonly<Record<string, string>> = {
 const REDACTION_KEPT: Readonly<Record<string, string>> = { PLANROOM_RAW: "" };
 
 /**
+ * The engine's test-only seams, set empty on every run as well: a debug engine reads
+ * `PLANROOM_TEST_OPENER` as the program that opens the login page, and an empty value as none, so a
+ * value the session inherited never picks what a press of `open` runs (DR-92).
+ */
+const TEST_SEAMS_OFF: Readonly<Record<string, string>> = {
+  PLANROOM_TEST_OPENER: "",
+};
+
+/**
  * The data root this session placed at its start (guard.ts `pinnedDataRoot`), as a promise the
  * session's start sets before anything else runs, so no run can read it before it's placed.
  */
@@ -103,6 +112,7 @@ export async function engineEnv(): Promise<Record<string, string>> {
   return {
     ...ENGINE_UNPICKED,
     ...REDACTION_KEPT,
+    ...TEST_SEAMS_OFF,
     PLANROOM_DATA: await pinnedData,
   };
 }

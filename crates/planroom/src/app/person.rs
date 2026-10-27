@@ -13,7 +13,7 @@ use planroom_contract::{Command, ErrorCode, PersonInitReq, PersonKey, Surface, T
 use planroom_store::Store;
 use serde_json::json;
 
-use crate::app::actor::{self, Bound, Caller};
+use crate::app::actor::{self, Bound, Caller, Refused, Terminal};
 use crate::app::error::AppError;
 use crate::app::{Reply, workspace};
 use crate::{clock, text};
@@ -27,6 +27,7 @@ pub fn run(
     cwd: &Path,
     caller: &Caller,
     stdin: &mut dyn Read,
+    terminal: &mut dyn Terminal,
 ) -> Result<Reply<PersonKey>, AppError> {
     let spec = Command::PersonInit(req.clone()).spec();
     let command = spec.name();
@@ -46,14 +47,17 @@ pub fn run(
     allowed.extend(old_key.as_ref());
     let now = clock::unix_micros() / 1_000_000;
     let bound = Bound { idem: req.common.idem.as_deref(), base: req.common.base };
-    let digest = actor::check(caller, spec, &bound, &allowed, now)
-        .map_err(|why| actor::person_required(&command, why))?;
+    // Never from a terminal confirmation: a first registration proves it holds the key on stdin,
+    // and a rekey takes a token under the old key or the mismatch pane's press (DR-75).
+    let path = actor::terminal_path(&command, registered.is_some());
+    let acting = actor::person(caller, spec, &bound, &allowed, now, path, terminal)?;
+    let digest = acting.digest.ok_or_else(|| actor::person_required(&command, Refused::Missing, path))?;
 
     let same = registered.as_deref() == Some(submitted.as_str());
     if registered.is_some() && !same && !req.rekey {
         return Err(mismatch(&store)?);
     }
-    actor::spend(&mut store, &digest, now, &command)?;
+    actor::spend(&mut store, &digest, now, &command, path)?;
     let surface = caller.client().surface;
     let rekeyed = registered.is_some() && !same;
     if !same {

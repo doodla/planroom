@@ -26,9 +26,9 @@ pub mod vocab;
 pub use card::{Card, CardKind};
 pub use command::{
     ActorRule, Class, CodeReq, Command, CommandList, CommandSpec, Detail, DoctorReq, DrainReq, FocusReq,
-    Idea, ImportReq, LayoutPut, LeafListing, LeafSchema, MapReq, PackCheck, PackReport, PersonInitReq,
-    PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken,
-    ShareReq, Tool, Undo, VersionInfo, VersionReq, WatchReq, WriteCommon,
+    Idea, ImportReq, LayoutPut, LeafListing, LeafSchema, MapReq, OpenReq, OpenResult, PackCheck, PackReport,
+    PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq,
+    SessionToken, ShareReq, Tool, Undo, VersionInfo, VersionReq, WatchReq, WriteCommon,
 };
 pub use config::Config;
 pub use decision::{

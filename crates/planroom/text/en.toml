@@ -8,7 +8,7 @@ store_busy = "The store is still locked by another Planroom process after 5 s."
 schema_mismatch = "This store is version {found}, newer than this engine reads ({supported})."
 git_failed = "git failed in {repo}: {what}"
 internal = "Planroom hit a bug: {what}"
-person_required = "Only a person can run {command}: press its button in the Planroom pane."
+person_required = "Only a person can run {command}."
 port_in_use = "Port {port}, this workspace's canvas address, is in use by another program. Stop it and press e again, or run planroom serve --port N to move; a tab's unsent edits stay with the old address."
 unauthorized = "This tab needs a fresh link: press e in the pane."
 not_found = "There is no {what}."
@@ -39,7 +39,11 @@ idempotency_mismatch = "pass a new --idem to make another write"
 store_busy = "retry the same command"
 schema_mismatch = "update Planroom, then retry"
 port_in_use = "planroom serve --port N"
-person_required = "press the action's button in the Planroom pane, or type it after /room"
+person_required = "press the action's button in the Planroom pane"
+person_required_room = "{line}, typed in Claude Code"
+person_required_terminal = "{line}, from your own terminal: it asks you to confirm"
+person_required_room_or_terminal = "{room}, typed in Claude Code, or {line}, from your own terminal: it asks you to confirm"
+person_required_key = "claude, started in this workspace: the Planroom mod registers its key, and its pane offers Use this session's key when another is registered"
 person_key_mismatch = "press Use this session's key in the Planroom pane"
 engine_fetching = "try again in a few seconds"
 engine_unavailable = "scripts/planroom build"
@@ -67,6 +71,7 @@ http_scan_dir = "scan over HTTP always maps the workspace it serves; leave dir o
 http_command = "command {command} on this server"
 unknown_leaf = "No command {leaf} in the catalogue; planroom schema --commands lists them."
 import_stdin = "import takes Artifact rows only on stdin: run planroom import -."
+actor = "PLANROOM_ACTOR must be agent:<id>:<role>, such as agent:1a2b3c4d:chat."
 share_out = "--out must name a directory Planroom can write: {why}"
 usage = "The command line isn't valid: {why}."
 schema_label = "The {leaf} command's arguments and result"
@@ -208,6 +213,16 @@ registered = "Registered the person key {fingerprint} for this workspace."
 already = "The person key {fingerprint} is already registered for this workspace."
 rekeyed = "Replaced this workspace's person key with {fingerprint}."
 
+# A person's confirmation at a terminal (DR-4, DR-64).
+[actor]
+confirm = "Planroom: run {command} as {person}?"
+
+# `planroom open` (DR-29, DR-64, DR-75).
+[open]
+opened = "Opened the canvas in your browser."
+no_browser = "No browser can be seen from here, so nothing was opened. Share the canvas as an Artifact to see it."
+share_label = "Share the canvas as an Artifact"
+
 [serve]
 summary = "Serving the canvas at {url}; open it with the login page this serve wrote."
 session = "Signed in."
@@ -258,6 +273,7 @@ bad_request = "This {command} request isn't valid: {why}"
 too_large = "This answer is larger than one db document holds; ask for a smaller view."
 left = "Waits in the inbox for a person's /room sync."
 map_label = "The map at the {level} level"
+event_export_not_yet = "Replaying an event export isn't in this build yet."
 
 # Why a pack fails to load (DR-9, DR-46, DR-62); `error.pack_invalid` names the file and line.
 [pack]

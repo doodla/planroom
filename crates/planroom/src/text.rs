@@ -71,6 +71,7 @@ pub const LABELS: &[&str] = &[
     "import.map_label",
     "map.coarser",
     "map.pane",
+    "open.share_label",
     "scan.next_label",
     "schema.commands_label",
     "share.unavailable",

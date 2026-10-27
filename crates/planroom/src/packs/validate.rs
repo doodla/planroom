@@ -605,7 +605,8 @@ impl Ctx<'_> {
             | Command::Serve(_)
             | Command::Share(_)
             | Command::Import(_)
-            | Command::Doctor(_) => {}
+            | Command::Doctor(_)
+            | Command::Open(_) => {}
         }
         Ok(())
     }

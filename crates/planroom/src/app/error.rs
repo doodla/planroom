@@ -120,6 +120,17 @@ impl AppError {
             .with_hint(hint)
     }
 
+    /// The error another engine process reported in its envelope, such as the `serve` that
+    /// `open` starts, passed on as this command's.
+    pub fn from_object(error: ErrorObject) -> AppError {
+        AppError(Box::new(Failure {
+            code: error.code,
+            message: error.message,
+            hint: error.hint,
+            details: error.details,
+        }))
+    }
+
     pub fn object(&self) -> ErrorObject {
         let spec = self.code.spec();
         ErrorObject {

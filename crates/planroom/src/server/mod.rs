@@ -89,22 +89,26 @@ pub fn run(req: &ServeReq, cwd: &Path, json: bool, started: Instant) -> ExitCode
     // whole copy of this one-threaded process.
     match unsafe { libc::fork() } {
         -1 => cli::finish::<()>(json, "serve", Err(AppError::internal("fork failed")), started),
-        0 => {
-            // SAFETY: the child is one-threaded; setsid only makes it a session leader.
-            unsafe { libc::setsid() };
-            let log = log_path(&prepared.workspace_id);
-            detach_stdio(log.as_deref());
-            if let Err(e) = serve(prepared) {
-                eprintln!("planroom serve: {}", log_line(&e.message));
-                std::process::exit(e.code.exit_code());
-            }
-            std::process::exit(0)
-        }
+        0 => serve_detached(prepared),
         child => {
             let reply = announce(&prepared, child as u32);
             cli::finish(json, "serve", reply, started)
         }
     }
+}
+
+/// The forked child of a detached `serve`: a session of its own, its stdio off the caller's pipes
+/// and onto its log, then the server until it stops.
+fn serve_detached(prepared: Prepared) -> ! {
+    // SAFETY: the child is one-threaded; setsid only makes it a session leader.
+    unsafe { libc::setsid() };
+    let log = log_path(&prepared.workspace_id);
+    detach_stdio(log.as_deref());
+    if let Err(e) = serve(prepared) {
+        eprintln!("planroom serve: {}", log_line(&e.message));
+        std::process::exit(e.code.exit_code());
+    }
+    std::process::exit(0)
 }
 
 /// Settle the handshake with a running `serve`, then bind the port, mint the code and write the

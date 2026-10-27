@@ -13,7 +13,7 @@ use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
     Class, Command, CommandName, DoctorReq, Envelope, ErrorCode, FindReq, FocusReq, Handle, ImportReq,
-    MapReq, Meta, PersonInitReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq, ShareReq, Size,
+    MapReq, Meta, OpenReq, PersonInitReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq, ShareReq, Size,
     StreamFrame, VersionReq, Warning, WarningCode, WatchReq,
 };
 use planroom_kernel::display::{sanitize, sanitize_lines};
@@ -22,7 +22,7 @@ use planroom_store::{Store, Tail};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::app::actor::Caller;
+use crate::app::actor::{Caller, Tty};
 use crate::app::error::AppError;
 use crate::app::{self, Paged, Reply, workspace};
 use crate::live::Live;
@@ -66,6 +66,8 @@ enum Cmd {
     Import(ImportReq),
     /// Check a pack with --pack DIR: validation, its conformance kit and a second run for determinism.
     Doctor(DoctorReq),
+    /// Open the canvas in your browser, signed in with a one-time code it never prints.
+    Open(OpenReq),
 }
 
 #[derive(Subcommand)]
@@ -94,6 +96,7 @@ pub fn parse_leaf(command: &str, args: &[String]) -> Result<Command, clap::Error
         Cmd::Share(req) => Command::Share(req),
         Cmd::Import(req) => Command::Import(req),
         Cmd::Doctor(req) => Command::Doctor(req),
+        Cmd::Open(req) => Command::Open(req),
     })
 }
 
@@ -140,7 +143,7 @@ pub fn main() -> ExitCode {
         }
         Cmd::Person(PersonCmd::Init(req)) => {
             let name = Command::PersonInit(req.clone()).name();
-            let reply = app::person::run(&req, &cwd, &caller, &mut std::io::stdin().lock());
+            let reply = app::person::run(&req, &cwd, &caller, &mut std::io::stdin().lock(), &mut Tty);
             finish(cli.json, &name.0, reply, started)
         }
         Cmd::Serve(req) => crate::server::run(&req, &cwd, cli.json, started),
@@ -150,7 +153,7 @@ pub fn main() -> ExitCode {
         }
         Cmd::Import(req) => {
             let name = Command::Import(req.clone()).name();
-            let reply = app::import::run(&req, &cwd, &caller, &mut std::io::stdin().lock());
+            let reply = app::import::run(&req, &cwd, &caller, &mut std::io::stdin().lock(), &mut Tty);
             finish(cli.json, &name.0, reply, started)
         }
         Cmd::Doctor(req) => {
@@ -161,6 +164,10 @@ pub fn main() -> ExitCode {
         Cmd::Version(req) => {
             let name = Command::Version(req).name();
             finish(cli.json, &name.0, app::version::version(), started)
+        }
+        Cmd::Open(req) => {
+            let name = Command::Open(req.clone()).name();
+            finish(cli.json, &name.0, app::open::run(&req, &cwd, &caller, &mut Tty), started)
         }
     }
 }

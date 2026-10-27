@@ -448,6 +448,19 @@ var CATALOGUE = [
     "undo": "query",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "open",
+    "idea": "levels",
+    "summary": "Open the canvas in your browser, signed in with a one-time code it never prints.",
+    "actor": "person_only",
+    "class": "read",
+    "budget_tokens": 300,
+    "needs_base": false,
+    "spends": false,
+    "undo": "query",
+    "tool": null,
+    "room": true
   }
 ];
 var FALLBACK_PANES = {
@@ -3466,6 +3479,9 @@ var ENGINE_UNPICKED = {
   PLANROOM_RELEASE_BASE_URL: ""
 };
 var REDACTION_KEPT = { PLANROOM_RAW: "" };
+var TEST_SEAMS_OFF = {
+  PLANROOM_TEST_OPENER: ""
+};
 var pinnedData = Promise.resolve(UNPLACED);
 function pinDataRoot(root) {
   pinnedData = root;
@@ -3474,6 +3490,7 @@ async function engineEnv() {
   return {
     ...ENGINE_UNPICKED,
     ...REDACTION_KEPT,
+    ...TEST_SEAMS_OFF,
     PLANROOM_DATA: await pinnedData
   };
 }

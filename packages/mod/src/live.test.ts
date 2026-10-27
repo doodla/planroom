@@ -22,4 +22,7 @@ test("every_engine_run_blanks_raw_output_and_the_engine_pick", async () => {
   expect(env.PLANROOM_RAW).toBe("");
   expect(env.PLANROOM_ENGINE).toBe("");
   expect(env.PLANROOM_RELEASE_BASE_URL).toBe("");
+  // A debug engine's opener seam reads empty as none, so a press of open never runs a program
+  // the session's environment named.
+  expect(env.PLANROOM_TEST_OPENER).toBe("");
 });

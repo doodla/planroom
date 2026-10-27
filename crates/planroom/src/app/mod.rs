@@ -10,6 +10,7 @@ pub mod find;
 pub mod focus;
 pub mod import;
 pub mod map;
+pub mod open;
 pub mod person;
 pub mod scan;
 pub mod share;
