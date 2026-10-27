@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use planroom_contract::{Edge, EdgeId, Evidence, Kind, Level, LiftedEdge, MapNode, Node, NodeId, Ref};
 
 use crate::keys;
+use crate::resolve::Index;
 
 /// The level's name as the contract spells it, the key of `MapNode.counts`.
 pub fn level_name(level: Level) -> &'static str {
@@ -86,33 +87,18 @@ pub const EVIDENCE_SAMPLE: usize = 3;
 /// `edges` lifted to `blocks`: each end resolved by ID or by a unique alias, then walked up to its
 /// nearest ancestor among the blocks. Edges between two blocks merge by kind and direction, with
 /// their IDs as children and a sample of their evidence; an edge inside one block, or with an end
-/// that doesn't resolve, lifts nowhere. Sorted by kind, then ends.
+/// that doesn't resolve, lifts nowhere. Sorted by kind, then ends. This is the map's lift to the
+/// blocks it draws; `rollup::lift` is the roll-up to a level, with its internal counts.
 pub fn lift_edges(nodes: &[Node], edges: &[Edge], blocks: &[MapNode]) -> Vec<LiftedEdge> {
-    let index: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.0.as_str(), n)).collect();
-    let mut aliases: HashMap<&str, Option<&str>> = HashMap::new();
-    for node in nodes {
-        for alias in &node.aliases {
-            aliases
-                .entry(alias.as_str())
-                .and_modify(|held| {
-                    if *held != Some(node.id.0.as_str()) {
-                        *held = None;
-                    }
-                })
-                .or_insert(Some(node.id.0.as_str()));
-        }
-    }
+    let index = Index::new(nodes);
     let is_block: HashMap<&str, ()> = blocks.iter().map(|b| (b.id.0.as_str(), ())).collect();
     let block_of = |end: &Ref| -> Option<&str> {
-        let mut at = match end {
-            Ref::Id(id) => index.get(id.0.as_str()).copied()?,
-            Ref::Alias(alias) => index.get(aliases.get(alias.as_str()).copied().flatten()?).copied()?,
-        };
+        let mut at = index.get(end)?;
         for _ in 0..=nodes.len() {
             if is_block.contains_key(at.id.0.as_str()) {
                 return Some(at.id.0.as_str());
             }
-            at = index.get(at.parent.as_ref()?.0.as_str()).copied()?;
+            at = index.node(&at.parent.as_ref()?.0)?;
         }
         None
     };

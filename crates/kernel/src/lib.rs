@@ -8,6 +8,7 @@ pub mod model;
 pub mod redact;
 pub mod redact_fields;
 pub mod resolve;
+pub mod rollup;
 pub mod tree;
 
 pub use fold::fold;

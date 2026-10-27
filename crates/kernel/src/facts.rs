@@ -1,7 +1,9 @@
 //! Fact merging (DR-42): when extractors emit one node ID, evidence unions and scalar fields take
-//! the more specific tier's value.
+//! the more specific tier's value. Edges of one ID merge the same way.
 
-use planroom_contract::{Node, Provenance, Tier};
+use std::collections::HashMap;
+
+use planroom_contract::{Edge, EdgeId, Node, NodeId, Provenance, Tier};
 
 /// How specific a tier is: precise, then syntactic, then config, then pattern, then universal.
 /// Linked and inferred facts rank between pattern and universal.
@@ -17,8 +19,8 @@ pub fn specificity(tier: Tier) -> u8 {
     }
 }
 
-fn node_specificity(node: &Node) -> u8 {
-    match &node.provenance {
+fn provenance_specificity(provenance: &Provenance) -> u8 {
+    match provenance {
         Provenance::Extracted { tier, .. } => specificity(*tier),
         Provenance::Linked { .. } => specificity(Tier::Linked),
         Provenance::Inferred { .. } => specificity(Tier::Inference),
@@ -28,9 +30,25 @@ fn node_specificity(node: &Node) -> u8 {
 
 /// One node per ID, sorted by ID. For a shared ID the most specific node's fields win (the
 /// earliest on a tie), its props fill in from the others, and aliases and evidence union.
-pub fn merge_nodes(mut nodes: Vec<Node>) -> Vec<Node> {
+pub fn merge_nodes(nodes: Vec<Node>) -> Vec<Node> {
+    merge(nodes).into_iter().map(|merged| merged.node).collect()
+}
+
+/// A node merged from every fact that names its ID, and the parents those facts name.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Merged {
+    /// The merged node; its `parent` is the most specific fact's.
+    pub node: Node,
+    /// Every distinct parent the facts name, the most specific fact's first (the earliest on a
+    /// tie), so resolution can fall back to the next one when a parent doesn't resolve.
+    pub parents: Vec<NodeId>,
+}
+
+/// [`merge_nodes`], keeping each node's candidate parents in tier order.
+pub fn merge(mut nodes: Vec<Node>) -> Vec<Merged> {
+    // A stable sort keeps the facts of one ID in their emitted order, which breaks tier ties.
     nodes.sort_by(|a, b| a.id.cmp(&b.id));
-    let mut out: Vec<Node> = Vec::with_capacity(nodes.len());
+    let mut out: Vec<Merged> = Vec::with_capacity(nodes.len());
     let mut group: Vec<Node> = Vec::new();
     for node in nodes {
         if group.first().is_some_and(|g| g.id != node.id) {
@@ -44,14 +62,22 @@ pub fn merge_nodes(mut nodes: Vec<Node>) -> Vec<Node> {
     out
 }
 
-fn merge_group(mut group: Vec<Node>) -> Node {
-    if group.len() == 1 {
-        return group.pop().expect("one node");
+fn merge_group(mut group: Vec<Node>) -> Merged {
+    // Most specific first, the earliest on a tie.
+    let mut order: Vec<usize> = (0..group.len()).collect();
+    order.sort_by_key(|&i| (std::cmp::Reverse(provenance_specificity(&group[i].provenance)), i));
+    let mut parents: Vec<NodeId> = Vec::new();
+    for &i in &order {
+        if let Some(parent) = &group[i].parent
+            && !parents.contains(parent)
+        {
+            parents.push(parent.clone());
+        }
     }
-    let best = (0..group.len())
-        .max_by_key(|&i| (node_specificity(&group[i]), std::cmp::Reverse(i)))
-        .expect("a group");
-    let mut winner = group.remove(best);
+    if group.len() == 1 {
+        return Merged { node: group.pop().expect("one node"), parents };
+    }
+    let mut winner = group.remove(order[0]);
     for other in group {
         for (key, value) in other.props {
             winner.props.entry(key).or_insert(value);
@@ -68,6 +94,45 @@ fn merge_group(mut group: Vec<Node>) -> Node {
         }
     }
     winner.aliases.sort();
+    Merged { node: winner, parents }
+}
+
+/// One edge per ID, in the order each ID first appears. An edge's ID hashes its kind, ends and
+/// `via`, so two facts of one ID are one relation: the most specific fact's fields win (the
+/// earliest on a tie), its props fill in from the others, and evidence unions.
+pub fn merge_edges(edges: Vec<Edge>) -> Vec<Edge> {
+    let mut slot: HashMap<EdgeId, usize> = HashMap::new();
+    let mut groups: Vec<Vec<Edge>> = Vec::new();
+    for edge in edges {
+        match slot.get(&edge.id) {
+            Some(&i) => groups[i].push(edge),
+            None => {
+                slot.insert(edge.id.clone(), groups.len());
+                groups.push(vec![edge]);
+            }
+        }
+    }
+    groups.into_iter().map(merge_edge_group).collect()
+}
+
+fn merge_edge_group(mut group: Vec<Edge>) -> Edge {
+    if group.len() == 1 {
+        return group.pop().expect("one edge");
+    }
+    let best = (0..group.len())
+        .max_by_key(|&i| (provenance_specificity(&group[i].provenance), std::cmp::Reverse(i)))
+        .expect("a group");
+    let mut winner = group.remove(best);
+    for other in group {
+        for (key, value) in other.props {
+            winner.props.entry(key).or_insert(value);
+        }
+        for evidence in other.evidence {
+            if !winner.evidence.contains(&evidence) {
+                winner.evidence.push(evidence);
+            }
+        }
+    }
     winner
 }
 
@@ -112,5 +177,19 @@ mod tests {
         assert_eq!(b.evidence.len(), 2);
         assert_eq!(b.aliases, ["a:config", "a:plain"]);
         assert_eq!(b.props.len(), 2);
+    }
+
+    #[test]
+    fn a_merged_node_keeps_its_candidate_parents_most_specific_first() {
+        let mut plain = node("r:x:b", Tier::Universal, "plain", 1);
+        plain.parent = Some(NodeId("r:x:low".into()));
+        let mut config = node("r:x:b", Tier::Config, "config", 2);
+        config.parent = Some(NodeId("r:x:high".into()));
+        let mut again = node("r:x:b", Tier::Universal, "again", 3);
+        again.parent = Some(NodeId("r:x:low".into()));
+        let merged = merge(vec![plain, config, again]);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].node.parent, Some(NodeId("r:x:high".into())));
+        assert_eq!(merged[0].parents, [NodeId("r:x:high".into()), NodeId("r:x:low".into())]);
     }
 }
