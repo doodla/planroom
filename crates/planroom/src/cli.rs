@@ -107,6 +107,8 @@ pub fn parse_leaf(command: &str, args: &[String]) -> Result<Command, clap::Error
 }
 
 pub fn main() -> ExitCode {
+    // The store's filesystem check and its migration copies need the data root (DR-1, DR-53).
+    app::fs_type::register();
     let caller = Caller::from_env();
     let args: Vec<OsString> = std::env::args_os().collect();
     let cli = match Cli::try_parse_from(&args) {
@@ -251,8 +253,11 @@ fn finish_meta<T: Serialize>(
 ) -> ExitCode {
     let took_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
     let raw = json && raw_for(command);
+    // What opening the store had to say: a store moved off an unsafe filesystem, or migrated.
+    let store_warnings = app::fs_type::warnings();
     let (code, out) = match reply {
-        Ok(Paged { reply, next, dirty }) => {
+        Ok(Paged { mut reply, next, dirty }) => {
+            reply.warnings.extend(store_warnings);
             let line = if json {
                 let summary = summary_of(&reply.text);
                 let meta = with(Meta {
@@ -274,7 +279,8 @@ fn finish_meta<T: Serialize>(
             let exit = ExitCode::from(e.code.exit_code() as u8);
             let line = if json {
                 let e = with_usage(e, command);
-                render::<T>(command, None, Some(&e), Meta { took_ms, ..Meta::default() }, None, raw)
+                let meta = Meta { took_ms, warnings: store_warnings, ..Meta::default() };
+                render::<T>(command, None, Some(&e), meta, None, raw)
             } else {
                 let hint = e.hint.as_deref().map(|h| format!("\n  {}", sanitize(h))).unwrap_or_default();
                 let mut err = std::io::stderr().lock();

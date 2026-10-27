@@ -1,9 +1,9 @@
 //! Presence: one row per writer instance, last-writer-wins, never user-authored.
 
 use planroom_contract::{NodeId, PresenceRow, Surface, Timestamp};
-use rusqlite::params;
+use rusqlite::{Transaction, TransactionBehavior, params};
 
-use crate::{Store, StoreError};
+use crate::{Store, StoreError, commit};
 
 fn surface_str(surface: Surface) -> Result<String, StoreError> {
     match serde_json::to_value(surface)? {
@@ -14,8 +14,11 @@ fn surface_str(surface: Surface) -> Result<String, StoreError> {
 
 impl Store {
     /// Record that `row.actor`, from `client_id` on `row.surface`, was seen at `row.seen_at`.
+    /// Like every write, one IMMEDIATE transaction that checks the store version first (DR-73).
     pub fn touch_presence(&self, row: &PresenceRow, client_id: &str) -> Result<(), StoreError> {
-        self.conn.execute(
+        let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        commit::check_version(&tx)?;
+        tx.execute(
             "INSERT INTO presence (actor, surface, client_id, doing, focus, seen_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT (actor, surface, client_id) DO UPDATE SET
@@ -29,6 +32,7 @@ impl Store {
                 row.seen_at.0,
             ],
         )?;
+        tx.commit()?;
         Ok(())
     }
 

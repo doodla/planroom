@@ -268,4 +268,5 @@ pub const WARNING_DETAILS: &[(&str, &[&str])] = &[
     ("temporary_host", &["repo"]),
     ("reconcile_paused", &["repo"]),
     ("unnamed_paths", &["repo", "paths"]),
+    ("unsafe_filesystem", &["path", "store"]),
 ];

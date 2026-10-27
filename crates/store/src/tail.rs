@@ -14,13 +14,12 @@ pub struct Tail {
 }
 
 impl Tail {
-    /// Open the store at `path` read-only; `None` when there is no store file there.
+    /// Open the store at `path` read-only, following `store.pointer` as
+    /// [`crate::Store::open_existing`] does; `None` when there is no store file there.
     pub fn open(path: &Path) -> Result<Option<Tail>, StoreError> {
-        if !path.is_file() {
-            return Ok(None);
-        }
+        let Some(path) = crate::locate(path)? else { return Ok(None) };
         let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let conn = Connection::open_with_flags(path, flags)?;
+        let conn = Connection::open_with_flags(&path, flags)?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
         Ok(Some(Tail { conn }))
     }

@@ -152,6 +152,9 @@ impl From<StoreError> for AppError {
             StoreError::SchemaMismatch { found, supported, .. } => {
                 AppError::new(e.code(), &[("found", found), ("supported", supported)])
             }
+            StoreError::NewerFile { file, found, supported } => {
+                return AppError::newer_file(file, found, supported);
+            }
             StoreError::IdempotencyMismatch { idem, .. } => AppError::new(e.code(), &[("idem", idem)]),
             StoreError::Busy => AppError::new(e.code(), &[]),
             StoreError::Io(what) | StoreError::Sqlite(what) => return AppError::internal(what),

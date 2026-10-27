@@ -28,6 +28,7 @@ These rules apply to every contract below unless its row says otherwise [DR-37].
 | An event export or backup | `planroom.event/v1` | `contract::event::Event` | an unknown kind's body, as `EventBody::Unknown` |
 | `workspaces.json` | `planroom.workspaces/v1` | `crates/planroom/src/app/data.rs` | fields, in `extra`, at the top level and in each entry |
 | `serve.json`, and a running server's record under the data root | `planroom.serve/v1` | `ServeFile` in `crates/planroom/src/server/mod.rs` | fields, in `extra` |
+| `store.pointer` in the state directory, when the store lives under the data root | `planroom.store-pointer/v1` | `contract::store::StorePointer` `{format, path, workspace_id}` | fields, in `extra` |
 
 `workspaces.json`, `serve.json` and the server's record are internal: no surface reads them, so their types live in `crates/planroom`, not the contract crate (DR-85). The rules for the data root's shared files are in [Store schema and migrations](#store-schema-and-migrations).
 
@@ -263,6 +264,7 @@ A code that only a person can clear has retry `never` and names the card or comm
 | `repo_skipped` | git refused a repo, so the scan left it out and its last map stays; the rest of the workspace maps. `details {repo, reason, fix}`, where `reason` is `other_owner` or `git_failed` and `fix` is one line with an exact command (DR-86) |
 | `scan_superseded` | the scan read a state that's no longer the repo's, so its map stays as it was; `details {repo, commit, reason}`, where `commit` is the commit this scan read and `reason` is `head_moved` (the repo's `HEAD` moved on while the scan read it) or `repos_changed` (another scan moved the repo after this one began, and the workspace's repos changed since this one read them) (DR-86, DR-87) |
 | `duty_failed` | a background duty failed and hasn't succeeded since; `details {duty, at, log}`, the log under the data root (DR-58) |
+| `unsafe_filesystem` | the store's place is on a filesystem that can't share a write-ahead log between processes: a new store moved under the data root with a `store.pointer` left behind, an existing one stayed, or the data root is on one too and a new store stayed; `details {path, fs, store}`: the unsafe place (the state directory, or the data root), its filesystem, and where the store is, `path` and `store` masked (DR-1) |
 
 ## Command catalogue
 

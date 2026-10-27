@@ -109,6 +109,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 93 | The model adapter's crate edges, its transport's crypto provider, and an environment variable's own hint | DR-39, DR-48, DR-66, DR-85 | extended | the merge of M1's Claude adapter |
 | 94 | Declared IDs at most 64 characters, and the listing's own left-out count | DR-15, DR-46, DR-86 | extended | the merge of M1's questions and `ask` |
 | 95 | The check gates' edges: what a budgets raise is, how the baseline and the release are found, and what the secret scan exempts | DR-59, DR-79, DR-83, DR-85, DR-89 | extended, amends DR-89 | the merge of M1's check gates |
+| 96 | Where a store lives on an unsafe filesystem, its pointer's type, migration copies, and the engine's libc calls | DR-1, DR-53, DR-69, DR-78, DR-85 | extended | the merge of M1's store open and migrations |
 
 ## Where the design reviews disagreed
 
@@ -2520,3 +2521,28 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Accepted: the guard pairs an untagged variant with the new variant holding all its properties, so a change that removes a property and also adds a variant that keeps it can pass as additive.
   - Tests: `crates/xtask/tests/{schema_guard, gates}.rs`; `crates/planroom/tests/release_pins.rs`; xtask's secrets unit tests.
 - **Sources (checked 2026-10-27):** `crates/xtask/src/{schema_guard, secrets, layout, testrun, report}.rs`; `crates/kernel/src/redact.rs`; [Contracts](contracts.md); [Repo layout](repo-layout.md).
+
+## DR-96: Where a store lives on an unsafe filesystem, its pointer's type, migration copies, and the engine's libc calls
+
+- **Status:** accepted (decided at the merge of M1's store open and migrations, 2026-10-27).
+- **Starting point:** extended DR-1, DR-53, DR-69, DR-78 and DR-85.
+- **Origin:** the merge of the store's open path, read against the docs by an independent check over two rounds.
+- **Context:**
+  - SQLite's write-ahead log needs a local filesystem (DR-1). The store crate may not read the filesystem type itself, since it has no `libc`; the planroom crate's `libc` line named only `fork` and `setsid` (DR-69), and the git owner check (DR-78) also needs the effective user ID.
+  - `store.pointer` is an internal persisted file, and DR-85 keeps such files' types in the planroom crate, but the store crate, which may depend only on the contract, must read it.
+  - A migration's `VACUUM INTO` copy is a whole store: it needs a place a person can find, a bound on how many stay, and a way to clear what a killed process left without touching a copy another store is writing.
+- **Decision:**
+  - **The planroom crate's `libc` calls** are `fork`, `setsid`, `statfs` (the filesystem type, read in `app/fs_type.rs` and registered with the store once at start-up) and `geteuid` (the git owner check). The area contracts row says so, ratified with the layout lock.
+  - **An unsafe filesystem:** a new store whose state directory is on one is created under `DATA_ROOT/stores/<workspace_id>/` with `store.pointer` left in the state directory; an existing store stays where it is; an unsafe data root keeps a new store in place. Each case is one `unsafe_filesystem` warning per command.
+  - **`StorePointer` lives in the contract crate,** read through `contract::format`, an exception to DR-85's rule for internal files, since the store crate reads it. A pointer is followed only to its one place under the data root, through no symbolic link, to a store of the same workspace; anything else is refused as `internal` naming the file, for now.
+  - **Migration copies** go to `DATA_ROOT/backups/<workspace_id>/store-vN.db` at 0600 in a 0700 folder, checked with `integrity_check`, the last three kept; with no data root a migration from a store with a schema is refused rather than run without a copy. A temporary copy unwritten for ten minutes is a killed process's and is swept; a fresher one is left, since another store sharing the workspace ID may be writing it.
+  - **Every write transaction checks the store version,** layouts and presence included.
+- **Alternatives rejected:**
+  - Moving an existing store off an unsafe filesystem: a move a person didn't ask for loses their place in the tree.
+  - Sweeping every temporary copy under the write lock: the lock is the store's, not the folder's, so a copied state directory's store could lose its copy mid-write.
+  - A dedicated `path_refused` reason for a bad pointer now: deferred until a pointer can come from anywhere but a person's own copy of a state directory.
+- **Consequences:**
+  - Boundaries: the planroom crate's `libc` line in the area contracts table, ratified with the layout lock.
+  - Contracts: `planroom.store-pointer/v1`; the `unsafe_filesystem` warning; the `store_migrated` notice; `schema_mismatch`'s hint names the update commands.
+  - Tests: `crates/store/tests/{fs_check, crash, migrations}.rs`; `crates/planroom/tests/backup.rs`.
+- **Sources (checked 2026-10-27):** `crates/store/src/{lib, migrate, pointer, fs_check}.rs`; `crates/planroom/src/app/fs_type.rs`; [Where the workspace lives](architecture.md#where-the-workspace-lives); [Contracts](contracts.md).

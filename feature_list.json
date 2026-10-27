@@ -2237,8 +2237,6 @@
       ],
       "due": {
         "crates/planroom/tests/backup.rs::a_lost_state_directory_then_scan_offers_one_restore_card": "M1",
-        "crates/planroom/tests/backup.rs::a_failed_migration_rolls_back": "M1",
-        "crates/planroom/tests/backup.rs::an_older_engine_says_restart_once": "M1",
         "crates/planroom/tests/backup.rs::doctor_restore_is_person_only": "M1",
         "crates/planroom/tests/backup.rs::doctor_warns_when_the_backup_is_behind": "M1",
         "crates/planroom/tests/backup.rs::a_burst_of_three_edits_is_fully_backed_up": "M1",
@@ -2253,7 +2251,6 @@
         "crates/planroom/tests/backup.rs::a_restore_keeps_done_classes": "M2",
         "crates/planroom/tests/backup.rs::the_backup_ref_is_redacted": "M1",
         "crates/planroom/tests/backup.rs::no_envelope_suggests_pushing_the_backup": "M1",
-        "crates/store/tests/migrations.rs::an_older_watch_exits_after_a_migration": "M1",
         "crates/store/tests/ledger.rs::an_older_engine_reads_a_newer_ledger": "M1",
         "crates/store/tests/ledger.rs::a_ledger_migration_keeps_a_copy": "M1"
       },
@@ -2303,7 +2300,6 @@
         "crates/planroom/tests/server_auth.rs::a_moved_workspace_keeps_its_port"
       ],
       "due": {
-        "crates/store/tests/fs_check.rs::store_files_are_0600_in_a_0700_directory": "M1",
         "tests/e2e/src/surface.spec.ts::reload_mid_edit_keeps_the_edit": "M1",
         "tests/e2e/src/surface.spec.ts::serve_restart_keeps_pending_edits": "M1"
       },

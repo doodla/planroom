@@ -5,7 +5,7 @@
 This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#area-contracts).
 
 - **Owns:** the CLI, the server, the live loop, app services (orchestration only), actor resolution, workspace trust, consent cards, pack loading and embedding, canvas embedding, config (workspace and user-level), the string catalog, the daemonizing of `serve --detach`.
-- **May depend on:** every workspace crate, and its allow-list in `boundaries.toml`: `axum`, `tower-http`, `tokio`, `tokio-stream`, `tracing`, `anyhow`, `clap`, `serde`, `serde_json`, `toml`, `uuid`, `libc` (fork and `setsid` only) [DR-69], `p256` [DR-72] [DR-79].
+- **May depend on:** every workspace crate, and its allow-list in `boundaries.toml`: `axum`, `tower-http`, `tokio`, `tokio-stream`, `tracing`, `anyhow`, `clap`, `serde`, `serde_json`, `toml`, `uuid`, `libc` (fork, `setsid`, `statfs` and `geteuid` only) [DR-69], `p256` [DR-72] [DR-79].
 - **Must not:** business rules that belong in the kernel; spelling an error code outside the registry; reading a credential setting from a workspace's config.
 - **How to test it:** scenario tests `tests/sNN_*.rs`, `budgets.rs`, `actor.rs`, `trust.rs`, `privacy.rs`, `live_gate.rs`, `backup.rs`, `git_hardening.rs`, `handoff_clone.rs`, `evals.rs` (the kernel's eval recompute over pack files), golden outputs.
 

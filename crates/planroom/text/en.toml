@@ -38,7 +38,7 @@ pack_invalid = "The pack file {file} isn't valid at line {line}: {why}"
 workspace_not_found = "planroom scan DIR"
 idempotency_mismatch = "pass a new --idem to make another write"
 store_busy = "retry the same command"
-schema_mismatch = "update Planroom, then retry"
+schema_mismatch = "/plugin marketplace update planroom, then /plugin update planroom@planroom, typed in Claude Code; then restart this session"
 port_in_use = "planroom serve --port N"
 person_required = "press the action's button in the Planroom pane"
 person_required_room = "{line}, typed in Claude Code"
@@ -143,6 +143,9 @@ store_migrated = "The store moved from version {from} to {to}; the old copy is a
 temporary_host = "This host loses its files with its container, so a redacted backup is also kept at {ref} in {repo}."
 reconcile_paused = "{repo}'s HEAD left {tracked_branch}, so the map follows it and reconciling waits."
 duty_failed = "The background {duty} failed at {at}; its log is {log}."
+unsafe_filesystem_moved = "{path} is on {fs}, which can't share the store between Planroom processes safely, so the store lives at {store} instead."
+unsafe_filesystem_kept = "The store at {store} is on {fs}, which can't share it between Planroom processes safely; move the workspace to a local disk."
+unsafe_filesystem_data_root = "The store at {store} is on a filesystem that can't share it between Planroom processes safely, and so is the data root, {path} ({fs}), so the store stays where it is; set PLANROOM_DATA to a local folder or move the workspace to a local disk."
 
 # Each empty state's line, which every surface shows (`Empty.line`), and the short label of its
 # next action (`_next`), which a surface puts on the button beside it. The line is masked like the

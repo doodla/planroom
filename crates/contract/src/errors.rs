@@ -315,6 +315,9 @@ warning_codes! {
     UnnamedPaths = "unnamed_paths",
         "files whose paths aren't UTF-8, or hold a newline or a backslash, which no node ID can name, so they aren't mapped; details name the repo, the count and the first 10 paths in sorted order, escaped",
         ["repo", "count", "paths"] redact ["repo", "paths"];
+    UnsafeFilesystem = "unsafe_filesystem",
+        "the store's place is on a filesystem that can't share a write-ahead log between processes (a network mount, WSL's /mnt, FUSE or a sync folder): a new store moved under the data root with a store.pointer left in the state directory, an existing one stayed, or the data root is on one too and the store stayed; details name the unsafe place, its filesystem and where the store is",
+        ["path", "fs", "store"] redact ["path", "store"];
 }
 
 impl JsonSchema for WarningCode {

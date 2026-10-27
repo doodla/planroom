@@ -20,6 +20,7 @@ pub mod remote;
 pub mod requests;
 pub mod resolver;
 pub mod schema;
+pub mod store;
 pub mod stream;
 pub mod view;
 pub mod vocab;
@@ -65,6 +66,7 @@ pub use requests::{
     LintReq, ProposeReq, ReviewReq,
 };
 pub use resolver::{ResolverStatus, ResolverStep, UnavailableReason};
+pub use store::{STORE_POINTER_FILE, StorePointer};
 pub use stream::StreamFrame;
 pub use view::{
     BatchInfo, Choice, Crumb, DecisionCard, DiffLine, DriftLine, EngineState, EngineStatus, Focus, LastSeq,

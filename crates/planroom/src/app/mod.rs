@@ -10,6 +10,7 @@ pub mod edit;
 pub mod error;
 pub mod find;
 pub mod focus;
+pub mod fs_type;
 pub mod import;
 pub mod map;
 pub mod models;

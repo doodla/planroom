@@ -1,22 +1,26 @@
 //! The layout cache: auto-layout positions per view and structure, last writer wins.
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
-use crate::{Store, StoreError};
+use crate::{Store, StoreError, commit};
 
 impl Store {
     /// Cache `positions` (JSON) for `view_key` at `structure_hash`, replacing what was there.
+    /// Like every write, one IMMEDIATE transaction that checks the store version first (DR-73).
     pub fn put_layout(
         &self,
         view_key: &str,
         structure_hash: &str,
         positions: &str,
     ) -> Result<(), StoreError> {
-        self.conn.execute(
+        let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        commit::check_version(&tx)?;
+        tx.execute(
             "INSERT INTO layouts (view_key, structure_hash, positions) VALUES (?1, ?2, ?3)
              ON CONFLICT (view_key, structure_hash) DO UPDATE SET positions = excluded.positions",
             params![view_key, structure_hash, positions],
         )?;
+        tx.commit()?;
         Ok(())
     }
 

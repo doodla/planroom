@@ -157,6 +157,7 @@ export type WarningCode =
       | "reconcile_paused"
       | "duty_failed"
       | "unnamed_paths"
+      | "unsafe_filesystem"
     )
   | string;
 /**
