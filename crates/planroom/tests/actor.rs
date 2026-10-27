@@ -60,7 +60,10 @@ fn init(root: &Path, args: &[&str], stdin: &str, env: &[(&str, &str)]) -> (i32, 
         cmd.env(k, v);
     }
     let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    // The command may refuse before it reads its stdin; its reply is what the test checks.
+    if let Err(e) = child.stdin.take().unwrap().write_all(stdin.as_bytes()) {
+        assert_eq!(e.kind(), std::io::ErrorKind::BrokenPipe, "{e}");
+    }
     let out = child.wait_with_output().unwrap();
     let stdout = String::from_utf8(out.stdout).unwrap();
     let env: Value = serde_json::from_str(stdout.trim())
