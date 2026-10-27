@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::envelope::{CommandName, Cursor, Empty, Handle};
 use crate::errors::ErrorCode;
 use crate::model::{Level, NodeId, Seq};
-use crate::requests::{AskReq, EditReq, FindReq};
+use crate::requests::{AskReq, EditReq, FindReq, ReviewReq};
 use crate::view::MapView;
 
 /// Which of the five ideas (plus setup) a command belongs to; help is grouped by it.
@@ -105,6 +105,7 @@ pub enum Command {
     Doctor(DoctorReq),
     Edit(EditReq),
     Open(OpenReq),
+    Review(ReviewReq),
 }
 
 const MAP: CommandSpec = CommandSpec {
@@ -421,6 +422,35 @@ const OPEN: CommandSpec = CommandSpec {
     room: true,
 };
 
+const REVIEW: CommandSpec = CommandSpec {
+    path: &["review"],
+    idea: Idea::Decisions,
+    summary: "Accept or reject one ghost or conflict, or pick a card a write dealt.",
+    actor: ActorRule::Mixed,
+    class: Class::Change,
+    budget_tokens: 400,
+    needs_base: true,
+    spends: false,
+    errors: &[
+        ErrorCode::InvalidArgument,
+        ErrorCode::AmbiguousRef,
+        ErrorCode::BaseRequired,
+        ErrorCode::ActorRequired,
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::NotFound,
+        ErrorCode::StaleWrite,
+        ErrorCode::AlreadyResolved,
+        ErrorCode::IdempotencyMismatch,
+        ErrorCode::PersonRequired,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Edit,
+    tool: None,
+    room: false,
+};
+
 impl Command {
     /// Every leaf's spec, in catalogue order.
     pub const SPECS: &'static [CommandSpec] = &[
@@ -439,6 +469,7 @@ impl Command {
         DOCTOR,
         EDIT,
         OPEN,
+        REVIEW,
     ];
 
     pub const fn spec(&self) -> &'static CommandSpec {
@@ -458,6 +489,7 @@ impl Command {
             Command::Doctor(_) => &DOCTOR,
             Command::Edit(_) => &EDIT,
             Command::Open(_) => &OPEN,
+            Command::Review(_) => &REVIEW,
         }
     }
 
@@ -619,17 +651,21 @@ pub struct WatchReq {
     pub session: Option<String>,
 }
 
-/// `planroom schema [--commands]`.
+/// `planroom schema [--commands | --command LEAF | --def NAME]`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct SchemaReq {
     /// List the command catalogue instead of the schema's summary.
-    #[arg(long, conflicts_with = "command")]
+    #[arg(long, conflicts_with_all = ["command", "def"])]
     #[serde(default)]
     pub commands: bool,
     /// One leaf's request and result types, with the definitions they reference.
-    #[arg(long, value_name = "LEAF")]
+    #[arg(long, value_name = "LEAF", conflicts_with = "def")]
     #[serde(default)]
     pub command: Option<String>,
+    /// One type's definition, with the definitions it references.
+    #[arg(long, value_name = "NAME")]
+    #[serde(default)]
+    pub def: Option<String>,
 }
 
 /// `planroom version`.
@@ -846,6 +882,23 @@ pub struct LeafSchema {
     pub request: String,
     pub result: String,
     pub defs: serde_json::Map<String, serde_json::Value>,
+    /// A `schema --def NAME` handle for each type `defs` references but leaves out to keep to the
+    /// budget; empty when every referenced type is there.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub handles: Vec<Handle>,
+}
+
+/// What `schema --def NAME` returns: the type's name, and its definition with every definition it
+/// references, keyed by name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct DefSchema {
+    pub summary: String,
+    pub name: String,
+    pub defs: serde_json::Map<String, serde_json::Value>,
+    /// A `schema --def NAME` handle for each type `defs` references but leaves out to keep to the
+    /// budget; empty when every referenced type is there.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub handles: Vec<Handle>,
 }
 
 /// What `schema --commands` returns: every leaf, summary first.

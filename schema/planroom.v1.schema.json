@@ -830,6 +830,22 @@
             "command",
             "args"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "review"
+            },
+            "args": {
+              "$ref": "#/$defs/ReviewReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
         }
       ],
       "description": "One variant per catalogue leaf; the request travels as `args`."
@@ -873,7 +889,8 @@
             "import",
             "doctor",
             "edit",
-            "open"
+            "open",
+            "review"
           ]
         },
         {
@@ -1199,6 +1216,34 @@
         "request_id"
       ],
       "description": "One decision a model or a person made about one subject."
+    },
+    "DefSchema": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "defs": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "handles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Handle"
+          },
+          "description": "A `schema --def NAME` handle for each type `defs` references but leaves out to keep to the\nbudget; empty when every referenced type is there."
+        }
+      },
+      "required": [
+        "summary",
+        "name",
+        "defs"
+      ],
+      "description": "What `schema --def NAME` returns: the type's name, and its definition with every definition it\nreferences, keyed by name."
     },
     "Detail": {
       "oneOf": [
@@ -3652,6 +3697,13 @@
         "defs": {
           "type": "object",
           "additionalProperties": true
+        },
+        "handles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Handle"
+          },
+          "description": "A `schema --def NAME` handle for each type `defs` references but leaves out to keep to the\nbudget; empty when every referenced type is there."
         }
       },
       "required": [
@@ -5791,6 +5843,50 @@
       ],
       "description": "`planroom review ID accept|reject`: accept or reject one ghost, conflict, inferred fact or\ncard."
     },
+    "ReviewResult": {
+      "type": "object",
+      "properties": {
+        "event": {
+          "$ref": "#/$defs/EventId",
+          "description": "The `review` event, which `edit undo` takes to reverse the whole review."
+        },
+        "of": {
+          "$ref": "#/$defs/EventId",
+          "description": "The ghost, conflict or card reviewed."
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        },
+        "edit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The edit an accept wrote, the reviewed edit's copy; absent for a reject or a card's pick."
+        },
+        "card_resolved": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The card this review resolved: the one picked, or the card whose last open ghost this was."
+        }
+      },
+      "required": [
+        "event",
+        "of",
+        "verdict"
+      ],
+      "description": "What `review` returns: the `review` event it wrote, the item it reviewed, and what else its one\ntransaction wrote. An accept writes a new edit that copies the reviewed one, caused by it and\nwritten by the reviewing person; reviewing the last open ghost of a card also picks the card."
+    },
     "Role": {
       "oneOf": [
         {
@@ -6020,13 +6116,22 @@
           ],
           "description": "One leaf's request and result types, with the definitions they reference.",
           "default": null
+        },
+        "def": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "One type's definition, with the definitions it references.",
+          "default": null
         }
       },
       "required": [
         "commands",
-        "command"
+        "command",
+        "def"
       ],
-      "description": "`planroom schema [--commands]`."
+      "description": "`planroom schema [--commands | --command LEAF | --def NAME]`."
     },
     "SchemaSummary": {
       "type": "object",

@@ -171,12 +171,7 @@ impl<'a> Snapshot<'a> {
              FROM events WHERE seq IN (SELECT MAX(seq) FROM events WHERE kind = 'scan' GROUP BY target)
              ORDER BY target",
         )?;
-        let rows = stmt.query_map([], raw_event)?;
-        let mut out = Vec::new();
-        for row in rows {
-            out.push(row?.decode()?);
-        }
-        Ok(out)
+        decode_rows(&mut stmt)
     }
 
     /// One `meta` value, such as the `workspace_id` that names this store.
@@ -257,6 +252,16 @@ pub(crate) fn events_after(conn: &Connection, after: Seq, limit: u32) -> Result<
          FROM events WHERE seq > ?1 ORDER BY seq LIMIT ?2",
     )?;
     let rows = stmt.query_map(params![after as i64, limit], raw_event)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?.decode()?);
+    }
+    Ok(out)
+}
+
+/// Every event a prepared statement over the `events` columns, in [`raw_event`]'s order, returns.
+pub(crate) fn decode_rows(stmt: &mut rusqlite::Statement<'_>) -> Result<Vec<Event>, StoreError> {
+    let rows = stmt.query_map([], raw_event)?;
     let mut out = Vec::new();
     for row in rows {
         out.push(row?.decode()?);

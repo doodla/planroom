@@ -3,6 +3,7 @@
 
 pub mod actor;
 pub mod ask;
+pub mod cards;
 pub mod data;
 pub mod dirty;
 pub mod doctor;
@@ -16,6 +17,7 @@ pub mod map;
 pub mod models;
 pub mod open;
 pub mod person;
+pub mod review;
 pub mod scan;
 pub mod share;
 pub mod version;

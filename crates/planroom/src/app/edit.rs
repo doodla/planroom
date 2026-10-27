@@ -22,18 +22,18 @@ use std::path::Path;
 use planroom_contract::{
     Actor, Client, CommandName, CommandSpec, Edge, EdgeId, Edit, EditOp, EditReq, EditResult, ErrorCode,
     Event, EventBody, EventId, Handle, Kind, Layer, Level, Node, NodeId, Op, Seq, Status, Surface, Target,
-    Vocabulary,
+    Verdict, Vocabulary,
 };
 use planroom_kernel::cas::{self, Authority, Check, Proposed};
 use planroom_kernel::fold::{Folded, HIDDEN, NAME, PARENT, POS_PREFIX, Writer, actor_key};
 use planroom_kernel::keys;
-use planroom_store::{NewEvent, Snapshot, Store};
+use planroom_store::{NewEvent, Planned, Snapshot, Store};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::app::actor::{self, Bound, Caller, Terminal};
 use crate::app::error::AppError;
-use crate::app::{Reply, new_event_id, workspace};
+use crate::app::{Reply, cards, new_event_id, workspace};
 use crate::{clock, live, text};
 
 /// The kind of a group made by hand (architecture.md, IDs and aliases).
@@ -44,7 +44,7 @@ const CANDIDATES: usize = 5;
 /// `theirs` (DR-7), so the error keeps to the leaf's budget.
 const YOURS_MAX_BYTES: usize = 600;
 /// The most bytes of `theirs` a `stale_write` carries.
-const THEIRS_MAX_BYTES: usize = 400;
+pub(crate) const THEIRS_MAX_BYTES: usize = 400;
 /// The most bytes of changed IDs a reply lists; `more_targets` counts the rest.
 const TARGETS_MAX_BYTES: usize = 500;
 /// The most characters of a name or an ID a reply's line quotes.
@@ -192,13 +192,16 @@ enum Stored {
 }
 
 /// What a plan decided, inside the write's transaction.
-struct Plan {
-    bodies: Vec<(Option<String>, EventBody)>,
-    targets: Vec<String>,
-    check: Check,
-    line: String,
+pub(crate) struct Plan {
+    pub(crate) bodies: Vec<(Option<String>, EventBody)>,
+    pub(crate) targets: Vec<String>,
+    pub(crate) check: Check,
+    pub(crate) line: String,
     /// The name a conflict's line gives each target.
-    names: BTreeMap<String, String>,
+    pub(crate) names: BTreeMap<String, String>,
+    /// The cards an undo closes, each with its review, which the write keys apart from its own
+    /// events ([`crate::app::cards::card_review`]).
+    pub(crate) closes: Vec<(EventId, Verdict)>,
 }
 
 fn write(
@@ -220,7 +223,7 @@ fn write(
     let (idem, derived) = write_key(spec, req.common.idem.as_deref(), &who, &keyed, Some(base))?;
     let at = clock::now();
     let planned: RefCell<Option<(Plan, Vec<EventId>)>> = RefCell::new(None);
-    let committed = store.commit_planned(
+    let committed = store.commit_keyed(
         &idem,
         &request_hash,
         |snapshot| {
@@ -254,6 +257,11 @@ fn write(
                 })
                 .collect();
             let ids = events.iter().map(|e| e.id.clone()).collect();
+            let mut events: Vec<Planned> = events.into_iter().map(Planned::Command).collect();
+            for (card, verdict) in &plan.closes {
+                let review = cards::card_review(card, *verdict, &writer, &idem, &request_hash, &at);
+                events.push(Planned::Own(review));
+            }
             *planned.borrow_mut() = Some((plan, ids));
             Ok(events)
         },
@@ -264,7 +272,7 @@ fn write(
         },
     )?;
     let first = *committed.seqs.first().ok_or_else(|| AppError::internal("a commit wrote no event"))?;
-    let last = *committed.seqs.last().expect("one event at least");
+    let last = committed.seqs.iter().chain(&committed.own).copied().max().expect("one event at least");
     let stored: Stored = serde_json::from_value(committed.reply).map_err(AppError::internal)?;
     match stored {
         Stored::Conflict { name, seq, details } => {
@@ -366,7 +374,7 @@ fn stored(plan: &Plan, ids: &[EventId], seqs: &[Seq], base: Seq) -> Stored {
 
 /// The first of `items` whose JSON fits in `max` bytes together, so a reply keeps to its leaf's
 /// budget however many targets a command touched.
-fn within<T: Serialize>(items: impl Iterator<Item = T>, max: usize) -> Vec<T> {
+pub(crate) fn within<T: Serialize>(items: impl Iterator<Item = T>, max: usize) -> Vec<T> {
     let mut used = 0;
     let mut out = Vec::new();
     for item in items {
@@ -380,7 +388,7 @@ fn within<T: Serialize>(items: impl Iterator<Item = T>, max: usize) -> Vec<T> {
 }
 
 /// What the write set, as a compact map from target to fields, cut to [`YOURS_MAX_BYTES`].
-fn yours(bodies: &[(Option<String>, EventBody)]) -> Value {
+pub(crate) fn yours(bodies: &[(Option<String>, EventBody)]) -> Value {
     let mut out = serde_json::Map::new();
     for (_, body) in bodies {
         let entry = match body {
@@ -399,7 +407,7 @@ fn yours(bodies: &[(Option<String>, EventBody)]) -> Value {
     Value::Object(out)
 }
 
-fn cycle_refused(cycle: &[NodeId]) -> AppError {
+pub(crate) fn cycle_refused(cycle: &[NodeId]) -> AppError {
     let ids: Vec<&str> = cycle.iter().map(|n| n.0.as_str()).collect();
     let node = q(ids.first().copied().unwrap_or_default());
     let what =
@@ -410,11 +418,11 @@ fn cycle_refused(cycle: &[NodeId]) -> AppError {
 
 /// A name or an ID as a line quotes it: its first [`QUOTE_CHARS`] characters, so the line stays
 /// within the leaf's budget whatever a repo or a person named.
-fn q(text: &str) -> String {
+pub(crate) fn q(text: &str) -> String {
     text::short(text, QUOTE_CHARS)
 }
 
-fn target_id(target: &Target) -> String {
+pub(crate) fn target_id(target: &Target) -> String {
     match target {
         Target::Node(id) => id.0.clone(),
         Target::Edge(id) => id.0.clone(),
@@ -422,7 +430,7 @@ fn target_id(target: &Target) -> String {
 }
 
 /// Plan `op` over the fold of the store as this write's commit finds it.
-fn plan(
+pub(crate) fn plan(
     op: &EditOp,
     snapshot: &Snapshot<'_>,
     folded: &Folded,
@@ -578,7 +586,7 @@ fn plan(
     let mut targets: Vec<String> = edits.iter().map(|e| target_id(&e.target)).collect();
     targets.dedup();
     let bodies = edits.into_iter().map(|e| (Some(target_id(&e.target)), EventBody::Edit(e))).collect();
-    Ok(Plan { bodies, targets, check, line, names })
+    Ok(Plan { bodies, targets, check, line, names, closes: Vec::new() })
 }
 
 /// An undo of the command that wrote `event`: one `undo` event, checked like any write (DR-61).
@@ -592,6 +600,11 @@ fn plan_undo(
     let of = find_event(&events, event)?;
     if matches!(of.body, EventBody::Scan { .. }) {
         return Err(AppError::invalid_argument("event", "edit.undo_scan"));
+    }
+    // A card is picked, or resolves with its ghosts; undoing it would leave what waits on it on no
+    // card, and no later card would count it.
+    if matches!(of.body, EventBody::Card(_)) {
+        return Err(AppError::invalid_argument("event", "edit.undo_card"));
     }
     if folded.is_undone(&of.id) {
         let what = text::get("edit.already_undone", &[("event", &of.id.0)]);
@@ -616,11 +629,29 @@ fn plan_undo(
         .map(|n| (n.id.0.clone(), n.name.clone()))
         .collect();
     let target = targets.first().cloned();
-    Ok(Plan { bodies: vec![(target, EventBody::Undo { of: of.id.clone() })], targets, check, line, names })
+    let mut bodies = vec![(target, EventBody::Undo { of: of.id.clone() })];
+    let mut closes = Vec::new();
+    // Once this undo applies, a card is open exactly while a ghost waits on it (DR-89): one left
+    // with none waiting closes in the same write, under a key of its own, and a closed one whose
+    // ghost waits again reopens, by this command's undo of each review that closed it. A ghost
+    // undo applies nothing, so changes no card.
+    // An undo that would open a card beside the open one of its kind and subject waits until that
+    // one resolves: a dealer has one open card at a time, which its later rows join.
+    if check == Check::Applied {
+        let cards = crate::app::cards::after_undo(folded, &of.id, &events);
+        if let Some((card, open)) = &cards.beside {
+            return Err(crate::app::cards::undo_beside(folded, card, open, snapshot.seq()));
+        }
+        for review in cards.reopen {
+            bodies.push((Some(review.0.clone()), EventBody::Undo { of: review }));
+        }
+        closes = cards.close;
+    }
+    Ok(Plan { bodies, targets, check, line, names, closes })
 }
 
 /// The event `target` names: its ID, or the one event whose ID ends with it.
-fn find_event<'a>(events: &'a [Event], target: &str) -> Result<&'a Event, AppError> {
+pub(crate) fn find_event<'a>(events: &'a [Event], target: &str) -> Result<&'a Event, AppError> {
     if let Some(event) = events.iter().find(|e| e.id.0 == target) {
         return Ok(event);
     }

@@ -30,6 +30,7 @@ export type CommandName =
       | "doctor"
       | "edit"
       | "open"
+      | "review"
     )
   | string;
 /**
@@ -291,6 +292,10 @@ export type Command =
   | {
       command: "open";
       args: OpenReq;
+    }
+  | {
+      command: "review";
+      args: ReviewReq;
     };
 /**
  * The five fixed levels, from the plan down to the code.
@@ -405,6 +410,13 @@ export type EditReq1 =
       event: string;
       op: "undo";
     };
+/**
+ * A review's outcome.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Verdict".
+ */
+export type Verdict = "accept" | "reject";
 /**
  * A `db` write's operation.
  *
@@ -749,13 +761,6 @@ export type EventBody =
   | {
       kind: string;
     };
-/**
- * A review's outcome.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "Verdict".
- */
-export type Verdict = "accept" | "reject";
 /**
  * An event's kind, as the `kind` tag of an `EventBody` spells it; an open set.
  *
@@ -1201,6 +1206,7 @@ export interface Card {
         | "doctor"
         | "edit"
         | "open"
+        | "review"
       )
     | string;
 }
@@ -1336,7 +1342,7 @@ export interface WatchReq {
   session: string | null;
 }
 /**
- * `planroom schema [--commands]`.
+ * `planroom schema [--commands | --command LEAF | --def NAME]`.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "SchemaReq".
@@ -1350,6 +1356,10 @@ export interface SchemaReq {
    * One leaf's request and result types, with the definitions they reference.
    */
   command: string | null;
+  /**
+   * One type's definition, with the definitions it references.
+   */
+  def: string | null;
 }
 /**
  * `planroom version`.
@@ -1467,6 +1477,38 @@ export interface DoctorReq {
  * via the `definition` "OpenReq".
  */
 export interface OpenReq {}
+/**
+ * `planroom review ID accept|reject`: accept or reject one ghost, conflict, inferred fact or
+ * card.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ReviewReq".
+ */
+export interface ReviewReq {
+  /**
+   * An event ID or an ID suffix.
+   */
+  id: string;
+  verdict: Verdict;
+  /**
+   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   */
+  base: number | null;
+  /**
+   * The idempotency key; derived from the request when absent.
+   */
+  idem: string | null;
+  /**
+   * The project the write belongs to.
+   */
+  project: NodeId | null;
+  /**
+   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   */
+  client: string | null;
+}
 /**
  * What `schema --commands` returns: every leaf, summary first.
  *
@@ -1742,6 +1784,25 @@ export interface DecisionRecord {
   request_id: string | null;
 }
 /**
+ * What `schema --def NAME` returns: the type's name, and its definition with every definition it
+ * references, keyed by name.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DefSchema".
+ */
+export interface DefSchema {
+  summary: string;
+  name: string;
+  defs: {
+    [k: string]: unknown;
+  };
+  /**
+   * A `schema --def NAME` handle for each type `defs` references but leaves out to keep to the
+   * budget; empty when every referenced type is there.
+   */
+  handles?: Handle1[];
+}
+/**
  * One pending diff.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -1966,6 +2027,7 @@ export interface Envelope {
         | "doctor"
         | "edit"
         | "open"
+        | "review"
       )
     | string;
   /**
@@ -2564,6 +2626,7 @@ export interface InboxRow {
         | "doctor"
         | "edit"
         | "open"
+        | "review"
       )
     | string;
   /**
@@ -2756,6 +2819,11 @@ export interface LeafSchema {
   defs: {
     [k: string]: unknown;
   };
+  /**
+   * A `schema --def NAME` handle for each type `defs` references but leaves out to keep to the
+   * budget; empty when every referenced type is there.
+   */
+  handles?: Handle1[];
 }
 /**
  * `[[lenses]]`: which relationships a view shows (DR-15).
@@ -3463,36 +3531,31 @@ export interface ResolverStatus {
   version: string;
 }
 /**
- * `planroom review ID accept|reject`: accept or reject one ghost, conflict, inferred fact or
- * card.
+ * What `review` returns: the `review` event it wrote, the item it reviewed, and what else its one
+ * transaction wrote. An accept writes a new edit that copies the reviewed one, caused by it and
+ * written by the reviewing person; reviewing the last open ghost of a card also picks the card.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "ReviewReq".
+ * via the `definition` "ReviewResult".
  */
-export interface ReviewReq {
+export interface ReviewResult {
   /**
-   * An event ID or an ID suffix.
+   * An event ID: a UUID v7.
    */
-  id: string;
+  event: string;
+  /**
+   * An event ID: a UUID v7.
+   */
+  of: string;
   verdict: Verdict;
   /**
-   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   * The edit an accept wrote, the reviewed edit's copy; absent for a reject or a card's pick.
    */
-  base: number | null;
+  edit?: EventId | null;
   /**
-   * The idempotency key; derived from the request when absent.
+   * The card this review resolved: the one picked, or the card whose last open ghost this was.
    */
-  idem: string | null;
-  /**
-   * The project the write belongs to.
-   */
-  project: NodeId | null;
-  /**
-   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
-   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
-   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
-   */
-  client: string | null;
+  card_resolved?: EventId | null;
 }
 /**
  * What `scan` returns: the map at the top level with the default lens, and the next action.

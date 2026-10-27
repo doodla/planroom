@@ -83,6 +83,7 @@ bad_body = "The request body isn't valid: {why}"
 http_scan_dir = "scan over HTTP always maps the workspace it serves; leave dir out or name that workspace."
 http_command = "command {command} on this server"
 unknown_leaf = "No command {leaf} in the catalogue; planroom schema --commands lists them."
+unknown_def = "No type {name} in the schema; planroom schema --commands lists the leaves, and each leaf's schema names its types."
 import_stdin = "import takes Artifact rows only on stdin: run planroom import -."
 actor = "PLANROOM_ACTOR must be agent:<id>:<role>, such as agent:1a2b3c4d:chat."
 share_out = "--out must name a directory Planroom can write: {why}"
@@ -323,6 +324,11 @@ commands_label = "List every command"
 leaf = "{leaf} takes {request} and returns {result}."
 leaf_brief = "{leaf} takes {request} and returns {result}; to keep to the budget, only the request's types keep their descriptions."
 leaf_bare = "{leaf} takes {request} and returns {result}; to keep to the budget, the types leave out their descriptions."
+leaf_split = "{leaf} takes {request} and returns {result}; to keep to the budget, the types leave out their descriptions, and each type a handle names comes by schema --def."
+def = "{name} and the types it references."
+def_bare = "{name} and the types it references; to keep to the budget, the types leave out their descriptions."
+def_split = "{name} and the types it references; to keep to the budget, the types leave out their descriptions, and each type a handle names comes by schema --def."
+def_label = "Read the {def} type"
 
 # share and import: the Artifact bundle and the inbox (architecture.md, Remote mode).
 [share]
@@ -337,7 +343,9 @@ unavailable = "Not in this snapshot. Ask your computer for it"
 no_canvas = "canvas build in this engine"
 
 [import]
-summary = "Read requests answered: {answered}. Rows refused: {refused}. Rows left for a person's sync: {left}."
+summary = "Read requests answered: {answered}. Edits held for your review: {held}. Rows refused: {refused}. Rows left for a person's sync: {left}."
+held = "Held as proposals on the Apply card: review each one."
+conflict = "Changed since the view it was made on, so it is kept as a conflict for you to review."
 not_a_row_path = "{path} isn't an inbox row's path, inbox/<uid>/events/<docId>."
 not_json = "A line on stdin isn't JSON: {why}"
 malformed = "This row isn't a valid planroom.inbox/v1 row: {why}"
@@ -474,9 +482,34 @@ client_required = "an edit over HTTP needs its tab's client ID in `client`, so e
 base_ahead = "base is past the store's head; read again and pass the seq that read returned."
 parent_cycle = "That would put {node} inside itself: {cycle}."
 undo_scan = "A scan changes nothing a person wrote, so there's nothing to undo; a later scan rebuilds its facts."
+undo_card = "A card is picked with review, never undone: undo the review that picked it, or review the edits that wait on it."
 already_undone = "The command that wrote {event} is already undone; undo that undo to bring it back."
+undo_beside_card = "That undo would reopen card {card} while card {open} of the same kind is open; resolve {open} first, then undo again."
 
 # The model boundary's own lines (DR-89).
 [models]
 replay_only = "Model calls answer from recordings until the consent card and the daily cap arrive, and this call has none, so nothing was sent."
 internal = "a model call's request or recording couldn't be built or written"
+
+# Cards a write deals (DR-89): each card names its question and why lines by these keys, and its
+# choices' labels. `{count}` is derived live where a card counts what waits on it.
+[card]
+apply_question = "Apply {count} edits from the shared page?"
+apply_why = "No paired device signed them, so each waits as a proposal until you review it."
+apply_accept = "Apply"
+apply_reject = "Discard"
+apply_item = "Apply this edit"
+unknown = "A {kind} card from a newer Planroom waits; update Planroom to pick it."
+focus_line = "Decide: {question}"
+
+# `review ID accept|reject` (DR-5, DR-54, DR-89).
+[review]
+accepted = "Accepted {event}: the edit {edit} copies it."
+rejected = "Rejected {event}; it stays out of the map."
+picked = "Picked {verdict} on the card {card}."
+card_resolved = "That was the last edit waiting on the card {card}, so it closes as {verdict}."
+apply_card = "The Apply card {card} is picked one edit at a time: {count} wait, such as {ghosts}."
+not_reviewable = "{event} is no ghost, conflict or card, so there's nothing to review."
+already_reviewed = "{event} was already reviewed ({pick}); undo that review to review it again."
+undone = "{event} was undone, so there's nothing to review."
+replayed = "This repeats an earlier review with the same base, so nothing new was written."

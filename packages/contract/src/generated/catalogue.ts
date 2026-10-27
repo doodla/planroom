@@ -212,11 +212,24 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "undo": "query",
     "tool": null,
     "room": true
+  },
+  {
+    "name": "review",
+    "idea": "decisions",
+    "summary": "Accept or reject one ghost or conflict, or pick a card a write dealt.",
+    "actor": "mixed",
+    "class": "change",
+    "budget_tokens": 400,
+    "needs_base": true,
+    "spends": false,
+    "undo": "edit",
+    "tool": null,
+    "room": false
   }
 ];
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
-export const CATALOGUE_HASH = "2e42b9b56f76fee83f99394afa51eac456dd18b404e4d770ad7266330ef2c819";
+export const CATALOGUE_HASH = "bf22c202097b71b51be6e6713a90fa9025198cab096ee9a2052c42778a7feb51";
 
 /** One pane the mod draws before the engine answers `focus` (DR-57). */
 export interface FallbackPane {

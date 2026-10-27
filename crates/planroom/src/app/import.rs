@@ -8,9 +8,18 @@
 //!   `answers/<docId>`, redacted, and acks it `imported`.
 //! - A row that isn't valid, or names a command a row may not name, is acked `refused`; it never
 //!   fails the import.
-//! - `edit`, `review`, `decide` and `intent propose` arrive in M1 and M2. Until then, with a person
-//!   token they are acked `refused`; without one they stay in the inbox, unacked, for a person's
-//!   sync, as a tokenless sync leaves every row it can't apply.
+//! - An `edit` row no paired device signed, in a person's import, applies nothing on its own
+//!   (DR-83). No device can be paired yet, so that is every row, a `sig` or not: its edits are
+//!   stored as ghosts under `person:artifact:<uid>`, from the client `artifact:<uid>:<instance>`,
+//!   each caused by the one open Apply card, and the row is acked `held`. The first such row deals
+//!   the card, written first in that row's own transaction under a key of its own, so an undo of
+//!   that row leaves the card for the rows that joined it; later rows join it. A row stale
+//!   against its `base` is stored as a conflict and acked `conflict`. Each row is one write keyed
+//!   `artifact:<uid>:<docId>`, so a sync that brings it again replays it.
+//! - An `edit undo` row, a row a paired device signed, and `review`, `decide` and
+//!   `intent propose` rows arrive in later milestones. Until then, with a person token they are
+//!   acked `refused`; without one they stay in the inbox, unacked, for a person's sync, as a
+//!   tokenless sync leaves every row it can't apply.
 //! - An agent (`PLANROOM_ACTOR=agent:...`) is never a person: its import of any such row, or of an
 //!   event export, is `person_required` and changes nothing (DR-4, DR-52).
 //!
@@ -30,18 +39,22 @@ use planroom_contract::remote::{
     LIVE_HEAD_FORMAT,
 };
 use planroom_contract::{
-    Ack, AckStatus, Answer, Command, CommandName, DbBatch, DbOp, DbWrite, Detail, ErrorCode, Handle,
-    ImportCounts, ImportLine, ImportReq, ImportResult, ImportedRow, InboxRow, LiveHead, MapReq, Seq,
+    Ack, AckStatus, Actor, Answer, Cause, Client, Command, CommandName, DbBatch, DbOp, DbWrite, Detail,
+    EditOp, EditReq, ErrorCode, Event, EventBody, Handle, ImportCounts, ImportLine, ImportReq, ImportResult,
+    ImportedRow, InboxRow, LiveHead, MapReq, Seq, Status, Surface,
 };
+use planroom_kernel::cas::{self, Authority, Check, Proposed};
+use planroom_kernel::fold::Writer;
+use planroom_kernel::keys;
 use planroom_kernel::{redact, tree};
-use planroom_store::Store;
+use planroom_store::{NewEvent, Planned, Store};
 use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::app::actor::{self, Bound, Caller, Refused, Terminal, TerminalPath};
 use crate::app::error::AppError;
 use crate::app::share::SNAPSHOT_SEQ_META;
-use crate::app::{Paged, Reply, data, map, workspace};
+use crate::app::{Paged, Reply, cards, data, edit, map, new_event_id, workspace};
 use crate::{clock, live, text};
 
 /// The commands a row may name that only read; any sync answers them (DR-77).
@@ -194,7 +207,7 @@ pub fn run(
         (&a.row.instance, a.row.counter, &a.doc_id).cmp(&(&b.row.instance, b.row.counter, &b.doc_id))
     });
     for p in pending {
-        outcomes.push(apply(&root, p, person));
+        outcomes.push(apply(&root, &mut store, p, person)?);
     }
 
     let seq = store.seq()?;
@@ -206,8 +219,11 @@ pub fn run(
     let answered = count(&|o| o.answer.is_some() && o.status == Some(AckStatus::Imported));
     let refused = count(&|o| o.status == Some(AckStatus::Refused));
     let left = count(&|o| o.status.is_none() && o.uid.is_some());
-    let summary =
-        text::get("import.summary", &[("answered", &answered), ("refused", &refused), ("left", &left)]);
+    let held = count(&|o| matches!(o.status, Some(AckStatus::Held | AckStatus::Conflict)));
+    let summary = text::get(
+        "import.summary",
+        &[("answered", &answered), ("held", &held), ("refused", &refused), ("left", &left)],
+    );
     let mut counts = ImportCounts::default();
     for o in &outcomes {
         let slot = match (o.status, &o.uid) {
@@ -236,10 +252,22 @@ pub fn run(
     Ok(Reply { result, seq, warnings: vec![], text: summary })
 }
 
-/// Apply one valid row: answer a read, refuse what a row may not name, and leave or refuse a
-/// change, which arrives in M1 and M2.
-fn apply(root: &Path, p: Pending, person: bool) -> Outcome {
+/// Apply one valid row: answer a read, hold an unsigned edit as ghosts on the Apply card, refuse
+/// what a row may not name, and leave or refuse any other change, which arrives later.
+fn apply(root: &Path, store: &mut Store, p: Pending, person: bool) -> Result<Outcome, AppError> {
     let name = p.row.command.0.clone();
+    if person && name == "edit" && !signed(&p.row) {
+        let req: Result<EditReq, _> = serde_json::from_value(p.row.request.clone());
+        match req {
+            Ok(req) if !matches!(req.op, EditOp::Undo { .. }) => return held(store, p, &req),
+            Ok(_) => {}
+            Err(e) => {
+                let mut out = outcome(&p, AckStatus::Refused);
+                out.reason = Some(text::get("import.bad_request", &[("command", &name), ("why", &e)]));
+                return Ok(out);
+            }
+        }
+    }
     let mut out = Outcome {
         path: p.path,
         uid: Some(p.uid),
@@ -265,7 +293,129 @@ fn apply(root: &Path, p: Pending, person: bool) -> Outcome {
     } else {
         out.reason = Some(text::get("import.not_allowed", &[("command", &name)]));
     }
-    out
+    Ok(out)
+}
+
+/// Whether a paired device signed `row`: its `sig` checks against `meta.pairing_key` (DR-67). No
+/// device can be paired yet, so no `sig` checks, and a row that carries one, broken or forged, is
+/// held on the Apply card like any row no paired device signed (DR-83).
+fn signed(_row: &InboxRow) -> bool {
+    false
+}
+
+/// A row's outcome with `status`, before its reason.
+fn outcome(p: &Pending, status: AckStatus) -> Outcome {
+    Outcome {
+        path: p.path.clone(),
+        uid: Some(p.uid.clone()),
+        doc_id: Some(p.doc_id.clone()),
+        version: p.version,
+        command: Some(p.row.command.clone()),
+        status: Some(status),
+        reason: None,
+        answer: None,
+    }
+}
+
+/// Whether `event` is an inbox row's: a person's, written from the artifact, as `held` writes
+/// each row under its viewer (DR-67).
+pub(crate) fn is_viewer_row(event: &Event) -> bool {
+    matches!(event.actor, Actor::Person { .. }) && event.client.surface == Surface::Artifact
+}
+
+/// An unsigned edit row: its edits, planned as the `edit` leaf plans them from the row's `base`,
+/// stored as ghosts on the open Apply card, which this row's write deals first when none is open;
+/// or, stale against that base, stored as a conflict. A row whose edit can't be planned, such as
+/// one naming a block that isn't on the map, is refused with why (DR-83).
+fn held(store: &mut Store, p: Pending, req: &EditReq) -> Result<Outcome, AppError> {
+    let vocabulary = crate::packs::vocabulary()?;
+    let writer = Writer {
+        actor: Actor::Person { id: format!("person:artifact:{}", p.uid), name: None },
+        client: Client { surface: Surface::Artifact, id: format!("artifact:{}:{}", p.uid, p.row.instance) },
+    };
+    let base = p.row.base;
+    let idem = format!("artifact:{}:{}", p.uid, p.doc_id);
+    let request_hash =
+        keys::request_hash("import", &serde_json::to_value(&p.row).map_err(AppError::internal)?);
+    let at = clock::now();
+    let stored = std::cell::Cell::new(Status::Ghost);
+    let committed = store.commit_keyed(
+        &idem,
+        &request_hash,
+        |snapshot| {
+            if base > snapshot.seq() {
+                return Err(AppError::invalid_argument("base", "edit.base_ahead"));
+            }
+            let folded = live::folded(snapshot, vocabulary)?;
+            let plan = edit::plan(&req.op, snapshot, &folded, vocabulary, &writer, base)?;
+            let edits: Vec<_> = plan
+                .bodies
+                .iter()
+                .filter_map(|(_, body)| match body {
+                    EventBody::Edit(edit) => Some(edit.clone()),
+                    _ => None,
+                })
+                .collect();
+            // Whoever's inbox holds it, an unsigned row only proposes: a ghost, never applied.
+            let proposed = Proposed { writer: writer.clone(), authority: Authority::Proposal, base };
+            let check = cas::check_edits(&folded, &proposed, &edits);
+            let (status, card) = match &check {
+                Check::Cycle { cycle } => return Err(edit::cycle_refused(cycle)),
+                Check::Ghost => (Status::Ghost, Some(cards::apply_card(snapshot, &at)?)),
+                Check::Conflict { .. } => (Status::Conflict, None),
+                Check::Applied | Check::Superseded { .. } => {
+                    return Err(AppError::internal("an unsigned row is never applied"));
+                }
+            };
+            stored.set(status);
+            let mut events = Vec::new();
+            let cause = card.as_ref().map(|(id, _)| Cause::Event(id.clone()));
+            // The card a row deals is written first, under a key of its own, so an undo of this
+            // row's ghosts leaves it for the rows that join it.
+            if let Some((_, Some(dealt))) = card {
+                events.push(Planned::Own(dealt));
+            }
+            for (target, body) in plan.bodies {
+                events.push(Planned::Command(NewEvent {
+                    id: new_event_id(),
+                    at: at.clone(),
+                    actor: writer.actor.clone(),
+                    client: writer.client.clone(),
+                    project: req.common.project.clone(),
+                    cause: cause.clone(),
+                    status,
+                    target,
+                    body,
+                }));
+            }
+            Ok(events)
+        },
+        |_| json!({"status": stored.get()}),
+    );
+    let mut out = outcome(&p, AckStatus::Held);
+    match committed {
+        Ok(committed) => {
+            // A replay reads how the row was stored from the reply its first commit kept.
+            if committed.reply["status"] == json!(Status::Conflict) {
+                out.status = Some(AckStatus::Conflict);
+                out.reason = Some(text::get("import.conflict", &[]));
+            } else {
+                out.reason = Some(text::get("import.held", &[]));
+            }
+            Ok(out)
+        }
+        // What the row names, not the store, is wrong: the row is refused, the import goes on. So
+        // is a row whose document ID an earlier, different row already used.
+        Err(e)
+            if e.code.spec().category == planroom_contract::Category::Usage
+                || matches!(e.code, ErrorCode::NotFound | ErrorCode::IdempotencyMismatch) =>
+        {
+            out.status = Some(AckStatus::Refused);
+            out.reason = Some(e.message.clone());
+            Ok(out)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// A read request's answer, redacted as every output is: whether it succeeded or failed, its

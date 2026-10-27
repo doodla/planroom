@@ -27,7 +27,7 @@ mod state;
 
 use std::collections::BTreeSet;
 
-use planroom_contract::{Event, EventBody, EventId, NodeId, Seq, Target, Vocabulary};
+use planroom_contract::{Event, EventBody, EventId, NodeId, Seq, Target, Verdict, Vocabulary};
 
 use crate::model::{Facts, Model};
 use crate::resolve::{Resolved, resolve};
@@ -89,6 +89,22 @@ fn fold_resolved(resolved: Resolved, events: &[Event], at: Seq) -> Folded {
     finished(core, prepass)
 }
 
+/// The open cards among `events`, in `seq` order: the `card` events that no review standing names
+/// and no applied undo reverses (DR-89). It decides as the fold does, through the same pre-pass,
+/// so a store that reads only the events that bear on cards (every `card`, `undo` and `review` of
+/// a card, and each event an undo names, for the command it reverses) gets the fold's answer.
+pub fn open_cards(events: &[Event]) -> Vec<EventId> {
+    let mut sorted: Vec<&Event> = events.iter().collect();
+    sorted.sort_by_key(|e| e.seq);
+    let undos = prepass::Undos::of(&sorted);
+    let prepass = prepass::prepass(&sorted, &undos);
+    sorted
+        .into_iter()
+        .filter(|e| matches!(e.body, EventBody::Card(_)) && prepass.card_open(&e.id))
+        .map(|e| e.id.clone())
+        .collect()
+}
+
 /// Whether applying `event` to a kept fold needs a fold from scratch: a scan changes the
 /// snapshot set, and an undo or a review changes the status of edits already applied (DR-61).
 pub fn refolds(event: &Event) -> bool {
@@ -121,6 +137,45 @@ pub fn fold_one(
     core.at = event.seq;
     let prepass = std::mem::take(&mut folded.prepass);
     *folded = finished(core, prepass);
+}
+
+/// The fold's reviews, cards and ghosts as they would stand once one more applied undo reverses
+/// one command, read by the same rules as the fold's ([`Folded::after_undo`]).
+#[derive(Debug, Clone)]
+pub struct AfterUndo<'a> {
+    folded: &'a Folded,
+    undone: BTreeSet<EventId>,
+}
+
+impl AfterUndo<'_> {
+    /// Whether an applied undo would reverse `event`.
+    pub fn is_undone(&self, event: &EventId) -> bool {
+        self.undone.contains(event)
+    }
+
+    /// The reviews of `event` that would stand, in `seq` order.
+    pub fn reviews_of(&self, event: &EventId) -> Vec<EventId> {
+        let log = self.folded.prepass.review_log.get(event).into_iter().flatten();
+        log.filter(|(id, _)| !self.undone.contains(id)).map(|(id, _)| id.clone()).collect()
+    }
+
+    /// The latest review of `event` that would stand.
+    pub fn verdict(&self, event: &EventId) -> Option<Verdict> {
+        let log = self.folded.prepass.review_log.get(event)?;
+        log.iter().rev().find(|(id, _)| !self.undone.contains(id)).map(|(_, verdict)| *verdict)
+    }
+
+    /// The ghosts `cause` caused that no undo would reverse, reviewed or not, in `seq` order.
+    pub fn ghosts_of(&self, cause: &EventId) -> Vec<EventId> {
+        let caused = self.folded.core.caused.get(cause).into_iter().flatten();
+        caused.filter(|id| !self.undone.contains(*id)).cloned().collect()
+    }
+
+    /// Whether the card event `card` would be open: no undo reverses it and no review that stands
+    /// names it, the rule the fold decides by (DR-89).
+    pub fn card_open(&self, card: &EventId) -> bool {
+        prepass::card_open(self.is_undone(card), !self.reviews_of(card).is_empty())
+    }
 }
 
 fn finished(core: Core, prepass: Prepass) -> Folded {
@@ -261,6 +316,35 @@ impl Folded {
             out.push((node.clone(), parent));
         }
         out
+    }
+
+    /// The latest review of `event` that stands: no undo reversed it.
+    pub fn verdict(&self, event: &EventId) -> Option<Verdict> {
+        self.prepass.reviews.get(event).copied()
+    }
+
+    /// The ghosts `cause` caused, such as a card's, that no undo reversed, reviewed or not, in
+    /// `seq` order.
+    pub fn ghosts_of(&self, cause: &EventId) -> Vec<EventId> {
+        self.core
+            .caused
+            .get(cause)
+            .into_iter()
+            .flatten()
+            .filter(|id| !self.prepass.undone.contains(*id))
+            .cloned()
+            .collect()
+    }
+
+    /// Every `card` event the fold saw, open or not, in `seq` order.
+    pub fn cards(&self) -> &[EventId] {
+        &self.core.cards
+    }
+
+    /// The reviews, cards and ghosts as they would stand once one more applied undo reverses the
+    /// command that wrote `event` (DR-61): what an undo has to close or reopen in its own write.
+    pub fn after_undo(&self, event: &EventId) -> AfterUndo<'_> {
+        AfterUndo { folded: self, undone: self.prepass.undone_after(&self.command_of(event)) }
     }
 
     /// Whether an applied undo reverses `event`.

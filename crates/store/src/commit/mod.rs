@@ -10,8 +10,8 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::{STORE_VERSION, StoreError};
 
-pub use scan::{META_REPOS, RepoOutcome, RepoScan, ScanCommitted, ScanKey, ScanRules, ScanWrite};
-pub use write::{Committed, NewEvent, Write};
+pub use scan::{Dealt, META_REPOS, RepoOutcome, RepoScan, ScanCommitted, ScanKey, ScanRules, ScanWrite};
+pub use write::{Committed, NewEvent, Planned, Write};
 
 /// The store-version check every commit makes right after `BEGIN IMMEDIATE`: a process that
 /// waited on the lock while a newer engine migrated the store refuses with `schema_mismatch`,

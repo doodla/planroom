@@ -1,9 +1,12 @@
-//! `planroom version` and `planroom schema [--commands]`: what this engine is and what it serves.
+//! `planroom version` and `planroom schema [--commands | --command LEAF | --def NAME]`: what this
+//! engine is and what it serves.
 
 use planroom_contract::schema::{self as contract_schema, View};
+use std::collections::{BTreeSet, VecDeque};
+
 use planroom_contract::{
-    Command, CommandList, CommandName, Handle, LeafSchema, SCHEMA_VERSION, SchemaReq, SchemaSummary,
-    VersionInfo,
+    Command, CommandList, CommandName, DefSchema, Handle, LeafSchema, SCHEMA_VERSION, SchemaReq,
+    SchemaSummary, VersionInfo,
 };
 use planroom_kernel::keys;
 use serde::Serialize;
@@ -40,13 +43,14 @@ pub fn version() -> Result<Reply<VersionInfo>, AppError> {
     Ok(Reply { result: info, seq: 0, warnings: vec![], text })
 }
 
-/// Either of `schema`'s two results.
+/// One of `schema`'s results.
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum SchemaReply {
     Summary(SchemaSummary),
     Commands(CommandList),
     Leaf(LeafSchema),
+    Def(DefSchema),
 }
 
 /// Each leaf's result type, by its name in the schema. The request type comes from `Command`'s
@@ -67,6 +71,7 @@ const RESULTS: &[(&str, &str)] = &[
     ("doctor", "PackReport"),
     ("edit", "EditResult"),
     ("open", "OpenResult"),
+    ("review", "ReviewResult"),
 ];
 
 /// `schema --command LEAF`: the leaf's request and result types with their `$defs` closure.
@@ -98,17 +103,14 @@ fn leaf(name: &str) -> Result<LeafSchema, AppError> {
         defs: closure(defs, &result)?.into_iter().chain(asks.clone()).collect(),
         request,
         result,
+        handles: Vec::new(),
     };
     // Within `schema`'s budget (DR-21): the shapes stay whole, and the descriptions go first from
     // the result's types, then from the request's, which a wrong argument's reader needs most.
-    let budget = Command::Schema(SchemaReq::default()).spec().budget_tokens as usize;
-    let size = |leaf: &LeafSchema| serde_json::to_string(leaf).map_or(usize::MAX, |s| s.len());
-    // The envelope repeats the summary line; its other fields take the reserve.
-    let fits = |leaf: &LeafSchema| size(leaf) + leaf.summary.len() + ENVELOPE_RESERVE_BYTES <= budget * 4;
     let brief = |key: &str, leaf: &LeafSchema| {
         text::get(key, &[("leaf", &name), ("request", &leaf.request), ("result", &leaf.result)])
     };
-    if !fits(&leaf) {
+    if !fits(&leaf, &leaf.summary) {
         leaf.summary = brief("schema.leaf_brief", &leaf);
         for (def, body) in leaf.defs.iter_mut() {
             if !asks.contains_key(def) {
@@ -116,14 +118,128 @@ fn leaf(name: &str) -> Result<LeafSchema, AppError> {
             }
         }
     }
-    if !fits(&leaf) {
+    if !fits(&leaf, &leaf.summary) {
         leaf.summary = brief("schema.leaf_bare", &leaf);
         leaf.defs.values_mut().for_each(undescribe);
+    }
+    if !fits(&leaf, &leaf.summary) {
+        // Past that, the request's types and the result's own stay, and the result's other types
+        // come nearest first while they fit, the rest each by its `schema --def` handle (DR-98).
+        let must = asks.keys().cloned().chain([leaf.result.clone()]).collect();
+        let all = std::mem::take(&mut leaf.defs);
+        let probe = |defs: &Map<String, Value>, handles: &[Handle]| {
+            let summary = brief("schema.leaf_split", &leaf);
+            let reply = LeafSchema { defs: defs.clone(), handles: handles.to_vec(), summary, ..leaf.clone() };
+            fits(&reply, &reply.summary)
+        };
+        let (defs, handles) = split(&all, &must, &leaf.result, probe);
+        leaf.summary = brief("schema.leaf_split", &leaf);
+        leaf.defs = defs;
+        leaf.handles = handles;
     }
     Ok(leaf)
 }
 
-/// What the envelope around a leaf's schema takes besides the result and its summary line.
+/// `schema --def NAME`: the type and its `$defs` closure, fitted as a leaf's are.
+fn def(name: &str) -> Result<DefSchema, AppError> {
+    let root = contract_schema::generate(View::Output);
+    let defs = root["$defs"].as_object().ok_or_else(|| AppError::internal("the schema has no $defs"))?;
+    if !defs.contains_key(name) {
+        return Err(AppError::new(
+            planroom_contract::ErrorCode::InvalidArgument,
+            &[("what", &text::get("argument.unknown_def", &[("name", &name)]))],
+        )
+        .details(serde_json::json!({"field": "def"})));
+    }
+    let brief = |key: &str| text::get(key, &[("name", &name)]);
+    let mut reply = DefSchema {
+        summary: brief("schema.def"),
+        name: name.to_owned(),
+        defs: closure(defs, name)?,
+        handles: vec![],
+    };
+    if !fits(&reply, &reply.summary) {
+        reply.summary = brief("schema.def_bare");
+        reply.defs.values_mut().for_each(undescribe);
+    }
+    if !fits(&reply, &reply.summary) {
+        let all = std::mem::take(&mut reply.defs);
+        let must = BTreeSet::from([name.to_owned()]);
+        let probe = |defs: &Map<String, Value>, handles: &[Handle]| {
+            let summary = brief("schema.def_split");
+            let probe = DefSchema { defs: defs.clone(), handles: handles.to_vec(), summary, ..reply.clone() };
+            fits(&probe, &probe.summary)
+        };
+        let (defs, handles) = split(&all, &must, name, probe);
+        reply.summary = brief("schema.def_split");
+        reply.defs = defs;
+        reply.handles = handles;
+    }
+    Ok(reply)
+}
+
+/// Whether `reply` fits `schema`'s budget, with the envelope repeating `summary` beside it.
+fn fits(reply: &impl Serialize, summary: &str) -> bool {
+    let budget = Command::Schema(SchemaReq::default()).spec().budget_tokens as usize;
+    let size = serde_json::to_string(reply).map_or(usize::MAX, |s| s.len());
+    size + summary.len() + ENVELOPE_RESERVE_BYTES <= budget * 4
+}
+
+/// The types of `all` a reply keeps: every one of `must`, then the others a kept type references,
+/// breadth first from `root` and by name within a step, each while `fits` still holds; and a
+/// `schema --def` handle for each type a kept one references but the reply leaves out.
+fn split(
+    all: &Map<String, Value>,
+    must: &BTreeSet<String>,
+    root: &str,
+    fits: impl Fn(&Map<String, Value>, &[Handle]) -> bool,
+) -> (Map<String, Value>, Vec<Handle>) {
+    let mut kept: Map<String, Value> =
+        all.iter().filter(|(name, _)| must.contains(*name)).map(|(n, v)| (n.clone(), v.clone())).collect();
+    let mut seen = BTreeSet::new();
+    let mut queue = VecDeque::from([root.to_owned()]);
+    while let Some(name) = queue.pop_front() {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        let Some(body) = all.get(&name) else { continue };
+        // Only a kept type queues its references, so whatever is queued is wanted.
+        if !kept.contains_key(&name) {
+            kept.insert(name.clone(), body.clone());
+            if !fits(&kept, &left_out(&kept)) {
+                kept.remove(&name);
+            }
+        }
+        if kept.contains_key(&name) {
+            queue.extend(referenced(body));
+        }
+    }
+    let handles = left_out(&kept);
+    (kept, handles)
+}
+
+/// Each name `value` references, sorted, once.
+fn referenced(value: &Value) -> BTreeSet<String> {
+    let mut names = Vec::new();
+    refs(value, &mut names);
+    names.into_iter().collect()
+}
+
+/// A `schema --def` handle for each type `kept` references but doesn't hold, by name.
+fn left_out(kept: &Map<String, Value>) -> Vec<Handle> {
+    let names: BTreeSet<String> =
+        kept.values().flat_map(referenced).filter(|name| !kept.contains_key(name)).collect();
+    names
+        .into_iter()
+        .map(|name| Handle {
+            command: CommandName("schema".into()),
+            label: text::label("schema.def_label", &[("def", &name)]),
+            args: vec!["--def".into(), name],
+        })
+        .collect()
+}
+
+/// What the envelope around a `schema` reply takes besides the result and its summary line.
 const ENVELOPE_RESERVE_BYTES: usize = 512;
 
 /// `def` and every definition it references, by name.
@@ -180,6 +296,11 @@ fn refs(value: &Value, out: &mut Vec<String>) {
 }
 
 pub fn schema(req: &SchemaReq) -> Result<Reply<SchemaReply>, AppError> {
+    if let Some(name) = &req.def {
+        let def = def(name)?;
+        let text = def.summary.clone();
+        return Ok(Reply { result: SchemaReply::Def(def), seq: 0, warnings: vec![], text });
+    }
     if let Some(name) = &req.command {
         let leaf = leaf(name)?;
         let text = leaf.summary.clone();
@@ -234,5 +355,52 @@ mod tests {
             assert!(leaf.defs.contains_key(&leaf.request) && leaf.defs.contains_key(&leaf.result));
         }
         assert!(leaf("nope").is_err());
+    }
+
+    #[test]
+    fn every_leaf_holds_or_hands_off_each_type_it_references() {
+        for listed in Command::listing() {
+            let leaf = leaf(&listed.schema.args[1]).unwrap();
+            assert!(fits(&leaf, &leaf.summary), "{}", listed.name);
+            holds_or_hands_off(&leaf.defs, &leaf.handles, &listed.name);
+            assert_eq!(leaf.handles.is_empty(), !leaf.summary.contains("schema --def"), "{}", leaf.summary);
+        }
+    }
+
+    #[test]
+    fn every_type_fits_and_hands_off_what_it_leaves_out() {
+        let root = contract_schema::generate(View::Output);
+        for name in root["$defs"].as_object().unwrap().keys() {
+            let reply = def(name).unwrap();
+            assert!(fits(&reply, &reply.summary), "{name}");
+            assert!(reply.defs.contains_key(name), "{name}");
+            holds_or_hands_off(&reply.defs, &reply.handles, name);
+        }
+        let unknown = def("NoSuchType").unwrap_err();
+        assert_eq!(unknown.details["field"], "def");
+    }
+
+    /// Every type `defs` references is in `defs` or named by one of `handles`, and each handle is a
+    /// `schema --def` of a type `defs` leaves out.
+    fn holds_or_hands_off(defs: &Map<String, Value>, handles: &[Handle], what: &str) {
+        let named: BTreeSet<&str> = handles
+            .iter()
+            .map(|h| {
+                assert_eq!((h.command.0.as_str(), h.args.len(), h.args[0].as_str()), ("schema", 2, "--def"));
+                h.args[1].as_str()
+            })
+            .collect();
+        assert_eq!(named.len(), handles.len(), "{what}: one handle per type");
+        for body in defs.values() {
+            for name in referenced(body) {
+                assert!(
+                    defs.contains_key(&name) || named.contains(name.as_str()),
+                    "{what}: {name} is missing"
+                );
+            }
+        }
+        for name in &named {
+            assert!(!defs.contains_key(*name), "{what}: a handle for {name}, which the reply holds");
+        }
     }
 }

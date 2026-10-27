@@ -5,6 +5,7 @@
 //! (DR-1). The store holds no business rules: the keys a scan derives come from functions the
 //! composition root passes in.
 
+mod cards;
 mod commit;
 mod error;
 pub mod fs_check;
@@ -25,8 +26,8 @@ use planroom_contract::{Seq, StorePointer};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
 pub use commit::{
-    Committed, META_REPOS, NewEvent, RepoOutcome, RepoScan, ScanCommitted, ScanKey, ScanRules, ScanWrite,
-    Write,
+    Committed, Dealt, META_REPOS, NewEvent, Planned, RepoOutcome, RepoScan, ScanCommitted, ScanKey,
+    ScanRules, ScanWrite, Write,
 };
 pub use error::StoreError;
 pub use fs_check::{Environment, Notice, Placement, register, take_notices};

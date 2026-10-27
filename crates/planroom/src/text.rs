@@ -50,6 +50,9 @@ pub fn get(key: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
 /// Logging), so a label names no repo-derived value: the line beside it says what it acts on.
 pub const LABELS: &[&str] = &[
     "argument.schema_label",
+    "card.apply_accept",
+    "card.apply_item",
+    "card.apply_reject",
     "edit.undo_label",
     "ask.next_page",
     "ask.run",
@@ -82,11 +85,13 @@ pub const LABELS: &[&str] = &[
     "open.share_label",
     "scan.next_label",
     "schema.commands_label",
+    "schema.def_label",
     "share.unavailable",
 ];
 
-/// The values a label may name: engine-authored counts, levels and catalogue leaves.
-pub const LABEL_VARS: &[&str] = &["count", "level", "leaf"];
+/// The values a label may name: engine-authored counts, levels, catalogue leaves and the contract
+/// schema's type names.
+pub const LABEL_VARS: &[&str] = &["count", "level", "leaf", "def"];
 
 /// The label at `section.key`, one of [`LABELS`], filled as [`get`] fills a line from values
 /// [`LABEL_VARS`] names.

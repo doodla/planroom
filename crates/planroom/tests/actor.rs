@@ -894,7 +894,7 @@ fn person_required_names_a_path_that_exists() {
     // Every leaf, with a mod key registered or not, follows its terminal rule: `/room NAME` only
     // for a leaf `/room` serves; the terminal never where its path is refused; and where it is
     // taken, the exact line, which parses as that leaf, for every leaf that resolves a person.
-    const OPERANDS_FROM_THE_CALL: &[&str] = &["edit"];
+    const OPERANDS_FROM_THE_CALL: &[&str] = &["edit", "review"];
     for spec in planroom_contract::Command::SPECS {
         let name = spec.name();
         for registered in [false, true] {

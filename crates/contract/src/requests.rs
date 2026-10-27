@@ -123,6 +123,24 @@ pub struct ReviewReq {
     pub common: WriteCommon,
 }
 
+/// What `review` returns: the `review` event it wrote, the item it reviewed, and what else its one
+/// transaction wrote. An accept writes a new edit that copies the reviewed one, caused by it and
+/// written by the reviewing person; reviewing the last open ghost of a card also picks the card.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ReviewResult {
+    /// The `review` event, which `edit undo` takes to reverse the whole review.
+    pub event: EventId,
+    /// The ghost, conflict or card reviewed.
+    pub of: EventId,
+    pub verdict: Verdict,
+    /// The edit an accept wrote, the reviewed edit's copy; absent for a reject or a card's pick.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edit: Option<EventId>,
+    /// The card this review resolved: the one picked, or the card whose last open ghost this was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_resolved: Option<EventId>,
+}
+
 /// `planroom intent next [--stage S]`: draft a plan stage's items as ghosts.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct IntentNextReq {

@@ -6,7 +6,7 @@ use planroom_contract::{Actor, Client, EventBody, EventId, Rename, ScanStats, Se
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use super::{NewEvent, check_version, idem_exists, insert_event};
-use crate::read::{self, FactRow};
+use crate::read::{self, FactRow, Snapshot};
 use crate::{Store, StoreError};
 
 /// The inputs of a scan event's key (DR-8).
@@ -96,6 +96,15 @@ pub enum RepoOutcome {
     NamespaceTaken { active: Option<u64> },
 }
 
+/// An event a commit writes under a key of its own, such as a card a scan's commit deals: the
+/// composition root decides which, reading the store as the commit finds it (DR-89).
+#[derive(Debug, Clone)]
+pub struct Dealt {
+    pub idem: String,
+    pub request_hash: String,
+    pub event: NewEvent,
+}
+
 /// What a scan commit did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanCommitted {
@@ -105,6 +114,8 @@ pub struct ScanCommitted {
     pub link: Option<u64>,
     /// The store's latest `seq` after the commit.
     pub seq: Seq,
+    /// The `seq` of each card the commit dealt, in the order the dealers returned them.
+    pub dealt: Vec<Seq>,
 }
 
 impl Store {
@@ -127,12 +138,29 @@ impl Store {
         rules: ScanRules,
         is_current: &mut dyn FnMut(&RepoScan, bool) -> bool,
     ) -> Result<ScanCommitted, StoreError> {
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        self.commit_scan_dealing(scan, rules, is_current, &mut |_| Ok(Vec::new()))
+    }
+
+    /// [`Store::commit_scan`], then, in the same transaction, the cards `deal` returns: it reads the
+    /// store as the commit finds it, the scan's own events included, so it never deals a card one
+    /// already open makes a second, and a card is never dealt without the scan that dealt it. An
+    /// error from `deal` writes nothing. The store holds no rules: `deal` is the caller's.
+    pub fn commit_scan_dealing<E: From<StoreError>>(
+        &mut self,
+        scan: &ScanWrite,
+        rules: ScanRules,
+        is_current: &mut dyn FnMut(&RepoScan, bool) -> bool,
+        deal: &mut dyn FnMut(&Snapshot<'_>) -> Result<Vec<Dealt>, E>,
+    ) -> Result<ScanCommitted, E> {
+        let tx =
+            self.conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(StoreError::from)?;
         check_version(&tx)?;
-        let mut active = read::active_snapshots(&tx)?;
+        let snapshot = Snapshot::over(tx)?;
+        let tx = snapshot.tx();
+        let mut active = read::active_snapshots(tx)?;
         let mut moved = Vec::new();
         let mut outcomes = Vec::with_capacity(scan.repos.len());
-        let mut fixed = read_namespaces(&tx)?;
+        let mut fixed = read_namespaces(tx)?;
         let taken = taken_namespaces(&fixed, &scan.namespaces);
         for repo in &scan.repos {
             // A repo with no commit yet maps nothing, so nothing of it is stored (DR-86).
@@ -146,7 +174,7 @@ impl Store {
                 outcomes.push((repo.repo.clone(), RepoOutcome::NamespaceTaken { active: previous }));
                 continue;
             }
-            let existing = find_snapshot(&tx, &repo.repo, &repo.commit, "head", &repo.inputs)?;
+            let existing = find_snapshot(tx, &repo.repo, &repo.commit, "head", &repo.inputs)?;
             if let Some(snapshot) = existing.filter(|s| previous == Some(*s)) {
                 outcomes.push((repo.repo.clone(), RepoOutcome::Unchanged { snapshot }));
                 continue;
@@ -160,15 +188,15 @@ impl Store {
             }
             // The branch isn't part of the key, so a head snapshot records none: it's on the
             // scan event that moved to it.
-            let (snapshot, created) = put_snapshot(&tx, &repo.repo, &repo.commit, "", "head", &repo.inputs)?;
+            let (snapshot, created) = put_snapshot(tx, &repo.repo, &repo.commit, "", "head", &repo.inputs)?;
             if created {
-                insert_facts(&tx, snapshot, &repo.facts)?;
+                insert_facts(tx, snapshot, &repo.facts)?;
             }
             let key = ScanKey { repo: &repo.repo, commit: &repo.commit, inputs: &repo.inputs, previous };
             let (mut idem, request_hash) = (rules.scan_key)(&key);
             // A repo that moves A -> B -> A -> B meets its own earlier key: that event is not the
             // active one, so this is a new move, keyed after the scan it moves away from.
-            if idem_exists(&tx, &idem)? {
+            if idem_exists(tx, &idem)? {
                 let after = active.get(&repo.repo).map_or(0, |a| a.seq);
                 idem = format!("{idem}#after:{after}");
             }
@@ -181,7 +209,7 @@ impl Store {
             let mut members: Vec<u64> = active.values().map(|a| a.snapshot).collect();
             members.sort_unstable();
             let commit_id = (rules.link_key)(&members, &scan.packs_hash);
-            let (link_id, _) = put_snapshot(&tx, "ws", &commit_id, "", "link", &scan.packs_hash)?;
+            let (link_id, _) = put_snapshot(tx, "ws", &commit_id, "", "link", &scan.packs_hash)?;
             link = Some(link_id);
             for (repo, snapshot, idem, request_hash) in moved {
                 let event = NewEvent {
@@ -203,7 +231,7 @@ impl Store {
                         stats: repo.stats,
                     },
                 };
-                let seq = insert_event(&tx, &event, &idem, &request_hash)?;
+                let seq = insert_event(tx, &event, &idem, &request_hash)?;
                 let slot = outcomes
                     .iter_mut()
                     .find(|(name, _)| *name == repo.repo)
@@ -225,15 +253,22 @@ impl Store {
         if fixed.len() != before {
             tx.execute(
                 "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-                params![META_REPOS, serde_json::to_string(&fixed)?],
-            )?;
+                params![META_REPOS, serde_json::to_string(&fixed).map_err(StoreError::from)?],
+            )
+            .map_err(StoreError::from)?;
         }
-        let seq = read::max_seq(&tx)?;
-        tx.commit()?;
-        if link.is_some() {
+        let mut dealt = Vec::new();
+        for card in deal(&snapshot)? {
+            if !idem_exists(tx, &card.idem)? {
+                dealt.push(insert_event(tx, &card.event, &card.idem, &card.request_hash)?);
+            }
+        }
+        let seq = read::max_seq(tx)?;
+        snapshot.commit()?;
+        if link.is_some() || !dealt.is_empty() {
             self.notify(seq);
         }
-        Ok(ScanCommitted { repos: outcomes, link, seq })
+        Ok(ScanCommitted { repos: outcomes, link, seq, dealt })
     }
 }
 

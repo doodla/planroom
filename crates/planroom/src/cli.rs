@@ -13,8 +13,8 @@ use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
     AskReq, Class, Command, CommandName, DoctorReq, EditReq, Envelope, ErrorCode, FindReq, FocusReq, Handle,
-    ImportReq, MapReq, Meta, OpenReq, PersonInitReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq,
-    ShareReq, Size, StreamFrame, VersionReq, Warning, WarningCode, WatchReq,
+    ImportReq, MapReq, Meta, OpenReq, PersonInitReq, ReviewReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq,
+    ServeReq, ShareReq, Size, StreamFrame, VersionReq, Warning, WarningCode, WatchReq,
 };
 use planroom_kernel::display::{sanitize, sanitize_lines};
 use planroom_kernel::redact;
@@ -72,6 +72,8 @@ enum Cmd {
     Edit(EditReq),
     /// Open the canvas in your browser, signed in with a one-time code it never prints.
     Open(OpenReq),
+    /// Accept or reject one ghost or conflict, or pick a card a write dealt.
+    Review(ReviewReq),
 }
 
 #[derive(Subcommand)]
@@ -103,6 +105,7 @@ pub fn parse_leaf(command: &str, args: &[String]) -> Result<Command, clap::Error
         Cmd::Doctor(req) => Command::Doctor(req),
         Cmd::Edit(req) => Command::Edit(req),
         Cmd::Open(req) => Command::Open(req),
+        Cmd::Review(req) => Command::Review(req),
     })
 }
 
@@ -185,6 +188,10 @@ pub fn main() -> ExitCode {
         Cmd::Open(req) => {
             let name = Command::Open(req.clone()).name();
             finish(cli.json, &name.0, app::open::run(&req, &cwd, &caller, &mut Tty), started)
+        }
+        Cmd::Review(req) => {
+            let name = Command::Review(req.clone()).name();
+            finish_written(cli.json, &name.0, app::review::run(&req, &cwd, &caller, &mut Tty), started)
         }
     }
 }
@@ -607,8 +614,11 @@ fn with_usage(e: AppError, command: &str) -> AppError {
     // An environment variable's error keeps the engine's own fix, which sets it: the schema
     // handle describes arguments, not the environment (DR-93).
     let from_env = e.details.get("field").and_then(Value::as_str).is_some_and(|f| f.starts_with("PLANROOM_"));
+    // So does a review of the Apply card, and an undo that waits on an open card: the hint
+    // reviews that card's first ghost, the step that picks it (DR-89).
+    let card_step = e.details.get("ghosts").is_some() || e.details.get("card").is_some();
     let e = e.details(Value::Object(details));
-    if from_env && e.hint.is_some() { e } else { e.with_hint(hint) }
+    if (from_env || card_step) && e.hint.is_some() { e } else { e.with_hint(hint) }
 }
 
 /// A leaf's one-line synopsis from its clap arguments, long flags only, such as

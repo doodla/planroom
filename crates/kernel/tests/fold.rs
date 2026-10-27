@@ -3,11 +3,12 @@
 use std::collections::BTreeMap;
 
 use planroom_contract::{
-    Actor, Card, CardKind, Choice, Client, CommandName, Edge, EdgeId, Edit, Event, EventBody, EventId, Kind,
-    Layer, Level, Node, NodeId, Op, Provenance, Ref, Rename, ScanStats, Seq, Stakes, Status, Surface, Target,
-    Tier, Timestamp, Verdict, Vocabulary,
+    Actor, Card, CardKind, Cause, Choice, Client, CommandName, Edge, EdgeId, Edit, Event, EventBody, EventId,
+    Kind, Layer, Level, Node, NodeId, Op, Provenance, Ref, Rename, ScanStats, Seq, Stakes, Status, Surface,
+    Target, Tier, Timestamp, Verdict, Vocabulary,
 };
-use planroom_kernel::fold::{FoldDiff, Folded, Writer, claims, fold, fold_full, fold_one};
+use planroom_kernel::cas::copy_for_review;
+use planroom_kernel::fold::{FoldDiff, Folded, Writer, claims, fold, fold_full, fold_one, open_cards};
 use planroom_kernel::model::Facts;
 use proptest::prelude::*;
 use proptest::test_runner::Config;
@@ -118,10 +119,20 @@ struct Log {
 impl Log {
     /// One command's events, keyed `idem#1` to `idem#n` when it writes several.
     fn command(&mut self, writer: &Writer, status: Status, bodies: Vec<EventBody>) -> Vec<EventId> {
+        let parts = bodies.into_iter().map(|body| (status, None, body)).collect();
+        self.command_of(writer, parts)
+    }
+
+    /// One command's events, each with its own status and cause, as `review` writes them.
+    fn command_of(
+        &mut self,
+        writer: &Writer,
+        parts: Vec<(Status, Option<Cause>, EventBody)>,
+    ) -> Vec<EventId> {
         let stem = format!("cmd{}", self.events.len() + 1);
-        let many = bodies.len() > 1;
+        let many = parts.len() > 1;
         let mut ids = Vec::new();
-        for (i, body) in bodies.into_iter().enumerate() {
+        for (i, (status, cause, body)) in parts.into_iter().enumerate() {
             let seq = self.events.len() as Seq + 1;
             let id = EventId(format!("ev-{seq:04}"));
             self.events.push(Event {
@@ -133,7 +144,7 @@ impl Log {
                 actor: writer.actor.clone(),
                 client: writer.client.clone(),
                 project: None,
-                cause: None,
+                cause,
                 status,
                 body,
             });
@@ -363,16 +374,69 @@ fn card_body() -> EventBody {
 #[derive(Debug, Clone)]
 enum Step {
     Scan(u8),
-    Set { writer: u8, status: u8, node: u8, field: u8, value: u8 },
-    PutNode { writer: u8, status: u8, key: u8, parent: u8 },
-    PutEdge { writer: u8, key: u8, from: u8, to: u8 },
-    Retract { writer: u8, edge: bool, key: u8 },
-    Group { writer: u8, members: Vec<u8> },
-    Undo { writer: u8, of: usize },
-    Review { of: usize, accept: bool },
-    Claim { key: u8, release: bool },
+    Set {
+        writer: u8,
+        status: u8,
+        node: u8,
+        field: u8,
+        value: u8,
+    },
+    PutNode {
+        writer: u8,
+        status: u8,
+        key: u8,
+        parent: u8,
+    },
+    PutEdge {
+        writer: u8,
+        key: u8,
+        from: u8,
+        to: u8,
+    },
+    Retract {
+        writer: u8,
+        edge: bool,
+        key: u8,
+    },
+    Group {
+        writer: u8,
+        members: Vec<u8>,
+    },
+    Undo {
+        writer: u8,
+        of: usize,
+    },
+    Review {
+        of: usize,
+        accept: bool,
+    },
+    Claim {
+        key: u8,
+        release: bool,
+    },
     Version,
     Card,
+    /// A ghost on the latest card, as an unsigned inbox edit row is.
+    CardGhost {
+        node: u8,
+        value: u8,
+    },
+    /// What `review` writes for a pick of an older event: its review, an accept's copy caused by
+    /// it, and the card's own review with its last open ghost.
+    Pick {
+        of: usize,
+        accept: bool,
+    },
+    /// A ghost as an unsigned inbox edit row is stored: on the open card, or on one its write
+    /// deals, keyed apart from the row, when none is open.
+    InboxGhost {
+        node: u8,
+        value: u8,
+    },
+    /// What `edit undo` writes for a person's undo of an older event's command.
+    UndoAsEdit {
+        of: usize,
+    },
 }
 
 const NODES: [&str; 6] = ["r:x:repo", "r:x:a", "r:x:b", "r:x:item", "r:x:p0", "r:x:gone"];
@@ -441,6 +505,28 @@ fn step() -> impl Strategy<Value = Step> {
         (0u8..6, any::<bool>()).prop_map(|(key, release)| Step::Claim { key, release }),
         Just(Step::Version),
         Just(Step::Card),
+        (0u8..6, 0u8..6).prop_map(|(node, value)| Step::CardGhost { node, value }),
+        (any::<usize>(), any::<bool>()).prop_map(|(of, accept)| Step::Pick { of, accept }),
+        (0u8..6, 0u8..6).prop_map(|(node, value)| Step::InboxGhost { node, value }),
+        any::<usize>().prop_map(|of| Step::UndoAsEdit { of }),
+    ]
+}
+
+/// The steps `review`, `edit undo` and inbox rows take on cards, beside plain edits and scans:
+/// the writes that keep a card open exactly while a ghost waits on it.
+fn card_step() -> impl Strategy<Value = Step> {
+    prop_oneof![
+        (0u8..3).prop_map(Step::Scan),
+        (0u8..3, 0u8..4, 0u8..6, 0u8..6).prop_map(|(writer, status, node, value)| Step::Set {
+            writer,
+            status,
+            node,
+            field: 0,
+            value
+        }),
+        (0u8..6, 0u8..6).prop_map(|(node, value)| Step::InboxGhost { node, value }),
+        (any::<usize>(), any::<bool>()).prop_map(|(of, accept)| Step::Pick { of, accept }),
+        any::<usize>().prop_map(|of| Step::UndoAsEdit { of }),
     ]
 }
 
@@ -558,12 +644,153 @@ fn history(steps: &[Step]) -> (Vec<Event>, Vec<Facts>) {
             Step::Card => {
                 log.push(&system(), Status::Open, card_body());
             }
+            Step::CardGhost { node, value } => {
+                let card = log.events.iter().rev().find(|e| matches!(e.body, EventBody::Card(_)));
+                if let Some(card) = card.map(|c| c.id.clone()) {
+                    let edit = set_node(NODES[node as usize], "name", json!(format!("g{value}")));
+                    log.command_of(
+                        &agent(),
+                        vec![(Status::Ghost, Some(Cause::Event(card)), EventBody::Edit(edit))],
+                    );
+                }
+            }
+            Step::Pick { of, accept } => {
+                if let Some(of) = pick(of) {
+                    pick_as_review(&mut log, &current, &of, accept);
+                }
+            }
+            Step::InboxGhost { node, value } => {
+                let folded = log.fold(&current);
+                let card = match folded.open_cards.last() {
+                    Some(open) => open.clone(),
+                    None => log.push(&system(), Status::Open, card_body()),
+                };
+                let edit = set_node(NODES[node as usize], "name", json!(format!("i{value}")));
+                log.command_of(
+                    &agent(),
+                    vec![(Status::Ghost, Some(Cause::Event(card)), EventBody::Edit(edit))],
+                );
+            }
+            Step::UndoAsEdit { of } => {
+                if let Some(of) = pick(of) {
+                    undo_as_edit(&mut log, &current, &of);
+                }
+            }
         }
         while facts_after.len() < log.events.len() {
             facts_after.push(current.clone());
         }
     }
     (log.events, facts_after)
+}
+
+/// The events `review` writes for a person's pick of `of`, planned over the fold as it stands:
+/// nothing for an item that isn't open, as `review` refuses it.
+fn pick_as_review(log: &mut Log, facts: &Facts, of: &EventId, accept: bool) {
+    let folded = log.fold(facts);
+    let verdict = if accept { Verdict::Accept } else { Verdict::Reject };
+    let found = log.events.iter().find(|e| &e.id == of).cloned().unwrap();
+    let review = (Status::Applied, None, EventBody::Review { of: of.clone(), verdict });
+    match (&found.body, found.status) {
+        // A card is picked whole only while no ghost waits on it; the Apply card's ghosts are
+        // reviewed one by one.
+        (EventBody::Card(_), _)
+            if folded.open_cards.contains(of)
+                && folded.ghosts_of(of).iter().all(|g| folded.verdict(g).is_some()) =>
+        {
+            log.command_of(&tab(1), vec![review]);
+        }
+        (EventBody::Edit(edit), Status::Ghost | Status::Conflict)
+            if folded.verdict(of).is_none() && !folded.is_undone(of) =>
+        {
+            let mut parts = vec![review];
+            if accept {
+                let copy = copy_for_review(edit, log.events.len() as Seq);
+                parts.push((Status::Applied, Some(Cause::Event(of.clone())), EventBody::Edit(copy)));
+            }
+            log.command_of(&tab(1), parts);
+            // The card's own review, with its last open ghost's, keyed apart from that review.
+            if let Some(Cause::Event(card)) = &found.cause
+                && folded.open_cards.contains(card)
+                && folded.ghosts_of(card).iter().all(|g| g == of || folded.verdict(g).is_some())
+            {
+                let accepted = accept
+                    || folded.ghosts_of(card).iter().any(|g| folded.verdict(g) == Some(Verdict::Accept));
+                let verdict = if accepted { Verdict::Accept } else { Verdict::Reject };
+                log.push(&tab(1), Status::Applied, EventBody::Review { of: card.clone(), verdict });
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The events `edit undo` writes for a person's undo of `of`'s command, planned over the fold as
+/// it stands: the undo, an undo of each card review that would stand while one of its card's
+/// ghosts waits again, and a review, keyed apart, of each card that would be left open with none
+/// waiting. Nothing for a card or an event already undone, as `edit undo` refuses them.
+fn undo_as_edit(log: &mut Log, facts: &Facts, of: &EventId) {
+    let folded = log.fold(facts);
+    let found = log.events.iter().find(|e| &e.id == of).cloned().unwrap();
+    if matches!(found.body, EventBody::Card(_) | EventBody::Scan { .. }) || folded.is_undone(of) {
+        return;
+    }
+    let after = folded.after_undo(of);
+    let mut undos = vec![EventBody::Undo { of: of.clone() }];
+    let mut closes = Vec::new();
+    for card in folded.cards() {
+        let left = after.ghosts_of(card);
+        if after.is_undone(card) || (left.is_empty() && folded.ghosts_of(card).is_empty()) {
+            continue;
+        }
+        let waiting = left.iter().any(|g| after.verdict(g).is_none());
+        match (after.card_open(card), waiting) {
+            (true, false) => {
+                let accepted = left.iter().any(|g| after.verdict(g) == Some(Verdict::Accept));
+                closes.push((card.clone(), if accepted { Verdict::Accept } else { Verdict::Reject }));
+            }
+            (false, true) => {
+                undos.extend(after.reviews_of(card).into_iter().map(|of| EventBody::Undo { of }))
+            }
+            _ => {}
+        }
+    }
+    log.command(&tab(1), Status::Applied, undos);
+    for (card, verdict) in closes {
+        log.push(&tab(1), Status::Applied, EventBody::Review { of: card, verdict });
+    }
+}
+
+/// Whether every card that holds ghosts is open exactly while one of them waits, as `review` and
+/// `edit undo` keep it.
+fn cards_follow_their_ghosts(folded: &Folded) -> bool {
+    folded.cards().iter().all(|card| {
+        let ghosts = folded.ghosts_of(card);
+        let waiting = ghosts.iter().any(|g| folded.verdict(g).is_none());
+        ghosts.is_empty() || folded.open_cards.contains(card) == waiting
+    })
+}
+
+/// The events the store's open-card read returns: every card and undo, each review of a card, and
+/// each event an undo names.
+fn card_events(events: &[Event]) -> Vec<Event> {
+    let cards: Vec<&EventId> =
+        events.iter().filter(|e| matches!(e.body, EventBody::Card(_))).map(|e| &e.id).collect();
+    let named: Vec<&EventId> = events
+        .iter()
+        .filter_map(|e| match &e.body {
+            EventBody::Undo { of } => Some(of),
+            _ => None,
+        })
+        .collect();
+    events
+        .iter()
+        .filter(|e| match &e.body {
+            EventBody::Card(_) | EventBody::Undo { .. } => true,
+            EventBody::Review { of, .. } => cards.contains(&of),
+            _ => false,
+        } || named.contains(&&e.id))
+        .cloned()
+        .collect()
 }
 
 proptest! {
@@ -579,12 +806,35 @@ proptest! {
             fold_one(&mut kept, &facts_after[k], &events[..k], &vocabulary, event);
             let full = fold_full(&facts_after[k], &events[..=k], &vocabulary, event.seq);
             prop_assert_eq!(&kept, &full, "after event {} of {:?}", k, steps);
+            // The open cards the store's read and the kernel decide are the fold's.
+            prop_assert_eq!(&open_cards(&card_events(&events[..=k])), &full.open_cards, "after event {} of {:?}", k, steps);
         }
         // Applying an event twice changes nothing.
         if let (Some(last), Some(facts)) = (events.last(), facts_after.last()) {
             let before = kept.clone();
             fold_one(&mut kept, facts, &events, &vocabulary, last);
             prop_assert_eq!(kept, before);
+        }
+    }
+
+    // Through inbox rows, reviews and undos in any order, a card that holds ghosts is open exactly
+    // while one of them waits, in the fold and in the store's open-card read alike: an undo that
+    // sets a ghost waiting again reopens its card, and one that leaves none waiting closes it.
+    #[test]
+    fn cards_stay_open_exactly_while_a_ghost_waits(steps in prop::collection::vec(card_step(), 1..40)) {
+        let vocabulary = Vocabulary::default();
+        let (events, facts_after) = history(&steps);
+        for k in 0..events.len() {
+            let full = fold_full(&facts_after[k], &events[..=k], &vocabulary, events[k].seq);
+            prop_assert_eq!(&open_cards(&card_events(&events[..=k])), &full.open_cards, "after event {} of {:?}", k, steps);
+        }
+        // The rule holds once each write commits; inside one, a ghost's review comes before its
+        // card's.
+        for n in 1..=steps.len() {
+            let (events, facts_after) = history(&steps[..n]);
+            let (Some(last), Some(facts)) = (events.last(), facts_after.last()) else { continue };
+            let full = fold_full(facts, &events, &vocabulary, last.seq);
+            prop_assert!(cards_follow_their_ghosts(&full), "after step {} of {:?}", n, steps);
         }
     }
 }

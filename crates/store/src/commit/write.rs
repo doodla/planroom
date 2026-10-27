@@ -4,7 +4,7 @@ use planroom_contract::{Actor, Cause, Client, EventBody, EventId, NodeId, Seq, S
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::Value;
 
-use super::{check_version, insert_event};
+use super::{Dealt, check_version, insert_event};
 use crate::read::Snapshot;
 use crate::{Store, StoreError};
 
@@ -34,11 +34,24 @@ pub struct Write {
     pub events: Vec<NewEvent>,
 }
 
+/// One event a planned write appends: one of the command's own, keyed `idem`, or `idem#1`,
+/// `idem#2` and so on, or one under a key of its own, in the same transaction, such as a card the
+/// write deals or a card's own review. An undo reverses a command by its key, so an undo of the
+/// command leaves an event under its own key standing, and an undo naming that event reverses it
+/// alone (DR-61).
+#[derive(Debug, Clone)]
+pub enum Planned {
+    Command(NewEvent),
+    Own(Dealt),
+}
+
 /// What a commit wrote, or what a retry found.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Committed {
-    /// The events' `seq`s, in order.
+    /// The command's own events' `seq`s, in order.
     pub seqs: Vec<Seq>,
+    /// The `seq`s of the events it wrote under keys of their own, in order; none on a replay.
+    pub own: Vec<Seq>,
     /// The whole reply, stored on the first event.
     pub reply: Value,
     /// The same key and request were committed before; nothing was written.
@@ -73,6 +86,22 @@ impl Store {
         plan: impl FnOnce(&Snapshot<'_>) -> Result<Vec<NewEvent>, E>,
         reply: impl FnOnce(&[Seq]) -> Value,
     ) -> Result<Committed, E> {
+        let plan = |snapshot: &Snapshot<'_>| Ok(plan(snapshot)?.into_iter().map(Planned::Command).collect());
+        self.commit_keyed(idem, request_hash, plan, reply)
+    }
+
+    /// [`Store::commit_planned`] for a write whose plan also appends events under keys of their
+    /// own ([`Planned::Own`]), in the same transaction and in the order the plan gives them. At
+    /// least one event is the command's own, which holds the reply. A retry under the command's
+    /// key replays before `plan` runs, so one command never writes an own key twice. The store
+    /// holds no rules: which events take a key of their own is the caller's to say.
+    pub fn commit_keyed<E: From<StoreError>>(
+        &mut self,
+        idem: &str,
+        request_hash: &str,
+        plan: impl FnOnce(&Snapshot<'_>) -> Result<Vec<Planned>, E>,
+        reply: impl FnOnce(&[Seq]) -> Value,
+    ) -> Result<Committed, E> {
         let tx =
             self.conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(StoreError::from)?;
         check_version(&tx)?;
@@ -81,12 +110,20 @@ impl Store {
         }
         let snapshot = Snapshot::over(tx)?;
         let events = plan(&snapshot)?;
-        assert!(!events.is_empty(), "a commit writes at least one event");
-        let many = events.len() > 1;
-        let mut seqs = Vec::with_capacity(events.len());
-        for (i, event) in events.iter().enumerate() {
-            let key = if many { format!("{idem}#{}", i + 1) } else { idem.to_owned() };
-            seqs.push(insert_event(snapshot.tx(), event, &key, request_hash)?);
+        let count = events.iter().filter(|e| matches!(e, Planned::Command(_))).count();
+        assert!(count > 0, "a commit writes at least one event of its own command");
+        let many = count > 1;
+        let (mut seqs, mut own) = (Vec::with_capacity(count), Vec::new());
+        for planned in &events {
+            match planned {
+                Planned::Command(event) => {
+                    let key = if many { format!("{idem}#{}", seqs.len() + 1) } else { idem.to_owned() };
+                    seqs.push(insert_event(snapshot.tx(), event, &key, request_hash)?);
+                }
+                Planned::Own(keyed) => {
+                    own.push(insert_event(snapshot.tx(), &keyed.event, &keyed.idem, &keyed.request_hash)?);
+                }
+            }
         }
         let reply = reply(&seqs);
         snapshot
@@ -97,8 +134,9 @@ impl Store {
             )
             .map_err(StoreError::from)?;
         snapshot.commit()?;
-        self.notify(*seqs.last().expect("one event at least"));
-        Ok(Committed { seqs, reply, replayed: false })
+        let last = seqs.iter().chain(&own).copied().max().expect("one event at least");
+        self.notify(last);
+        Ok(Committed { seqs, own, reply, replayed: false })
     }
 }
 
@@ -139,5 +177,10 @@ fn replay(tx: &Transaction<'_>, idem: &str, request_hash: &str) -> Result<Option
         Some(text) => serde_json::from_str(&text)?,
         None => Value::Null,
     };
-    Ok(Some(Committed { seqs: seqs.into_iter().map(|s| s as Seq).collect(), reply, replayed: true }))
+    Ok(Some(Committed {
+        seqs: seqs.into_iter().map(|s| s as Seq).collect(),
+        own: Vec::new(),
+        reply,
+        replayed: true,
+    }))
 }

@@ -11,7 +11,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use p256::ecdsa::signature::Signer;
 use p256::ecdsa::{Signature, SigningKey};
 use planroom_contract::schema::{self, View};
+use planroom_contract::{Actor, Cause, Client, Event, EventBody, Status, Surface};
 use planroom_kernel::keys::person_token_message;
+use planroom_store::Store;
 use planroom_testkit::fixture;
 use serde_json::{Value, json};
 
@@ -463,7 +465,9 @@ fn a_person_import_refuses_changes_until_they_land_and_a_tokenless_one_leaves_th
     let (_tmp, root) = scanned();
     let k = key(7);
     registered(&root, &k);
-    let edit = || line("u_test", "e1", 1, row("i1", 1, "edit", json!({"op": "rename"})));
+    // A review row: unsigned edit rows wait on the Apply card (inbox_edits.rs); reviews from a
+    // row arrive later.
+    let edit = || line("u_test", "e1", 1, row("i1", 1, "review", json!({"id": "x", "verdict": "accept"})));
 
     // No token: the change waits in the inbox, unacked and not deleted.
     let (code, env) = import(&root, &[edit()], &[]);
@@ -472,13 +476,13 @@ fn a_person_import_refuses_changes_until_they_land_and_a_tokenless_one_leaves_th
     assert_eq!(env["result"]["rows"][0]["reason"], "Waits in the inbox for a person's /room sync.");
     assert!(!writes(&env["result"]).iter().any(|w| w["collection"] != "live"));
 
-    // A person's import: edits land in M1, so it is refused for now, with an ack.
+    // A person's import: a review from a row isn't importable yet, so it is refused, with an ack.
     let t = token(&k, "import", &["-"]);
     let (code, env) = import(&root, &[edit()], &[("PLANROOM_PERSON_TOKEN", &t)]);
     assert_eq!(code, 0, "{env}");
     assert_eq!(env["result"]["person"], true);
     assert_eq!(env["result"]["rows"][0]["status"], "refused");
-    assert_eq!(env["result"]["rows"][0]["reason"], "edit from an Artifact row isn't importable yet.");
+    assert_eq!(env["result"]["rows"][0]["reason"], "review from an Artifact row isn't importable yet.");
     // The token works once.
     let (code, env) = import(&root, &[edit()], &[("PLANROOM_PERSON_TOKEN", &t)]);
     assert_eq!(code, 5, "{env}");
@@ -493,4 +497,161 @@ fn a_token_under_another_key_is_person_required() {
     let (code, env) = import(&root, &[], &[("PLANROOM_PERSON_TOKEN", &t)]);
     assert_eq!(code, 5, "{env}");
     assert_eq!(env["error"]["details"]["reason"], "bad_signature");
+}
+
+// --- Unsigned rows and the Apply card (DR-67, DR-75, DR-83, DR-89). ---
+
+fn head(root: &Path) -> u64 {
+    let (_, env) = planroom(root, &["map"], "", &[]);
+    env["meta"]["seq"].as_u64().unwrap()
+}
+
+/// A person's token over `command` with the argv after it, read at `base`.
+fn token_at(key: &SigningKey, command: &str, args: &[&str], base: &str) -> String {
+    let at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
+    let sig: Signature = key.sign(&person_token_message(command, &args, "", base, at));
+    format!("{at}.{}", b64url(&sig.to_bytes()))
+}
+
+/// An inbox row from instance `i1` renaming `id`, at the head's `base`.
+fn rename(root: &Path, counter: u64, id: &str, name: &str) -> Value {
+    json!({"format": "planroom.inbox/v1", "instance": "i1", "counter": counter, "command": "edit",
+        "request": {"op": "rename", "id": id, "name": name}, "base": head(root),
+        "at": "2026-10-26T00:00:00Z"})
+}
+
+fn stored_events(root: &Path) -> Vec<Event> {
+    let store = Store::open_existing(&planroom::app::workspace::store_path(root)).unwrap().unwrap();
+    store.events_after(0, 10_000).unwrap()
+}
+
+#[test]
+fn an_unsigned_or_broken_signature_joins_the_card() {
+    let (_tmp, root) = scanned();
+    let k = key(7);
+    registered(&root, &k);
+    // No pairing key checks a `sig` yet, so a row that carries one was signed by no paired device:
+    // it waits on the Apply card like an unsigned row, never refused for its signature.
+    let unsigned = line("u_ann", "d1", 1, rename(&root, 1, "orders:container:orders", "Desk"));
+    let mut forged = rename(&root, 2, "worker:container:worker", "Runner");
+    forged["sig"] = json!("bm90IGEgc2lnbmF0dXJl");
+    let broken = line("u_ann", "d2", 1, forged);
+
+    // A tokenless sync applies only rows whose signature checks: both stay in the inbox.
+    let (code, env) = import(&root, &[unsigned.clone(), broken.clone()], &[]);
+    assert_eq!(code, 0, "{env}");
+    for r in env["result"]["rows"].as_array().unwrap() {
+        assert_eq!(r["status"], Value::Null, "{env}");
+    }
+    assert!(!stored_events(&root).iter().any(|e| matches!(e.body, EventBody::Card(_))));
+
+    // A person's sync holds both as ghosts on one Apply card.
+    let t = token(&k, "import", &["-"]);
+    let (code, env) = import(&root, &[unsigned, broken], &[("PLANROOM_PERSON_TOKEN", &t)]);
+    assert_eq!(code, 0, "{env}");
+    let rows = env["result"]["rows"].as_array().unwrap();
+    let statuses: Vec<&Value> = rows.iter().map(|r| &r["status"]).collect();
+    assert_eq!(statuses, [&json!("held"), &json!("held")], "{env}");
+    let events = stored_events(&root);
+    let cards: Vec<&Event> = events.iter().filter(|e| matches!(e.body, EventBody::Card(_))).collect();
+    let [card] = cards.as_slice() else { panic!("one Apply card: {cards:?}") };
+    let on_card = events
+        .iter()
+        .filter(|e| e.status == Status::Ghost && e.cause == Some(Cause::Event(card.id.clone())))
+        .count();
+    assert_eq!(on_card, 2, "each row's edit waits on the card");
+}
+
+#[test]
+fn a_confirmed_row_keeps_the_viewer_as_actor() {
+    let (_tmp, root) = scanned();
+    let k = key(7);
+    registered(&root, &k);
+    let t = token(&k, "import", &["-"]);
+    let row = line("u_ann", "d1", 1, rename(&root, 1, "orders:container:orders", "Desk"));
+    let (code, env) = import(&root, &[row], &[("PLANROOM_PERSON_TOKEN", &t)]);
+    assert_eq!(code, 0, "{env}");
+    let events = stored_events(&root);
+    let card = events.iter().find(|e| matches!(e.body, EventBody::Card(_))).unwrap().id.clone();
+    let ghost = events.iter().find(|e| e.status == Status::Ghost).unwrap().id.clone();
+
+    // The local person confirms it; the edit applies as the viewer, with the card as its cause.
+    let base = head(&root).to_string();
+    let args = ["--base", base.as_str(), ghost.0.as_str(), "accept"];
+    let t = token_at(&k, "review", &args, &base);
+    let argv: Vec<&str> = std::iter::once("review").chain(args).collect();
+    let (code, env) = planroom(&root, &argv, "", &[("PLANROOM_PERSON_TOKEN", &t)]);
+    assert_eq!(code, 0, "{env}");
+    let events = stored_events(&root);
+    let copy = events.iter().find(|e| env["result"]["edit"] == e.id.0.as_str()).unwrap();
+    assert_eq!(copy.status, Status::Applied);
+    assert_eq!(copy.actor, Actor::Person { id: "person:artifact:u_ann".into(), name: None });
+    assert_eq!(copy.client, Client { surface: Surface::Artifact, id: "artifact:u_ann:i1".into() });
+    assert_eq!(copy.cause, Some(Cause::Event(card.clone())));
+    // The review is the local person's own, and it resolved the card.
+    let review = events.iter().find(|e| env["result"]["event"] == e.id.0.as_str()).unwrap();
+    let local = matches!(&review.actor, Actor::Person { id, .. } if !id.starts_with("person:artifact:"));
+    assert!(local, "{:?}", review.actor);
+    assert_eq!(env["result"]["card_resolved"], card.0.as_str());
+    let store = Store::open_existing(&planroom::app::workspace::store_path(&root)).unwrap().unwrap();
+    let model =
+        planroom::live::model(&store.snapshot().unwrap(), planroom::packs::vocabulary().unwrap()).unwrap();
+    let orders = model.nodes.iter().find(|n| n.id.0 == "orders:container:orders").unwrap();
+    assert_eq!(orders.name, "Desk", "the edit applied");
+    drop(store);
+
+    // One undo of the person's review takes back the viewer's edit too, and the card reopens.
+    let base = head(&root).to_string();
+    let reviewed = env["result"]["event"].as_str().unwrap();
+    let args = ["--base", base.as_str(), "undo", reviewed];
+    let t = token_at(&k, "edit", &args, &base);
+    let argv: Vec<&str> = std::iter::once("edit").chain(args).collect();
+    let (code, env) = planroom(&root, &argv, "", &[("PLANROOM_PERSON_TOKEN", &t)]);
+    assert_eq!(code, 0, "{env}");
+    let store = Store::open_existing(&planroom::app::workspace::store_path(&root)).unwrap().unwrap();
+    let snapshot = store.snapshot().unwrap();
+    let folded = planroom::live::folded(&snapshot, planroom::packs::vocabulary().unwrap()).unwrap();
+    assert_eq!(folded.open_cards, [card]);
+    let orders = folded.model.nodes.iter().find(|n| n.id.0 == "orders:container:orders").unwrap();
+    assert_eq!(orders.name, "orders", "the undo took the edit back");
+}
+
+#[test]
+fn a_stale_row_held_as_a_conflict_applies_as_its_viewer() {
+    let (_tmp, root) = scanned();
+    let k = key(7);
+    registered(&root, &k);
+    // The viewer's row is made at this head, and a person's rename lands before it is imported.
+    let row = rename(&root, 1, "orders:container:orders", "Desk");
+    let base = head(&root).to_string();
+    let args = ["--base", base.as_str(), "rename", "orders:container:orders", "Mine"];
+    let t = token_at(&k, "edit", &args, &base);
+    let argv: Vec<&str> = std::iter::once("edit").chain(args).collect();
+    let (code, env) = planroom(&root, &argv, "", &[("PLANROOM_PERSON_TOKEN", &t)]);
+    assert_eq!(code, 0, "{env}");
+    let t = token(&k, "import", &["-"]);
+    let (code, env) = import(&root, &[line("u_ann", "d1", 1, row)], &[("PLANROOM_PERSON_TOKEN", &t)]);
+    assert_eq!(code, 0, "{env}");
+    let events = stored_events(&root);
+    let held = events.iter().find(|e| e.status == Status::Conflict).expect("held as a conflict").id.clone();
+    assert!(!events.iter().any(|e| matches!(e.body, EventBody::Card(_))), "a conflict deals no card");
+
+    // The local person accepts it: it applies as the viewer, as a row confirmed on the card does,
+    // caused by the conflict it copies; the review is the person's own.
+    let base = head(&root).to_string();
+    let args = ["--base", base.as_str(), held.0.as_str(), "accept"];
+    let t = token_at(&k, "review", &args, &base);
+    let argv: Vec<&str> = std::iter::once("review").chain(args).collect();
+    let (code, env) = planroom(&root, &argv, "", &[("PLANROOM_PERSON_TOKEN", &t)]);
+    assert_eq!(code, 0, "{env}");
+    let events = stored_events(&root);
+    let copy = events.iter().find(|e| env["result"]["edit"] == e.id.0.as_str()).unwrap();
+    assert_eq!(copy.status, Status::Applied);
+    assert_eq!(copy.actor, Actor::Person { id: "person:artifact:u_ann".into(), name: None });
+    assert_eq!(copy.client, Client { surface: Surface::Artifact, id: "artifact:u_ann:i1".into() });
+    assert_eq!(copy.cause, Some(Cause::Event(held)));
+    let review = events.iter().find(|e| env["result"]["event"] == e.id.0.as_str()).unwrap();
+    let local = matches!(&review.actor, Actor::Person { id, .. } if !id.starts_with("person:artifact:"));
+    assert!(local, "{:?}", review.actor);
 }

@@ -4,6 +4,8 @@
 //! Each repo stands alone: one git can't read is left out with a `repo_skipped` warning, one with
 //! no commit yet maps nothing until its first commit, with `repo_unborn`, and the rest of the
 //! workspace maps.
+//!
+//! The commit asks each of `app::cards`' scan dealers for a card, in the scan's own transaction.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -144,20 +146,30 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     // which is asked once, and only when another scan moved a repo after this one began.
     let mut why: BTreeMap<String, &str> = BTreeMap::new();
     let mut same_repos: Option<bool> = None;
-    let done = store.commit_scan(&write, RULES, &mut |repo, newer_scan| {
-        if !paths.get(repo.repo.as_str()).is_some_and(|p| is_head(p, &repo.commit)) {
-            why.insert(repo.repo.clone(), "head_moved");
-            return false;
-        }
-        if newer_scan
-            && !*same_repos
-                .get_or_insert_with(|| current_inputs(&ws.root, &packs, &exclude).as_deref() == Some(&inputs))
-        {
-            why.insert(repo.repo.clone(), "repos_changed");
-            return false;
-        }
-        true
-    })?;
+    // The cards a scan deals go in its own transaction, read from the store as it commits (DR-89).
+    let dealt_at = write.at.clone();
+    let mut deal =
+        |snapshot: &planroom_store::Snapshot<'_>| crate::app::cards::deal_for_scan(snapshot, &dealt_at);
+    let done = store.commit_scan_dealing(
+        &write,
+        RULES,
+        &mut |repo, newer_scan| {
+            if !paths.get(repo.repo.as_str()).is_some_and(|p| is_head(p, &repo.commit)) {
+                why.insert(repo.repo.clone(), "head_moved");
+                return false;
+            }
+            if newer_scan
+                && !*same_repos.get_or_insert_with(|| {
+                    current_inputs(&ws.root, &packs, &exclude).as_deref() == Some(&inputs)
+                })
+            {
+                why.insert(repo.repo.clone(), "repos_changed");
+                return false;
+            }
+            true
+        },
+        &mut deal,
+    )?;
     let superseded =
         |o: &RepoOutcome| matches!(o, RepoOutcome::Superseded { .. } | RepoOutcome::NamespaceTaken { .. });
     // The commit each superseded repo's map stays at: what the newer scan mapped.

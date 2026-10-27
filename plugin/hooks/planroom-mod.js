@@ -487,6 +487,19 @@ var CATALOGUE = [
     "undo": "query",
     "tool": null,
     "room": true
+  },
+  {
+    "name": "review",
+    "idea": "decisions",
+    "summary": "Accept or reject one ghost or conflict, or pick a card a write dealt.",
+    "actor": "mixed",
+    "class": "change",
+    "budget_tokens": 400,
+    "needs_base": true,
+    "spends": false,
+    "undo": "edit",
+    "tool": null,
+    "room": false
   }
 ];
 var FALLBACK_PANES = {

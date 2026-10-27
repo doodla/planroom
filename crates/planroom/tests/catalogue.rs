@@ -17,6 +17,7 @@ const SNAPSHOT: &[(&str, &str)] = &[
     ("map", "query"),
     ("open", "query"),
     ("person init", "query"),
+    ("review", "edit"),
     ("scan", "query"),
     ("schema", "query"),
     ("serve", "query"),

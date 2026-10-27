@@ -600,6 +600,8 @@ impl Ctx<'_> {
             Command::PersonInit(req) => project(&req.common)?,
             // Its targets are IDs, ID suffixes or names, resolved when it runs, as `map`'s focus is.
             Command::Edit(req) => project(&req.common)?,
+            // Its item is an event ID, which no pack can name ahead of the event.
+            Command::Review(req) => project(&req.common)?,
             // The text `find` searches for names no kind, relation, lens or ID.
             Command::Find(_)
             | Command::Ask(_)

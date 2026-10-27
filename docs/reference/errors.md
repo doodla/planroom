@@ -23,11 +23,11 @@ marked (masked) holds repo-derived text, so its secrets are masked like a reply'
 
 | Code | Category | Exit | Retry | Meaning | `details` |
 |---|---|---|---|---|---|
-| `invalid_argument` | usage | 2 | never | bad flags or request | `field`, `synopsis`, `schema`, `cycle`, `lenses` |
+| `invalid_argument` | usage | 2 | never | bad flags or request | `field`, `synopsis`, `schema`, `cycle`, `lenses`, `ghosts`, `count`, `card` |
 | `ambiguous_ref` | usage | 2 | never | an ID suffix or name matched several records | `candidates`, `level` |
 | `workspace_not_found` | not_found | 3 | never | no repos at the path, or a read found no workspace store | `path` |
 | `not_found` | not_found | 3 | never | unknown ID, question or file | `closest` |
-| `person_required` | permission | 5 | never | a person-only command without a valid person token: missing, stale, spent, or for another command | `command`, `reason` |
+| `person_required` | permission | 5 | never | a person-only command without a valid person token: missing, stale, spent, or for another command | `command`, `reason`, `card` |
 | `unauthorized` | permission | 5 | never | HTTP: no bearer token, a missing or foreign Origin or Host, or a used or expired login code | none |
 | `person_key_mismatch` | permission | 5 | never | person init found another key registered; the pane's Use this session's key button runs person init --rekey | `registered_at`, `surface` |
 | `idempotency_mismatch` | conflict | 4 | never | the same idem with a different request | `idem`, `stored_event` |

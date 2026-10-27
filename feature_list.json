@@ -1167,8 +1167,6 @@
         "tests/e2e/src/artifact.spec.ts::a_tapped_card_shows_queued_until_acked": "M5",
         "crates/planroom/tests/s11_remote.rs::two_instances_of_one_viewer_conflict": "M5",
         "crates/planroom/tests/s11_remote.rs::a_signed_owner_row_applies": "M5",
-        "crates/planroom/tests/s11_remote.rs::an_unsigned_or_broken_signature_joins_the_card": "M5",
-        "crates/planroom/tests/s11_remote.rs::a_confirmed_row_keeps_the_viewer_as_actor": "M5",
         "crates/planroom/tests/s11_remote.rs::sample_calls_reach_the_spend_log": "M5",
         "tests/e2e/src/artifact.spec.ts::pairing_signs_rows": "M5",
         "packages/mod/src/room.test.ts::sync_passes_the_observed_rows_on_stdin": "M5",

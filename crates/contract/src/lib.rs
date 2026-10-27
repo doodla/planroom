@@ -27,10 +27,10 @@ pub mod vocab;
 
 pub use card::{Card, CardKind};
 pub use command::{
-    ActorRule, Class, CodeReq, Command, CommandList, CommandSpec, Detail, DoctorReq, DrainReq, FocusReq,
-    Idea, ImportReq, LayoutPut, LeafListing, LeafSchema, MapReq, OpenReq, OpenResult, PackCheck, PackReport,
-    PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq,
-    SessionToken, ShareReq, Tool, Undo, VersionInfo, VersionReq, WatchReq, WriteCommon,
+    ActorRule, Class, CodeReq, Command, CommandList, CommandSpec, DefSchema, Detail, DoctorReq, DrainReq,
+    FocusReq, Idea, ImportReq, LayoutPut, LeafListing, LeafSchema, MapReq, OpenReq, OpenResult, PackCheck,
+    PackReport, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq,
+    SessionReq, SessionToken, ShareReq, Tool, Undo, VersionInfo, VersionReq, WatchReq, WriteCommon,
 };
 pub use config::Config;
 pub use decision::{
@@ -63,7 +63,7 @@ pub use remote::{
 };
 pub use requests::{
     AskItem, AskReq, AskResult, EditOp, EditReq, EditResult, FindItem, FindReq, FindResult, IntentNextReq,
-    LintReq, ProposeReq, ReviewReq,
+    LintReq, ProposeReq, ReviewReq, ReviewResult,
 };
 pub use resolver::{ResolverStatus, ResolverStep, UnavailableReason};
 pub use store::{STORE_POINTER_FILE, StorePointer};

@@ -392,6 +392,11 @@ pub(crate) struct Core {
     pub parent_log: BTreeMap<NodeId, Vec<(Seq, EventId, ParentEntry)>>,
     pub index: BTreeMap<EventId, Indexed>,
     pub stems: BTreeMap<String, Vec<EventId>>,
+    /// The ghosts each event caused, by that event, in `seq` order, undone or not: the ghosts a
+    /// card holds, such as the Apply card's inbox edits.
+    pub caused: BTreeMap<EventId, Vec<EventId>>,
+    /// Every `card` event, in `seq` order, open or not.
+    pub cards: Vec<EventId>,
     /// The fields each applied edit set, by event: what the fold set for an edit in effect, and
     /// for an undone one what it would set where it stands. An undo's revisions read it (DR-61).
     pub sets: BTreeMap<EventId, BTreeSet<String>>,
@@ -426,6 +431,8 @@ impl Core {
             parent_log: BTreeMap::new(),
             index: BTreeMap::new(),
             stems: BTreeMap::new(),
+            caused: BTreeMap::new(),
+            cards: Vec::new(),
             sets: BTreeMap::new(),
             diffs: Vec::new(),
             listed_moves: BTreeSet::new(),
@@ -500,7 +507,7 @@ impl Core {
                 release: *release,
             }),
             EventBody::Card(_) => {
-                if !prepass.reviews.contains_key(&event.id) {
+                if prepass.card_open(&event.id) {
                     self.open_cards.push(event.id.clone());
                 }
             }
@@ -524,6 +531,14 @@ impl Core {
             Indexed { seq: event.seq, idem: event.idem.clone(), status: event.status, keys, undo_of },
         );
         self.stems.entry(idem_stem(&event.idem).to_owned()).or_default().push(event.id.clone());
+        if let (EventBody::Edit(_), Status::Ghost, Some(Cause::Event(cause))) =
+            (&event.body, event.status, &event.cause)
+        {
+            self.caused.entry(cause.clone()).or_default().push(event.id.clone());
+        }
+        if let EventBody::Card(_) = event.body {
+            self.cards.push(event.id.clone());
+        }
     }
 
     fn apply_edit(&mut self, event: &Event, edit: &Edit) {

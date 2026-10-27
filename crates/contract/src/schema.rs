@@ -11,13 +11,14 @@ use crate::{
 };
 use crate::{
     AskReq, AskResult, Config, EditReq, EditResult, FindReq, FindResult, IntentNextReq, LintReq, PackFile,
-    PackRecord, PackReport, ProposeReq, ReviewReq,
+    PackRecord, PackReport, ProposeReq, ReviewReq, ReviewResult,
 };
 use crate::{
-    CodeReq, Command, CommandList, DoctorReq, DrainReq, Edge, Envelope, ErrorCode, ErrorObject, Event,
-    Evidence, FactBatch, FocusReq, Hint, LayoutPut, LeafSchema, MapReq, MapView, Node, OpenReq, OpenResult,
-    PaneModel, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq,
-    SessionReq, SessionToken, StreamFrame, VersionInfo, VersionReq, Warning, WarningCode, WatchReq,
+    CodeReq, Command, CommandList, DefSchema, DoctorReq, DrainReq, Edge, Envelope, ErrorCode, ErrorObject,
+    Event, Evidence, FactBatch, FocusReq, Hint, LayoutPut, LeafSchema, MapReq, MapView, Node, OpenReq,
+    OpenResult, PaneModel, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary,
+    ServeInfo, ServeReq, SessionReq, SessionToken, StreamFrame, VersionInfo, VersionReq, Warning,
+    WarningCode, WatchReq,
 };
 use crate::{
     EngineState, LastSeq, PaneState, ReplayRecord, ResolverStatus, ToolResult, TurnSeq, UnavailableReason,
@@ -93,6 +94,7 @@ pub fn generate(view: View) -> Value {
         SchemaSummary,
         CommandList,
         LeafSchema,
+        DefSchema,
         VersionInfo,
         PersonKey,
         ServeInfo,
@@ -127,6 +129,7 @@ pub fn generate(view: View) -> Value {
         EditReq,
         EditResult,
         ReviewReq,
+        ReviewResult,
         IntentNextReq,
         ProposeReq,
         LintReq,

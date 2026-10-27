@@ -15,6 +15,9 @@ pub(crate) struct Prepass {
     pub undone: BTreeSet<EventId>,
     /// The latest review of each event, from reviews no undo reversed.
     pub reviews: BTreeMap<EventId, Verdict>,
+    /// Every review of each event that wasn't stored as a conflict, undone or not, in `seq`
+    /// order: what a review that stands would be once one more undo applies.
+    pub review_log: BTreeMap<EventId, Vec<(EventId, Verdict)>>,
     /// The revision each applied undo wrote on every field it changed back (DR-61), from
     /// [`undo_revisions`] once the fold has applied every event.
     pub undo_revs: BTreeMap<FieldKey, Rev>,
@@ -25,6 +28,13 @@ pub(crate) struct Prepass {
 }
 
 impl Prepass {
+    /// Whether the card event `id` is open: no applied undo reverses it and no review that stands
+    /// names it (DR-89). The fold and [`super::open_cards`] both decide by this one rule, so a
+    /// review an undo reversed reopens its card in both.
+    pub(crate) fn card_open(&self, id: &EventId) -> bool {
+        card_open(self.undone.contains(id), self.reviews.contains_key(id))
+    }
+
     /// The events undone once one more undo, later than every event the fold saw, reverses
     /// `reverses`: they, plus what each earlier undo reverses unless it is undone itself.
     pub(crate) fn undone_after(&self, reverses: &[EventId]) -> BTreeSet<EventId> {
@@ -36,6 +46,12 @@ impl Prepass {
         }
         undone
     }
+}
+
+/// The one rule for whether a card is open, for the fold, the store's read and an undo's plan
+/// alike: no applied undo reverses it and no review that stands names it (DR-89).
+pub(crate) fn card_open(undone: bool, reviewed: bool) -> bool {
+    !undone && !reviewed
 }
 
 /// One applied `undo`, and the events of the command it reverses (DR-61): every event that
@@ -107,12 +123,15 @@ pub(crate) fn prepass(events: &[&Event], undos: &Undos<'_>) -> Prepass {
     let undone = undone_as_of(&undos.steps, last);
 
     let mut reviews = BTreeMap::new();
+    let mut review_log: BTreeMap<EventId, Vec<(EventId, Verdict)>> = BTreeMap::new();
     for event in events {
         if let EventBody::Review { of, verdict } = &event.body
             && event.status != Status::Conflict
-            && !undone.contains(&event.id)
         {
-            reviews.insert(of.clone(), *verdict);
+            review_log.entry(of.clone()).or_default().push((event.id.clone(), *verdict));
+            if !undone.contains(&event.id) {
+                reviews.insert(of.clone(), *verdict);
+            }
         }
     }
     let steps = undos
@@ -120,7 +139,7 @@ pub(crate) fn prepass(events: &[&Event], undos: &Undos<'_>) -> Prepass {
         .iter()
         .map(|u| (u.event.id.clone(), u.reverses.iter().map(|e| e.id.clone()).collect()))
         .collect();
-    Prepass { undone, reviews, undo_revs: BTreeMap::new(), steps, followed: BTreeMap::new() }
+    Prepass { undone, reviews, review_log, undo_revs: BTreeMap::new(), steps, followed: BTreeMap::new() }
 }
 
 /// The revision each applied undo in `events` writes on every field it changes back (DR-61).

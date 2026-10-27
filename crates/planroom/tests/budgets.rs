@@ -745,6 +745,9 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
     for leaf in &leaves {
         run(&["schema", "--command", leaf], "", &[]);
     }
+    for def in ["PaneModel", "Actor"] {
+        run(&["schema", "--def", def], "", &[]);
+    }
     run(&["version"], "", &[]);
     let code_pack = planroom_testkit::repo_root().join("packs/code");
     run(&["doctor", "--pack", code_pack.to_str().unwrap()], "", &[]);
@@ -809,6 +812,17 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
         let record: Value = serde_json::from_str(&std::fs::read_to_string(record.path()).unwrap()).unwrap();
         let _ = Command::new("kill").arg(record["pid"].to_string()).status();
     }
+    // `review` of an agent's own ghost with a long name, the one review an agent may make: its reply
+    // names IDs, never the ghost's text.
+    let long = "y".repeat(3_000);
+    let ghost =
+        reply(&root, &["edit", "--base", "5", "rename", "worker:container:worker", &long], "", &agent);
+    let ghost = ghost["result"]["event"].as_str().unwrap().to_owned();
+    let reviewed = reply(&root, &["review", "--base", "5", &ghost, "reject"], "", &agent);
+    assert_eq!(reviewed["ok"], true, "{reviewed}");
+    let tokens = reviewed["meta"]["size"]["tokens_est"].as_u64().unwrap();
+    assert!(tokens <= budget("review"), "review: {tokens} tokens over its {}", budget("review"));
+    covered.insert(reviewed["command"].as_str().unwrap().to_owned());
     let budgeted: BTreeSet<String> =
         Leaf::SPECS.iter().filter(|s| s.budget_tokens > 0).map(|s| s.name()).collect();
     assert_eq!(covered, budgeted, "every built leaf with a budget is run");

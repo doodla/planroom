@@ -1,7 +1,9 @@
 //! `planroom focus`: the `PaneModel` the pane, the band and the status line draw.
 //!
 //! In a directory with no store it returns the not-yet-a-workspace empty state and creates
-//! nothing (DR-57). Every string comes from `text/en.toml` (DR-21).
+//! nothing (DR-57). In a scanned one it lists the open cards a write dealt, the first face up in
+//! `decision` and the rest counted in `more_decisions`, and deals none itself (DR-89). Every string
+//! comes from `text/en.toml` (DR-21).
 
 use std::path::Path;
 
@@ -15,7 +17,7 @@ use serde_json::json;
 
 use crate::app::dirty::Dirty;
 use crate::app::error::AppError;
-use crate::app::{Paged, Reply, map, workspace};
+use crate::app::{Paged, Reply, cards, map, workspace};
 use crate::{clock, live, text};
 
 /// Blocks the mini-map holds at most.
@@ -92,6 +94,8 @@ fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneMo
     let seq = snapshot.seq();
     let view = map::top_in(snapshot, root, None)?;
     let next = next_in(snapshot)?;
+    let folded = live::folded(snapshot, crate::packs::vocabulary()?)?;
+    let (decision, more_decisions) = cards::face_up(snapshot, &folded)?;
     let since = clock::rfc3339(clock::unix_micros().saturating_sub(PRESENT_FOR_MICROS));
     let mut who = store.presence_since(&planroom_contract::Timestamp(since))?;
     who.truncate(WHO_ROWS);
@@ -115,8 +119,8 @@ fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneMo
             project: None,
             seq,
         },
-        decision: None,
-        more_decisions: 0,
+        decision,
+        more_decisions,
         progress: Progress { stage: None, done: 0, total: 0, handoffs_running: 0, scan: ScanState::Done },
         diffs: vec![],
         drift: no_drift(),
@@ -217,6 +221,7 @@ fn text_of(pane: &PaneModel, dirty: Option<String>) -> String {
     ]
     .into_iter()
     .chain(dirty)
+    .chain(pane.decision.as_ref().map(|d| text::get("card.focus_line", &[("question", &d.question)])))
     .chain([pane.drift.summary.clone(), text::get("focus.next", &[("label", &pane.next.label)])])
     .collect::<Vec<_>>()
     .join("\n")

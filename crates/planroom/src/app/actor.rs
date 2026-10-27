@@ -389,6 +389,23 @@ pub fn person_required(command: &str, why: Refused, path: TerminalPath) -> AppEr
         .details(json!({"command": command, "reason": why.as_str()}))
 }
 
+/// [`person_required`] for a leaf whose operands come from the call, such as `review`: its hint
+/// names `line`, the exact command a person runs (see [`person_path_with`]), and its details the
+/// card a person can pick, when the refused call was about one.
+pub fn person_required_with(
+    command: &str,
+    why: Refused,
+    path: TerminalPath,
+    line: &str,
+    card: Option<&planroom_contract::EventId>,
+) -> AppError {
+    let mut details = json!({"command": command, "reason": why.as_str()});
+    if let Some(card) = card {
+        details["card"] = json!(card.0);
+    }
+    person_required(command, why, path).with_hint(person_path_with(command, path, line)).details(details)
+}
+
 /// The ways a person runs `command` where its terminal path is `path` (see [`terminal_path`]):
 ///
 /// - `person init`: the mod's own start in this workspace, which registers its key, and whose

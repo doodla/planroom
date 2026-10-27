@@ -111,6 +111,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 95 | The check gates' edges: what a budgets raise is, how the baseline and the release are found, and what the secret scan exempts | DR-59, DR-79, DR-83, DR-85, DR-89 | extended, amends DR-89 | the merge of M1's check gates |
 | 96 | Where a store lives on an unsafe filesystem, its pointer's type, migration copies, and the engine's libc calls | DR-1, DR-53, DR-69, DR-78, DR-85 | extended | the merge of M1's store open and migrations |
 | 97 | Namespaces fixed at the first mapping scan, reserved names, and an unborn repo that writes no event | DR-47, DR-74, DR-87, DR-89 | extended, amends DR-74 and DR-87 | the merge of M1's namespaces, renames and fold benchmark |
+| 98 | Review, one open Apply card, a viewer's row that keeps its viewer, and schema types by handle | DR-5, DR-21, DR-67, DR-75, DR-83, DR-86, DR-89 | extended, amends DR-75 | the merge of M1's review leaf, card store and inbox edits |
 
 ## Where the design reviews disagreed
 
@@ -1714,7 +1715,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-75: Authority stays with a person's own action
 
-- **Status:** accepted (decided in review round 3, F7, F11 and F15); verify A-18 in WS8. Amended by DR-88.
+- **Status:** accepted (decided in review round 3, F7, F11 and F15); verify A-18 in WS8. Amended by DR-88 and DR-98.
 - **Starting point:** extended "Events carry the workspace, project, actor, cause and an idempotency key" (who counts as a person) and "Remote mode: ... Artifact edits land as events in a db collection; the session imports them".
 - **Origin:** review round 3: security-1 to security-4, principles-3 and unasked-3; the minor findings security-5 to security-9 and security-11, and part of security-10.
 - **Context:**
@@ -1750,6 +1751,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Milestones: M1's actor slice, M2's hand-off and models slices and M5's remote slice grow by 5 h in all.
   - It amends DR-4, DR-18, DR-49, DR-52, DR-53, DR-57, DR-60, DR-64, DR-67 and DR-69.
 - **Amended by DR-88:** the mod registers the person key's public half once per workspace in each mod's life and again after a press the store refuses as no person's, not once per workspace for good.
+- **Amended by DR-98:** each unsigned row's ghost is caused by the open Apply card it joins, since an import writes no event of its own to name.
 - **Sources (checked 2026-10-26):** KICKOFF R5, R8, S11 and principle 1; the Artifact tool's browser-storage rule (storage survives a republish to the same URL); [artifact §2]; review round 3 security-1 to security-11, principles-3 and unasked-3, and owner decisions F7, F11 and F15.
 
 ## DR-76: The mod checks its host
@@ -2573,3 +2575,32 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `namespaces.rs`; `id_stability.rs::fixture_ids_match_the_last_release`; `scan.rs::an_unborn_repo_writes_no_scan_event`; `xtask/tests/bench.rs`; the fold's rename and copy-on-write tests.
   - Known gap: the CI bench gate measures wall-clock time on a shared runner; if fold.20k lands near its budget there, the fold gets faster rather than its budget higher.
 - **Sources (checked 2026-10-27):** `crates/planroom/src/app/workspace.rs`; `crates/store/src/commit/scan.rs`; `crates/kernel/src/fold/{state, prepass}.rs`; `crates/kernel/benches/fold.rs`; [Contracts](contracts.md); [Where the workspace lives](architecture.md#where-the-workspace-lives).
+
+## DR-98: Review, one open Apply card, a viewer's row that keeps its viewer, and schema types by handle
+
+- **Status:** accepted (decided at the merge of M1's review leaf, card store and inbox edits, 2026-10-27).
+- **Starting point:** extended DR-5, DR-21, DR-67, DR-83, DR-86 and DR-89; amends DR-75.
+- **Origin:** the merge of the review work, read against the docs by an independent check over three rounds.
+- **Context:**
+  - DR-75 says each unsigned row's ghost has "the import as its cause", but an import writes no event of its own: the only event a ghost can name is the Apply card its row joins, which architecture.md's same paragraph already makes the cause of the applied edit.
+  - DR-67 says a confirmed inbox row applies as `person:artifact:<uid>`. A row that is already stale when imported is stored as a conflict on no card, and its accept went through the general rule, the reviewing person's, so one viewer row got a different actor depending on when it went stale.
+  - An `edit undo` can reopen a resolved card. Reopening an Apply card while a newer one is open would leave two open cards of one kind and subject, and an undo of a last ghost's own edit would leave a card open with nothing waiting on it.
+  - No pairing key exists before M5, so no row's `sig` can check.
+- **Decision:**
+  - **A ghost's cause is the open Apply card.** Each unsigned `edit` row's ghosts name the card the row deals or joins, which is written first, under a key of its own. This amends DR-75's "with the import as its cause".
+  - **A viewer's row keeps its viewer.** A person's accept of an inbox row applies as `person:artifact:<uid>` with its client, whether the row waits on the Apply card (caused by the card) or was held as a conflict at import (caused by that conflict). Every other accept is the reviewing person's, caused by the item it copies (DR-5). The `review` itself is always the person's, so the authority is theirs either way.
+  - **One open card per kind and subject.** A row that arrives while an Apply card is open joins it. An undo that would reopen a card beside an open one of the same kind and subject is refused with `invalid_argument`, whose `card` detail names the open card and whose hint reviews its first ghost. A card stays open exactly while a ghost waits on it: the review of its last waiting ghost, or an undo that leaves none waiting, writes the card's own review in the same write, and undoing that write reopens it. The store returns card events with the reviews and undos that name them; one kernel function, shared with the fold's prepass, decides which are open.
+  - **`review` is a mixed leaf.** A person accepts or rejects any ghost or stored conflict; an agent may only reject its own ghosts (same session and role). Every other agent call is `person_required`, checked before the base, idempotency and existence checks, with the exact `planroom review` line as its hint and the card in its details when one is involved.
+  - **A schema reply past its bare level hands types off by handle.** Merging the review leaf's types onto the questions' took `schema --command focus` to 1,550 tokens with every description gone, over `schema`'s 1,500. Past the bare level, `schema --command` keeps the request's types and the result's own, then takes the result's other types breadth first from it, keeping each that still fits and passing over each that doesn't, and gives a new `handles` field a `schema --def NAME` handle for each type a kept one references but the reply leaves out; `schema --def NAME`, which DR-21's amendment named and this change builds, fits one type's closure the same way. The budget stays at 1,500 and every shape a reply holds stays whole.
+  - **A `sig` waits until pairing exists.** With no pairing key, a row that carries a `sig` is held on the Apply card like an unsigned row, never refused for its signature; DR-67's signed path starts when `person pair` does.
+- **Alternatives rejected:**
+  - An `import` event for ghosts to name: a new event kind for a cause the card already gives.
+  - The reviewing person as the actor of an accepted stale row: it splits one viewer row's attribution by timing, against DR-67.
+  - Allowing two open Apply cards after an undo: `focus` shows one card face up per kind, so the second would hide ghosts.
+  - Raising `schema`'s budget: every command the catalogue gains lands in `CommandName`, and every pane section in `PaneModel`, so a raise would only move the day the bare level stops fitting.
+  - Stopping at the first type that doesn't fit: a large type near the result would hand off every smaller one behind it.
+- **Consequences:**
+  - Contracts: `ReviewResult`; `invalid_argument`'s `ghosts`, `count` and `card` details; `person_required`'s `card`; the Unsigned rows rule; `SchemaReq.def`, `DefSchema` and `LeafSchema.handles`, all additive.
+  - Tests: `review.rs`; `cards.rs`; `inbox_edits.rs`; `s11_remote.rs::a_confirmed_row_keeps_the_viewer_as_actor` and `a_stale_row_held_as_a_conflict_applies_as_its_viewer`; `kernel/tests/fold.rs`'s open-card checks; `version.rs`'s `every_leaf_holds_or_hands_off_each_type_it_references` and `every_type_fits_and_hands_off_what_it_leaves_out`; `budgets.rs` with `schema --def`.
+  - Known gap: a type whose own body passes the budget can't be handed off. The largest, `Command`, has about 1,500 bytes of room, some seven more leaves; `every_type_fits_and_hands_off_what_it_leaves_out` fails before such a reply ships, and `Command` then splits by idea.
+- **Sources (checked 2026-10-27):** `crates/planroom/src/app/{review, cards, import, edit, version}.rs`; `crates/store/src/cards.rs`; `crates/kernel/src/fold/{state, prepass}.rs`; [Contracts](contracts.md); [Remote mode through the Artifact](architecture.md#remote-mode-through-the-artifact-s11).

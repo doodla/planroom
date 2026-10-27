@@ -103,14 +103,14 @@ macro_rules! error_codes {
 }
 
 error_codes! {
-    InvalidArgument = "invalid_argument", Usage, Never, "bad flags or request", ["field", "synopsis", "schema", "cycle", "lenses"];
+    InvalidArgument = "invalid_argument", Usage, Never, "bad flags or request", ["field", "synopsis", "schema", "cycle", "lenses", "ghosts", "count", "card"];
     AmbiguousRef = "ambiguous_ref", Usage, Never, "an ID suffix or name matched several records", ["candidates", "level"];
     WorkspaceNotFound = "workspace_not_found", NotFound, Never,
         "no repos at the path, or a read found no workspace store", ["path"];
     NotFound = "not_found", NotFound, Never, "unknown ID, question or file", ["closest"];
     PersonRequired = "person_required", Permission, Never,
         "a person-only command without a valid person token: missing, stale, spent, or for another command",
-        ["command", "reason"];
+        ["command", "reason", "card"];
     Unauthorized = "unauthorized", Permission, Never,
         "HTTP: no bearer token, a missing or foreign Origin or Host, or a used or expired login code", [];
     PersonKeyMismatch = "person_key_mismatch", Permission, Never,
