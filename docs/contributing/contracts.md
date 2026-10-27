@@ -120,8 +120,10 @@ pub struct Meta {                            // every field but seq and size is 
     pub replayed: bool,                      // an idempotent replay of a stored reply
     pub replayed_from: Option<Seq>,          // a replay of a derived idem: the original seq; the hint says to pass a new --idem
     pub stale_repos: Vec<String>,            // a refresh read skipped these rescans because a live process holds scan:REPO
-    pub dirty_repos: Vec<DirtyRepo>,         // focus and map only (M1): { repo, files }, repos with uncommitted changes, untracked
-                                             // files included, which never reach the map (DR-71, DR-85)
+    pub dirty_repos: Vec<DirtyRepo>,         // scan, focus and map only (M1): { repo, files }, repos with uncommitted changes, untracked
+                                             // files included, which never reach the map (DR-71, DR-85); the first 5 by name, `repo`
+                                             // masked as repo text
+    pub more_dirty_repos: u32,               // the repos with uncommitted changes past those dirty_repos lists
     pub warnings: Vec<Warning>,
     pub models: Option<ModelUse>,            // { jev: Usage, claude: Usage } with calls, cache_hits, cost_usd; None when both call counts are 0
     pub model_requests: Vec<ModelRequestRef>,// session backend: { id, purpose, sha256, rerun: Handle }; rerun is the exact command the
@@ -239,7 +241,8 @@ A code that only a person can clear has retry `never` and names the card or comm
 | `unresolved_ref` | an alias or a linker join had zero or several candidates; no edge was made |
 | `evidence_dropped` | an evidence item failed verification at ingest; `details {repo, count, items}`, where `items` is a sample of the dropped items |
 | `partial_parse` | files parsed with error nodes, so their facts are weak; `details {repo, count, paths}`, where `paths` is a sample: the first 10 in sorted order (DR-86) |
-| `partial_scan` | an extractor reached its file or byte bound, or a partial clone lacks blobs, which a scan never fetches; `details {extractor, repo, count, uncovered}`, where `count` counts every uncovered file and `uncovered` is a sample: the first 10 in sorted order (DR-86) |
+| `partial_scan` | an extractor reached its file or byte bound, or a partial clone lacks blobs, which a scan never fetches; `details {extractor, repo, count, uncovered}`, where `count` counts every uncovered file and `uncovered` is a sample: the first 10 in sorted order (DR-86). `focus` repeats it for each repo whose active snapshot's scan was cut, from the count the scan event keeps, with `uncovered` empty |
+| `unnamed_paths` | files whose paths aren't UTF-8, or hold a newline or a backslash, which no node ID can name, so the scan reports them and doesn't map them; `details {repo, count, paths}`, where `paths` is a sample: the first 10 in sorted order, each escaped (`\xe9` for a byte that isn't UTF-8, `\n`, `\\`) |
 | `deterministic_fallback` | no model was reachable, allowed or within budget; deterministic tiers, `low` kinds keep their default and cards pre-select it |
 | `workspace_untrusted` | the workspace's `.planroom/` is untrusted, so its config wasn't loaded; `details {card}` |
 | `config_key_ignored` | a user-level key in a workspace's config, or `api_key` in a user-level config that isn't mode 0600; `details {file, key}` |
@@ -579,7 +582,9 @@ pub enum EventBody {
            renames: Vec<Rename>,                            // { from: NodeId, to: NodeId }: git's renames since the last
                                                             // snapshot, files and wholly moved directories; the fold
                                                             // resolves a vanished edit target through them (DR-74)
-           stats: ScanStats,
+           stats: ScanStats,                                // { files, nodes, edges, hints, partial, uncovered }; uncovered,
+                                                            // left out when 0, counts the files the walk didn't cover, so a
+                                                            // later focus still says the repo is partly mapped
            reconcile: Option<ReconcileOutcome> },          // on the last scan event of a scan's transaction
     Handoff(HandoffStep),
     Card(Card),                                             // a card a write dealt; open while no Review names it (DR-89)

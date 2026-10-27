@@ -20,9 +20,10 @@ use planroom_kernel::{facts, keys};
 use planroom_store::{FactRow, Init, RepoOutcome, RepoScan, ScanKey, ScanRules, ScanWrite, Shape, Store};
 use serde_json::{Value, json};
 
+use crate::app::dirty::Dirty;
 use crate::app::error::AppError;
 use crate::app::workspace::{self, Repo, Workspace};
-use crate::app::{Reply, map, new_event_id};
+use crate::app::{Paged, Reply, map, new_event_id};
 use crate::packs::{self, Loaded, Run};
 use crate::{clock, config, text};
 
@@ -46,8 +47,12 @@ pub struct Prepared {
     warnings: Vec<Warning>,
 }
 
-pub fn run(req: &ScanReq, cwd: &Path) -> Result<Reply<ScanResult>, AppError> {
-    commit(prepare(req, cwd)?)
+/// A scan, with the repos whose uncommitted work it didn't map: it reads `HEAD`'s tree, never the
+/// working tree, so its reply says what that left out (DR-71, DR-85).
+pub fn run(req: &ScanReq, cwd: &Path) -> Result<Paged<ScanResult>, AppError> {
+    let prepared = prepare(req, cwd)?;
+    let dirty = Dirty::of(&prepared.ws);
+    Ok(Paged { dirty, ..Paged::whole(commit(prepared)?) })
 }
 
 /// Discover the workspace and extract each repo at its `HEAD`. Nothing is written yet.
@@ -338,6 +343,20 @@ fn extract(
         commit: head.commit.clone(),
         blobs: walked.blobs.clone(),
     };
+    if !walked.unnamed.is_empty() {
+        warnings.push(Warning {
+            code: WarningCode::UnnamedPaths,
+            message: text::get(
+                "warning.unnamed_paths",
+                &[("count", &walked.unnamed.len()), ("repo", &repo.name)],
+            ),
+            details: json!({
+                "repo": repo.name,
+                "count": walked.unnamed.len(),
+                "paths": walked.unnamed.iter().take(WARNING_SAMPLE).collect::<Vec<_>>(),
+            }),
+        });
+    }
     if !walked.uncovered.is_empty() {
         warnings.push(Warning {
             code: WarningCode::PartialScan,
@@ -399,6 +418,7 @@ fn extract(
         edges: 0,
         hints: 0,
         partial: partial.len() as u32,
+        uncovered: walked.uncovered.len() as u32,
     };
     let (facts, stats) = rows(batches, stats).map_err(RepoError::App)?;
     Ok(RepoScan {

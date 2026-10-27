@@ -280,7 +280,7 @@ fn answer(root: &Path, command: &str, request: Value) -> Answer {
     // of the page after it, which a read request passes back as its `cursor`, and the reply's
     // warnings, such as `stale_page` for a cursor from a map that has moved on.
     match map::run(&req, root) {
-        Ok(Paged { reply, next }) => {
+        Ok(Paged { reply, next, .. }) => {
             let mut view = reply.result;
             redact::map_view(&mut view, false);
             let mut answer = Answer {

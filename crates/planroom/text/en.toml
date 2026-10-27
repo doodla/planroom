@@ -84,6 +84,7 @@ cursor_filters = "This cursor came from a map with other flags; run map with the
 evidence_dropped = "{count} evidence items in {repo} didn't match commit {commit} and were dropped."
 partial_scan = "{count} files in {repo} weren't scanned by {extractor}: past its bound, or missing from a partial clone."
 partial_parse = "{count} files in {repo} couldn't be read in full."
+unnamed_paths = "{count} files in {repo} have paths that aren't UTF-8, or hold a newline or a backslash, so they aren't on the map."
 workspace_nested = "Another workspace sits inside this one, at {other_root}; the two stay apart."
 repo_unborn = "{repo} has no commits yet; it maps after its first commit."
 repo_skipped_other_owner = "Another user owns {repo}, so git won't read it and this scan left it out. {fix}"
@@ -340,3 +341,10 @@ check_evidence = "{count} evidence lines match their input files"
 check_evals = "{count} eval case files read"
 summary = "Pack {id} version {version} passes {count} checks."
 needs_pack = "doctor runs one check in this build, a pack's: pass --pack DIR"
+
+# The line that names the repos with uncommitted work, which never reaches the map (DR-71, DR-85).
+[dirty]
+one = "{repo}: {files} uncommitted files aren't on the map."
+one_file = "{repo}: 1 uncommitted file isn't on the map."
+repo = "{repo} ({files})"
+many = "{count} repos have uncommitted files that aren't on the map: {names}."

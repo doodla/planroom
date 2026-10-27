@@ -118,11 +118,12 @@ pub fn main() -> ExitCode {
     match command {
         Cmd::Scan(req) => {
             let name = Command::Scan(req.clone()).name();
-            finish(cli.json, &name.0, app::scan::run(&req, &cwd), started)
+            finish_paged(cli.json, &name.0, app::scan::run(&req, &cwd), started)
         }
         Cmd::Map(req) => {
             let name = Command::Map(req.clone()).name();
-            finish_paged(cli.json, &name.0, app::map::run(&req, &cwd), started)
+            let map = app::map::run(&req, &cwd).map(|page| app::dirty::attach(page, &cwd));
+            finish_paged(cli.json, &name.0, map, started)
         }
         Cmd::Find(req) => {
             let name = Command::Find(req.clone()).name();
@@ -130,7 +131,7 @@ pub fn main() -> ExitCode {
         }
         Cmd::Focus(req) => {
             let name = Command::Focus(req.clone()).name();
-            finish(cli.json, &name.0, app::focus::run(&req, &cwd), started)
+            finish_paged(cli.json, &name.0, app::focus::run(&req, &cwd), started)
         }
         Cmd::Watch(req) => watch(cli.json, &req, &cwd),
         Cmd::Schema(req) => {
@@ -174,7 +175,7 @@ pub(crate) fn finish<T: Serialize>(
     reply: Result<Reply<T>, AppError>,
     started: Instant,
 ) -> ExitCode {
-    finish_paged(json, command, reply.map(|reply| Paged { reply, next: None }), started)
+    finish_paged(json, command, reply.map(Paged::whole), started)
 }
 
 /// [`finish`] for a page, whose envelope carries the cursor of the page after it in `meta.next`.
@@ -187,15 +188,22 @@ pub(crate) fn finish_paged<T: Serialize>(
     let took_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
     let raw = json && raw_for(command);
     let (code, out) = match reply {
-        Ok(Paged { reply, next }) => {
+        Ok(Paged { reply, next, dirty }) => {
             let line = if json {
                 let summary = summary_of(&reply.text);
                 let budget = budget_of(command);
-                let meta =
-                    Meta { seq: reply.seq, took_ms, next, warnings: reply.warnings, ..Meta::default() };
+                let meta = Meta {
+                    seq: reply.seq,
+                    took_ms,
+                    next,
+                    warnings: reply.warnings,
+                    dirty_repos: dirty.repos,
+                    more_dirty_repos: dirty.more,
+                    ..Meta::default()
+                };
                 envelope_within(command, &reply.result, meta, summary, budget, raw)
             } else {
-                sanitize_lines(&redact::text(&reply.text))
+                sanitize_lines(&redact::text(&text_of(&reply.text, &reply.warnings, &dirty)))
             };
             (ExitCode::SUCCESS, line)
         }
@@ -217,6 +225,23 @@ pub(crate) fn finish_paged<T: Serialize>(
     let mut stdout = std::io::stdout().lock();
     let _ = writeln!(stdout, "{out}").and_then(|()| stdout.flush());
     code
+}
+
+/// What text mode prints: the reply's lines, then each warning and the line naming the repos
+/// with uncommitted work, unless the reply's own lines already say it, so a person at a terminal
+/// learns what a scan skipped or left uncovered, as `--json` says in `meta`.
+fn text_of(text: &str, warnings: &[Warning], dirty: &app::dirty::Dirty) -> String {
+    let mut out = text.to_owned();
+    let lines = warnings.iter().map(|w| w.message.clone()).chain(dirty.line());
+    for line in lines {
+        if !out.lines().any(|said| said == line) {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&line);
+        }
+    }
+    out
 }
 
 /// The envelope's `summary`: the first line text mode prints, display-sanitized.

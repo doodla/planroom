@@ -145,6 +145,22 @@ impl<'a> Snapshot<'a> {
         Ok(events_after(&self.tx, before, 1)?.into_iter().find(|e| e.seq == seq))
     }
 
+    /// Each repo's last `scan` event, the one that made its active snapshot active, by repo: what
+    /// that scan recorded about the snapshot, such as the files its walk didn't cover.
+    pub fn active_scans(&self) -> Result<Vec<Event>, StoreError> {
+        let mut stmt = self.tx.prepare(
+            "SELECT seq, id, idem, request_hash, at, actor, client, project, cause, status, body
+             FROM events WHERE seq IN (SELECT MAX(seq) FROM events WHERE kind = 'scan' GROUP BY target)
+             ORDER BY target",
+        )?;
+        let rows = stmt.query_map([], raw_event)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?.decode()?);
+        }
+        Ok(out)
+    }
+
     /// One `meta` value, such as the `workspace_id` that names this store.
     pub fn meta(&self, key: &str) -> Result<Option<String>, StoreError> {
         Ok(self.tx.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)).optional()?)

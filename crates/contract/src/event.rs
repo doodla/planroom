@@ -346,6 +346,15 @@ pub struct ScanStats {
     pub hints: u32,
     /// Files parsed with error nodes.
     pub partial: u32,
+    /// Files the walk didn't cover: past its file or byte bound, or missing from a partial
+    /// clone. The scan's `partial_scan` warning names them; this count keeps the cut with the
+    /// scan, so a later read says the repo is partly mapped.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub uncovered: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// One step of the hand-off loop.

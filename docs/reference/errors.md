@@ -63,8 +63,8 @@ A warning never changes the exit code.
 | `truncated` | the result hit its budget; the summary and first page are kept | `kept`, `total`, `budget_tokens`, `next`, `left_out`, `codes` |
 | `unresolved_ref` | an alias or a linker join had zero or several candidates; no edge was made | none |
 | `evidence_dropped` | an evidence item failed verification at ingest | `repo` (masked), `count`, `items` |
-| `partial_parse` | files parsed with error nodes, so their facts are weak; details name the repo, the count and the first 10 paths in sorted order | `repo` (masked), `count`, `paths` |
-| `partial_scan` | an extractor reached its file or byte bound, or a partial clone lacks some blobs; details name the extractor, the repo, the count of uncovered files and the first 10 in sorted order | `extractor`, `repo` (masked), `count`, `uncovered` |
+| `partial_parse` | files parsed with error nodes, so their facts are weak; details name the repo, the count and the first 10 paths in sorted order | `repo` (masked), `count`, `paths` (masked) |
+| `partial_scan` | an extractor reached its file or byte bound, or a partial clone lacks some blobs; details name the extractor, the repo, the count of uncovered files and the first 10 in sorted order | `extractor`, `repo` (masked), `count`, `uncovered` (masked) |
 | `workspace_nested` | another workspace's .planroom/ sits inside this one, or this one inside it; details name the other root | `other_root` |
 | `repo_unborn` | a repo has no commit yet, so it maps nothing until its first commit; details name the repo and its branch | `repo` (masked), `branch` |
 | `repo_skipped` | git couldn't read a repo, so the scan left it out and its last map stays; details name the repo, the reason (other_owner or git_failed) and the fix | `repo` (masked), `reason`, `fix` |
@@ -85,3 +85,4 @@ A warning never changes the exit code.
 | `temporary_host` | this host loses its files with its container, so a redacted copy of the backup is also kept at a local ref | `repo` (masked), `ref` |
 | `reconcile_paused` | a repo's HEAD moved other than forward along its tracked branch, so the map follows it and the reconciler skipped it | `repo` (masked), `head`, `tracked_branch`, `reason` |
 | `duty_failed` | a background duty failed and hasn't succeeded since; details name the duty, when, and its log under the data root | `duty`, `at`, `log` |
+| `unnamed_paths` | files whose paths aren't UTF-8, or hold a newline or a backslash, which no node ID can name, so they aren't mapped; details name the repo, the count and the first 10 paths in sorted order, escaped | `repo` (masked), `count`, `paths` (masked) |

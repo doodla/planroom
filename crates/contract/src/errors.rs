@@ -263,10 +263,10 @@ warning_codes! {
         redact ["repo"];
     PartialParse = "partial_parse",
         "files parsed with error nodes, so their facts are weak; details name the repo, the count and the first 10 paths in sorted order",
-        ["repo", "count", "paths"] redact ["repo"];
+        ["repo", "count", "paths"] redact ["repo", "paths"];
     PartialScan = "partial_scan",
         "an extractor reached its file or byte bound, or a partial clone lacks some blobs; details name the extractor, the repo, the count of uncovered files and the first 10 in sorted order",
-        ["extractor", "repo", "count", "uncovered"] redact ["repo"];
+        ["extractor", "repo", "count", "uncovered"] redact ["repo", "uncovered"];
     WorkspaceNested = "workspace_nested",
         "another workspace's .planroom/ sits inside this one, or this one inside it; details name the other root",
         ["other_root"];
@@ -312,6 +312,9 @@ warning_codes! {
     DutyFailed = "duty_failed",
         "a background duty failed and hasn't succeeded since; details name the duty, when, and its log under the data root",
         ["duty", "at", "log"];
+    UnnamedPaths = "unnamed_paths",
+        "files whose paths aren't UTF-8, or hold a newline or a backslash, which no node ID can name, so they aren't mapped; details name the repo, the count and the first 10 paths in sorted order, escaped",
+        ["repo", "count", "paths"] redact ["repo", "paths"];
 }
 
 impl JsonSchema for WarningCode {

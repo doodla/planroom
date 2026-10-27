@@ -3,6 +3,7 @@
 
 pub mod actor;
 pub mod data;
+pub mod dirty;
 pub mod doctor;
 pub mod error;
 pub mod find;
@@ -51,6 +52,16 @@ pub struct Reply<T> {
 pub struct Paged<T> {
     pub reply: Reply<T>,
     pub next: Option<Cursor>,
+    /// The repos with uncommitted work, which `meta.dirty_repos` carries: on `scan`, `focus` and
+    /// `map` only.
+    pub dirty: dirty::Dirty,
+}
+
+impl<T> Paged<T> {
+    /// A whole reply: no page after it, and no repos with uncommitted work named.
+    pub fn whole(reply: Reply<T>) -> Paged<T> {
+        Paged { reply, next: None, dirty: dirty::Dirty::default() }
+    }
 }
 
 /// A fresh event ID: a UUID v7.

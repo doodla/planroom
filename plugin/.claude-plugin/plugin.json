@@ -1,6 +1,6 @@
 {
   "name": "planroom",
-  "version": "0.1.0-dev.g8f531673",
+  "version": "0.1.0-dev.g6a19ed3f",
   "description": "A shared, living map of your system, with a pane, /room and tools for planning with Claude.",
   "author": { "name": "Sridhar Vadlamani" },
   "license": "MIT",

@@ -36,6 +36,9 @@ pub const PATHS: &[(&str, &[&str])] = &[
         "hunk",
         "summary",
     ]),
+    ("DirtyRepo", &[
+        "repo",
+    ]),
     ("DriftLine", &[
         "summary",
     ]),
@@ -48,6 +51,7 @@ pub const PATHS: &[(&str, &[&str])] = &[
     ]),
     ("Envelope", &[
         "error.message",
+        "meta.dirty_repos[].repo",
         "meta.warnings[].message",
         "summary",
     ]),
@@ -117,6 +121,7 @@ pub const PATHS: &[(&str, &[&str])] = &[
         "nodes[].name",
     ]),
     ("Meta", &[
+        "dirty_repos[].repo",
         "warnings[].message",
     ]),
     ("MiniBlock", &[
@@ -252,11 +257,12 @@ pub const ERROR_DETAILS: &[(&str, &[&str])] = &[
 #[rustfmt::skip]
 pub const WARNING_DETAILS: &[(&str, &[&str])] = &[
     ("evidence_dropped", &["repo"]),
-    ("partial_parse", &["repo"]),
-    ("partial_scan", &["repo"]),
+    ("partial_parse", &["repo", "paths"]),
+    ("partial_scan", &["repo", "uncovered"]),
     ("repo_unborn", &["repo"]),
     ("repo_skipped", &["repo"]),
     ("scan_superseded", &["repo"]),
     ("temporary_host", &["repo"]),
     ("reconcile_paused", &["repo"]),
+    ("unnamed_paths", &["repo", "paths"]),
 ];

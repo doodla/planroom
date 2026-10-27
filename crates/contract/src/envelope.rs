@@ -59,10 +59,14 @@ pub struct Meta {
     /// A replay of a derived key: the original `seq`; pass a new `--idem` to repeat the write.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replayed_from: Option<Seq>,
-    /// `focus` and `map` only: the repos with uncommitted changes, untracked files included,
-    /// which never reach the map.
+    /// `scan`, `focus` and `map` only: the repos with uncommitted changes, untracked files
+    /// included, which never reach the map. At most the first 5 by name; `more_dirty_repos`
+    /// counts the rest.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dirty_repos: Vec<DirtyRepo>,
+    /// The repos with uncommitted changes past those `dirty_repos` lists.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub more_dirty_repos: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<Warning>,
     /// Absent when no model was called.
@@ -121,6 +125,8 @@ pub struct Usage {
 /// A repo with uncommitted changes: `orders: 3 uncommitted files aren't on the map`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DirtyRepo {
+    /// The repo's name, which comes from its directory.
+    #[schemars(extend("x-redact" = true))]
     pub repo: String,
     /// Changed and untracked files `git status` lists, `.gitignore` honoured.
     pub files: u32,

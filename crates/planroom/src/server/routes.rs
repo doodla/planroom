@@ -200,7 +200,7 @@ fn guard(state: &State, headers: &HeaderMap, get_request: bool, bearer: bool) ->
 
 /// An envelope with the HTTP status its error's category maps to.
 fn reply<T: Serialize>(command: &str, result: Result<Reply<T>, AppError>, started: Instant) -> Response {
-    reply_paged(command, result.map(|reply| Paged { reply, next: None }), started)
+    reply_paged(command, result.map(Paged::whole), started)
 }
 
 /// [`reply`] for a page: `meta.next` carries the cursor of the page after it.
@@ -211,9 +211,17 @@ fn reply_paged<T: Serialize>(
 ) -> Response {
     let took_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
     let (status, body) = match result {
-        Ok(Paged { reply: r, next }) => {
+        Ok(Paged { reply: r, next, dirty }) => {
             let summary = cli::summary_of(&r.text);
-            let meta = Meta { seq: r.seq, took_ms, next, warnings: r.warnings, ..Meta::default() };
+            let meta = Meta {
+                seq: r.seq,
+                took_ms,
+                next,
+                warnings: r.warnings,
+                dirty_repos: dirty.repos,
+                more_dirty_repos: dirty.more,
+                ..Meta::default()
+            };
             (StatusCode::OK, cli::envelope_with(command, Some(&r.result), None, meta, summary))
         }
         Err(e) => {
@@ -436,9 +444,12 @@ fn dispatch(name: &str, body: Value, root: &Path, started: Instant) -> Response 
     }
     match name {
         "map" => {
-            reply_paged(name, parse::<MapReq>(body).and_then(|req| app::map::for_canvas(&req, root)), started)
+            let map = parse::<MapReq>(body).and_then(|req| app::map::for_canvas(&req, root));
+            reply_paged(name, map.map(|page| app::dirty::attach(page, root)), started)
         }
-        "focus" => reply(name, parse::<FocusReq>(body).and_then(|req| app::focus::run(&req, root)), started),
+        "focus" => {
+            reply_paged(name, parse::<FocusReq>(body).and_then(|req| app::focus::run(&req, root)), started)
+        }
         "scan" => {
             let ran = parse::<ScanReq>(body).and_then(|mut req| {
                 if let Some(dir) = req.dir.take() {
@@ -449,7 +460,7 @@ fn dispatch(name: &str, body: Value, root: &Path, started: Instant) -> Response 
                 }
                 app::scan::run(&req, root)
             });
-            reply(name, ran, started)
+            reply_paged(name, ran, started)
         }
         other => {
             let what = text::get("argument.http_command", &[("command", &other)]);

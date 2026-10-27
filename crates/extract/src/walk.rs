@@ -73,8 +73,12 @@ pub struct Walked {
     /// The files whose blob this partial clone doesn't hold, sorted. Which blobs a clone holds
     /// changes what the walk reads, so this list is part of a snapshot's key.
     pub missing: Vec<String>,
-    /// Files skipped as too large, binary, or with a path that isn't plain UTF-8.
+    /// Files skipped as too large or binary.
     pub skipped: u32,
+    /// Files whose path no node ID can name: not UTF-8, or holding a newline or a backslash.
+    /// They aren't mapped, so the scan reports them: each path escaped (`\xe9` for a byte that
+    /// isn't UTF-8, `\n`, `\\`), in sorted order of the raw paths.
+    pub unnamed: Vec<String>,
     /// The contents of `files`, read from the commit's blobs.
     pub blobs: Blobs,
 }
@@ -130,6 +134,7 @@ pub fn walk(git: &Git, commit: &str, exclude: &Exclude) -> Result<Walked, GitErr
     let ignores = Ignores::read(&entries, &mut objects)?;
 
     let mut skipped = 0;
+    let mut unnamed: Vec<&[u8]> = Vec::new();
     let mut missing = Vec::new();
     let mut found: Vec<(String, &Entry, u64)> = Vec::new();
     for entry in &entries {
@@ -139,7 +144,7 @@ pub fn walk(git: &Git, commit: &str, exclude: &Exclude) -> Result<Walked, GitErr
         let Some(rel) =
             std::str::from_utf8(&entry.path).ok().filter(|r| !r.contains('\n') && !r.contains('\\'))
         else {
-            skipped += 1;
+            unnamed.push(entry.path.as_slice());
             continue;
         };
         // Left out whole: neither read, nor counted against a bound, nor reported as uncovered.
@@ -158,8 +163,10 @@ pub fn walk(git: &Git, commit: &str, exclude: &Exclude) -> Result<Walked, GitErr
     }
     found.sort_by(|a, b| a.0.cmp(&b.0));
     missing.sort();
+    unnamed.sort();
 
-    let mut walked = Walked { skipped, ..Walked::default() };
+    let unnamed = unnamed.into_iter().map(escape).collect();
+    let mut walked = Walked { skipped, unnamed, ..Walked::default() };
     let mut blobs = BTreeMap::new();
     let mut total = 0u64;
     for (path, entry, _) in found {
@@ -188,6 +195,25 @@ pub fn walk(git: &Git, commit: &str, exclude: &Exclude) -> Result<Walked, GitErr
         walked.missing = missing;
     }
     Ok(walked)
+}
+
+/// A raw path as text that names it: UTF-8 kept, every byte that isn't UTF-8 as `\\xNN`, and a
+/// newline and a backslash escaped, so two paths never read the same.
+fn escape(path: &[u8]) -> String {
+    let mut out = String::with_capacity(path.len());
+    for chunk in path.utf8_chunks() {
+        for c in chunk.valid().chars() {
+            match c {
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                c => out.push(c),
+            }
+        }
+        for byte in chunk.invalid() {
+            out.push_str(&format!("\\x{byte:02x}"));
+        }
+    }
+    out
 }
 
 /// The tree's regular files, from `ls-tree -r -z` output, with `-l`'s sizes or without them.
@@ -343,6 +369,31 @@ mod tests {
         assert_eq!(walked.blobs.get("a.txt"), Some(&b"a"[..]), "the commit's contents");
         assert_eq!(walked.blobs.get("a/b/c.txt"), Some(&b"c"[..]));
         assert_eq!(walked.blobs.get("untracked.txt"), None);
+    }
+
+    #[test]
+    fn a_path_no_id_can_name_is_reported_not_dropped() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        git(root, &["init", "-q", "-b", "main"]);
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/ok.py"), "ok = 1\n").unwrap();
+        // Latin-1 `café.py`, and names holding a backslash and a newline.
+        fs::write(root.join(OsStr::from_bytes(b"src/caf\xe9.py")), "x = 1\n").unwrap();
+        fs::write(root.join("src/a\\b.py"), "y = 1\n").unwrap();
+        fs::write(root.join("src/two\nlines.py"), "z = 1\n").unwrap();
+        git(root, &["add", "-A"]);
+        git(root, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"]);
+
+        let git = Git::new(root);
+        let commit = git.head().unwrap().commit;
+        let walked = walk(&git, &commit, &Exclude::none()).unwrap();
+        let paths: Vec<&str> = walked.files.iter().map(|p| p.0.as_str()).collect();
+        assert_eq!(paths, ["src/ok.py"]);
+        assert_eq!(walked.unnamed, ["src/a\\\\b.py", "src/caf\\xe9.py", "src/two\\nlines.py"]);
+        assert_eq!(walked.skipped, 0, "reported, not skipped");
     }
 
     #[test]

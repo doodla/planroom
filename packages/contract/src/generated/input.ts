@@ -152,6 +152,7 @@ export type WarningCode =
       | "temporary_host"
       | "reconcile_paused"
       | "duty_failed"
+      | "unnamed_paths"
     )
   | string;
 /**
@@ -1772,6 +1773,9 @@ export interface DiffLine {
  * via the `definition` "DirtyRepo".
  */
 export interface DirtyRepo {
+  /**
+   * The repo's name, which comes from its directory.
+   */
   repo: string;
   /**
    * Changed and untracked files `git status` lists, `.gitignore` honoured.
@@ -1978,10 +1982,15 @@ export interface Meta {
    */
   replayed_from?: number | null;
   /**
-   * `focus` and `map` only: the repos with uncommitted changes, untracked files included,
-   * which never reach the map.
+   * `scan`, `focus` and `map` only: the repos with uncommitted changes, untracked files
+   * included, which never reach the map. At most the first 5 by name; `more_dirty_repos`
+   * counts the rest.
    */
   dirty_repos?: DirtyRepo[];
+  /**
+   * The repos with uncommitted changes past those `dirty_repos` lists.
+   */
+  more_dirty_repos?: number;
   warnings?: Warning[];
   /**
    * Absent when no model was called.
@@ -2127,6 +2136,12 @@ export interface ScanStats {
    * Files parsed with error nodes.
    */
   partial: number;
+  /**
+   * Files the walk didn't cover: past its file or byte bound, or missing from a partial
+   * clone. The scan's `partial_scan` warning names them; this count keeps the cut with the
+   * scan, so a later read says the repo is partly mapped.
+   */
+  uncovered?: number;
 }
 /**
  * One step of the hand-off loop.

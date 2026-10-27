@@ -304,3 +304,81 @@ fn unknown_options_are_refused() {
     let err = builtin("compose").unwrap().run(&view, &[], &json!({"nope": 1})).unwrap_err();
     assert!(err.to_string().contains("code/compose"), "{err}");
 }
+
+#[test]
+fn evidence_verifies_at_ingest() {
+    let dir = tempfile::tempdir().unwrap();
+    let view = repo(dir.path());
+    let files = walked(&view).files;
+    let mut batch = run(&view, "files", &files, json!(null));
+    let commit = view.commit.clone();
+    let line = |path: &str, line: u32, contains: &str| Evidence::Line {
+        path: path.into(),
+        line,
+        contains: Some(contains.into()),
+        commit: Some(commit.clone()),
+        branch: None,
+    };
+    let at_ref = |commit: &str, ref_name: Option<&str>| Evidence::Ref {
+        commit: commit.into(),
+        ref_name: ref_name.map(str::to_owned),
+    };
+    let missing = "0".repeat(40);
+    let mut cite = |id: &str, evidence: Vec<Evidence>| {
+        batch.nodes.iter_mut().find(|n| n.id.0 == id).unwrap_or_else(|| panic!("no node {id}")).evidence =
+            evidence;
+    };
+    // A line that holds, beside one whose text the commit doesn't hold: the fact keeps the first.
+    cite(
+        "deploy:file:src/app/main.ts",
+        vec![
+            line("deploy/src/app/main.ts", 1, "export const x = 1;"),
+            line("deploy/src/app/main.ts", 1, "export const y = 2;"),
+        ],
+    );
+    // A line past the file's end, a path outside the repo, and a path the commit doesn't hold
+    // (an ignored file in the working tree).
+    cite("deploy:file:docker-compose.yml", vec![line("deploy/docker-compose.yml", 9_999, "services:")]);
+    cite("deploy:file:.gitignore", vec![line("elsewhere/.gitignore", 1, "*.log")]);
+    cite("deploy:file:src/latin1.txt", vec![line("deploy/debug.log", 1, "noise")]);
+    // A commit that exists with a ref that names it; then a ref and a commit that don't exist.
+    cite(
+        "deploy:dir:src/app",
+        vec![at_ref(&commit, Some("refs/heads/main")), at_ref(&commit, Some("refs/heads/gone"))],
+    );
+    cite("deploy:file:src/empty.txt", vec![at_ref(&missing, None)]);
+
+    let refs = Git::new(&view.root).refs().unwrap();
+    let mut verifier =
+        Verifier::new(&view.name, &view.commit, &refs, Git::new(&view.root).objects().unwrap());
+    let dropped = verifier.verify(&mut batch).unwrap();
+    let mut got: Vec<(&str, &str, bool)> =
+        dropped.iter().map(|d| (d.fact.as_str(), d.reason.as_str(), d.fact_dropped)).collect();
+    got.sort();
+    let past = format!("deploy/docker-compose.yml has no line 9999 at {commit}");
+    let differs = format!("line 1 of deploy/src/app/main.ts differs at {commit}");
+    let not_in_commit = format!("deploy/debug.log is not in commit {commit}");
+    let no_commit = format!("commit {missing} doesn't exist");
+    let mut want: Vec<(&str, &str, bool)> = vec![
+        ("deploy:dir:src/app", "ref refs/heads/gone doesn't exist", false),
+        ("deploy:file:.gitignore", "elsewhere/.gitignore is outside repo deploy", true),
+        ("deploy:file:docker-compose.yml", &past, true),
+        ("deploy:file:src/app/main.ts", &differs, false),
+        ("deploy:file:src/empty.txt", &no_commit, true),
+        ("deploy:file:src/latin1.txt", &not_in_commit, true),
+    ];
+    want.sort();
+    assert_eq!(got, want);
+    // A fact left with no evidence goes; one with some left keeps only what holds.
+    let kept: Vec<&str> = batch.nodes.iter().map(|n| n.id.0.as_str()).collect();
+    assert_eq!(
+        kept,
+        ["deploy:dir:src", "deploy:dir:src/app", "deploy:file:src/app/main.ts", "deploy:repo:deploy"]
+    );
+    let node = |id: &str| batch.nodes.iter().find(|n| n.id.0 == id).unwrap();
+    assert_eq!(
+        node("deploy:file:src/app/main.ts").evidence,
+        [line("deploy/src/app/main.ts", 1, "export const x = 1;")]
+    );
+    assert_eq!(node("deploy:dir:src/app").evidence, [at_ref(&commit, Some("refs/heads/main"))]);
+}

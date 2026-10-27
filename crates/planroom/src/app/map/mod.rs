@@ -68,7 +68,7 @@ fn run_within(req: &MapReq, cwd: &Path, budget: Option<u32>) -> Result<Paged<Map
     let vocabulary = crate::packs::vocabulary()?;
     let lens_id = lens::asked(vocabulary, req.lens.as_deref())?;
     let level = level_of(req, vocabulary);
-    let whole = |reply: Reply<MapView>| Paged { reply, next: None };
+    let whole = Paged::whole;
     // Outside a workspace, the same empty state `focus` shows (DR-57).
     let Some(root) = workspace::find_root(cwd) else {
         return read::not_scanned(cwd, lens_id, level, 0).map(whole);
@@ -110,7 +110,8 @@ fn reply_in(
         text.push('\n');
         text.push_str(&warning.message);
     }
-    Ok(Paged { reply: Reply { text, result: page.view, seq, warnings: page.warnings }, next: page.next })
+    let reply = Reply { text, result: page.view, seq, warnings: page.warnings };
+    Ok(Paged { next: page.next, ..Paged::whole(reply) })
 }
 
 /// The level a request shows: the one it names, or with `--lens X` alone and no `--focus`, the

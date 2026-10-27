@@ -5,14 +5,17 @@
 
 use std::path::Path;
 
+use planroom_contract::EventBody;
 use planroom_contract::{
     CommandName, Crumb, DriftLine, Focus, FocusReq, Handle, Level, MiniBlock, MiniMap, NodeId, PaneModel,
-    Progress, ScanState, Seq,
+    Progress, ScanState, Seq, Warning, WarningCode,
 };
 use planroom_store::{Snapshot, Store};
+use serde_json::json;
 
+use crate::app::dirty::Dirty;
 use crate::app::error::AppError;
-use crate::app::{Reply, map, workspace};
+use crate::app::{Paged, Reply, map, workspace};
 use crate::{clock, live, text};
 
 /// Blocks the mini-map holds at most.
@@ -24,25 +27,58 @@ const PRESENT_FOR_MICROS: u64 = 30_000_000;
 /// Presence rows the pane carries.
 const WHO_ROWS: usize = 3;
 
-pub fn run(_req: &FocusReq, cwd: &Path) -> Result<Reply<PaneModel>, AppError> {
+/// The pane, and in a scanned workspace the repos with uncommitted work, which `meta.dirty_repos`
+/// lists and one line of the text names, with no rescan (DR-71, DR-85).
+pub fn run(_req: &FocusReq, cwd: &Path) -> Result<Paged<PaneModel>, AppError> {
     let Some(root) = workspace::find_root(cwd) else {
-        return not_a_workspace(cwd);
+        return not_a_workspace(cwd).map(Paged::whole);
     };
     let Some(store) = Store::open_existing(&workspace::store_path(&root))? else {
-        return not_a_workspace(&root);
+        return not_a_workspace(&root).map(Paged::whole);
     };
-    reply_in(&store, &store.snapshot()?, &root)
+    let mut reply = reply_in(&store, &store.snapshot()?, &root)?;
+    if reply.result.empty.is_some() {
+        return Ok(Paged::whole(reply));
+    }
+    let dirty = Dirty::of_root(&root);
+    reply.text = text_of(&reply.result, dirty.line());
+    Ok(Paged { dirty, ..Paged::whole(reply) })
 }
 
 /// `focus` inside a read transaction the caller holds on `store`, so the rest of what it builds,
-/// such as `share`'s map, comes from the same version of the store as the pane.
+/// such as `share`'s map, comes from the same version of the store as the pane. A repo whose last
+/// scan didn't cover every file keeps its `partial_scan` warning here, so the pane never shows a
+/// partly mapped repo as whole.
 pub fn reply_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<Reply<PaneModel>, AppError> {
     if snapshot.active_set()?.repos.is_empty() {
         return not_a_workspace(root);
     }
     let pane = pane_in(store, snapshot, root)?;
     let seq = pane.focus.seq;
-    Ok(Reply { text: text_of(&pane), result: pane, seq, warnings: vec![] })
+    let warnings = partly_mapped(snapshot)?;
+    Ok(Reply { text: text_of(&pane, None), result: pane, seq, warnings })
+}
+
+/// A `partial_scan` warning for each repo whose active snapshot's scan left files uncovered: the
+/// count its scan event kept. The paths are in that scan's reply alone, so `uncovered` is empty.
+fn partly_mapped(snapshot: &Snapshot<'_>) -> Result<Vec<Warning>, AppError> {
+    let mut warnings = Vec::new();
+    for event in snapshot.active_scans()? {
+        let EventBody::Scan { repo, stats, .. } = event.body else { continue };
+        if stats.uncovered == 0 {
+            continue;
+        }
+        let extractor = planroom_extract::files::NAME;
+        warnings.push(Warning {
+            code: WarningCode::PartialScan,
+            message: text::get(
+                "warning.partial_scan",
+                &[("extractor", &extractor), ("repo", &repo), ("count", &stats.uncovered)],
+            ),
+            details: json!({"extractor": extractor, "repo": repo, "count": stats.uncovered, "uncovered": []}),
+        });
+    }
+    Ok(warnings)
 }
 
 /// The pane of a scanned workspace.
@@ -160,10 +196,12 @@ fn not_a_workspace(dir: &Path) -> Result<Reply<PaneModel>, AppError> {
         minimap: MiniMap { level: Level::System, blocks: vec![], edges: vec![] },
         empty: Some(empty),
     };
-    Ok(Reply { text: text_of(&pane), result: pane, seq: 0, warnings: vec![] })
+    Ok(Reply { text: text_of(&pane, None), result: pane, seq: 0, warnings: vec![] })
 }
 
-fn text_of(pane: &PaneModel) -> String {
+/// The pane as text: where you are, the top's blocks, the repos with uncommitted work when there
+/// are any, the drift line and the next action.
+fn text_of(pane: &PaneModel, dirty: Option<String>) -> String {
     if let Some(empty) = &pane.empty {
         return empty.line.clone().unwrap_or_else(|| empty.next.label.clone());
     }
@@ -176,9 +214,11 @@ fn text_of(pane: &PaneModel) -> String {
             &[("name", &name), ("level", &"system"), ("lens", &pane.focus.lens), ("seq", &seq)],
         ),
         text::get("focus.blocks", &[("count", &blocks.len()), ("names", &blocks.join(", "))]),
-        pane.drift.summary.clone(),
-        text::get("focus.next", &[("label", &pane.next.label)]),
     ]
+    .into_iter()
+    .chain(dirty)
+    .chain([pane.drift.summary.clone(), text::get("focus.next", &[("label", &pane.next.label)])])
+    .collect::<Vec<_>>()
     .join("\n")
 }
 

@@ -205,6 +205,57 @@ impl Git {
             .collect())
     }
 
+    /// How many files this working tree holds that `HEAD` doesn't: changed, staged, deleted and
+    /// untracked, as `git status --porcelain=v1 -z --untracked-files=normal` lists them, with
+    /// `.gitignore` honoured (DR-71, DR-85). It never writes the index (`--no-optional-locks`).
+    ///
+    /// `status` may run a clean filter to compare a file whose stat data changed, so every filter
+    /// the repo's config names is turned off on the command line, as command-line config beats
+    /// the repo's own. A submodule's working tree isn't looked into (`--ignore-submodules=dirty`):
+    /// that would run `status` there under the submodule's own config, whose filters this call
+    /// can't see. A submodule the workspace maps is a repo of its own, and its status is its own;
+    /// a gitlink that moved still counts here.
+    pub fn uncommitted_files(&self) -> Result<u32, GitError> {
+        let args =
+            ["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignore-submodules=dirty"];
+        let mut cmd = self.command(&args);
+        // Through the environment rather than `-c`, which would split a driver name holding `=`.
+        let keys: Vec<String> = self
+            .filter_drivers()?
+            .iter()
+            .flat_map(|name| ["clean", "process"].map(|key| format!("filter.{name}.{key}")))
+            .collect();
+        cmd.env("GIT_CONFIG_COUNT", keys.len().to_string());
+        for (i, key) in keys.iter().enumerate() {
+            cmd.env(format!("GIT_CONFIG_KEY_{i}"), key).env(format!("GIT_CONFIG_VALUE_{i}"), "");
+        }
+        let fail = |stderr: String| GitError { argv: args.iter().map(|a| a.to_string()).collect(), stderr };
+        let out = cmd.output().map_err(|e| fail(e.to_string()))?;
+        if !out.status.success() {
+            return Err(fail(String::from_utf8_lossy(&out.stderr).into_owned()));
+        }
+        Ok(count_status(&out.stdout))
+    }
+
+    /// The names of the filter drivers git's config names a command for, in any scope.
+    fn filter_drivers(&self) -> Result<BTreeSet<String>, GitError> {
+        let args = ["config", "-z", "--name-only", "--get-regexp", r"^filter\..*\.(clean|process)$"];
+        let fail = |stderr: String| GitError { argv: args.iter().map(|a| a.to_string()).collect(), stderr };
+        let out = self.command(&args).output().map_err(|e| fail(e.to_string()))?;
+        match out.status.code() {
+            Some(0) => {}
+            // No key matches.
+            Some(1) => return Ok(BTreeSet::new()),
+            _ => return Err(fail(format!("{}{}", out.status, String::from_utf8_lossy(&out.stderr)))),
+        }
+        let names = out.stdout.split(|b| *b == 0).filter_map(|key| {
+            let key = std::str::from_utf8(key).ok()?;
+            let rest = key.strip_prefix("filter.")?;
+            rest.strip_suffix(".clean").or_else(|| rest.strip_suffix(".process")).map(str::to_owned)
+        });
+        Ok(names.collect())
+    }
+
     /// Every ref name.
     pub fn refs(&self) -> Result<BTreeSet<String>, GitError> {
         Ok(self.run(&["for-each-ref", "--format=%(refname)"])?.lines().map(str::to_owned).collect())
@@ -237,6 +288,20 @@ impl Git {
         let stdout = BufReader::new(child.stdout.take().expect("piped stdout"));
         Ok(Objects { child, stdin: Some(stdin), stdout, contents })
     }
+}
+
+/// The files `git status --porcelain=v1 -z` lists: one NUL-terminated `XY PATH` record each, and
+/// for a rename or a copy, the path it came from in the record after it, which isn't a file more.
+fn count_status(out: &[u8]) -> u32 {
+    let mut records = out.split(|b| *b == 0).filter(|r| !r.is_empty());
+    let mut count = 0;
+    while let Some(record) = records.next() {
+        count += 1;
+        if record.iter().take(2).any(|b| matches!(b, b'R' | b'C')) {
+            records.next();
+        }
+    }
+    count
 }
 
 /// Reads objects by name through one `git cat-file --batch` (or `--batch-check`) process.
@@ -426,6 +491,68 @@ mod tests {
         }
         git(&repo, &["config", "protocol.allow", "always"]);
         assert_eq!(adapter.run(&["config", "--get", "protocol.allow"]).unwrap().trim(), "never");
+    }
+
+    #[test]
+    fn uncommitted_files_count_changes_renames_and_untracked_files_but_not_ignored_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("r");
+        std::fs::create_dir_all(&repo).unwrap();
+        for (path, text) in [("a.txt", "a\n"), ("b.txt", "b\n"), ("c.txt", "c\n"), (".gitignore", "*.log\n")]
+        {
+            std::fs::write(repo.join(path), text).unwrap();
+        }
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["add", "."]);
+        git(&repo, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "First"]);
+        let adapter = Git::new(&repo);
+        assert_eq!(adapter.uncommitted_files().unwrap(), 0);
+        std::fs::write(repo.join("a.txt"), "changed\n").unwrap();
+        git(&repo, &["mv", "b.txt", "renamed.txt"]);
+        std::fs::remove_file(repo.join("c.txt")).unwrap();
+        std::fs::write(repo.join("new file.txt"), "n\n").unwrap();
+        std::fs::write(repo.join("debug.log"), "ignored\n").unwrap();
+        // The change, the rename (one file, though it names two paths), the deletion and the
+        // untracked file; never the ignored one.
+        assert_eq!(adapter.uncommitted_files().unwrap(), 4);
+    }
+
+    #[test]
+    fn counting_uncommitted_files_runs_no_filter_the_repo_or_a_submodule_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let mark = dir.path().join("ran");
+        let filter = format!("sh -c 'echo ran >> {}; cat'", mark.display());
+        // A submodule whose own config names a filter for its every file.
+        let sub = dir.path().join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join(".gitattributes"), "* filter=sub\n").unwrap();
+        std::fs::write(sub.join("s.txt"), "s\n").unwrap();
+        git(&sub, &["init", "-q", "-b", "main"]);
+        git(&sub, &["add", "."]);
+        git(&sub, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "First"]);
+        // A repo whose config names one too, under a name that holds `=`, and the submodule.
+        let top = dir.path().join("top");
+        std::fs::create_dir_all(&top).unwrap();
+        std::fs::write(top.join(".gitattributes"), "*.txt filter=x=y\n").unwrap();
+        std::fs::write(top.join("t.txt"), "t\n").unwrap();
+        git(&top, &["init", "-q", "-b", "main"]);
+        git(&top, &["add", "."]);
+        git(&top, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "First"]);
+        let url = sub.display().to_string();
+        git(&top, &["-c", "protocol.file.allow=always", "submodule", "add", "-q", &url, "sub"]);
+        git(&top, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "Sub"]);
+        git(&top, &["config", "filter.x=y.clean", &filter]);
+        git(&top.join("sub"), &["config", "filter.sub.clean", &filter]);
+        // Changed files, so status compares their contents.
+        std::fs::write(top.join("t.txt"), "changed\n").unwrap();
+        std::fs::write(top.join("sub/s.txt"), "changed\n").unwrap();
+
+        assert_eq!(Git::new(&top).uncommitted_files().unwrap(), 1, "t.txt; the submodule counts its own");
+        assert_eq!(Git::new(&top.join("sub")).uncommitted_files().unwrap(), 1);
+        assert!(!mark.exists(), "a filter the repo's config names ran");
+        // The control: plain git status runs both.
+        git(&top, &["status", "--porcelain"]);
+        assert!(mark.exists(), "the control: plain status runs the filters");
     }
 
     /// A repo whose `.git/config` ends with `extra`.

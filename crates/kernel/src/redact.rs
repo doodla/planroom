@@ -601,7 +601,11 @@ mod tests {
         // The engine lines that name repo text: a reply's summary, an empty state's line, and
         // the lines of warnings, errors and stream frames; never the handle beside them.
         assert_eq!(paths("Empty"), ["line"]);
-        assert_eq!(paths("Envelope"), ["error.message", "meta.warnings[].message", "summary"]);
+        // A dirty repo's name is repo text too, though the line naming it is the reply's own.
+        assert_eq!(
+            paths("Envelope"),
+            ["error.message", "meta.dirty_repos[].repo", "meta.warnings[].message", "summary"]
+        );
         assert_eq!(paths("StreamFrame"), ["summary"]);
     }
 
