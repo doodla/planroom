@@ -12,9 +12,9 @@ use std::time::Instant;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
-    Command, CommandName, Envelope, ErrorCode, FocusReq, Handle, ImportReq, MapReq, Meta, PersonInitReq,
-    SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq, ShareReq, Size, StreamFrame, VersionReq, Warning,
-    WarningCode, WatchReq,
+    Command, CommandName, DoctorReq, Envelope, ErrorCode, FocusReq, Handle, ImportReq, MapReq, Meta,
+    PersonInitReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq, ShareReq, Size, StreamFrame,
+    VersionReq, Warning, WarningCode, WatchReq,
 };
 use planroom_kernel::display::{sanitize, sanitize_lines};
 use planroom_store::{Store, Tail};
@@ -61,12 +61,36 @@ enum Cmd {
     Share(ShareReq),
     /// Import Artifact inbox rows from stdin, one {path, row} per line; answers read requests.
     Import(ImportReq),
+    /// Check a pack with --pack DIR: validation, its conformance kit and a second run for determinism.
+    Doctor(DoctorReq),
 }
 
 #[derive(Subcommand)]
 enum PersonCmd {
     /// Register this workspace's person key, read from stdin; --rekey replaces it.
     Init(PersonInitReq),
+}
+
+/// The catalogue leaf `command` with `args`, parsed by the same clap tree as the CLI's own argv:
+/// how the engine reads a pack suggestion's action, so an action that loads is one the CLI runs.
+pub fn parse_leaf(command: &str, args: &[String]) -> Result<Command, clap::Error> {
+    let argv = std::iter::once("planroom").chain(command.split(' ')).chain(args.iter().map(String::as_str));
+    let Some(cmd) = Cli::try_parse_from(argv)?.command else {
+        return Err(Cli::command().error(ErrorKind::MissingSubcommand, "a command is required"));
+    };
+    Ok(match cmd {
+        Cmd::Scan(req) => Command::Scan(req),
+        Cmd::Map(req) => Command::Map(req),
+        Cmd::Focus(req) => Command::Focus(req),
+        Cmd::Watch(req) => Command::Watch(req),
+        Cmd::Schema(req) => Command::Schema(req),
+        Cmd::Version(req) => Command::Version(req),
+        Cmd::Serve(req) => Command::Serve(req),
+        Cmd::Person(PersonCmd::Init(req)) => Command::PersonInit(req),
+        Cmd::Share(req) => Command::Share(req),
+        Cmd::Import(req) => Command::Import(req),
+        Cmd::Doctor(req) => Command::Doctor(req),
+    })
 }
 
 pub fn main() -> ExitCode {
@@ -118,6 +142,11 @@ pub fn main() -> ExitCode {
         Cmd::Import(req) => {
             let name = Command::Import(req.clone()).name();
             let reply = app::import::run(&req, &cwd, &caller, &mut std::io::stdin().lock());
+            finish(cli.json, &name.0, reply, started)
+        }
+        Cmd::Doctor(req) => {
+            let name = Command::Doctor(req.clone()).name();
+            let reply = app::doctor::Check::of(&req, &cwd).and_then(|check| app::doctor::run(check, &cwd));
             finish(cli.json, &name.0, reply, started)
         }
         Cmd::Version(req) => {

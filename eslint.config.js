@@ -17,6 +17,8 @@ export default defineConfig(
       "plugin/.claude-plugin/types/",
       ".dependency-cruiser.cjs",
       "examples/",
+      // A pack's conformance inputs are files for its extractors to read, not code that runs.
+      "packs/*/tests/inputs/",
       "docs/",
       ".claude/",
     ],

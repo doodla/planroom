@@ -59,3 +59,16 @@ fn schema_alone_names_the_id_and_the_commands_handle() {
     assert!(result["id"].as_str().unwrap().ends_with("schema/planroom.v1.schema.json"));
     assert_eq!(result["handles"][0]["args"][0], "--commands");
 }
+
+#[test]
+fn version_reports_its_git_commit() {
+    // build.rs stamps the checkout's HEAD when the build environment names no commit, and
+    // rebuilds when HEAD moves, so the binary names the commit it was built from.
+    let head = Command::new("git").args(["rev-parse", "HEAD"]).current_dir(repo_root()).output().unwrap();
+    assert!(head.status.success());
+    let head = String::from_utf8(head.stdout).unwrap().trim().to_owned();
+    let info = &json(&["version", "--json"])["result"];
+    let expected = std::env::var("PLANROOM_GIT_COMMIT").ok().filter(|c| !c.trim().is_empty()).unwrap_or(head);
+    assert_eq!(info["git_commit"], expected.as_str(), "{info}");
+    assert_eq!(info["git_commit"].as_str().unwrap().len(), 40);
+}

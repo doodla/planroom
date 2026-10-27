@@ -9,6 +9,12 @@ use planroom_contract::{Evidence, FactBatch};
 use crate::git::{GitError, Objects};
 use crate::lines;
 
+/// Whether line `line` of `text` is what an `Evidence::Line` whose `contains` is `contains` cites,
+/// as ingest checks it against a blob.
+pub fn line_holds(text: &str, line: u32, contains: &str) -> bool {
+    lines::line(text, line).map(lines::cut).as_deref() == Some(contains)
+}
+
 /// One fact or evidence item verification removed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dropped {

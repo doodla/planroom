@@ -10,14 +10,14 @@ use crate::{
     Snapshot,
 };
 use crate::{
-    AskReq, AskResult, Config, EditReq, FindReq, FindResult, IntentNextReq, LintReq, PackFile, ProposeReq,
-    ReviewReq,
+    AskReq, AskResult, Config, EditReq, FindReq, FindResult, IntentNextReq, LintReq, PackFile, PackRecord,
+    PackReport, ProposeReq, ReviewReq,
 };
 use crate::{
-    CodeReq, Command, CommandList, DrainReq, Edge, Envelope, ErrorCode, ErrorObject, Event, Evidence,
-    FactBatch, FocusReq, Hint, LayoutPut, LeafSchema, MapReq, MapView, Node, PaneModel, PersonInitReq,
-    PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken,
-    StreamFrame, VersionInfo, VersionReq, Warning, WarningCode, WatchReq,
+    CodeReq, Command, CommandList, DoctorReq, DrainReq, Edge, Envelope, ErrorCode, ErrorObject, Event,
+    Evidence, FactBatch, FocusReq, Hint, LayoutPut, LeafSchema, MapReq, MapView, Node, PaneModel,
+    PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq,
+    SessionToken, StreamFrame, VersionInfo, VersionReq, Warning, WarningCode, WatchReq,
 };
 use crate::{EngineState, LastSeq, PaneState, ResolverStatus, ToolResult, TurnSeq, UnavailableReason};
 
@@ -130,6 +130,9 @@ pub fn generate(view: View) -> Value {
         FindReq,
         FindResult,
         PackFile,
+        PackRecord,
+        DoctorReq,
+        PackReport,
     );
     // Planroom reads a configuration file and never emits one.
     if view == View::Input {
@@ -149,6 +152,17 @@ pub fn generate(view: View) -> Value {
         "description": description,
         "$defs": defs.into_iter().collect::<Map<String, Value>>(),
     })
+}
+
+/// `pack.toml` in the input view alone: `{"$ref": ...}` to `PackFile` under `root`, and every
+/// definition it references under `$defs`. The pack loader walks a manifest against it to refuse a
+/// key no table declares, at that key's line, where serde can't name one: in a table an untagged
+/// enum reads, or beside a flattened map.
+pub fn pack_manifest() -> Value {
+    let mut generator = SchemaSettings::draft2020_12().for_deserialize().into_generator();
+    let root = generator.subschema_for::<PackFile>();
+    let defs: Map<String, Value> = generator.take_definitions(true).into_iter().collect();
+    json!({ "root": root, "$defs": defs })
 }
 
 /// The mark on a field that holds repo-derived free text, `#[schemars(extend("x-redact" = true))]`:

@@ -10,13 +10,14 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::decision::{DecisionKind, Predicate};
+use crate::decision::{DecisionKind, EffectOp, Predicate};
 use crate::envelope::CommandName;
 use crate::model::Level;
 use crate::view::Tone;
 
 /// One pack's `pack.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PackFile {
     /// `planroom.pack/v1`.
     pub format: String,
@@ -65,6 +66,7 @@ pub struct PackFile {
 
 /// `[[languages]]`: a language's file extensions and comment forms.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LanguageDecl {
     pub id: String,
     pub extensions: Vec<String>,
@@ -78,6 +80,7 @@ pub struct LanguageDecl {
 /// `[[image_roles]]`: a compose image glob's kind and role, such as `redis*` to a queue kind with
 /// role `queue`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ImageRole {
     /// A glob over the image name.
     pub image: String,
@@ -87,6 +90,7 @@ pub struct ImageRole {
 
 /// `[[kinds]]`: a node kind.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct KindDecl {
     pub id: String,
     /// The ID's kind-short. One pack owns it, except the kernel's `container`, which every
@@ -113,6 +117,7 @@ pub struct KindDecl {
 
 /// `[[relations]]`: an edge kind.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RelationDecl {
     pub id: String,
     pub from: Vec<String>,
@@ -127,6 +132,7 @@ pub struct RelationDecl {
 
 /// `[[hints]]`: a hint kind a linker consumes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct HintDecl {
     pub id: String,
     /// The attribute names the hint carries, such as `scheme`, `port` and `path`.
@@ -208,6 +214,7 @@ pub enum EmitTemplate {
 
 /// `[[linkers]]`: a built-in linker and its options.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LinkerDecl {
     pub builtin: String,
     #[serde(default)]
@@ -216,6 +223,7 @@ pub struct LinkerDecl {
 
 /// `[[lenses]]`: which relationships a view shows (DR-15).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LensDecl {
     pub id: String,
     pub label: String,
@@ -248,6 +256,7 @@ pub enum Flow {
 
 /// `[[questions]]`: a named pipeline of one to three query shapes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct QuestionDecl {
     pub id: String,
     #[serde(default)]
@@ -263,6 +272,7 @@ pub struct QuestionDecl {
 
 /// One argument a question takes, such as `X` in `fires-if X`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ArgDecl {
     pub name: String,
     #[serde(default)]
@@ -271,6 +281,7 @@ pub struct ArgDecl {
 
 /// One step of a question: a shape and its parameters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ShapeStep {
     pub shape: Shape,
     #[serde(default)]
@@ -296,8 +307,127 @@ pub enum Shape {
     Checks,
 }
 
+/// What one parameter of a query shape, a lint rule type, a decision effect or a `when`
+/// predicate names. The pack loader checks each name a reference parameter holds against the
+/// pack's scope, and refuses a key the table doesn't declare, so no parameter goes unread (DR-62).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParamNames {
+    /// A number, a direction, a prop name or text: no reference.
+    Nothing,
+    /// A field test: a value, or `{ lt = N }`, `{ gt = N }` or `{ in = [...] }`.
+    Test,
+    /// Node kinds, never relations.
+    NodeKind,
+    /// The kinds of the subject a `when` predicate selects: node kinds when the subject is a node
+    /// kind, relations when it is a relation, and either for a role's subjects or a suggestion.
+    SubjectKind,
+    /// Relations, the edge kinds.
+    Relation,
+    /// Lenses, by ID.
+    Lens,
+    /// Node IDs. Where the docs allow one, a placeholder stands in: a question's argument such as
+    /// `$X` in a step, and `$pick` in an effect.
+    NodeId,
+    /// A table with its own declared parameters, such as `without_edge`'s.
+    Table(&'static [Param]),
+}
+
+/// One declared parameter. A key that ends in `.*` stands for every key with that prefix and a
+/// name after it, such as `props.*` for `"props.role"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Param {
+    pub key: &'static str,
+    pub names: ParamNames,
+}
+
+/// A [`Param`] as a constant expression, so a table of them is a `&'static` slice.
+macro_rules! param {
+    ($key:literal, $names:expr) => {
+        Param { key: $key, names: $names }
+    };
+}
+
+/// A filter's `with_edge` and `without_edge`: a relation, a direction and an optional layer.
+const EDGE_TEST: &[Param] = &[
+    param!("relation", ParamNames::Relation),
+    param!("direction", ParamNames::Nothing),
+    param!("layer", ParamNames::Nothing),
+];
+
+/// Prop tests in the filter shape's predicate form, such as `"props.role" = { in = [...] }`.
+const PROP_TESTS: Param = param!("props.*", ParamNames::Test);
+
+/// The keys of a `when` predicate, a decision kind's or a suggestion's: the filter shape's
+/// predicate form, with the subject's kind, its ID and parent, its `status` and `confidence`, prop
+/// tests and edge tests. architecture.md's predicate table lists the same keys.
+pub const PREDICATE_PARAMS: &[Param] = &[
+    param!("kind", ParamNames::SubjectKind),
+    param!("kinds", ParamNames::SubjectKind),
+    param!("id", ParamNames::NodeId),
+    param!("parent", ParamNames::NodeId),
+    param!("status", ParamNames::Test),
+    param!("confidence", ParamNames::Test),
+    PROP_TESTS,
+    param!("with_edge", ParamNames::Table(EDGE_TEST)),
+    param!("without_edge", ParamNames::Table(EDGE_TEST)),
+];
+
+impl Shape {
+    /// Every parameter the shape takes: architecture.md's "Lenses and questions" table.
+    pub const fn params(self) -> &'static [Param] {
+        use ParamNames::{Lens, NodeId, NodeKind, Nothing, Relation, Table};
+        match self {
+            Shape::Node | Shape::Tree => &[param!("id", NodeId)],
+            Shape::Find => &[param!("text", Nothing)],
+            Shape::Neighbors => &[
+                param!("ids", NodeId),
+                param!("lens", Lens),
+                param!("relations", Relation),
+                param!("depth", Nothing),
+                param!("direction", Nothing),
+            ],
+            Shape::Path => &[param!("from", NodeId), param!("to", NodeId), param!("lens", Lens)],
+            Shape::Why => &[param!("from", NodeId), param!("to", NodeId)],
+            Shape::Filter => &[
+                param!("kinds", NodeKind),
+                PROP_TESTS,
+                param!("with_edge", Table(EDGE_TEST)),
+                param!("without_edge", Table(EDGE_TEST)),
+            ],
+            Shape::Compare => &[
+                param!("relations", Relation),
+                param!("edge_prop", Nothing),
+                param!("end", Nothing),
+                param!("end_prop", Nothing),
+            ],
+            Shape::Order => {
+                &[param!("from", NodeId), param!("relations", Relation), param!("direction", Nothing)]
+            }
+            Shape::Subgraph => &[param!("lens", Lens), param!("props", Nothing)],
+            Shape::Machine => &[
+                param!("id", NodeId),
+                param!("steps", Nothing),
+                param!("event", Nothing),
+                param!("guard", Nothing),
+                param!("action", Nothing),
+                param!("initial", Nothing),
+                param!("terminal", Nothing),
+            ],
+            Shape::Checks => &[
+                param!("kind", NodeKind),
+                param!("relation", Relation),
+                param!("event", Nothing),
+                param!("guard", Nothing),
+                param!("initial", Nothing),
+                param!("terminal", Nothing),
+            ],
+        }
+    }
+}
+
 /// `[[rules]]`: a structural lint rule over one kind.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RuleDecl {
     pub id: String,
     pub kind: RuleType,
@@ -318,8 +448,47 @@ pub enum RuleType {
     Covers,
 }
 
+impl RuleType {
+    /// Every parameter the rule type takes: architecture.md's rule types table. Each also takes
+    /// prop tests that narrow the subjects it checks, such as `"props.type" = "next_action"`.
+    pub const fn params(self) -> &'static [Param] {
+        use ParamNames::{NodeKind, Nothing, Relation};
+        match self {
+            RuleType::RequiresProp => &[param!("prop", Nothing), PROP_TESTS],
+            RuleType::RequiresEdge => &[
+                param!("relation", Relation),
+                param!("direction", Nothing),
+                param!("kinds", NodeKind),
+                PROP_TESTS,
+            ],
+            RuleType::MinChildren => &[param!("min", Nothing), param!("kinds", NodeKind), PROP_TESTS],
+            RuleType::Covers => &[param!("prop", Nothing), param!("kinds", NodeKind), PROP_TESTS],
+        }
+    }
+}
+
+impl EffectOp {
+    /// Every parameter the effect takes besides `on` and `do`: architecture.md's effects table.
+    /// The subject is one end of a `put_edge` or `retract_edge` edge, `$pick` names the chosen
+    /// candidate in a node-ID parameter, and `retarget` always moves onto the pick.
+    pub const fn params(self) -> &'static [Param] {
+        use ParamNames::{NodeId, Nothing, Relation};
+        match self {
+            EffectOp::None | EffectOp::Retarget => &[],
+            EffectOp::Lint => &[param!("rule", Nothing)],
+            EffectOp::SetProp => {
+                &[param!("prop", Nothing), param!("value", Nothing), param!("parent", NodeId)]
+            }
+            EffectOp::PutEdge | EffectOp::RetractEdge => {
+                &[param!("relation", Relation), param!("from", NodeId), param!("to", NodeId)]
+            }
+        }
+    }
+}
+
 /// `[[suggestions]]`: a candidate for the one next action.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SuggestionDecl {
     /// When the suggestion applies, in the filter shape's predicate form.
     #[serde(default)]
@@ -333,6 +502,7 @@ pub struct SuggestionDecl {
 
 /// The leaf a suggestion runs, with its arguments.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ActionDecl {
     pub command: CommandName,
     #[serde(default)]
@@ -341,6 +511,7 @@ pub struct ActionDecl {
 
 /// `[[prompts]]`: a Claude stable prefix the engine sends.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PromptDecl {
     pub id: String,
     /// The path of the prompt, under `prompts/`.
@@ -382,6 +553,7 @@ pub enum CacheTtl {
 
 /// `[[stages]]`: one plan stage (R5).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct StageDecl {
     pub id: String,
     pub method: String,
@@ -396,12 +568,24 @@ pub struct StageDecl {
 
 /// One plan item type a stage writes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ItemType {
     /// The item's `type` prop, such as `next_action`.
     pub id: String,
     /// A JSON Schema fragment.
     #[serde(default)]
     pub props: Value,
+}
+
+/// One loaded pack as the store's `meta.packs` records it, in load order (DR-62).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PackRecord {
+    pub id: String,
+    pub version: u32,
+    /// `builtin` for a pack embedded in the binary; else the directory it was loaded from.
+    pub source: String,
+    /// The lowercase hex sha256 over the pack's files, each path and its bytes in path order.
+    pub sha256: String,
 }
 
 #[cfg(test)]
@@ -424,7 +608,7 @@ mod tests {
             {"id": "files", "builtin": "files"},
             {"id": "calls", "files": ["**/*.rb"], "regex": "get\\(\"(.*)\"\\)",
              "emit": [{"hint": "toy.url", "scope": "@id:toy.file:$file", "key": "$1"}]},
-            {"id": "imports", "files": ["**/*.go"], "language": "go", "query": "queries/imports.scm",
+            {"id": "go_imports", "files": ["**/*.go"], "language": "go", "query": "queries/imports.scm",
              "emit": [{"edge": "toy.imports", "from": "@id:toy.file:$file", "to": "@alias:@path"}]}
         ]))
         .unwrap();

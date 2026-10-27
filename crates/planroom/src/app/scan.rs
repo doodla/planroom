@@ -15,7 +15,7 @@ use planroom_contract::{
 };
 use planroom_extract::git::{Git, GitError};
 use planroom_extract::verify::Verifier;
-use planroom_extract::{RepoView, compose, files, select, walk};
+use planroom_extract::{RepoView, files, select, walk};
 use planroom_kernel::{facts, keys};
 use planroom_store::{FactRow, Init, RepoOutcome, RepoScan, ScanKey, ScanRules, ScanWrite, Shape, Store};
 use serde_json::{Value, json};
@@ -23,27 +23,19 @@ use serde_json::{Value, json};
 use crate::app::error::AppError;
 use crate::app::workspace::{self, Repo, Workspace};
 use crate::app::{Reply, map, new_event_id};
+use crate::packs::{self, Loaded, Run};
 use crate::{clock, config, text};
-
-/// The built-in extractors this build runs, as the code pack will declare them: each one's name
-/// and its `files` globs. The pack loader replaces this table.
-const BUILTINS: &[(&str, &[&str])] = &[("files", &["**"]), ("compose", compose::DEFAULT_FILES)];
 
 const RULES: ScanRules = ScanRules {
     scan_key: |k: &ScanKey<'_>| keys::scan_key(k.repo, k.commit, k.inputs, k.previous),
     link_key: keys::link_key,
 };
 
-/// The resolved pack set's hash. No pack loader yet, so it is the empty set's, under this
-/// engine's version: an engine whose built-ins change re-extracts every repo (DR-62).
-pub fn packs_hash() -> String {
-    keys::sha256_hex(&["planroom.packs/v1", concat!("builtin@", env!("CARGO_PKG_VERSION")), "[]"])
-}
-
 /// A scan between extraction and commit: every repo git could read, at the `HEAD` it read.
 pub struct Prepared {
     ws: Workspace,
-    packs_hash: String,
+    /// The pack set this scan extracted with.
+    packs: Loaded,
     /// The `[scan] exclude` globs this scan walked with.
     exclude: Vec<String>,
     /// Every repo's extraction inputs besides its commit and a partial clone's missing blobs.
@@ -77,26 +69,28 @@ pub fn prepare(req: &ScanReq, cwd: &Path) -> Result<Prepared, AppError> {
     warnings.extend(loaded.warnings);
     let exclude = loaded.config.scan.exclude;
     let globs = walk::Exclude::new(&exclude)?;
+    // The built-in packs. A workspace's own packs come from its config, which loads only once
+    // the workspace is trusted, so none loads yet.
+    let packs = packs::builtins()?;
     let names: BTreeSet<&str> = ws.repos.iter().map(|r| r.name.as_str()).collect();
-    let options = options(&names);
-    let packs_hash = packs_hash();
-    let inputs = inputs_hash(&packs_hash, &options, &exclude);
+    let runs = packs.runs(&names);
+    let inputs = inputs_hash(&packs.hash, &runs, &exclude);
     let mut repos = Vec::with_capacity(ws.repos.len());
     for repo in &ws.repos {
-        match extract(repo, &options, &globs, &inputs, &mut warnings) {
+        match extract(repo, &runs, &globs, &inputs, &mut warnings) {
             Ok(scan) => repos.push(scan),
             Err(RepoError::Git(e)) => warnings.push(skipped(repo, &e)),
             Err(RepoError::App(e)) => return Err(e),
         }
     }
-    Ok(Prepared { ws, packs_hash, exclude, inputs, started, repos, warnings })
+    Ok(Prepared { ws, packs, exclude, inputs, started, repos, warnings })
 }
 
 /// Commit a prepared scan. A repo stays where it is when its `HEAD` moved on since it was read, or
 /// when another scan moved it meanwhile and the workspace's repos changed since this scan read
 /// them: a late scan never moves a repo back, whatever input changed.
 pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
-    let Prepared { ws, packs_hash, exclude, inputs, started, repos, mut warnings } = prepared;
+    let Prepared { ws, packs, exclude, inputs, started, repos, mut warnings } = prepared;
     // With nothing to write, a workspace with no store stays without one.
     let store = if repos.is_empty() {
         Store::open_existing(&ws.store_path())?.map(|mut store| {
@@ -110,7 +104,7 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
         at: clock::now(),
         actor: Actor::System { part: "scan".into() },
         client: client(),
-        packs_hash,
+        packs_hash: packs.hash.clone(),
         repos,
         started,
     };
@@ -119,7 +113,8 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
         let summary = summary(&write, 0, 0);
         return Ok(Reply { result: ScanResult { map: view, next: next() }, seq: 0, warnings, text: summary });
     };
-    store.meta_insert_once("packs", "[]")?;
+    let records = serde_json::to_string(&packs.records()).map_err(AppError::internal)?;
+    store.meta_insert_once("packs", &records)?;
     store.meta_insert_once("packs_hash", &write.packs_hash)?;
     let paths: BTreeMap<&str, &PathBuf> = ws.repos.iter().map(|r| (r.name.as_str(), &r.path)).collect();
     // Why each superseded repo stays, and whether this scan's repo set is still the workspace's,
@@ -132,9 +127,8 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
             return false;
         }
         if newer_scan
-            && !*same_repos.get_or_insert_with(|| {
-                current_inputs(&ws.root, &write.packs_hash, &exclude).as_deref() == Some(&inputs)
-            })
+            && !*same_repos
+                .get_or_insert_with(|| current_inputs(&ws.root, &packs, &exclude).as_deref() == Some(&inputs))
         {
             why.insert(repo.repo.clone(), "repos_changed");
             return false;
@@ -216,39 +210,24 @@ pub fn open_store(ws: &Workspace) -> Result<Store, AppError> {
     Ok(store)
 }
 
-/// Each built-in's options, as this workspace gives them: `compose` joins a service to a repo of
-/// the workspace by name, so it takes the sorted repo names.
-fn options(names: &BTreeSet<&str>) -> Vec<(&'static str, Value)> {
-    BUILTINS
-        .iter()
-        .map(|(name, _)| {
-            let opts = match *name {
-                "compose" => json!({"repos": names}),
-                _ => Value::Null,
-            };
-            (*name, opts)
-        })
-        .collect()
-}
-
 /// The hash of every extraction input besides a repo's commit: the packs hash, each built-in's
 /// options and the `[scan] exclude` globs. It keys the snapshot with the repo and the commit, as
 /// the packs hash alone did, so a snapshot's facts are a function of its key (DR-85, DR-89):
 /// moving a repo out of the workspace and back gives the map a fresh store gives, and so does
 /// changing the excludes and back.
-fn inputs_hash(packs_hash: &str, options: &[(&str, Value)], exclude: &[String]) -> String {
+fn inputs_hash(packs_hash: &str, runs: &[Run], exclude: &[String]) -> String {
     let options: Vec<String> =
-        options.iter().map(|(name, opts)| format!("{name}={}", keys::canonical(opts))).collect();
+        runs.iter().map(|run| format!("{}={}", run.name, keys::canonical(&run.options))).collect();
     let exclude = keys::canonical(&json!(exclude));
     keys::sha256_hex(&["planroom.extract-inputs/v1", packs_hash, &options.join("\n"), "exclude", &exclude])
 }
 
 /// The extraction inputs the workspace at `root` gives now, with the excludes this scan read, as
 /// [`prepare`] derives them: `None` when its repos can't be listed.
-fn current_inputs(root: &Path, packs_hash: &str, exclude: &[String]) -> Option<String> {
+fn current_inputs(root: &Path, packs: &Loaded, exclude: &[String]) -> Option<String> {
     let ws = workspace::discover(root).ok()?;
     let names: BTreeSet<&str> = ws.repos.iter().map(|r| r.name.as_str()).collect();
-    Some(inputs_hash(packs_hash, &options(&names), exclude))
+    Some(inputs_hash(&packs.hash, &packs.runs(&names), exclude))
 }
 
 /// Whether `HEAD` in the repo at `path` still names `commit` (empty: still no commit).
@@ -324,7 +303,7 @@ fn unborn(
 /// snapshot, and neither does the branch.
 fn extract(
     repo: &Repo,
-    options: &[(&'static str, Value)],
+    runs: &[Run],
     exclude: &walk::Exclude,
     inputs: &str,
     warnings: &mut Vec<Warning>,
@@ -372,10 +351,13 @@ fn extract(
     let mut verifier = Verifier::new(&repo.name, &head.commit, &refs, objects);
     let mut batches: Vec<FactBatch> = Vec::new();
     let mut dropped = Vec::new();
-    for ((name, globs), (_, opts)) in BUILTINS.iter().zip(options) {
-        let extractor = planroom_extract::builtin(name).expect("a built-in this build has");
-        let selected = select(&walked.files, globs).map_err(|e| RepoError::App(e.into()))?;
-        let mut batch = extractor.run(&view, &selected, opts).map_err(|e| RepoError::App(e.into()))?;
+    for run in runs {
+        // The loader refused a pack naming a built-in this build doesn't have.
+        let extractor = planroom_extract::builtin(&run.builtin).expect("a built-in this build has");
+        let globs: Vec<&str> = run.files.iter().map(String::as_str).collect();
+        let selected = select(&walked.files, &globs).map_err(|e| RepoError::App(e.into()))?;
+        let mut batch =
+            extractor.run(&view, &selected, &run.options).map_err(|e| RepoError::App(e.into()))?;
         dropped.extend(verifier.verify(&mut batch)?);
         batches.push(batch);
     }

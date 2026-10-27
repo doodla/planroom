@@ -147,11 +147,24 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "undo": "edit",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "doctor",
+    "idea": "setup",
+    "summary": "Check a pack with --pack DIR: validation, its conformance kit and a second run for determinism.",
+    "actor": "mixed",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
   }
 ];
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
-export const CATALOGUE_HASH = "7a8e3030f5d39bc230f10f8aa5565538b8c27fcb3a97666a1a9e58b021b0389d";
+export const CATALOGUE_HASH = "97111047b1a9646fd47c86d6eacf6ff73c0b7d9764d44f8b7ef6a37c89aa9eac";
 
 /** One pane the mod draws before the engine answers `focus` (DR-57). */
 export interface FallbackPane {

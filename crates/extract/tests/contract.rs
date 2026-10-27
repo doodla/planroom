@@ -82,7 +82,19 @@ fn walked(view: &RepoView) -> walk::Walked {
     walk::walk(&Git::new(&view.root), &view.commit, &walk::Exclude::none()).unwrap()
 }
 
+/// Run the built-in `name` with `opts`, plus the kinds the code pack names for it, as the engine
+/// fills them in from the loaded vocabulary.
 fn run(view: &RepoView, name: &str, files: &[RepoPath], opts: serde_json::Value) -> FactBatch {
+    let kind = |kind: &str, id_prefix: &str, level: &str| json!({"kind": kind, "id_prefix": id_prefix, "level": level});
+    let repo = kind("code.repo", "repo", "system");
+    let kinds = match name {
+        "files" => json!({"repo": repo, "directory": kind("code.directory", "dir", "component"),
+                          "file": kind("code.file", "file", "code")}),
+        _ => json!({"service": kind("code.service", "container", "container"),
+                    "tooling": kind("code.tooling", "container", "container"), "repo": repo}),
+    };
+    let mut opts = if opts.is_null() { json!({}) } else { opts };
+    opts["kinds"] = kinds;
     builtin(name).unwrap().run(view, files, &opts).unwrap()
 }
 

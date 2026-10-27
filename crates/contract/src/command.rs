@@ -99,6 +99,7 @@ pub enum Command {
     Serve(ServeReq),
     Share(ShareReq),
     Import(ImportReq),
+    Doctor(DoctorReq),
 }
 
 const MAP: CommandSpec = CommandSpec {
@@ -306,10 +307,25 @@ const IMPORT: CommandSpec = CommandSpec {
     room: false,
 };
 
+const DOCTOR: CommandSpec = CommandSpec {
+    path: &["doctor"],
+    idea: Idea::Setup,
+    summary: "Check a pack with --pack DIR: validation, its conformance kit and a second run for determinism.",
+    actor: ActorRule::Mixed,
+    class: Class::Read,
+    budget_tokens: 1_500,
+    needs_base: false,
+    spends: false,
+    errors: &[ErrorCode::InvalidArgument, ErrorCode::PackInvalid, ErrorCode::Internal],
+    undo: Undo::Query,
+    tool: None,
+    room: false,
+};
+
 impl Command {
     /// Every leaf's spec, in catalogue order.
     pub const SPECS: &'static [CommandSpec] =
-        &[MAP, FOCUS, SCAN, WATCH, SCHEMA, VERSION, PERSON_INIT, SERVE, SHARE, IMPORT];
+        &[MAP, FOCUS, SCAN, WATCH, SCHEMA, VERSION, PERSON_INIT, SERVE, SHARE, IMPORT, DOCTOR];
 
     pub const fn spec(&self) -> &'static CommandSpec {
         match self {
@@ -323,6 +339,7 @@ impl Command {
             Command::Serve(_) => &SERVE,
             Command::Share(_) => &SHARE,
             Command::Import(_) => &IMPORT,
+            Command::Doctor(_) => &DOCTOR,
         }
     }
 
@@ -557,6 +574,51 @@ pub struct ImportReq {
     /// `-`: the rows come only on stdin, never from a file.
     #[arg(value_name = "SOURCE")]
     pub source: String,
+}
+
+/// `planroom doctor --pack DIR [--update]`: one pack's conformance kit (DR-10). `--pack` is the
+/// one check this build has; the backup, restore and general report join it as flags.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct DoctorReq {
+    /// The pack directory to check: validation against the built-in packs, every extractor over
+    /// its `tests/inputs/`, the comparison with `tests/expected.jsonl` and a second run.
+    #[arg(long, value_name = "DIR")]
+    #[serde(default)]
+    pub pack: Option<String>,
+    /// Rewrite the pack's `tests/expected.jsonl` from this run instead of comparing with it.
+    #[arg(long, requires = "pack")]
+    #[serde(default)]
+    pub update: bool,
+}
+
+/// What `doctor --pack DIR` returns: the pack, what it declares, and each conformance check.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PackReport {
+    pub summary: String,
+    pub id: String,
+    pub version: u32,
+    /// `builtin` when the directory holds a built-in pack's ID, else `out_of_tree`.
+    pub origin: String,
+    /// The lowercase hex sha256 over the pack's files, as the store's pack record names it.
+    pub sha256: String,
+    /// The pack's kinds, relations, extractors, linkers and lenses, qualified.
+    pub kinds: Vec<String>,
+    pub relations: Vec<String>,
+    pub extractors: Vec<String>,
+    pub linkers: Vec<String>,
+    pub lenses: Vec<String>,
+    /// Each check the kit passed, in order. The first check that fails fails the command with
+    /// `pack_invalid`, naming the file, the line and the reference.
+    pub checks: Vec<PackCheck>,
+}
+
+/// One conformance check `doctor --pack` passed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PackCheck {
+    /// `validate`, `expected`, `determinism`, `evidence` or `evals`.
+    pub check: String,
+    /// One engine-authored line on what it found.
+    pub line: String,
 }
 
 /// What `serve` returns once it listens.

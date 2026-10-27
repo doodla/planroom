@@ -138,6 +138,7 @@ pub fn check(root: &Path) -> Result<Vec<String>, String> {
     violations.extend(check_sockets(root, &rules)?);
     violations.extend(check_rust_literals(root, &rules)?);
     violations.extend(check_ts_literals(root, &rules)?);
+    violations.extend(check_packs(root, &rules)?);
     if rules.rust.kernel.no_path_escapes {
         violations.extend(check_path_escapes(root)?);
     }
@@ -343,9 +344,13 @@ fn names_a_socket(dir: &Path) -> Result<bool, String> {
     Ok(found)
 }
 
-/// No string literal under `domain_free` crates' `src/` names a built-in pack kind.
+/// No string literal under `domain_free` crates' `src/` names a built-in pack kind or relation:
+/// with its `<pack>.` prefix, or bare unless `kernel_vocabulary` holds the word (DR-45).
 pub fn check_rust_literals(root: &Path, rules: &Boundaries) -> Result<Vec<String>, String> {
     let mut violations = Vec::new();
+    let vocabulary: BTreeSet<&str> = rules.rust.kernel.kernel_vocabulary.iter().map(String::as_str).collect();
+    let bare: BTreeMap<String, String> =
+        bare_names(root)?.into_iter().filter(|(name, _)| !vocabulary.contains(name.as_str())).collect();
     for krate in &rules.rust.kernel.domain_free {
         let src = root.join("crates").join(krate).join("src");
         if !src.is_dir() {
@@ -357,6 +362,12 @@ pub fn check_rust_literals(root: &Path, rules: &Boundaries) -> Result<Vec<String
                 if let Some(kind) = names_pack_kind(&lit.value) {
                     violations.push(format!(
                         "{}:{}: {krate} is domain-free (domain_free), but this string literal names the pack kind `{kind}`",
+                        rel(root, &file),
+                        lit.line
+                    ));
+                } else if let Some(qualified) = bare.get(&lit.value) {
+                    violations.push(format!(
+                        "{}:{}: {krate} is domain-free (domain_free), but this string literal is the bare name of `{qualified}`; kernel_vocabulary lists the words the kernel spells for its own meaning",
                         rel(root, &file),
                         lit.line
                     ));
@@ -452,6 +463,103 @@ pub fn ts_string_literals(src: &str) -> Vec<(usize, String)> {
         }
     }
     out
+}
+
+/// One pack's manifest, as far as the boundary checks read it.
+#[derive(Deserialize)]
+struct Manifest {
+    id: String,
+    #[serde(default)]
+    requires: Vec<String>,
+    #[serde(default)]
+    kinds: Vec<Named>,
+    #[serde(default)]
+    relations: Vec<Named>,
+}
+
+#[derive(Deserialize)]
+struct Named {
+    id: String,
+}
+
+/// Each pack directory under `parent` (`packs` or `examples/packs`) that holds a manifest, with
+/// it, in path order.
+fn manifests(root: &Path, parent: &str) -> Result<Vec<(PathBuf, Manifest)>, String> {
+    let Ok(entries) = fs::read_dir(root.join(parent)) else { return Ok(Vec::new()) };
+    let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+    dirs.sort();
+    let mut out = Vec::new();
+    for dir in dirs {
+        let path = dir.join("pack.toml");
+        let Ok(text) = fs::read_to_string(&path) else { continue };
+        let manifest: Manifest = toml::from_str(&text).map_err(|e| format!("{}: {e}", rel(root, &path)))?;
+        out.push((path, manifest));
+    }
+    Ok(out)
+}
+
+/// Every built-in pack's kind and relation names, bare, each with its qualified name.
+fn bare_names(root: &Path) -> Result<BTreeMap<String, String>, String> {
+    let mut names = BTreeMap::new();
+    for (_, manifest) in manifests(root, "packs")? {
+        for named in manifest.kinds.iter().chain(&manifest.relations) {
+            names.entry(named.id.clone()).or_insert_with(|| format!("{}.{}", manifest.id, named.id));
+        }
+    }
+    Ok(names)
+}
+
+/// The `[packs]` rules: a built-in pack's `requires` is one of the listed values, an out-of-tree
+/// pack requires only built-in packs, and no pack holds an executable file (DR-9, DR-62).
+pub fn check_packs(root: &Path, rules: &Boundaries) -> Result<Vec<String>, String> {
+    let mut violations = Vec::new();
+    let builtins = manifests(root, "packs")?;
+    let ids: BTreeSet<&str> = builtins.iter().map(|(_, m)| m.id.as_str()).collect();
+    for (path, manifest) in &builtins {
+        if !rules.packs.requires.contains(&manifest.requires) {
+            violations.push(format!(
+                "{}: the built-in pack {} requires {:?}, but a built-in pack requires one of {:?} ([packs] requires): packs depend inward",
+                rel(root, path),
+                manifest.id,
+                manifest.requires,
+                rules.packs.requires
+            ));
+        }
+    }
+    if rules.packs.out_of_tree_requires == "built_in" {
+        for (path, manifest) in manifests(root, "examples/packs")? {
+            for required in manifest.requires.iter().filter(|r| !ids.contains(r.as_str())) {
+                violations.push(format!(
+                    "{}: the out-of-tree pack {} requires {required}, which isn't a built-in pack (out_of_tree_requires): an out-of-tree pack never requires another",
+                    rel(root, &path),
+                    manifest.id
+                ));
+            }
+        }
+    }
+    if rules.packs.no_executables {
+        for parent in ["packs", "examples/packs"] {
+            let dir = root.join(parent);
+            if !dir.is_dir() {
+                continue;
+            }
+            let mut found = Vec::new();
+            util::walk(&dir, &mut |p| {
+                use std::os::unix::fs::PermissionsExt;
+                if fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0) {
+                    found.push(p.to_path_buf());
+                }
+            })?;
+            found.sort();
+            for path in found {
+                violations.push(format!(
+                    "{}: a pack holds data only, but this file is executable (no_executables)",
+                    rel(root, &path)
+                ));
+            }
+        }
+    }
+    Ok(violations)
 }
 
 /// The first `<pack>.<name>` in `text` whose pack is built in, at a word boundary.
@@ -1057,10 +1165,30 @@ pub fn self_test(root: &Path) -> Result<SelfTest, String> {
         let found = check_ts_literals(&tmp, &rules)?;
         t.step("\"code.service\" in packages/ui", &found, "packages/ui/src/planted.ts");
     }
-    t.not_built.push((
-        "the bare relation \"watches\" in the kernel, and a bare \"person\" passing".into(),
-        "no pack declares its kinds and relations yet, so the scan has no bare names to match; it arrives with the packs (M1)".into(),
-    ));
+    {
+        let _a = Restore::append(
+            &tmp.join("crates/kernel/src/lib.rs"),
+            "\npub const PLANTED: &str = \"depends_on_package\";\n",
+        )?;
+        let found = check_rust_literals(&tmp, &rules)?;
+        t.step(
+            "the bare relation \"depends_on_package\" in the kernel",
+            &found,
+            "bare name of `code.depends_on_package`",
+        );
+    }
+    {
+        let _a = Restore::append(
+            &tmp.join("crates/kernel/src/lib.rs"),
+            "\npub const PLANTED: &str = \"person\";\n",
+        )?;
+        let found = check_rust_literals(&tmp, &rules)?;
+        t.absent(
+            "a bare \"person\", which kernel_vocabulary lists, in the kernel",
+            &found,
+            "crates/kernel/src/lib.rs",
+        );
+    }
 
     // Clippy plants: the no-I/O lint in the kernel and contract, and std::net in store.
     let clippy = |krate: &str| -> Vec<String> {
@@ -1184,10 +1312,48 @@ pub fn self_test(root: &Path) -> Result<SelfTest, String> {
         t.step("canvas reads a golden CLI output", &depcruise(&tmp), "golden-only-in-mod-tests");
     }
 
-    t.not_built.push((
-        "a built-in pack requires observability, and an out-of-tree pack requires another".into(),
-        "the pack loader and its inward rule arrive with the packs (M1)".into(),
-    ));
+    // Pack plants: requires point inward by origin, and a pack holds no executable.
+    let manifest = |id: &str, requires: &str| {
+        format!(
+            "format = \"planroom.pack/v1\"\nid = \"{id}\"\nversion = 1\ntitle = \"{id}\"\nrequires = {requires}\n"
+        )
+    };
+    let make_dir = |dir: &str| fs::create_dir_all(tmp.join(dir)).map_err(|e| e.to_string());
+    {
+        make_dir("packs/planted")?;
+        let _a = Restore::create(
+            &tmp.join("packs/planted/pack.toml"),
+            &manifest("planted", "[\"observability\"]"),
+        )?;
+        let found = check_packs(&tmp, &rules)?;
+        t.step("a built-in pack requires observability", &found, "packs/planted/pack.toml");
+    }
+    {
+        make_dir("examples/packs/planted_a")?;
+        make_dir("examples/packs/planted_b")?;
+        let _a = Restore::create(
+            &tmp.join("examples/packs/planted_a/pack.toml"),
+            &manifest("planted_a", "[\"code\"]"),
+        )?;
+        let _b = Restore::create(
+            &tmp.join("examples/packs/planted_b/pack.toml"),
+            &manifest("planted_b", "[\"planted_a\"]"),
+        )?;
+        let found = check_packs(&tmp, &rules)?;
+        t.step(
+            "an out-of-tree pack requires another out-of-tree pack",
+            &found,
+            "examples/packs/planted_b/pack.toml",
+        );
+    }
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let script = tmp.join("packs/code/planted.sh");
+        let _a = Restore::create(&script, "#!/bin/sh\n")?;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+        let found = check_packs(&tmp, &rules)?;
+        t.step("an executable file in a pack", &found, "packs/code/planted.sh");
+    }
 
     // The layout gate: a changed boundaries.toml with no new record fails outside a worktree.
     {
@@ -1213,6 +1379,16 @@ impl Plants {
     /// The plant was caught when some line of the check's output contains `expect`.
     fn step(&mut self, what: &str, found: &[String], expect: &str) {
         self.step_if(what, found, expect, true);
+    }
+
+    /// The plant is allowed: no line of the check's output contains `needle`.
+    fn absent(&mut self, what: &str, found: &[String], needle: &str) {
+        if found.iter().any(|l| l.contains(needle)) {
+            self.lines.push(format!("FAILED   {what}: flagged, but it is allowed"));
+            self.failures.push(what.to_owned());
+        } else {
+            self.lines.push(format!("ok       {what}: allowed"));
+        }
     }
 
     fn step_if(&mut self, what: &str, found: &[String], expect: &str, also: bool) {

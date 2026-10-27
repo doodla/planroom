@@ -333,6 +333,8 @@ pub struct AskItem { pub id: String /* a node, or with ask alone a kind, lens or
 pub struct FindReq { pub text: String }
 pub struct FindResult { pub summary: String, pub items: Vec<FindItem>, pub empty: Option<Empty> }
 pub struct FindItem { pub id: NodeId, pub name: String, pub level: Level, pub kind: Kind }
+pub struct DoctorReq { pub pack: Option<String> /* --pack DIR */, pub update: bool /* rewrite tests/expected.jsonl */ }
+                                             // --restore and the general report join it as flags
 ```
 
 | Leaf | Idea | Actor | Class | Tool |
@@ -697,7 +699,10 @@ The `Diff`, `Impact`, `Mismatch`, `ReconcileItem` and `ReconcileOutcome` types a
 ## Pack manifest
 
 ```rust
-// crates/contract/src/pack.rs: the deserialize view; TOML on disk
+// crates/contract/src/pack.rs: the deserialize view; TOML on disk. Every declaration struct here and in DecisionKind is
+// #[serde(deny_unknown_fields)]. serde can't refuse one in a table an untagged enum reads (ExtractorDecl, EmitTemplate,
+// SubjectKind) or beside Effect's flattened parameters, so the loader first walks each TOML file against the input
+// schema: a key no table declares, at any depth, is pack_invalid at that key's own line
 pub struct PackFile {
     pub format: String,                      // "planroom.pack/v1"
     pub id: String,                          // lowercase, [a-z0-9_]
@@ -757,11 +762,22 @@ pub struct LensDecl { pub id: String, pub label: String, pub relations: Vec<Stri
 pub struct QuestionDecl { pub id: String, pub args: Vec<ArgDecl>, pub steps: Vec<ShapeStep> /* 1 to 3 */,
                           pub summary: String, pub budget_tokens: Option<u32> /* clamped to 3,000; None takes ask's 1,500 (DR-21) */ }
 pub struct ArgDecl { pub name: String /* "X" in fires-if X */, pub optional: bool }
-pub struct ShapeStep { pub shape: Shape, pub params: Value }
+pub struct ShapeStep { pub shape: Shape, pub params: Value /* only the keys Shape::params declares; each names node kinds,
+                        relations, a lens, node IDs, a field test or nothing, and every name is in the pack's scope (DR-62);
+                        a filter's `kinds` are node kinds, so a relation there is pack_invalid; a node ID may be a question's
+                        argument such as "$X", and a kind, relation or lens never holds a placeholder */ }
 pub enum Shape { Node, Find, Neighbors, Path, Why, Filter, Compare, Order, Subgraph, Tree, Machine, Checks }
+// Shape::params, RuleType::params, EffectOp::params and PREDICATE_PARAMS (a when predicate's keys) are each a table of
+// Param { key, names: ParamNames }, where ParamNames is Nothing | Test (a value, or { lt | gt = N } or { in = [...] }) |
+// NodeKind | SubjectKind (a when predicate's subject kinds: node kinds for a node kind's subjects, relations for a
+// relation's) | Relation | Lens | NodeId | Table(&[Param]); a key ending in ".*", such as "props.*", stands for every key
+// with that prefix. An undeclared key, at any depth, or a value form no check reads, such as { eq = ... }, is
+// pack_invalid. architecture.md's shape, rule type, predicate and effect tables list them, and
+// packs.rs::the_parameter_tables_in_the_docs_match_the_contract keeps both copies equal.
 // kinds, stage, lint, missing and drift are built-in questions the engine serves, not shapes; no pack declares one (DR-15)
 pub struct RuleDecl { pub id: String, pub kind: RuleType /* RequiresProp | RequiresEdge | MinChildren | Covers */,
-                      pub subject: String, pub params: Value, pub message: String }
+                      pub subject: String, pub params: Value /* only the keys RuleType::params declares, as ShapeStep's */,
+                      pub message: String }
 pub struct StageDecl { pub id: String, pub method: String, pub items: Vec<ItemType>,
                       pub prompt: String /* the stage's instructions, in the uncached tail after the plan pack's shared prefix */,
                       pub lint: Vec<String> }
@@ -769,9 +785,11 @@ pub struct ItemType { pub id: String /* the kernel.item type: "next_action" */, 
 pub struct PromptDecl { pub id: String, pub file: String, pub tier: ModelTier /* Cheap | Capable */,
                         pub role: PromptRole /* Infer | Propose */, pub output: String /* a contract type name */,
                         pub ttl: CacheTtl /* M5 (default) | H1 for person-paced purposes */ }
-pub struct SuggestionDecl { pub when: Predicate /* the filter shape's predicate, as a decision kind's when */,
+pub struct SuggestionDecl { pub when: Predicate /* the filter shape's predicate, as a decision kind's when, through
+                                                    PREDICATE_PARAMS; its kinds may be node or edge kinds */,
                             pub text: String, pub action: ActionDecl, pub priority: u32 /* higher ranks first */ }
-pub struct ActionDecl { pub command: CommandName, pub args: Vec<String> }
+pub struct ActionDecl { pub command: CommandName, pub args: Vec<String> /* parsed by the CLI's own clap tree, so a flag the
+                        leaf doesn't take is pack_invalid; every lens and node ID they name is in the pack's scope */ }
 ```
 
 The loader turns the loaded packs into one `Vocabulary` (`crates/contract/src/vocab.rs`), in load order, with every ID qualified as `<pack>.<name>`. It is what the kernel's resolution and fold read, so the kernel learns a kind only from it:
@@ -790,6 +808,14 @@ pub struct LensVocab { pub id: String, pub label: String, pub relations: Vec<Kin
 ### Pack test layout
 
 `planroom doctor --pack DIR` reads `tests/inputs/<repo>/...` (files to scan), `tests/expected.jsonl` (sorted `FactBatch` lines; `--update` rewrites it), and optional `tests/slow/` (a fixture past the scan bounds).
+
+- **Which ring.** A directory is checked as an out-of-tree pack beside the built-ins, since it was found on a path ([Requires, inward only](architecture.md#packs-and-extractors)). A directory whose files are a built-in pack's own, file for file but its `tests/`, checks that built-in, so `doctor --pack packs/code` checks the code pack this build embeds. A directory that claims a built-in pack's ID with any other files is `pack_invalid`: to check a changed built-in, build Planroom from that source first.
+- **The inputs.** Each directory under `tests/inputs/` is one repo, named by the directory. The inputs aren't a git repo, so their evidence names the commit `0000000000000000000000000000000000000000`. `expected.jsonl` holds one `FactBatch` per line, repos in name order, each repo's extractors in load order.
+- **What it returns.** `PackReport { summary, id, version, origin, sha256, kinds, relations, extractors, linkers, lenses, checks }`, where `origin` is `builtin` or `out_of_tree` and each `PackCheck { check, line }` names a check the pack passed: `validate`, `expected`, `determinism`, `evidence` and `evals`. The first check that fails fails the command with `pack_invalid`, naming the file, the line and the reference.
+
+The store's `meta.packs` records the loaded set in load order, one `PackRecord { id, version, source, sha256 }` per pack, where `source` is `builtin` or the directory the pack loaded from and `sha256` hashes the pack's files, each path and its bytes in path order (`tests/` left out). `meta.packs_hash` hashes those records under the engine's version.
+
+A built-in extractor's `options.kinds` names the kinds it emits, such as `kinds = { repo = "code.repo", directory = "code.directory", file = "code.file" }` for `files`. The engine replaces each name with `{ kind, id_prefix, level }` from the vocabulary, so no built-in spells a kind, a level or an ID prefix of its own. It also fills in `files`'s merged `languages`, and `compose`'s merged `image_roles` and the workspace's sorted `repos`.
 
 ## Extractor and linker contract
 
@@ -825,13 +851,17 @@ pub struct DecisionKind {                    // [[decisions]] in a pack
     pub when: Predicate,                     // the deterministic precheck, the filter shape's predicate, evaluated by the kernel over
                                              // the folded model: { field = value }, { field = { lt | gt | in = ... } }, and
                                              // with_edge or without_edge = { relation, direction, layer? }; a prop only an extractor
-                                             // can compute is precomputed: placed_by_rule, touched_after_anchor (DR-63)
+                                             // can compute is precomputed: placed_by_rule, touched_after_anchor (DR-63); only
+                                             // PREDICATE_PARAMS's keys: kind, kinds, id, parent, status, confidence, props.*,
+                                             // with_edge, without_edge
     pub group: Option<String>,               // kinds with the same group and subject share one Jev request
     pub question: Question,
     pub slice: SliceSpec,                    // { query, relations, fields, max_tokens }; evidence goes in as path and contains, with an
                                              // occurrence index for a repeated line, never line (DR-65)
     pub effect: Effect,                      // { on, do: None | Lint | SetProp | PutEdge | RetractEdge | Retarget, ... }: closed, six
-                                             // SetProp sets a prop or `parent`; a value of "$pick" is the chosen candidate;
+                                             // the rest are only the keys EffectOp::params declares (SetProp: prop and value, or
+                                             // parent; PutEdge, RetractEdge: relation, from, to; Lint: rule; None, Retarget: none);
+                                             // SetProp sets a prop or `parent`; a node ID of "$pick" is the chosen candidate;
                                              // Retarget only on a Role(RescanRetarget) subject in a Person-stakes kind (DR-63);
                                              // no effect sets a field a person holds (DR-73)
     pub stakes: Stakes,                      // Low: prefill and list in one batch per kind | Person: deal a card

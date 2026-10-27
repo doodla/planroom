@@ -14,7 +14,20 @@ export type AckStatus = "imported" | "held" | "conflict" | "refused";
  * via the `definition` "CommandName".
  */
 export type CommandName =
-  ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve" | "share" | "import") | string;
+  | (
+      | "map"
+      | "focus"
+      | "scan"
+      | "watch"
+      | "schema"
+      | "version"
+      | "person init"
+      | "serve"
+      | "share"
+      | "import"
+      | "doctor"
+    )
+  | string;
 /**
  * Who did it.
  *
@@ -208,6 +221,10 @@ export type Command =
   | {
       command: "import";
       args: ImportReq;
+    }
+  | {
+      command: "doctor";
+      args: DoctorReq;
     };
 /**
  * The five fixed levels, from the plan down to the code.
@@ -1086,7 +1103,20 @@ export interface Card {
    * A command name from the catalogue, its path joined with spaces.
    */
   dealt_by:
-    ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve" | "share" | "import") | string;
+    | (
+        | "map"
+        | "focus"
+        | "scan"
+        | "watch"
+        | "schema"
+        | "version"
+        | "person init"
+        | "serve"
+        | "share"
+        | "import"
+        | "doctor"
+      )
+    | string;
 }
 /**
  * One choice on a card.
@@ -1302,6 +1332,24 @@ export interface ImportReq {
    * `-`: the rows come only on stdin, never from a file.
    */
   source: string;
+}
+/**
+ * `planroom doctor --pack DIR [--update]`: one pack's conformance kit (DR-10). `--pack` is the
+ * one check this build has; the backup, restore and general report join it as flags.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DoctorReq".
+ */
+export interface DoctorReq {
+  /**
+   * The pack directory to check: validation against the built-in packs, every extractor over
+   * its `tests/inputs/`, the comparison with `tests/expected.jsonl` and a second run.
+   */
+  pack: string | null;
+  /**
+   * Rewrite the pack's `tests/expected.jsonl` from this run instead of comparing with it.
+   */
+  update: boolean;
 }
 /**
  * What `schema --commands` returns: every leaf, summary first.
@@ -1751,7 +1799,20 @@ export interface Envelope {
    * A command name from the catalogue, its path joined with spaces.
    */
   command:
-    ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve" | "share" | "import") | string;
+    | (
+        | "map"
+        | "focus"
+        | "scan"
+        | "watch"
+        | "schema"
+        | "version"
+        | "person init"
+        | "serve"
+        | "share"
+        | "import"
+        | "doctor"
+      )
+    | string;
   /**
    * The one-line, engine-authored summary that text mode prints first, display-sanitized: what
    * `/room` shows with the handles. Absent on an error, whose `message` is its line.
@@ -2331,7 +2392,20 @@ export interface InboxRow {
    * A command name from the catalogue, its path joined with spaces.
    */
   command:
-    ("map" | "focus" | "scan" | "watch" | "schema" | "version" | "person init" | "serve" | "share" | "import") | string;
+    | (
+        | "map"
+        | "focus"
+        | "scan"
+        | "watch"
+        | "schema"
+        | "version"
+        | "person init"
+        | "serve"
+        | "share"
+        | "import"
+        | "doctor"
+      )
+    | string;
   /**
    * That command's request JSON.
    */
@@ -2710,6 +2784,22 @@ export interface MiniMap {
   edges: MiniEdge[];
 }
 /**
+ * One conformance check `doctor --pack` passed.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PackCheck".
+ */
+export interface PackCheck {
+  /**
+   * `validate`, `expected`, `determinism`, `evidence` or `evals`.
+   */
+  check: string;
+  /**
+   * One engine-authored line on what it found.
+   */
+  line: string;
+}
+/**
  * One pack's `pack.toml`.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -2896,6 +2986,56 @@ export interface StageDecl {
    * The IDs of the lint rules the stage runs.
    */
   lint: string[];
+}
+/**
+ * One loaded pack as the store's `meta.packs` records it, in load order (DR-62).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PackRecord".
+ */
+export interface PackRecord {
+  id: string;
+  version: number;
+  /**
+   * `builtin` for a pack embedded in the binary; else the directory it was loaded from.
+   */
+  source: string;
+  /**
+   * The lowercase hex sha256 over the pack's files, each path and its bytes in path order.
+   */
+  sha256: string;
+}
+/**
+ * What `doctor --pack DIR` returns: the pack, what it declares, and each conformance check.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PackReport".
+ */
+export interface PackReport {
+  summary: string;
+  id: string;
+  version: number;
+  /**
+   * `builtin` when the directory holds a built-in pack's ID, else `out_of_tree`.
+   */
+  origin: string;
+  /**
+   * The lowercase hex sha256 over the pack's files, as the store's pack record names it.
+   */
+  sha256: string;
+  /**
+   * The pack's kinds, relations, extractors, linkers and lenses, qualified.
+   */
+  kinds: string[];
+  relations: string[];
+  extractors: string[];
+  linkers: string[];
+  lenses: string[];
+  /**
+   * Each check the kit passed, in order. The first check that fails fails the command with
+   * `pack_invalid`, naming the file, the line and the reference.
+   */
+  checks: PackCheck[];
 }
 /**
  * What `focus` returns: the pane, the band and the status line; at most 4 KB.

@@ -25,10 +25,10 @@ pub mod vocab;
 
 pub use card::{Card, CardKind};
 pub use command::{
-    ActorRule, Class, CodeReq, Command, CommandList, CommandSpec, Detail, DrainReq, FocusReq, Idea,
-    ImportReq, LayoutPut, LeafListing, LeafSchema, MapReq, PersonInitReq, PersonKey, ScanReq, ScanResult,
-    SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken, ShareReq, Tool, Undo,
-    VersionInfo, VersionReq, WatchReq, WriteCommon,
+    ActorRule, Class, CodeReq, Command, CommandList, CommandSpec, Detail, DoctorReq, DrainReq, FocusReq,
+    Idea, ImportReq, LayoutPut, LeafListing, LeafSchema, MapReq, PackCheck, PackReport, PersonInitReq,
+    PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken,
+    ShareReq, Tool, Undo, VersionInfo, VersionReq, WatchReq, WriteCommon,
 };
 pub use config::Config;
 pub use decision::{
@@ -50,8 +50,9 @@ pub use model::{
 };
 pub use pack::{
     ActionDecl, ArgDecl, CacheTtl, EmitTemplate, ExtractorDecl, Flow, HintDecl, ImageRole, ItemType,
-    KindDecl, LanguageDecl, LensDecl, LinkerDecl, ModelTier, PackFile, PromptDecl, PromptRole, QuestionDecl,
-    RelationDecl, RuleDecl, RuleType, Shape, ShapeStep, StageDecl, SuggestionDecl,
+    KindDecl, LanguageDecl, LensDecl, LinkerDecl, ModelTier, PREDICATE_PARAMS, PackFile, PackRecord, Param,
+    ParamNames, PromptDecl, PromptRole, QuestionDecl, RelationDecl, RuleDecl, RuleType, Shape, ShapeStep,
+    StageDecl, SuggestionDecl,
 };
 pub use remote::{
     Ack, AckStatus, Answer, DbBatch, DbOp, DbWrite, ImportCounts, ImportLine, ImportResult, ImportedRow,

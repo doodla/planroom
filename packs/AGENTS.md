@@ -19,4 +19,8 @@ Read first, from [Repo layout](../docs/contributing/repo-layout.md#read-first-pe
 
 ## Layout
 
-No pack directory yet: each built-in pack (`code/`, `plan/`, `observability/`, `release/`, `artifacts/`, `machines/`) gets its own in M1. `README.md` is the page for users.
+Each directory here is a built-in pack: `crates/planroom/build.rs` embeds every one, so a new pack needs no code edit. `README.md` is the page for users.
+
+- `code/`: the base pack every other pack builds on: code kinds and relations, languages, image roles, hint kinds, the `files` and `compose` built-ins and the code lenses. Its `tests/` holds the conformance kit `planroom doctor --pack packs/code` runs.
+
+The other built-in packs (`plan/`, `observability/`, `release/`, `artifacts/`, `machines/`) each get a directory here when their milestone builds them.

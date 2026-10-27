@@ -13,6 +13,7 @@ use crate::view::Stakes;
 /// `[[decisions]]` in a pack: one kind of question a model answers about one kind of subject
 /// (DR-50, DR-63).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DecisionKind {
     pub id: String,
     /// A bump invalidates the cache and the eval result.
@@ -69,7 +70,7 @@ pub enum Role {
 
 /// The question a model answers, by its type.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
 pub enum Question {
     Boolean {
         instructions: String,
@@ -98,6 +99,7 @@ pub enum Question {
 
 /// What a yes and a no mean.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct BoolCriteria {
     #[serde(rename = "true")]
     pub yes: String,
@@ -107,6 +109,7 @@ pub struct BoolCriteria {
 
 /// Candidate nodes from a query shape over the subject, at most `max`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct OptionsFrom {
     pub shape: Shape,
     #[serde(default)]
@@ -116,6 +119,7 @@ pub struct OptionsFrom {
 
 /// The slice of the model a request carries; evidence goes in as path and contains, never line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SliceSpec {
     pub query: Shape,
     #[serde(default)]
@@ -155,6 +159,7 @@ pub enum EffectOp {
 
 /// When a kind acts on its own, deals a card or asks Claude.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Policy {
     /// Absent: never auto, and never asks Claude up front.
     #[serde(default)]
@@ -167,6 +172,7 @@ pub struct Policy {
 
 /// How many model calls a kind may spend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DecisionBudget {
     /// Counted per scan event, which its one decide duty run spends, and per explicit
     /// `decide --run` (DR-65).

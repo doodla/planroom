@@ -17,7 +17,8 @@ mod yaml;
 use std::fmt;
 use std::path::PathBuf;
 
-use planroom_contract::FactBatch;
+use planroom_contract::{FactBatch, Level};
+use serde::Deserialize;
 use serde_json::Value;
 
 pub use ids::{hex, node_id};
@@ -71,6 +72,40 @@ pub trait Extractor {
     /// Pack-qualified, such as `code/compose`.
     fn name(&self) -> &'static str;
     fn run(&self, repo: &RepoView, files: &[RepoPath], opts: &Value) -> Result<FactBatch, ExtractError>;
+}
+
+/// A kind a built-in emits, as its options name it: the pack's `options.kinds` names the kind, and
+/// the engine fills in the level and ID prefix the loaded vocabulary gives it. So no built-in
+/// spells a kind, a level or a prefix of its own: the pack that declares it supplies all three.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KindRef {
+    /// Qualified, `<pack>.<name>`.
+    pub kind: String,
+    /// The ID's kind-short: `<namespace>:<id_prefix>:<key>`.
+    pub id_prefix: String,
+    pub level: Level,
+}
+
+/// Whether `glob` is a `files` or image glob this build can match, with the reason it isn't.
+pub fn check_glob(glob: &str) -> Result<(), String> {
+    globset::GlobBuilder::new(glob).literal_separator(true).build().map(drop).map_err(|e| e.to_string())
+}
+
+/// A declarative extractor's `regex`, compiled as the declarative runner compiles it: the one
+/// place both the pack loader's check and the runner build it, so a pattern that loads runs.
+pub fn compile_regex(pattern: &str) -> Result<regex::Regex, String> {
+    regex::Regex::new(pattern).map_err(|e| {
+        // A syntax error spans several lines, the pattern and a caret; its last line says why.
+        let text = e.to_string();
+        let why = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or(&text);
+        why.trim().trim_start_matches("error: ").to_owned()
+    })
+}
+
+/// Whether `pattern` is a `regex` this build can run, with the reason it isn't, in one line.
+pub fn check_regex(pattern: &str) -> Result<(), String> {
+    compile_regex(pattern).map(drop)
 }
 
 /// The files an extractor declared with `files` globs takes, in their sorted order. A glob

@@ -1,0 +1,343 @@
+# The code pack: the base every other pack builds on. It names the kinds and relations of a
+# software system's code, the languages a file's extension gives, the images that make a compose
+# service a datastore or a queue, the hint kinds linkers join, and the lenses that read them.
+#
+# A declaration names its own short ID ("service"); every reference elsewhere names a qualified
+# one ("code.service"), from this pack, a pack it requires, or the kernel.
+
+format = "planroom.pack/v1"
+id = "code"
+version = 1
+title = "Code"
+requires = []
+
+# Kinds. Every Container-level kind takes the kernel's prefix `container`, so a container that an
+# image role reclassifies keeps its ID (DR-46).
+
+[[kinds]]
+id = "workspace"
+id_prefix = "workspace"
+level = "system"
+label = "Workspace"
+
+[[kinds]]
+id = "repo"
+id_prefix = "repo"
+level = "system"
+label = "Repo"
+props = { type = "object", properties = { languages = { type = "array", items = { type = "string" } } } }
+
+[[kinds]]
+id = "service"
+id_prefix = "container"
+level = "container"
+label = "Service"
+parents = ["code.repo", "code.workspace"]
+props = { type = "object", properties = { role = { type = "string" }, image = { type = "string" } } }
+tone = "service"
+
+[[kinds]]
+id = "datastore"
+id_prefix = "container"
+level = "container"
+label = "Datastore"
+parents = ["code.repo", "code.workspace"]
+props = { type = "object", properties = { role = { type = "string" }, image = { type = "string" } } }
+tone = "store"
+
+[[kinds]]
+id = "queue"
+id_prefix = "container"
+level = "container"
+label = "Queue"
+parents = ["code.repo", "code.workspace"]
+props = { type = "object", properties = { role = { type = "string" }, image = { type = "string" } } }
+tone = "store"
+
+[[kinds]]
+id = "library"
+id_prefix = "container"
+level = "container"
+label = "Library"
+parents = ["code.repo"]
+props = { type = "object", properties = { role = { type = "string" } } }
+tone = "library"
+
+[[kinds]]
+id = "tooling"
+id_prefix = "container"
+level = "container"
+label = "Tooling"
+parents = ["code.repo"]
+props = { type = "object", properties = { role = { type = "string" }, compose_project = { type = "string" } } }
+tone = "infra"
+
+[[kinds]]
+id = "package"
+id_prefix = "pkg"
+level = "component"
+label = "Package"
+parents = ["code.repo", "code.directory", "code.service", "code.library", "code.tooling"]
+
+[[kinds]]
+id = "module"
+id_prefix = "module"
+level = "component"
+label = "Module"
+parents = ["code.repo", "code.package"]
+
+[[kinds]]
+id = "directory"
+id_prefix = "dir"
+level = "component"
+label = "Directory"
+parents = ["code.repo", "code.directory", "code.package", "code.service", "code.library", "code.tooling"]
+
+[[kinds]]
+id = "file"
+id_prefix = "file"
+level = "code"
+label = "File"
+parents = ["code.repo", "code.directory", "code.package", "code.service", "code.library", "code.tooling"]
+props = { type = "object", properties = { language = { type = "string" } } }
+
+[[kinds]]
+id = "api_spec"
+id_prefix = "spec"
+level = "component"
+label = "API spec"
+parents = ["code.repo", "code.directory", "code.service"]
+
+[[kinds]]
+id = "endpoint"
+id_prefix = "endpoint"
+level = "code"
+label = "Endpoint"
+parents = ["code.service", "code.library"]
+props = { type = "object", properties = { method = { type = "string" }, path = { type = "string" } } }
+
+[[kinds]]
+id = "person"
+id_prefix = "person"
+level = "component"
+label = "Person"
+
+[[kinds]]
+id = "commit"
+id_prefix = "commit"
+level = "code"
+label = "Commit"
+parents = ["code.repo"]
+
+# Relations between containers, which the runtime lenses lift, then the code-level ones.
+
+[[relations]]
+id = "http"
+from = ["code.service", "code.library", "code.tooling"]
+to = ["code.service", "code.library"]
+label = "calls over HTTP"
+props = { type = "object", properties = { method = { type = "string" }, path = { type = "string" } } }
+
+[[relations]]
+id = "queue_publish"
+from = ["code.service", "code.library", "code.tooling"]
+to = ["code.queue"]
+label = "publishes to"
+props = { type = "object", properties = { key = { type = "string" } } }
+
+[[relations]]
+id = "queue_consume"
+from = ["code.service", "code.library", "code.tooling"]
+to = ["code.queue"]
+label = "consumes from"
+props = { type = "object", properties = { key = { type = "string" } } }
+
+[[relations]]
+id = "db"
+from = ["code.service", "code.library", "code.tooling"]
+to = ["code.datastore"]
+label = "reads and writes"
+props = { type = "object", properties = { driver = { type = "string" } } }
+
+[[relations]]
+id = "imports"
+from = ["code.file"]
+to = ["code.file", "code.module", "code.package", "kernel.external"]
+label = "imports"
+
+[[relations]]
+id = "depends_on_package"
+from = ["code.repo", "code.package", "code.service", "code.library", "code.tooling"]
+to = ["code.package", "code.library", "kernel.external"]
+label = "depends on"
+props = { type = "object", properties = { uses = { type = "string" } } }
+
+[[relations]]
+id = "co_change"
+from = ["code.file", "code.directory"]
+to = ["code.file", "code.directory"]
+label = "changes with"
+props = { type = "object", properties = { count = { type = "integer" } } }
+
+[[relations]]
+id = "owned_by"
+from = ["code.repo", "code.directory", "code.file"]
+to = ["code.person"]
+label = "owned by"
+
+# The languages a file's extension gives, and the comment marks the declarative runner blanks.
+
+[[languages]]
+id = "typescript"
+extensions = ["ts", "mts", "cts"]
+line_comment = "//"
+block_comment = ["/*", "*/"]
+
+[[languages]]
+id = "tsx"
+extensions = ["tsx"]
+line_comment = "//"
+block_comment = ["/*", "*/"]
+
+[[languages]]
+id = "javascript"
+extensions = ["js", "mjs", "cjs", "jsx"]
+line_comment = "//"
+block_comment = ["/*", "*/"]
+
+[[languages]]
+id = "python"
+extensions = ["py"]
+line_comment = "#"
+
+[[languages]]
+id = "go"
+extensions = ["go"]
+line_comment = "//"
+block_comment = ["/*", "*/"]
+
+[[languages]]
+id = "rust"
+extensions = ["rs"]
+line_comment = "//"
+block_comment = ["/*", "*/"]
+
+[[languages]]
+id = "yaml"
+extensions = ["yml", "yaml"]
+line_comment = "#"
+
+[[languages]]
+id = "json"
+extensions = ["json"]
+
+# A compose service's kind and role by its image; any other service is a code.service.
+
+[[image_roles]]
+image = "postgres*"
+role = "datastore"
+kind = "code.datastore"
+
+[[image_roles]]
+image = "mysql*"
+role = "datastore"
+kind = "code.datastore"
+
+[[image_roles]]
+image = "redis*"
+role = "queue"
+kind = "code.queue"
+
+[[image_roles]]
+image = "rabbitmq*"
+role = "queue"
+kind = "code.queue"
+
+# Hint kinds: partial observations the code pack's linkers join into edges across repos (DR-12).
+
+[[hints]]
+id = "url"
+attrs = ["scheme", "host", "port", "path", "method"]
+
+[[hints]]
+id = "env_read"
+attrs = ["name", "default"]
+
+[[hints]]
+id = "env_set"
+attrs = ["service", "name", "value"]
+
+[[hints]]
+id = "depends_on"
+attrs = ["service"]
+
+[[hints]]
+id = "route_serve"
+attrs = ["method", "path"]
+
+[[hints]]
+id = "route_call"
+attrs = ["method", "path", "base"]
+
+[[hints]]
+id = "queue_op"
+attrs = ["op", "key"]
+
+[[hints]]
+id = "db_open"
+attrs = ["driver"]
+
+[[hints]]
+id = "sql"
+attrs = ["verb", "table"]
+
+[[hints]]
+id = "def"
+attrs = ["name", "params"]
+
+[[hints]]
+id = "call"
+attrs = ["name", "args"]
+
+# Built-in extractors. Each names the kinds it emits; the engine gives it their levels and prefixes.
+
+[[extractors]]
+id = "files"
+builtin = "files"
+files = ["**"]
+options = { kinds = { repo = "code.repo", directory = "code.directory", file = "code.file" } }
+
+[[extractors]]
+id = "compose"
+builtin = "compose"
+files = ["**/docker-compose.yml", "**/docker-compose.yaml", "**/compose.yml", "**/compose.yaml"]
+options = { kinds = { service = "code.service", tooling = "code.tooling", repo = "code.repo" } }
+
+# Lenses: which relationships a map shows (DR-15).
+
+[[lenses]]
+id = "runtime"
+label = "Runtime"
+relations = ["code.http", "code.queue_publish", "code.queue_consume", "code.db"]
+flow = { "code.queue_consume" = "backward" }
+level = "container"
+default = true
+
+[[lenses]]
+id = "flow"
+label = "Request and message flow"
+relations = ["code.http", "code.queue_publish", "code.queue_consume"]
+flow = { "code.queue_consume" = "backward" }
+level = "container"
+
+[[lenses]]
+id = "dependencies"
+label = "Dependencies"
+relations = ["code.imports", "code.depends_on_package"]
+level = "component"
+
+[[lenses]]
+id = "history"
+label = "History"
+relations = ["code.co_change", "code.owned_by"]
+level = "component"

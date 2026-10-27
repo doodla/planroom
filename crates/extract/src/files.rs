@@ -9,23 +9,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use planroom_contract::{
-    Evidence, FACTS_FORMAT, FactBatch, Kind, Layer, Level, Node, NodeId, PartialFile, Provenance, Tier,
+    Evidence, FACTS_FORMAT, FactBatch, Kind, Layer, Node, NodeId, PartialFile, Provenance, Tier,
 };
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::ids::node_id;
-use crate::{ExtractError, Extractor, RepoPath, RepoView, lines};
+use crate::{ExtractError, Extractor, KindRef, RepoPath, RepoView, lines};
 
 pub const NAME: &str = "code/files";
-
-/// The node kinds and ID prefixes this extractor emits; the code pack declares them.
-pub const REPO_KIND: &str = "code.repo";
-pub const REPO_PREFIX: &str = "repo";
-pub const DIR_KIND: &str = "code.directory";
-pub const DIR_PREFIX: &str = "dir";
-pub const FILE_KIND: &str = "code.file";
-pub const FILE_PREFIX: &str = "file";
 
 /// One `[[languages]]` entry, as the merged table passes it in `options.languages`.
 #[derive(Debug, Clone, Deserialize)]
@@ -34,16 +26,28 @@ pub struct Language {
     pub extensions: Vec<String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+/// The three kinds this built-in emits, which the pack that declares it names in
+/// `options.kinds` (DR-46).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Kinds {
+    /// A repo's own node, at the top of its tree.
+    pub repo: KindRef,
+    pub directory: KindRef,
+    pub file: KindRef,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Options {
     #[serde(default)]
     languages: Vec<Language>,
+    kinds: Kinds,
 }
 
-/// The repo node's ID.
-pub fn repo_id(repo: &str) -> NodeId {
-    node_id(repo, REPO_PREFIX, repo)
+/// The repo node's ID: `<ns>:<prefix>:<ns>`, with the prefix of the repo's kind.
+pub fn repo_id(repo: &str, kind: &KindRef) -> NodeId {
+    node_id(repo, &kind.id_prefix, repo)
 }
 
 pub struct Files;
@@ -54,12 +58,9 @@ impl Extractor for Files {
     }
 
     fn run(&self, repo: &RepoView, files: &[RepoPath], opts: &Value) -> Result<FactBatch, ExtractError> {
-        let opts: Options = if opts.is_null() {
-            Options::default()
-        } else {
-            serde_json::from_value(opts.clone())
-                .map_err(|e| ExtractError::InvalidOptions(format!("{NAME}: {e}")))?
-        };
+        let opts: Options = serde_json::from_value(opts.clone())
+            .map_err(|e| ExtractError::InvalidOptions(format!("{NAME}: {e}")))?;
+        let kinds = &opts.kinds;
         let by_ext: BTreeMap<&str, &str> = opts
             .languages
             .iter()
@@ -67,10 +68,10 @@ impl Extractor for Files {
             .collect();
         let tree_evidence = || vec![Evidence::Ref { commit: repo.commit.clone(), ref_name: None }];
         let provenance = Provenance::Extracted { extractor: NAME.into(), tier: Tier::Universal };
-        let node = |id: NodeId, kind: &str, level, parent, name: &str, props, evidence| Node {
+        let node = |id: NodeId, kind: &KindRef, parent, name: &str, props, evidence| Node {
             id,
-            kind: Kind(kind.into()),
-            level,
+            kind: Kind(kind.kind.clone()),
+            level: kind.level,
             parent,
             name: name.into(),
             aliases: vec![],
@@ -80,8 +81,8 @@ impl Extractor for Files {
             evidence,
         };
         let parent_of = |path: &str| match path.rsplit_once('/') {
-            Some((dir, _)) => node_id(&repo.name, DIR_PREFIX, dir),
-            None => repo_id(&repo.name),
+            Some((dir, _)) => node_id(&repo.name, &kinds.directory.id_prefix, dir),
+            None => repo_id(&repo.name, &kinds.repo),
         };
 
         let mut nodes = Vec::new();
@@ -123,16 +124,15 @@ impl Extractor for Files {
                 languages.insert(*language);
                 props.insert("language".to_owned(), Value::String((*language).to_owned()));
             }
-            let id = node_id(&repo.name, FILE_PREFIX, path);
-            nodes.push(node(id, FILE_KIND, Level::Code, Some(parent_of(path)), name, props, evidence));
+            let id = node_id(&repo.name, &kinds.file.id_prefix, path);
+            nodes.push(node(id, &kinds.file, Some(parent_of(path)), name, props, evidence));
         }
         for dir in &dirs {
             let name = dir.rsplit('/').next().unwrap_or(dir);
-            let id = node_id(&repo.name, DIR_PREFIX, dir);
+            let id = node_id(&repo.name, &kinds.directory.id_prefix, dir);
             nodes.push(node(
                 id,
-                DIR_KIND,
-                Level::Component,
+                &kinds.directory,
                 Some(parent_of(dir)),
                 name,
                 BTreeMap::new(),
@@ -144,9 +144,8 @@ impl Extractor for Files {
             props.insert("languages".to_owned(), Value::from(languages.into_iter().collect::<Vec<_>>()));
         }
         nodes.push(node(
-            repo_id(&repo.name),
-            REPO_KIND,
-            Level::System,
+            repo_id(&repo.name, &kinds.repo),
+            &kinds.repo,
             None,
             &repo.name,
             props,

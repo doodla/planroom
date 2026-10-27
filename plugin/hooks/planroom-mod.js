@@ -419,6 +419,19 @@ var CATALOGUE = [
     "undo": "edit",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "doctor",
+    "idea": "setup",
+    "summary": "Check a pack with --pack DIR: validation, its conformance kit and a second run for determinism.",
+    "actor": "mixed",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": false,
+    "undo": "query",
+    "tool": null,
+    "room": false
   }
 ];
 var FALLBACK_PANES = {

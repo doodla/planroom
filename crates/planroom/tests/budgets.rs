@@ -323,6 +323,8 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
         run(&["schema", "--command", leaf], "", &[]);
     }
     run(&["version"], "", &[]);
+    let code_pack = planroom_testkit::repo_root().join("packs/code");
+    run(&["doctor", "--pack", code_pack.to_str().unwrap()], "", &[]);
     run(&["share", "--out", ".planroom/share"], "", &[]);
     let read = json!({"path": "inbox/u_test/events/d1", "version": 1, "row": {
         "format": "planroom.inbox/v1", "instance": "i1", "counter": 1, "command": "map",

@@ -93,6 +93,20 @@ impl AppError {
         }
     }
 
+    /// `pack_invalid`: the pack file `file` fails at `line` over `reference`, for the reason
+    /// `pack.<why>` gives, filled from `vars`.
+    pub fn pack_invalid(
+        file: &str,
+        line: u32,
+        reference: &str,
+        why: &str,
+        vars: &[(&str, &dyn std::fmt::Display)],
+    ) -> AppError {
+        let why = text::get(&format!("pack.{why}"), vars);
+        AppError::new(ErrorCode::PackInvalid, &[("file", &file), ("line", &line), ("why", &why)])
+            .details(json!({"file": file, "line": line, "reference": reference}))
+    }
+
     pub fn internal(what: impl std::fmt::Display) -> AppError {
         AppError::new(ErrorCode::Internal, &[("what", &what)]).details(json!({"report": null}))
     }

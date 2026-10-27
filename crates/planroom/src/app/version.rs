@@ -62,6 +62,7 @@ const RESULTS: &[(&str, &str)] = &[
     ("serve", "ServeInfo"),
     ("share", "ShareResult"),
     ("import", "ImportResult"),
+    ("doctor", "PackReport"),
 ];
 
 /// `schema --command LEAF`: the leaf's request and result types with their `$defs` closure.

@@ -155,16 +155,21 @@ test.describe("at 1440x900", () => {
     await expect(orders.locator(".block-counts")).toHaveText(
       "1 container · 14 component · 23 code",
     );
+    // The code pack's image roles give a compose service its kind: redis is a queue and orders-db
+    // a datastore.
     await expect(
       page.locator(".block", { hasText: /^redis/ }).locator(".block-kind"),
-    ).toHaveText("service");
+    ).toHaveText("queue");
+    await expect(
+      page.locator(".block", { hasText: /^orders-db/ }).locator(".block-kind"),
+    ).toHaveText("datastore");
     // The five repos hold others and show a lid; the engine lifts no relations yet (M1).
     await expect(page.locator(".block[data-holds] .block-lid")).toHaveCount(5);
     await expect(page.locator(".react-flow__edge")).toHaveCount(0);
     // The screen-reader outline names every block with its kind and level.
     await expect(page.getByRole("tree")).toBeAttached();
     await expect(
-      page.getByRole("treeitem", { name: /^redis, service, container/ }),
+      page.getByRole("treeitem", { name: /^redis, queue, container/ }),
     ).toBeAttached();
   });
 

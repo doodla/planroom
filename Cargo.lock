@@ -1158,6 +1158,7 @@ dependencies = [
  "globset",
  "ignore",
  "planroom-contract",
+ "regex",
  "saphyr-parser",
  "serde",
  "serde_json",

@@ -10,6 +10,7 @@
 //! A client more than 5,000 events behind gets one `reset` frame instead of the events, and an
 //! idle stream sends `ping` every 15 s.
 
+use std::sync::OnceLock;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
@@ -151,7 +152,7 @@ pub fn frame(event: &Event) -> StreamFrame {
     };
     let target = match &event.body {
         // The repo's node ID (`worker:repo:worker`), as every other frame names its target (DR-82).
-        EventBody::Scan { repo, .. } => Some(planroom_extract::files::repo_id(repo).0),
+        EventBody::Scan { repo, .. } => repo_node(repo),
         EventBody::Edit(edit) => Some(target_id(&edit.target)),
         EventBody::Claim { target, .. } => Some(target_id(target)),
         _ => None,
@@ -165,6 +166,14 @@ pub fn frame(event: &Event) -> StreamFrame {
         status: event.status,
         summary,
     }
+}
+
+/// A repo's node ID, made as a scan makes it: from the repo kind of the built-in code pack, which
+/// no other pack can replace, so the live loop reads it once.
+fn repo_node(repo: &str) -> Option<String> {
+    static REPO_KIND: OnceLock<Option<planroom_extract::KindRef>> = OnceLock::new();
+    let kind = REPO_KIND.get_or_init(|| crate::packs::builtins().ok()?.repo_kind());
+    kind.as_ref().map(|k| planroom_extract::files::repo_id(repo, k).0)
 }
 
 fn target_id(target: &Target) -> String {

@@ -61,6 +61,7 @@
     },
     "ActionDecl": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "command": {
           "$ref": "#/$defs/CommandName"
@@ -210,6 +211,7 @@
     },
     "ArgDecl": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "name": {
           "type": "string"
@@ -341,6 +343,7 @@
     },
     "BoolCriteria": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "true": {
           "type": "string"
@@ -704,6 +707,22 @@
             "command",
             "args"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "doctor"
+            },
+            "args": {
+              "$ref": "#/$defs/DoctorReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
         }
       ],
       "description": "One variant per catalogue leaf; the request travels as `args`."
@@ -742,7 +761,8 @@
             "person init",
             "serve",
             "share",
-            "import"
+            "import",
+            "doctor"
           ]
         },
         {
@@ -940,6 +960,7 @@
     },
     "DecisionBudget": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "max_calls_per_scan": {
           "type": "integer",
@@ -1004,6 +1025,7 @@
     },
     "DecisionKind": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string"
@@ -1219,6 +1241,25 @@
         "files"
       ],
       "description": "A repo with uncommitted changes: `orders: 3 uncommitted files aren't on the map`."
+    },
+    "DoctorReq": {
+      "type": "object",
+      "properties": {
+        "pack": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The pack directory to check: validation against the built-in packs, every extractor over\nits `tests/inputs/`, the comparison with `tests/expected.jsonl` and a second run.",
+          "default": null
+        },
+        "update": {
+          "type": "boolean",
+          "description": "Rewrite the pack's `tests/expected.jsonl` from this run instead of comparing with it.",
+          "default": false
+        }
+      },
+      "description": "`planroom doctor --pack DIR [--update]`: one pack's conformance kit (DR-10). `--pack` is the\none check this build has; the backup, restore and general report join it as flags."
     },
     "DrainReq": {
       "type": "object",
@@ -2806,6 +2847,7 @@
     },
     "HintDecl": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string"
@@ -2842,6 +2884,7 @@
     },
     "ImageRole": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "image": {
           "type": "string",
@@ -3165,6 +3208,7 @@
     },
     "ItemType": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string",
@@ -3187,6 +3231,7 @@
     },
     "KindDecl": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string"
@@ -3256,6 +3301,7 @@
     },
     "LanguageDecl": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string"
@@ -3433,6 +3479,7 @@
     },
     "LensDecl": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string"
@@ -3547,6 +3594,7 @@
     },
     "LinkerDecl": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "builtin": {
           "type": "string"
@@ -4107,6 +4155,7 @@
     },
     "OptionsFrom": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "shape": {
           "$ref": "#/$defs/Shape"
@@ -4137,8 +4186,27 @@
       ],
       "description": "What happened with the decision."
     },
+    "PackCheck": {
+      "type": "object",
+      "properties": {
+        "check": {
+          "type": "string",
+          "description": "`validate`, `expected`, `determinism`, `evidence` or `evals`."
+        },
+        "line": {
+          "type": "string",
+          "description": "One engine-authored line on what it found."
+        }
+      },
+      "required": [
+        "check",
+        "line"
+      ],
+      "description": "One conformance check `doctor --pack` passed."
+    },
     "PackFile": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "format": {
           "type": "string",
@@ -4275,6 +4343,110 @@
         "title"
       ],
       "description": "One pack's `pack.toml`."
+    },
+    "PackRecord": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "source": {
+          "type": "string",
+          "description": "`builtin` for a pack embedded in the binary; else the directory it was loaded from."
+        },
+        "sha256": {
+          "type": "string",
+          "description": "The lowercase hex sha256 over the pack's files, each path and its bytes in path order."
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "source",
+        "sha256"
+      ],
+      "description": "One loaded pack as the store's `meta.packs` records it, in load order (DR-62)."
+    },
+    "PackReport": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "origin": {
+          "type": "string",
+          "description": "`builtin` when the directory holds a built-in pack's ID, else `out_of_tree`."
+        },
+        "sha256": {
+          "type": "string",
+          "description": "The lowercase hex sha256 over the pack's files, as the store's pack record names it."
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The pack's kinds, relations, extractors, linkers and lenses, qualified."
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "extractors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "linkers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "lenses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PackCheck"
+          },
+          "description": "Each check the kit passed, in order. The first check that fails fails the command with\n`pack_invalid`, naming the file, the line and the reference."
+        }
+      },
+      "required": [
+        "summary",
+        "id",
+        "version",
+        "origin",
+        "sha256",
+        "kinds",
+        "relations",
+        "extractors",
+        "linkers",
+        "lenses",
+        "checks"
+      ],
+      "description": "What `doctor --pack DIR` returns: the pack, what it declares, and each conformance check."
     },
     "PaneModel": {
       "type": "object",
@@ -4458,6 +4630,7 @@
     },
     "Policy": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "auto_at": {
           "type": [
@@ -4590,6 +4763,7 @@
     },
     "PromptDecl": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string"
@@ -4811,6 +4985,7 @@
       "oneOf": [
         {
           "type": "object",
+          "additionalProperties": false,
           "properties": {
             "instructions": {
               "type": "string"
@@ -4838,6 +5013,7 @@
         },
         {
           "type": "object",
+          "additionalProperties": false,
           "properties": {
             "instructions": {
               "type": "string"
@@ -4881,6 +5057,7 @@
         },
         {
           "type": "object",
+          "additionalProperties": false,
           "properties": {
             "instructions": {
               "type": "string"
@@ -4908,6 +5085,7 @@
     },
     "QuestionDecl": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string"
@@ -4979,6 +5157,7 @@
     },
     "RelationDecl": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string"
@@ -5176,6 +5355,7 @@
     },
     "RuleDecl": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string"
@@ -5495,6 +5675,7 @@
     },
     "ShapeStep": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "shape": {
           "$ref": "#/$defs/Shape"
@@ -5614,6 +5795,7 @@
     },
     "SliceSpec": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "query": {
           "$ref": "#/$defs/Shape"
@@ -5730,6 +5912,7 @@
     },
     "StageDecl": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string"
@@ -5901,6 +6084,7 @@
     },
     "SuggestionDecl": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "when": {
           "type": "object",

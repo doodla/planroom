@@ -6,13 +6,16 @@
 //! A service joins a workspace repo by its `build:` context or its image name (`acme/orders` to
 //! repo `orders`), and then takes that repo's namespace; any other service sits under the
 //! workspace, `ws:container:<name>`. Its kind and role come from the merged `[[image_roles]]`
-//! table, first match in load order; any other service is a `code.service` with role `service`.
+//! table, first match in load order; any other service takes the pack's service kind, with role
+//! `service`. The pack that declares this built-in names its kinds in `options.kinds`, and every
+//! container's ID takes the service kind's prefix, the kernel's `container`, so a reclassified
+//! container keeps its ID (DR-46).
 
 use std::collections::BTreeMap;
 
 use globset::{Glob, GlobMatcher};
 use planroom_contract::{
-    Evidence, FACTS_FORMAT, FactBatch, Hint, Kind, Layer, Level, Node, NodeId, PartialFile, Provenance, Tier,
+    Evidence, FACTS_FORMAT, FactBatch, Hint, Kind, Layer, Node, NodeId, PartialFile, Provenance, Tier,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -20,17 +23,13 @@ use serde_json::Value;
 use crate::files::repo_id;
 use crate::ids::{hint_id, node_id};
 use crate::yaml::{self, Yaml};
-use crate::{ExtractError, Extractor, RepoPath, RepoView, lines};
+use crate::{ExtractError, Extractor, KindRef, RepoPath, RepoView, lines};
 
 pub const NAME: &str = "code/compose";
 /// The globs a pack declares this built-in with when it names none.
 pub const DEFAULT_FILES: &[&str] =
     &["**/docker-compose.yml", "**/docker-compose.yaml", "**/compose.yml", "**/compose.yaml"];
 
-/// Every Container-level kind uses the kernel's prefix, so a reclassified container keeps its ID.
-pub const CONTAINER_PREFIX: &str = "container";
-pub const SERVICE_KIND: &str = "code.service";
-pub const TOOLING_KIND: &str = "code.tooling";
 pub const ENV_SET_HINT: &str = "code.env_set";
 pub const DEPENDS_ON_HINT: &str = "code.depends_on";
 
@@ -42,7 +41,19 @@ pub struct ImageRole {
     pub kind: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
+/// The kinds this built-in emits, which the pack that declares it names in `options.kinds`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Kinds {
+    /// A service no image role classifies.
+    pub service: KindRef,
+    /// The compose file's own repo, as the deployment definition.
+    pub tooling: KindRef,
+    /// A repo's own node, which a joined service sits under.
+    pub repo: KindRef,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Options {
     /// The workspace's repo names, for the join by build context or image name.
@@ -50,6 +61,7 @@ struct Options {
     repos: Vec<String>,
     #[serde(default)]
     image_roles: Vec<ImageRole>,
+    kinds: Kinds,
 }
 
 pub struct Compose;
@@ -58,6 +70,7 @@ struct Ctx<'a> {
     repo: &'a RepoView,
     path: String,
     text: &'a str,
+    kinds: &'a Kinds,
 }
 
 impl Ctx<'_> {
@@ -79,12 +92,8 @@ impl Extractor for Compose {
     }
 
     fn run(&self, repo: &RepoView, files: &[RepoPath], opts: &Value) -> Result<FactBatch, ExtractError> {
-        let opts: Options = if opts.is_null() {
-            Options::default()
-        } else {
-            serde_json::from_value(opts.clone())
-                .map_err(|e| ExtractError::InvalidOptions(format!("{NAME}: {e}")))?
-        };
+        let opts: Options = serde_json::from_value(opts.clone())
+            .map_err(|e| ExtractError::InvalidOptions(format!("{NAME}: {e}")))?;
         let roles: Vec<(GlobMatcher, &ImageRole)> = opts
             .image_roles
             .iter()
@@ -120,7 +129,7 @@ impl Extractor for Compose {
             let Some(services) = doc.get("services").and_then(Yaml::entries) else {
                 continue;
             };
-            let ctx = Ctx { repo, path: full, text };
+            let ctx = Ctx { repo, path: full, text, kinds: &opts.kinds };
             if !tooling_done {
                 tooling_done = true;
                 let at =
@@ -130,11 +139,12 @@ impl Extractor for Compose {
                 if let Some(project) = doc.get("name").and_then(Yaml::as_str) {
                     props.insert("compose_project".into(), Value::from(project));
                 }
+                let kinds = &opts.kinds;
                 batch.nodes.push(container(
-                    node_id(&repo.name, CONTAINER_PREFIX, &repo.name),
-                    TOOLING_KIND,
+                    node_id(&repo.name, &kinds.service.id_prefix, &repo.name),
+                    &kinds.tooling,
                     &repo.name,
-                    Some(repo_id(&repo.name)),
+                    Some(repo_id(&repo.name, &kinds.repo)),
                     vec![],
                     props,
                     ctx.evidence(at),
@@ -153,7 +163,7 @@ impl Extractor for Compose {
 
 fn container(
     id: NodeId,
-    kind: &str,
+    kind: &KindRef,
     name: &str,
     parent: Option<NodeId>,
     aliases: Vec<String>,
@@ -162,8 +172,8 @@ fn container(
 ) -> Node {
     Node {
         id,
-        kind: Kind(kind.into()),
-        level: Level::Container,
+        kind: Kind(kind.kind.clone()),
+        level: kind.level,
         parent,
         name: name.into(),
         aliases,
@@ -191,7 +201,8 @@ fn service_facts(
         .and_then(|b| b.trim_end_matches('/').rsplit('/').next())
         .filter(|b| repos.iter().any(|r| r == b))
         .or_else(|| image_name.map(image_repo).filter(|i| repos.iter().any(|r| r == i)));
-    let id = node_id(joined.unwrap_or("ws"), CONTAINER_PREFIX, name);
+    let kinds = ctx.kinds;
+    let id = node_id(joined.unwrap_or("ws"), &kinds.service.id_prefix, name);
     let role = image_name.and_then(|i| roles.iter().find(|(m, _)| m.is_match(i)).map(|(_, r)| *r));
     let mut props = BTreeMap::new();
     props.insert("role".into(), Value::from(role.map_or("service", |r| r.role.as_str())));
@@ -200,8 +211,12 @@ fn service_facts(
     }
     let aliases = vec![format!("host:{name}"), format!("service:{name}")];
     let evidence = ctx.evidence(image.map_or(line, Yaml::line));
-    let kind = role.map_or(SERVICE_KIND, |r| r.kind.as_str());
-    batch.nodes.push(container(id.clone(), kind, name, joined.map(repo_id), aliases, props, evidence));
+    // An image role's kind is Container-level, as the pack loader checks, so it takes the level
+    // and prefix of the service kind.
+    let kind = role
+        .map_or_else(|| kinds.service.clone(), |r| KindRef { kind: r.kind.clone(), ..kinds.service.clone() });
+    let parent = joined.map(|r| repo_id(r, &kinds.repo));
+    batch.nodes.push(container(id.clone(), &kind, name, parent, aliases, props, evidence));
 
     let mut hint = |kind: &str, key: &str, value: Option<&str>, attrs: BTreeMap<String, Value>, line: u32| {
         let kind = Kind(kind.into());
