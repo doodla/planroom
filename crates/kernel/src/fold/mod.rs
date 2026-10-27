@@ -1,8 +1,9 @@
 //! The fold (architecture.md, "The fold"): the model at `at`, from the active snapshots' facts and
 //! the events, pure and deterministic, so `fold(at = N)` is reproducible.
 //!
-//! It resolves the facts, runs the pre-pass (undone events and the latest review of each event),
-//! then applies every event up to `at` in `seq` order:
+//! It resolves the facts, resolves each edit whose node is gone through the renames later `scan`
+//! events recorded ([`renames`], DR-74), runs the pre-pass (undone events and the latest review of
+//! each event), then applies every event up to `at` in `seq` order:
 //! - an applied `edit` goes into the model: `put` inserts, `set` overrides fields, `retract`
 //!   removes, and overrides are re-applied over the facts on every fold, so a rescan can't drop
 //!   them;
@@ -21,6 +22,7 @@
 pub mod claims;
 pub mod cycle;
 mod prepass;
+mod renames;
 mod state;
 
 use std::collections::BTreeSet;
@@ -72,12 +74,17 @@ pub fn fold_full(facts: &Facts, events: &[Event], vocabulary: &Vocabulary, at: S
 fn fold_resolved(resolved: Resolved, events: &[Event], at: Seq) -> Folded {
     let mut up_to: Vec<&Event> = events.iter().filter(|e| e.seq <= at).collect();
     up_to.sort_by_key(|e| e.seq);
-    let mut prepass = prepass::prepass(&up_to);
+    // An edit whose node is gone follows the renames later scans recorded (DR-74).
+    let (followed_events, followed) = renames::follow(&up_to, &resolved.nodes);
+    let up_to: Vec<&Event> = followed_events.iter().map(|e| e.as_ref()).collect();
+    let undos = prepass::Undos::of(&up_to);
+    let mut prepass = prepass::prepass(&up_to, &undos);
+    prepass.followed = followed;
     let mut core = Core::new(resolved);
     for event in &up_to {
         core.apply(event, &prepass);
     }
-    prepass.undo_revs = prepass::undo_revisions(&up_to, &core.sets);
+    prepass.undo_revs = prepass::undo_revisions(&up_to, &undos, &core.sets);
     core.at = at;
     finished(core, prepass)
 }

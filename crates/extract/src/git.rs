@@ -261,6 +261,45 @@ impl Git {
         Ok(self.run(&["for-each-ref", "--format=%(refname)"])?.lines().map(str::to_owned).collect())
     }
 
+    /// What moved between commits `old` and `new`, as `git diff -M --name-status -z` reports it
+    /// (DR-74): each file rename, and each directory of `old` whose files all moved into one new
+    /// directory, keeping their paths below it. Paths no ID can name, those that aren't UTF-8 or
+    /// hold a newline or a backslash, are left out, as the walk leaves them out. External diff
+    /// drivers and textconv never run, and the rename limit is fixed, so a repo's config changes
+    /// neither what runs nor the answer.
+    pub fn renames(&self, old: &str, new: &str) -> Result<Renames, GitError> {
+        let out = self.run_bytes(&[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-relative",
+            "--no-color",
+            "--find-renames",
+            "-l1000",
+            "--name-status",
+            "-z",
+            old,
+            new,
+            "--",
+        ])?;
+        let files = parse_renames(&out);
+        if files.is_empty() {
+            return Ok(Renames::default());
+        }
+        let listing = self.ls_tree(old, false)?;
+        let old_files: Vec<&str> = listing
+            .split(|b| *b == 0)
+            .filter_map(|record| {
+                let tab = record.iter().position(|b| *b == b'\t')?;
+                let head = std::str::from_utf8(&record[..tab]).ok()?;
+                (head.split_whitespace().nth(1) == Some("blob")).then_some(&record[tab + 1..])
+            })
+            .filter_map(nameable)
+            .collect();
+        let dirs = moved_dirs(&old_files, &files);
+        Ok(Renames { files, dirs })
+    }
+
     /// A `cat-file --batch` reader over this repo's objects.
     pub fn objects(&self) -> Result<Objects, GitError> {
         self.batch(true)
@@ -288,6 +327,83 @@ impl Git {
         let stdout = BufReader::new(child.stdout.take().expect("piped stdout"));
         Ok(Objects { child, stdin: Some(stdin), stdout, contents })
     }
+}
+
+/// What moved between two commits of one repo, as paths from its root, each list sorted.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Renames {
+    /// Each renamed file: its old path and its new one.
+    pub files: Vec<(String, String)>,
+    /// Each directory whose files all moved into one new directory: its old path and the new one.
+    pub dirs: Vec<(String, String)>,
+}
+
+/// A path as an ID can name it: UTF-8 with no newline and no backslash, as the walk takes it.
+fn nameable(path: &[u8]) -> Option<&str> {
+    std::str::from_utf8(path).ok().filter(|p| !p.is_empty() && !p.contains('\n') && !p.contains('\\'))
+}
+
+/// The renames in `git diff --name-status -z` output: NUL-terminated fields, a status and one
+/// path, or for a rename (`R` and its score) or a copy (`C`), a status and two paths.
+fn parse_renames(out: &[u8]) -> Vec<(String, String)> {
+    let mut fields = out.split(|b| *b == 0);
+    let mut renames = Vec::new();
+    while let Some(status) = fields.next() {
+        if status.is_empty() {
+            continue;
+        }
+        let paths = if matches!(status.first(), Some(b'R' | b'C')) { 2 } else { 1 };
+        let (Some(from), to) = (fields.next(), if paths == 2 { fields.next() } else { None }) else { break };
+        if status.first() == Some(&b'R')
+            && let (Some(from), Some(to)) = (nameable(from), to.and_then(nameable))
+        {
+            renames.push((from.to_owned(), to.to_owned()));
+        }
+    }
+    renames.sort();
+    renames.dedup();
+    renames
+}
+
+/// Each directory of `old_files` whose every file `renames` moves into one other directory, at the
+/// same path below it: `src/cart` when `src/cart/a.ts` and `src/cart/b/c.ts` became
+/// `src/basket/a.ts` and `src/basket/b/c.ts`. The new directory is one `old_files` doesn't hold.
+/// Its subdirectories are listed too, since their IDs move with it. Linear in the files times
+/// their depth.
+pub fn moved_dirs(old_files: &[&str], renames: &[(String, String)]) -> Vec<(String, String)> {
+    use std::collections::BTreeMap;
+    // Each old directory's file count, and whether it was a directory at all.
+    let mut total: BTreeMap<&str, usize> = BTreeMap::new();
+    for file in old_files {
+        let mut dir = *file;
+        while let Some((up, _)) = dir.rsplit_once('/') {
+            *total.entry(up).or_default() += 1;
+            dir = up;
+        }
+    }
+    // For each old directory, the new directory each of its renamed files implies: the new
+    // path less the same path below the old directory, or none when the tail differs.
+    let mut implied: BTreeMap<&str, (usize, BTreeSet<Option<&str>>)> = BTreeMap::new();
+    for (from, to) in renames {
+        let mut dir = from.as_str();
+        while let Some((up, _)) = dir.rsplit_once('/') {
+            let below = &from[up.len()..];
+            let target = to.strip_suffix(below).filter(|d| !d.is_empty());
+            let entry = implied.entry(up).or_default();
+            entry.0 += 1;
+            entry.1.insert(target);
+            dir = up;
+        }
+    }
+    let mut moved = Vec::new();
+    for (dir, (count, targets)) in implied {
+        let mut targets = targets.into_iter();
+        let (Some(Some(target)), None) = (targets.next(), targets.next()) else { continue };
+        if total.get(dir) == Some(&count) && target != dir && !total.contains_key(target) {
+            moved.push((dir.to_owned(), target.to_owned()));
+        }
+    }
+    moved
 }
 
 /// The files `git status --porcelain=v1 -z` lists: one NUL-terminated `XY PATH` record each, and
@@ -592,5 +708,49 @@ mod tests {
         let repo = repo_with_config(dir.path(), "e1", "[extensions]\n\tpartialclone\n");
         let got = Git::new(&repo).is_partial_clone();
         assert!(!matches!(got, Ok(false)), "{got:?}");
+    }
+
+    #[test]
+    fn a_moved_directory_and_its_files_are_reported_and_a_split_one_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("r");
+        std::fs::create_dir_all(repo.join("src/cart/sub")).unwrap();
+        std::fs::create_dir_all(repo.join("src/order")).unwrap();
+        std::fs::write(repo.join("src/cart/a.ts"), "export const a = 1;\n").unwrap();
+        std::fs::write(repo.join("src/cart/sub/b.ts"), "export const b = 2;\n").unwrap();
+        std::fs::write(repo.join("src/order/c.ts"), "export const c = 3;\n").unwrap();
+        std::fs::write(repo.join("src/order/d.ts"), "export const d = 4;\n").unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["add", "."]);
+        git(&repo, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "First"]);
+        let old = git(&repo, &["rev-parse", "HEAD"]);
+        git(&repo, &["mv", "src/cart", "src/basket"]);
+        git(&repo, &["mv", "src/order/c.ts", "src/c.ts"]);
+        git(&repo, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "Move"]);
+        let new = git(&repo, &["rev-parse", "HEAD"]);
+        let renames = Git::new(&repo).renames(&old, &new).unwrap();
+        let pair = |a: &str, b: &str| (a.to_owned(), b.to_owned());
+        assert_eq!(
+            renames.files,
+            [
+                pair("src/cart/a.ts", "src/basket/a.ts"),
+                pair("src/cart/sub/b.ts", "src/basket/sub/b.ts"),
+                pair("src/order/c.ts", "src/c.ts")
+            ]
+        );
+        // src/order kept d.ts, so it didn't move; src/cart and its subdirectory did.
+        assert_eq!(renames.dirs, [pair("src/cart", "src/basket"), pair("src/cart/sub", "src/basket/sub")]);
+        assert_eq!(Git::new(&repo).renames(&new, &new).unwrap(), super::Renames::default());
+    }
+
+    #[test]
+    fn rename_output_keeps_only_nameable_paths() {
+        let out = b"M\0kept.txt\0R100\0a.txt\0b.txt\0R087\0x\\y\0z\0D\0gone\0R100\0two\nlines\0t\0";
+        assert_eq!(super::parse_renames(out), [("a.txt".to_owned(), "b.txt".to_owned())]);
+        // Files that moved apart, or into a directory the old tree already had, move no directory.
+        let pair = |a: &str, b: &str| (a.to_owned(), b.to_owned());
+        assert!(super::moved_dirs(&["d/a", "d/b"], &[pair("d/a", "e/a"), pair("d/b", "f/b")]).is_empty());
+        assert!(super::moved_dirs(&["d/a", "e/x"], &[pair("d/a", "e/a")]).is_empty());
+        assert_eq!(super::moved_dirs(&["d/a"], &[pair("d/a", "e/a")]), [pair("d", "e")]);
     }
 }

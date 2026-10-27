@@ -2,6 +2,7 @@
 //! the gate tests under `crates/xtask/tests/` can run them on a temporary copy of the repo.
 
 pub mod areas;
+pub mod bench;
 pub mod boundaries;
 pub mod canvas;
 pub mod docs;

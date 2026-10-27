@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 
 use planroom_contract::errors::WARNING_SAMPLE;
 use planroom_contract::{
-    Actor, Client, Command, CommandName, FACTS_FORMAT, FactBatch, Handle, ScanReq, ScanResult, ScanStats,
-    Seq, Surface, Tier, Warning, WarningCode,
+    Actor, Client, Command, CommandName, FACTS_FORMAT, FactBatch, Handle, Rename, ScanReq, ScanResult,
+    ScanStats, Seq, Surface, Tier, Warning, WarningCode,
 };
 use planroom_extract::git::{Git, GitError};
 use planroom_extract::verify::Verifier;
@@ -65,10 +65,14 @@ pub fn prepare(req: &ScanReq, cwd: &Path) -> Result<Prepared, AppError> {
     if ws.repos.is_empty() {
         return Err(AppError::workspace_not_found(&ws.root));
     }
-    // Read before any repo, so a scan that commits meanwhile is newer than this one.
-    let started = match Store::open_existing(&ws.store_path())? {
-        Some(store) => store.seq()?,
-        None => 0,
+    // Read before any repo, so a scan that commits meanwhile is newer than this one; with it, the
+    // commit each repo's active snapshot was read at, which its renames are reported from.
+    let (started, mapped) = match Store::open_existing(&ws.store_path())? {
+        Some(store) => {
+            let snapshot = store.snapshot()?;
+            (snapshot.seq(), mapped_commits(&snapshot)?)
+        }
+        None => (0, BTreeMap::new()),
     };
     let mut warnings = ws.warnings.clone();
     // A workspace's own config loads only once the workspace is trusted, and no workspace is
@@ -83,9 +87,11 @@ pub fn prepare(req: &ScanReq, cwd: &Path) -> Result<Prepared, AppError> {
     let names: BTreeSet<&str> = ws.repos.iter().map(|r| r.name.as_str()).collect();
     let runs = packs.runs(&names);
     let inputs = inputs_hash(&packs.hash, &runs, &exclude);
+    let prefixes = id_prefixes(&runs);
     let mut repos = Vec::with_capacity(ws.repos.len());
     for repo in &ws.repos {
-        match extract(repo, &runs, &globs, &inputs, &mut warnings) {
+        let since = mapped.get(&repo.name).map(String::as_str);
+        match extract(repo, &runs, &globs, &inputs, since, prefixes.as_ref(), &mut warnings) {
             Ok(scan) => repos.push(scan),
             Err(RepoError::Git(e)) => warnings.push(skipped(repo, &e)),
             Err(RepoError::App(e)) => return Err(e),
@@ -99,8 +105,9 @@ pub fn prepare(req: &ScanReq, cwd: &Path) -> Result<Prepared, AppError> {
 /// them: a late scan never moves a repo back, whatever input changed.
 pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     let Prepared { ws, packs, exclude, inputs, started, repos, mut warnings } = prepared;
-    // With nothing to write, a workspace with no store stays without one.
-    let store = if repos.is_empty() {
+    // With nothing to write, a workspace with no store stays without one: a repo with no commit
+    // yet writes nothing (DR-86).
+    let store = if repos.iter().all(|r| r.commit.is_empty()) {
         Store::open_existing(&ws.store_path())?.map(|mut store| {
             crate::app::hook(&mut store);
             store
@@ -108,6 +115,13 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     } else {
         Some(open_store(&ws)?)
     };
+    // Each mapped root's namespace, which the commit fixes at the root's first scan (DR-74).
+    let namespaces: BTreeMap<String, String> = ws
+        .repos
+        .iter()
+        .filter(|r| repos.iter().any(|s| s.repo == r.name && !s.commit.is_empty()))
+        .map(|r| (r.rel.clone(), r.name.clone()))
+        .collect();
     let write = ScanWrite {
         at: clock::now(),
         actor: Actor::System { part: "scan".into() },
@@ -115,6 +129,7 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
         packs_hash: packs.hash.clone(),
         repos,
         started,
+        namespaces,
     };
     let Some(mut store) = store else {
         let view = map::not_scanned_view(&ws.root)?;
@@ -143,26 +158,42 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
         }
         true
     })?;
+    let superseded =
+        |o: &RepoOutcome| matches!(o, RepoOutcome::Superseded { .. } | RepoOutcome::NamespaceTaken { .. });
+    // The commit each superseded repo's map stays at: what the newer scan mapped.
+    let mapped = if done.repos.iter().any(|(_, o)| superseded(o)) {
+        mapped_commits(&store.snapshot()?)?
+    } else {
+        BTreeMap::new()
+    };
     for ((name, outcome), repo) in done.repos.iter().zip(&write.repos) {
-        if let RepoOutcome::Superseded { .. } = outcome {
-            let reason = why.get(name).copied().unwrap_or("head_moved");
+        if superseded(outcome) {
+            // A namespace another scan fixed otherwise means that scan read another repo set.
+            let reason = match outcome {
+                RepoOutcome::NamespaceTaken { .. } => "repos_changed",
+                _ => why.get(name).copied().unwrap_or("head_moved"),
+            };
+            let held = mapped.get(name).cloned().unwrap_or_default();
+            // When HEAD moved and a newer scan already mapped it, there's nothing to scan again;
+            // when the repo set changed and no scan mapped this name, nothing holds it.
+            let key = match reason {
+                "head_moved" if paths.get(name.as_str()).is_some_and(|p| is_head(p, &held)) => {
+                    "head_moved_mapped"
+                }
+                "repos_changed" if held.is_empty() => "repos_changed_unmapped",
+                other => other,
+            };
             warnings.push(Warning {
                 code: WarningCode::ScanSuperseded,
                 message: text::get(
-                    &format!("warning.scan_superseded_{reason}"),
-                    &[("repo", name), ("commit", &short(&repo.commit))],
+                    &format!("warning.scan_superseded_{key}"),
+                    &[("repo", name), ("commit", &short(&repo.commit)), ("mapped", &short(&held))],
                 ),
-                details: json!({"repo": name, "commit": repo.commit, "reason": reason}),
+                details: json!({"repo": name, "commit": repo.commit, "reason": reason, "mapped": held}),
             });
         }
     }
-    // An unborn repo's scan event records its branch, but it maps nothing, so it isn't counted.
-    let recorded = done
-        .repos
-        .iter()
-        .zip(&write.repos)
-        .filter(|((_, o), repo)| matches!(o, RepoOutcome::Recorded { .. }) && !repo.commit.is_empty())
-        .count();
+    let recorded = done.repos.iter().filter(|(_, o)| matches!(o, RepoOutcome::Recorded { .. })).count();
     // The reply's map, its container count and its seq come from one read transaction, as map's
     // do (DR-73): another writer that commits after this scan shows in all of them or none, so
     // the map never holds an event past the reply's `meta.seq`.
@@ -306,6 +337,7 @@ fn unborn(
         commit: String::new(),
         inputs: inputs.to_owned(),
         branch,
+        renames: Vec::new(),
         stats,
         facts,
         event_id: new_event_id(),
@@ -316,11 +348,16 @@ fn unborn(
 /// come from `HEAD`'s tree, never the working tree, and every other input is in `inputs`, so the
 /// facts are a function of the snapshot's key alone: a dirty or untracked file never reaches a
 /// snapshot, and neither does the branch.
+///
+/// `since` is the commit the repo's active snapshot was read at: the renames git reports from
+/// there to `HEAD` go on the scan event, as IDs of the `files` built-in's kinds (DR-74).
 fn extract(
     repo: &Repo,
     runs: &[Run],
     exclude: &walk::Exclude,
     inputs: &str,
+    since: Option<&str>,
+    prefixes: Option<&files::Kinds>,
     warnings: &mut Vec<Warning>,
 ) -> Result<RepoScan, RepoError> {
     let git = Git::new(&repo.path);
@@ -424,15 +461,62 @@ fn extract(
         uncovered: walked.uncovered.len() as u32,
     };
     let (facts, stats) = rows(batches, stats).map_err(RepoError::App)?;
+    // Only a rename to a node this snapshot holds is recorded: an edit can follow nothing else,
+    // and so the event stays within the walk's bounds however many files git saw move.
+    let mut renames = match (since, prefixes) {
+        (Some(old), Some(kinds)) if !old.is_empty() && old != head.commit => {
+            renames(&git, &repo.name, old, &head.commit, kinds)
+        }
+        _ => Vec::new(),
+    };
+    renames.retain(|r| facts.binary_search_by(|f| f.id.as_str().cmp(&r.to.0)).is_ok());
     Ok(RepoScan {
         repo: repo.name.clone(),
         commit: head.commit,
         inputs,
         branch: head.branch.unwrap_or_default(),
+        renames,
         stats,
         facts,
         event_id: new_event_id(),
     })
+}
+
+/// The commit each repo's active snapshot was read at, by repo, from its last `scan` event. A
+/// repo whose last event names no commit, as an older store's unborn repo does, is left out.
+fn mapped_commits(snapshot: &planroom_store::Snapshot<'_>) -> Result<BTreeMap<String, String>, AppError> {
+    Ok(snapshot
+        .active_scans()?
+        .into_iter()
+        .filter_map(|e| match e.body {
+            planroom_contract::EventBody::Scan { repo, commit, .. } if !commit.is_empty() => {
+                Some((repo, commit))
+            }
+            _ => None,
+        })
+        .collect())
+}
+
+/// The kinds the `files` built-in emits, with their ID prefixes, as this scan's packs name them:
+/// what a renamed file's or directory's IDs are made of. `None` when no pack declares `files`.
+fn id_prefixes(runs: &[Run]) -> Option<files::Kinds> {
+    let run = runs.iter().find(|r| r.builtin == "files")?;
+    serde_json::from_value(run.options.get("kinds")?.clone()).ok()
+}
+
+/// The renames git reports in `repo` from `old` to `new`, as old and new node IDs: each file, then
+/// each wholly moved directory. Renames are a convenience for edits that follow their node, so
+/// when git can't say, as when `old` is gone from a rewritten history or a partial clone lacks a
+/// blob it would compare, the scan records none and such an edit is listed as vanished.
+fn renames(git: &Git, ns: &str, old: &str, new: &str, kinds: &files::Kinds) -> Vec<Rename> {
+    let Ok(moved) = git.renames(old, new) else { return Vec::new() };
+    let id = |prefix: &str, path: &str| planroom_extract::node_id(ns, prefix, path);
+    let files = moved.files.iter().map(|(from, to)| (&kinds.file.id_prefix, from, to));
+    let dirs = moved.dirs.iter().map(|(from, to)| (&kinds.directory.id_prefix, from, to));
+    files
+        .chain(dirs)
+        .map(|(prefix, from, to)| Rename { from: id(prefix, from), to: id(prefix, to) })
+        .collect()
 }
 
 /// Every batch's facts as stored rows: nodes merged by ID (DR-42), one row per ID, sorted.

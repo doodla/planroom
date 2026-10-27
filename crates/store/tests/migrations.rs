@@ -51,6 +51,7 @@ fn scan() -> ScanWrite {
             commit: "c1".into(),
             inputs: "p".into(),
             branch: "main".into(),
+            renames: vec![],
             stats: ScanStats::default(),
             facts: vec![FactRow {
                 id: "orders:repo:orders".into(),
@@ -62,6 +63,7 @@ fn scan() -> ScanWrite {
             event_id: EventId("ev-scan".into()),
         }],
         started: 0,
+        namespaces: Default::default(),
     }
 }
 

@@ -17,3 +17,9 @@ nucleo-matcher.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+
+# The fold benchmark: a timer over repeated runs with no harness crate, which
+# `cargo xtask bench fold` runs and compares with budgets.json (DR-47, DR-89).
+[[bench]]
+name = "fold"
+harness = false

@@ -2,6 +2,7 @@
 //! from them.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use planroom_contract::{
     Actor, Cause, Client, Edge, EdgeId, Edit, Event, EventBody, EventId, Layer, Node, NodeId, Op, Provenance,
@@ -224,6 +225,9 @@ pub enum FoldDiff {
     ScanChangedUnderEdit { event: EventId, target: Target, field: String, over: Value, fact: Value },
     /// An override's target is gone from the facts, and no edit put it.
     TargetVanished { event: EventId, target: Target },
+    /// A node an edit named moved where git reported a rename, and the edit followed it: listed
+    /// once per move, with the first edit that followed it (DR-74).
+    Followed { event: EventId, from: NodeId, to: NodeId },
     /// A parent change that would have closed a loop lost to the edits before it (DR-61).
     CycleBroken { event: EventId, node: NodeId, parent: NodeId, cycle: Vec<NodeId> },
     /// A parent an edit set doesn't resolve, so the node falls back to its fact parent (DR-61).
@@ -264,15 +268,110 @@ pub(crate) fn idem_stem(idem: &str) -> &str {
     }
 }
 
+/// The nodes the fold holds: the resolved facts, shared and never written, under the nodes the
+/// edits changed, each copied from its fact on its first write. A fold copies only what its
+/// edits touch, and a copy of the fold shares the facts.
+#[derive(Debug, Clone)]
+pub(crate) struct Nodes {
+    /// The resolved facts, before any override, one per ID and sorted by ID: what drift and
+    /// fallbacks compare with.
+    facts: Arc<Vec<Node>>,
+    /// Each node an edit changed, put or removed, by ID: `None` for one removed.
+    changed: BTreeMap<NodeId, Option<Node>>,
+}
+
+impl Nodes {
+    /// The nodes `facts` give, before any edit. Resolution leaves them one per ID and sorted;
+    /// any others are sorted here, and of two with one ID the later stands.
+    fn new(mut facts: Vec<Node>) -> Nodes {
+        if !facts.is_sorted_by(|a, b| a.id < b.id) {
+            facts.reverse();
+            facts.sort_by(|a, b| a.id.cmp(&b.id));
+            facts.dedup_by(|later, earlier| later.id == earlier.id);
+        }
+        Nodes { facts: Arc::new(facts), changed: BTreeMap::new() }
+    }
+
+    /// The fact node with this ID, before any edit.
+    pub(crate) fn fact(&self, id: &NodeId) -> Option<&Node> {
+        self.facts.binary_search_by(|n| n.id.cmp(id)).ok().map(|i| &self.facts[i])
+    }
+
+    /// The node with this ID as the edits so far leave it.
+    pub(crate) fn get(&self, id: &NodeId) -> Option<&Node> {
+        match self.changed.get(id) {
+            Some(changed) => changed.as_ref(),
+            None => self.fact(id),
+        }
+    }
+
+    pub(crate) fn contains(&self, id: &NodeId) -> bool {
+        self.get(id).is_some()
+    }
+
+    /// The node to write, copied from its fact the first time an edit writes it.
+    fn get_mut(&mut self, id: &NodeId) -> Option<&mut Node> {
+        if !self.changed.contains_key(id) {
+            let fact = self.fact(id)?.clone();
+            self.changed.insert(id.clone(), Some(fact));
+        }
+        self.changed.get_mut(id).and_then(Option::as_mut)
+    }
+
+    fn insert(&mut self, node: Node) {
+        self.changed.insert(node.id.clone(), Some(node));
+    }
+
+    fn remove(&mut self, id: &NodeId) {
+        if self.fact(id).is_some() {
+            self.changed.insert(id.clone(), None);
+        } else {
+            self.changed.remove(id);
+        }
+    }
+
+    /// Every node, in ID order.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &Node> {
+        let mut facts = self.facts.iter().peekable();
+        let mut changed = self.changed.iter().peekable();
+        std::iter::from_fn(move || {
+            loop {
+                let order = match (facts.peek(), changed.peek()) {
+                    (None, None) => return None,
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (Some(fact), Some((id, _))) => fact.id.cmp(id),
+                };
+                match order {
+                    std::cmp::Ordering::Less => return facts.next(),
+                    std::cmp::Ordering::Equal => {
+                        facts.next();
+                    }
+                    std::cmp::Ordering::Greater => {}
+                }
+                if let Some((_, Some(node))) = changed.next() {
+                    return Some(node);
+                }
+            }
+        })
+    }
+}
+
+impl PartialEq for Nodes {
+    /// Two holdings are equal when they hold the same facts and the same nodes.
+    fn eq(&self, other: &Nodes) -> bool {
+        (Arc::ptr_eq(&self.facts, &other.facts) || self.facts == other.facts) && self.iter().eq(other.iter())
+    }
+}
+
 /// The state the fold builds in `seq` order. Applying one more event to it is the incremental
 /// fold; everything else is derived from it in [`Core::finish`].
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Core {
     pub at: Seq,
-    /// The resolved facts, before any override: what drift and fallbacks compare with.
-    facts: BTreeMap<NodeId, Node>,
     fact_edges: BTreeSet<EdgeId>,
-    nodes: BTreeMap<NodeId, Node>,
+    /// The nodes, the resolved facts among them.
+    nodes: Nodes,
     /// The nodes whose current parent an edit set, with that edit.
     parent_from: BTreeMap<NodeId, (Seq, EventId)>,
     /// In fact order, then in the order edits put them; a retracted edge leaves a hole.
@@ -297,6 +396,8 @@ pub(crate) struct Core {
     /// for an undone one what it would set where it stands. An undo's revisions read it (DR-61).
     pub sets: BTreeMap<EventId, BTreeSet<String>>,
     diffs: Vec<FoldDiff>,
+    /// The moves Diffs already lists.
+    listed_moves: BTreeSet<(NodeId, NodeId)>,
 }
 
 impl Core {
@@ -306,12 +407,10 @@ impl Core {
         for (i, edge) in resolved.edges.iter().enumerate() {
             edge_slots.entry(edge.id.clone()).or_default().push(i);
         }
-        let nodes: BTreeMap<NodeId, Node> = resolved.nodes.into_iter().map(|n| (n.id.clone(), n)).collect();
         Core {
             at: 0,
-            facts: nodes.clone(),
             fact_edges,
-            nodes,
+            nodes: Nodes::new(resolved.nodes),
             parent_from: BTreeMap::new(),
             edges: resolved.edges.into_iter().map(Some).collect(),
             edge_slots,
@@ -329,6 +428,7 @@ impl Core {
             stems: BTreeMap::new(),
             sets: BTreeMap::new(),
             diffs: Vec::new(),
+            listed_moves: BTreeSet::new(),
         }
     }
 
@@ -341,6 +441,20 @@ impl Core {
             && let Some((node, entry)) = ParentEntry::of(edit)
         {
             self.parent_log.entry(node).or_default().push((event.seq, event.id.clone(), entry));
+        }
+        if !prepass.undone.contains(&event.id)
+            && event.status == Status::Applied
+            && let Some(moves) = prepass.followed.get(&event.id)
+        {
+            for (from, to) in moves {
+                if self.listed_moves.insert((from.clone(), to.clone())) {
+                    self.diffs.push(FoldDiff::Followed {
+                        event: event.id.clone(),
+                        from: from.clone(),
+                        to: to.clone(),
+                    });
+                }
+            }
         }
         if prepass.undone.contains(&event.id) {
             if let (EventBody::Edit(edit), Status::Applied) = (&event.body, event.status) {
@@ -469,7 +583,7 @@ impl Core {
 
     /// The parent a node's facts give it: `None` when it isn't a fact.
     pub fn fact_parent(&self, id: &NodeId) -> Option<Option<NodeId>> {
-        self.facts.get(id).map(|n| n.parent.clone())
+        self.nodes.fact(id).map(|n| n.parent.clone())
     }
 
     /// The last effective applied edit that set `key`: the one its revision and hold come from.
@@ -516,7 +630,7 @@ impl Core {
                 self.parent_from.remove(id);
             }
         }
-        self.nodes.insert(id.clone(), node);
+        self.nodes.insert(node);
         whole()
     }
 
@@ -549,7 +663,7 @@ impl Core {
         if field == HIDDEN && !value.is_boolean() {
             return FieldOutcome::Invalid;
         }
-        if !self.nodes.contains_key(id) {
+        if !self.nodes.contains(id) {
             return FieldOutcome::Skipped;
         }
         if field.starts_with(POS_PREFIX) || field == HIDDEN || field.starts_with(PROPS_PREFIX) {
@@ -718,7 +832,7 @@ impl Core {
     pub(crate) fn fact_value(&self, target: &TargetKey, field: &str) -> Option<Value> {
         match target {
             TargetKey::Node(id) => {
-                let node = self.facts.get(id)?;
+                let node = self.nodes.fact(id)?;
                 if field == NAME {
                     Some(Value::String(node.name.clone()))
                 } else if field == PARENT {
@@ -734,14 +848,14 @@ impl Core {
 
     fn target_exists(&self, target: &TargetKey) -> bool {
         match target {
-            TargetKey::Node(id) => self.nodes.contains_key(id),
+            TargetKey::Node(id) => self.nodes.contains(id),
             TargetKey::Edge(id) => self.edge_slots.get(id).is_some_and(|s| !s.is_empty()),
         }
     }
 
     fn is_fact(&self, target: &TargetKey) -> bool {
         match target {
-            TargetKey::Node(id) => self.facts.contains_key(id),
+            TargetKey::Node(id) => self.nodes.fact(id).is_some(),
             TargetKey::Edge(id) => self.fact_edges.contains(id),
         }
     }
@@ -749,20 +863,20 @@ impl Core {
     /// The model and lists at this state: parents that don't resolve fall back to their fact
     /// parent, any loop left is broken by `seq`, and drift on overrides is listed.
     pub fn finish(&self) -> Finished {
-        let mut nodes = self.nodes.clone();
+        let mut parents = Parents { nodes: &self.nodes, reset: BTreeMap::new() };
         let mut parent_from = self.parent_from.clone();
         let mut diffs = self.diffs.clone();
         for (id, (_, event)) in &self.parent_from {
-            let Some(parent) = nodes.get(id).and_then(|n| n.parent.clone()) else { continue };
-            if nodes.contains_key(&parent) {
+            let Some(parent) = self.nodes.get(id).and_then(|n| n.parent.clone()) else { continue };
+            if self.nodes.contains(&parent) {
                 continue;
             }
-            let fallback = self.facts.get(id).and_then(|n| n.parent.clone());
-            nodes.get_mut(id).expect("a node").parent = fallback.clone();
+            let fallback = self.nodes.fact(id).and_then(|n| n.parent.clone());
+            parents.reset.insert(id.clone(), fallback.clone());
             parent_from.remove(id);
             diffs.push(FoldDiff::ParentFallback { event: event.clone(), node: id.clone(), parent, fallback });
         }
-        break_cycles(&mut nodes, &mut parent_from, &self.facts, &mut diffs);
+        break_cycles(&mut parents, &mut parent_from, &mut diffs);
         let mut vanished: BTreeMap<TargetKey, EventId> = BTreeMap::new();
         for ((target, field), setters) in &self.setters {
             let Some(last) = setters.last() else { continue };
@@ -790,10 +904,22 @@ impl Core {
         for (target, event) in vanished {
             diffs.push(FoldDiff::TargetVanished { event, target: target.target() });
         }
+        // Each node is copied once, into the model, with the parent the end of the fold left it.
+        let nodes = self
+            .nodes
+            .iter()
+            .map(|n| {
+                let mut node = n.clone();
+                if let Some(parent) = parents.reset.get(&n.id) {
+                    node.parent = parent.clone();
+                }
+                node
+            })
+            .collect();
         Finished {
             model: Model {
                 at: self.at,
-                nodes: nodes.into_values().collect(),
+                nodes,
                 edges: self.edges.iter().flatten().cloned().collect(),
                 unresolved: self.unresolved.clone(),
             },
@@ -822,17 +948,39 @@ pub(crate) struct Finished {
     pub claims: Vec<ClaimRecord>,
 }
 
+/// The nodes' parents at the end of the fold: the parents the edits left, but those set back to
+/// their fact parent there, kept beside the nodes rather than in a copy of them.
+struct Parents<'a> {
+    nodes: &'a Nodes,
+    /// Each node whose parent the end of the fold set back to its fact parent, with that parent.
+    reset: BTreeMap<NodeId, Option<NodeId>>,
+}
+
+impl Parents<'_> {
+    /// The parent of node `id`.
+    fn of(&self, id: &NodeId) -> Option<&NodeId> {
+        match self.reset.get(id) {
+            Some(parent) => parent.as_ref(),
+            None => self.nodes.get(id).and_then(|n| n.parent.as_ref()),
+        }
+    }
+
+    /// The parent of node `id` when it is a node: the next step up the tree.
+    fn up(&self, id: &NodeId) -> Option<&NodeId> {
+        self.of(id).and_then(|parent| self.nodes.get(parent)).map(|n| &n.id)
+    }
+}
+
 /// Break every parent loop an edit holds: of the loop's nodes whose parent an edit set, the one
 /// set at the highest `seq` goes back to its fact parent, until no loop holds an edited parent.
 /// A loop of facts alone stays, and the tree counts it nowhere.
 fn break_cycles(
-    nodes: &mut BTreeMap<NodeId, Node>,
+    parents: &mut Parents<'_>,
     parent_from: &mut BTreeMap<NodeId, (Seq, EventId)>,
-    facts: &BTreeMap<NodeId, Node>,
     diffs: &mut Vec<FoldDiff>,
 ) {
     loop {
-        let Some(cycle) = first_edited_cycle(nodes, parent_from) else { return };
+        let Some(cycle) = first_edited_cycle(parents, parent_from) else { return };
         let loser = cycle
             .iter()
             .filter_map(|n| parent_from.get(n).map(|(seq, _)| (*seq, n.clone())))
@@ -840,22 +988,63 @@ fn break_cycles(
             .map(|(_, n)| n)
             .expect("an edited node in the loop");
         let (_, event) = parent_from.remove(&loser).expect("an edited parent");
-        let node = nodes.get_mut(&loser).expect("a node");
-        let parent = node.parent.clone().expect("a parent in a loop");
-        node.parent = facts.get(&loser).and_then(|n| n.parent.clone());
+        let parent = parents.of(&loser).cloned().expect("a parent in a loop");
+        let fallback = parents.nodes.fact(&loser).and_then(|n| n.parent.clone());
+        parents.reset.insert(loser.clone(), fallback);
         let mut cycle = cycle;
         cycle.push(cycle[0].clone());
         diffs.push(FoldDiff::CycleBroken { event, node: loser, parent, cycle });
     }
 }
 
+/// Whether a node whose parent an edit set sits on a parent loop: the walk up from it comes back
+/// to it. A node found to reach the top is remembered, so no walk goes past it twice. Only then
+/// can [`first_edited_cycle`] find a loop, so a fold with none walks only up from its edits.
+fn edited_on_cycle(parents: &Parents<'_>, parent_from: &BTreeMap<NodeId, (Seq, EventId)>) -> bool {
+    let mut topped: BTreeSet<&NodeId> = BTreeSet::new();
+    for start in parent_from.keys() {
+        let Some(start) = parents.nodes.get(start).map(|n| &n.id) else { continue };
+        let mut path: Vec<&NodeId> = vec![start];
+        let mut seen: BTreeSet<&NodeId> = BTreeSet::new();
+        let mut at = start;
+        loop {
+            match parents.up(at) {
+                Some(parent) if parent == start => return true,
+                // A loop above that doesn't pass through `start`: the walk from one of its own
+                // edited nodes finds it.
+                Some(parent) if !seen.insert(parent) => break,
+                Some(parent) if !topped.contains(parent) => {
+                    path.push(parent);
+                    at = parent;
+                }
+                _ => {
+                    topped.extend(path);
+                    break;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// The first parent loop, in ID order, that holds a node whose parent an edit set.
 fn first_edited_cycle(
-    nodes: &BTreeMap<NodeId, Node>,
+    parents: &Parents<'_>,
+    parent_from: &BTreeMap<NodeId, (Seq, EventId)>,
+) -> Option<Vec<NodeId>> {
+    if !edited_on_cycle(parents, parent_from) {
+        return None;
+    }
+    scan_edited_cycle(parents, parent_from)
+}
+
+/// [`first_edited_cycle`] by a walk up from every node, in ID order.
+fn scan_edited_cycle(
+    parents: &Parents<'_>,
     parent_from: &BTreeMap<NodeId, (Seq, EventId)>,
 ) -> Option<Vec<NodeId>> {
     let mut done: BTreeSet<&NodeId> = BTreeSet::new();
-    for start in nodes.keys() {
+    for start in parents.nodes.iter().map(|n| &n.id) {
         let mut path: Vec<&NodeId> = Vec::new();
         let mut on_path: BTreeMap<&NodeId, usize> = BTreeMap::new();
         let mut at = start;
@@ -872,11 +1061,9 @@ fn first_edited_cycle(
             }
             on_path.insert(at, path.len());
             path.push(at);
-            match nodes.get(at).and_then(|n| n.parent.as_ref()) {
-                Some(parent) if nodes.contains_key(parent) => {
-                    at = nodes.get_key_value(parent).expect("a node").0;
-                }
-                _ => break,
+            match parents.up(at) {
+                Some(parent) => at = parent,
+                None => break,
             }
         }
         done.extend(path);
@@ -932,5 +1119,121 @@ mod tests {
         assert_eq!(idem_stem("k1"), "k1");
         assert_eq!(idem_stem("scan:ab#after:12"), "scan:ab#after:12");
         assert_eq!(idem_stem("k#"), "k#");
+    }
+
+    use planroom_contract::{Kind, Level, Tier};
+    use proptest::prelude::*;
+    use proptest::test_runner::Config;
+
+    fn id(key: u8) -> NodeId {
+        NodeId(format!("r:x:{key}"))
+    }
+
+    fn node(key: u8, parent: Option<u8>, name: &str) -> Node {
+        Node {
+            id: id(key),
+            kind: Kind("k.x".into()),
+            level: Level::Code,
+            parent: parent.map(id),
+            name: name.into(),
+            aliases: vec![],
+            props: Default::default(),
+            layer: Layer::Actual,
+            provenance: Provenance::Extracted { extractor: "p/x".into(), tier: Tier::Universal },
+            evidence: vec![],
+        }
+    }
+
+    /// What one step does to the nodes: put a node, remove one, or rename one in place.
+    #[derive(Debug, Clone)]
+    enum NodeOp {
+        Put(u8, Option<u8>),
+        Remove(u8),
+        Rename(u8, u8),
+    }
+
+    fn node_op() -> impl Strategy<Value = NodeOp> {
+        prop_oneof![
+            (0u8..12, prop::option::of(0u8..12)).prop_map(|(k, p)| NodeOp::Put(k, p)),
+            (0u8..12).prop_map(NodeOp::Remove),
+            (0u8..12, 0u8..9).prop_map(|(k, n)| NodeOp::Rename(k, n)),
+        ]
+    }
+
+    #[test]
+    fn facts_in_any_order_keep_the_later_of_one_id_as_a_map_would() {
+        let nodes = Nodes::new(vec![node(3, None, "a"), node(1, None, "b"), node(3, Some(1), "c")]);
+        let held: Vec<(&str, &str)> = nodes.iter().map(|n| (n.id.0.as_str(), n.name.as_str())).collect();
+        assert_eq!(held, [("r:x:1", "b"), ("r:x:3", "c")]);
+    }
+
+    proptest! {
+        // No I/O in the kernel's tests: a failing case is printed, never written to a file.
+        #![proptest_config(Config { failure_persistence: None, ..Config::default() })]
+
+        /// The nodes hold what a map that every write copied would hold, and a write never
+        /// reaches the facts, which a copy of the nodes still shares.
+        #[test]
+        fn a_write_copies_its_node_and_never_reaches_the_shared_facts(
+            facts in prop::collection::btree_map(0u8..12, prop::option::of(0u8..12), 0..10),
+            ops in prop::collection::vec(node_op(), 0..30),
+        ) {
+            let mut fact_nodes: Vec<Node> = facts.iter().map(|(&k, &p)| node(k, p, "fact")).collect();
+            fact_nodes.sort_by(|a, b| a.id.cmp(&b.id));
+            let mut nodes = Nodes::new(fact_nodes.clone());
+            let before = nodes.clone();
+            let mut want: BTreeMap<NodeId, Node> = fact_nodes.iter().map(|n| (n.id.clone(), n.clone())).collect();
+            for op in ops {
+                match op {
+                    NodeOp::Put(k, p) => {
+                        nodes.insert(node(k, p, "put"));
+                        want.insert(id(k), node(k, p, "put"));
+                    }
+                    NodeOp::Remove(k) => {
+                        nodes.remove(&id(k));
+                        want.remove(&id(k));
+                    }
+                    NodeOp::Rename(k, n) => {
+                        let name = format!("n{n}");
+                        prop_assert_eq!(nodes.get_mut(&id(k)).is_some(), want.contains_key(&id(k)));
+                        if let Some(held) = nodes.get_mut(&id(k)) {
+                            held.name = name.clone();
+                        }
+                        if let Some(held) = want.get_mut(&id(k)) {
+                            held.name = name;
+                        }
+                    }
+                }
+                let held: Vec<&Node> = nodes.iter().collect();
+                let wanted: Vec<&Node> = want.values().collect();
+                prop_assert_eq!(held, wanted);
+                for k in 0..12 {
+                    prop_assert_eq!(nodes.get(&id(k)), want.get(&id(k)));
+                    prop_assert_eq!(nodes.contains(&id(k)), want.contains_key(&id(k)));
+                    prop_assert_eq!(nodes.fact(&id(k)), fact_nodes.iter().find(|n| n.id == id(k)));
+                }
+            }
+            prop_assert!(Arc::ptr_eq(&nodes.facts, &before.facts), "the facts are shared, never copied");
+            prop_assert_eq!(&*before.facts, &fact_nodes);
+            prop_assert_eq!(before.iter().cloned().collect::<Vec<_>>(), fact_nodes);
+        }
+
+        /// The walk up from the edited nodes finds a loop exactly when a walk up from every node
+        /// finds one that holds an edited node.
+        #[test]
+        fn the_walk_from_the_edits_finds_a_loop_when_the_walk_from_every_node_does(
+            parents in prop::collection::btree_map(0u8..14, prop::option::of(0u8..16), 0..14),
+            edited in prop::collection::btree_set(0u8..16, 0..6),
+            reset in prop::collection::btree_map(0u8..14, prop::option::of(0u8..16), 0..3),
+        ) {
+            let nodes = Nodes::new(parents.iter().map(|(&k, &p)| node(k, p, "n")).collect());
+            let reset = reset.into_iter().map(|(k, p)| (id(k), p.map(id))).collect();
+            let parents = Parents { nodes: &nodes, reset };
+            let parent_from: BTreeMap<NodeId, (Seq, EventId)> =
+                edited.iter().map(|&k| (id(k), (u64::from(k), EventId(format!("ev-{k}"))))).collect();
+            let scanned = scan_edited_cycle(&parents, &parent_from);
+            prop_assert_eq!(edited_on_cycle(&parents, &parent_from), scanned.is_some());
+            prop_assert_eq!(first_edited_cycle(&parents, &parent_from), scanned);
+        }
     }
 }

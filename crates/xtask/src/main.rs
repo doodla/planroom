@@ -12,8 +12,8 @@ use xtask::report::Report;
 use xtask::testrun::skips;
 use xtask::tools::{self, Tool, pin_age};
 use xtask::{
-    areas, boundaries, canvas, docs, features, fixture, generate, layout, live, modgen, plugin, schema_guard,
-    secrets, testrun, util, workflows,
+    areas, bench, boundaries, canvas, docs, features, fixture, generate, layout, live, modgen, plugin,
+    schema_guard, secrets, testrun, util, workflows,
 };
 
 const USAGE: &str = "\
@@ -47,6 +47,8 @@ usage: cargo xtask <command>
   live record SNN             record SNN's model calls (needs PLANROOM_LIVE_GATEWAY=1 or
                               PLANROOM_LIVE_JEV=1); prints its estimate from the live spend plan
                               and refuses past what docs/evidence/spend.jsonl has left
+  bench fold                  cargo bench fold, each median compared with budgets.json's fold.20k
+                              and fold.50k
 
 Every command sets PLANROOM_REPLAY=strict and PLANROOM_SPEND_LOG, the main checkout's
 docs/evidence/spend.jsonl by its absolute path; test, e2e and gen --golden also set a
@@ -164,6 +166,7 @@ fn run(root: &Path, args: &[&str]) -> ExitCode {
                 }
             };
         }
+        ["bench", "fold"] => bench_fold(&root, &mut report),
         ["e2e"] => e2e(&root, &mut report, false),
         ["e2e", "--screens"] => e2e(&root, &mut report, true),
         ["fixture", out] | ["fixture", out, "--no-packs"] => {
@@ -234,6 +237,27 @@ fn golden(root: &Path) -> Result<Vec<String>, String> {
         written.extend(files.iter().map(|f| (*f).to_owned()));
     }
     Ok(written)
+}
+
+/// `cargo xtask bench fold`: one line per fold case, failing past its `budgets.json` budget.
+fn bench_fold(root: &Path, r: &mut Report) {
+    const FIX: &str =
+        "make the fold faster; a raise of budgets.json's number needs a decision record (DR-59)";
+    let budgets = match bench::budgets(root) {
+        Ok(b) => b,
+        Err(e) => return r.failed("cargo bench fold", &e, "fix budgets.json"),
+    };
+    let output = match bench::run_fold(root) {
+        Ok(out) => out,
+        Err(e) => return r.failed("cargo bench fold", &e, "fix the benchmark's build or run"),
+    };
+    print!("{output}");
+    for outcome in bench::compare(&output, &budgets, &bench::FOLD_CASES) {
+        match &outcome.failure {
+            None => r.ok(&outcome.case),
+            Some(why) => r.failed(&outcome.case, why, FIX),
+        }
+    }
 }
 
 fn repo_root() -> PathBuf {

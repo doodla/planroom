@@ -50,6 +50,7 @@ fn repo(name: &str, commit: &str, event: &str) -> RepoScan {
         commit: commit.into(),
         inputs: "p".into(),
         branch: "main".into(),
+        renames: vec![],
         stats: ScanStats::default(),
         facts: vec![FactRow {
             id: format!("{name}:repo:{name}"),
@@ -70,6 +71,7 @@ fn scan(repos: Vec<RepoScan>) -> ScanWrite {
         packs_hash: "p".into(),
         repos,
         started: 0,
+        namespaces: Default::default(),
     }
 }
 

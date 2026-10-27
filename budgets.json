@@ -1,6 +1,6 @@
 {
-  "fold.20k": {},
-  "fold.50k": {},
+  "fold.20k": { "ms": 50 },
+  "fold.50k": { "ms": 500 },
   "surface": {
     "skill_bodies": {}
   },

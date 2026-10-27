@@ -120,11 +120,15 @@ fn submodules_are_repos() {
 
     let env = reply(&root, &["scan", ".", "--json"]);
     assert!(env["summary"].as_str().unwrap().starts_with("Mapped 2 repos"), "{env}");
-    assert_eq!(top_names(&env), ["libs/core", "meta"], "the root repo and its initialized submodule");
+    assert_eq!(
+        top_names(&env),
+        ["core", "meta"],
+        "the root repo and its initialized submodule, each named for its directory (DR-74)"
+    );
     assert!(warnings(&env, "repo_skipped").is_empty(), "{env}");
     // Read from the submodule's own directory, it is the same workspace.
     let map = reply(&root.join("libs/core"), &["map", "--json"]);
-    assert_eq!(top_names(&map), ["libs/core", "meta"]);
+    assert_eq!(top_names(&map), ["core", "meta"]);
 }
 
 #[test]
@@ -135,7 +139,11 @@ fn repos_two_levels_down_are_found() {
     }
     fs::create_dir_all(ws.join("notes")).unwrap();
     let env = reply(&ws, &["scan", ".", "--json"]);
-    assert_eq!(top_names(&env), ["acme/api", "acme/web", "tools/cli"], "a hidden directory isn't searched");
+    assert_eq!(
+        top_names(&env),
+        ["api", "cli", "web"],
+        "a hidden directory isn't searched; each repo is named for its directory (DR-74)"
+    );
 
     // With a repo at the first level, the second isn't searched.
     let (_dir, flat) = workspace();

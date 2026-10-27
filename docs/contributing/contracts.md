@@ -262,7 +262,7 @@ A code that only a person can clear has retry `never` and names the card or comm
 | `workspace_nested` | another workspace's `.planroom/` sits inside this one, or this one inside it; `details {other_root}` (DR-71) |
 | `repo_unborn` | a repo has no commit yet, so it maps nothing until its first commit; the rest of the workspace maps. `details {repo, branch}` (DR-86) |
 | `repo_skipped` | git refused a repo, so the scan left it out and its last map stays; the rest of the workspace maps. `details {repo, reason, fix}`, where `reason` is `other_owner` or `git_failed` and `fix` is one line with an exact command (DR-86) |
-| `scan_superseded` | the scan read a state that's no longer the repo's, so its map stays as it was; `details {repo, commit, reason}`, where `commit` is the commit this scan read and `reason` is `head_moved` (the repo's `HEAD` moved on while the scan read it) or `repos_changed` (another scan moved the repo after this one began, and the workspace's repos changed since this one read them) (DR-86, DR-87) |
+| `scan_superseded` | the scan read a state that's no longer the repo's, so its map stays as it was and nothing of this scan's is stored for it, no snapshot and no facts; `details {repo, commit, reason, mapped}`, where `commit` is the commit this scan read, `mapped` the commit the repo's map holds (empty when no scan mapped that namespace), and `reason` is `head_moved` (the repo's `HEAD` moved on while the scan read it) or `repos_changed` (another scan moved the repo after this one began, and the workspace's repos changed since this one read them; or another scan fixed the repo's root under another namespace, or this namespace for another root, in `meta.repos`) (DR-74, DR-86, DR-87) |
 | `duty_failed` | a background duty failed and hasn't succeeded since; `details {duty, at, log}`, the log under the data root (DR-58) |
 | `unsafe_filesystem` | the store's place is on a filesystem that can't share a write-ahead log between processes: a new store moved under the data root with a `store.pointer` left behind, an existing one stayed, or the data root is on one too and a new store stayed; `details {path, fs, store}`: the unsafe place (the state directory, or the data root), its filesystem, and where the store is, `path` and `store` masked (DR-1) |
 
@@ -461,7 +461,14 @@ A running server's record (`planroom.serve/v1`, internal) is `{format, port, pid
 pub struct NodeId(String);                   // "<namespace>:<kind-short>:<key>", such as "orders:pkg:internal/http"; a repo's
                                              // own node is "<ns>:repo:<ns>", such as "orders:repo:orders" (DR-81); a repo's
                                              // namespace is its directory name, or for the later of two same-named repos the name,
-                                             // "-" and 4 hex of sha256(its path from the workspace root), fixed in meta.repos (DR-74)
+                                             // "-" and 4 hex of sha256(its path from the workspace root), fixed in meta.repos (DR-74).
+                                             // The name is escaped first: each whitespace character, ":", "%" and control
+                                             // character, and each byte that isn't UTF-8, becomes "%" and the uppercase hex of each
+                                             // of its UTF-8 bytes ("my app" is "my%20app", "svc:v2" is "svc%3Av2"), so a namespace
+                                             // is never empty, matches [^:\s]+ and gives the name back. The suffix applies after
+                                             // escaping, to a name an earlier repo, a fixed root or Planroom's own "ws" and "plan"
+                                             // hold, and takes 4 more hex while the name is still taken. meta.repos maps each root's
+                                             // escaped path from the workspace root ("" for the root itself) to its namespace
 pub struct EdgeId(String);                   // "e:" + 12 hex of sha256(kind ‖ from ‖ to ‖ via)
 pub struct Kind(String);                     // "<pack>.<name>", such as "code.service"; the kernel's own: "kernel.group",
                                              // "kernel.external", "kernel.project", "kernel.item", and the relation "kernel.touches"
@@ -588,7 +595,8 @@ pub enum EventBody {
     Version { project: Option<NodeId>, label: String },     // a tag on seq
     Decision(DecisionRecord),
     Claim { target: Target, until: Timestamp, release: bool },
-    Scan { repo: String, commit: String,
+    Scan { repo: String, commit: String,                    // empty only in an event an older engine wrote for a repo with
+                                                            // no commit yet; this engine writes no scan event for one
            branch: String,                                  // the branch HEAD named; the snapshot and its evidence name none (DR-86)
            snapshot: u64,                                   // 0 only in the outcome-holding event a restore writes (DR-73)
            link: u64,                                       // the workspace link snapshot of the active set this scan committed

@@ -1,7 +1,9 @@
 //! A scan of every repo of a workspace, committed in one transaction with its link snapshot.
 
-use planroom_contract::{Actor, Client, EventBody, EventId, ScanStats, Seq, Status, Timestamp};
-use rusqlite::{Transaction, TransactionBehavior, params};
+use std::collections::{BTreeMap, BTreeSet};
+
+use planroom_contract::{Actor, Client, EventBody, EventId, Rename, ScanStats, Seq, Status, Timestamp};
+use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use super::{NewEvent, check_version, idem_exists, insert_event};
 use crate::read::{self, FactRow};
@@ -39,6 +41,9 @@ pub struct RepoScan {
     pub inputs: String,
     /// The branch `HEAD` named, for the scan event only: it's no input of the facts.
     pub branch: String,
+    /// The renames git reports between the repo's active snapshot and this one, for the scan
+    /// event: files and wholly moved directories, as old and new IDs (DR-74).
+    pub renames: Vec<Rename>,
     pub stats: ScanStats,
     /// Sorted by ID, one row per ID.
     pub facts: Vec<FactRow>,
@@ -58,7 +63,16 @@ pub struct ScanWrite {
     /// The store's latest `seq` when this scan began reading, before any repo was read: a repo
     /// whose active scan event is newer was moved by another scan meanwhile.
     pub started: Seq,
+    /// Each repo root's namespace, as this scan named its IDs. A repo whose root `meta.repos`
+    /// fixed otherwise, or whose namespace it fixed for another root, is
+    /// [`RepoOutcome::NamespaceTaken`]. The same transaction fixes the root of every repo it maps
+    /// that `meta.repos` doesn't hold yet, and never changes one it holds, so a namespace is fixed
+    /// at its root's first scan and no two roots ever hold one (DR-74).
+    pub namespaces: BTreeMap<String, String>,
 }
+
+/// The `meta` key that holds each repo root's namespace (DR-74).
+pub const META_REPOS: &str = "repos";
 
 /// What a scan commit did for one repo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,8 +84,16 @@ pub enum RepoOutcome {
     /// This scan's snapshot is no longer the repo's current one, so the active snapshot, `active`,
     /// stays: `HEAD` no longer names the commit this scan read, or another scan moved the repo
     /// after this one began and this scan's other inputs are out of date. A scan that read an
-    /// older state never moves a repo back (R10).
+    /// older state never moves a repo back (R10). Nothing of this scan's is stored: no snapshot,
+    /// no facts and no event.
     Superseded { active: u64 },
+    /// The repo has no commit yet, so it maps nothing: no snapshot and no event (DR-86).
+    Unborn,
+    /// Another scan fixed this repo's root under another namespace, or this namespace for another
+    /// root, after this scan named its repos: its IDs name a repo set that no longer holds, so
+    /// nothing of this scan's is stored for it, and `active`, the repo's active snapshot if it has
+    /// one, stays (DR-74).
+    NamespaceTaken { active: Option<u64> },
 }
 
 /// What a scan commit did.
@@ -110,22 +132,37 @@ impl Store {
         let mut active = read::active_snapshots(&tx)?;
         let mut moved = Vec::new();
         let mut outcomes = Vec::with_capacity(scan.repos.len());
+        let mut fixed = read_namespaces(&tx)?;
+        let taken = taken_namespaces(&fixed, &scan.namespaces);
         for repo in &scan.repos {
+            // A repo with no commit yet maps nothing, so nothing of it is stored (DR-86).
+            if repo.commit.is_empty() {
+                outcomes.push((repo.repo.clone(), RepoOutcome::Unborn));
+                continue;
+            }
+            let previous = active.get(&repo.repo).map(|a| a.snapshot);
+            // A namespace another scan fixed otherwise names another repo set's IDs.
+            if taken.contains(repo.repo.as_str()) {
+                outcomes.push((repo.repo.clone(), RepoOutcome::NamespaceTaken { active: previous }));
+                continue;
+            }
+            let existing = find_snapshot(&tx, &repo.repo, &repo.commit, "head", &repo.inputs)?;
+            if let Some(snapshot) = existing.filter(|s| previous == Some(*s)) {
+                outcomes.push((repo.repo.clone(), RepoOutcome::Unchanged { snapshot }));
+                continue;
+            }
+            // Whether the repo moves is settled before anything of this scan is stored, so a
+            // superseded scan leaves no snapshot and no facts behind.
+            let newer_scan = active.get(&repo.repo).is_some_and(|a| a.seq > scan.started);
+            if let Some(active) = previous.filter(|_| !is_current(repo, newer_scan)) {
+                outcomes.push((repo.repo.clone(), RepoOutcome::Superseded { active }));
+                continue;
+            }
             // The branch isn't part of the key, so a head snapshot records none: it's on the
             // scan event that moved to it.
             let (snapshot, created) = put_snapshot(&tx, &repo.repo, &repo.commit, "", "head", &repo.inputs)?;
             if created {
                 insert_facts(&tx, snapshot, &repo.facts)?;
-            }
-            let previous = active.get(&repo.repo).map(|a| a.snapshot);
-            if previous == Some(snapshot) {
-                outcomes.push((repo.repo.clone(), RepoOutcome::Unchanged { snapshot }));
-                continue;
-            }
-            let newer_scan = active.get(&repo.repo).is_some_and(|a| a.seq > scan.started);
-            if let Some(active) = previous.filter(|_| !is_current(repo, newer_scan)) {
-                outcomes.push((repo.repo.clone(), RepoOutcome::Superseded { active }));
-                continue;
             }
             let key = ScanKey { repo: &repo.repo, commit: &repo.commit, inputs: &repo.inputs, previous };
             let (mut idem, request_hash) = (rules.scan_key)(&key);
@@ -162,7 +199,7 @@ impl Store {
                         branch: repo.branch.clone(),
                         snapshot,
                         link: link_id,
-                        renames: Vec::new(),
+                        renames: repo.renames.clone(),
                         stats: repo.stats,
                     },
                 };
@@ -174,6 +211,23 @@ impl Store {
                 slot.1 = RepoOutcome::Recorded { snapshot, seq };
             }
         }
+        // Only a repo this scan maps fixes its root: one superseded or unborn leaves it to the scan
+        // that maps it.
+        let before = fixed.len();
+        for (root, ns) in &scan.namespaces {
+            let maps = outcomes.iter().any(|(name, outcome)| {
+                name == ns && matches!(outcome, RepoOutcome::Recorded { .. } | RepoOutcome::Unchanged { .. })
+            });
+            if maps {
+                fixed.entry(root.clone()).or_insert_with(|| ns.clone());
+            }
+        }
+        if fixed.len() != before {
+            tx.execute(
+                "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                params![META_REPOS, serde_json::to_string(&fixed)?],
+            )?;
+        }
         let seq = read::max_seq(&tx)?;
         tx.commit()?;
         if link.is_some() {
@@ -181,6 +235,51 @@ impl Store {
         }
         Ok(ScanCommitted { repos: outcomes, link, seq })
     }
+}
+
+/// Each repo root's namespace as `meta.repos` fixed it; none before a first scan fixed one.
+fn read_namespaces(tx: &Transaction<'_>) -> Result<BTreeMap<String, String>, StoreError> {
+    let held: Option<String> =
+        tx.query_row("SELECT value FROM meta WHERE key = ?1", [META_REPOS], |r| r.get(0)).optional()?;
+    Ok(match held {
+        Some(text) => serde_json::from_str(&text)?,
+        None => BTreeMap::new(),
+    })
+}
+
+/// The namespaces of `namespaces` that `fixed` contradicts: one whose root is fixed under another
+/// namespace, or that is fixed for another root.
+fn taken_namespaces<'a>(
+    fixed: &BTreeMap<String, String>,
+    namespaces: &'a BTreeMap<String, String>,
+) -> BTreeSet<&'a str> {
+    let owner: BTreeMap<&str, &str> = fixed.iter().map(|(root, ns)| (ns.as_str(), root.as_str())).collect();
+    namespaces
+        .iter()
+        .filter(|(root, ns)| {
+            fixed.get(*root).is_some_and(|held| held != *ns)
+                || owner.get(ns.as_str()).is_some_and(|holder| *holder != root.as_str())
+        })
+        .map(|(_, ns)| ns.as_str())
+        .collect()
+}
+
+/// The ID of the snapshot with this key, if one is stored.
+fn find_snapshot(
+    tx: &Transaction<'_>,
+    repo: &str,
+    commit: &str,
+    purpose: &str,
+    packs_hash: &str,
+) -> Result<Option<u64>, StoreError> {
+    let id: Option<i64> = tx
+        .query_row(
+            "SELECT id FROM snapshots WHERE repo = ?1 AND commit_id = ?2 AND purpose = ?3 AND packs_hash = ?4",
+            params![repo, commit, purpose, packs_hash],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(id.map(|id| id as u64))
 }
 
 /// Insert a snapshot unless it exists; returns its ID and whether this call created it.

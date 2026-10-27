@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use planroom_contract::{Edge, Kind, Level, Node, NodeId, Ref, Vocabulary};
 
-use crate::facts;
+use crate::facts::{self, Merged};
 use crate::model::Facts;
 
 /// The facts, resolved.
@@ -33,18 +33,29 @@ pub struct Resolved {
 /// Resolve `facts` against `vocabulary`.
 pub fn resolve(facts: &Facts, vocabulary: &Vocabulary) -> Resolved {
     let levels: HashMap<&Kind, Level> = vocabulary.kinds.iter().rev().map(|k| (&k.kind, k.level)).collect();
-    let merged = facts::merge(facts.nodes.clone());
-    let ids: HashMap<&str, ()> = merged.iter().map(|m| (m.node.id.0.as_str(), ())).collect();
-    let parents: Vec<Option<NodeId>> = merged
+    // Each fact is copied once, into its merged node or edge.
+    let sorted = facts::sorted_by_id(&facts.nodes);
+    let groups: Vec<&[&Node]> = sorted.chunk_by(|a, b| a.id == b.id).collect();
+    // One group per ID, sorted by ID, so a parent resolves by a binary search.
+    let held = |id: &NodeId| groups.binary_search_by(|g| g[0].id.cmp(id)).is_ok();
+    let nodes: Vec<Node> = groups
         .iter()
-        .map(|m| m.parents.iter().find(|p| ids.contains_key(p.0.as_str()) && **p != m.node.id).cloned())
-        .collect();
-    let nodes: Vec<Node> = merged
-        .into_iter()
-        .zip(parents)
-        .map(|(m, parent)| {
-            let mut node = m.node;
-            node.parent = parent;
+        .map(|group| {
+            let mut node = match group {
+                // A node one fact names has that fact's parent as its only candidate.
+                [one] => {
+                    let mut node = (*one).clone();
+                    if node.parent.as_ref().is_some_and(|p| *p == node.id || !held(p)) {
+                        node.parent = None;
+                    }
+                    node
+                }
+                _ => {
+                    let Merged { mut node, parents } = facts::merge_borrowed(group);
+                    node.parent = parents.into_iter().find(|p| *p != node.id && held(p));
+                    node
+                }
+            };
             if let Some(&level) = levels.get(&node.kind) {
                 node.level = level;
             }
@@ -54,7 +65,7 @@ pub fn resolve(facts: &Facts, vocabulary: &Vocabulary) -> Resolved {
     let index = Index::new(&nodes);
     let mut edges = Vec::new();
     let mut unresolved = Vec::new();
-    for edge in facts::merge_edges(facts.edges.clone()) {
+    for edge in facts::merge_edges_borrowed(&facts.edges) {
         let (Some(from), Some(to)) = (index.get(&edge.from), index.get(&edge.to)) else {
             unresolved.push(edge);
             continue;
@@ -217,5 +228,67 @@ mod tests {
         let index = Index::new(&nodes);
         let chain: Vec<&str> = index.chain(&nodes[0]).iter().map(|n| n.id.0.as_str()).collect();
         assert_eq!(chain, ["r:x:a", "r:x:b"]);
+    }
+
+    use proptest::prelude::*;
+    use proptest::test_runner::Config;
+
+    const TIERS: [Tier; 3] = [Tier::Universal, Tier::Pattern, Tier::Syntactic];
+
+    /// A fact for `(key, tier, parent, alias)`, named after its place in the input.
+    fn fact(i: usize, (key, tier, parent, alias): (u8, usize, Option<u8>, Option<u8>)) -> Node {
+        let mut n = node(&format!("r:x:{key}"), TIERS[tier], &format!("f{i}"));
+        n.parent = parent.map(|p| NodeId(format!("r:x:{p}")));
+        n.aliases = alias.map(|a| format!("al{a}")).into_iter().collect();
+        n.props = [(format!("p{i}"), serde_json::json!(i))].into();
+        n
+    }
+
+    proptest! {
+        // No I/O in the kernel's tests: a failing case is printed, never written to a file.
+        #![proptest_config(Config { failure_persistence: None, ..Config::default() })]
+
+        /// Resolving borrowed facts gives what merging a copy of them gives, each node under the
+        /// first of its candidate parents that is a node other than itself, and each edge as
+        /// merging a copy of the edges gives it.
+        #[test]
+        fn resolving_borrowed_facts_merges_them_as_a_copy_would(
+            facts in prop::collection::vec(
+                (0u8..10, 0usize..TIERS.len(), prop::option::of(0u8..12), prop::option::of(0u8..3)),
+                0..24,
+            ),
+            ends in prop::collection::vec((0u8..6, 0u8..12, 0u8..12), 0..10),
+        ) {
+            let nodes: Vec<Node> = facts.into_iter().enumerate().map(|(i, f)| fact(i, f)).collect();
+            let id = |k: u8| Ref::Id(NodeId(format!("r:x:{k}")));
+            let edges: Vec<Edge> = ends
+                .iter()
+                .enumerate()
+                .map(|(i, &(e, from, to))| {
+                    let mut edge = edge(&format!("e:{e:012x}"), id(from), id(to));
+                    edge.props = [(format!("p{i}"), serde_json::json!(i))].into();
+                    edge
+                })
+                .collect();
+            let resolved = resolve(&Facts { nodes: nodes.clone(), edges: edges.clone(), hints: vec![] }, &Vocabulary::default());
+
+            let merged = facts::merge(nodes);
+            let ids: Vec<&NodeId> = merged.iter().map(|m| &m.node.id).collect();
+            let want: Vec<Node> = merged
+                .iter()
+                .map(|m| {
+                    let mut node = m.node.clone();
+                    node.parent = m.parents.iter().find(|p| **p != node.id && ids.contains(p)).cloned();
+                    node
+                })
+                .collect();
+            prop_assert_eq!(&resolved.nodes, &want);
+            let mut all = resolved.edges.iter().chain(&resolved.unresolved).map(|e| e.id.clone()).collect::<Vec<_>>();
+            all.sort();
+            let mut merged_edges: Vec<EdgeId> = facts::merge_edges(edges.clone()).into_iter().map(|e| e.id).collect();
+            merged_edges.sort();
+            prop_assert_eq!(all, merged_edges);
+            prop_assert_eq!(facts::merge_edges_borrowed(&edges), facts::merge_edges(edges));
+        }
     }
 }

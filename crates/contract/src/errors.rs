@@ -277,8 +277,8 @@ warning_codes! {
         "git couldn't read a repo, so the scan left it out and its last map stays; details name the repo, the reason (other_owner or git_failed) and the fix",
         ["repo", "reason", "fix"] redact ["repo"];
     ScanSuperseded = "scan_superseded",
-        "a repo's HEAD moved on while the scan read it, or the workspace's repos changed and a newer scan mapped it meanwhile, so its map stays as it was and a scan never moves it back; details name the repo, the commit this scan read and the reason (head_moved or repos_changed)",
-        ["repo", "commit", "reason"] redact ["repo"];
+        "a repo's HEAD moved on while the scan read it, or the workspace's repos changed and a newer scan mapped it or named it otherwise meanwhile, so its map stays as it was and a scan never moves it back; details name the repo, the commit this scan read, the reason (head_moved or repos_changed) and the commit the map holds (mapped, empty when none)",
+        ["repo", "commit", "reason", "mapped"] redact ["repo"];
     Claimed = "claimed", "the target is claimed by someone else", ["by", "until"];
     DeterministicFallback = "deterministic_fallback",
         "no model was reachable, allowed or within budget; deterministic tiers run, low kinds keep their default and cards pre-select it",

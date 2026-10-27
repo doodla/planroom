@@ -110,6 +110,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 94 | Declared IDs at most 64 characters, and the listing's own left-out count | DR-15, DR-46, DR-86 | extended | the merge of M1's questions and `ask` |
 | 95 | The check gates' edges: what a budgets raise is, how the baseline and the release are found, and what the secret scan exempts | DR-59, DR-79, DR-83, DR-85, DR-89 | extended, amends DR-89 | the merge of M1's check gates |
 | 96 | Where a store lives on an unsafe filesystem, its pointer's type, migration copies, and the engine's libc calls | DR-1, DR-53, DR-69, DR-78, DR-85 | extended | the merge of M1's store open and migrations |
+| 97 | Namespaces fixed at the first mapping scan, reserved names, and an unborn repo that writes no event | DR-47, DR-74, DR-87, DR-89 | extended, amends DR-74 and DR-87 | the merge of M1's namespaces, renames and fold benchmark |
 
 ## Where the design reviews disagreed
 
@@ -1684,7 +1685,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-74: Repo namespaces that survive duplicates and renames, and a single repo's state in its git directory
 
-- **Status:** accepted (decided in review round 3, F5 and F6).
+- **Status:** accepted (decided in review round 3, F5 and F6). Amended by DR-97.
 - **Starting point:** kept "Stable, namespaced IDs such as `<repo>:<kind>:<key>`" and extended DR-53's backups.
 - **Origin:** review round 3: unasked-1, unasked-2 and unasked-4.
 - **Context:**
@@ -1709,6 +1710,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Milestones: M1's IDs and backup slices grow by 3 h.
   - It amends DR-42, DR-48, DR-53 and DR-71.
 - **Sources (checked 2026-10-26):** KICKOFF R1, R6, R15 and principle 1; `git-diff(1)` (`-M`), `git-rev-parse(1)` (`--absolute-git-dir`); review round 3 unasked-1, unasked-2, unasked-4 and owner decisions F5 and F6.
+- **Amended by DR-97:** a repo named `ws` or `plan` takes the suffix too, the suffix grows 4 hex at a time while the suffixed name is still taken, and a root's namespace is fixed at the first scan that maps the repo, inside that scan's transaction.
 
 ## DR-75: Authority stays with a person's own action
 
@@ -2185,7 +2187,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-87: What the walking skeleton's review settled in round 3
 
-- **Status:** accepted (decided at the merge of round 3's fixes, 2026-10-26). Amended by DR-88.
+- **Status:** accepted (decided at the merge of round 3's fixes, 2026-10-26). Amended by DR-88 and DR-97.
 - **Starting point:** extended "Extractors read the repo", "Actors: agents never act as a person", "Surfaces read one contract" and Remote mode.
 - **Origin:** round 3, the last, of the walking skeleton's review. Its 9 material findings, 8 distinct defects, are in [the review's index](research/skeleton-review/README.md), with what stays open in [its accepted risk](research/skeleton-review/accepted-risk.md). One fix repaired CI, and two fix branches fixed the rest (the engine and guard fixes).
 - **Context:** Round 2's fixes held where they were aimed. Round 3 found their edges: a late scan could still move a repo back when the repo set changed rather than `HEAD`; a repo's own config could re-allow a transport on a git without `GIT_NO_LAZY_FETCH`; a workspace whose repos had no commit looped on a scan that mapped nothing; import's reply passed its budget with many rows; and the guard resolved paths against a directory the shell had left, checked only four tools' paths, and let an agent rewrite the mod that guards it.
@@ -2213,6 +2215,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-86 (the late scan, the transports, `repo_unborn` in scan's summary, the guard's reach), DR-83 (import's result) and DR-85 (the resolver's reason types).
 - **Amended by DR-88:** a tool the guard doesn't know is held through every string it's given, not only strings that look like a path, and a string that reaches only a place the write rule holds is put to the person.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/round3-*.json`; the two fix branches' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
+- **Amended by DR-97:** an unborn repo writes no snapshot and no scan event; `repo_unborn` and the scan's summary say it maps after its first commit, and the live frame's unborn line remains only for empty-commit events an older engine wrote.
 
 ## DR-88: The guard's residual risks, decided
 
@@ -2546,3 +2549,27 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: `planroom.store-pointer/v1`; the `unsafe_filesystem` warning; the `store_migrated` notice; `schema_mismatch`'s hint names the update commands.
   - Tests: `crates/store/tests/{fs_check, crash, migrations}.rs`; `crates/planroom/tests/backup.rs`.
 - **Sources (checked 2026-10-27):** `crates/store/src/{lib, migrate, pointer, fs_check}.rs`; `crates/planroom/src/app/fs_type.rs`; [Where the workspace lives](architecture.md#where-the-workspace-lives); [Contracts](contracts.md).
+
+## DR-97: Namespaces fixed at the first mapping scan, reserved names, and an unborn repo that writes no event
+
+- **Status:** accepted (decided at the merge of M1's namespaces, renames and fold benchmark, 2026-10-27).
+- **Starting point:** extended DR-47 and DR-89; amends DR-74 and DR-87.
+- **Origin:** the merge of the namespaces work, read against the docs by an independent check over three rounds.
+- **Context:**
+  - DR-74 adds `-` and 4 hex to the later of two same-named repos and fixes a root's namespace at its first scan. A repo named `ws` or `plan` would start IDs in the namespaces of workspace nodes and plan items, and a repo literally named `api-3f2a`, or a 4-hex collision, could still give two repos one namespace. A repo with no commit has a first scan that maps nothing.
+  - DR-87 says an unborn repo's live frame says it maps after its first commit, but live frames come only from stored events, and an event for an unborn repo names an empty commit, counts the repo as moved and made `focus` loop.
+  - `repos_changed`, which DR-87 defined for a scan whose repo set moved, is also what a scan meets when another scan fixed a repo's namespace first.
+- **Decision:**
+  - **Reserved names and a growing suffix:** a repo named `ws` or `plan` takes the suffix, and the suffix grows 4 hex at a time while the suffixed name is still taken. This amends DR-74.
+  - **A namespace is fixed at the first scan that maps the repo,** read and written inside that scan's transaction; a repo another scan fixed meanwhile stores nothing and the scan warns `scan_superseded` with `repos_changed`. This amends DR-74's "at its first scan".
+  - **An unborn repo writes no snapshot and no scan event;** `repo_unborn` and the scan's summary carry the line that it maps after its first commit, and `frame.scan_unborn` remains only for empty-commit events an older engine wrote. This amends DR-87.
+  - **The fold's budgets** are fold.20k 50 ms and fold.50k 500 ms, first numbers and so no raise (DR-89), held by the CI bench job.
+- **Alternatives rejected:**
+  - An empty-commit scan event for an unborn repo: it reopens the moved count and the `focus` loop.
+  - A new event kind for the unborn line: a contract addition for a line the warning already carries.
+  - Raising fold.20k: the fold was made to fit instead.
+- **Consequences:**
+  - Contracts: NodeId's namespace rule; `scan_superseded`'s `repos_changed` and `mapped`; `EventBody::Scan.commit` empty only in an older engine's event.
+  - Tests: `namespaces.rs`; `id_stability.rs::fixture_ids_match_the_last_release`; `scan.rs::an_unborn_repo_writes_no_scan_event`; `xtask/tests/bench.rs`; the fold's rename and copy-on-write tests.
+  - Known gap: the CI bench gate measures wall-clock time on a shared runner; if fold.20k lands near its budget there, the fold gets faster rather than its budget higher.
+- **Sources (checked 2026-10-27):** `crates/planroom/src/app/workspace.rs`; `crates/store/src/commit/scan.rs`; `crates/kernel/src/fold/{state, prepass}.rs`; `crates/kernel/benches/fold.rs`; [Contracts](contracts.md); [Where the workspace lives](architecture.md#where-the-workspace-lives).

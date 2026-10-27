@@ -330,8 +330,10 @@ fn a_dirty_first_scan_then_a_clean_rescan_gives_the_map_a_fresh_store_gives() {
     let committed = std::fs::read_to_string(&compose).unwrap();
     std::fs::write(&compose, format!("# local note\n{committed}")).unwrap();
     let first = scan(&root);
+    // The reply's warnings sit in `meta.warnings`; a dropped evidence item would show there.
+    assert!(first["meta"].is_object() && first.get("warnings").is_none(), "{first}");
     assert!(
-        first["warnings"].as_array().is_none_or(|w| w.iter().all(|w| w["code"] != "evidence_dropped")),
+        warnings_of(&first, "evidence_dropped").is_empty(),
         "the dirty edit never reaches extraction: {first}"
     );
     let dirty = the_map(&root);
@@ -645,17 +647,39 @@ fn a_workspace_whose_only_repo_has_no_commit_says_to_commit_and_never_loops() {
     assert_eq!(warnings_of(&env, "repo_unborn").len(), 1, "{env}");
     assert_unborn_everywhere(&root, "after the scan");
 
-    // The live frame of the unborn repo's scan event names no commit.
-    let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
-    let events = store.events_after(0, 10).unwrap();
-    assert_eq!(events.len(), 1);
-    let planroom_contract::StreamFrame::Event { summary, .. } = planroom::live::frame(&events[0]) else {
+    // A repo with no commit writes nothing, so a workspace of such repos has no store yet.
+    assert!(!root.join(".planroom/store.db").exists(), "an unborn repo writes no scan event");
+    assert_eq!(env["meta"]["seq"], 0);
+
+    // A scan event an older engine wrote for an unborn repo names no commit in its live frame.
+    let older = planroom_contract::Event {
+        seq: 1,
+        id: planroom_contract::EventId("ev-1".into()),
+        idem: "scan".into(),
+        request_hash: "h".into(),
+        at: planroom_contract::Timestamp("2026-10-26T12:00:00Z".into()),
+        actor: planroom_contract::Actor::System { part: "scan".into() },
+        client: planroom_contract::Client { surface: planroom_contract::Surface::Cli, id: "cli:1".into() },
+        project: None,
+        cause: None,
+        status: planroom_contract::Status::Applied,
+        body: planroom_contract::EventBody::Scan {
+            repo: "app".into(),
+            commit: String::new(),
+            branch: "main".into(),
+            snapshot: 1,
+            link: 2,
+            renames: vec![],
+            stats: Default::default(),
+        },
+    };
+    let planroom_contract::StreamFrame::Event { summary, .. } = planroom::live::frame(&older) else {
         panic!("an event frame")
     };
     assert_eq!(summary, "app has no commits yet; it maps after its first commit.");
 
     // A rescan changes nothing, and still offers no scan.
-    assert_eq!(scan(&root)["meta"]["seq"], 1);
+    assert_eq!(scan(&root)["meta"]["seq"], 0);
     assert_unborn_everywhere(&root, "after a rescan");
 
     // After its first commit the one action is the scan, which maps it.
@@ -663,7 +687,8 @@ fn a_workspace_whose_only_repo_has_no_commit_says_to_commit_and_never_loops() {
     git(&root.join("app"), &["add", "README.md"]);
     git(&root.join("app"), &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "First"]);
     let (focus, _) = envelope(&root, &["focus", "--json"]);
-    assert_eq!(focus["result"]["empty"]["reason"], "nothing_mapped", "{focus}");
+    // Nothing was ever stored, so focus offers the first scan of a workspace that now has a commit.
+    assert_eq!(focus["result"]["empty"]["reason"], "not_scanned", "{focus}");
     assert_eq!(focus["result"]["next"]["command"], "scan");
     let env = scan(&root);
     assert!(env["summary"].as_str().unwrap().starts_with("Mapped 1 repos, 1 of them moved"), "{env}");
@@ -688,4 +713,146 @@ fn a_workspace_git_can_read_none_of_offers_no_scan() {
     assert_eq!(warnings_of(&env, "repo_skipped").len(), 1, "{env}");
     assert_eq!(env["result"]["map"]["empty"]["reason"], "repos_unreadable");
     assert!(!root.join(".planroom/store.db").exists());
+}
+
+/// The snapshots that hold facts and that no scan event names: what a scan stored and never made
+/// active. Snapshot IDs count up from 1, so the first `upto` are probed.
+fn orphan_snapshots(root: &Path, upto: u64) -> Vec<u64> {
+    let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
+    let named: BTreeSet<u64> = store
+        .events_after(0, 1000)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.body {
+            planroom_contract::EventBody::Scan { snapshot, link, .. } => Some([snapshot, link]),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    (1..=upto).filter(|id| !named.contains(id) && !store.facts(&[*id]).unwrap().is_empty()).collect()
+}
+
+#[test]
+fn an_unborn_repo_writes_no_scan_event() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = fixture(dir.path()).root;
+    git(&root, &["init", "-q", "-b", "main", "newrepo"]);
+    let env = scan(&root);
+    assert_eq!(env["meta"]["seq"], 5, "one scan event for each of the five repos with a commit: {env}");
+    assert_eq!(warnings_of(&env, "repo_unborn").len(), 1, "{env}");
+    let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
+    let events = store.events_after(0, 100).unwrap();
+    assert!(
+        events.iter().all(|e| match &e.body {
+            planroom_contract::EventBody::Scan { repo, commit, .. } =>
+                repo != "newrepo" && !commit.is_empty(),
+            _ => true,
+        }),
+        "no scan event for the repo with no commit, and none names an empty commit"
+    );
+    assert!(!store.active_set().unwrap().repos.contains_key("newrepo"));
+    // Rescans write nothing for it either, until its first commit.
+    assert_eq!(scan(&root)["meta"]["seq"], 5);
+    std::fs::write(root.join("newrepo/README.md"), "# New\n").unwrap();
+    git(&root.join("newrepo"), &["add", "README.md"]);
+    git(&root.join("newrepo"), &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "First"]);
+    assert_eq!(scan(&root)["meta"]["seq"], 6);
+    assert_eq!(scan_events(&root).last().unwrap(), &(6, "newrepo".to_owned()));
+}
+
+#[test]
+fn a_superseded_repo_keeps_no_new_snapshot_and_names_the_mapped_head() {
+    use planroom::app::scan as app_scan;
+    let dir = tempfile::tempdir().unwrap();
+    let root = fixture(dir.path()).root;
+    scan(&root);
+    let commit = |m: &str| {
+        git(&root.join("platform"), &["-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", m])
+    };
+    let head = || {
+        let out = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(root.join("platform"))
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout).unwrap().trim().to_owned()
+    };
+    // The slow scan reads a commit no other scan reads: HEAD moves on before it commits.
+    commit("Read by the slow scan");
+    let slow = app_scan::prepare(&planroom_contract::ScanReq::default(), &root).unwrap();
+    commit("Mapped by the newer scan");
+    let mapped = head();
+    assert_eq!(scan(&root)["meta"]["seq"], 6, "the newer scan moved platform");
+    let late = app_scan::commit(slow).unwrap();
+    assert_eq!(late.seq, 6, "the late scan wrote no event");
+    assert!(orphan_snapshots(&root, 64).is_empty(), "the superseded scan stored no snapshot and no facts");
+    let superseded: Vec<&planroom_contract::Warning> =
+        late.warnings.iter().filter(|w| w.code == planroom_contract::WarningCode::ScanSuperseded).collect();
+    assert_eq!(superseded.len(), 1, "{:?}", late.warnings);
+    assert_eq!(superseded[0].details["mapped"], mapped.as_str(), "it names the head the map holds");
+    assert_eq!(superseded[0].details["reason"], "head_moved");
+    assert!(superseded[0].message.contains(&mapped[..7]), "{}", superseded[0].message);
+    assert!(
+        !superseded[0].message.contains("Scan again"),
+        "a newer scan already mapped HEAD, so nothing asks for another: {}",
+        superseded[0].message
+    );
+
+    // When HEAD has moved past what any scan mapped, the warning says to scan again.
+    commit("Read by another slow scan");
+    let slow = app_scan::prepare(&planroom_contract::ScanReq::default(), &root).unwrap();
+    commit("Mapped by nobody yet");
+    let late = app_scan::commit(slow).unwrap();
+    let w = late.warnings.iter().find(|w| w.code == planroom_contract::WarningCode::ScanSuperseded).unwrap();
+    assert_eq!(w.details["mapped"], mapped.as_str());
+    assert!(w.message.ends_with("Scan again to map HEAD."), "{}", w.message);
+    assert!(orphan_snapshots(&root, 64).is_empty());
+}
+
+#[test]
+fn a_rescan_records_the_renames_git_reports() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = fixture(dir.path()).root;
+    scan(&root);
+    let storefront = root.join("storefront");
+    git(&storefront, &["mv", "src/cart", "src/basket"]);
+    git(&storefront, &["mv", "src/server.ts", "src/main.ts"]);
+    git(&storefront, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "Rename"]);
+    assert_eq!(scan(&root)["meta"]["seq"], 6);
+    let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
+    let renames: BTreeSet<(String, String)> = store
+        .events_after(5, 10)
+        .unwrap()
+        .into_iter()
+        .flat_map(|e| match e.body {
+            planroom_contract::EventBody::Scan { renames, .. } => renames,
+            _ => vec![],
+        })
+        .map(|r| (r.from.0, r.to.0))
+        .collect();
+    let pair = |a: &str, b: &str| (a.to_owned(), b.to_owned());
+    assert_eq!(
+        renames,
+        BTreeSet::from([
+            pair("storefront:file:src/cart/cart.ts", "storefront:file:src/basket/cart.ts"),
+            pair("storefront:file:src/cart/routes.ts", "storefront:file:src/basket/routes.ts"),
+            pair("storefront:file:src/server.ts", "storefront:file:src/main.ts"),
+            pair("storefront:dir:src/cart", "storefront:dir:src/basket"),
+        ]),
+        "each file rename and the wholly moved directory, as IDs the new snapshot holds"
+    );
+    let ids: BTreeSet<String> =
+        active_facts(&root).into_iter().map(|(_, f)| f["id"].as_str().unwrap().to_owned()).collect();
+    assert!(ids.contains("storefront:dir:src/basket") && !ids.contains("storefront:dir:src/cart"), "{ids:?}");
+
+    // A move nothing renamed records none.
+    git(&root.join("kit"), &["-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "Touch"]);
+    scan(&root);
+    let last = store.events_after(6, 10).unwrap();
+    assert!(
+        last.iter().all(
+            |e| !matches!(&e.body, planroom_contract::EventBody::Scan { renames, .. } if !renames.is_empty())
+        ),
+        "{last:?}"
+    );
 }

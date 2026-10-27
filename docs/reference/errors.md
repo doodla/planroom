@@ -68,7 +68,7 @@ A warning never changes the exit code.
 | `workspace_nested` | another workspace's .planroom/ sits inside this one, or this one inside it; details name the other root | `other_root` |
 | `repo_unborn` | a repo has no commit yet, so it maps nothing until its first commit; details name the repo and its branch | `repo` (masked), `branch` |
 | `repo_skipped` | git couldn't read a repo, so the scan left it out and its last map stays; details name the repo, the reason (other_owner or git_failed) and the fix | `repo` (masked), `reason`, `fix` |
-| `scan_superseded` | a repo's HEAD moved on while the scan read it, or the workspace's repos changed and a newer scan mapped it meanwhile, so its map stays as it was and a scan never moves it back; details name the repo, the commit this scan read and the reason (head_moved or repos_changed) | `repo` (masked), `commit`, `reason` |
+| `scan_superseded` | a repo's HEAD moved on while the scan read it, or the workspace's repos changed and a newer scan mapped it or named it otherwise meanwhile, so its map stays as it was and a scan never moves it back; details name the repo, the commit this scan read, the reason (head_moved or repos_changed) and the commit the map holds (mapped, empty when none) | `repo` (masked), `commit`, `reason`, `mapped` |
 | `claimed` | the target is claimed by someone else | `by`, `until` |
 | `deterministic_fallback` | no model was reachable, allowed or within budget; deterministic tiers run, low kinds keep their default and cards pre-select it | none |
 | `workspace_untrusted` | the workspace's .planroom/ is untrusted, so its config wasn't loaded; details name the trust card | `card` |

@@ -62,6 +62,23 @@ pub fn merge(mut nodes: Vec<Node>) -> Vec<Merged> {
     out
 }
 
+/// The facts in the order [`merge`] groups them, borrowed: sorted by ID, the facts of one ID in
+/// their emitted order. A caller that keeps its facts merges each run of one ID with
+/// [`merge_borrowed`], so no fact is moved or copied but into its merged node.
+pub fn sorted_by_id(nodes: &[Node]) -> Vec<&Node> {
+    let mut sorted: Vec<&Node> = nodes.iter().collect();
+    // A stable sort keeps the facts of one ID in their emitted order, which breaks tier ties.
+    if !sorted.is_sorted_by(|a, b| a.id <= b.id) {
+        sorted.sort_by(|a, b| a.id.cmp(&b.id));
+    }
+    sorted
+}
+
+/// The node [`merge`] makes of the facts of one ID, given in their emitted order.
+pub fn merge_borrowed(group: &[&Node]) -> Merged {
+    merge_group(group.iter().map(|n| (*n).clone()).collect())
+}
+
 fn merge_group(mut group: Vec<Node>) -> Merged {
     // Most specific first, the earliest on a tie.
     let mut order: Vec<usize> = (0..group.len()).collect();
@@ -113,6 +130,28 @@ pub fn merge_edges(edges: Vec<Edge>) -> Vec<Edge> {
         }
     }
     groups.into_iter().map(merge_edge_group).collect()
+}
+
+/// [`merge_edges`] over edges it borrows, copying each edge once, into its merged edge.
+pub fn merge_edges_borrowed(edges: &[Edge]) -> Vec<Edge> {
+    let mut slot: HashMap<&EdgeId, usize> = HashMap::with_capacity(edges.len());
+    let mut groups: Vec<Vec<&Edge>> = Vec::new();
+    for edge in edges {
+        match slot.get(&edge.id) {
+            Some(&i) => groups[i].push(edge),
+            None => {
+                slot.insert(&edge.id, groups.len());
+                groups.push(vec![edge]);
+            }
+        }
+    }
+    groups
+        .into_iter()
+        .map(|group| match group.as_slice() {
+            [one] => (*one).clone(),
+            _ => merge_edge_group(group.into_iter().cloned().collect()),
+        })
+        .collect()
 }
 
 fn merge_edge_group(mut group: Vec<Edge>) -> Edge {

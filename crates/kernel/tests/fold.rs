@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use planroom_contract::{
     Actor, Card, CardKind, Choice, Client, CommandName, Edge, EdgeId, Edit, Event, EventBody, EventId, Kind,
-    Layer, Level, Node, NodeId, Op, Provenance, Ref, ScanStats, Seq, Stakes, Status, Surface, Target, Tier,
-    Timestamp, Verdict, Vocabulary,
+    Layer, Level, Node, NodeId, Op, Provenance, Ref, Rename, ScanStats, Seq, Stakes, Status, Surface, Target,
+    Tier, Timestamp, Verdict, Vocabulary,
 };
 use planroom_kernel::fold::{FoldDiff, Folded, Writer, claims, fold, fold_full, fold_one};
 use planroom_kernel::model::Facts;
@@ -686,4 +686,162 @@ fn fact_merge_by_tier() {
         &Vocabulary::default(),
     );
     assert_eq!(tied.nodes.iter().find(|n| n.id.0 == "r:x:t").map(|n| n.name.as_str()), Some("first"));
+}
+
+/// A `scan` event that records `renames`, old ID to new.
+fn scan_renaming(snapshot: u64, renames: &[(&str, &str)]) -> EventBody {
+    let EventBody::Scan { repo, commit, branch, link, stats, .. } = scan(snapshot) else { unreachable!() };
+    let renames = renames.iter().map(|(from, to)| Rename { from: id(from), to: id(to) }).collect();
+    EventBody::Scan { repo, commit, branch, snapshot, link, renames, stats }
+}
+
+/// A repo with a directory `src` and the given files and directories under it, each a fact.
+fn tree(paths: &[&str]) -> Facts {
+    let mut nodes =
+        vec![node("r:x:repo", Level::System, None), node("r:d:src", Level::Component, Some("r:x:repo"))];
+    for path in paths {
+        let (up, _) = path.rsplit_once('/').unwrap();
+        let file = path.contains('.');
+        let parent = format!("r:d:{up}");
+        let level = if file { Level::Code } else { Level::Component };
+        let key = format!("r:{}:{path}", if file { "f" } else { "d" });
+        let mut n = node(&key, level, Some(&parent));
+        n.name = path.rsplit('/').next().unwrap().into();
+        nodes.push(n);
+    }
+    Facts { nodes, ..Facts::default() }
+}
+
+fn followed(folded: &Folded) -> Vec<&FoldDiff> {
+    folded.diffs.iter().filter(|d| matches!(d, FoldDiff::Followed { .. })).collect()
+}
+
+#[test]
+fn an_override_follows_a_git_rename() {
+    let mut log = Log::default();
+    log.push(&system(), Status::Applied, scan(1));
+    let mut hide = set_node("r:f:src/a.ts", "hidden", json!(true));
+    hide.fields.insert("props.owner".into(), json!("payments"));
+    let edit = log.edit(&tab(1), hide);
+    log.edit(&tab(1), set_node("r:f:src/a.ts", "name", json!("Entry")));
+    // git reports `src/a.ts` renamed to `src/b.ts`, then `src/b.ts` to `src/c.ts`.
+    log.push(&system(), Status::Applied, scan_renaming(2, &[("r:f:src/a.ts", "r:f:src/b.ts")]));
+    let later = log.edit(&tab(2), set_node("r:f:src/b.ts", "props.team", json!("checkout")));
+    log.push(&system(), Status::Applied, scan_renaming(3, &[("r:f:src/b.ts", "r:f:src/c.ts")]));
+    let folded = log.fold(&tree(&["src/c.ts"]));
+
+    let c = folded.model.nodes.iter().find(|n| n.id.0 == "r:f:src/c.ts").unwrap();
+    assert_eq!(c.name, "Entry", "the rename followed both moves");
+    assert_eq!(c.props.get("owner"), Some(&json!("payments")));
+    assert_eq!(c.props.get("team"), Some(&json!("checkout")), "a later edit follows only later moves");
+    assert!(folded.overlay.hidden.contains(&planroom_kernel::fold::TargetKey::Node(id("r:f:src/c.ts"))));
+    let rev = folded.revision(&Target::Node(id("r:f:src/c.ts")), "props.owner").expect("a revision");
+    assert_eq!(rev.event, edit, "compare-and-set reads the moved node's revision");
+    assert!(
+        folded.revision(&Target::Node(id("r:f:src/c.ts")), "props.team").is_some_and(|r| r.event == later)
+    );
+    assert!(
+        !folded.diffs.iter().any(|d| matches!(d, FoldDiff::TargetVanished { .. })),
+        "nothing vanished: {:?}",
+        folded.diffs
+    );
+    // Each move is listed once, though three edits followed the first.
+    assert_eq!(
+        followed(&folded),
+        [
+            &FoldDiff::Followed { event: edit.clone(), from: id("r:f:src/a.ts"), to: id("r:f:src/c.ts") },
+            &FoldDiff::Followed { event: later, from: id("r:f:src/b.ts"), to: id("r:f:src/c.ts") },
+        ]
+    );
+
+    // Folded before the renames, the edits stay on the file as it was.
+    let before = fold_full(&tree(&["src/a.ts"]), &log.events, &Vocabulary::default(), 3);
+    assert_eq!(name_of(&before, "r:f:src/a.ts"), "Entry");
+    assert!(followed(&before).is_empty());
+
+    // A node the facts still hold is never moved, whatever git reported.
+    let both = log.fold(&tree(&["src/a.ts", "src/c.ts"]));
+    assert_eq!(name_of(&both, "r:f:src/a.ts"), "Entry");
+    assert_eq!(name_of(&both, "r:f:src/c.ts"), "c.ts");
+
+    // A node no rename reaches is listed as vanished, as before.
+    let mut log = Log::default();
+    let gone = log.edit(&tab(1), set_node("r:f:src/a.ts", "name", json!("Entry")));
+    log.push(&system(), Status::Applied, scan_renaming(2, &[("r:f:src/x.ts", "r:f:src/c.ts")]));
+    let folded = log.fold(&tree(&["src/c.ts"]));
+    assert!(followed(&folded).is_empty());
+    assert!(
+        folded
+            .diffs
+            .contains(&FoldDiff::TargetVanished { event: gone, target: Target::Node(id("r:f:src/a.ts")) })
+    );
+}
+
+#[test]
+fn a_moved_directory_carries_its_regroup() {
+    let mut log = Log::default();
+    log.push(&system(), Status::Applied, scan(1));
+    // The regroup: a group put, and the directory moved under it, in one command.
+    let group = Edit {
+        op: Op::Put,
+        target: Target::Node(id("r:g:purchase")),
+        layer: Layer::Intended,
+        fields: BTreeMap::from([
+            ("kind".to_owned(), json!("k.group")),
+            ("level".to_owned(), json!("component")),
+            ("name".to_owned(), json!("purchase")),
+            ("parent".to_owned(), json!("r:x:repo")),
+        ]),
+        base: 0,
+        over: BTreeMap::new(),
+    };
+    let mut move_cart = set_node("r:d:src/cart", "parent", json!("r:g:purchase"));
+    move_cart.over = BTreeMap::from([("parent".to_owned(), json!("r:d:src"))]);
+    let regroup =
+        log.command(&tab(1), Status::Applied, vec![EventBody::Edit(group), EventBody::Edit(move_cart)]);
+    // `git mv src/cart src/basket`: the directory and its file.
+    log.push(
+        &system(),
+        Status::Applied,
+        scan_renaming(2, &[("r:f:src/cart/a.ts", "r:f:src/basket/a.ts"), ("r:d:src/cart", "r:d:src/basket")]),
+    );
+    let folded = log.fold(&tree(&["src/basket", "src/basket/a.ts"]));
+    assert_eq!(parent_of(&folded, "r:d:src/basket").as_deref(), Some("r:g:purchase"), "the regroup followed");
+    assert_eq!(parent_of(&folded, "r:f:src/basket/a.ts").as_deref(), Some("r:d:src/basket"));
+    assert_eq!(
+        followed(&folded),
+        [&FoldDiff::Followed {
+            event: regroup[1].clone(),
+            from: id("r:d:src/cart"),
+            to: id("r:d:src/basket")
+        }],
+        "the move is listed once"
+    );
+    assert!(
+        !folded.diffs.iter().any(|d| matches!(
+            d,
+            FoldDiff::TargetVanished { .. }
+                | FoldDiff::ParentFallback { .. }
+                | FoldDiff::ScanChangedUnderEdit { .. }
+        )),
+        "{:?}",
+        folded.diffs
+    );
+    // The regroup's undo still reverses the moved directory's parent.
+    assert!(
+        folded
+            .undo_keys(&regroup[0])
+            .contains(&(planroom_kernel::fold::TargetKey::Node(id("r:d:src/basket")), "parent".to_owned()))
+    );
+
+    // A move into a directory that was renamed follows it too.
+    let mut log = Log::default();
+    let into = log.edit(&tab(1), set_node("r:f:src/b.ts", "parent", json!("r:d:src/cart")));
+    log.push(&system(), Status::Applied, scan_renaming(2, &[("r:d:src/cart", "r:d:src/basket")]));
+    let folded = log.fold(&tree(&["src/basket", "src/b.ts"]));
+    assert_eq!(parent_of(&folded, "r:f:src/b.ts").as_deref(), Some("r:d:src/basket"));
+    assert_eq!(
+        followed(&folded),
+        [&FoldDiff::Followed { event: into, from: id("r:d:src/cart"), to: id("r:d:src/basket") }]
+    );
 }

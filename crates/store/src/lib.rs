@@ -25,7 +25,8 @@ use planroom_contract::{Seq, StorePointer};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
 pub use commit::{
-    Committed, NewEvent, RepoOutcome, RepoScan, ScanCommitted, ScanKey, ScanRules, ScanWrite, Write,
+    Committed, META_REPOS, NewEvent, RepoOutcome, RepoScan, ScanCommitted, ScanKey, ScanRules, ScanWrite,
+    Write,
 };
 pub use error::StoreError;
 pub use fs_check::{Environment, Notice, Placement, register, take_notices};

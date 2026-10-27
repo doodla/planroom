@@ -2,9 +2,9 @@
 //! reverses and the latest review of each event; and, once the fold has applied every event,
 //! the authored revisions undos write.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use planroom_contract::{Event, EventBody, EventId, Seq, Status, Verdict};
+use planroom_contract::{Event, EventBody, EventId, Seq, Status, Target, Verdict};
 
 use super::state::{FieldKey, Rev, Setting, Writer, edit_keys, idem_stem};
 
@@ -20,6 +20,8 @@ pub(crate) struct Prepass {
     pub undo_revs: BTreeMap<FieldKey, Rev>,
     /// Each applied undo and the events it reverses, in `seq` order.
     pub steps: Vec<(EventId, Vec<EventId>)>,
+    /// Each edit whose vanished node the fold followed through a rename, with the moves (DR-74).
+    pub followed: super::renames::Followed,
 }
 
 impl Prepass {
@@ -43,9 +45,27 @@ struct UndoStep<'a> {
     reverses: Vec<&'a Event>,
 }
 
-/// Every applied `undo` in `events`, which are sorted by `seq`, with what it reverses.
-fn undo_steps<'a>(events: &[&'a Event]) -> Vec<UndoStep<'a>> {
-    let by_id: BTreeMap<&EventId, &Event> = events.iter().map(|e| (&e.id, *e)).collect();
+/// The applied undos among a fold's events, found once for both the pre-pass and the revisions
+/// undos write.
+pub(crate) struct Undos<'a> {
+    /// Each applied `undo`, in `seq` order, with what it reverses.
+    steps: Vec<UndoStep<'a>>,
+    /// The events by ID.
+    by_id: BTreeMap<&'a EventId, &'a Event>,
+}
+
+impl<'a> Undos<'a> {
+    /// The applied undos in `events`, which are sorted by `seq`.
+    pub(crate) fn of(events: &[&'a Event]) -> Undos<'a> {
+        let by_id: BTreeMap<&EventId, &Event> = events.iter().map(|e| (&e.id, *e)).collect();
+        let steps = undo_steps(events, &by_id);
+        Undos { steps, by_id }
+    }
+}
+
+/// Every applied `undo` in `events`, which are sorted by `seq` and indexed by ID in `by_id`, with
+/// what it reverses.
+fn undo_steps<'a>(events: &[&'a Event], by_id: &BTreeMap<&'a EventId, &'a Event>) -> Vec<UndoStep<'a>> {
     let mut stems: BTreeMap<&str, Vec<&Event>> = BTreeMap::new();
     for event in events {
         stems.entry(idem_stem(&event.idem)).or_default().push(event);
@@ -82,10 +102,9 @@ fn undone_as_of(steps: &[UndoStep<'_>], at: Seq) -> BTreeSet<EventId> {
 /// The pre-pass over `events`, which are sorted by `seq` and all at or below the fold's `at`.
 /// Its undo revisions stay empty until [`undo_revisions`] fills them once the fold has applied
 /// every event.
-pub(crate) fn prepass(events: &[&Event]) -> Prepass {
-    let undos = undo_steps(events);
+pub(crate) fn prepass(events: &[&Event], undos: &Undos<'_>) -> Prepass {
     let last = events.last().map_or(0, |e| e.seq);
-    let undone = undone_as_of(&undos, last);
+    let undone = undone_as_of(&undos.steps, last);
 
     let mut reviews = BTreeMap::new();
     for event in events {
@@ -97,10 +116,11 @@ pub(crate) fn prepass(events: &[&Event]) -> Prepass {
         }
     }
     let steps = undos
+        .steps
         .iter()
         .map(|u| (u.event.id.clone(), u.reverses.iter().map(|e| e.id.clone()).collect()))
         .collect();
-    Prepass { undone, reviews, undo_revs: BTreeMap::new(), steps }
+    Prepass { undone, reviews, undo_revs: BTreeMap::new(), steps, followed: BTreeMap::new() }
 }
 
 /// The revision each applied undo in `events` writes on every field it changes back (DR-61).
@@ -108,47 +128,64 @@ pub(crate) fn prepass(events: &[&Event]) -> Prepass {
 /// but the fold skipped, such as a move that lost to a loop, a set on a node that doesn't exist
 /// or a value the field can't take, held nothing, so an undo changes nothing back in it and
 /// writes no revision there.
+///
+/// The undos are taken in `seq` order, and [`Undone`] keeps which events are undone as each one
+/// lands, so the cost grows with what each undo changes, not with every undo before it.
 pub(crate) fn undo_revisions(
     events: &[&Event],
+    undos: &Undos<'_>,
     sets: &BTreeMap<EventId, BTreeSet<String>>,
 ) -> BTreeMap<FieldKey, Rev> {
-    let undos = undo_steps(events);
     let set_keys = |event: &Event, edit: &planroom_contract::Edit| -> Vec<FieldKey> {
         let set = sets.get(&event.id);
         edit_keys(edit).into_iter().filter(|(_, f)| set.is_some_and(|s| s.contains(f))).collect()
     };
-    let by_id: BTreeMap<&EventId, &Event> = events.iter().map(|e| (&e.id, *e)).collect();
-
-    // Every applied edit's settings of the fields it set, for the value a field held either side
-    // of an undo.
+    // An undo changes back only fields of the edits some undo reverses, so only the targets of
+    // those edits are read below.
+    let reversed: HashSet<&Target> = undos
+        .steps
+        .iter()
+        .flat_map(|step| &step.reverses)
+        .filter_map(|event| match &event.body {
+            EventBody::Edit(edit) => Some(&edit.target),
+            _ => None,
+        })
+        .collect();
+    // Every applied edit's settings of the fields it set on those targets, for the value a field
+    // held either side of an undo.
     let mut settings: BTreeMap<FieldKey, Vec<(Seq, &EventId, Setting)>> = BTreeMap::new();
     for event in events {
-        if let (EventBody::Edit(edit), Status::Applied) = (&event.body, event.status) {
+        if let (EventBody::Edit(edit), Status::Applied) = (&event.body, event.status)
+            && reversed.contains(&edit.target)
+        {
             for key in set_keys(event, edit) {
                 let setting = Setting::of(edit, &key.1);
                 settings.entry(key).or_default().push((event.seq, &event.id, setting));
             }
         }
     }
+    let mut undone = Undone::new(&undos.steps);
     let mut undo_revs: BTreeMap<FieldKey, Rev> = BTreeMap::new();
-    for step in &undos {
-        let before = undone_as_of(&undos, step.event.seq.saturating_sub(1));
-        let after = undone_as_of(&undos, step.event.seq);
-        let toggled: BTreeSet<&EventId> = before.symmetric_difference(&after).collect();
+    for (k, step) in undos.steps.iter().enumerate() {
+        // The events this undo's landing undoes or brings back.
+        let toggled = undone.land(k);
         let mut keys: BTreeSet<FieldKey> = BTreeSet::new();
-        for id in toggled {
+        for id in &toggled {
             if let Some(event @ Event { body: EventBody::Edit(edit), status: Status::Applied, .. }) =
-                by_id.get(id).copied()
+                undos.by_id.get(id).copied()
             {
                 keys.extend(set_keys(event, edit));
             }
         }
         for key in keys {
-            let value = |undone: &BTreeSet<EventId>| {
+            // Whether an event was undone just before this undo, and just after it.
+            let after = |id: &EventId| undone.contains(id);
+            let before = |id: &EventId| undone.contains(id) != toggled.contains(id);
+            let value = |is_undone: &dyn Fn(&EventId) -> bool| {
                 settings.get(&key).and_then(|all| {
                     all.iter()
                         .rev()
-                        .find(|(seq, id, _)| *seq < step.event.seq && !undone.contains(*id))
+                        .find(|(seq, id, _)| *seq < step.event.seq && !is_undone(id))
                         .map(|(_, _, setting)| setting)
                 })
             };
@@ -166,4 +203,129 @@ pub(crate) fn undo_revisions(
         }
     }
     undo_revs
+}
+
+/// Which events are undone as the undos land one by one in `seq` order: what [`undone_as_of`]
+/// gives at each undo's `seq`, kept up to date instead of recomputed.
+///
+/// An event is undone while at least one effective undo reverses it, and an undo is effective
+/// while none reverses it. Every undo reverses only earlier events, so when one lands, the change
+/// it makes runs backward through the events it reverses: each event's count of effective undos
+/// that reverse it is settled once, latest first, after every later change to it.
+struct Undone<'a> {
+    steps: &'a [UndoStep<'a>],
+    /// Each undo step's index, by its event.
+    step_of: BTreeMap<&'a EventId, usize>,
+    /// The effective undos that reverse each event; an event is undone while its count is above 0.
+    count: BTreeMap<&'a EventId, usize>,
+}
+
+impl<'a> Undone<'a> {
+    fn new(steps: &'a [UndoStep<'a>]) -> Undone<'a> {
+        let step_of = steps.iter().enumerate().map(|(i, s)| (&s.event.id, i)).collect();
+        Undone { steps, step_of, count: BTreeMap::new() }
+    }
+
+    fn contains(&self, id: &EventId) -> bool {
+        self.count.get(id).is_some_and(|c| *c > 0)
+    }
+
+    /// Land step `k`, the latest so far, and return the events it undid or brought back.
+    fn land(&mut self, k: usize) -> BTreeSet<EventId> {
+        // Pending changes to each event's count, by its seq, settled latest first.
+        let mut pending: BTreeMap<Seq, (&'a EventId, i64)> = BTreeMap::new();
+        let add = |pending: &mut BTreeMap<Seq, (&'a EventId, i64)>, step: &UndoStep<'a>, delta: i64| {
+            for event in &step.reverses {
+                pending.entry(event.seq).or_insert((&event.id, 0)).1 += delta;
+            }
+        };
+        // The newest undo is effective: nothing later reverses it.
+        add(&mut pending, &self.steps[k], 1);
+        let mut toggled = BTreeSet::new();
+        while let Some((_, (id, delta))) = pending.pop_last() {
+            let old = self.count.get(id).copied().unwrap_or(0);
+            let new = (old as i64 + delta).max(0) as usize;
+            self.count.insert(id, new);
+            if (old > 0) == (new > 0) {
+                continue;
+            }
+            toggled.insert(id.clone());
+            // An undo that became undone stops reversing its events, and one brought back
+            // reverses them again.
+            if let Some(&j) = self.step_of.get(id) {
+                add(&mut pending, &self.steps[j], if new > 0 { -1 } else { 1 });
+            }
+        }
+        toggled
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use planroom_contract::{Actor, Client, Edit, Layer, NodeId, Op, Surface, Target, Timestamp};
+    use proptest::prelude::*;
+    use proptest::test_runner::Config;
+
+    /// Events from `plan`: each entry is an edit (`None`) or an undo of an earlier event; every
+    /// third event shares its command with the one before it.
+    fn events(plan: &[Option<usize>]) -> Vec<Event> {
+        let mut out: Vec<Event> = Vec::new();
+        for (i, step) in plan.iter().enumerate() {
+            let seq = i as Seq + 1;
+            let body = match step {
+                Some(of) if i > 0 => EventBody::Undo { of: out[of % i].id.clone() },
+                _ => EventBody::Edit(Edit {
+                    op: Op::Set,
+                    target: Target::Node(NodeId(format!("r:x:{}", i % 3))),
+                    layer: Layer::Actual,
+                    fields: BTreeMap::from([("name".to_owned(), serde_json::json!(format!("n{i}")))]),
+                    base: 0,
+                    over: BTreeMap::new(),
+                }),
+            };
+            let idem = if i % 3 == 2 { format!("k{}#2", i - 1) } else { format!("k{i}#1") };
+            out.push(Event {
+                seq,
+                id: EventId(format!("ev-{seq}")),
+                idem,
+                request_hash: "h".into(),
+                at: Timestamp("2026-10-26T12:00:00Z".into()),
+                actor: Actor::Person { id: "person:ann".into(), name: None },
+                client: Client { surface: Surface::Cli, id: "cli:1".into() },
+                project: None,
+                cause: None,
+                status: Status::Applied,
+                body,
+            });
+        }
+        out
+    }
+
+    proptest! {
+        // No I/O in the kernel's tests: a failing case is printed, never written to a file.
+        #![proptest_config(Config { failure_persistence: None, ..Config::default() })]
+
+        /// Landing the undos one by one gives, at each, what recomputing from every undo up to
+        /// it gives, and the events it toggles are the difference from just before it.
+        #[test]
+        fn undos_landed_one_by_one_match_a_recomputation(
+            plan in prop::collection::vec(prop::option::of(0usize..64), 1..48),
+        ) {
+            let events = events(&plan);
+            let refs: Vec<&Event> = events.iter().collect();
+            let steps = Undos::of(&refs).steps;
+            let mut undone = Undone::new(&steps);
+            for (k, step) in steps.iter().enumerate() {
+                let toggled = undone.land(k);
+                let before = undone_as_of(&steps, step.event.seq - 1);
+                let after = undone_as_of(&steps, step.event.seq);
+                for event in &events {
+                    prop_assert_eq!(undone.contains(&event.id), after.contains(&event.id), "{}", event.id.0);
+                }
+                let want: BTreeSet<EventId> = before.symmetric_difference(&after).cloned().collect();
+                prop_assert_eq!(toggled, want);
+            }
+        }
+    }
 }

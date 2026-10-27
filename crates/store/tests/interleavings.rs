@@ -40,6 +40,7 @@ fn scan_at(commit: &str, event: &str) -> ScanWrite {
             commit: commit.into(),
             inputs: "p".into(),
             branch: "main".into(),
+            renames: vec![],
             stats: ScanStats::default(),
             facts: vec![FactRow {
                 id: "r:repo:r".into(),
@@ -51,6 +52,7 @@ fn scan_at(commit: &str, event: &str) -> ScanWrite {
             event_id: EventId(event.into()),
         }],
         started: 0,
+        namespaces: Default::default(),
     }
 }
 
