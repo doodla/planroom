@@ -45,6 +45,45 @@ pub fn get(key: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
     out.replace(['\n', '\r'], " ")
 }
 
+/// The catalog keys a label reads: the short action on a handle, which a surface puts on the
+/// button beside an engine line, or a fallback pane's button. A handle is never masked (AGENTS.md,
+/// Logging), so a label names no repo-derived value: the line beside it says what it acts on.
+pub const LABELS: &[&str] = &[
+    "argument.schema_label",
+    "empty.check_again_next",
+    "empty.not_scanned_next",
+    "empty.nothing_after_cursor_next",
+    "empty.nothing_mapped_next",
+    "empty.nothing_under_next",
+    "empty.top_next",
+    "fallback.build_offered_action",
+    "fallback.building_action",
+    "fallback.failed_action",
+    "fallback.fetching_action",
+    "fallback.no_focus_action",
+    "fallback.person_key_mismatch_action",
+    "fallback.resolving_action",
+    "fallback.version_mismatch_action",
+    "focus.next_containers",
+    "import.map_label",
+    "map.coarser",
+    "map.pane",
+    "scan.next_label",
+    "schema.commands_label",
+    "share.unavailable",
+];
+
+/// The values a label may name: engine-authored counts, levels and catalogue leaves.
+pub const LABEL_VARS: &[&str] = &["count", "level", "leaf"];
+
+/// The label at `section.key`, one of [`LABELS`], filled as [`get`] fills a line from values
+/// [`LABEL_VARS`] names.
+pub fn label(key: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
+    assert!(LABELS.contains(&key), "{key} isn't in text::LABELS");
+    assert!(vars.iter().all(|(name, _)| LABEL_VARS.contains(name)), "{key} takes a value a label can't name");
+    get(key, vars)
+}
+
 /// The string at `section.key`, when the catalog has one.
 pub fn try_get(key: &str) -> Option<String> {
     let (section, name) = key.split_once('.')?;
@@ -61,6 +100,49 @@ mod tests {
         assert_eq!(get("frame.version", &[("label", &"v1")]), "Tagged v1.");
         assert!(try_get("error.store_busy").is_some());
         assert!(try_get("error.nope").is_none());
+    }
+
+    /// The `{name}`s a template takes.
+    fn placeholders(template: &str) -> Vec<&str> {
+        template.split('{').skip(1).filter_map(|rest| rest.split_once('}').map(|(name, _)| name)).collect()
+    }
+
+    #[test]
+    fn no_label_takes_repo_text() {
+        for key in LABELS {
+            let template = try_get(key).unwrap_or_else(|| panic!("text/en.toml has no {key}"));
+            for name in placeholders(&template) {
+                assert!(
+                    LABEL_VARS.contains(&name),
+                    "{key} = {template:?} names {{{name}}}, which may be repo text"
+                );
+            }
+        }
+        // Every key named as a label is listed, so the check above reads it.
+        for (section, table) in catalog() {
+            for key in table.as_table().into_iter().flat_map(|t| t.keys()) {
+                let key = format!("{section}.{key}");
+                if ["_next", "_label", "_action"].iter().any(|s| key.ends_with(s)) {
+                    assert!(LABELS.contains(&key.as_str()), "{key} reads like a label: list it in LABELS");
+                }
+            }
+        }
+        // Every handle the engine builds reads its label through `label`, which takes only those keys.
+        let needle = ["label:", "text::get("].concat();
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut dirs = vec![src];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    let code = std::fs::read_to_string(&path).unwrap();
+                    let code: String = code.split_whitespace().collect();
+                    assert!(!code.contains(&needle), "{}: a label read with text::get", path.display());
+                }
+            }
+        }
     }
 
     #[test]

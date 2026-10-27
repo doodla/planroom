@@ -18,7 +18,8 @@ The category sets the exit code. The retry class says when you may send the same
 | `after_reread` | Read again, then retry with the new `meta.seq` as `base`. |
 | `later` | Wait, then retry; `retry_after_ms` says how long when known. |
 
-An older reader maps a code it doesn't know to its category and exit code.
+An older reader maps a code it doesn't know to its category and exit code. A `details` key
+marked (masked) holds repo-derived text, so its secrets are masked like a reply's lines.
 
 | Code | Category | Exit | Retry | Meaning | `details` |
 |---|---|---|---|---|---|
@@ -36,15 +37,15 @@ An older reader maps a code it doesn't know to its category and exit code.
 | `engine_unavailable` | unavailable | 7 | never | the resolver's envelope when it can't hand back an engine; details.reason says why and fix names the command | `reason`, `fix`, `est_minutes`, `canvas`, `missing` |
 | `schema_mismatch` | unavailable | 7 | never | the store or a file is from a newer version, or this process is older than the store | `found`, `supported`, `writer_version`, `file` |
 | `pack_invalid` | failed | 8 | never | a pack failed validation | `file`, `line`, `reference` |
-| `git_failed` | failed | 8 | never | git exited non-zero; stderr redacted | `argv`, `stderr` |
+| `git_failed` | failed | 8 | never | git exited non-zero; stderr redacted | `argv`, `stderr` (masked) |
 | `base_required` | usage | 2 | never | a write to user-authored state without base; the hint names meta.seq | none |
 | `actor_required` | usage | 2 | never | a write with no PLANROOM_ACTOR, no person token and no terminal; the hint shows PLANROOM_ACTOR=agent:<id>:<role> | none |
-| `stale_write` | conflict | 4 | after_reread | a field changed since base; stored as a conflict, never merged | `event`, `base`, `theirs`, `yours`, `card` |
+| `stale_write` | conflict | 4 | after_reread | a field changed since base; stored as a conflict, never merged | `event`, `base`, `theirs` (masked), `yours` (masked), `card` |
 | `already_resolved` | conflict | 4 | never | the card was already picked | `by`, `at`, `pick` |
-| `handoff_conflict` | conflict | 4 | never | the merge preflight failed; every repo untouched | `repo`, `files` |
+| `handoff_conflict` | conflict | 4 | never | the merge preflight failed; every repo untouched | `repo` (masked), `files` |
 | `consent_required` | permission | 5 | never | a model-only command before the person allowed this provider for the workspace; only the person's pick on the consent card clears it | `provider`, `card` |
 | `path_refused` | permission | 5 | never | a read named a path outside the workspace's repos and scanned files, a non-person named a credential path, or a repo's git directory belongs to another user | `path`, `reason` |
-| `repo_config_refused` | permission | 5 | never | a checkout or merge in a workspace repo whose local git config names a command git would run | `repo`, `keys`, `card` |
+| `repo_config_refused` | permission | 5 | never | a checkout or merge in a workspace repo whose local git config names a command git would run | `repo` (masked), `keys`, `card` |
 | `budget_exceeded` | budget | 6 | later | a spend or size guard stopped a model-only command; decisions keep their default instead | `guard`, `limit`, `spent` |
 | `model_unavailable` | unavailable | 7 | later | a model-only command found Jev or Claude unreachable | `provider` |
 | `git_too_old` | unavailable | 7 | never | the git on PATH is older than 2.34.1, the oldest whose plumbing the adapter uses | `found`, `minimum`, `fix` |
@@ -61,13 +62,13 @@ A warning never changes the exit code.
 |---|---|---|
 | `truncated` | the result hit its budget; the summary and first page are kept | `kept`, `total`, `budget_tokens`, `next`, `left_out`, `codes` |
 | `unresolved_ref` | an alias or a linker join had zero or several candidates; no edge was made | none |
-| `evidence_dropped` | an evidence item failed verification at ingest | `repo`, `count`, `items` |
-| `partial_parse` | files parsed with error nodes, so their facts are weak; details name the repo, the count and the first 10 paths in sorted order | `repo`, `count`, `paths` |
-| `partial_scan` | an extractor reached its file or byte bound, or a partial clone lacks some blobs; details name the extractor, the repo, the count of uncovered files and the first 10 in sorted order | `extractor`, `repo`, `count`, `uncovered` |
+| `evidence_dropped` | an evidence item failed verification at ingest | `repo` (masked), `count`, `items` |
+| `partial_parse` | files parsed with error nodes, so their facts are weak; details name the repo, the count and the first 10 paths in sorted order | `repo` (masked), `count`, `paths` |
+| `partial_scan` | an extractor reached its file or byte bound, or a partial clone lacks some blobs; details name the extractor, the repo, the count of uncovered files and the first 10 in sorted order | `extractor`, `repo` (masked), `count`, `uncovered` |
 | `workspace_nested` | another workspace's .planroom/ sits inside this one, or this one inside it; details name the other root | `other_root` |
-| `repo_unborn` | a repo has no commit yet, so it maps nothing until its first commit; details name the repo and its branch | `repo`, `branch` |
-| `repo_skipped` | git couldn't read a repo, so the scan left it out and its last map stays; details name the repo, the reason (other_owner or git_failed) and the fix | `repo`, `reason`, `fix` |
-| `scan_superseded` | a repo's HEAD moved on while the scan read it, or the workspace's repos changed and a newer scan mapped it meanwhile, so its map stays as it was and a scan never moves it back; details name the repo, the commit this scan read and the reason (head_moved or repos_changed) | `repo`, `commit`, `reason` |
+| `repo_unborn` | a repo has no commit yet, so it maps nothing until its first commit; details name the repo and its branch | `repo` (masked), `branch` |
+| `repo_skipped` | git couldn't read a repo, so the scan left it out and its last map stays; details name the repo, the reason (other_owner or git_failed) and the fix | `repo` (masked), `reason`, `fix` |
+| `scan_superseded` | a repo's HEAD moved on while the scan read it, or the workspace's repos changed and a newer scan mapped it meanwhile, so its map stays as it was and a scan never moves it back; details name the repo, the commit this scan read and the reason (head_moved or repos_changed) | `repo` (masked), `commit`, `reason` |
 | `claimed` | the target is claimed by someone else | `by`, `until` |
 | `deterministic_fallback` | no model was reachable, allowed or within budget; deterministic tiers run, low kinds keep their default and cards pre-select it | none |
 | `workspace_untrusted` | the workspace's .planroom/ is untrusted, so its config wasn't loaded; details name the trust card | `card` |
@@ -81,6 +82,6 @@ A warning never changes the exit code.
 | `stale_page` | a page cursor's seq is behind, or its snapshot was pruned so the page folds at the current seq | none |
 | `model_request_pending` | the session backend is waiting for the mod | none |
 | `store_migrated` | this command migrated the store; details name the versions and the VACUUM INTO copy | `from`, `to`, `backup` |
-| `temporary_host` | this host loses its files with its container, so a redacted copy of the backup is also kept at a local ref | `repo`, `ref` |
-| `reconcile_paused` | a repo's HEAD moved other than forward along its tracked branch, so the map follows it and the reconciler skipped it | `repo`, `head`, `tracked_branch`, `reason` |
+| `temporary_host` | this host loses its files with its container, so a redacted copy of the backup is also kept at a local ref | `repo` (masked), `ref` |
+| `reconcile_paused` | a repo's HEAD moved other than forward along its tracked branch, so the map follows it and the reconciler skipped it | `repo` (masked), `head`, `tracked_branch`, `reason` |
 | `duty_failed` | a background duty failed and hasn't succeeded since; details name the duty, when, and its log under the data root | `duty`, `at`, `log` |

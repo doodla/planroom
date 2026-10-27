@@ -111,7 +111,8 @@ reconcile_paused = "{repo}'s HEAD left {tracked_branch}, so the map follows it a
 duty_failed = "The background {duty} failed at {at}; its log is {log}."
 
 # Each empty state's line, which every surface shows (`Empty.line`), and the short label of its
-# next action (`_next`), which a surface puts on the button beside it.
+# next action (`_next`), which a surface puts on the button beside it. The line is masked like the
+# names it holds; a label never is, as a handle never is, so it names no repo text (text::LABELS).
 [empty]
 not_scanned = "Nothing is mapped here yet; {count} repos can be."
 not_scanned_next = "Map these {count} repos? About 2 s."
@@ -122,7 +123,7 @@ top_next = "Show the top of the map"
 nothing_mapped = "The last scan found nothing to map."
 nothing_mapped_next = "Scan again"
 nothing_under = "Nothing under {name} at the {level} level."
-nothing_under_next = "Show {name} and the blocks beside it"
+nothing_under_next = "Show it among the blocks beside it"
 nothing_after_cursor = "The map moved on, and nothing is left after this page's place."
 nothing_after_cursor_next = "Show the first page"
 repos_unborn = "No commits yet in {names}, so there's nothing to map. Make a first commit, then check again."

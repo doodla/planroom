@@ -316,7 +316,9 @@ pub struct ImportedRow {
     pub command: Option<CommandName>,
     /// Its ack; none when the row stays in the inbox for a person's sync.
     pub status: Option<AckStatus>,
-    /// One engine-authored line when the row wasn't imported.
+    /// One engine-authored line when the row wasn't imported; it can quote a read's error, which
+    /// names repo text.
+    #[schemars(extend("x-redact" = true))]
     pub reason: Option<String>,
 }
 

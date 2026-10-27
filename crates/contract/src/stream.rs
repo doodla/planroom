@@ -18,7 +18,8 @@ pub enum StreamFrame {
         project: Option<NodeId>,
         actor: Actor,
         status: Status,
-        /// One engine-authored line, at most 2 KB.
+        /// One engine-authored line, at most 2 KB; it can name a repo.
+        #[schemars(extend("x-redact" = true))]
         summary: String,
     },
     /// The client is too far behind: refetch every view at `seq`.

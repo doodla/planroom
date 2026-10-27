@@ -76,7 +76,7 @@ pub(super) fn nothing_under(node: &Node, level: Level, parent: Option<&Node>) ->
         next: Handle {
             command: CommandName("map".into()),
             args,
-            label: text::get("empty.nothing_under_next", &[("name", &node.name)]),
+            label: text::label("empty.nothing_under_next", &[]),
         },
     }
 }

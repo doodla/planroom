@@ -77,6 +77,13 @@ const ENGINE_UNPICKED: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Raw output, set empty on every run too: the engine reads an empty one as unset, so a
+ * `PLANROOM_RAW=1` the session inherited never shows a tool result, `/room` or the pane unmasked.
+ * It is for the truth comparator alone, never for what the mod shows (DR-75).
+ */
+const REDACTION_KEPT: Readonly<Record<string, string>> = { PLANROOM_RAW: "" };
+
+/**
  * The data root this session placed at its start (guard.ts `pinnedDataRoot`), as a promise the
  * session's start sets before anything else runs, so no run can read it before it's placed.
  */
@@ -93,7 +100,11 @@ export function pinDataRoot(root: Promise<string>): void {
 
 /** What every run the mod starts sets, the resolver's and the engine's alike, so it picks the engine itself. */
 export async function engineEnv(): Promise<Record<string, string>> {
-  return { ...ENGINE_UNPICKED, PLANROOM_DATA: await pinnedData };
+  return {
+    ...ENGINE_UNPICKED,
+    ...REDACTION_KEPT,
+    PLANROOM_DATA: await pinnedData,
+  };
 }
 
 /** The writer instance every engine run names: this mod session (DR-60). */

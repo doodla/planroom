@@ -3452,12 +3452,17 @@ var ENGINE_UNPICKED = {
   PLANROOM_ENGINE: "",
   PLANROOM_RELEASE_BASE_URL: ""
 };
+var REDACTION_KEPT = { PLANROOM_RAW: "" };
 var pinnedData = Promise.resolve(UNPLACED);
 function pinDataRoot(root) {
   pinnedData = root;
 }
 async function engineEnv() {
-  return { ...ENGINE_UNPICKED, PLANROOM_DATA: await pinnedData };
+  return {
+    ...ENGINE_UNPICKED,
+    ...REDACTION_KEPT,
+    PLANROOM_DATA: await pinnedData
+  };
 }
 async function clientEnv($) {
   return {

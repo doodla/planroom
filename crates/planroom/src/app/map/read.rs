@@ -92,8 +92,11 @@ fn level_empty(level: Level) -> Empty {
         Level::Intent => ("no_intent", text::get("empty.no_intent", &[])),
         level => ("empty_level", text::get("empty.empty_level", &[("level", &tree::level_name(level))])),
     };
-    let next =
-        Handle { command: CommandName("map".into()), args: vec![], label: text::get("empty.top_next", &[]) };
+    let next = Handle {
+        command: CommandName("map".into()),
+        args: vec![],
+        label: text::label("empty.top_next", &[]),
+    };
     Empty { reason: EmptyReason(reason.into()), line: Some(line), next }
 }
 
@@ -111,7 +114,7 @@ fn top_empty(root: &Path) -> Empty {
         next: Handle {
             command: CommandName("scan".into()),
             args: vec![root.display().to_string()],
-            label: text::get("empty.nothing_mapped_next", &[]),
+            label: text::label("empty.nothing_mapped_next", &[]),
         },
     }
 }
@@ -174,7 +177,7 @@ pub(crate) fn scan_empty(root: &Path, repos: &workspace::Scannable) -> Empty {
         next: Handle {
             command: CommandName("focus".into()),
             args: vec![],
-            label: text::get("empty.check_again_next", &[]),
+            label: text::label("empty.check_again_next", &[]),
         },
     };
     if repos.readable == 0 && !repos.unborn.is_empty() {
@@ -194,7 +197,7 @@ pub(crate) fn scan_empty(root: &Path, repos: &workspace::Scannable) -> Empty {
         next: Handle {
             command: CommandName("scan".into()),
             args: vec![root.display().to_string()],
-            label: text::get("empty.not_scanned_next", &[("count", &repos.readable)]),
+            label: text::label("empty.not_scanned_next", &[("count", &repos.readable)]),
         },
     }
 }

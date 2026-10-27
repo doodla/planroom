@@ -1,22 +1,24 @@
 //! Redaction (architecture.md, "What leaves the machine"; DR-64): masks secrets in the free text
 //! that comes from a repo before it reaches any output. It masks DSN user info, the values of
 //! variables whose names end in `_KEY`, `_SECRET`, `_TOKEN` or `_PASSWORD`, private-key blocks,
-//! well-known token shapes and high-entropy strings. It is deterministic.
+//! well-known token shapes and high-entropy strings. It is deterministic. A token shaped like a node
+//! ID is left whole by every rule (see [`text`]).
 //!
 //! It masks by field (DR-89): exactly the fields the contract marks
 //! `#[schemars(extend("x-redact" = true))]`, through the paths `cargo xtask gen` writes into
 //! [`redact_fields`](crate::redact_fields). An ID, a handle, a cursor or a hash is never marked, so
-//! it is never touched.
+//! it is never touched. An error's or a warning's `details` are masked by key: the registry names,
+//! per code, the keys that hold repo-derived free text, and `cargo xtask gen` writes them there too.
 
 use std::sync::OnceLock;
 
-use planroom_contract::{Evidence, MapView, PaneModel, PresenceRow};
+use planroom_contract::{Answer, Evidence, MapView, PaneModel, PresenceRow};
 use regex::Regex;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::redact_fields::PATHS;
+use crate::redact_fields::{DETAILS, ERROR_DETAILS, PATHS, WARNING_DETAILS};
 
 /// What a masked value becomes.
 pub const MASK: &str = "[redacted]";
@@ -27,6 +29,7 @@ struct Rules {
     assignment: Regex,
     known: Regex,
     candidate: Regex,
+    token: Regex,
 }
 
 fn rules() -> &'static Rules {
@@ -36,9 +39,11 @@ fn rules() -> &'static Rules {
         dsn: Regex::new(r"([A-Za-z][A-Za-z0-9+.\-]*://)[^\s/:@]+:[^\s/@]+@").expect("a valid pattern"),
         private_key: Regex::new(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?s:.*?)(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\z)")
             .expect("a valid pattern"),
-        // NAME_KEY=value, NAME_SECRET: "value", api_token = value
+        // NAME_KEY=value, NAME_SECRET: value, "api_token":"value". An `=` always assigns; a `:`
+        // assigns only when whitespace or a quote follows it, or a quote comes before it, so the
+        // `:` that joins `access_token:dir:src` assigns nothing.
         assignment: Regex::new(
-            r#"(?i)\b([A-Z0-9_]*(?:_KEY|_SECRET|_TOKEN|_PASSWORD|PASSWD|_PASS))(["']?\s*[:=]\s*["']?)([^\s"',;]+)"#,
+            r#"(?i)\b([A-Z0-9_]*(?:_KEY|_SECRET|_TOKEN|_PASSWORD|PASSWD|_PASS))(["']?\s*=\s*["']?|["']\s*:\s*["']?|\s*:\s+["']?|\s*:["'])([^\s"',;]+)"#,
         )
         .expect("a valid pattern"),
         known: Regex::new(
@@ -46,21 +51,76 @@ fn rules() -> &'static Rules {
         )
         .expect("a valid pattern"),
         candidate: Regex::new(r"[A-Za-z0-9+/=]{20,}").expect("a valid pattern"),
+        token: Regex::new(r"\S+").expect("a valid pattern"),
     })
 }
 
-/// `s` with every secret it holds masked.
+/// `s` with every secret it holds masked. The named shapes (a private key, a DSN's user info, an
+/// assignment's value, a known token shape) are masked wherever they are. The high-entropy rule
+/// leaves alone a whitespace-delimited token shaped like a node ID (`namespace:kind-short:key`, see
+/// [`id_shaped`]): an ID is never redacted, and the reply carries the same ID unmasked in its ID
+/// fields, so masking a mixed-case path inside a line would hide nothing and leave the line naming
+/// an ID nobody can pass. A named shape inside an ID-shaped token is still masked, so a secret
+/// never hides behind the shape.
 pub fn text(s: &str) -> String {
+    let r = rules();
+    let named = named(s);
+    let mut out = String::with_capacity(named.len());
+    let mut from = 0;
+    for token in r.token.find_iter(&named) {
+        let word = token.as_str();
+        let core = word.trim_start_matches(OPENERS);
+        let start = token.start() + (word.len() - core.len());
+        let core = core.trim_end_matches(CLOSERS);
+        if id_shaped(core) {
+            out.push_str(&entropy(&named[from..start]));
+            out.push_str(core);
+            from = start + core.len();
+        }
+    }
+    out.push_str(&entropy(&named[from..]));
+    out
+}
+
+/// What may open or close a token around an ID in a line, such as the `,` after each ID a list
+/// names or the brackets around one.
+const OPENERS: &[char] = &['(', '[', '{', '<', '"', '\'', '`'];
+const CLOSERS: &[char] = &[',', ';', '.', ':', '!', '?', ')', ']', '}', '>', '"', '\'', '`'];
+
+/// Whether `token` is shaped like a node ID (AGENTS.md, Naming): `namespace:kind-short:key`, with a
+/// namespace and a key that aren't empty, a kind-short in lowercase `snake_case`, and neither the
+/// namespace nor the key holding `=` or `://`, which mark an assignment or a URL rather than an ID.
+fn id_shaped(token: &str) -> bool {
+    let mut parts = token.splitn(3, ':');
+    let (Some(namespace), Some(kind), Some(key)) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    !namespace.is_empty()
+        && !key.is_empty()
+        && kind.starts_with(|c: char| c.is_ascii_lowercase())
+        && kind.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        && [namespace, key].iter().all(|part| !part.contains('=') && !part.contains("://"))
+}
+
+/// `s` with the named shapes masked: private keys, a DSN's user info, assignments' values and
+/// known token shapes.
+fn named(s: &str) -> String {
     let r = rules();
     let out = r.private_key.replace_all(s, MASK);
     let out = r.dsn.replace_all(&out, format!("${{1}}{MASK}@").as_str());
     let out = r.assignment.replace_all(&out, format!("${{1}}${{2}}{MASK}").as_str());
-    let out = r.known.replace_all(&out, MASK);
-    let out = r.candidate.replace_all(&out, |c: &regex::Captures<'_>| {
-        let token = &c[0];
-        if high_entropy(token) { MASK.to_owned() } else { token.to_owned() }
-    });
-    out.into_owned()
+    r.known.replace_all(&out, MASK).into_owned()
+}
+
+/// `s`, text that holds no ID, with every high-entropy run masked.
+fn entropy(s: &str) -> String {
+    rules()
+        .candidate
+        .replace_all(s, |c: &regex::Captures<'_>| {
+            let token = &c[0];
+            if high_entropy(token) { MASK.to_owned() } else { token.to_owned() }
+        })
+        .into_owned()
 }
 
 /// A run of 20 or more token characters that mixes letters with a digit, `/` or `+`, and whose
@@ -94,24 +154,68 @@ pub fn paths(type_name: &str) -> &'static [&'static str] {
     PATHS.iter().find(|(name, _)| *name == type_name).map_or(&[], |(_, paths)| paths)
 }
 
+/// The paths from the output type named `type_name` to each error or warning it holds, `""` for
+/// the type itself, with the registry its code is in (`error` or `warning`).
+pub fn details_paths(type_name: &str) -> &'static [(&'static str, &'static str)] {
+    DETAILS.iter().find(|(name, _)| *name == type_name).map_or(&[], |(_, paths)| paths)
+}
+
+/// The keys of the `details` of the `registry` (`error` or `warning`) code `code` that hold
+/// repo-derived free text; none for a code the registry gives none, or doesn't know.
+pub fn details_keys(registry: &str, code: &str) -> &'static [&'static str] {
+    let table = if registry == "error" { ERROR_DETAILS } else { WARNING_DETAILS };
+    table.iter().find(|(c, _)| *c == code).map_or(&[], |(_, keys)| keys)
+}
+
 /// `value`, an output of the type named `type_name` as JSON, with every string under each of its
 /// marked fields masked: a string, the strings of a list, or the string values of a map, at any
-/// depth. Keys and every other field stay as they are.
+/// depth; and, in each error and warning it holds, every string under the `details` keys its code
+/// names. Keys and every other field stay as they are.
 pub fn value(type_name: &str, value: &mut Value) {
     for path in paths(type_name) {
-        mask_at(value, &segments(path));
+        visit(value, &segments(path), &mut mask_all);
+    }
+    for (path, registry) in details_paths(type_name) {
+        visit(value, &segments(path), &mut |holder| mask_details(holder, registry));
+    }
+}
+
+/// `holder`, an error or a warning, with the `details` keys its code names masked.
+fn mask_details(holder: &mut Value, registry: &str) {
+    let Some(code) = holder.get("code").and_then(Value::as_str) else { return };
+    let keys = details_keys(registry, code);
+    if let Some(details) = holder.get_mut("details").and_then(Value::as_object_mut) {
+        for key in keys {
+            if let Some(item) = details.get_mut(*key) {
+                mask_all(item);
+            }
+        }
     }
 }
 
 /// `item` with every string under each of its type's marked fields masked.
 pub fn output<T: Serialize + DeserializeOwned>(item: &mut T) {
-    let name = std::any::type_name::<T>().rsplit("::").next().unwrap_or_default();
-    if paths(name).is_empty() {
+    let name = type_name::<T>();
+    if paths(name).is_empty() && details_paths(name).is_empty() {
         return;
     }
     let mut json = serde_json::to_value(&*item).expect("a contract type serializes");
     value(name, &mut json);
     *item = serde_json::from_value(json).expect("a contract type reads back what it wrote");
+}
+
+/// `json`, an output of type `T` as JSON, with every string under each of `T`'s marked fields
+/// masked: how a reply's result of any type is masked once it is JSON.
+pub fn value_of<T>(json: &mut Value) {
+    value(type_name::<T>(), json);
+}
+
+/// The name [`redact_fields::PATHS`](crate::redact_fields::PATHS) lists `T` under: its last path
+/// segment with its type arguments left out, so `Envelope<Value>` is `Envelope`.
+fn type_name<T>() -> &'static str {
+    let full = std::any::type_name::<T>();
+    let base = full.split('<').next().unwrap_or(full);
+    base.rsplit("::").next().unwrap_or(base)
 }
 
 /// A path's steps: property names, `[]` for an array's items and `{}` for a map's values.
@@ -131,22 +235,23 @@ fn segments(path: &str) -> Vec<&str> {
     steps
 }
 
-fn mask_at(value: &mut Value, steps: &[&str]) {
+/// Call `f` on each value at the end of `steps` under `value`.
+fn visit(value: &mut Value, steps: &[&str], f: &mut dyn FnMut(&mut Value)) {
     match steps.split_first() {
-        None => mask_all(value),
+        None => f(value),
         Some((&"[]", rest)) => {
             if let Value::Array(items) = value {
-                items.iter_mut().for_each(|item| mask_at(item, rest));
+                items.iter_mut().for_each(|item| visit(item, rest, f));
             }
         }
         Some((&"{}", rest)) => {
             if let Value::Object(map) = value {
-                map.values_mut().for_each(|item| mask_at(item, rest));
+                map.values_mut().for_each(|item| visit(item, rest, f));
             }
         }
         Some((field, rest)) => {
             if let Some(item) = value.as_object_mut().and_then(|o| o.get_mut(*field)) {
-                mask_at(item, rest);
+                visit(item, rest, f);
             }
         }
     }
@@ -182,6 +287,13 @@ pub fn map_view(view: &mut MapView, snippets: bool) {
         view.edges.iter_mut().flat_map(|e| e.evidence_sample.iter_mut()).for_each(drop_contains);
     }
     output(view);
+}
+
+/// A read request's answer for an output: its marked fields masked, its error's and warnings'
+/// lines and their repo-text `details` among them. Its `result` is masked by its own type, such as
+/// [`map_view`], before it becomes JSON.
+pub fn answer(answer: &mut Answer) {
+    output(answer);
 }
 
 /// A pane for an output: its marked fields masked.
@@ -232,6 +344,120 @@ mod tests {
             "[redacted]"
         );
         assert_eq!(text("token wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"), "token [redacted]");
+    }
+
+    #[test]
+    fn the_engine_tokens_of_a_line_survive_masking() {
+        // Commit SHAs short and full, a sha256, seqs, counts, levels and IDs: what an engine line
+        // names beside repo text, which masking keeps whole.
+        for s in [
+            "Scanned orders at 3d50834.",
+            "Scanned orders at 6b4e49494921a118e4fb2957c66c2fba86495810.",
+            "structure 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+            "shop · system · lens all · seq 412",
+            "Mapped 5 repos, 5 of them moved: 9 containers, 135 nodes, 17 hints.",
+            "10 at the top: kit (11 code, 4 component); orders (23 code, 14 component, 1 container).",
+            "--focus src names 2 blocks, such as kit:dir:src, storefront:file:src/components/checkout/OrderSummaryPanel2.tsx; pass one of their IDs.",
+            "edge e:0123456789ab, event 0192f5e4-7c1a-7b3e-9a4d-5f6e7d8c9b0a, ws:container:orders-db",
+        ] {
+            assert_eq!(text(s), s);
+        }
+        // Beside a secret, the same tokens stay whole and only the secret goes.
+        assert_eq!(
+            text("Scanned db_PASSWORD=hunter2 at 3d50834."),
+            "Scanned db_PASSWORD=[redacted] at 3d50834."
+        );
+        assert_eq!(
+            text("3 under AKIAIOSFODNN7EXAMPLE at the code level: a (2 code); b."),
+            "3 under [redacted] at the code level: a (2 code); b."
+        );
+        assert_eq!(
+            text("Nothing under postgres://app:hunter2@db at the component level."),
+            "Nothing under postgres://[redacted]@db at the component level."
+        );
+    }
+
+    #[test]
+    fn an_id_stays_whole_by_its_shape() {
+        // A whitespace-delimited token shaped like `namespace:kind-short:key` is an ID: no rule
+        // touches it, whatever its namespace or key looks like, while the text around it is masked
+        // as before.
+        for s in [
+            "--focus OAuth2PKCEFlow.ts names 2 blocks, such as alpha:file:lib/v3/OAuth2PKCEFlow.ts, beta:file:lib/v3/OAuth2PKCEFlow.ts; pass one of their IDs.",
+            "x:file:internal/pkg/xdg/b64url/Encode.go",
+            "--focus src names 3 blocks, such as access_token:dir:src, kit:dir:src, storefront:dir:src; pass one of their IDs.",
+            "There is no block access_token:dir:nope on this map.",
+            "(stripe_secret:repo:stripe_secret)",
+            "x:file:src/k7Gq2ZpX9vLm3RtY8wNc5HbJ4dFs6QaE1uKo/config.yml",
+        ] {
+            assert_eq!(text(s), s);
+        }
+        // The same secret outside an ID is still masked, beside an ID that stays whole.
+        assert_eq!(
+            text("access_token: hunter2 under access_token:dir:src"),
+            "access_token: [redacted] under access_token:dir:src"
+        );
+    }
+
+    #[test]
+    fn a_named_secret_shape_is_masked_inside_an_id_shaped_token() {
+        // The ID shape keeps only the high-entropy rule away: a known token shape, an assignment's
+        // value or a DSN's user info is masked wherever it sits, so a secret can't hide behind it.
+        assert_eq!(
+            text("key AKIAIOSFODNN7EXAMPLE in AKIAIOSFODNN7EXAMPLE:dir:src."),
+            "key [redacted] in [redacted]:dir:src."
+        );
+        assert_eq!(
+            text("{\"api_token\": \"auth:bearer:ghp_0123456789abcdefghijABCDEFGHIJ012345\"}"),
+            "{\"api_token\": \"[redacted]\"}"
+        );
+        assert_eq!(text("ghp_0123456789abcdefghijABCDEFGHIJ012345:repo:x"), "[redacted]:repo:x");
+        assert_eq!(text("API_KEY= kit:dir:src"), "API_KEY= [redacted]");
+    }
+
+    #[test]
+    fn an_id_shaped_token_holding_an_assignment_or_a_url_is_masked() {
+        // A namespace or key that holds `=` or `://` keeps the token from reading as an ID, so the
+        // rules mask it as any other text.
+        assert_eq!(
+            text("--focus src names 2 blocks, such as db_PASSWORD=hunter2:dir:src, kit:dir:src; pass one."),
+            "--focus src names 2 blocks, such as db_PASSWORD=[redacted], kit:dir:src; pass one."
+        );
+        assert_eq!(text("kit:file:STRIPE_SECRET=abc123"), "kit:file:STRIPE_SECRET=[redacted]");
+        assert_eq!(text("ws:container:postgres://app:hunter2@db"), "ws:container:postgres://[redacted]@db");
+        // A kind-short that isn't lowercase snake_case makes no ID either.
+        assert_eq!(text("Stripe:Key:wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"), "Stripe:Key:[redacted]");
+    }
+
+    #[test]
+    fn a_colon_assigns_only_before_whitespace_or_a_quote_or_after_a_quote() {
+        assert_eq!(text("db_password: hunter2"), "db_password: [redacted]");
+        assert_eq!(text("db_password:\thunter2"), "db_password:\t[redacted]");
+        assert_eq!(text("{\"api_token\":\"x\"}"), "{\"api_token\":\"[redacted]\"}");
+        assert_eq!(text("api_token:'x'"), "api_token:'[redacted]'");
+        assert_eq!(text("API_KEY=x"), "API_KEY=[redacted]");
+        assert_eq!(text("API_KEY = x"), "API_KEY = [redacted]");
+        // A `:` with neither is no assignment: it joins the parts of a name.
+        for s in ["access_token:dir", "see access_token:dir:src/app.txt", "client_secret:v2"] {
+            assert_eq!(text(s), s);
+        }
+    }
+
+    #[test]
+    fn a_base64_secret_with_slashes_is_masked_whole() {
+        // A run that holds a `+`, or ends in `=` padding, is base64: one candidate, `/`s and all.
+        assert_eq!(text("key wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY here"), "key [redacted] here");
+        assert_eq!(text("blob q3Vx/9Lm2Pz8/Ra7Kd4Wn1Tf6Yc0Hs5Bj=="), "blob [redacted]");
+        assert_eq!(text("sig dGhpcy9pcy9hL3Rlc3QvM2tleQ/abc12XYZ="), "sig [redacted]");
+    }
+
+    #[test]
+    fn a_generic_output_is_masked_under_its_own_name() {
+        assert_eq!(type_name::<MapView>(), "MapView");
+        assert_eq!(type_name::<planroom_contract::Envelope<Value>>(), "Envelope");
+        let mut json = serde_json::json!({"summary": SECRET, "ok": true});
+        value_of::<planroom_contract::Envelope<Value>>(&mut json);
+        assert_eq!(json["summary"], MASKED);
     }
 
     #[test]
@@ -300,6 +526,40 @@ mod tests {
     }
 
     #[test]
+    fn every_error_and_warning_masks_the_details_its_code_names_and_nothing_else() {
+        assert!(!DETAILS.is_empty() && !ERROR_DETAILS.is_empty() && !WARNING_DETAILS.is_empty());
+        for (type_name, holders) in DETAILS {
+            for (path, registry) in *holders {
+                let table = if *registry == "error" { ERROR_DETAILS } else { WARNING_DETAILS };
+                for (code, keys) in table {
+                    // Every key the code names is masked; a key it doesn't name, such as an ID
+                    // or a handle beside them, stays as it is.
+                    let mut details = serde_json::json!({ "id": ID, "next": {"args": [ID]} });
+                    for key in *keys {
+                        details[*key] = Value::from(SECRET);
+                    }
+                    let mut want = details.clone();
+                    for key in *keys {
+                        want[*key] = Value::from(MASKED);
+                    }
+                    let holder = |details: Value| serde_json::json!({"code": code, "details": details});
+                    let mut got = planted(&segments(path), holder(details));
+                    value(type_name, &mut got);
+                    assert_eq!(got, planted(&segments(path), holder(want)), "{type_name}: {path} {code}");
+                }
+            }
+        }
+        // A code whose registry entry names no key keeps its details whole.
+        let mut warning =
+            serde_json::json!({"code": "truncated", "message": "m", "details": {"next": SECRET}});
+        value("Warning", &mut warning);
+        assert_eq!(warning["details"]["next"], SECRET);
+        let mut error = serde_json::json!({"code": "invalid_argument", "details": {"field": SECRET}});
+        value("ErrorObject", &mut error);
+        assert_eq!(error["details"]["field"], SECRET);
+    }
+
+    #[test]
     fn a_path_splits_into_fields_items_and_map_values() {
         assert_eq!(segments("nodes[].name"), ["nodes", "[]", "name"]);
         assert_eq!(segments("maps{}[].edges[].evidence_sample[].contains")[..3], ["maps", "{}", "[]"]);
@@ -309,14 +569,29 @@ mod tests {
 
     #[test]
     fn the_views_mask_the_fields_their_marks_name() {
-        assert_eq!(paths("MapView"), ["edges[].evidence_sample[].contains", "nodes[].name"]);
+        assert_eq!(paths("MapView"), ["edges[].evidence_sample[].contains", "empty.line", "nodes[].name"]);
         assert_eq!(
             paths("PaneModel"),
-            ["diffs[].hunk", "focus.breadcrumb[].name", "minimap.blocks[].name", "who[].doing"]
+            [
+                "decision.question",
+                "decision.why",
+                "diffs[].hunk",
+                "diffs[].summary",
+                "drift.summary",
+                "empty.line",
+                "focus.breadcrumb[].name",
+                "minimap.blocks[].name",
+                "who[].doing"
+            ]
         );
         assert_eq!(paths("PresenceRow"), ["doing"]);
         assert_eq!(paths("Evidence"), ["contains"]);
         assert!(paths("Handle").is_empty());
+        // The engine lines that name repo text: a reply's summary, an empty state's line, and
+        // the lines of warnings, errors and stream frames; never the handle beside them.
+        assert_eq!(paths("Empty"), ["line"]);
+        assert_eq!(paths("Envelope"), ["error.message", "meta.warnings[].message", "summary"]);
+        assert_eq!(paths("StreamFrame"), ["summary"]);
     }
 
     #[test]

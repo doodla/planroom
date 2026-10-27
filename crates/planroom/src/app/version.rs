@@ -196,7 +196,7 @@ pub fn schema(req: &SchemaReq) -> Result<Reply<SchemaReply>, AppError> {
     let handles = vec![Handle {
         command: CommandName("schema".into()),
         args: vec!["--commands".into()],
-        label: text::get("schema.commands_label", &[]),
+        label: text::label("schema.commands_label", &[]),
     }];
     let text = summary.clone();
     let result = SchemaReply::Summary(SchemaSummary { summary, id, schema_version: SCHEMA_VERSION, handles });

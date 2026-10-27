@@ -344,6 +344,51 @@ pub const PATHS: &[(&str, &[&str])] = &[
         contents.push_str("    ]),\n");
     }
     contents.push_str("];\n");
+    use planroom_contract::{ErrorCode, WarningCode};
+    let details_mark = schema::REDACT_DETAILS_MARK;
+    contents.push_str(&format!(
+        "
+/// Each output type, by name, that holds an error or a warning (the `{details_mark}` mark), with
+/// the path to each one (`\"\"` for the type itself) and the registry its `code` is in, both
+/// sorted.
+#[rustfmt::skip]
+pub const DETAILS: &[(&str, &[(&str, &str)])] = &[
+"
+    ));
+    for (name, holders) in schema::redacted_details() {
+        contents.push_str(&format!("    ({name:?}, &[\n"));
+        for (path, registry) in holders {
+            contents.push_str(&format!("        ({path:?}, {registry:?}),\n"));
+        }
+        contents.push_str("    ]),\n");
+    }
+    contents.push_str("];\n");
+    let codes = |title: &str, name: &str, specs: Vec<(&str, &[&str])>| {
+        let mut out = format!(
+            "
+/// Each {title} code whose `details` hold repo-derived free text, with those keys, as the
+/// registry's `redact` names them.
+#[rustfmt::skip]
+pub const {name}: &[(&str, &[&str])] = &[
+"
+        );
+        for (code, keys) in specs.into_iter().filter(|(_, keys)| !keys.is_empty()) {
+            let keys: Vec<String> = keys.iter().map(|k| format!("{k:?}")).collect();
+            out.push_str(&format!("    ({code:?}, &[{}]),\n", keys.join(", ")));
+        }
+        out.push_str("];\n");
+        out
+    };
+    contents.push_str(&codes(
+        "error",
+        "ERROR_DETAILS",
+        ErrorCode::ALL.iter().map(|c| (c.as_str(), c.spec().redact)).collect(),
+    ));
+    contents.push_str(&codes(
+        "warning",
+        "WARNING_DETAILS",
+        WarningCode::ALL.iter().map(|c| (c.as_str(), c.spec().redact)).collect(),
+    ));
     Ok(Group { name: REDACT_FIELDS_RS, files: vec![Generated { path: REDACT_FIELDS_RS.into(), contents }] })
 }
 
@@ -480,9 +525,13 @@ fn errors_reference(_: &Path) -> Result<Group, String> {
     use planroom_contract::{ErrorCode, WarningCode};
     let wire = |v: serde_json::Value| v.as_str().map(str::to_owned).ok_or("a non-string enum value");
     let cell = |text: &str| text.replace('|', "\\|");
-    let keys = |keys: &[&str]| match keys {
+    let keys = |keys: &[&str], masked: &[&str]| match keys {
         [] => "none".to_owned(),
-        keys => keys.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "),
+        keys => keys
+            .iter()
+            .map(|k| if masked.contains(k) { format!("`{k}` (masked)") } else { format!("`{k}`") })
+            .collect::<Vec<_>>()
+            .join(", "),
     };
     let mut out = format!(
         "<!-- {GENERATED_HEADER} -->
@@ -505,7 +554,8 @@ The category sets the exit code. The retry class says when you may send the same
 | `after_reread` | Read again, then retry with the new `meta.seq` as `base`. |
 | `later` | Wait, then retry; `retry_after_ms` says how long when known. |
 
-An older reader maps a code it doesn't know to its category and exit code.
+An older reader maps a code it doesn't know to its category and exit code. A `details` key
+marked (masked) holds repo-derived text, so its secrets are masked like a reply's lines.
 
 | Code | Category | Exit | Retry | Meaning | `details` |
 |---|---|---|---|---|---|
@@ -520,7 +570,7 @@ An older reader maps a code it doesn't know to its category and exit code.
             code.as_str(),
             code.exit_code(),
             cell(spec.meaning),
-            keys(spec.details),
+            keys(spec.details, spec.redact),
         ));
     }
     out.push_str(
@@ -535,7 +585,12 @@ A warning never changes the exit code.
     );
     for code in WarningCode::ALL {
         let spec = code.spec();
-        out.push_str(&format!("| `{}` | {} | {} |\n", code.as_str(), cell(spec.meaning), keys(spec.details)));
+        out.push_str(&format!(
+            "| `{}` | {} | {} |\n",
+            code.as_str(),
+            cell(spec.meaning),
+            keys(spec.details, spec.redact)
+        ));
     }
     Ok(Group { name: ERRORS_MD, files: vec![Generated { path: ERRORS_MD.into(), contents: out }] })
 }

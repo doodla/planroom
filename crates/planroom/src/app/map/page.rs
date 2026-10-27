@@ -193,7 +193,7 @@ fn past_end(req: &MapReq) -> Empty {
         next: Handle {
             command: CommandName("map".into()),
             args,
-            label: text::get("empty.nothing_after_cursor_next", &[]),
+            label: text::label("empty.nothing_after_cursor_next", &[]),
         },
     }
 }
@@ -329,11 +329,11 @@ fn drill_down(level: Level, at_top: bool) -> Handle {
             Handle {
                 command: CommandName("map".into()),
                 args: vec!["--level".into(), name.into()],
-                label: text::get("map.coarser", &[("level", &name)]),
+                label: text::label("map.coarser", &[("level", &name)]),
             }
         }
         None => {
-            Handle { command: CommandName("focus".into()), args: vec![], label: text::get("map.pane", &[]) }
+            Handle { command: CommandName("focus".into()), args: vec![], label: text::label("map.pane", &[]) }
         }
     }
 }

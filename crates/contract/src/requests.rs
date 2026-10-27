@@ -151,6 +151,8 @@ pub struct AskReq {
 pub struct AskResult {
     /// The question's ID, such as `unmonitored`.
     pub question: String,
+    /// One engine-authored line, which can name the items.
+    #[schemars(extend("x-redact" = true))]
     pub summary: String,
     pub items: Vec<AskItem>,
     pub empty: Option<Empty>,
@@ -164,6 +166,7 @@ pub struct AskItem {
     #[schemars(extend("x-redact" = true))]
     pub name: String,
     /// One line on why the item answers the question.
+    #[schemars(extend("x-redact" = true))]
     pub why: String,
     pub handles: Vec<Handle>,
 }
@@ -177,6 +180,8 @@ pub struct FindReq {
 /// What `find` returns: the matches, best first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct FindResult {
+    /// One engine-authored line, which can name the matches.
+    #[schemars(extend("x-redact" = true))]
     pub summary: String,
     pub items: Vec<FindItem>,
     pub empty: Option<Empty>,

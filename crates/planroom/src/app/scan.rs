@@ -195,7 +195,7 @@ fn summary(write: &ScanWrite, containers: usize, moved: usize) -> String {
 }
 
 fn next() -> Handle {
-    Handle { command: CommandName("map".into()), args: vec![], label: text::get("scan.next_label", &[]) }
+    Handle { command: CommandName("map".into()), args: vec![], label: text::label("scan.next_label", &[]) }
 }
 
 fn client() -> Client {

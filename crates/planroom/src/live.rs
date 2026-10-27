@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use planroom_contract::{Edge, Event, EventBody, Node, Seq, StreamFrame, Target, Vocabulary};
 use planroom_kernel::fold::{Folded, fold_full, fold_one, refolds};
-use planroom_kernel::{Facts, Model};
+use planroom_kernel::{Facts, Model, redact};
 use planroom_store::{ActiveSet, Shape, Snapshot, StoreError, Tail};
 
 use crate::text;
@@ -150,7 +150,8 @@ impl Live {
     }
 }
 
-/// An event's stream frame, with its engine-authored one-line summary.
+/// An event's stream frame, with its engine-authored one-line summary, redacted: every frame goes
+/// to an output (`watch`, the server's stream, `live/head`), none of which shows it raw.
 pub fn frame(event: &Event) -> StreamFrame {
     let summary = match &event.body {
         // A repo with no commit yet maps nothing, so its frame says that rather than "at ".
@@ -170,7 +171,7 @@ pub fn frame(event: &Event) -> StreamFrame {
         EventBody::Claim { target, .. } => Some(target_id(target)),
         _ => None,
     };
-    StreamFrame::Event {
+    let mut frame = StreamFrame::Event {
         seq: event.seq,
         kind: event.body.kind(),
         target,
@@ -178,7 +179,9 @@ pub fn frame(event: &Event) -> StreamFrame {
         actor: event.actor.clone(),
         status: event.status,
         summary,
-    }
+    };
+    redact::output(&mut frame);
+    frame
 }
 
 /// A repo's node ID, made as a scan makes it: from the repo kind of the built-in code pack, which

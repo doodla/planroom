@@ -8,11 +8,19 @@
 /// joined by `.`, with `[]` for an array's items and `{}` for a map's values.
 #[rustfmt::skip]
 pub const PATHS: &[(&str, &[&str])] = &[
+    ("Answer", &[
+        "error.message",
+        "warnings[].message",
+    ]),
     ("AskItem", &[
         "name",
+        "why",
     ]),
     ("AskResult", &[
+        "empty.line",
         "items[].name",
+        "items[].why",
+        "summary",
     ]),
     ("Card", &[
         "vars",
@@ -20,12 +28,31 @@ pub const PATHS: &[(&str, &[&str])] = &[
     ("Crumb", &[
         "name",
     ]),
+    ("DecisionCard", &[
+        "question",
+        "why",
+    ]),
     ("DiffLine", &[
         "hunk",
+        "summary",
+    ]),
+    ("DriftLine", &[
+        "summary",
     ]),
     ("Edge", &[
         "evidence[].contains",
         "props",
+    ]),
+    ("Empty", &[
+        "line",
+    ]),
+    ("Envelope", &[
+        "error.message",
+        "meta.warnings[].message",
+        "summary",
+    ]),
+    ("ErrorObject", &[
+        "message",
     ]),
     ("Event", &[
         "body.note",
@@ -52,7 +79,9 @@ pub const PATHS: &[(&str, &[&str])] = &[
         "name",
     ]),
     ("FindResult", &[
+        "empty.line",
         "items[].name",
+        "summary",
     ]),
     ("Focus", &[
         "breadcrumb[].name",
@@ -65,15 +94,30 @@ pub const PATHS: &[(&str, &[&str])] = &[
         "evidence[].contains",
         "value",
     ]),
+    ("ImportResult", &[
+        "rows[].reason",
+    ]),
+    ("ImportedRow", &[
+        "reason",
+    ]),
     ("LiftedEdge", &[
         "evidence_sample[].contains",
+    ]),
+    ("LiveHead", &[
+        "cards[].question",
+        "cards[].why",
+        "changes[].summary",
     ]),
     ("MapNode", &[
         "name",
     ]),
     ("MapView", &[
         "edges[].evidence_sample[].contains",
+        "empty.line",
         "nodes[].name",
+    ]),
+    ("Meta", &[
+        "warnings[].message",
     ]),
     ("MiniBlock", &[
         "name",
@@ -87,13 +131,24 @@ pub const PATHS: &[(&str, &[&str])] = &[
         "props",
     ]),
     ("PaneModel", &[
+        "decision.question",
+        "decision.why",
         "diffs[].hunk",
+        "diffs[].summary",
+        "drift.summary",
+        "empty.line",
         "focus.breadcrumb[].name",
         "minimap.blocks[].name",
         "who[].doing",
     ]),
     ("PaneState", &[
+        "error",
+        "model.decision.question",
+        "model.decision.why",
         "model.diffs[].hunk",
+        "model.diffs[].summary",
+        "model.drift.summary",
+        "model.empty.line",
         "model.focus.breadcrumb[].name",
         "model.minimap.blocks[].name",
         "model.who[].doing",
@@ -103,15 +158,105 @@ pub const PATHS: &[(&str, &[&str])] = &[
     ]),
     ("ScanResult", &[
         "map.edges[].evidence_sample[].contains",
+        "map.empty.line",
         "map.nodes[].name",
     ]),
     ("Snapshot", &[
+        "answers[].error.message",
+        "answers[].warnings[].message",
+        "cards[].question",
+        "cards[].why",
         "maps[].edges[].evidence_sample[].contains",
+        "maps[].empty.line",
         "maps[].nodes[].name",
+        "pane.decision.question",
+        "pane.decision.why",
         "pane.diffs[].hunk",
+        "pane.diffs[].summary",
+        "pane.drift.summary",
+        "pane.empty.line",
         "pane.focus.breadcrumb[].name",
         "pane.minimap.blocks[].name",
         "pane.who[].doing",
+        "unavailable.line",
         "who[].doing",
     ]),
+    ("StreamFrame", &[
+        "summary",
+    ]),
+    ("ToolError", &[
+        "message",
+    ]),
+    ("ToolMeta", &[
+        "warnings[].message",
+    ]),
+    ("ToolResult", &[
+        "error.message",
+        "meta.warnings[].message",
+    ]),
+    ("Warning", &[
+        "message",
+    ]),
+];
+
+/// Each output type, by name, that holds an error or a warning (the `x-redact-details` mark), with
+/// the path to each one (`""` for the type itself) and the registry its `code` is in, both
+/// sorted.
+#[rustfmt::skip]
+pub const DETAILS: &[(&str, &[(&str, &str)])] = &[
+    ("Answer", &[
+        ("error", "error"),
+        ("warnings[]", "warning"),
+    ]),
+    ("Envelope", &[
+        ("error", "error"),
+        ("meta.warnings[]", "warning"),
+    ]),
+    ("ErrorObject", &[
+        ("", "error"),
+    ]),
+    ("Meta", &[
+        ("warnings[]", "warning"),
+    ]),
+    ("Snapshot", &[
+        ("answers[].error", "error"),
+        ("answers[].warnings[]", "warning"),
+    ]),
+    ("ToolError", &[
+        ("", "error"),
+    ]),
+    ("ToolMeta", &[
+        ("warnings[]", "warning"),
+    ]),
+    ("ToolResult", &[
+        ("error", "error"),
+        ("meta.warnings[]", "warning"),
+    ]),
+    ("Warning", &[
+        ("", "warning"),
+    ]),
+];
+
+/// Each error code whose `details` hold repo-derived free text, with those keys, as the
+/// registry's `redact` names them.
+#[rustfmt::skip]
+pub const ERROR_DETAILS: &[(&str, &[&str])] = &[
+    ("git_failed", &["stderr"]),
+    ("stale_write", &["theirs", "yours"]),
+    ("handoff_conflict", &["repo"]),
+    ("repo_config_refused", &["repo"]),
+];
+
+/// Each warning code whose `details` hold repo-derived free text, with those keys, as the
+/// registry's `redact` names them.
+#[rustfmt::skip]
+pub const WARNING_DETAILS: &[(&str, &[&str])] = &[
+    ("evidence_dropped", &["repo"]),
+    ("partial_parse", &["repo"]),
+    ("partial_scan", &["repo"]),
+    ("repo_unborn", &["repo"]),
+    ("repo_skipped", &["repo"]),
+    ("scan_superseded", &["repo"]),
+    ("temporary_host", &["repo"]),
+    ("reconcile_paused", &["repo"]),
 ];

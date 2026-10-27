@@ -185,32 +185,34 @@ type Marks = BTreeMap<(String, String), Value>;
 
 /// Every `x-redact` mark in `view`, as `(type, field)`, with the marked property's schema; read
 /// from each type's own schema, so a mark is found whether or not any path reaches it. A `$ref`
-/// that is itself a branch of `oneOf`, `anyOf` or `allOf` is followed, since serde writes that
-/// type's fields into the same object, as an internally tagged enum's newtype variant does.
+/// that is itself a branch of `oneOf`, `anyOf` or `allOf` of the type's own object is followed,
+/// since serde writes that type's fields into the same object, as an internally tagged enum's
+/// newtype variant does. Under a property or an item it isn't: there it is another type's value,
+/// such as an `Option<Empty>` field's `anyOf` of `Empty` and null, whose marks are `Empty`'s own.
 fn redact_marks(view: View) -> Marks {
-    fn walk(defs: &Map<String, Value>, def: &str, schema: &Value, out: &mut Marks) {
+    fn walk(defs: &Map<String, Value>, def: &str, schema: &Value, own: bool, out: &mut Marks) {
         let Some(schema) = schema.as_object() else { return };
         for (field, property) in schema.get("properties").and_then(Value::as_object).into_iter().flatten() {
             if property.get(schema::REDACT_MARK).is_some() {
                 assert_eq!(property[schema::REDACT_MARK], json!(true), "{def}.{field}");
                 out.insert((def.to_owned(), field.clone()), property.clone());
             }
-            walk(defs, def, property, out);
+            walk(defs, def, property, false, out);
         }
         for key in ["items", "additionalProperties"] {
             if let Some(inner) = schema.get(key) {
-                walk(defs, def, inner, out);
+                walk(defs, def, inner, false, out);
             }
         }
         for key in ["oneOf", "anyOf", "allOf", "prefixItems"] {
             for inner in schema.get(key).and_then(Value::as_array).into_iter().flatten() {
-                let merged = key != "prefixItems";
+                let merged = own && key != "prefixItems";
                 let target =
                     inner.get("$ref").and_then(Value::as_str).and_then(|r| r.strip_prefix("#/$defs/"));
                 if let Some(target) = target.filter(|_| merged).and_then(|name| defs.get(name)) {
-                    walk(defs, def, target, out);
+                    walk(defs, def, target, own, out);
                 }
-                walk(defs, def, inner, out);
+                walk(defs, def, inner, own && key != "prefixItems", out);
             }
         }
     }
@@ -218,7 +220,7 @@ fn redact_marks(view: View) -> Marks {
     let defs = root["$defs"].as_object().unwrap();
     let mut out = BTreeMap::new();
     for (def, schema) in defs {
-        walk(defs, def, schema, &mut out);
+        walk(defs, def, schema, true, &mut out);
     }
     out
 }
@@ -266,7 +268,26 @@ fn every_redacted_field_is_listed() {
         ("PresenceRow", "doing"),
         ("AskItem", "name"),
         ("FindItem", "name"),
+        // Engine lines that name repo text: a reply's summary, an empty state's line, a warning's
+        // and an error's message, a stream frame's line, and the pane's and answers' lines.
+        ("Envelope", "summary"),
+        ("Empty", "line"),
+        ("Warning", "message"),
+        ("ErrorObject", "message"),
+        ("ToolError", "message"),
+        ("StreamFrame", "summary"),
+        ("DecisionCard", "question"),
+        ("DecisionCard", "why"),
+        ("DiffLine", "summary"),
+        ("DriftLine", "summary"),
+        ("PaneState", "error"),
+        ("AskResult", "summary"),
+        ("AskItem", "why"),
+        ("FindResult", "summary"),
     ] {
         assert!(marks.contains_key(&(def.to_owned(), field.to_owned())), "{def}.{field} is not marked");
     }
+    // A handle's label is a short action and stays unmarked, as every handle does, so no label
+    // may name repo text (`planroom::text`'s label check holds the catalog to that).
+    assert!(!marks.keys().any(|(def, _)| def == "Handle" || def == "Choice"), "a label is marked");
 }

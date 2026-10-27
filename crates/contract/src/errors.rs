@@ -59,10 +59,14 @@ pub struct ErrorSpec {
     pub meaning: &'static str,
     /// The keys of the error's `details` object.
     pub details: &'static [&'static str],
+    /// The keys among `details` that hold repo-derived free text, which `kernel::redact` masks as
+    /// it masks a marked field; never a handle, an ID, a field name or a command.
+    pub redact: &'static [&'static str],
 }
 
 macro_rules! error_codes {
-    ($($variant:ident = $code:literal, $category:ident, $retry:ident, $meaning:literal, [$($detail:literal),*];)*) => {
+    ($($variant:ident = $code:literal, $category:ident, $retry:ident, $meaning:literal, [$($detail:literal),*]
+        $(redact [$($masked:literal),*])?;)*) => {
         /// A stable error code. Older readers map an unknown code to its category.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
         #[serde(rename_all = "snake_case")]
@@ -83,6 +87,7 @@ macro_rules! error_codes {
                         retry: Retry::$retry,
                         meaning: $meaning,
                         details: &[$($detail),*],
+                        redact: &[$($($masked),*)?],
                     },)*
                 }
             }
@@ -127,7 +132,8 @@ error_codes! {
         "the store or a file is from a newer version, or this process is older than the store",
         ["found", "supported", "writer_version", "file"];
     PackInvalid = "pack_invalid", Failed, Never, "a pack failed validation", ["file", "line", "reference"];
-    GitFailed = "git_failed", Failed, Never, "git exited non-zero; stderr redacted", ["argv", "stderr"];
+    GitFailed = "git_failed", Failed, Never, "git exited non-zero; stderr redacted", ["argv", "stderr"]
+        redact ["stderr"];
     BaseRequired = "base_required", Usage, Never,
         "a write to user-authored state without base; the hint names meta.seq", [];
     ActorRequired = "actor_required", Usage, Never,
@@ -135,10 +141,10 @@ error_codes! {
         [];
     StaleWrite = "stale_write", Conflict, AfterReread,
         "a field changed since base; stored as a conflict, never merged",
-        ["event", "base", "theirs", "yours", "card"];
+        ["event", "base", "theirs", "yours", "card"] redact ["theirs", "yours"];
     AlreadyResolved = "already_resolved", Conflict, Never, "the card was already picked", ["by", "at", "pick"];
     HandoffConflict = "handoff_conflict", Conflict, Never,
-        "the merge preflight failed; every repo untouched", ["repo", "files"];
+        "the merge preflight failed; every repo untouched", ["repo", "files"] redact ["repo"];
     ConsentRequired = "consent_required", Permission, Never,
         "a model-only command before the person allowed this provider for the workspace; only the person's pick on the consent card clears it",
         ["provider", "card"];
@@ -147,7 +153,7 @@ error_codes! {
         ["path", "reason"];
     RepoConfigRefused = "repo_config_refused", Permission, Never,
         "a checkout or merge in a workspace repo whose local git config names a command git would run",
-        ["repo", "keys", "card"];
+        ["repo", "keys", "card"] redact ["repo"];
     BudgetExceeded = "budget_exceeded", Budget, Later,
         "a spend or size guard stopped a model-only command; decisions keep their default instead",
         ["guard", "limit", "spent"];
@@ -204,10 +210,14 @@ pub struct WarningSpec {
     pub meaning: &'static str,
     /// The keys of the warning's `details` object.
     pub details: &'static [&'static str],
+    /// The keys among `details` that hold repo-derived free text, which `kernel::redact` masks as
+    /// it masks a marked field; never a handle, an ID, a field name or a command.
+    pub redact: &'static [&'static str],
 }
 
 macro_rules! warning_codes {
-    ($($variant:ident = $code:literal, $meaning:literal, [$($detail:literal),*];)*) => {
+    ($($variant:ident = $code:literal, $meaning:literal, [$($detail:literal),*]
+        $(redact [$($masked:literal),*])?;)*) => {
         /// A stable warning code.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
         #[serde(rename_all = "snake_case")]
@@ -233,6 +243,7 @@ macro_rules! warning_codes {
                         code: WarningCode::$variant,
                         meaning: $meaning,
                         details: &[$($detail),*],
+                        redact: &[$($($masked),*)?],
                     },)*
                 }
             }
@@ -248,25 +259,26 @@ warning_codes! {
     Truncated = "truncated", "the result hit its budget; the summary and first page are kept",
         ["kept", "total", "budget_tokens", "next", "left_out", "codes"];
     UnresolvedRef = "unresolved_ref", "an alias or a linker join had zero or several candidates; no edge was made", [];
-    EvidenceDropped = "evidence_dropped", "an evidence item failed verification at ingest", ["repo", "count", "items"];
+    EvidenceDropped = "evidence_dropped", "an evidence item failed verification at ingest", ["repo", "count", "items"]
+        redact ["repo"];
     PartialParse = "partial_parse",
         "files parsed with error nodes, so their facts are weak; details name the repo, the count and the first 10 paths in sorted order",
-        ["repo", "count", "paths"];
+        ["repo", "count", "paths"] redact ["repo"];
     PartialScan = "partial_scan",
         "an extractor reached its file or byte bound, or a partial clone lacks some blobs; details name the extractor, the repo, the count of uncovered files and the first 10 in sorted order",
-        ["extractor", "repo", "count", "uncovered"];
+        ["extractor", "repo", "count", "uncovered"] redact ["repo"];
     WorkspaceNested = "workspace_nested",
         "another workspace's .planroom/ sits inside this one, or this one inside it; details name the other root",
         ["other_root"];
     RepoUnborn = "repo_unborn",
         "a repo has no commit yet, so it maps nothing until its first commit; details name the repo and its branch",
-        ["repo", "branch"];
+        ["repo", "branch"] redact ["repo"];
     RepoSkipped = "repo_skipped",
         "git couldn't read a repo, so the scan left it out and its last map stays; details name the repo, the reason (other_owner or git_failed) and the fix",
-        ["repo", "reason", "fix"];
+        ["repo", "reason", "fix"] redact ["repo"];
     ScanSuperseded = "scan_superseded",
         "a repo's HEAD moved on while the scan read it, or the workspace's repos changed and a newer scan mapped it meanwhile, so its map stays as it was and a scan never moves it back; details name the repo, the commit this scan read and the reason (head_moved or repos_changed)",
-        ["repo", "commit", "reason"];
+        ["repo", "commit", "reason"] redact ["repo"];
     Claimed = "claimed", "the target is claimed by someone else", ["by", "until"];
     DeterministicFallback = "deterministic_fallback",
         "no model was reachable, allowed or within budget; deterministic tiers run, low kinds keep their default and cards pre-select it",
@@ -293,10 +305,10 @@ warning_codes! {
         "this command migrated the store; details name the versions and the VACUUM INTO copy", ["from", "to", "backup"];
     TemporaryHost = "temporary_host",
         "this host loses its files with its container, so a redacted copy of the backup is also kept at a local ref",
-        ["repo", "ref"];
+        ["repo", "ref"] redact ["repo"];
     ReconcilePaused = "reconcile_paused",
         "a repo's HEAD moved other than forward along its tracked branch, so the map follows it and the reconciler skipped it",
-        ["repo", "head", "tracked_branch", "reason"];
+        ["repo", "head", "tracked_branch", "reason"] redact ["repo"];
     DutyFailed = "duty_failed",
         "a background duty failed and hasn't succeeded since; details name the duty, when, and its log under the data root",
         ["duty", "at", "log"];
@@ -329,6 +341,21 @@ mod tests {
         for code in WarningCode::ALL {
             assert_eq!(serde_json::to_value(code).unwrap(), code.as_str());
             assert_eq!(code.spec().code, *code);
+        }
+    }
+
+    #[test]
+    fn every_masked_details_key_is_one_of_its_codes_details() {
+        for spec in ErrorCode::ALL.iter().map(|c| c.spec()) {
+            assert!(spec.redact.iter().all(|k| spec.details.contains(k)), "{}", spec.code.as_str());
+        }
+        for spec in WarningCode::ALL.iter().map(|c| c.spec()) {
+            assert!(spec.redact.iter().all(|k| spec.details.contains(k)), "{}", spec.code.as_str());
+        }
+        // A handle, an ID, a field name or a command is never masked.
+        for key in ["next", "field", "closest", "candidates", "fix", "card", "argv"] {
+            assert!(ErrorCode::ALL.iter().all(|c| !c.spec().redact.contains(&key)), "{key}");
+            assert!(WarningCode::ALL.iter().all(|c| !c.spec().redact.contains(&key)), "{key}");
         }
     }
 

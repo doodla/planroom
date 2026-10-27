@@ -151,7 +151,7 @@ pub fn start_live(
                 }),
             };
             if let Err(e) = ran {
-                let shown = planroom_kernel::display::sanitize(&e.to_string());
+                let shown = super::log_line(&e.to_string());
                 eprintln!("planroom serve: the live loop stopped: {shown}");
                 if e.code() == ErrorCode::SchemaMismatch {
                     on_mismatch();

@@ -797,7 +797,7 @@ export type StreamFrame =
       actor: Actor;
       status: Status;
       /**
-       * One engine-authored line, at most 2 KB.
+       * One engine-authored line, at most 2 KB; it can name a repo.
        */
       summary: string;
       type: "event";
@@ -954,7 +954,7 @@ export interface ErrorObject {
    */
   retry_after_ms?: number | null;
   /**
-   * One line, engine-authored.
+   * One line, engine-authored; it can name a repo, a path or a target as given.
    */
   message: string;
   /**
@@ -976,6 +976,9 @@ export interface ErrorObject {
  */
 export interface Warning {
   code: WarningCode;
+  /**
+   * One engine-authored line; it can name a repo, a path or a file.
+   */
   message: string;
   details: unknown;
 }
@@ -1044,6 +1047,9 @@ export interface AskResult {
    * The question's ID, such as `unmonitored`.
    */
   question: string;
+  /**
+   * One engine-authored line, which can name the items.
+   */
   summary: string;
   items: AskItem[];
   empty: Empty | null;
@@ -1058,7 +1064,8 @@ export interface Empty {
   reason: EmptyReason;
   /**
    * The one engine-authored line every surface shows for this state, such as "Map these 3
-   * repos? About 2 s."; absent where a surface still words it from `reason`.
+   * repos? About 2 s."; absent where a surface still words it from `reason`. It can name a
+   * repo or a block, so it is masked like that name; `next.label` never names one.
    */
   line?: string | null;
   next: Handle1;
@@ -1489,11 +1496,11 @@ export interface DecisionBudget {
 export interface DecisionCard {
   id: string;
   /**
-   * One line, engine-authored.
+   * One line, engine-authored, filled from the card's `vars`, which name repo text.
    */
   question: string;
   /**
-   * One line.
+   * One line, filled as `question` is.
    */
   why: string;
   /**
@@ -1656,6 +1663,9 @@ export interface DecisionRecord {
  * via the `definition` "DiffLine".
  */
 export interface DiffLine {
+  /**
+   * One engine-authored line, which names what changed.
+   */
   summary: string;
   open: Handle1;
   /**
@@ -1694,6 +1704,9 @@ export interface DrainReq {
  * via the `definition` "DriftLine".
  */
 export interface DriftLine {
+  /**
+   * One engine-authored line, which can name the blocks a rule or a drift is about.
+   */
   summary: string;
   rules_broken: number;
   machine_drift: number;
@@ -1839,7 +1852,8 @@ export interface Envelope {
     | string;
   /**
    * The one-line, engine-authored summary that text mode prints first, display-sanitized: what
-   * `/room` shows with the handles. Absent on an error, whose `message` is its line.
+   * `/room` shows with the handles. Absent on an error, whose `message` is its line. It names
+   * repo text, such as a block's or a repo's name, so it is masked like that name.
    */
   summary?: string | null;
   result?: unknown;
@@ -2184,6 +2198,9 @@ export interface FindReq {
  * via the `definition` "FindResult".
  */
 export interface FindResult {
+  /**
+   * One engine-authored line, which can name the matches.
+   */
   summary: string;
   items: FindItem[];
   empty: Empty | null;
@@ -2346,7 +2363,8 @@ export interface ImportedRow {
    */
   status: AckStatus | null;
   /**
-   * One engine-authored line when the row wasn't imported.
+   * One engine-authored line when the row wasn't imported; it can quote a read's error, which
+   * names repo text.
    */
   reason: string | null;
 }
@@ -3116,6 +3134,9 @@ export interface Handle4 {
  */
 export interface PaneState {
   model: PaneModel | null;
+  /**
+   * The error's message, masked as the envelope's is.
+   */
   error: string | null;
 }
 /**
@@ -3405,7 +3426,8 @@ export interface Empty1 {
   reason: EmptyReason;
   /**
    * The one engine-authored line every surface shows for this state, such as "Map these 3
-   * repos? About 2 s."; absent where a surface still words it from `reason`.
+   * repos? About 2 s."; absent where a surface still words it from `reason`. It can name a
+   * repo or a block, so it is masked like that name; `next.label` never names one.
    */
   line?: string | null;
   next: Handle1;
@@ -3423,7 +3445,7 @@ export interface ToolError {
   retry: Retry;
   retry_after_ms?: number | null;
   /**
-   * One line, engine-authored.
+   * One line, engine-authored, masked as the envelope's error message is.
    */
   message: string;
   /**

@@ -127,9 +127,11 @@ pub struct Crumb {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DecisionCard {
     pub id: String,
-    /// One line, engine-authored.
+    /// One line, engine-authored, filled from the card's `vars`, which name repo text.
+    #[schemars(extend("x-redact" = true))]
     pub question: String,
-    /// One line.
+    /// One line, filled as `question` is.
+    #[schemars(extend("x-redact" = true))]
     pub why: String,
     /// 2 to 4.
     pub choices: Vec<Choice>,
@@ -187,6 +189,8 @@ pub enum ScanState {
 /// One pending diff.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DiffLine {
+    /// One engine-authored line, which names what changed.
+    #[schemars(extend("x-redact" = true))]
     pub summary: String,
     pub open: Handle,
     /// Up to 5, for the first diff only.
@@ -197,6 +201,8 @@ pub struct DiffLine {
 /// Intended rules broken and machine drift, in one line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DriftLine {
+    /// One engine-authored line, which can name the blocks a rule or a drift is about.
+    #[schemars(extend("x-redact" = true))]
     pub summary: String,
     pub rules_broken: u32,
     pub machine_drift: u32,
@@ -266,6 +272,8 @@ pub struct EngineState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PaneState {
     pub model: Option<PaneModel>,
+    /// The error's message, masked as the envelope's is.
+    #[schemars(extend("x-redact" = true))]
     pub error: Option<String>,
 }
 

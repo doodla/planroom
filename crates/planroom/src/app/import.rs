@@ -237,8 +237,17 @@ fn apply(root: &Path, p: Pending, person: bool) -> Outcome {
     out
 }
 
-/// A read request's answer: its result, redacted and within one `db` document, or why it failed.
+/// A read request's answer, redacted as every output is: whether it succeeded or failed, its
+/// error's and warnings' lines and their repo-text `details` are masked here, its result by its
+/// own type where it is made.
 fn read(root: &Path, command: &str, request: Value) -> Answer {
+    let mut answer = answer(root, command, request);
+    redact::answer(&mut answer);
+    answer
+}
+
+/// A read request's answer: its result, redacted and within one `db` document, or why it failed.
+fn answer(root: &Path, command: &str, request: Value) -> Answer {
     let failed = |handle: Handle, e: AppError| Answer {
         format: ANSWER_FORMAT.into(),
         handle,
@@ -320,7 +329,7 @@ fn map_handle(req: &MapReq) -> Handle {
     Handle {
         command: CommandName("map".into()),
         args,
-        label: text::get("import.map_label", &[("level", &level)]),
+        label: text::label("import.map_label", &[("level", &level)]),
     }
 }
 

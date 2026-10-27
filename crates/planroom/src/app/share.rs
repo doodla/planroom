@@ -167,7 +167,7 @@ fn snapshot(store: &Store, root: &Path, req: &ShareReq) -> Result<Snapshot, AppE
             next: Handle {
                 command: CommandName("map".into()),
                 args: vec![],
-                label: text::get("share.unavailable", &[]),
+                label: text::label("share.unavailable", &[]),
             },
         },
         extra: Default::default(),

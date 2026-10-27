@@ -175,49 +175,79 @@ pub const REDACT_MARK: &str = "x-redact";
 /// values, such as `nodes[].name`. Both lists are sorted. `cargo xtask gen` writes them into
 /// `crates/kernel/src/redact_fields.rs`.
 pub fn redacted_paths() -> Vec<(String, Vec<String>)> {
+    paths_to(|property| (property.get(REDACT_MARK) == Some(&Value::Bool(true))).then(String::new))
+        .into_iter()
+        .map(|(name, paths)| (name, paths.into_iter().map(|(path, _)| path).collect()))
+        .collect()
+}
+
+/// The mark on a type with a `code` and `details`, an error or a warning,
+/// `#[schemars(extend("x-redact-details" = "error"))]` or `"warning"`: `kernel::redact` masks the
+/// keys of its `details` that the registry's entry for its `code` names in `redact` (DR-89).
+pub const REDACT_DETAILS_MARK: &str = "x-redact-details";
+
+/// For each type of the output view that holds an error or a warning, by name, the path to each
+/// one, `""` for the type itself, with `error` or `warning` for the registry its `code` is in.
+/// Both lists are sorted. `cargo xtask gen` writes them into `crates/kernel/src/redact_fields.rs`
+/// beside each code's masked keys.
+pub fn redacted_details() -> Vec<(String, Vec<(String, String)>)> {
+    paths_to(|schema| schema.get(REDACT_DETAILS_MARK).and_then(Value::as_str).map(str::to_owned))
+        .into_iter()
+        .map(|(name, paths)| (name, paths.into_iter().collect()))
+        .collect()
+}
+
+/// For each type of the output view, the paths to each schema `mark` gives a tag, with that tag.
+fn paths_to(mark: impl Fn(&Value) -> Option<String>) -> Vec<(String, BTreeSet<(String, String)>)> {
     let root = generate(View::Output);
     let Some(defs) = root["$defs"].as_object() else { return vec![] };
     let mut out = Vec::new();
     for (name, def) in defs {
         let mut paths = BTreeSet::new();
-        marked_paths(defs, def, "", &mut paths);
+        marked_paths(defs, def, "", &mark, &mut paths);
         if !paths.is_empty() {
-            out.push((name.clone(), paths.into_iter().collect()));
+            out.push((name.clone(), paths));
         }
     }
     out
 }
 
-/// Every path under `schema` to a marked property, each prefixed with `path`. The contract has no
-/// recursive type, so following each `$ref` ends.
-fn marked_paths(defs: &Map<String, Value>, schema: &Value, path: &str, out: &mut BTreeSet<String>) {
+/// Every path under `schema` to a schema `mark` tags, a property or a type, each prefixed with
+/// `path`, with its tag. The contract has no recursive type, so following each `$ref` ends.
+fn marked_paths(
+    defs: &Map<String, Value>,
+    schema: &Value,
+    path: &str,
+    mark: &dyn Fn(&Value) -> Option<String>,
+    out: &mut BTreeSet<(String, String)>,
+) {
+    if let Some(tag) = mark(schema) {
+        out.insert((path.to_owned(), tag));
+        return;
+    }
     let Some(schema) = schema.as_object() else { return };
     let target = schema.get("$ref").and_then(Value::as_str).and_then(|r| r.strip_prefix("#/$defs/"));
     if let Some(def) = target.and_then(|name| defs.get(name)) {
-        marked_paths(defs, def, path, out);
+        marked_paths(defs, def, path, mark, out);
     }
     if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
         for (field, property) in properties {
             let field_path = if path.is_empty() { field.clone() } else { format!("{path}.{field}") };
-            if property.get(REDACT_MARK) == Some(&Value::Bool(true)) {
-                out.insert(field_path);
-            } else {
-                marked_paths(defs, property, &field_path, out);
-            }
+            marked_paths(defs, property, &field_path, mark, out);
         }
     }
     if let Some(items) = schema.get("items") {
-        marked_paths(defs, items, &format!("{path}[]"), out);
+        marked_paths(defs, items, &format!("{path}[]"), mark, out);
     }
     for item in schema.get("prefixItems").and_then(Value::as_array).into_iter().flatten() {
-        marked_paths(defs, item, &format!("{path}[]"), out);
+        marked_paths(defs, item, &format!("{path}[]"), mark, out);
     }
     if let Some(values) = schema.get("additionalProperties") {
-        marked_paths(defs, values, &format!("{path}{{}}"), out);
+        marked_paths(defs, values, &format!("{path}{{}}"), mark, out);
     }
     for key in ["oneOf", "anyOf", "allOf"] {
         for branch in schema.get(key).and_then(Value::as_array).into_iter().flatten() {
-            marked_paths(defs, branch, path, out);
+            marked_paths(defs, branch, path, mark, out);
         }
     }
 }

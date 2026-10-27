@@ -89,7 +89,7 @@ fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneMo
         next: Handle {
             command: CommandName("map".into()),
             args: vec!["--level".into(), "container".into()],
-            label: text::get("focus.next_containers", &[]),
+            label: text::label("focus.next_containers", &[]),
         },
         minimap: MiniMap { level: Level::System, blocks, edges },
         empty: None,

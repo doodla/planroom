@@ -95,7 +95,7 @@ pub fn run(req: &ServeReq, cwd: &Path, json: bool, started: Instant) -> ExitCode
             let log = log_path(&prepared.workspace_id);
             detach_stdio(log.as_deref());
             if let Err(e) = serve(prepared) {
-                eprintln!("planroom serve: {}", planroom_kernel::display::sanitize(&e.message));
+                eprintln!("planroom serve: {}", log_line(&e.message));
                 std::process::exit(e.code.exit_code());
             }
             std::process::exit(0)
@@ -657,5 +657,24 @@ async fn signalled() {
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {}
         _ = term.recv() => {}
+    }
+}
+
+/// A line for the server's log: a detached server's stderr is its log file under the data root,
+/// which keeps what it is given, so the line is masked as every output is (DR-64) and
+/// display-sanitized.
+pub(crate) fn log_line(line: &str) -> String {
+    planroom_kernel::display::sanitize(&planroom_kernel::redact::text(line))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_log_line_masks_the_repo_text_it_names() {
+        let line = log_line("git can't read db_PASSWORD=hunter2 here.\u{202e}");
+        assert!(!line.contains("hunter2"), "{line}");
+        assert!(line.starts_with("git can't read db_PASSWORD=[redacted] here."), "{line}");
     }
 }

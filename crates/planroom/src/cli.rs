@@ -12,11 +12,12 @@ use std::time::Instant;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
-    Command, CommandName, DoctorReq, Envelope, ErrorCode, FocusReq, Handle, ImportReq, MapReq, Meta,
+    Class, Command, CommandName, DoctorReq, Envelope, ErrorCode, FocusReq, Handle, ImportReq, MapReq, Meta,
     PersonInitReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq, ShareReq, Size, StreamFrame,
     VersionReq, Warning, WarningCode, WatchReq,
 };
 use planroom_kernel::display::{sanitize, sanitize_lines};
+use planroom_kernel::redact;
 use planroom_store::{Store, Tail};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -157,7 +158,9 @@ pub fn main() -> ExitCode {
 }
 
 /// Print a reply or an error, and exit with the error's category's code. Text mode and stderr
-/// are display-sanitized; `--json` stays data, but for its engine-authored `summary` line.
+/// are display-sanitized; `--json` stays data, but for its engine-authored `summary` line. Both
+/// are redacted (DR-64): `--json` by the contract's marked fields, text mode line by line, since
+/// every line it prints is one of those fields. Only a read's `--json` honours `PLANROOM_RAW=1`.
 pub(crate) fn finish<T: Serialize>(
     json: bool,
     command: &str,
@@ -175,6 +178,7 @@ pub(crate) fn finish_paged<T: Serialize>(
     started: Instant,
 ) -> ExitCode {
     let took_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+    let raw = json && raw_for(command);
     let (code, out) = match reply {
         Ok(Paged { reply, next }) => {
             let line = if json {
@@ -182,9 +186,9 @@ pub(crate) fn finish_paged<T: Serialize>(
                 let budget = budget_of(command);
                 let meta =
                     Meta { seq: reply.seq, took_ms, next, warnings: reply.warnings, ..Meta::default() };
-                envelope_within(command, &reply.result, meta, summary, budget)
+                envelope_within(command, &reply.result, meta, summary, budget, raw)
             } else {
-                sanitize_lines(&reply.text)
+                sanitize_lines(&redact::text(&reply.text))
             };
             (ExitCode::SUCCESS, line)
         }
@@ -192,11 +196,11 @@ pub(crate) fn finish_paged<T: Serialize>(
             let exit = ExitCode::from(e.code.exit_code() as u8);
             let line = if json {
                 let e = with_usage(e, command);
-                envelope::<T>(command, None, Some(&e), 0, took_ms, vec![], None)
+                render::<T>(command, None, Some(&e), Meta { took_ms, ..Meta::default() }, None, raw)
             } else {
                 let hint = e.hint.as_deref().map(|h| format!("\n  {}", sanitize(h))).unwrap_or_default();
                 let mut err = std::io::stderr().lock();
-                let _ = writeln!(err, "{}{hint}", sanitize(&e.message));
+                let _ = writeln!(err, "{}{hint}", sanitize(&redact::text(&e.message)));
                 return exit;
             };
             (exit, line)
@@ -213,8 +217,16 @@ pub(crate) fn summary_of(text: &str) -> Option<String> {
     text.lines().next().map(sanitize).filter(|line| !line.trim().is_empty())
 }
 
-/// The envelope as one line, with `meta.size` measuring the line itself. `meta.truncated` is set
-/// exactly when a `truncated` warning says what the budget cut.
+/// Whether `PLANROOM_RAW=1` turns redaction off for `command`'s `--json` stdout: only for a read,
+/// so the truth comparator sees the raw lines, and never for a change (DR-75). The caller passes
+/// it only for `--json` stdout; every other output path stays redacted whatever it says.
+fn raw_for(command: &str) -> bool {
+    std::env::var_os("PLANROOM_RAW").is_some_and(|v| v == "1")
+        && Command::SPECS.iter().any(|s| s.name() == command && s.class == Class::Read)
+}
+
+/// The envelope as one line, redacted, with `meta.size` measuring the line itself.
+/// `meta.truncated` is set exactly when a `truncated` warning says what the budget cut.
 pub(crate) fn envelope<T: Serialize>(
     command: &str,
     result: Option<&T>,
@@ -235,8 +247,22 @@ pub(crate) fn envelope_with<T: Serialize>(
     meta: Meta,
     summary: Option<String>,
 ) -> String {
+    render(command, result, error, meta, summary, false)
+}
+
+/// [`envelope_with`], unredacted when `raw`: every string under a field the contract marks, in
+/// the envelope (its summary, the error's and the warnings' lines) and in the result of type `T`,
+/// is masked otherwise (DR-64, DR-89).
+fn render<T: Serialize>(
+    command: &str,
+    result: Option<&T>,
+    error: Option<&AppError>,
+    meta: Meta,
+    summary: Option<String>,
+    raw: bool,
+) -> String {
     let truncated = meta.warnings.iter().any(|w| w.code == WarningCode::Truncated);
-    let mut env = Envelope {
+    let env = Envelope {
         schema_version: SCHEMA_VERSION,
         ok: error.is_none(),
         command: CommandName(command.into()),
@@ -245,16 +271,23 @@ pub(crate) fn envelope_with<T: Serialize>(
         error: error.map(AppError::object),
         meta: Meta { size: Size::default(), truncated, ..meta },
     };
+    let mut doc = serde_json::to_value(&env).expect("an envelope serializes");
+    if !raw {
+        redact::value_of::<Envelope>(&mut doc);
+        if let Some(result) = doc.get_mut("result") {
+            redact::value_of::<T>(result);
+        }
+    }
     // The size counts its own digits, so settle it: at most a few rounds.
-    let mut line = serde_json::to_string(&env).expect("an envelope serializes");
+    let mut line = serde_json::to_string(&doc).expect("an envelope serializes");
     for _ in 0..4 {
         let bytes = line.len() as u32;
-        let size = Size { bytes, tokens_est: bytes.div_ceil(4) };
-        if env.meta.size == size {
+        let size = json!({"bytes": bytes, "tokens_est": bytes.div_ceil(4)});
+        if doc["meta"]["size"] == size {
             break;
         }
-        env.meta.size = size;
-        line = serde_json::to_string(&env).expect("an envelope serializes");
+        doc["meta"]["size"] = size;
+        line = serde_json::to_string(&doc).expect("an envelope serializes");
     }
     line
 }
@@ -270,14 +303,16 @@ fn budget_of(command: &str) -> Option<u32> {
 /// silently. A `truncated` warning the leaf added itself, such as `map`'s fit, is always kept. A
 /// result that passes the budget on its own keeps only those, and its `truncated` warning says so;
 /// HTTP replies don't come here, since `--detail graph` over `serve` is the canvas's whole graph.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn envelope_within<T: Serialize>(
     command: &str,
     result: &T,
     meta: Meta,
     summary: Option<String>,
     budget: Option<u32>,
+    raw: bool,
 ) -> String {
-    let whole = envelope_with(command, Some(result), None, meta.clone(), summary.clone());
+    let whole = render(command, Some(result), None, meta.clone(), summary.clone(), raw);
     let Some(budget) = budget else { return whole };
     let tokens = |line: &str| line.len().div_ceil(4);
     if tokens(&whole) <= budget as usize {
@@ -297,7 +332,7 @@ pub(crate) fn envelope_within<T: Serialize>(
             .collect();
         kept.push(left_out(&left, budget, over));
         let meta = Meta { warnings: kept, ..meta.clone() };
-        envelope_with(command, Some(result), None, meta, summary.clone())
+        render(command, Some(result), None, meta, summary.clone(), raw)
     };
     let (mut fits, mut over) = (0, optional.len().saturating_sub(1));
     while fits < over {
@@ -450,13 +485,13 @@ fn with_usage(e: AppError, command: &str) -> AppError {
         Handle {
             command: CommandName("schema".into()),
             args: vec!["--command".into(), command.into()],
-            label: text::get("argument.schema_label", &[("leaf", &command)]),
+            label: text::label("argument.schema_label", &[("leaf", &command)]),
         }
     } else {
         Handle {
             command: CommandName("schema".into()),
             args: vec!["--commands".into()],
-            label: text::get("schema.commands_label", &[]),
+            label: text::label("schema.commands_label", &[]),
         }
     };
     let words: Vec<String> =
@@ -523,7 +558,7 @@ mod tests {
     #[test]
     fn a_reply_within_its_budget_is_untouched() {
         let warnings = vec![warning(WarningCode::PartialScan, 1)];
-        let line = envelope_within("scan", &json!({}), meta(warnings.clone()), None, Some(1_500));
+        let line = envelope_within("scan", &json!({}), meta(warnings.clone()), None, Some(1_500), false);
         assert_eq!(line, envelope("scan", Some(&json!({})), None, 1, 0, warnings, None));
     }
 
@@ -537,7 +572,7 @@ mod tests {
             message: "map cut".into(),
             details: json!({}),
         });
-        let env = parse(&envelope_within("scan", &json!({}), meta(warnings), None, Some(1_500)));
+        let env = parse(&envelope_within("scan", &json!({}), meta(warnings), None, Some(1_500), false));
         let meta = &env["meta"];
         assert!(meta["size"]["tokens_est"].as_u64().unwrap() <= 1_500, "{meta}");
         assert_eq!(meta["truncated"], true);
@@ -556,7 +591,7 @@ mod tests {
     #[test]
     fn a_result_past_the_budget_on_its_own_says_so() {
         let result = json!({"text": "x".repeat(8_000)});
-        let env = parse(&envelope_within("scan", &result, meta(vec![]), None, Some(1_500)));
+        let env = parse(&envelope_within("scan", &result, meta(vec![]), None, Some(1_500), false));
         assert_eq!(env["meta"]["truncated"], true);
         let warning = &env["meta"]["warnings"][0];
         assert_eq!(

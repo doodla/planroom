@@ -28,8 +28,10 @@ pub struct Envelope<T = Value> {
     /// Such as `ask` or `handoff merge`.
     pub command: CommandName,
     /// The one-line, engine-authored summary that text mode prints first, display-sanitized: what
-    /// `/room` shows with the handles. Absent on an error, whose `message` is its line.
+    /// `/room` shows with the handles. Absent on an error, whose `message` is its line. It names
+    /// repo text, such as a block's or a repo's name, so it is masked like that name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-redact" = true))]
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<T>,
@@ -139,6 +141,7 @@ pub struct ModelRequestRef {
 
 /// A failed command's error.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(extend("x-redact-details" = "error"))]
 pub struct ErrorObject {
     pub code: ErrorCode,
     pub category: Category,
@@ -146,7 +149,8 @@ pub struct ErrorObject {
     /// With `later`, when the caller may try again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_after_ms: Option<u32>,
-    /// One line, engine-authored.
+    /// One line, engine-authored; it can name a repo, a path or a target as given.
+    #[schemars(extend("x-redact" = true))]
     pub message: String,
     /// An exact command, such as `planroom show ev_01J...`.
     pub hint: Option<String>,
@@ -178,6 +182,7 @@ pub struct ToolResult<T = Value> {
 /// A tool result's error: the envelope's error whole (DR-66). Only an error the mod authors, when no
 /// engine answered, may leave out its category and details.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(extend("x-redact-details" = "error"))]
 pub struct ToolError {
     pub code: ErrorCode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -185,7 +190,8 @@ pub struct ToolError {
     pub retry: Retry,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_after_ms: Option<u32>,
-    /// One line, engine-authored.
+    /// One line, engine-authored, masked as the envelope's error message is.
+    #[schemars(extend("x-redact" = true))]
     pub message: String,
     /// An exact command.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -213,8 +219,11 @@ pub struct ToolMeta {
 
 /// A warning attached to a reply.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(extend("x-redact-details" = "warning"))]
 pub struct Warning {
     pub code: WarningCode,
+    /// One engine-authored line; it can name a repo, a path or a file.
+    #[schemars(extend("x-redact" = true))]
     pub message: String,
     pub details: Value,
 }
@@ -252,8 +261,10 @@ pub struct Handle {
 pub struct Empty {
     pub reason: EmptyReason,
     /// The one engine-authored line every surface shows for this state, such as "Map these 3
-    /// repos? About 2 s."; absent where a surface still words it from `reason`.
+    /// repos? About 2 s."; absent where a surface still words it from `reason`. It can name a
+    /// repo or a block, so it is masked like that name; `next.label` never names one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-redact" = true))]
     pub line: Option<String>,
     pub next: Handle,
 }
