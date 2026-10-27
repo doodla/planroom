@@ -23,7 +23,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use planroom_contract::{Edge, Event, EventBody, Node, Seq, StreamFrame, Target, Vocabulary};
-use planroom_kernel::fold::{Folded, fold_full, fold_one, refolds};
+use planroom_kernel::fold::{Folded, Overlay, fold_full, fold_one, refolds};
 use planroom_kernel::{Facts, Model, redact};
 use planroom_store::{ActiveSet, Shape, Snapshot, StoreError, Tail};
 
@@ -162,6 +162,8 @@ pub fn frame(event: &Event) -> StreamFrame {
             text::get("frame.scan", &[("repo", repo), ("commit", &&commit[..commit.len().min(7)])])
         }
         EventBody::Version { label, .. } => text::get("frame.version", &[("label", label)]),
+        EventBody::Edit(edit) => text::get("frame.edit", &[("target", &target_id(&edit.target))]),
+        EventBody::Undo { of } => text::get("frame.undo", &[("event", &of.0)]),
         other => text::get("frame.other", &[("kind", &other.kind().as_str())]),
     };
     let target = match &event.body {
@@ -229,9 +231,39 @@ fn kept() -> MutexGuard<'static, Option<Kept>> {
 /// The model at `snapshot`'s `seq`, folded from what that one read transaction holds: the kept
 /// fold caught up to it, or a fold from scratch when none is kept for this store and vocabulary.
 pub fn model(snapshot: &Snapshot<'_>, vocabulary: &Vocabulary) -> Result<Model, StoreError> {
+    with_folded(snapshot, vocabulary, |folded| folded.model.clone())
+}
+
+/// Everything the fold derives at `snapshot`'s `seq`, the overlay and the authored revisions
+/// included: what a write's compare-and-set reads inside its own transaction, and what a view
+/// shows beside the model (what is hidden, where a block is pinned).
+pub fn folded(snapshot: &Snapshot<'_>, vocabulary: &Vocabulary) -> Result<Folded, StoreError> {
+    with_folded(snapshot, vocabulary, Folded::clone)
+}
+
+/// The model at `snapshot`'s `seq` with the overlay beside it: what an override hides, and where a
+/// person pinned a block in each view.
+pub fn model_and_overlay(
+    snapshot: &Snapshot<'_>,
+    vocabulary: &Vocabulary,
+) -> Result<(Model, Overlay), StoreError> {
+    with_folded(snapshot, vocabulary, |folded| (folded.model.clone(), folded.overlay.clone()))
+}
+
+/// The overlay alone at `snapshot`'s `seq`.
+pub fn overlay(snapshot: &Snapshot<'_>, vocabulary: &Vocabulary) -> Result<Overlay, StoreError> {
+    with_folded(snapshot, vocabulary, |folded| folded.overlay.clone())
+}
+
+/// `read` of the kept fold, caught up to `snapshot`'s `seq`.
+fn with_folded<T>(
+    snapshot: &Snapshot<'_>,
+    vocabulary: &Vocabulary,
+    read: impl FnOnce(&Folded) -> T,
+) -> Result<T, StoreError> {
     let mut kept = kept();
     match catch_up(&mut kept, snapshot, vocabulary) {
-        Ok(()) => Ok(kept.as_ref().expect("a caught-up fold is kept").folded.model.clone()),
+        Ok(()) => Ok(read(&kept.as_ref().expect("a caught-up fold is kept").folded)),
         Err(e) => {
             // A fold that failed part way is dropped, so the next read folds from scratch.
             *kept = None;

@@ -398,20 +398,29 @@ pub fn person_required(command: &str, why: Refused, path: TerminalPath) -> AppEr
 ///   which asks them to confirm it. Where it is refused, never the terminal.
 /// - A leaf with neither: the action's button in the Planroom pane.
 pub fn person_path(command: &str, path: TerminalPath) -> String {
+    person_path_with(command, path, &terminal_line(command))
+}
+
+/// [`person_path`], naming `line` as the terminal command: for a leaf whose operands come from
+/// the call, such as `edit`, the caller's own command line.
+pub fn person_path_with(command: &str, path: TerminalPath, line: &str) -> String {
     let room = Command::SPECS.iter().any(|s| s.name() == command && s.room);
     let typed = format!("/room {command}");
     match (command, path) {
         ("person init", _) => text::get("hint.person_required_key", &[]),
         (_, TerminalPath::Refused) if room => text::get("hint.person_required_room", &[("line", &typed)]),
         (_, TerminalPath::Refused) => text::get("hint.person_required", &[]),
-        (_, TerminalPath::Takes) if room => text::get(
-            "hint.person_required_room_or_terminal",
-            &[("room", &typed), ("line", &terminal_line(command))],
-        ),
-        (_, TerminalPath::Takes) => {
-            text::get("hint.person_required_terminal", &[("line", &terminal_line(command))])
+        (_, TerminalPath::Takes) if room => {
+            text::get("hint.person_required_room_or_terminal", &[("room", &typed), ("line", &line)])
         }
+        (_, TerminalPath::Takes) => text::get("hint.person_required_terminal", &[("line", &line)]),
     }
+}
+
+/// `e`, when it is a `person_required` refusal of `command`, with its hint naming `line` as the
+/// terminal command (see [`person_path_with`]); any other error as it is.
+pub fn naming_line(e: AppError, command: &str, path: TerminalPath, line: &str) -> AppError {
+    if e.code == ErrorCode::PersonRequired { e.with_hint(person_path_with(command, path, line)) } else { e }
 }
 
 /// The exact line that runs `command` from a terminal: its path, and `-` for `import`, whose rows

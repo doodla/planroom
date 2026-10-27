@@ -775,6 +775,22 @@
           "properties": {
             "command": {
               "type": "string",
+              "const": "edit"
+            },
+            "args": {
+              "$ref": "#/$defs/EditReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
               "const": "open"
             },
             "args": {
@@ -826,6 +842,7 @@
             "share",
             "import",
             "doctor",
+            "edit",
             "open"
           ]
         },
@@ -1644,13 +1661,68 @@
             }
           ],
           "description": "The project the write belongs to."
+        },
+        "client": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending\nedits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an\nagent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.",
+          "default": null
         }
       },
       "required": [
         "base",
         "idem",
-        "project"
+        "project",
+        "client"
       ]
+    },
+    "EditResult": {
+      "type": "object",
+      "properties": {
+        "event": {
+          "$ref": "#/$defs/EventId",
+          "description": "The command's first event, which `edit undo` takes."
+        },
+        "count": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "How many events the command wrote: a group writes its node and one move per member, and\none undo takes back all of them."
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "`applied` for a person's edit, `ghost` for an agent's or a model's until a person accepts\nit."
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The node and edge IDs the edit changed, the first ones that fit the leaf's budget."
+        },
+        "more_targets": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The changed IDs `targets` leaves out.",
+          "default": 0
+        },
+        "undo": {
+          "$ref": "#/$defs/Handle",
+          "description": "`edit --base SEQ undo EVENT`: reverses the whole command under compare-and-set."
+        }
+      },
+      "required": [
+        "event",
+        "count",
+        "status",
+        "targets",
+        "more_targets",
+        "undo"
+      ],
+      "description": "What `edit` returns: the events its one transaction wrote, how they were stored, and the\ncommand that undoes them. Its summary line names what changed."
     },
     "Effect": {
       "type": "object",
@@ -3245,13 +3317,22 @@
             }
           ],
           "description": "The project the write belongs to."
+        },
+        "client": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending\nedits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an\nagent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.",
+          "default": null
         }
       },
       "required": [
         "stage",
         "base",
         "idem",
-        "project"
+        "project",
+        "client"
       ],
       "description": "`planroom intent next [--stage S]`: draft a plan stage's items as ghosts."
     },
@@ -4733,13 +4814,22 @@
             }
           ],
           "description": "The project the write belongs to."
+        },
+        "client": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending\nedits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an\nagent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.",
+          "default": null
         }
       },
       "required": [
         "rekey",
         "base",
         "idem",
-        "project"
+        "project",
+        "client"
       ],
       "description": "`planroom person init [--rekey]`: the public key arrives on stdin as the base64url of its\nuncompressed SEC1 point (`crypto.subtle.exportKey(\"raw\")`), and the call carries a\n`PLANROOM_PERSON_TOKEN` signed by the registered key or by the key on stdin (DR-72, DR-75)."
     },
@@ -4988,13 +5078,22 @@
             }
           ],
           "description": "The project the write belongs to."
+        },
+        "client": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending\nedits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an\nagent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.",
+          "default": null
         }
       },
       "required": [
         "file",
         "base",
         "idem",
-        "project"
+        "project",
+        "client"
       ],
       "description": "`planroom intent propose --file F|-`: plan items proposed as ghosts, one batch."
     },
@@ -5488,6 +5587,14 @@
             }
           ],
           "description": "The project the write belongs to."
+        },
+        "client": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending\nedits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an\nagent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.",
+          "default": null
         }
       },
       "required": [
@@ -5495,7 +5602,8 @@
         "verdict",
         "base",
         "idem",
-        "project"
+        "project",
+        "client"
       ],
       "description": "`planroom review ID accept|reject`: accept or reject one ghost, conflict, inferred fact or\ncard."
     },
@@ -5623,13 +5731,22 @@
             }
           ],
           "description": "The project the write belongs to."
+        },
+        "client": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending\nedits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an\nagent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.",
+          "default": null
         }
       },
       "required": [
         "dir",
         "base",
         "idem",
-        "project"
+        "project",
+        "client"
       ],
       "description": "`planroom scan [DIR]`."
     },

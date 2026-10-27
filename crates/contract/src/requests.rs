@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::command::WriteCommon;
 use crate::envelope::{Empty, Handle};
-use crate::event::Verdict;
+use crate::event::{EventId, Status, Verdict};
 use crate::model::{Kind, Level, NodeId};
 
 /// `planroom edit OP ...`: one hand edit. An agent's edit is a ghost until a person accepts it.
@@ -87,6 +87,27 @@ pub enum EditOp {
         /// An event ID or an ID suffix.
         event: String,
     },
+}
+
+/// What `edit` returns: the events its one transaction wrote, how they were stored, and the
+/// command that undoes them. Its summary line names what changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EditResult {
+    /// The command's first event, which `edit undo` takes.
+    pub event: EventId,
+    /// How many events the command wrote: a group writes its node and one move per member, and
+    /// one undo takes back all of them.
+    pub count: u32,
+    /// `applied` for a person's edit, `ghost` for an agent's or a model's until a person accepts
+    /// it.
+    pub status: Status,
+    /// The node and edge IDs the edit changed, the first ones that fit the leaf's budget.
+    pub targets: Vec<String>,
+    /// The changed IDs `targets` leaves out.
+    #[serde(default)]
+    pub more_targets: u32,
+    /// `edit --base SEQ undo EVENT`: reverses the whole command under compare-and-set.
+    pub undo: Handle,
 }
 
 /// `planroom review ID accept|reject`: accept or reject one ghost, conflict, inferred fact or
@@ -236,7 +257,7 @@ mod tests {
         assert_eq!(review.verdict, Verdict::Accept);
         assert_eq!(
             serde_json::to_value(&review).unwrap(),
-            json!({"id": "01JB", "verdict": "accept", "base": null, "idem": null, "project": null})
+            json!({"id": "01JB", "verdict": "accept", "base": null, "idem": null, "project": null, "client": null})
         );
     }
 

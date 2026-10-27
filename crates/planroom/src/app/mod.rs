@@ -5,6 +5,7 @@ pub mod actor;
 pub mod data;
 pub mod dirty;
 pub mod doctor;
+pub mod edit;
 pub mod error;
 pub mod find;
 pub mod focus;

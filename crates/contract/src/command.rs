@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::envelope::{CommandName, Cursor, Empty, Handle};
 use crate::errors::ErrorCode;
 use crate::model::{Level, NodeId, Seq};
-use crate::requests::FindReq;
+use crate::requests::{EditReq, FindReq};
 use crate::view::MapView;
 
 /// Which of the five ideas (plus setup) a command belongs to; help is grouped by it.
@@ -102,6 +102,7 @@ pub enum Command {
     Share(ShareReq),
     Import(ImportReq),
     Doctor(DoctorReq),
+    Edit(EditReq),
     Open(OpenReq),
 }
 
@@ -346,6 +347,34 @@ const DOCTOR: CommandSpec = CommandSpec {
     room: false,
 };
 
+const EDIT: CommandSpec = CommandSpec {
+    path: &["edit"],
+    idea: Idea::Intent,
+    summary: "One hand edit: move, group, rename, hide, pin, relate, unrelate or forbid, or undo a command.",
+    actor: ActorRule::Any,
+    class: Class::Change,
+    budget_tokens: 400,
+    needs_base: true,
+    spends: false,
+    errors: &[
+        ErrorCode::InvalidArgument,
+        ErrorCode::AmbiguousRef,
+        ErrorCode::BaseRequired,
+        ErrorCode::ActorRequired,
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::NotFound,
+        ErrorCode::StaleWrite,
+        ErrorCode::IdempotencyMismatch,
+        ErrorCode::PersonRequired,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Edit,
+    tool: Some(Tool::RoomChange),
+    room: true,
+};
+
 const OPEN: CommandSpec = CommandSpec {
     path: &["open"],
     idea: Idea::Levels,
@@ -370,8 +399,22 @@ const OPEN: CommandSpec = CommandSpec {
 
 impl Command {
     /// Every leaf's spec, in catalogue order.
-    pub const SPECS: &'static [CommandSpec] =
-        &[MAP, FIND, FOCUS, SCAN, WATCH, SCHEMA, VERSION, PERSON_INIT, SERVE, SHARE, IMPORT, DOCTOR, OPEN];
+    pub const SPECS: &'static [CommandSpec] = &[
+        MAP,
+        FIND,
+        FOCUS,
+        SCAN,
+        WATCH,
+        SCHEMA,
+        VERSION,
+        PERSON_INIT,
+        SERVE,
+        SHARE,
+        IMPORT,
+        DOCTOR,
+        EDIT,
+        OPEN,
+    ];
 
     pub const fn spec(&self) -> &'static CommandSpec {
         match self {
@@ -387,6 +430,7 @@ impl Command {
             Command::Share(_) => &SHARE,
             Command::Import(_) => &IMPORT,
             Command::Doctor(_) => &DOCTOR,
+            Command::Edit(_) => &EDIT,
             Command::Open(_) => &OPEN,
         }
     }
@@ -475,6 +519,12 @@ pub struct WriteCommon {
     /// The project the write belongs to.
     #[arg(long)]
     pub project: Option<NodeId>,
+    /// The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+    /// edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+    /// agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+    #[arg(long)]
+    #[serde(default)]
+    pub client: Option<String>,
 }
 
 /// How much `map` returns.

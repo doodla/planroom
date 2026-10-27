@@ -311,7 +311,8 @@ pub struct WriteCommon {                     // flattened into every write reque
                                              // (handoff merge, revert) keys each step idem#<step> and resumes from the last one
     pub client: Option<String>,              // the client ID of the writer instance: a canvas tab, a mod session; a flush from a tab's
                                              // pending store sends the minting tab's ID, never the flusher's (DR-73); else an agent's own
-                                             // ID from PLANROOM_ACTOR, or cli:<pid> for a person at a terminal (DR-60)
+                                             // ID from PLANROOM_ACTOR, or cli:<pid> for a person at a terminal (DR-60);
+                                             // required over HTTP, where each tab is its own writer instance (DR-92)
     pub project: Option<NodeId>,
 }
 
@@ -328,10 +329,18 @@ pub enum EditOp {                            // a clap subcommand: `edit [--base
     Pin { id: String, view: String, x: f64, y: f64 },       // pos@VIEW
     Relate { from: String, to: String, kind: String },      // an intended relation
     Unrelate { from: String, to: String, kind: String },    // removes an intended relation
-    Forbid { from: String, to: String, kind: Option<String> },  // a boundary rule; every kind when None
+    Forbid { from: String, to: String, kind: Option<String> },  // a boundary rule; None is invalid_argument until a rule
+                                                            // over every kind has a stored form (DR-92)
     Undo { event: String },
-    // `set`, `text` and `propose` (architecture.md's CLI table) arrive with the `edit` leaf
+    // `set`, `text` and `propose` (architecture.md's CLI table) arrive with the plan pack's intent leaves, which fix
+    // their fields (DR-92)
 }
+pub struct EditResult { pub event: EventId /* the command's first, which `edit undo` takes */, pub count: u32,
+                        pub status: Status /* applied, or ghost for an agent's */,
+                        pub targets: Vec<String> /* the changed IDs that fit the budget */, pub more_targets: u32,
+                        pub undo: Handle /* edit --base SEQ undo EVENT */ }
+                                             // the line naming what changed is the envelope's summary; a write that
+                                             // replays its key sets meta.replayed, and meta.replayed_from when derived
 pub struct ReviewReq { pub id: String, pub verdict: Verdict, #[serde(flatten)] pub common: WriteCommon }
 pub struct IntentNextReq { pub stage: Option<String>, #[serde(flatten)] pub common: WriteCommon }
 pub struct ProposeReq { pub file: String /* a path or - */, #[serde(flatten)] pub common: WriteCommon }

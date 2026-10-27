@@ -715,7 +715,7 @@ impl Core {
 
     /// The fact value under a field, for scan drift: `None` when the field has no fact
     /// counterpart or the target isn't a fact.
-    fn fact_value(&self, target: &TargetKey, field: &str) -> Option<Value> {
+    pub(crate) fn fact_value(&self, target: &TargetKey, field: &str) -> Option<Value> {
         match target {
             TargetKey::Node(id) => {
                 let node = self.facts.get(id)?;

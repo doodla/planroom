@@ -27,6 +27,7 @@ export type CommandName =
       | "share"
       | "import"
       | "doctor"
+      | "edit"
       | "open"
     )
   | string;
@@ -278,6 +279,10 @@ export type Command =
       args: DoctorReq;
     }
   | {
+      command: "edit";
+      args: EditReq;
+    }
+  | {
       command: "open";
       args: OpenReq;
     };
@@ -295,6 +300,105 @@ export type Level = "intent" | "system" | "container" | "component" | "code";
  * via the `definition` "NodeId".
  */
 export type NodeId = string;
+/**
+ * `planroom edit OP ...`: one hand edit. An agent's edit is a ghost until a person accepts it.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "EditReq".
+ */
+export type EditReq = {
+  /**
+   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   */
+  base: number | null;
+  /**
+   * The idempotency key; derived from the request when absent.
+   */
+  idem: string | null;
+  /**
+   * The project the write belongs to.
+   */
+  project: NodeId | null;
+  /**
+   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   */
+  client: string | null;
+} & EditReq1;
+export type EditReq1 =
+  | {
+      id: string;
+      /**
+       * The new parent.
+       */
+      parent: string;
+      op: "move";
+    }
+  | {
+      /**
+       * The group's name.
+       */
+      name: string;
+      /**
+       * The nodes to move into it.
+       */
+      ids: string[];
+      op: "group";
+    }
+  | {
+      id: string;
+      name: string;
+      op: "rename";
+    }
+  | {
+      id: string;
+      op: "hide";
+    }
+  | {
+      id: string;
+      /**
+       * The view the position belongs to, such as `map:system:all`.
+       */
+      view: string;
+      x: number;
+      y: number;
+      op: "pin";
+    }
+  | {
+      from: string;
+      to: string;
+      /**
+       * The relation kind.
+       */
+      kind: string;
+      op: "relate";
+    }
+  | {
+      from: string;
+      to: string;
+      /**
+       * The relation kind.
+       */
+      kind: string;
+      op: "unrelate";
+    }
+  | {
+      from: string;
+      to: string;
+      /**
+       * The relation kind the rule forbids; every kind when absent.
+       */
+      kind: string | null;
+      op: "forbid";
+    }
+  | {
+      /**
+       * An event ID or an ID suffix.
+       */
+      event: string;
+      op: "undo";
+    };
 /**
  * A `db` write's operation.
  *
@@ -512,79 +616,6 @@ export type Tier = ("universal" | "syntactic" | "config" | "pattern" | "inferenc
  * via the `definition` "Op".
  */
 export type Op = "put" | "set" | "retract";
-export type EditReq =
-  | {
-      id: string;
-      /**
-       * The new parent.
-       */
-      parent: string;
-      op: "move";
-    }
-  | {
-      /**
-       * The group's name.
-       */
-      name: string;
-      /**
-       * The nodes to move into it.
-       */
-      ids: string[];
-      op: "group";
-    }
-  | {
-      id: string;
-      name: string;
-      op: "rename";
-    }
-  | {
-      id: string;
-      op: "hide";
-    }
-  | {
-      id: string;
-      /**
-       * The view the position belongs to, such as `map:system:all`.
-       */
-      view: string;
-      x: number;
-      y: number;
-      op: "pin";
-    }
-  | {
-      from: string;
-      to: string;
-      /**
-       * The relation kind.
-       */
-      kind: string;
-      op: "relate";
-    }
-  | {
-      from: string;
-      to: string;
-      /**
-       * The relation kind.
-       */
-      kind: string;
-      op: "unrelate";
-    }
-  | {
-      from: string;
-      to: string;
-      /**
-       * The relation kind the rule forbids; every kind when absent.
-       */
-      kind: string | null;
-      op: "forbid";
-    }
-  | {
-      /**
-       * An event ID or an ID suffix.
-       */
-      event: string;
-      op: "undo";
-    };
 /**
  * What a declarative extractor emits per match. Values may use `$file`, `$stem`, `$repo`,
  * `$line`, `$1`..`$9` and `@capture`. A reference is `@alias:...`, an ID, `@id:KIND:KEY` or
@@ -1157,6 +1188,7 @@ export interface Card {
         | "share"
         | "import"
         | "doctor"
+        | "edit"
         | "open"
       )
     | string;
@@ -1268,6 +1300,12 @@ export interface ScanReq {
    * The project the write belongs to.
    */
   project: NodeId | null;
+  /**
+   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   */
+  client: string | null;
 }
 /**
  * `planroom watch [--since SEQ] [--session ID]`: one `StreamFrame` per line on stdout until
@@ -1334,6 +1372,12 @@ export interface PersonInitReq {
    * The project the write belongs to.
    */
   project: NodeId | null;
+  /**
+   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   */
+  client: string | null;
 }
 /**
  * `planroom serve [--detach] [--port N]`.
@@ -1814,19 +1858,45 @@ export interface Edit {
     [k: string]: unknown;
   };
 }
-export interface EditReq1 {
+/**
+ * What `edit` returns: the events its one transaction wrote, how they were stored, and the
+ * command that undoes them. Its summary line names what changed.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "EditResult".
+ */
+export interface EditResult {
   /**
-   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   * An event ID: a UUID v7.
    */
-  base: number | null;
+  event: string;
   /**
-   * The idempotency key; derived from the request when absent.
+   * How many events the command wrote: a group writes its node and one move per member, and
+   * one undo takes back all of them.
    */
-  idem: string | null;
+  count: number;
   /**
-   * The project the write belongs to.
+   * `applied` for a person's edit, `ghost` for an agent's or a model's until a person accepts
+   * it.
    */
-  project: NodeId | null;
+  status: "applied" | "ghost" | "conflict" | "open" | "closed";
+  /**
+   * The node and edge IDs the edit changed, the first ones that fit the leaf's budget.
+   */
+  targets: string[];
+  /**
+   * The changed IDs `targets` leaves out.
+   */
+  more_targets: number;
+  undo: Handle3;
+}
+/**
+ * An exact invocation a surface can offer, such as a drill-down or the next action.
+ */
+export interface Handle3 {
+  command: CommandName;
+  args: string[];
+  label: string;
 }
 /**
  * The mod's `engine` atom: written by `session.start` from the resolver's reply (DR-81).
@@ -1882,6 +1952,7 @@ export interface Envelope {
         | "share"
         | "import"
         | "doctor"
+        | "edit"
         | "open"
       )
     | string;
@@ -1992,12 +2063,12 @@ export interface ModelRequestRef {
    * The sha256 of the request file; the mod sends the file only when its bytes match.
    */
   sha256: string;
-  rerun: Handle3;
+  rerun: Handle4;
 }
 /**
  * An exact invocation a surface can offer, such as a drill-down or the next action.
  */
-export interface Handle3 {
+export interface Handle4 {
   command: CommandName;
   args: string[];
   label: string;
@@ -2478,6 +2549,7 @@ export interface InboxRow {
         | "share"
         | "import"
         | "doctor"
+        | "edit"
         | "open"
       )
     | string;
@@ -2525,6 +2597,12 @@ export interface IntentNextReq {
    * The project the write belongs to.
    */
   project: NodeId | null;
+  /**
+   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   */
+  client: string | null;
 }
 /**
  * One plan item type a stage writes.
@@ -3143,7 +3221,7 @@ export interface PaneModel {
   diffs: DiffLine[];
   drift: DriftLine;
   who: PresenceRow[];
-  next: Handle4;
+  next: Handle5;
   minimap: MiniMap;
   empty: Empty | null;
 }
@@ -3176,7 +3254,7 @@ export interface PresenceRow {
 /**
  * An exact invocation a surface can offer, such as a drill-down or the next action.
  */
-export interface Handle4 {
+export interface Handle5 {
   command: CommandName;
   args: string[];
   label: string;
@@ -3237,6 +3315,12 @@ export interface ProposeReq {
    * The project the write belongs to.
    */
   project: NodeId | null;
+  /**
+   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   */
+  client: string | null;
 }
 /**
  * The exact arguments of the Artifact publish the session makes.
@@ -3320,6 +3404,12 @@ export interface ReviewReq {
    * The project the write belongs to.
    */
   project: NodeId | null;
+  /**
+   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   */
+  client: string | null;
 }
 /**
  * What `scan` returns: the map at the top level with the default lens, and the next action.

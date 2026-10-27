@@ -2,16 +2,19 @@
 //! node; its empty states; and its cached layout.
 //!
 //! Everything a reply shows comes from one [`Snapshot`]: the model, folded at the snapshot's
-//! `seq` (the process's kept fold caught up to it, `live::model`), the layout cache, and the
-//! `seq` the reply carries as `meta.seq`. So a reply's `meta.seq` never runs ahead of the view it
-//! folded, and its repos never come from one scan beside a link from another (DR-73).
+//! `seq` (the process's kept fold caught up to it, `live::model`), with the overlay beside it
+//! (what a person hid, and where they pinned a block), the layout cache, and the `seq` the reply
+//! carries as `meta.seq`. So a reply's `meta.seq` never runs ahead of the view it folded, and its
+//! repos never come from one scan beside a link from another (DR-73).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use planroom_contract::{
-    CommandName, Empty, EmptyReason, Handle, LayoutKey, Level, MapView, NodeId, Position, Vocabulary,
+    CommandName, Edge, Empty, EmptyReason, Handle, LayoutKey, Level, MapView, Node, NodeId, Position,
+    Vocabulary,
 };
+use planroom_kernel::fold::TargetKey;
 use planroom_kernel::tree;
 use planroom_store::{Snapshot, Store};
 
@@ -52,9 +55,15 @@ pub(super) fn view(
         let lens = lens::default_id(vocabulary);
         return Ok((not_scanned(root, lens, level, snapshot.seq())?.result, None));
     }
-    let model = live::model(snapshot, vocabulary)?;
+    let (model, overlay) = live::model_and_overlay(snapshot, vocabulary)?;
     let (nodes, edges) = (&model.nodes, &model.edges);
     let under = focus.map(|target| focus::resolve(nodes, target)).transpose()?;
+    // A hidden node drops out with everything under it and its edges, and the view counts the
+    // blocks that dropped, so a hide shows as a count, never as a silent loss.
+    let hidden_ids = hidden_nodes(nodes, &overlay.hidden);
+    let visible: Vec<Node> = nodes.iter().filter(|n| !hidden_ids.contains(&n.id)).cloned().collect();
+    let visible_edges: Vec<Edge> =
+        edges.iter().filter(|e| !overlay.hidden.contains(&TargetKey::Edge(e.id.clone()))).cloned().collect();
     // `map` and `map --level system` are one view, the top of the map: both say they show the
     // system level, so both show the same blocks.
     let shown = match (level, under) {
@@ -62,8 +71,14 @@ pub(super) fn view(
         (None, Some(node)) => focus::level_below(node.level),
         (None, None) => Level::System,
     };
-    let blocks = tree::blocks_at(nodes, shown, under.map(|n| &n.id));
-    let edges = tree::lift_edges(nodes, edges, &blocks);
+    let blocks = tree::blocks_at(&visible, shown, under.map(|n| &n.id));
+    let hidden = if hidden_ids.is_empty() {
+        0
+    } else {
+        let all = tree::blocks_at(nodes, shown, under.map(|n| &n.id));
+        all.iter().filter(|b| hidden_ids.contains(&b.id)).count() as u32
+    };
+    let edges = tree::lift_edges(&visible, &visible_edges, &blocks);
     let empty = if !blocks.is_empty() {
         None
     } else if let Some(node) = under {
@@ -82,11 +97,35 @@ pub(super) fn view(
         focus: under.map(|n| n.id.clone()),
         nodes: blocks,
         edges,
-        hidden: 0,
+        hidden,
         empty,
         layout: None,
     };
     Ok((view, under.map(|n| n.name.clone())))
+}
+
+/// The nodes a hide takes off the map: each hidden node and every node under it.
+fn hidden_nodes(nodes: &[Node], hidden: &BTreeSet<TargetKey>) -> BTreeSet<NodeId> {
+    let mut out: BTreeSet<NodeId> = nodes
+        .iter()
+        .filter(|n| hidden.contains(&TargetKey::Node(n.id.clone())))
+        .map(|n| n.id.clone())
+        .collect();
+    if out.is_empty() {
+        return out;
+    }
+    // Parents before children is not an order the model keeps, so sweep until nothing joins.
+    loop {
+        let before = out.len();
+        for node in nodes {
+            if node.parent.as_ref().is_some_and(|p| out.contains(p)) {
+                out.insert(node.id.clone());
+            }
+        }
+        if out.len() == before {
+            return out;
+        }
+    }
 }
 
 /// The empty state of a scanned workspace's level with no blocks, below a top that has some: the
@@ -136,6 +175,13 @@ pub(super) fn place(snapshot: &Snapshot<'_>, view: &mut MapView) -> Result<(), A
             serde_json::from_str(&cached).map_err(AppError::internal)?;
         for node in &mut view.nodes {
             node.position = positions.get(&node.id).copied();
+        }
+    }
+    // A position a person pinned in this view (`edit pin`) wins over the cached auto-layout.
+    let overlay = live::overlay(snapshot, crate::packs::vocabulary()?)?;
+    for node in &mut view.nodes {
+        if let Some(pinned) = overlay.positions.get(&(key.view_key.clone(), node.id.clone())) {
+            node.position = serde_json::from_value(pinned.clone()).ok().or(node.position);
         }
     }
     view.layout = Some(key);

@@ -260,6 +260,14 @@ impl Folded {
     pub fn is_undone(&self, event: &EventId) -> bool {
         self.prepass.undone.contains(event)
     }
+
+    /// The fact's own value under one field of `target`, before any override: what an edit
+    /// records in its `over`, so the fold can tell when a later scan changed the fact under it.
+    /// `None` when the target isn't a fact or the field has no fact counterpart, such as `hidden`
+    /// or a pinned position.
+    pub fn fact_value(&self, target: &Target, field: &str) -> Option<serde_json::Value> {
+        self.core.fact_value(&TargetKey::from(target), field)
+    }
 }
 
 #[cfg(test)]

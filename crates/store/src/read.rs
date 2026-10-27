@@ -99,7 +99,8 @@ impl Store {
 /// Its `seq` is the highest `seq` it sees, read first, and the active set, the facts, the events
 /// and the cached layouts read through it all come from that same version. So a reply folded
 /// from one snapshot never carries a `meta.seq` newer than what it folded, nor a repo set from
-/// one scan beside a link from another (DR-73). It writes nothing, and ends when dropped.
+/// one scan beside a link from another (DR-73). A read's snapshot writes nothing, and ends when
+/// dropped; a write's ([`Store::commit_planned`]) reads inside the write's own transaction.
 pub struct Snapshot<'a> {
     tx: Transaction<'a>,
     seq: Seq,
@@ -111,6 +112,23 @@ impl<'a> Snapshot<'a> {
         // The first read takes the version every later read in the transaction sees.
         let seq = max_seq(&tx)?;
         Ok(Snapshot { tx, seq })
+    }
+
+    /// The snapshot a write reads inside its own IMMEDIATE transaction, `tx`: what it reads is the
+    /// store as its commit will find it, since no other writer can commit until it ends.
+    pub(crate) fn over(tx: Transaction<'a>) -> Result<Snapshot<'a>, StoreError> {
+        let seq = max_seq(&tx)?;
+        Ok(Snapshot { tx, seq })
+    }
+
+    /// The transaction a write's snapshot reads in, which the write appends its events to.
+    pub(crate) fn tx(&self) -> &Transaction<'a> {
+        &self.tx
+    }
+
+    /// Commit a write's transaction.
+    pub(crate) fn commit(self) -> Result<(), StoreError> {
+        Ok(self.tx.commit()?)
     }
 
     /// The highest `seq` in this version of the store: the `meta.seq` of a reply read here.

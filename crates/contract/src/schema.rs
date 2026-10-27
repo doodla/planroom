@@ -10,8 +10,8 @@ use crate::{
     Snapshot,
 };
 use crate::{
-    AskReq, AskResult, Config, EditReq, FindReq, FindResult, IntentNextReq, LintReq, PackFile, PackRecord,
-    PackReport, ProposeReq, ReviewReq,
+    AskReq, AskResult, Config, EditReq, EditResult, FindReq, FindResult, IntentNextReq, LintReq, PackFile,
+    PackRecord, PackReport, ProposeReq, ReviewReq,
 };
 use crate::{
     CodeReq, Command, CommandList, DoctorReq, DrainReq, Edge, Envelope, ErrorCode, ErrorObject, Event,
@@ -123,6 +123,7 @@ pub fn generate(view: View) -> Value {
         LastSeq,
         TurnSeq,
         EditReq,
+        EditResult,
         ReviewReq,
         IntentNextReq,
         ProposeReq,

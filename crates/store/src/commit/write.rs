@@ -4,7 +4,8 @@ use planroom_contract::{Actor, Cause, Client, EventBody, EventId, NodeId, Seq, S
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::Value;
 
-use super::insert_event;
+use super::{check_version, insert_event};
+use crate::read::Snapshot;
 use crate::{Store, StoreError};
 
 /// One event to append. `seq` is assigned at commit.
@@ -54,34 +55,59 @@ impl Store {
         write: Write,
         reply: impl FnOnce(&[Seq]) -> Value,
     ) -> Result<Committed, StoreError> {
-        assert!(!write.events.is_empty(), "a commit writes at least one event");
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(found) = replay(&tx, &write)? {
+        let Write { idem, request_hash, events } = write;
+        self.commit_planned(&idem, &request_hash, |_| Ok::<_, StoreError>(events), reply)
+    }
+
+    /// [`Store::commit`] for a write whose events depend on the store as the commit finds it: a
+    /// write checked against what a person and other writers wrote since its base. In one
+    /// IMMEDIATE transaction it checks the store version, then the key, and only then calls
+    /// `plan` with a [`Snapshot`] read inside that same transaction, so no other writer commits
+    /// between what `plan` read and the events it returns (DR-5, DR-61, DR-73). An error from
+    /// `plan` writes nothing. The store holds no rules: `plan` is the caller's, which folds and
+    /// checks with the kernel.
+    pub fn commit_planned<E: From<StoreError>>(
+        &mut self,
+        idem: &str,
+        request_hash: &str,
+        plan: impl FnOnce(&Snapshot<'_>) -> Result<Vec<NewEvent>, E>,
+        reply: impl FnOnce(&[Seq]) -> Value,
+    ) -> Result<Committed, E> {
+        let tx =
+            self.conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(StoreError::from)?;
+        check_version(&tx)?;
+        if let Some(found) = replay(&tx, idem, request_hash)? {
             return Ok(found);
         }
-        let many = write.events.len() > 1;
-        let mut seqs = Vec::with_capacity(write.events.len());
-        for (i, event) in write.events.iter().enumerate() {
-            let idem = if many { format!("{}#{}", write.idem, i + 1) } else { write.idem.clone() };
-            seqs.push(insert_event(&tx, event, &idem, &write.request_hash)?);
+        let snapshot = Snapshot::over(tx)?;
+        let events = plan(&snapshot)?;
+        assert!(!events.is_empty(), "a commit writes at least one event");
+        let many = events.len() > 1;
+        let mut seqs = Vec::with_capacity(events.len());
+        for (i, event) in events.iter().enumerate() {
+            let key = if many { format!("{idem}#{}", i + 1) } else { idem.to_owned() };
+            seqs.push(insert_event(snapshot.tx(), event, &key, request_hash)?);
         }
         let reply = reply(&seqs);
-        tx.execute(
-            "UPDATE events SET reply = ?1 WHERE seq = ?2",
-            params![reply.to_string(), seqs[0] as i64],
-        )?;
-        tx.commit()?;
+        snapshot
+            .tx()
+            .execute(
+                "UPDATE events SET reply = ?1 WHERE seq = ?2",
+                params![reply.to_string(), seqs[0] as i64],
+            )
+            .map_err(StoreError::from)?;
+        snapshot.commit()?;
         self.notify(*seqs.last().expect("one event at least"));
         Ok(Committed { seqs, reply, replayed: false })
     }
 }
 
-/// The stored reply when `write`'s key was committed before with the same request hash.
-fn replay(tx: &Transaction<'_>, write: &Write) -> Result<Option<Committed>, StoreError> {
+/// The stored reply when `idem` was committed before with the same request hash.
+fn replay(tx: &Transaction<'_>, idem: &str, request_hash: &str) -> Result<Option<Committed>, StoreError> {
     let found = tx
         .query_row(
             "SELECT seq, id, request_hash, reply FROM events WHERE idem = ?1 OR idem = ?1 || '#1'",
-            [&write.idem],
+            [idem],
             |r| {
                 Ok((
                     r.get::<_, i64>(0)?,
@@ -93,25 +119,25 @@ fn replay(tx: &Transaction<'_>, write: &Write) -> Result<Option<Committed>, Stor
         )
         .optional()?;
     let Some((seq, id, hash, reply)) = found else { return Ok(None) };
-    if hash != write.request_hash {
+    if hash != request_hash {
         return Err(StoreError::IdempotencyMismatch {
-            idem: write.idem.clone(),
+            idem: idem.to_owned(),
             stored_event: id,
             stored_seq: seq as Seq,
         });
     }
-    let mut stmt =
-        tx.prepare("SELECT seq FROM events WHERE idem = ?1 OR idem LIKE ?2 ESCAPE '\\' ORDER BY seq")?;
-    let like = format!("{}#%", escape_like(&write.idem));
-    let seqs =
-        stmt.query_map(params![write.idem, like], |r| r.get::<_, i64>(0))?.collect::<Result<Vec<_>, _>>()?;
+    // The command's own events: the key itself, or the key and a numbered suffix, `#1`, `#2` and
+    // so on. Any other key that starts with this one, such as a scan's `KEY#after:SEQ`, belongs to
+    // another write.
+    let mut stmt = tx.prepare(
+        "SELECT seq FROM events WHERE idem = ?1 OR (substr(idem, 1, length(?1) + 1) = ?1 || '#'
+         AND length(idem) > length(?1) + 1 AND substr(idem, length(?1) + 2) NOT GLOB '*[^0-9]*')
+         ORDER BY seq",
+    )?;
+    let seqs = stmt.query_map(params![idem], |r| r.get::<_, i64>(0))?.collect::<Result<Vec<_>, _>>()?;
     let reply = match reply {
         Some(text) => serde_json::from_str(&text)?,
         None => Value::Null,
     };
     Ok(Some(Committed { seqs: seqs.into_iter().map(|s| s as Seq).collect(), reply, replayed: true }))
-}
-
-fn escape_like(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }

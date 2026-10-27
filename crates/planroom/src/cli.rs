@@ -12,9 +12,9 @@ use std::time::Instant;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
-    Class, Command, CommandName, DoctorReq, Envelope, ErrorCode, FindReq, FocusReq, Handle, ImportReq,
-    MapReq, Meta, OpenReq, PersonInitReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq, ShareReq, Size,
-    StreamFrame, VersionReq, Warning, WarningCode, WatchReq,
+    Class, Command, CommandName, DoctorReq, EditReq, Envelope, ErrorCode, FindReq, FocusReq, Handle,
+    ImportReq, MapReq, Meta, OpenReq, PersonInitReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq,
+    ShareReq, Size, StreamFrame, VersionReq, Warning, WarningCode, WatchReq,
 };
 use planroom_kernel::display::{sanitize, sanitize_lines};
 use planroom_kernel::redact;
@@ -66,6 +66,8 @@ enum Cmd {
     Import(ImportReq),
     /// Check a pack with --pack DIR: validation, its conformance kit and a second run for determinism.
     Doctor(DoctorReq),
+    /// One hand edit: move, group, rename, hide, pin, relate, unrelate or forbid, or undo a command.
+    Edit(EditReq),
     /// Open the canvas in your browser, signed in with a one-time code it never prints.
     Open(OpenReq),
 }
@@ -96,6 +98,7 @@ pub fn parse_leaf(command: &str, args: &[String]) -> Result<Command, clap::Error
         Cmd::Share(req) => Command::Share(req),
         Cmd::Import(req) => Command::Import(req),
         Cmd::Doctor(req) => Command::Doctor(req),
+        Cmd::Edit(req) => Command::Edit(req),
         Cmd::Open(req) => Command::Open(req),
     })
 }
@@ -165,11 +168,28 @@ pub fn main() -> ExitCode {
             let name = Command::Version(req).name();
             finish(cli.json, &name.0, app::version::version(), started)
         }
+        Cmd::Edit(req) => {
+            let name = Command::Edit(req.clone()).name();
+            finish_written(cli.json, &name.0, app::edit::run(&req, &cwd, &caller, &mut Tty), started)
+        }
         Cmd::Open(req) => {
             let name = Command::Open(req.clone()).name();
             finish(cli.json, &name.0, app::open::run(&req, &cwd, &caller, &mut Tty), started)
         }
     }
+}
+
+/// [`finish`] for a write, whose envelope says when it replays an earlier commit of its key:
+/// `meta.replayed`, and `meta.replayed_from` for a derived key (DR-8).
+pub(crate) fn finish_written<T: Serialize>(
+    json: bool,
+    command: &str,
+    written: Result<app::edit::Written<T>, AppError>,
+    started: Instant,
+) -> ExitCode {
+    let (replayed, replayed_from) = written.as_ref().map_or((false, None), |w| (w.replayed, w.replayed_from));
+    let reply = written.map(|w| Paged { reply: w.reply, next: None, dirty: Default::default() });
+    finish_meta(json, command, reply, started, |meta| Meta { replayed, replayed_from, ..meta })
 }
 
 /// Print a reply or an error, and exit with the error's category's code. Text mode and stderr
@@ -192,6 +212,17 @@ pub(crate) fn finish_paged<T: Serialize>(
     reply: Result<Paged<T>, AppError>,
     started: Instant,
 ) -> ExitCode {
+    finish_meta(json, command, reply, started, |meta| meta)
+}
+
+/// [`finish_paged`], with `meta` set by `with` before the envelope is rendered.
+fn finish_meta<T: Serialize>(
+    json: bool,
+    command: &str,
+    reply: Result<Paged<T>, AppError>,
+    started: Instant,
+    with: impl FnOnce(Meta) -> Meta,
+) -> ExitCode {
     let took_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
     let raw = json && raw_for(command);
     let (code, out) = match reply {
@@ -199,7 +230,7 @@ pub(crate) fn finish_paged<T: Serialize>(
             let line = if json {
                 let summary = summary_of(&reply.text);
                 let budget = budget_of(command);
-                let meta = Meta {
+                let meta = with(Meta {
                     seq: reply.seq,
                     took_ms,
                     next,
@@ -207,7 +238,7 @@ pub(crate) fn finish_paged<T: Serialize>(
                     dirty_repos: dirty.repos,
                     more_dirty_repos: dirty.more,
                     ..Meta::default()
-                };
+                });
                 envelope_within(command, &reply.result, meta, summary, budget, raw)
             } else {
                 sanitize_lines(&redact::text(&text_of(&reply.text, &reply.warnings, &dirty)))

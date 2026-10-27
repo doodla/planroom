@@ -1,5 +1,5 @@
-//! The HTTP routes (contracts.md, HTTP API and live stream): the read commands, the live stream,
-//! the layout cache, the login exchange, the drain and the embedded canvas.
+//! The HTTP routes (contracts.md, HTTP API and live stream): the read commands, `scan` and a tab's
+//! `edit`, the live stream, the layout cache, the login exchange, the drain and the embedded canvas.
 //!
 //! Limits (architecture.md, Local server and live stream): a request runs at most 10 s, a body
 //! holds at most 1 MB, and at most 64 live streams are open at once; past a limit the reply is
@@ -21,8 +21,8 @@ use axum::response::sse::{Event as SseEvent, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use planroom_contract::{
-    Category, CodeReq, DrainReq, ErrorCode, FocusReq, LayoutPut, MapReq, Meta, ScanReq, Seq, SessionReq,
-    SessionToken, StreamFrame,
+    Category, CodeReq, DrainReq, EditReq, ErrorCode, FocusReq, LayoutPut, MapReq, Meta, ScanReq, Seq,
+    SessionReq, SessionToken, StreamFrame,
 };
 use planroom_store::{Store, StoreError, Tail};
 use serde::Serialize;
@@ -32,6 +32,7 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tokio_stream::wrappers::{BroadcastStream, WatchStream};
 
+use crate::app::edit::Written;
 use crate::app::error::AppError;
 use crate::app::{self, Paged, Reply};
 use crate::live::Live;
@@ -209,11 +210,32 @@ fn reply_paged<T: Serialize>(
     result: Result<Paged<T>, AppError>,
     started: Instant,
 ) -> Response {
+    reply_meta(command, result, started, |meta| meta)
+}
+
+/// [`reply`] for a write, whose envelope says when it replays an earlier commit of its key (DR-8).
+fn reply_written<T: Serialize>(
+    command: &str,
+    result: Result<Written<T>, AppError>,
+    started: Instant,
+) -> Response {
+    let (replayed, replayed_from) = result.as_ref().map_or((false, None), |w| (w.replayed, w.replayed_from));
+    let result = result.map(|w| Paged { reply: w.reply, next: None, dirty: Default::default() });
+    reply_meta(command, result, started, |meta| Meta { replayed, replayed_from, ..meta })
+}
+
+/// [`reply_paged`], with `meta` set by `with` before the envelope is rendered.
+fn reply_meta<T: Serialize>(
+    command: &str,
+    result: Result<Paged<T>, AppError>,
+    started: Instant,
+    with: impl FnOnce(Meta) -> Meta,
+) -> Response {
     let took_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
     let (status, body) = match result {
         Ok(Paged { reply: r, next, dirty }) => {
             let summary = cli::summary_of(&r.text);
-            let meta = Meta {
+            let meta = with(Meta {
                 seq: r.seq,
                 took_ms,
                 next,
@@ -221,7 +243,7 @@ fn reply_paged<T: Serialize>(
                 dirty_repos: dirty.repos,
                 more_dirty_repos: dirty.more,
                 ..Meta::default()
-            };
+            });
             (StatusCode::OK, cli::envelope_with(command, Some(&r.result), None, meta, summary))
         }
         Err(e) => {
@@ -429,16 +451,18 @@ async fn command(
         }
     };
     let root = state.root.clone();
-    match within(REQUEST_LIMIT, move || dispatch(&name, body, &root, started)).await {
+    let idem = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).map(str::to_owned);
+    match within(REQUEST_LIMIT, move || dispatch(&name, body, &root, idem.as_deref(), started)).await {
         Ok(response) => response,
         Err(e) => reply::<()>("serve", Err(e), started),
     }
 }
 
-/// The read commands this server runs, and `scan`, whose commit reaches every stream through the
-/// process's own live loop. `scan` over HTTP always scans the workspace root; a `dir` may only name
-/// that root, as the empty map's next action does.
-fn dispatch(name: &str, body: Value, root: &Path, started: Instant) -> Response {
+/// The read commands this server runs; `scan`, whose commit reaches every stream through the
+/// process's own live loop; and `edit`, a signed-in tab's write, which honours `Idempotency-Key`
+/// and the request's `client` (DR-73). `scan` over HTTP always scans the workspace root; a `dir`
+/// may only name that root, as the empty map's next action does.
+fn dispatch(name: &str, body: Value, root: &Path, idem: Option<&str>, started: Instant) -> Response {
     fn parse<T: serde::de::DeserializeOwned>(body: Value) -> Result<T, AppError> {
         serde_json::from_value(body).map_err(|e| bad_body(&e))
     }
@@ -461,6 +485,10 @@ fn dispatch(name: &str, body: Value, root: &Path, started: Instant) -> Response 
                 app::scan::run(&req, root)
             });
             reply_paged(name, ran, started)
+        }
+        "edit" => {
+            let written = parse::<EditReq>(body).and_then(|req| app::edit::run_http(&req, root, idem));
+            reply_written(name, written, started)
         }
         other => {
             let what = text::get("argument.http_command", &[("command", &other)]);

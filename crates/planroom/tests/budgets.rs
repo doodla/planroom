@@ -711,6 +711,29 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
     run(&["focus"], "", &[]);
     // `find` at its widest: a letter most blocks' names or IDs hold.
     run(&["find", "o"], "", &[]);
+    // `edit` with a long name, and a group of many blocks: its reply lists the IDs that fit.
+    let agent = [("PLANROOM_ACTOR", "agent:1a2b3c4d:chat")];
+    let long = "x".repeat(3_000);
+    run(&["edit", "--base", "5", "rename", "orders:container:orders", &long], "", &agent);
+    let members = [
+        "storefront:dir:src/api",
+        "storefront:dir:src/app",
+        "storefront:dir:src/cart",
+        "storefront:dir:src/catalog",
+        "storefront:dir:src/checkout",
+        "storefront:dir:test",
+        "storefront:file:.dockerignore",
+        "storefront:file:.gitignore",
+        "storefront:file:CHANGELOG.md",
+        "storefront:file:Dockerfile",
+        "storefront:file:README.md",
+        "storefront:file:flags.yaml",
+        "storefront:file:package.json",
+        "storefront:file:tsconfig.json",
+    ];
+    let group: Vec<&str> =
+        ["edit", "--base", "5", "group", "everything"].into_iter().chain(members).collect();
+    run(&group, "", &agent);
     run(&["schema"], "", &[]);
     run(&["schema", "--commands"], "", &[]);
     let leaves: Vec<String> = Leaf::SPECS.iter().map(|s| s.name()).collect();

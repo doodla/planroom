@@ -1,7 +1,8 @@
 //! The live stream over `serve` (architecture.md, Local server and live stream; DR-1, DR-61):
-//! two SSE clients on one `serve` with no other writer, each writing through `POST /api/v1/scan`,
-//! the one write leaf the HTTP API runs today. Each sees the other's write as a frame naming the
-//! repo's node ID. HTTP is spoken by hand over `TcpStream`, as in `server_auth.rs`.
+//! two SSE clients on one `serve` with no other writer, each writing through `POST /api/v1/scan`;
+//! each sees the other's write as a frame naming the repo's node ID. A tab's `POST /api/v1/edit`
+//! shows in the very next read on that server. HTTP is spoken by hand over `TcpStream`, as in
+//! `server_auth.rs`.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -190,4 +191,46 @@ fn two_sse_clients_on_one_serve_see_each_others_writes() {
     let mut unique = ids(&a.seen);
     unique.dedup();
     assert_eq!(unique, ids(&a.seen), "no frame twice");
+}
+
+/// A tab's `POST` of `body` to the command at `path`, as JSON; the status and the envelope.
+fn post(s: &Serve, token: &str, path: &str, body: &Value) -> (u16, Value) {
+    let bearer = format!("Bearer {token}");
+    let headers = [("Origin", origin(s.port)), ("Authorization", bearer)];
+    let headers: Vec<(&str, &str)> = headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let (status, body) = http(s.port, "POST", path, &headers, &body.to_string());
+    (status, serde_json::from_str(&body).unwrap_or_else(|e| panic!("{e}: {body}")))
+}
+
+#[test]
+fn a_serve_write_then_read_shows_the_write() {
+    let s = serve();
+    let tab = sign_in(&s, &s.code.clone());
+    let mut stream = Stream::open(&s, &tab);
+    let (status, map) = post(&s, &tab, "/api/v1/map", &json!({"level": "container"}));
+    assert_eq!(status, 200, "{map}");
+    let base = map["meta"]["seq"].as_u64().unwrap();
+
+    let rename = json!({
+        "op": "rename", "id": "orders:container:orders", "name": "order-service", "base": base, "client": "tab_1",
+    });
+    let (status, written) = post(&s, &tab, "/api/v1/edit", &rename);
+    assert_eq!(status, 200, "{written}");
+    let seq = written["meta"]["seq"].as_u64().unwrap();
+    assert!(seq > base, "{written}");
+
+    // The very next read, on the same server, folds the write in and says so in meta.seq.
+    let (status, map) = post(&s, &tab, "/api/v1/map", &json!({"level": "container"}));
+    assert_eq!(status, 200, "{map}");
+    assert!(map["meta"]["seq"].as_u64().unwrap() >= seq, "{map}");
+    let name = map["result"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == "orders:container:orders")
+        .map(|n| n["name"].clone());
+    assert_eq!(name, Some(json!("order-service")), "{map}");
+    // And the stream carries the write's frame, naming its target.
+    assert!(stream.wait_for(&format!("id: {seq}")), "{}", stream.seen);
+    assert!(stream.seen.contains(r#""target":"orders:container:orders""#), "{}", stream.seen);
 }

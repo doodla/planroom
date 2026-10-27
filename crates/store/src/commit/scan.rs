@@ -3,7 +3,7 @@
 use planroom_contract::{Actor, Client, EventBody, EventId, ScanStats, Seq, Status, Timestamp};
 use rusqlite::{Transaction, TransactionBehavior, params};
 
-use super::{NewEvent, idem_exists, insert_event};
+use super::{NewEvent, check_version, idem_exists, insert_event};
 use crate::read::{self, FactRow};
 use crate::{Store, StoreError};
 
@@ -106,6 +106,7 @@ impl Store {
         is_current: &mut dyn FnMut(&RepoScan, bool) -> bool,
     ) -> Result<ScanCommitted, StoreError> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        check_version(&tx)?;
         let mut active = read::active_snapshots(&tx)?;
         let mut moved = Vec::new();
         let mut outcomes = Vec::with_capacity(scan.repos.len());

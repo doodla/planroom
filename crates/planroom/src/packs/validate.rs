@@ -596,6 +596,8 @@ impl Ctx<'_> {
             }
             Command::Scan(req) => project(&req.common)?,
             Command::PersonInit(req) => project(&req.common)?,
+            // Its targets are IDs, ID suffixes or names, resolved when it runs, as `map`'s focus is.
+            Command::Edit(req) => project(&req.common)?,
             // The text `find` searches for names no kind, relation, lens or ID.
             Command::Find(_)
             | Command::Focus(_)

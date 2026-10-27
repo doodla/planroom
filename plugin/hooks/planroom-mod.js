@@ -450,6 +450,19 @@ var CATALOGUE = [
     "room": false
   },
   {
+    "name": "edit",
+    "idea": "intent",
+    "summary": "One hand edit: move, group, rename, hide, pin, relate, unrelate or forbid, or undo a command.",
+    "actor": "any",
+    "class": "change",
+    "budget_tokens": 400,
+    "needs_base": true,
+    "spends": false,
+    "undo": "edit",
+    "tool": "room_change",
+    "room": true
+  },
+  {
     "name": "open",
     "idea": "levels",
     "summary": "Open the canvas in your browser, signed in with a one-time code it never prints.",

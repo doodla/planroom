@@ -50,6 +50,7 @@ pub fn get(key: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
 /// Logging), so a label names no repo-derived value: the line beside it says what it acts on.
 pub const LABELS: &[&str] = &[
     "argument.schema_label",
+    "edit.undo_label",
     "empty.check_again_next",
     "empty.lens_shows_nothing_next",
     "empty.not_scanned_next",
@@ -95,6 +96,18 @@ pub fn short(text: &str, chars: usize) -> String {
     match text.char_indices().nth(chars) {
         Some((cut, _)) => format!("{}…", text[..cut].trim_end()),
         None => text.to_owned(),
+    }
+}
+
+/// `word` as one word of a POSIX shell command line: as it is when every character is plainly
+/// safe, else in single quotes with each `'` written `'\''`. Hand-rolled: a few lines, where a
+/// crate would add a dependency for one function.
+pub fn shell_word(word: &str) -> String {
+    let plain = |c: char| c.is_ascii_alphanumeric() || "_./:@%+=,-".contains(c);
+    if !word.is_empty() && word.chars().all(plain) {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
     }
 }
 

@@ -861,6 +861,7 @@ fn person_required_names_a_path_that_exists() {
     // Every leaf, with a mod key registered or not, follows its terminal rule: `/room NAME` only
     // for a leaf `/room` serves; the terminal never where its path is refused; and where it is
     // taken, the exact line, which parses as that leaf, for every leaf that resolves a person.
+    const OPERANDS_FROM_THE_CALL: &[&str] = &["edit"];
     for spec in planroom_contract::Command::SPECS {
         let name = spec.name();
         for registered in [false, true] {
@@ -887,7 +888,13 @@ fn person_required_names_a_path_that_exists() {
                         let words: Vec<String> = line.split(' ').skip(1).map(str::to_owned).collect();
                         let leaf = &words[..spec.path.len()];
                         let parsed = planroom::cli::parse_leaf(&leaf.join(" "), &words[spec.path.len()..]);
-                        assert!(parsed.is_ok_and(|c| c.spec().name() == name), "{at}");
+                        // A leaf whose operands come from the call can't run bare: its refusal
+                        // names the caller's own command instead, which edit.rs parses back.
+                        if OPERANDS_FROM_THE_CALL.contains(&name.as_str()) {
+                            assert!(parsed.is_err(), "{at}: runs bare, so name it bare");
+                        } else {
+                            assert!(parsed.is_ok_and(|c| c.spec().name() == name), "{at}");
+                        }
                     }
                 }
             }

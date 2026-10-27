@@ -64,6 +64,7 @@ const RESULTS: &[(&str, &str)] = &[
     ("share", "ShareResult"),
     ("import", "ImportResult"),
     ("doctor", "PackReport"),
+    ("edit", "EditResult"),
     ("open", "OpenResult"),
 ];
 
