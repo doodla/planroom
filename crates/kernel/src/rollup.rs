@@ -178,6 +178,7 @@ mod tests {
                 edge("e:000000000001", "k.y", "r:x:a", "r:x:b"),
                 edge("e:000000000002", "k.z", "r:x:a", "r:x:b"),
             ],
+            ..Model::default()
         };
         let lens = LensVocab {
             id: "p.l".into(),
@@ -207,6 +208,7 @@ mod tests {
                 edge("e:000000000001", "k.y", "r:x:a", "r:x:c"),
                 edge("e:000000000002", "k.y", "r:x:a", "r:x:b"),
             ],
+            ..Model::default()
         };
         for level in [Level::Intent, Level::System, Level::Container, Level::Component, Level::Code] {
             let rollup = lift(&model, level, None);

@@ -56,7 +56,7 @@ fn edge(n: u32, kind: &str, from: Ref, to: Ref) -> Edge {
 }
 
 fn model(nodes: Vec<Node>, edges: Vec<Edge>) -> Model {
-    Model { at: 1, nodes, edges }
+    Model { at: 1, nodes, edges, ..Model::default() }
 }
 
 fn ends(lifted: &LiftedEdge) -> (&str, &str) {

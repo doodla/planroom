@@ -20,4 +20,7 @@ pub struct Model {
     pub at: Seq,
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
+    /// The edges resolution set aside, as extracted, because an end resolves to no node or to
+    /// several: the caller reports each as `unresolved_ref` (architecture.md, "IDs and aliases").
+    pub unresolved: Vec<Edge>,
 }

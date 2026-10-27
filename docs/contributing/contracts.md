@@ -616,6 +616,8 @@ pub struct ReconcileOutcome {                // persisted, so classes don't depe
 }
 ```
 
+The engine writes every `Timestamp` in one fixed form: RFC 3339 UTC with microseconds, `YYYY-MM-DDTHH:MM:SS.ffffffZ`. That covers an event's `at`, a claim's `until` and the claims overlay's `now`. So two timestamps compare as text in time order, and the claims overlay compares a claim's `until` with `now` that way.
+
 ## View models
 
 ```rust
