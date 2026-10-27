@@ -13,7 +13,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use p256::ecdsa::signature::Signer;
 use p256::ecdsa::{Signature, SigningKey};
@@ -84,6 +84,11 @@ fn text_mode(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Command {
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
         .env("PLANROOM_TEST_OPENER", "/nonexistent/opener");
+    // No browser can be seen unless the test gives a display: on macOS one always can, so the
+    // run is an SSH session's there, as on a Linux host with no display.
+    if !env.iter().any(|(k, _)| *k == "DISPLAY") {
+        cmd.env("SSH_CONNECTION", "test");
+    }
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -120,10 +125,17 @@ fn init(root: &Path, args: &[&str], stdin: &str, env: &[(&str, &str)]) -> (i32, 
 static PTY: Mutex<()> = Mutex::new(());
 
 /// `planroom ARGS --json` run as a person at a terminal would run it: in a session of its own
-/// whose controlling terminal, and stdin, is a fresh pseudo-terminal, where `typed` is typed
-/// before it starts. Returns its exit code, its envelope from stdout (a pipe, as the mod reads
-/// it) and what it wrote on the terminal.
+/// whose controlling terminal, and stdin, is a fresh pseudo-terminal. `typed` up to its last
+/// end-of-input (`\x04`) is typed before it starts, as rows piped in at a terminal would be; the
+/// rest is the person's answer, typed once the terminal shows the `[y/N]` question. The terminal
+/// is read the whole time, so nothing the program writes there waits on a full buffer, and a run
+/// past 60 s is stopped and fails with what the terminal showed. Returns its exit code, its
+/// envelope from stdout (a pipe, as the mod reads it) and what it wrote on the terminal.
 fn at_terminal(root: &Path, args: &[&str], typed: &str, env: &[(&str, &str)]) -> (i32, Value, String) {
+    let (ahead, answer) = match typed.rfind('\x04') {
+        Some(at) => typed.split_at(at + 1),
+        None => ("", typed),
+    };
     let (master, slave) = {
         let _one = PTY.lock().unwrap();
         // SAFETY: plain calls on descriptors this test owns; `ptsname`'s buffer is read under
@@ -151,26 +163,47 @@ fn at_terminal(root: &Path, args: &[&str], typed: &str, env: &[(&str, &str)]) ->
         });
     }
     let mut writer = master.try_clone().unwrap();
-    writer.write_all(typed.as_bytes()).unwrap();
-    let child = cmd.spawn().unwrap();
+    writer.write_all(ahead.as_bytes()).unwrap();
+    let mut child = cmd.spawn().unwrap();
     drop(cmd);
-    let out = child.wait_with_output().unwrap();
-    // What it wrote on the terminal, as far as is left to read: the side that reads it never
-    // blocks once the program has exited.
     // SAFETY: a flag change on a descriptor this test owns.
     unsafe {
         let fd = master.as_raw_fd();
         libc::fcntl(fd, libc::F_SETFL, libc::fcntl(fd, libc::F_GETFL) | libc::O_NONBLOCK);
     }
-    let mut shown = Vec::new();
-    let mut buf = [0u8; 4096];
-    let mut master = master;
-    while let Ok(n) = master.read(&mut buf) {
-        if n == 0 {
+    let (mut master, mut shown, mut buf) = (master, Vec::new(), [0u8; 4096]);
+    let mut pending = (!answer.is_empty()).then_some(answer);
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let drain = |master: &mut File, shown: &mut Vec<u8>, buf: &mut [u8]| {
+        while let Ok(n) = master.read(buf) {
+            if n == 0 {
+                break;
+            }
+            shown.extend_from_slice(&buf[..n]);
+        }
+    };
+    loop {
+        drain(&mut master, &mut shown, &mut buf);
+        if let Some(text) = pending.filter(|_| String::from_utf8_lossy(&shown).contains("[y/N]")) {
+            writer.write_all(text.as_bytes()).unwrap();
+            pending = None;
+        }
+        if child.try_wait().unwrap().is_some() {
             break;
         }
-        shown.extend_from_slice(&buf[..n]);
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!(
+                "planroom {args:?} at a terminal ran past 60 s; answer still pending: {}; the terminal showed: {:?}",
+                pending.is_some(),
+                String::from_utf8_lossy(&shown)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
+    let out = child.wait_with_output().unwrap();
+    drain(&mut master, &mut shown, &mut buf);
     let stdout = String::from_utf8(out.stdout).unwrap();
     let env: Value = serde_json::from_str(stdout.trim())
         .unwrap_or_else(|e| panic!("{e}: {stdout}\n{}", String::from_utf8_lossy(&out.stderr)));

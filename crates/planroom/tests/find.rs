@@ -136,19 +136,22 @@ fn names(result: &FindResult) -> Vec<&str> {
     result.items.iter().map(|i| i.name.as_str()).collect()
 }
 
-/// Commits `files`, each with one line, in the fixture repo `repo`.
-fn commit(repo: &Path, files: &[std::path::PathBuf]) {
-    for file in files {
-        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        std::fs::write(file, "export const x = 1;\n").unwrap();
-    }
-    for args in [
-        vec!["add", "-A"],
-        vec!["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "more"],
-    ] {
-        let out = Command::new("git").args(&args).current_dir(repo).output().unwrap();
+/// Commits `path`, with one line, in the fixture repo `repo` through git's index alone, and keeps
+/// it out of the working tree's status: a path longer than a filesystem allows (macOS's 1,024
+/// bytes) still fits in a tree, as a repo committed elsewhere holds it, and a scan reads the tree.
+fn commit_in_the_index(repo: &Path, path: &str) {
+    let git = |args: &[&str]| {
+        let out = Command::new("git").args(args).current_dir(repo).output().unwrap();
         assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
-    }
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let line = repo.join("line.ts");
+    std::fs::write(&line, "export const x = 1;\n").unwrap();
+    let blob = git(&["hash-object", "-w", "line.ts"]);
+    std::fs::remove_file(&line).unwrap();
+    git(&["update-index", "--add", "--cacheinfo", &format!("100644,{},{path}", blob.trim())]);
+    git(&["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "more"]);
+    git(&["update-index", "--skip-worktree", path]);
 }
 
 #[test]
@@ -159,11 +162,11 @@ fn a_find_whose_match_is_too_long_to_list_stays_within_its_budget() {
     // A file 14 directories deep, each name 200 characters long, so its ID alone passes the
     // budget.
     let repo = root.join("storefront");
-    let mut deep = repo.join("src");
+    let mut deep = String::from("src");
     for i in 0..14 {
-        deep.push(format!("{i:02}{}", "d".repeat(198)));
+        deep.push_str(&format!("/{i:02}{}", "d".repeat(198)));
     }
-    commit(&repo, &[deep.join("zebrafinch.ts")]);
+    commit_in_the_index(&repo, &format!("{deep}/zebrafinch.ts"));
     ok(&root, &["scan"]);
 
     let budget = u64::from(planroom_contract::Command::Find(FindReq::default()).spec().budget_tokens);
