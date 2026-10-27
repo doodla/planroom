@@ -320,6 +320,19 @@ var CATALOGUE = [
     "room": true
   },
   {
+    "name": "ask",
+    "idea": "lenses",
+    "summary": "A question the loaded packs answer; alone, every loaded kind, lens and question.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": false,
+    "undo": "query",
+    "tool": "room_query",
+    "room": true
+  },
+  {
     "name": "focus",
     "idea": "levels",
     "summary": "Where you are, the one open decision and the next action.",

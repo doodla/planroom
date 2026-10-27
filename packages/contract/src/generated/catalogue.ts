@@ -45,6 +45,19 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "room": true
   },
   {
+    "name": "ask",
+    "idea": "lenses",
+    "summary": "A question the loaded packs answer; alone, every loaded kind, lens and question.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": false,
+    "undo": "query",
+    "tool": "room_query",
+    "room": true
+  },
+  {
     "name": "focus",
     "idea": "levels",
     "summary": "Where you are, the one open decision and the next action.",
@@ -203,7 +216,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
 ];
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
-export const CATALOGUE_HASH = "0e18e63bbfd1fe8ee01001b38023a1947b5a9630dec99b65d758529167e8ac64";
+export const CATALOGUE_HASH = "2e42b9b56f76fee83f99394afa51eac456dd18b404e4d770ad7266330ef2c819";
 
 /** One pane the mod draws before the engine answers `focus` (DR-57). */
 export interface FallbackPane {

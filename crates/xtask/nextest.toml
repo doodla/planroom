@@ -18,5 +18,6 @@ filter = """
 | (binary_id(planroom::scan) & test(=a_scan_finds_the_truths_compose_containers_with_evidence_on_their_lines))
 | (binary_id(planroom-store::concurrency) & test(=three_writer_processes_commit_500_each_with_no_loss_and_no_busy))
 | (binary_id(planroom::s01_first_look) & test(=cold_scan_under_5_s))
+| (binary_id(planroom-kernel::query) & test(=a_query_stays_linear_in_the_size_of_the_model))
 """
 threads-required = "num-test-threads"

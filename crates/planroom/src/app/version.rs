@@ -54,6 +54,7 @@ pub enum SchemaReply {
 const RESULTS: &[(&str, &str)] = &[
     ("map", "MapView"),
     ("find", "FindResult"),
+    ("ask", "AskResult"),
     ("focus", "PaneModel"),
     ("scan", "ScanResult"),
     ("watch", "StreamFrame"),

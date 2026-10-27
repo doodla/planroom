@@ -107,6 +107,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 91 | The contract M1 builds on: cards on the wire, the edit ops, and the redaction marks | none (Contracts; the Logging convention) | added | M1's first change, read against the docs |
 | 92 | The truth comparator's floor, edit's first ops, the dirty count's git call, and test-only seams | DR-71, DR-73, DR-75, DR-86, DR-89, DR-91 | extended | the merges of M1's truth comparator, discovery, person authority and edit work |
 | 93 | The model adapter's crate edges, its transport's crypto provider, and an environment variable's own hint | DR-39, DR-48, DR-66, DR-85 | extended | the merge of M1's Claude adapter |
+| 94 | Declared IDs at most 64 characters, and the listing's own left-out count | DR-15, DR-46, DR-86 | extended | the merge of M1's questions and `ask` |
 
 ## Where the design reviews disagreed
 
@@ -2469,3 +2470,24 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: the `invalid_argument` row's `hint` sentence.
   - Tests: `live_gate.rs::a_live_flag_without_a_spend_log_is_refused` checks the `--json` hint; `models/tests/transport.rs`.
 - **Sources (checked 2026-10-27):** `crates/models/{Cargo.toml, src/}`; `crates/planroom/src/cli.rs` (`with_usage`); `deny.toml`; [Contracts](contracts.md#error-codes); DR-39's library table.
+
+## DR-94: Declared IDs at most 64 characters, and the listing's own left-out count
+
+- **Status:** accepted (decided at the merge of M1's questions and `ask`, 2026-10-27).
+- **Starting point:** extended DR-15, DR-46 and DR-86.
+- **Origin:** the merge of the questions work, read against the docs by an independent check.
+- **Context:**
+  - A pack's IDs had no length bound. A reply that must keep to its leaf's budget (DR-86) and also echo a question's ID cut a long ID short, so `AskResult.question` and a listing entry could hold a value that is no ID and that a caller can't pass back.
+  - Question IDs weren't checked at load at all, and built-in ones hold hyphens (`fires-if`), so the declared-ID syntax doesn't fit them.
+  - The listing reused `truncated`'s `left_out`, which already counts the warnings the CLI's whole-reply check leaves out.
+- **Decision:**
+  - **Every declared ID is at most 64 characters:** a pack, kind, relation, hint, lens, language, extractor or question ID longer than that is `pack_invalid` at the line that declares it. Question IDs get the bound alone, not the `[a-z0-9_]` syntax. No reply cuts an ID.
+  - **The listing's count** of entries too long for any page is `entries_left_out` in its `truncated` details.
+- **Alternatives rejected:**
+  - Echoing an ID whole past the budget: a reply over its leaf's budget breaks DR-86.
+  - Cutting an ID only past the budget: an ID that sometimes isn't one can't be passed back.
+- **Consequences:**
+  - Contracts: the pack manifest's ID comment; the `truncated` row's `entries_left_out`.
+  - Tests: `packs.rs::a_declared_id_past_64_characters_is_refused`.
+  - Known gap, for M2's linkers: `path` misses a route that enters a repo through its root file and leaves toward a block inside it, since roll-up lifts an edge into that file to the repo and steps an edge out of it down to the file.
+- **Sources (checked 2026-10-27):** `crates/planroom/src/packs/validate.rs` (`syntax`, `bounded`); `crates/planroom/src/app/ask.rs`; [Contracts](contracts.md#pack-manifest).

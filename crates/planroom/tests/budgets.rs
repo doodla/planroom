@@ -734,6 +734,11 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
     let group: Vec<&str> =
         ["edit", "--base", "5", "group", "everything"].into_iter().chain(members).collect();
     run(&group, "", &agent);
+    // `ask` alone lists what is loaded; each code pack question over the fixture's blocks.
+    run(&["ask"], "", &[]);
+    run(&["ask", "impact", "orders"], "", &[]);
+    run(&["ask", "path", "storefront", "worker"], "", &[]);
+    run(&["ask", "why", "storefront", "orders"], "", &[]);
     run(&["schema"], "", &[]);
     run(&["schema", "--commands"], "", &[]);
     let leaves: Vec<String> = Leaf::SPECS.iter().map(|s| s.name()).collect();

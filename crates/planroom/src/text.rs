@@ -51,8 +51,15 @@ pub fn get(key: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
 pub const LABELS: &[&str] = &[
     "argument.schema_label",
     "edit.undo_label",
+    "ask.next_page",
+    "ask.run",
+    "ask.show",
+    "ask.show_level",
+    "ask.show_lens",
+    "ask.why",
     "empty.check_again_next",
     "empty.lens_shows_nothing_next",
+    "empty.no_answer_next",
     "empty.not_scanned_next",
     "empty.nothing_after_cursor_next",
     "empty.nothing_mapped_next",
@@ -169,6 +176,24 @@ mod tests {
                     assert!(!code.contains(&needle), "{}: a label read with text::get", path.display());
                 }
             }
+        }
+    }
+
+    #[test]
+    fn a_comment_that_names_a_command_sits_above_its_table() {
+        // A comment opening with a command in backticks, such as `find TEXT`, describes the table
+        // of that name, so the next table after it is that one.
+        let tables: Vec<&str> = catalog().keys().map(String::as_str).collect();
+        let lines: Vec<&str> = EN.lines().collect();
+        for (n, line) in lines.iter().enumerate() {
+            let Some(named) = line.strip_prefix("# `").and_then(|r| r.split([' ', '`']).next()) else {
+                continue;
+            };
+            if !tables.contains(&named) {
+                continue;
+            }
+            let next = lines[n + 1..].iter().find(|l| l.starts_with('[')).copied().unwrap_or_default();
+            assert_eq!(next, format!("[{named}]"), "line {}: {line}", n + 1);
         }
     }
 

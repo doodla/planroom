@@ -8,6 +8,7 @@ use planroom_contract::{Command, Undo};
 /// Every leaf this build serves, with its undo class. A new leaf joins this list with its class;
 /// a new `not_undoable` one needs a decision record first (DR-55).
 const SNAPSHOT: &[(&str, &str)] = &[
+    ("ask", "query"),
     ("doctor", "query"),
     ("edit", "edit"),
     ("find", "query"),

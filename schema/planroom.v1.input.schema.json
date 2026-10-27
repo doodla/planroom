@@ -292,6 +292,17 @@
           },
           "description": "The question's arguments, such as the two ends of `path A B`.",
           "default": []
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The cursor `meta.next` gave, to read the page after it of `ask` alone's listing."
         }
       },
       "description": "`planroom ask [QUESTION [ARGS]]`: a pack or built-in question; alone, it lists every loaded\nkind, lens and question."
@@ -606,6 +617,22 @@
           "properties": {
             "command": {
               "type": "string",
+              "const": "ask"
+            },
+            "args": {
+              "$ref": "#/$defs/AskReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
               "const": "focus"
             },
             "args": {
@@ -823,6 +850,7 @@
           "enum": [
             "map",
             "find",
+            "ask",
             "focus",
             "scan",
             "watch",

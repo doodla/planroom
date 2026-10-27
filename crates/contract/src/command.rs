@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::envelope::{CommandName, Cursor, Empty, Handle};
 use crate::errors::ErrorCode;
 use crate::model::{Level, NodeId, Seq};
-use crate::requests::{EditReq, FindReq};
+use crate::requests::{AskReq, EditReq, FindReq};
 use crate::view::MapView;
 
 /// Which of the five ideas (plus setup) a command belongs to; help is grouped by it.
@@ -92,6 +92,7 @@ impl CommandSpec {
 pub enum Command {
     Map(MapReq),
     Find(FindReq),
+    Ask(AskReq),
     Focus(FocusReq),
     Scan(ScanReq),
     Watch(WatchReq),
@@ -140,6 +141,29 @@ const FIND: CommandSpec = CommandSpec {
     spends: false,
     errors: &[
         ErrorCode::InvalidArgument,
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Query,
+    tool: Some(Tool::RoomQuery),
+    room: true,
+};
+
+const ASK: CommandSpec = CommandSpec {
+    path: &["ask"],
+    idea: Idea::Lenses,
+    summary: "A question the loaded packs answer; alone, every loaded kind, lens and question.",
+    actor: ActorRule::Any,
+    class: Class::Read,
+    budget_tokens: 1_500,
+    needs_base: false,
+    spends: false,
+    errors: &[
+        ErrorCode::InvalidArgument,
+        ErrorCode::AmbiguousRef,
+        ErrorCode::NotFound,
         ErrorCode::WorkspaceNotFound,
         ErrorCode::StoreBusy,
         ErrorCode::SchemaMismatch,
@@ -402,6 +426,7 @@ impl Command {
     pub const SPECS: &'static [CommandSpec] = &[
         MAP,
         FIND,
+        ASK,
         FOCUS,
         SCAN,
         WATCH,
@@ -420,6 +445,7 @@ impl Command {
         match self {
             Command::Map(_) => &MAP,
             Command::Find(_) => &FIND,
+            Command::Ask(_) => &ASK,
             Command::Focus(_) => &FOCUS,
             Command::Scan(_) => &SCAN,
             Command::Watch(_) => &WATCH,

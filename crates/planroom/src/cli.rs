@@ -12,7 +12,7 @@ use std::time::Instant;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
-    Class, Command, CommandName, DoctorReq, EditReq, Envelope, ErrorCode, FindReq, FocusReq, Handle,
+    AskReq, Class, Command, CommandName, DoctorReq, EditReq, Envelope, ErrorCode, FindReq, FocusReq, Handle,
     ImportReq, MapReq, Meta, OpenReq, PersonInitReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq,
     ShareReq, Size, StreamFrame, VersionReq, Warning, WarningCode, WatchReq,
 };
@@ -47,6 +47,8 @@ enum Cmd {
     Map(MapReq),
     /// Search the map's blocks by name or ID, best match first.
     Find(FindReq),
+    /// A question the loaded packs answer; alone, every loaded kind, lens and question.
+    Ask(AskReq),
     /// Where you are, the one open decision and the next action.
     Focus(FocusReq),
     /// Stream the workspace's committed events as NDJSON frames.
@@ -89,6 +91,7 @@ pub fn parse_leaf(command: &str, args: &[String]) -> Result<Command, clap::Error
         Cmd::Scan(req) => Command::Scan(req),
         Cmd::Map(req) => Command::Map(req),
         Cmd::Find(req) => Command::Find(req),
+        Cmd::Ask(req) => Command::Ask(req),
         Cmd::Focus(req) => Command::Focus(req),
         Cmd::Watch(req) => Command::Watch(req),
         Cmd::Schema(req) => Command::Schema(req),
@@ -134,6 +137,11 @@ pub fn main() -> ExitCode {
         Cmd::Find(req) => {
             let name = Command::Find(req.clone()).name();
             finish(cli.json, &name.0, app::find::run(&req, &cwd), started)
+        }
+        Cmd::Ask(req) => {
+            let name = Command::Ask(req.clone()).name();
+            let budget = app::ask::budget(&req);
+            finish_within(cli.json, &name.0, app::ask::run(&req, &cwd), started, budget)
         }
         Cmd::Focus(req) => {
             let name = Command::Focus(req.clone()).name();
@@ -189,7 +197,11 @@ pub(crate) fn finish_written<T: Serialize>(
 ) -> ExitCode {
     let (replayed, replayed_from) = written.as_ref().map_or((false, None), |w| (w.replayed, w.replayed_from));
     let reply = written.map(|w| Paged { reply: w.reply, next: None, dirty: Default::default() });
-    finish_meta(json, command, reply, started, |meta| Meta { replayed, replayed_from, ..meta })
+    finish_meta(json, command, reply, started, budget_of(command), |meta| Meta {
+        replayed,
+        replayed_from,
+        ..meta
+    })
 }
 
 /// Print a reply or an error, and exit with the error's category's code. Text mode and stderr
@@ -212,15 +224,29 @@ pub(crate) fn finish_paged<T: Serialize>(
     reply: Result<Paged<T>, AppError>,
     started: Instant,
 ) -> ExitCode {
-    finish_meta(json, command, reply, started, |meta| meta)
+    finish_meta(json, command, reply, started, budget_of(command), |meta| meta)
 }
 
-/// [`finish_paged`], with `meta` set by `with` before the envelope is rendered.
+/// [`finish_paged`] within `budget` tokens rather than the leaf's own: an `ask` question's, which
+/// its pack sets up to 3,000 (DR-21).
+pub(crate) fn finish_within<T: Serialize>(
+    json: bool,
+    command: &str,
+    reply: Result<Paged<T>, AppError>,
+    started: Instant,
+    budget: Option<u32>,
+) -> ExitCode {
+    finish_meta(json, command, reply, started, budget, |meta| meta)
+}
+
+/// [`finish_paged`] within `budget` tokens, with `meta` set by `with` before the envelope is
+/// rendered.
 fn finish_meta<T: Serialize>(
     json: bool,
     command: &str,
     reply: Result<Paged<T>, AppError>,
     started: Instant,
+    budget: Option<u32>,
     with: impl FnOnce(Meta) -> Meta,
 ) -> ExitCode {
     let took_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
@@ -229,7 +255,6 @@ fn finish_meta<T: Serialize>(
         Ok(Paged { reply, next, dirty }) => {
             let line = if json {
                 let summary = summary_of(&reply.text);
-                let budget = budget_of(command);
                 let meta = with(Meta {
                     seq: reply.seq,
                     took_ms,

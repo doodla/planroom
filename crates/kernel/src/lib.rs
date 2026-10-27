@@ -9,6 +9,7 @@ pub mod keys;
 pub mod lens;
 pub mod model;
 pub mod next;
+pub mod query;
 pub mod redact;
 pub mod redact_fields;
 pub mod resolve;

@@ -15,6 +15,7 @@ Planroom embeds it in the binary, so every workspace loads it first.
 | `[[hints]]` | `url`, `env_read`, `env_set`, `depends_on`, `route_serve`, `route_call`, `queue_op`, `db_open`, `sql`, `def`, `call` |
 | `[[extractors]]` | the `files` and `compose` built-ins |
 | `[[lenses]]` | `runtime` (the default), `flow`, `dependencies`, `history` |
+| `[[questions]]` | `path A B`, a shortest path over `flow`; `why A B`, every edge between the two with its evidence and confidence; `impact X`, what depends on X and what it depends on, over `runtime` and `dependencies`. `planroom ask` lists them with every loaded kind and lens |
 | `[[suggestions]]` | the pane's next action: open the containers when the map has any, else the components, else the files |
 
 A compose service whose image no image role matches is a `service`.
@@ -34,6 +35,8 @@ Your pack may:
 - add a language whose extensions no loaded pack claims;
 - add an image role for a glob no loaded pack claims;
 - emit the code pack's hint kinds, such as `code.url`. The code pack declares no `[[linkers]]` yet, and this build has no built-in linker, so nothing joins those hints today. A hint kind your own pack declares is refused, because no loaded linker would join it.
+
+A question step's `$NAME`, whole or inside an ID, must be one of the question's `args`. A key that names nothing, such as `depth` or `direction`, takes a number, a word or text, or a list of them, never a table.
 
 A key no table declares, anywhere in your pack's TOML files, is refused, and the error names that key's line.
 

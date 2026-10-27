@@ -18,6 +18,7 @@ export type CommandName =
   | (
       | "map"
       | "find"
+      | "ask"
       | "focus"
       | "scan"
       | "watch"
@@ -238,6 +239,10 @@ export type Command =
   | {
       command: "find";
       args: FindReq;
+    }
+  | {
+      command: "ask";
+      args: AskReq;
     }
   | {
       command: "focus";
@@ -1076,6 +1081,10 @@ export interface AskReq {
    * The question's arguments, such as the two ends of `path A B`.
    */
   args: string[];
+  /**
+   * The cursor `meta.next` gave, to read the page after it of `ask` alone's listing.
+   */
+  cursor?: Cursor | null;
 }
 /**
  * What `ask` returns: the answer's summary line and its items, each with the handles that drill
@@ -1179,6 +1188,7 @@ export interface Card {
     | (
         | "map"
         | "find"
+        | "ask"
         | "focus"
         | "scan"
         | "watch"
@@ -1943,6 +1953,7 @@ export interface Envelope {
     | (
         | "map"
         | "find"
+        | "ask"
         | "focus"
         | "scan"
         | "watch"
@@ -2540,6 +2551,7 @@ export interface InboxRow {
     | (
         | "map"
         | "find"
+        | "ask"
         | "focus"
         | "scan"
         | "watch"

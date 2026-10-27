@@ -561,9 +561,11 @@ fn rule(kind: &str, subject: &str, params: &str) -> String {
 }
 
 /// A one-step `[[questions]]` table of shape `shape`, with `params` as an inline table's body.
+/// The question declares the arguments `X`, `A` and `B`.
 fn step(shape: &str, params: &str) -> String {
     format!(
-        "[[questions]]\nid = \"asked\"\nsummary = \"One step\"\n\n\
+        "[[questions]]\nid = \"asked\"\nsummary = \"One step\"\n\
+         args = [{{ name = \"X\" }}, {{ name = \"A\" }}, {{ name = \"B\" }}]\n\n\
          [[questions.steps]]\nshape = \"{shape}\"\nparams = {{ {params} }}\n"
     )
 }
@@ -1132,6 +1134,66 @@ fn an_unknown_key_anywhere_in_a_pack_is_pack_invalid() {
 }
 
 #[test]
+fn a_question_step_names_only_its_declared_arguments() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pack = |id: &str, args: &str, params: &str| {
+        let body = format!(
+            "[[questions]]\nid = \"asked\"\nsummary = \"How {{A}} reaches {{B}}\"\nargs = [{args}]\n\n\
+             [[questions.steps]]\nshape = \"path\"\nparams = {{ {params} }}\n"
+        );
+        pack_dir(tmp.path(), id, &["code"], &body)
+    };
+    // Each argument a step names, whole or inside an ID, is one the question declares.
+    let declared = "{ name = \"A\" }, { name = \"B\", optional = true }";
+    let env = doctor(&pack("declared", declared, "from = \"$A\", to = \"$B:dir:src\", lens = \"flow\""));
+    assert_eq!(env["ok"], true, "{env}");
+    // A step that names an argument the question doesn't declare would run with nothing bound.
+    let env = doctor(&pack("misnamed", declared, "from = \"$A\", to = \"$C\""));
+    assert_invalid(
+        &env,
+        "$C",
+        "$C names the argument C, which the question doesn't declare; it declares A, B",
+    );
+    let env = doctor(&pack("inside", declared, "from = \"$A\", to = \"storefront:dir:$D\""));
+    assert_invalid(&env, "storefront:dir:$D", "names the argument D, which the question doesn't declare");
+    let env = doctor(&pack("bare", "", "from = \"$A\", to = \"$B\""));
+    assert_invalid(
+        &env,
+        "$A",
+        "$A names the argument A, which the question doesn't declare; it declares no arguments",
+    );
+}
+
+#[test]
+fn a_parameter_that_names_nothing_refuses_a_table() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pack = |id: &str, body: String| pack_dir(tmp.path(), id, &["code"], &body);
+    // A number, a word or a list of them loads where a key names nothing.
+    let env = doctor(&pack("plain", step("subgraph", "lens = \"runtime\", props = [\"role\", \"version\"]")));
+    assert_eq!(env["ok"], true, "{env}");
+    let env = doctor(&pack("worded", step("neighbors", "ids = [\"$X\"], depth = 2, direction = \"both\"")));
+    assert_eq!(env["ok"], true, "{env}");
+    // A table there has keys nothing reads, so it is refused, as is a list that holds one.
+    let env = doctor(&pack("tabled", step("neighbors", "ids = [\"$X\"], depth = { max = 2 }")));
+    assert_invalid(
+        &env,
+        "depth",
+        "depth names nothing, so it takes a number, a word or text, or a list of them, never a table",
+    );
+    let env = doctor(&pack("listed", step("subgraph", "props = [{ name = \"role\" }]")));
+    assert_invalid(&env, "props", "props names nothing");
+    // Inside a table parameter too: an edge test's direction.
+    let env = doctor(&pack(
+        "nested",
+        step("filter", "without_edge = { relation = \"code.http\", direction = { of = \"in\" } }"),
+    ));
+    assert_invalid(&env, "direction", "direction names nothing");
+    // And in a rule type's parameters.
+    let env = doctor(&pack("ruled", rule("min_children", "code.service", "min = { at_least = 1 }")));
+    assert_invalid(&env, "min", "min names nothing");
+}
+
+#[test]
 fn a_placeholder_stands_in_only_where_the_docs_allow_one() {
     let tmp = tempfile::tempdir().unwrap();
     let pack = |id: &str, body: String| pack_dir(tmp.path(), id, &["code"], &body);
@@ -1199,13 +1261,14 @@ fn pack_invalid_names_the_line_of_its_own_key_or_value() {
     assert_invalid(&env, "code.flags", "no loaded pack declares the kind code.flags");
     assert_eq!(line(&env), 18, "{env}");
     // An earlier step sets the same key, which that step's shape declares: the error names the
-    // second step's params line, 17, not line 13.
-    let body = "[[questions]]\nid = \"asked\"\nsummary = \"Two steps\"\n\n\
+    // second step's params line, 18, not line 14.
+    let body = "[[questions]]\nid = \"asked\"\nsummary = \"Two steps\"\n\
+                args = [{ name = \"A\" }, { name = \"B\" }]\n\n\
                 [[questions.steps]]\nshape = \"neighbors\"\nparams = { depth = 1 }\n\n\
                 [[questions.steps]]\nshape = \"path\"\nparams = { from = \"$A\", to = \"$B\", depth = 2 }\n";
     let env = doctor(&pack_dir(tmp.path(), "depths", &["code"], body));
     assert_invalid(&env, "depth", "depth isn't a parameter of the path shape");
-    assert_eq!(line(&env), 17, "{env}");
+    assert_eq!(line(&env), 18, "{env}");
     // A later line holds a claimed key's text: the error names the claim's own line, 9.
     let body = "[[languages]]\nid = \"deno\"\nextensions = [\"ts\"]\n\n\
                 [[languages]]\nid = \"other\"\nextensions = [\"zz\"]\nline_comment = \"ts\"\n";
@@ -1377,4 +1440,29 @@ fn the_parameter_tables_in_the_docs_match_the_contract() {
     }
     doc.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(doc, spelled(planroom_contract::PREDICATE_PARAMS), "the predicate's table");
+}
+
+/// Every declared ID, a question's included, is at most 64 characters, so a reply can always show
+/// it whole: a longer one is refused at load, where the pack names it.
+#[test]
+fn a_declared_id_past_64_characters_is_refused() {
+    let tmp = tempfile::tempdir().unwrap();
+    let kind = |id: &str| {
+        format!(
+            "[[kinds]]\nid = \"{id}\"\nid_prefix = \"thing\"\nlevel = \"code\"\nlabel = \"Thing\"\nparents = [\"code.file\"]\n"
+        )
+    };
+    let question = |id: &str| {
+        format!(
+            "[[questions]]\nid = \"{id}\"\nsummary = \"What touches {{A}}\"\nargs = [{{ name = \"A\" }}]\n\n\
+             [[questions.steps]]\nshape = \"neighbors\"\nparams = {{ ids = [\"$A\"] }}\n"
+        )
+    };
+    let (fits, long) = ("k".repeat(64), "k".repeat(65));
+    let env = doctor(&pack_dir(tmp.path(), "fits", &["code"], &(kind(&fits) + "\n" + &question(&fits))));
+    assert_eq!(env["ok"], true, "{env}");
+    let env = doctor(&pack_dir(tmp.path(), "long_kind", &["code"], &kind(&long)));
+    assert_invalid(&env, &long, "is longer than 64 characters");
+    let env = doctor(&pack_dir(tmp.path(), "long_question", &["code"], &question(&long)));
+    assert_invalid(&env, &long, "is longer than 64 characters");
 }

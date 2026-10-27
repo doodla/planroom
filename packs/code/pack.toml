@@ -342,6 +342,36 @@ label = "History"
 relations = ["code.co_change", "code.owned_by"]
 level = "component"
 
+# Questions: named pipelines of query shapes, which ask runs (DR-15). A name resolves at the
+# level of the first lens a question names, so path's ends are containers first.
+
+[[questions]]
+id = "path"
+summary = "How {A} reaches {B}"
+args = [{ name = "A" }, { name = "B" }]
+
+[[questions.steps]]
+shape = "path"
+params = { from = "$A", to = "$B", lens = "flow" }
+
+[[questions]]
+id = "why"
+summary = "Why {A} depends on {B}"
+args = [{ name = "A" }, { name = "B" }]
+
+[[questions.steps]]
+shape = "why"
+params = { from = "$A", to = "$B" }
+
+[[questions]]
+id = "impact"
+summary = "What {X} touches"
+args = [{ name = "X" }]
+
+[[questions.steps]]
+shape = "neighbors"
+params = { ids = ["$X"], lens = ["runtime", "dependencies"], direction = "both", depth = 1 }
+
 # Suggestions: the candidates for the pane's one next action (DR-54). The highest priority whose
 # `when` holds on the map wins, so a workspace with containers opens on them, and one with only
 # directories and files opens on those instead of on an empty level.

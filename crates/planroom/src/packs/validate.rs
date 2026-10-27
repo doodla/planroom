@@ -25,8 +25,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use planroom_contract::{
-    ActionDecl, Class, Command, DecisionKind, EffectOp, EmitTemplate, ExtractorDecl, Level, PREDICATE_PARAMS,
-    Param, ParamNames, Predicate, Question, RuleType, Shape, SubjectKind, Undo, WriteCommon,
+    ActionDecl, ArgDecl, Class, Command, DecisionKind, EffectOp, EmitTemplate, ExtractorDecl, Level,
+    PREDICATE_PARAMS, Param, ParamNames, Predicate, Question, RuleType, Shape, SubjectKind, Undo,
+    WriteCommon,
 };
 use planroom_extract::registry::{self, Role};
 use serde_json::Value;
@@ -200,6 +201,7 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
         }
         for (i, question) in pack.file.questions.iter().enumerate() {
             let at = root.key("questions").at(i);
+            bounded(&pack.source, &at.key("id"), &question.id)?;
             if BUILT_IN_QUESTIONS.contains(&question.id.as_str()) {
                 return Err(ctx.bad(
                     &at.key("id"),
@@ -217,7 +219,7 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
             }
             for (j, step) in question.steps.iter().enumerate() {
                 let params = at.key("steps").at(j).key("params");
-                ctx.shape(step.shape, &step.params, &params, Use::step())?;
+                ctx.shape(step.shape, &step.params, &params, Use::step(&question.args))?;
             }
         }
         for (i, rule) in pack.file.rules.iter().enumerate() {
@@ -397,11 +399,11 @@ fn scope(pack: &Pack) -> BTreeSet<String> {
 
 /// Which placeholder a node-ID parameter takes where it stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Placeholder {
+enum Placeholder<'a> {
     /// None: an ID is spelled out.
     Never,
-    /// A question's argument, such as `$X`, in a step.
-    Argument,
+    /// One of the question's declared arguments, such as `$X`, in a step.
+    Argument(&'a [ArgDecl]),
     /// `$pick`, the chosen candidate, in an effect.
     Pick,
     /// An emit template's captures, such as `$repo` or `$1`, around a literal kind-short.
@@ -421,18 +423,18 @@ enum Subject {
 
 /// How one table of parameters reads where it stands.
 #[derive(Debug, Clone, Copy)]
-struct Use {
-    ids: Placeholder,
+struct Use<'a> {
+    ids: Placeholder<'a>,
     subject: Subject,
 }
 
-impl Use {
-    fn plain() -> Use {
+impl<'a> Use<'a> {
+    fn plain() -> Use<'a> {
         Use { ids: Placeholder::Never, subject: Subject::Either }
     }
 
-    fn step() -> Use {
-        Use { ids: Placeholder::Argument, subject: Subject::Either }
+    fn step(args: &'a [ArgDecl]) -> Use<'a> {
+        Use { ids: Placeholder::Argument(args), subject: Subject::Either }
     }
 }
 
@@ -600,6 +602,7 @@ impl Ctx<'_> {
             Command::Edit(req) => project(&req.common)?,
             // The text `find` searches for names no kind, relation, lens or ID.
             Command::Find(_)
+            | Command::Ask(_)
             | Command::Focus(_)
             | Command::Watch(_)
             | Command::Schema(_)
@@ -638,16 +641,27 @@ impl Ctx<'_> {
         Err(self.bad(at, reference, "bare_ref", &[("reference", &reference)]))
     }
 
+    /// `name`, an argument the ID `id` names, is one its question declares in `args`.
+    fn declared(&self, id: &str, name: &str, at: &KeyPath, args: &[ArgDecl]) -> Result<(), AppError> {
+        if args.iter().any(|a| a.name == name) {
+            return Ok(());
+        }
+        let declared: Vec<&str> = args.iter().map(|a| a.name.as_str()).collect();
+        let declared = if declared.is_empty() { text::get("pack.no_args", &[]) } else { declared.join(", ") };
+        let vars: &Vars<'_> = &[("reference", &id), ("name", &name), ("args", &declared)];
+        Err(self.bad(at, id, "argument_undeclared", vars))
+    }
+
     /// A node ID, `<namespace>:<kind-short>:<key>`: its kind-short is the `id_prefix` of a kind in
     /// this pack's scope, or the kernel's own, and is spelled out even where the namespace or the
     /// key holds a placeholder. A plan item's ID names a project there. A whole placeholder stands
     /// in only where `ids` allows one.
-    fn node_id(&self, id: &str, at: &KeyPath, ids: Placeholder) -> Result<(), AppError> {
+    fn node_id(&self, id: &str, at: &KeyPath, ids: Placeholder<'_>) -> Result<(), AppError> {
         if !id.contains(':') && id.starts_with('$') {
             let name = &id[1..];
             let argument = !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
             return match ids {
-                Placeholder::Argument if argument => Ok(()),
+                Placeholder::Argument(args) if argument => self.declared(id, name, at, args),
                 Placeholder::Pick if id == PICK => Ok(()),
                 _ => Err(self.bad(at, id, "placeholder_id", &[("reference", &id)])),
             };
@@ -664,11 +678,16 @@ impl Ctx<'_> {
         }
         let placed = |part: &str| match ids {
             Placeholder::Capture => false,
-            Placeholder::Argument => part.contains('@'),
+            Placeholder::Argument(_) => part.contains('@'),
             Placeholder::Never | Placeholder::Pick => part.contains(['$', '@']),
         };
         if placed(ns) || placed(key) {
             return Err(self.bad(at, id, "placeholder_id", &[("reference", &id)]));
+        }
+        if let Placeholder::Argument(args) = ids {
+            for name in [ns, key].into_iter().flat_map(arguments) {
+                self.declared(id, name, at, args)?;
+            }
         }
         if ns == PLAN_NAMESPACE || prefix == CONTAINER_PREFIX || KERNEL_PREFIXES.contains(&prefix) {
             return Ok(());
@@ -685,7 +704,7 @@ impl Ctx<'_> {
     }
 
     /// A query shape's parameters, through the table the shape declares.
-    fn shape(&self, shape: Shape, params: &Value, at: &KeyPath, cx: Use) -> Result<(), AppError> {
+    fn shape(&self, shape: Shape, params: &Value, at: &KeyPath, cx: Use<'_>) -> Result<(), AppError> {
         let owner = text::get("pack.owner_shape", &[("name", &serde_name(&shape))]);
         self.params(&owner, shape.params(), params, at, cx)
     }
@@ -699,7 +718,7 @@ impl Ctx<'_> {
         table: &[Param],
         params: &Value,
         at: &KeyPath,
-        cx: Use,
+        cx: Use<'_>,
     ) -> Result<(), AppError> {
         let src = &self.pack.source;
         let map = match params {
@@ -716,7 +735,7 @@ impl Ctx<'_> {
                 return Err(src.invalid_at(&here, At::Key, key, "param_unknown", vars));
             };
             match param.names {
-                ParamNames::Nothing => {}
+                ParamNames::Nothing => plain(self, key, value, &here)?,
                 ParamNames::Test => test(self, key, value, &here)?,
                 ParamNames::Table(inner) => {
                     if !value.is_object() {
@@ -738,7 +757,14 @@ impl Ctx<'_> {
     }
 
     /// One name a reference parameter `key` holds, by what the parameter names.
-    fn named(&self, names: ParamNames, key: &str, name: &str, at: &KeyPath, cx: Use) -> Result<(), AppError> {
+    fn named(
+        &self,
+        names: ParamNames,
+        key: &str,
+        name: &str,
+        at: &KeyPath,
+        cx: Use<'_>,
+    ) -> Result<(), AppError> {
         match (names, cx.subject) {
             (ParamNames::NodeId, _) => self.node_id(name, at, cx.ids),
             (ParamNames::NodeKind, _) | (ParamNames::SubjectKind, Subject::Node) => {
@@ -777,6 +803,29 @@ fn test(ctx: &Ctx<'_>, key: &str, value: &Value, at: &KeyPath) -> Result<(), App
         other => scalar(other),
     };
     if ok { Ok(()) } else { Err(ctx.bad(at, key, "param_test", &[("key", &key)])) }
+}
+
+/// A parameter that names nothing: a number, a word or text, or a list of them, which is all such
+/// a key reads. A table, or a list that holds one, is refused, never skipped, since nothing would
+/// read its keys.
+fn plain(ctx: &Ctx<'_>, key: &str, value: &Value, at: &KeyPath) -> Result<(), AppError> {
+    let scalar = |v: &Value| matches!(v, Value::String(_) | Value::Number(_) | Value::Bool(_));
+    let ok = match value {
+        Value::Array(items) => items.iter().all(scalar),
+        other => scalar(other),
+    };
+    if ok { Ok(()) } else { Err(ctx.bad(at, key, "param_plain", &[("key", &key)])) }
+}
+
+/// The argument names a part of a node ID holds, each after a `$`, such as `X` in `web:file:$X`.
+fn arguments(part: &str) -> Vec<&str> {
+    part.split('$')
+        .skip(1)
+        .map(|after| {
+            let len = after.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(after.len());
+            &after[..len]
+        })
+        .collect()
 }
 
 /// Whether the declared key `declared` covers `key`: the same key, or, for one that ends in
@@ -908,10 +957,26 @@ fn holds(src: &Source, dir: &str, path: &str) -> bool {
     src.files.contains_key(path) || src.files.contains_key(&format!("{dir}/{path}"))
 }
 
-/// A declared ID or prefix at `at`: lowercase letters, digits and `_`.
+/// The longest declared ID, in bytes: every reply can then echo an ID whole within its budget, so
+/// none is ever cut short (DR-94).
+pub const ID_MAX: usize = 64;
+
+/// A declared ID or prefix at `at`: lowercase letters, digits and `_`, at most [`ID_MAX`] long.
 fn syntax(src: &Source, at: &KeyPath, id: &str) -> Result<(), AppError> {
     let ok = !id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
-    if ok { Ok(()) } else { Err(src.invalid_at(at, At::Value, id, "id_syntax", &[("id", &id)])) }
+    if !ok {
+        return Err(src.invalid_at(at, At::Value, id, "id_syntax", &[("id", &id)]));
+    }
+    bounded(src, at, id)
+}
+
+/// A declared ID at `at` at most [`ID_MAX`] bytes long.
+fn bounded(src: &Source, at: &KeyPath, id: &str) -> Result<(), AppError> {
+    if id.len() <= ID_MAX {
+        return Ok(());
+    }
+    let vars: &Vars<'_> = &[("id", &text::short(id, 40)), ("max", &ID_MAX)];
+    Err(src.invalid_at(at, At::Value, id, "id_length", vars))
 }
 
 fn glob(ctx: &Ctx<'_>, at: &KeyPath, glob: &str) -> Result<(), AppError> {

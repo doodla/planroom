@@ -15,6 +15,8 @@ pub mod embed;
 pub mod load;
 mod validate;
 
+pub use validate::ID_MAX;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use planroom_contract::{
@@ -120,12 +122,18 @@ pub fn builtins() -> Result<Loaded, AppError> {
 /// own packs come from its config, which loads only once the workspace is trusted, so none
 /// loads yet, as in `scan`.
 pub fn vocabulary() -> Result<&'static Vocabulary, AppError> {
-    static LOADED: std::sync::OnceLock<Vocabulary> = std::sync::OnceLock::new();
-    if let Some(vocabulary) = LOADED.get() {
-        return Ok(vocabulary);
+    Ok(&loaded()?.vocabulary)
+}
+
+/// The pack set the views and questions read: the built-in packs, loaded once per process, as
+/// [`vocabulary`] reads them.
+pub fn loaded() -> Result<&'static Loaded, AppError> {
+    static LOADED: std::sync::OnceLock<Loaded> = std::sync::OnceLock::new();
+    if let Some(loaded) = LOADED.get() {
+        return Ok(loaded);
     }
-    let vocabulary = builtins()?.vocabulary;
-    Ok(LOADED.get_or_init(|| vocabulary))
+    let loaded = builtins()?;
+    Ok(LOADED.get_or_init(|| loaded))
 }
 
 /// Load, check and merge `sources`, the built-ins first.

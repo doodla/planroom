@@ -2,6 +2,7 @@
 //! storage in the store, extraction in extract.
 
 pub mod actor;
+pub mod ask;
 pub mod data;
 pub mod dirty;
 pub mod doctor;

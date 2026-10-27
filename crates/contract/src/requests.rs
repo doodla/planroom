@@ -8,7 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::command::WriteCommon;
-use crate::envelope::{Empty, Handle};
+use crate::envelope::{Cursor, Empty, Handle};
 use crate::event::{EventId, Status, Verdict};
 use crate::model::{Kind, Level, NodeId};
 
@@ -164,6 +164,10 @@ pub struct AskReq {
     /// The question's arguments, such as the two ends of `path A B`.
     #[serde(default)]
     pub args: Vec<String>,
+    /// The cursor `meta.next` gave, to read the page after it of `ask` alone's listing.
+    #[arg(long)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<Cursor>,
 }
 
 /// What `ask` returns: the answer's summary line and its items, each with the handles that drill
@@ -266,6 +270,8 @@ mod tests {
         let ask: AskReq = parse(&["path", "storefront", "worker"]);
         assert_eq!(ask.question.as_deref(), Some("path"));
         assert_eq!(ask.args, ["storefront", "worker"]);
+        let page: AskReq = parse(&["--cursor", "7b7d"]);
+        assert_eq!((page.question, page.cursor), (None, Some(Cursor("7b7d".into()))));
         let next: IntentNextReq = parse(&["--stage", "outcome"]);
         assert_eq!(next.stage.as_deref(), Some("outcome"));
         let propose: ProposeReq = parse(&["--file", "-"]);

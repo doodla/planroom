@@ -835,7 +835,7 @@ A question is a named pipeline of one to three kernel query shapes, each step's 
 - **field test**: a value, or one of `{ lt = N }`, `{ gt = N }` and `{ in = [...] }`. `props.<name>` stands for every prop's test, such as `"props.role" = { in = ["service"] }`.
 - **a table of** its own keys, labelled the same way. An edge test's `layer` is optional.
 
-A key with no label names nothing: a number, a direction, a prop name or text. Such keys are `compare`'s `edge_prop`, compared with the prop `end_prop` of the end `end`, `subgraph`'s `props` to include per node, and the prop names `machine` and `checks` read, `event` to `terminal`. `neighbors` walks its `lens` or its `relations`.
+A key with no label names nothing: a number, a direction, a prop name or text, or a list of them; a table there is `pack_invalid`, since nothing reads its keys. A step's `$NAME`, whole or inside an ID, is one of the question's declared `args`, or the pack is `pack_invalid`. Such keys are `compare`'s `edge_prop`, compared with the prop `end_prop` of the end `end`, `subgraph`'s `props` to include per node, and the prop names `machine` and `checks` read, `event` to `terminal`. `neighbors` walks its `lens` or its `relations`.
 
 | Shape | Parameters | Used by |
 |---|---|---|
@@ -862,12 +862,20 @@ A key with no label names nothing: a number, a direction, a prop name or text. S
 | `bump-breaks X` (release) | `neighbors` X backward over `depends_on_package` and `deploys`, depth 1; then `neighbors` backward over `runtime`, any depth | "What breaks if I bump X?": direct consumers and what reaches them |
 | `path A B` (code) | `path` over `flow` | "How does A reach B?" |
 | `why A B` (code) | `why` | "Why do you think A depends on B?" |
-| `impact X` (code) | `neighbors` X both ways over `runtime` and `dependencies` | "What does this touch?" |
+| `impact X` (code) | `neighbors` X both ways over `runtime` and `dependencies`, depth 1 | "What does this touch?" |
 | `pr REPO#N` (artifacts) | `tree` over the PR; then `filter` its `artifacts.thread` parts, with their `resolved` and `addressed` props | "What did this PR change, and which threads are addressed?" (R3) |
+
+How the shapes the code pack's questions use read the graph (`kernel::query`):
+
+- **`neighbors`** walks from each start node at the start node's own level: the start stands for everything under it, and each edge is lifted to that level by roll-up's rule, so a container's neighbors are the blocks its files' edges reach. It follows its lenses' relations in their flow, or its `relations` forward, `depth` steps (1 when absent), `forward` (what the start reaches), `backward` (what reaches it) or `both` (the default).
+- **`path`** finds a shortest path in hops from `from` to `to` over its lens's relations in their flow, with edges lifted to the lens's level, so the hops inside one block are that block's own. A path's first hop leaves a block under `from`, or the block `from` lifts to over an edge that leaves `from` itself, and its last hop reaches a block under `to`, or the block `to` lifts to over an edge that reaches `to` itself; no other ancestor stands for either, so an edge from elsewhere in `from`'s repo is no path from `from`, as `why` finds no edge there. Each hop names the edges it stands for, a sample of their evidence and their lowest confidence.
+- **`why`** lists every edge, of any relation, from what lies under `from` to what lies under `to`, then back, each with its evidence (its `via_ref` node's included), confidence and provenance.
+
+Each reads the model once, so a question's time is linear in the map's nodes and edges, however deep its tree. An `ask` reply keeps to its question's budget whatever the repo holds: its lines quote names, paths and evidence cut short, an item that still doesn't fit drops its optional handles and then goes, and a `truncated` warning counts what was left out.
 
 A new question is pack data. Each of the twelve shapes ships because a v0.1 question uses it. A shape added after v0.1 is a kernel change, so the bar for one is that two packs need it, recorded in a decision [DR-15].
 
-Five questions aren't shape pipelines, and the engine serves them itself as built-in questions [DR-15]. `kinds` reads pack metadata, `stage S` the plan pack's stage and its lint, `lint` the lint findings of every pack's `[[rules]]`, `missing` the rules' missing parts, and `drift` runs `kernel::diff` over each `machines.describes` pair. A pack can't declare a built-in question. `planroom ask` with no question, or `ask kinds`, lists every loaded kind, lens and question with its arguments, one-line summary and owning pack, built-in ones marked, paged under 1,500 tokens. The `planroom` skill points agents to it, so a pack added after the build is still found.
+Five questions aren't shape pipelines, and the engine serves them itself as built-in questions [DR-15]. `kinds` reads pack metadata, `stage S` the plan pack's stage and its lint, `lint` the lint findings of every pack's `[[rules]]`, `missing` the rules' missing parts, and `drift` runs `kernel::diff` over each `machines.describes` pair. A pack can't declare a built-in question. `planroom ask` with no question, or `ask kinds`, lists every loaded kind, lens and question with its arguments, one-line summary and owning pack, built-in ones marked, paged under 1,500 tokens (an ID shows whole, since a caller passes it back: an entry that fits no page with its handles drops them, one that fits none even so goes, and the page's `truncated` warning counts it in `entries_left_out`): `meta.next` is the cursor `ask --cursor C` takes for the next page. The `planroom` skill points agents to it, so a pack added after the build is still found.
 
 ### The v0.1 packs
 

@@ -24,7 +24,7 @@ marked (masked) holds repo-derived text, so its secrets are masked like a reply'
 | Code | Category | Exit | Retry | Meaning | `details` |
 |---|---|---|---|---|---|
 | `invalid_argument` | usage | 2 | never | bad flags or request | `field`, `synopsis`, `schema`, `cycle`, `lenses` |
-| `ambiguous_ref` | usage | 2 | never | an ID suffix or name matched several records | `candidates` |
+| `ambiguous_ref` | usage | 2 | never | an ID suffix or name matched several records | `candidates`, `level` |
 | `workspace_not_found` | not_found | 3 | never | no repos at the path, or a read found no workspace store | `path` |
 | `not_found` | not_found | 3 | never | unknown ID, question or file | `closest` |
 | `person_required` | permission | 5 | never | a person-only command without a valid person token: missing, stale, spent, or for another command | `command`, `reason` |
