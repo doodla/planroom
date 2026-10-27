@@ -5,7 +5,7 @@
 This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#area-contracts).
 
 - **Owns:** `Transport` (live, record, replay), Jev codecs, the Claude gateway and session backends, retries, spend accounting, the live gate and the host allow-list.
-- **May depend on:** `contract`, and its allow-list in `boundaries.toml`: `reqwest`, `tokio`, `sha2`, `serde`, `serde_json`, `thiserror` [DR-79].
+- **May depend on:** `contract`, and its allow-list in `boundaries.toml`: `reqwest`, `rustls`, `tokio`, `sha2`, `serde`, `serde_json`, `thiserror` [DR-79].
 - **Must not:** other workspace crates; any network call without `PLANROOM_LIVE_*` or a consented credential; treating an ambient proxy as a credential.
 - **How to test it:** `jev_contract.rs` (both codecs over every fixture), `claude_decoders.rs`, `session_backend.rs`, `redact.rs`.
 

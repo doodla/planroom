@@ -9,6 +9,7 @@ pub mod features;
 pub mod fixture;
 pub mod generate;
 pub mod layout;
+pub mod live;
 pub mod modgen;
 pub mod plugin;
 pub mod report;

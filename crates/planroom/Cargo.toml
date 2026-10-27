@@ -18,6 +18,7 @@ path = "src/main.rs"
 planroom-contract.workspace = true
 planroom-extract.workspace = true
 planroom-kernel.workspace = true
+planroom-models.workspace = true
 planroom-store.workspace = true
 clap.workspace = true
 serde.workspace = true

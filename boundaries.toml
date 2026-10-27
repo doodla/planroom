@@ -12,7 +12,7 @@ extract  = { may_depend = ["contract"],
              external_allow = ["tree-sitter", "tree-sitter-*", "ignore", "globset", "regex", "saphyr-parser", "toml",
                                "pulldown-cmark", "promql-parser", "serde", "serde_json", "sha2", "thiserror"] }
 models   = { may_depend = ["contract"], net = true,
-             external_allow = ["reqwest", "tokio", "sha2", "serde", "serde_json", "thiserror"] }
+             external_allow = ["reqwest", "rustls", "tokio", "sha2", "serde", "serde_json", "thiserror"] }
 planroom = { may_depend = ["contract", "kernel", "store", "extract", "models"], net = true,
              external_allow = ["axum", "tower-http", "tokio", "tokio-stream", "tracing", "anyhow", "clap", "serde", "serde_json",
                                "toml", "uuid", "libc", "p256"] }

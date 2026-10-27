@@ -59,6 +59,18 @@ packs_mismatch = "restart this Planroom process, or update Planroom"
 data_root = "export PLANROOM_DATA=DIR"
 serve_limit = "retry in a few seconds"
 pack_invalid = "planroom doctor --pack DIR"
+model_spend_log_relative = "export PLANROOM_SPEND_LOG=\"$(git rev-parse --path-format=absolute --git-common-dir)/../docs/evidence/spend.jsonl\""
+model_spend_log_missing = "export PLANROOM_SPEND_LOG=\"$(git rev-parse --path-format=absolute --git-common-dir)/../docs/evidence/spend.jsonl\""
+model_live_flag_without_spend_log = "export PLANROOM_SPEND_LOG=\"$(git rev-parse --path-format=absolute --git-common-dir)/../docs/evidence/spend.jsonl\""
+model_spend_log_unreadable = "git diff -- docs/evidence/spend.jsonl"
+model_live_flag_value = "export {field}=1"
+model_replay_mode = "export PLANROOM_REPLAY=strict"
+model_record_without_live_flag = "export PLANROOM_REPLAY=strict"
+model_credential_host = "planroom doctor"
+model_api_key_env = "planroom doctor"
+model_unknown_model = "planroom doctor"
+model_purpose = "planroom doctor"
+model_model_setting = "planroom doctor"
 
 # The data root's shared files (DR-78).
 [data]
@@ -85,6 +97,18 @@ unknown_lens = "No loaded pack declares the lens {lens}; the lenses are {known}.
 find_text = "find needs text to search for"
 cursor_unreadable = "--cursor takes the meta.next a map gave; this one isn't one."
 cursor_filters = "This cursor came from a map with other flags; run map with the flags that gave it, or without --cursor."
+# The live gate and the model boundary (DR-65, DR-89).
+spend_log_relative = "PLANROOM_SPEND_LOG must be an absolute path, so every worktree and folder adds to the one spend log."
+spend_log_missing = "PLANROOM_SPEND_LOG names no file; a new one would start the live total again at zero."
+spend_log_unreadable = "The spend log has a line that isn't a row with a cost, so Planroom can't add it up against the cap."
+live_flag_without_spend_log = "A PLANROOM_LIVE_* flag is set but PLANROOM_SPEND_LOG isn't: live calls must add to the build's spend log."
+live_flag_value = "A PLANROOM_LIVE_* flag takes only the value 1."
+replay_mode = "PLANROOM_REPLAY takes strict or record."
+record_without_live_flag = "Record mode makes live calls, so it needs PLANROOM_LIVE_GATEWAY=1 or PLANROOM_LIVE_JEV=1."
+credential_host = "A credential goes only to ai-gateway.vercel.sh, api.typesafe.ai or the host of your user-level base_url, as a plain https URL."
+api_key_env = "api_key_env must name AI_GATEWAY_API_KEY, VERCEL_OIDC_TOKEN or TYPESAFE_API_KEY."
+unknown_model = "The gateway doesn't know the pinned model ID in your config."
+purpose = "A model call's purpose must be lowercase letters, digits, dots, dashes and underscores."
 
 [warning]
 evidence_dropped = "{count} evidence items in {repo} didn't match commit {commit} and were dropped."
@@ -398,3 +422,8 @@ base_ahead = "base is past the store's head; read again and pass the seq that re
 parent_cycle = "That would put {node} inside itself: {cycle}."
 undo_scan = "A scan changes nothing a person wrote, so there's nothing to undo; a later scan rebuilds its facts."
 already_undone = "The command that wrote {event} is already undone; undo that undo to bring it back."
+
+# The model boundary's own lines (DR-89).
+[models]
+replay_only = "Model calls answer from recordings until the consent card and the daily cap arrive, and this call has none, so nothing was sent."
+internal = "a model call's request or recording couldn't be built or written"

@@ -1901,7 +1901,6 @@
         "crates/contract/tests/schema.rs::every_redacted_field_is_listed"
       ],
       "due": {
-        "crates/models/tests/redact.rs::poison_values_never_recorded": "M1",
         "crates/planroom/tests/privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output": "M1"
       },
       "decision": "security table"
@@ -1984,7 +1983,6 @@
         "crates/planroom/tests/trust.rs::a_committed_planroom_config_is_not_loaded": "M1",
         "crates/planroom/tests/trust.rs::credential_settings_come_only_from_user_config": "M1",
         "crates/planroom/tests/trust.rs::api_key_env_outside_the_allow_list_is_refused": "M1",
-        "crates/models/tests/hosts.rs::credentials_go_only_to_allow_listed_hosts": "M1",
         "crates/planroom/tests/trust.rs::an_out_of_tree_pack_loads_without_a_card": "M1",
         "crates/planroom/tests/trust.rs::an_out_of_tree_pack_cannot_enable_its_own_auto_action": "M2",
         "crates/planroom/tests/trust.rs::planroom_packs_loads_nothing_outside_doctor": "M1",
@@ -2037,7 +2035,6 @@
         "crates/planroom/tests/privacy.rs::the_setup_choice_preselects_yes_on_consent"
       ],
       "due": {
-        "crates/planroom/tests/live_gate.rs::the_proxy_alone_makes_no_model_request": "M1",
         "crates/planroom/tests/privacy.rs::the_first_billable_call_waits_for_consent": "M2",
         "crates/planroom/tests/privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output": "M1",
         "packages/mod/src/tools.test.ts::handles_round_trip_after_redaction": "M1",
@@ -2165,21 +2162,16 @@
       ],
       "due": {
         "crates/store/tests/ledger.rs::the_daily_cap_spans_workspaces": "M2",
-        "crates/planroom/tests/live_gate.rs::the_spend_log_stops_live_calls_at_the_cap": "M1",
         "tests/plugin/surface_tokens.sh": "M1",
         "packages/mod/src/agents.test.ts::curator_spawns_only_after_the_card": "M5",
         "packages/mod/src/agents.test.ts::agent_usage_goes_to_the_ledger": "M2",
-        "crates/planroom/tests/live_gate.rs::the_spend_log_is_shared_across_worktrees_and_cwds": "M1",
         "crates/planroom/tests/live_gate.rs::concurrent_live_calls_serialize_on_the_spend_log": "M2",
-        "crates/planroom/tests/live_gate.rs::a_relative_spend_log_is_refused": "M1",
         "crates/store/tests/ledger.rs::session_and_agent_usage_is_reported_not_gated": "M2",
         "packages/mod/src/agents.test.ts::a_spawn_is_never_refused_by_a_cap": "M2",
         "crates/planroom/tests/budgets.rs::a_prefix_that_never_caches_fails": "M2",
         "crates/planroom/tests/text.rs::card_costs_match_the_estimator": "M2",
         "crates/planroom/tests/live_gate.rs::a_warm_prefix_is_refused_before_any_call": "M2",
         "crates/planroom/tests/docs.rs::the_spend_log_starts_with_phase_1": "M5",
-        "crates/planroom/tests/live_gate.rs::the_cap_keeps_a_25_cent_margin": "M1",
-        "crates/planroom/tests/live_gate.rs::a_live_flag_without_a_spend_log_is_refused": "M1",
         "crates/planroom/tests/live_gate.rs::intent_next_without_a_record_flag_is_budget_exceeded": "M1"
       },
       "decision": "DR-51, DR-65"

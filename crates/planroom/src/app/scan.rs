@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 use crate::app::dirty::Dirty;
 use crate::app::error::AppError;
 use crate::app::workspace::{self, Repo, Workspace};
-use crate::app::{Paged, Reply, map, new_event_id};
+use crate::app::{Paged, Reply, map, models, new_event_id};
 use crate::packs::{self, Loaded, Run};
 use crate::{clock, config, text};
 
@@ -57,6 +57,9 @@ pub fn run(req: &ScanReq, cwd: &Path) -> Result<Paged<ScanResult>, AppError> {
 
 /// Discover the workspace and extract each repo at its `HEAD`. Nothing is written yet.
 pub fn prepare(req: &ScanReq, cwd: &Path) -> Result<Prepared, AppError> {
+    // A scan's decision run may call a model, so the live gate is read first: a relative spend
+    // log, or a live flag with none, stops the scan before it reads anything (DR-65).
+    models::live_env()?;
     let dir = req.dir.as_deref().map_or_else(|| cwd.to_path_buf(), |d| cwd.join(d));
     let ws = workspace::discover(&dir)?;
     if ws.repos.is_empty() {

@@ -2982,6 +2982,23 @@ export interface MapView {
   layout?: LayoutKey | null;
 }
 /**
+ * What the recording run measured; never part of the key.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "Measured".
+ */
+export interface Measured {
+  wall_ms: number;
+  /**
+   * RFC 3339, UTC.
+   */
+  recorded_at: string;
+  /**
+   * The model the provider says answered, which may differ from the pinned ID it was sent.
+   */
+  model_reported?: string | null;
+}
+/**
  * One block on the mini-map.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
@@ -3434,6 +3451,59 @@ export interface PublishArgs {
    * On the first publish.
    */
   icon: string;
+}
+/**
+ * The request as sent, with no auth header.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "RecordedRequest".
+ */
+export interface RecordedRequest {
+  method: string;
+  url: string;
+  /**
+   * `[name, value]` pairs from a fixed list of headers that never hold a credential.
+   */
+  headers: [unknown, unknown][];
+  body: unknown;
+}
+/**
+ * The response as received, with only the headers on a fixed list.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "RecordedResponse".
+ */
+export interface RecordedResponse {
+  status: number;
+  headers: [unknown, unknown][];
+  body: unknown;
+}
+/**
+ * One recorded model call, at `tests/replay/<provider>/<purpose>/<key>.json`. Written only in
+ * record mode; it never holds a credential, an auth header or a cookie.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "ReplayRecord".
+ */
+export interface ReplayRecord {
+  /**
+   * `planroom.replay/v1`.
+   */
+  format: string;
+  /**
+   * `sha256(path ‖ canonical body)`, lowercase hex: the request path, then the request body
+   * as canonical JSON (keys sorted, no whitespace) less the gateway's routing options
+   * (`providerOptions`). It covers the model, the system blocks, the messages, the tools and
+   * the sampling and output parameters; never a header, a credential or a transport field.
+   */
+  key: string;
+  /**
+   * What the call asked for, such as `plan.stage.outcome`.
+   */
+  purpose: string;
+  request: RecordedRequest;
+  response: RecordedResponse;
+  measured: Measured;
 }
 /**
  * What `scripts/planroom status --json` prints: the step that resolves the engine, and its path

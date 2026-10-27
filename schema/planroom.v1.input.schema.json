@@ -4027,6 +4027,32 @@
       ],
       "description": "The map at one level through one lens."
     },
+    "Measured": {
+      "type": "object",
+      "properties": {
+        "wall_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "recorded_at": {
+          "type": "string",
+          "description": "RFC 3339, UTC."
+        },
+        "model_reported": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The model the provider says answered, which may differ from the pinned ID it was sent."
+        }
+      },
+      "required": [
+        "wall_ms",
+        "recorded_at"
+      ],
+      "description": "What the recording run measured; never part of the key."
+    },
     "Meta": {
       "type": "object",
       "properties": {
@@ -5332,6 +5358,76 @@
       ],
       "description": "`[[questions]]`: a named pipeline of one to three query shapes."
     },
+    "RecordedRequest": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "description": "`[name, value]` pairs from a fixed list of headers that never hold a credential."
+        },
+        "body": true
+      },
+      "required": [
+        "method",
+        "url",
+        "headers",
+        "body"
+      ],
+      "description": "The request as sent, with no auth header."
+    },
+    "RecordedResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "headers": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "body": true
+      },
+      "required": [
+        "status",
+        "headers",
+        "body"
+      ],
+      "description": "The response as received, with only the headers on a fixed list."
+    },
     "Ref": {
       "oneOf": [
         {
@@ -5415,6 +5511,42 @@
         "to"
       ],
       "description": "A rename git reported between two snapshots of one repo: the old and the new ID."
+    },
+    "ReplayRecord": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "`planroom.replay/v1`."
+        },
+        "key": {
+          "type": "string",
+          "description": "`sha256(path ‖ canonical body)`, lowercase hex: the request path, then the request body\nas canonical JSON (keys sorted, no whitespace) less the gateway's routing options\n(`providerOptions`). It covers the model, the system blocks, the messages, the tools and\nthe sampling and output parameters; never a header, a credential or a transport field.",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "purpose": {
+          "type": "string",
+          "description": "What the call asked for, such as `plan.stage.outcome`."
+        },
+        "request": {
+          "$ref": "#/$defs/RecordedRequest"
+        },
+        "response": {
+          "$ref": "#/$defs/RecordedResponse"
+        },
+        "measured": {
+          "$ref": "#/$defs/Measured"
+        }
+      },
+      "required": [
+        "format",
+        "key",
+        "purpose",
+        "request",
+        "response",
+        "measured"
+      ],
+      "description": "One recorded model call, at `tests/replay/<provider>/<purpose>/<key>.json`. Written only in\nrecord mode; it never holds a credential, an auth header or a cookie."
     },
     "ResolverStatus": {
       "type": "object",

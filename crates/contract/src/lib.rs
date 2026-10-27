@@ -13,6 +13,7 @@ pub mod errors;
 pub mod event;
 pub mod format;
 pub mod model;
+pub mod models;
 mod open_set;
 pub mod pack;
 pub mod remote;
@@ -48,6 +49,7 @@ pub use model::{
     CONTAINS_MAX_CHARS, Edge, EdgeId, Evidence, FACTS_FORMAT, FactBatch, Hint, HintRef, Kind, Layer, Level,
     Node, NodeId, PartialFile, Provenance, Ref, Seq, Tier,
 };
+pub use models::{Measured, REPLAY_FORMAT, RecordedRequest, RecordedResponse, ReplayRecord};
 pub use pack::{
     ActionDecl, ArgDecl, CacheTtl, EmitTemplate, ExtractorDecl, Flow, HintDecl, ImageRole, ItemType,
     KindDecl, LanguageDecl, LensDecl, LinkerDecl, ModelTier, PREDICATE_PARAMS, PackFile, PackRecord, Param,

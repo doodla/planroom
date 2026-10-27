@@ -10,3 +10,6 @@ node_modules/
 
 # Notes an agent keeps across context compactions (CLAUDE.md); local only
 .claude/carry.md
+
+# The spend log's lock, which the engine takes beside it for each live call (DR-65).
+docs/evidence/spend.jsonl.lock

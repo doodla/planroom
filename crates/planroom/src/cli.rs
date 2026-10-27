@@ -573,7 +573,11 @@ fn with_usage(e: AppError, command: &str) -> AppError {
     };
     details.insert("synopsis".into(), json!(synopsis(&cmd, if leaf { command } else { "" })));
     details.insert("schema".into(), serde_json::to_value(&schema).unwrap_or(Value::Null));
-    e.details(Value::Object(details)).with_hint(hint)
+    // An environment variable's error keeps the engine's own fix, which sets it: the schema
+    // handle describes arguments, not the environment (DR-93).
+    let from_env = e.details.get("field").and_then(Value::as_str).is_some_and(|f| f.starts_with("PLANROOM_"));
+    let e = e.details(Value::Object(details));
+    if from_env && e.hint.is_some() { e } else { e.with_hint(hint) }
 }
 
 /// A leaf's one-line synopsis from its clap arguments, long flags only, such as

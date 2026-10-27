@@ -105,6 +105,8 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 89 | What M1 builds, compares and leaves to later milestones | none (Milestones; S1, S3, S15 and the feature list's gate) | added | milestone planning (M1's scope, read against the tree) |
 | 90 | The guard lets everyday work through, and closes three more doors | Actors: agents never act as a person | extended | a usability review of the guard after DR-88 |
 | 91 | The contract M1 builds on: cards on the wire, the edit ops, and the redaction marks | none (Contracts; the Logging convention) | added | M1's first change, read against the docs |
+| 92 | The truth comparator's floor, edit's first ops, the dirty count's git call, and test-only seams | DR-71, DR-73, DR-75, DR-86, DR-89, DR-91 | extended | the merges of M1's truth comparator, discovery, person authority and edit work |
+| 93 | The model adapter's crate edges, its transport's crypto provider, and an environment variable's own hint | DR-39, DR-48, DR-66, DR-85 | extended | the merge of M1's Claude adapter |
 
 ## Where the design reviews disagreed
 
@@ -2443,3 +2445,27 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `crates/testkit/tests/truth.rs`; `s01_first_look.rs::truth_recall_never_drops`; `edit.rs::a_base_past_the_head_is_refused`, `an_http_write_without_its_client_is_refused`; the git adapter's `counting_uncommitted_files_runs_no_filter_the_repo_or_a_submodule_names`; `server_auth.rs::an_expired_or_reused_code_is_refused`; `open.rs`.
   - It amends DR-71 (the dirty count's git call) and DR-91 (when `set`, `text` and `propose` arrive).
 - **Sources (checked 2026-10-27):** `crates/testkit/src/truth.rs`; `crates/planroom/src/app/{edit, open, dirty}.rs`; `crates/planroom/src/server/auth.rs`; `crates/extract/src/git.rs`; [Testing strategy](architecture.md#testing-strategy); [Contracts](contracts.md).
+
+## DR-93: The model adapter's crate edges, its transport's crypto provider, and an environment variable's own hint
+
+- **Status:** accepted (decided at the merge of M1's Claude adapter, 2026-10-27).
+- **Starting point:** extended DR-39, DR-48, DR-66 and DR-85.
+- **Origin:** the merge of the Claude adapter, the replay store, the live gate and the build-wide spend log, read against the docs by an independent check.
+- **Context:**
+  - The engine now calls `planroom-models`, and `cargo xtask live` resolves the spend log through it, so the crate graph gains `planroom -> planroom-models`, `planroom-models -> planroom-contract` and `xtask -> planroom-models`. `boundaries.toml` already allows each edge, but the crate graph is gated.
+  - reqwest 0.13's `rustls` feature turns on the aws-lc-rs provider, while DR-39 decides ring. Naming ring's provider takes `rustls` as a direct dependency of `planroom-models`, whose allow-list didn't list it.
+  - Every CLI `invalid_argument` names the `schema --command LEAF` handle in its `hint` (DR-66, DR-85). For a bad environment variable (`PLANROOM_SPEND_LOG`, a `PLANROOM_LIVE_*` flag, `PLANROOM_REPLAY`), that handle describes arguments and can't help; the engine's own hint is the command that sets the variable.
+  - The check that the transport carries no other TLS stack is a test the plan didn't name.
+- **Decision:**
+  - **The three crate edges** are ratified with the layout lock.
+  - **ring, and nothing else:** `planroom-models` takes `rustls` (default features off; `ring`, `std`, `tls12`), reqwest takes `rustls-no-provider`, and the models crate installs ring's provider as the process default. `deny.toml` bans aws-lc. `rustls` joins the models row of `boundaries.toml` and the area contracts table.
+  - **An environment variable keeps its own hint:** an `invalid_argument` whose `field` is a `PLANROOM_` variable keeps the engine's hint, the exact command that sets it, under `--json` too; its `details` still carry `synopsis` and `schema`.
+  - **The transport's test** is `crates/models/tests/transport.rs::the_live_transport_is_rustls_with_ring_and_nothing_else`: `Cargo.lock` holds no OpenSSL, native-tls or aws-lc crate, and the process provider is ring's.
+- **Alternatives rejected:**
+  - aws-lc-rs, reqwest's default: DR-39 chose ring for its shorter build and no C toolchain.
+  - The schema handle for an environment variable: a person or agent reading it learns nothing that fixes the variable.
+- **Consequences:**
+  - Boundaries: `boundaries.toml`'s models row; the area contracts table's models row; the crate graph; ratified with the layout lock.
+  - Contracts: the `invalid_argument` row's `hint` sentence.
+  - Tests: `live_gate.rs::a_live_flag_without_a_spend_log_is_refused` checks the `--json` hint; `models/tests/transport.rs`.
+- **Sources (checked 2026-10-27):** `crates/models/{Cargo.toml, src/}`; `crates/planroom/src/cli.rs` (`with_usage`); `deny.toml`; [Contracts](contracts.md#error-codes); DR-39's library table.

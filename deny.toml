@@ -30,6 +30,11 @@ allow = [
     "MPL-2.0",
     "Unicode-3.0",
     "Zlib",
+    # rustls and ring, its crypto provider (DR-39), which the model transport uses so no OpenSSL
+    # enters the tree; ISC is in DR-39's wider set.
+    "ISC",
+    # webpki-root-certs, the root certificates rustls's platform verifier falls back on.
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
 
@@ -44,6 +49,8 @@ highlight = "all"
 deny = [
     { crate = "openssl", reason = "no OpenSSL: use rustls" },
     { crate = "openssl-sys", reason = "no OpenSSL: use rustls" },
+    { crate = "aws-lc-rs", reason = "DR-39: rustls takes the ring provider" },
+    { crate = "aws-lc-sys", reason = "DR-39: rustls takes the ring provider" },
 ]
 
 [sources]

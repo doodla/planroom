@@ -11,8 +11,8 @@ use std::process::ExitCode;
 use xtask::report::Report;
 use xtask::tools::{self, Tool};
 use xtask::{
-    areas, boundaries, canvas, docs, features, fixture, generate, layout, modgen, plugin, testrun, util,
-    workflows,
+    areas, boundaries, canvas, docs, features, fixture, generate, layout, live, modgen, plugin, testrun,
+    util, workflows,
 };
 
 const USAGE: &str = "\
@@ -39,14 +39,51 @@ usage: cargo xtask <command>
   e2e [--screens]             build the canvas, the engine and the fixture, then the Playwright
                               specs against planroom serve; --screens also writes
                               docs/screenshots/
-  fixture OUT [--no-packs]    build the fixture workspace into OUT, with a config loading the Ruby pack";
+  fixture OUT [--no-packs]    build the fixture workspace into OUT, with a config loading the Ruby pack
+  live record SNN             record SNN's model calls (needs PLANROOM_LIVE_GATEWAY=1 or
+                              PLANROOM_LIVE_JEV=1); prints its estimate from the live spend plan
+                              and refuses past what docs/evidence/spend.jsonl has left
+
+Every command sets PLANROOM_REPLAY=strict and PLANROOM_SPEND_LOG, the main checkout's
+docs/evidence/spend.jsonl by its absolute path; test, e2e and gen --golden also set a
+temporary PLANROOM_DATA and unset OPENAI_API_KEY and GEMINI_API_KEY.";
 
 fn main() -> ExitCode {
     let root = repo_root();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let testing = matches!(args.as_slice(), ["test", ..] | ["e2e", ..] | ["gen", "--golden"]);
+    let data = model_variables(&root, testing);
+    let code = run(&root, &args);
+    if let Some(data) = data {
+        let _ = std::fs::remove_dir_all(data);
+    }
+    code
+}
+
+/// Set the model variables every command passes on (`live::variables`), before any thread or
+/// child process starts. Returns the temporary data root a test run gets, to remove after it.
+fn model_variables(root: &Path, testing: bool) -> Option<PathBuf> {
+    let mut data = None;
+    for (name, value) in live::variables(root, testing) {
+        if name == "PLANROOM_DATA" {
+            data = value.as_ref().map(PathBuf::from);
+        }
+        // SAFETY: main calls this first, while the process has one thread and no child.
+        unsafe {
+            match value {
+                Some(v) => std::env::set_var(&name, v),
+                None => std::env::remove_var(&name),
+            }
+        }
+    }
+    data
+}
+
+fn run(root: &Path, args: &[&str]) -> ExitCode {
+    let root = root.to_path_buf();
     let mut report = Report::new(&root);
-    match args.as_slice() {
+    match args {
         ["check"] => check(&root, &mut report),
         ["check", "boundaries"] => boundary_checks(&root, &mut report, false),
         ["check", "boundaries", "--self-test"] => boundary_checks(&root, &mut report, true),
@@ -121,6 +158,18 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("cargo xtask fixture failed: {e}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
+        ["live", "record", scenario] => {
+            return match live::record(&root, scenario) {
+                Ok(line) => {
+                    println!("{line}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("cargo xtask live record refused: {e}");
                     ExitCode::FAILURE
                 }
             };
