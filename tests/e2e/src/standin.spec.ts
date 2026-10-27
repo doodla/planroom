@@ -69,34 +69,6 @@ test.describe("M1 stand-in: tones and lifted edges", () => {
   );
 });
 
-// Real in M1, with the canvas's empty states and `open`: today `serve` refuses a workspace with
-// no store (`workspace_not_found`), so the real empty map, `map-empty.json`, can't reach a page.
-test.describe("M1 stand-in: an unscanned workspace", () => {
-  for (const viewport of [DESKTOP, PHONE]) {
-    test(`the_empty_map_offers_its_one_next_action at ${viewport.width}`, async ({
-      page,
-    }) => {
-      const s = await standIn({ map: "map-empty.json" });
-      try {
-        await page.setViewportSize(viewport);
-        await page.goto(s.loginUrl());
-        const empty = page.locator("[data-empty]");
-        await expect(empty.locator("img")).toBeVisible();
-        await expect(page.getByRole("button")).toHaveCount(1);
-        await page
-          .getByRole("button", { name: "Map these 5 repos? About 2 s." })
-          .click();
-        // The handle runs as scan's request; the real route takes a dir that names its root.
-        await expect
-          .poll(() => s.runs)
-          .toEqual([{ path: "/api/v1/scan", body: { dir: "/home/you/shop" } }]);
-      } finally {
-        await s.close();
-      }
-    });
-  }
-});
-
 // Real in M2, when the decision runner opens cards and the diff engine finds diffs.
 test.describe("M2 stand-in: a decision card and diffs", () => {
   const t = mergeTests(test, withStandIn([M2_CARD]));

@@ -2,8 +2,8 @@
  * The real engine for the specs: a fresh copy of the built fixture, scanned (or not) by the
  * `planroom` binary `cargo xtask e2e` built with the canvas embedded, and `planroom serve` on it.
  * The specs sign in the way a person does: the first code is the one `serve` wrote into its
- * 0600 login page, and each later one is registered with `serve.json`'s control token, as
- * `planroom open` registers it (DR-29, DR-64).
+ * 0600 login page, and each later one is registered with the control token in the server's record
+ * under the data root, as `planroom open` registers it (DR-29, DR-64, DR-88).
  */
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -113,8 +113,11 @@ export async function startEngine(
     });
   });
   const origin = `http://127.0.0.1:${info.port}`;
+  // The control token is in the server's record under the data root, never in the workspace.
   const control = (
-    JSON.parse(readFileSync(join(root, ".planroom/serve.json"), "utf8")) as {
+    JSON.parse(
+      readFileSync(join(tmp, "data", "serve", `${info.port}.json`), "utf8"),
+    ) as {
       control_token: string;
     }
   ).control_token;

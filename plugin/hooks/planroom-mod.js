@@ -649,6 +649,7 @@ function gitFileDir(text2, folder) {
   return normalize(dir.startsWith("/") ? dir : `${folder}/${dir}`, "/", "/");
 }
 var STORE_FILE = /^(store|ledger)\.db(-wal|-shm|-journal)?$/;
+var DATA_SECRETS = ["stores", "backups", "open", "serve", "ledger.db"];
 var PROC_SECRETS = /^\/proc\/[^/]+\/(task\/[^/]+\/)?(environ|mem)$/;
 function globbedFolder(path) {
   return segmentsOf(path).slice(0, -1).some((s) => GLOB.test(s));
@@ -662,12 +663,12 @@ function readDenied(path, places2) {
     return "Planroom's store is read through the planroom CLI, never directly.";
   }
   if (inStateDir(path, places2) && name === "serve.json") {
-    return "serve.json holds the canvas server's control token.";
+    return "serve.json is the canvas server's record; an older engine's copy may still hold its control token, which now lives under the data root at serve/<port>.json.";
   }
   const data = places2.dataRoot;
-  for (const sub of ["stores", "backups", "open", "ledger.db"]) {
+  for (const sub of DATA_SECRETS) {
     if (within(path, `${data}/${sub}`)) {
-      return "The Planroom data root's stores, ledger, backups and login pages are off limits.";
+      return "The Planroom data root's stores, ledger, backups, login pages and serve control tokens are off limits.";
     }
   }
   if (path === places2.userConfig) {
@@ -769,7 +770,7 @@ function secretPlaces(places2) {
   return [
     modStoreDir(places2),
     places2.userConfig,
-    ...["stores", "backups", "open", "ledger.db"].map((s) => `${data}/${s}`)
+    ...DATA_SECRETS.map((s) => `${data}/${s}`)
   ];
 }
 function engineDir(places2) {
@@ -2237,7 +2238,7 @@ function globDenied(pattern, places2) {
   const prefix = `/${segments.slice(0, first).join("/")}`;
   const data = places2.dataRoot;
   const guarded = [
-    ...["stores", "backups", "open", "ledger.db"].map((s) => `${data}/${s}`),
+    ...DATA_SECRETS.map((s) => `${data}/${s}`),
     places2.userConfig,
     modStoreDir(places2)
   ];

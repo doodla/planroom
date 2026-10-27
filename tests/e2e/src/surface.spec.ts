@@ -2,14 +2,15 @@
  * The canvas against the real engine: `planroom serve` on a scanned copy of the fixture, signed in
  * through its login code. The five concepts, the fixture's real blocks, the ELK layout and its
  * stored positions, the login, the next action, a CLI commit reaching the open page over the
- * stream, search, the phone layout and reduced motion. Every test also fails on a console error.
- * The states the engine can't produce yet, the empty map among them, are in `standin.spec.ts`.
+ * stream, search, the phone layout, reduced motion, and the empty map of a workspace no scan has
+ * touched, whose next action scans it. Every test also fails on a console error. The states the
+ * engine can't produce yet are in `standin.spec.ts`.
  */
 
 import type { MapView } from "@planroom/contract";
 import type { Locator, Page } from "@playwright/test";
 
-import type { Engine } from "./engine";
+import { startEngine, type Engine } from "./engine";
 import { CONCEPTS, DESKTOP, PHONE, expect, openMap, test } from "./fixtures";
 
 /** The engine's own map of the workspace, as the canvas asks for it. */
@@ -560,4 +561,33 @@ test.describe("at 390x844 with touch", () => {
     await page.getByRole("searchbox", { name: "Search blocks" }).fill("kit");
     await expect(page.locator(".block:not([data-dim])")).toHaveCount(1);
   });
+});
+
+// The real `serve` starts in a workspace no scan has touched, so the empty map comes from it.
+test.describe("an unscanned workspace", () => {
+  for (const viewport of [DESKTOP, PHONE]) {
+    test(`the_empty_map_offers_its_one_next_action at ${viewport.width}`, async ({
+      page,
+    }) => {
+      const engine = await startEngine({ scanned: false });
+      try {
+        await page.setViewportSize(viewport);
+        await page.goto(await engine.loginUrl());
+        const empty = page.locator("[data-empty]");
+        await expect(empty.locator("img")).toBeVisible();
+        await expect(page.getByRole("button")).toHaveCount(1);
+        await page
+          .getByRole("button", { name: "Map these 5 repos? About 2 s." })
+          .click();
+        // The handle runs as scan's request on the real route, and the map that scan made
+        // replaces the empty state.
+        await page.locator(".map[data-ready]").waitFor();
+        const view = engineMap(engine);
+        expect(view.nodes).toHaveLength(10);
+        await expect(page.locator(".block")).toHaveCount(view.nodes.length);
+      } finally {
+        engine.close();
+      }
+    });
+  }
 });

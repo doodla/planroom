@@ -174,6 +174,25 @@ pub fn record(data: &Path, mut entry: WorkspaceEntry) -> Result<(), AppError> {
     write_private(&path(data), text.as_bytes())
 }
 
+/// Change the recorded entries with `change`, under the same exclusive lock as `record`, so a
+/// check and the write it guards see one state: `serve` checks that no other workspace records
+/// a port, and moves a workspace's entry to its new root, in one step (DR-78). Nothing is written
+/// when `change` fails.
+pub fn update<T>(
+    data: &Path,
+    change: impl FnOnce(&mut Vec<WorkspaceEntry>) -> Result<T, AppError>,
+) -> Result<T, AppError> {
+    ensure_dir(data)?;
+    let _lock = lock(data)?;
+    let mut doc = load(data)?;
+    let out = change(&mut doc.workspaces)?;
+    doc.workspaces.sort_by(|a, b| a.root.cmp(&b.root));
+    doc.min_reader_version.get_or_insert_with(|| MIN_READER_VERSION.into());
+    let text = serde_json::to_string_pretty(&doc).map_err(AppError::internal)?;
+    write_private(&path(data), text.as_bytes())?;
+    Ok(out)
+}
+
 /// An exclusive lock on `workspaces.json.lock`, held until the returned file is dropped. Every
 /// engine takes it around a change to `workspaces.json`.
 fn lock(data: &Path) -> Result<File, AppError> {

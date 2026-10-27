@@ -27,9 +27,9 @@ These rules apply to every contract below unless its row says otherwise [DR-37].
 | An ack | `planroom.ack/v1` | `contract::remote::Ack` | fields, in `extra` |
 | An event export or backup | `planroom.event/v1` | `contract::event::Event` | an unknown kind's body, as `EventBody::Unknown` |
 | `workspaces.json` | `planroom.workspaces/v1` | `crates/planroom/src/app/data.rs` | fields, in `extra`, at the top level and in each entry |
-| `serve.json` | `planroom.serve/v1` | `ServeFile` in `crates/planroom/src/server/mod.rs` | fields, in `extra` |
+| `serve.json`, and a running server's record under the data root | `planroom.serve/v1` | `ServeFile` in `crates/planroom/src/server/mod.rs` | fields, in `extra` |
 
-`workspaces.json` and `serve.json` are internal: no surface reads them, so their types live in `crates/planroom`, not the contract crate (DR-85). The rules for the data root's shared files are in [Store schema and migrations](#store-schema-and-migrations).
+`workspaces.json`, `serve.json` and the server's record are internal: no surface reads them, so their types live in `crates/planroom`, not the contract crate (DR-85). The rules for the data root's shared files are in [Store schema and migrations](#store-schema-and-migrations).
 
 ## Codegen flow
 
@@ -216,6 +216,7 @@ Redaction is by field [DR-64]. A field that holds repo-derived free text carries
 | `schema_mismatch` | unavailable | 7 | never | the store or a file is from a newer version, or this process is older than the store, checked at open, again inside every commit and duty transaction (DR-73), and by a live `watch` whenever the store changes; or a data-root file's `min_reader_version` is above this engine's (DR-78) | `found`, `supported`, `writer_version` (the engine version that wrote the store, so the mod names the update or the restore, DR-69); `file`, for a file other than the store, such as `workspaces.json` (DR-85) |
 | `packs_mismatch` | unavailable | 7 | never | this process resolved another pack set than the one the store records; a write is refused. Packs load from their copies in the state directory, so only engine version skew causes it (DR-62) | `recorded`, `resolved`; `hint` names a restart for an older engine, or the update for a newer store |
 | `replay_missing` | unavailable | 7 | never | strict replay found no record (CI and tests) | `key`, `path` |
+| `serve_limit` | unavailable | 7 | later | HTTP: the local server hit one of its [limits](architecture.md#local-server-and-live-stream): a request still running at 10 s (it may still finish and commit), or a 65th live stream | `limit` (`request_time` or `stream_clients`), `max` |
 | `pack_invalid` | failed | 8 | never | a pack failed validation | `file`, `line`, `reference` |
 | `git_failed` | failed | 8 | never | git exited non-zero; stderr redacted. A scan returns it only when git can't list a root repo's submodules, which leaves the repo set unknown; it skips any repo git refuses, with `repo_skipped` (DR-86) | `argv`, `stderr`; `hint` is `git -C PATH status`, which shows why (DR-86) |
 | `internal` | internal | 70 | never | a bug | `report` (a path to a redacted report) |
@@ -379,16 +380,16 @@ The engine verifies the token against `meta.person_pubkey`, the registered publi
 
 ## HTTP API and live stream
 
-`planroom serve` binds `127.0.0.1` on the workspace's port, which `workspaces.json` records, and writes `serve.json` in the state directory (mode 0600) [DR-29]. The first `serve` picks a free port no other workspace has recorded. When another program holds the recorded port, `serve` exits with `port_in_use` instead of moving, and `serve --port N` records a new one (DR-78).
+`planroom serve` binds `127.0.0.1` on the workspace's port, which `workspaces.json` records, writes its record with the control token at `DATA_ROOT/serve/<port>.json` (mode 0600 in a 0700 folder), and writes `serve.json` without the token in the state directory (mode 0600) once there is one [DR-29, DR-88]. It starts in a directory no scan has made a workspace yet, makes no state directory there, and serves the empty map, whose next action is `scan`; the live stream sends that scan's frames, and `serve.json` appears with the state directory the scan makes [DR-82]. The first `serve` picks a free port no other workspace has recorded. When another program holds the recorded port, `serve` exits with `port_in_use` instead of moving, and `serve --port N` records a new one (DR-78).
 
 | Route | Request | Reply |
 |---|---|---|
 | `POST /api/v1/{command path, slash-joined}` | the command's request JSON, including `base` and `idem`; `Idempotency-Key` header accepted | the envelope; HTTP status by category: usage 400, not_found 404, conflict 409, permission 403 (`unauthorized` 401), budget 429, unavailable 503, failed 422, internal 500 |
 | `GET /api/v1/stream?since=SEQ` | `Last-Event-ID` resumes; read with `fetch`, so the token goes in a header | SSE with `event: <type>`, `id: <seq>`, `data: <StreamFrame JSON>` |
 | `PUT /api/v1/layout` | `{view_key, structure_hash, positions}` | `204`; a cache, last-writer-wins |
-| `POST /api/v1/code` | `CodeReq {code_sha256}`, with `Authorization: Bearer <control_token>` from `serve.json` | `204`; the code is valid once, for 60 s, for this `serve` process |
+| `POST /api/v1/code` | `CodeReq {code_sha256}`, with `Authorization: Bearer <control_token>` from the server's record under the data root | `204`; the code is valid once, for 60 s, for this `serve` process |
 | `POST /api/v1/session` | `{code}` from the URL fragment | `200` with the envelope, `result: {token}`: a random bearer token the tab keeps in `sessionStorage`; a code works once, and a second try at it revokes the token the first issued (DR-64) |
-| `POST /api/v1/drain` | `{token}`, the control token from `serve.json` | `202`; the server finishes in-flight requests and exits |
+| `POST /api/v1/drain` | `{token}`, the control token from the server's record under the data root | `202`; the server finishes in-flight requests and exits |
 | `GET /`, `GET /assets/*` | | the canvas build embedded in the binary; a binary built without it serves one engine-rendered page naming `cargo xtask gen --canvas` (DR-58) |
 
 ```rust
@@ -411,7 +412,7 @@ Every API request except `session`, `code` and `drain` carries the tab's `Author
 
 Every response carries exactly this CSP, what the canvas needs and no more (React Flow places blocks with inline styles): `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` [DR-82].
 
-`serve.json` (internal, mode 0600 in the 0700 state directory): `{format: "planroom.serve/v1", port, pid, version, catalogue_hash, control_token, started_at}`. `serve --detach` reuses a server only when `version` and `catalogue_hash` both match its own (DR-58). The port is the workspace's own, recorded in `workspaces.json` as `{root, workspace_id, port}`, and no two entries share one. `serve` binds only that port and exits with `port_in_use` when another program holds it; `serve --port N` records a new one (DR-78).
+A running server's record (`planroom.serve/v1`, internal) is `{format, port, pid, version, catalogue_hash, control_token, started_at, binary_mtime_ms}`, the last being the server binary's mtime when it started, which the handshake compares for two builds of one version. It lives at `DATA_ROOT/serve/<port>.json`, mode 0600 in a 0700 folder, keyed by the port `workspaces.json` gives the workspace alone, so a tree read of the workspace, such as `grep -r x .`, never reaches the control token [DR-88]. `serve.json` (mode 0600 in the 0700 state directory) holds the same fields but `control_token`, and is written only while the state directory exists. A later `serve`, and `open`, read the record under the data root; an older engine's `serve.json` that still holds `control_token` is read for it, so a newer `serve` can drain that server. A server removes both when it exits, on a drain, a signal or a `schema_mismatch` [DR-82]. `serve` reuses a server only when `version` and `catalogue_hash` both match its own, and only one on the port the workspace records, so a copied workspace's `serve.json` names no server of its own (DR-58). The port is the workspace's own, recorded in `workspaces.json` as `{root, workspace_id, port}`, and no two entries share one. `serve` binds only that port and exits with `port_in_use` when another program holds it; `serve --port N` records a new one (DR-78).
 
 ## Store schema and migrations
 

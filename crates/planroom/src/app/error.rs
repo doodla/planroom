@@ -45,6 +45,13 @@ impl AppError {
         self
     }
 
+    /// Replace the message with another engine-authored line, for a case the code's own line
+    /// doesn't fit.
+    pub fn with_message(mut self, message: String) -> AppError {
+        self.0.message = message;
+        self
+    }
+
     /// Replace the hint with an exact fix line.
     pub fn with_hint(mut self, hint: String) -> AppError {
         self.0.hint = Some(hint);

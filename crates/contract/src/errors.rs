@@ -159,6 +159,9 @@ error_codes! {
         "this process resolved another pack set than the one the store records; a write is refused",
         ["recorded", "resolved"];
     ReplayMissing = "replay_missing", Unavailable, Never, "strict replay found no record", ["key", "path"];
+    ServeLimit = "serve_limit", Unavailable, Later,
+        "the local server hit one of its limits: a request still running at 10 s, or a 65th stream client",
+        ["limit", "max"];
     Internal = "internal", Internal, Never, "a bug", ["report"];
 }
 

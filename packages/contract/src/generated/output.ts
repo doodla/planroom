@@ -77,6 +77,7 @@ export type ErrorCode =
       | "git_too_old"
       | "packs_mismatch"
       | "replay_missing"
+      | "serve_limit"
       | "internal"
     )
   | string;
@@ -1110,7 +1111,8 @@ export interface Client {
 }
 /**
  * `POST /api/v1/code`: a login code to register, by its sha256, sent with the control token from
- * `serve.json`, so the code itself never reaches the server's memory or any argv (DR-29, DR-64).
+ * the server's record under the data root, `DATA_ROOT/serve/<port>.json`, so the code itself
+ * never reaches the server's memory or any argv (DR-29, DR-64).
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "CodeReq".
@@ -1601,6 +1603,17 @@ export interface DirtyRepo {
    * Changed and untracked files `git status` lists, `.gitignore` honoured.
    */
   files: number;
+}
+/**
+ * `POST /api/v1/drain`: the control token from the server's record under the data root,
+ * `DATA_ROOT/serve/<port>.json`, which asks that `serve` to finish its in-flight requests and
+ * exit, so a newer engine can take the workspace's port (DR-58, DR-69).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DrainReq".
+ */
+export interface DrainReq {
+  token: string;
 }
 /**
  * Intended rules broken and machine drift, in one line.

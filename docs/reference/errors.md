@@ -50,6 +50,7 @@ An older reader maps a code it doesn't know to its category and exit code.
 | `git_too_old` | unavailable | 7 | never | the git on PATH is older than 2.34.1, the oldest whose plumbing the adapter uses | `found`, `minimum`, `fix` |
 | `packs_mismatch` | unavailable | 7 | never | this process resolved another pack set than the one the store records; a write is refused | `recorded`, `resolved` |
 | `replay_missing` | unavailable | 7 | never | strict replay found no record | `key`, `path` |
+| `serve_limit` | unavailable | 7 | later | the local server hit one of its limits: a request still running at 10 s, or a 65th stream client | `limit`, `max` |
 | `internal` | internal | 70 | never | a bug | `report` |
 
 ## Warning codes

@@ -123,6 +123,13 @@ pub fn reader_too_old(min_reader_version: &str, own: &str) -> bool {
     }
 }
 
+/// How engine version `a` orders against `b` by semver precedence, so a `-dev` build of a version
+/// is older than that version; `None` when either isn't semver. `serve` compares its own version
+/// with a running server's this way before it reuses or drains it (DR-58).
+pub fn compare_versions(a: &str, b: &str) -> Option<Ordering> {
+    Some(Semver::parse(a)?.cmp(&Semver::parse(b)?))
+}
+
 /// A semver version, without its build metadata, which precedence ignores.
 #[derive(Debug, PartialEq, Eq)]
 struct Semver<'a> {
@@ -215,5 +222,13 @@ mod tests {
         assert!(reader_too_old("1.0.0-beta", "1.0.0-alpha.1"));
         assert!(!reader_too_old("1.0.0+build.7", "1.0.0"));
         assert!(reader_too_old("not a version", "0.1.0"));
+    }
+
+    #[test]
+    fn engine_versions_compare_by_semver_precedence() {
+        assert_eq!(compare_versions("0.1.0-dev", "0.1.0"), Some(Ordering::Less));
+        assert_eq!(compare_versions("0.2.0", "0.1.9"), Some(Ordering::Greater));
+        assert_eq!(compare_versions("0.1.0+a", "0.1.0+b"), Some(Ordering::Equal));
+        assert_eq!(compare_versions("0.1.0", "next"), None);
     }
 }

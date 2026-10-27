@@ -541,7 +541,7 @@
       "required": [
         "code_sha256"
       ],
-      "description": "`POST /api/v1/code`: a login code to register, by its sha256, sent with the control token from\n`serve.json`, so the code itself never reaches the server's memory or any argv (DR-29, DR-64)."
+      "description": "`POST /api/v1/code`: a login code to register, by its sha256, sent with the control token from\nthe server's record under the data root, `DATA_ROOT/serve/<port>.json`, so the code itself\nnever reaches the server's memory or any argv (DR-29, DR-64)."
     },
     "Command": {
       "oneOf": [
@@ -1219,6 +1219,18 @@
         "files"
       ],
       "description": "A repo with uncommitted changes: `orders: 3 uncommitted files aren't on the map`."
+    },
+    "DrainReq": {
+      "type": "object",
+      "properties": {
+        "token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "token"
+      ],
+      "description": "`POST /api/v1/drain`: the control token from the server's record under the data root,\n`DATA_ROOT/serve/<port>.json`, which asks that `serve` to finish its in-flight requests and\nexit, so a newer engine can take the workspace's port (DR-58, DR-69)."
     },
     "DriftLine": {
       "type": "object",
@@ -1952,6 +1964,7 @@
             "git_too_old",
             "packs_mismatch",
             "replay_missing",
+            "serve_limit",
             "internal"
           ]
         },

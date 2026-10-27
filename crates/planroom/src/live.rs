@@ -150,7 +150,8 @@ pub fn frame(event: &Event) -> StreamFrame {
         other => text::get("frame.other", &[("kind", &other.kind().as_str())]),
     };
     let target = match &event.body {
-        EventBody::Scan { repo, .. } => Some(repo.clone()),
+        // The repo's node ID (`worker:repo:worker`), as every other frame names its target (DR-82).
+        EventBody::Scan { repo, .. } => Some(planroom_extract::files::repo_id(repo).0),
         EventBody::Edit(edit) => Some(target_id(&edit.target)),
         EventBody::Claim { target, .. } => Some(target_id(target)),
         _ => None,

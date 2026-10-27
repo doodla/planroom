@@ -254,6 +254,7 @@ const SERVE: CommandSpec = CommandSpec {
         ErrorCode::PortInUse,
         ErrorCode::StoreBusy,
         ErrorCode::SchemaMismatch,
+        ErrorCode::ServeLimit,
         ErrorCode::Internal,
     ],
     undo: Undo::Query,
@@ -589,11 +590,20 @@ pub struct SessionReq {
 }
 
 /// `POST /api/v1/code`: a login code to register, by its sha256, sent with the control token from
-/// `serve.json`, so the code itself never reaches the server's memory or any argv (DR-29, DR-64).
+/// the server's record under the data root, `DATA_ROOT/serve/<port>.json`, so the code itself
+/// never reaches the server's memory or any argv (DR-29, DR-64).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CodeReq {
     /// The lowercase hex sha256 of the code.
     pub code_sha256: String,
+}
+
+/// `POST /api/v1/drain`: the control token from the server's record under the data root,
+/// `DATA_ROOT/serve/<port>.json`, which asks that `serve` to finish its in-flight requests and
+/// exit, so a newer engine can take the workspace's port (DR-58, DR-69).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DrainReq {
+    pub token: String,
 }
 
 /// The tab's bearer token, kept in `sessionStorage` and sent as `Authorization: Bearer`.

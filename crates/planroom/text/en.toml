@@ -30,6 +30,7 @@ model_unavailable = "{provider} can't be reached, so this command can't run."
 git_too_old = "git {found} is too old; Planroom needs {minimum} or newer."
 packs_mismatch = "This engine loaded other packs than the ones this workspace records, so it won't write."
 replay_missing = "No recorded model reply for {key}, and replay is strict."
+serve_limit = "The canvas server is at its limit: {what}."
 
 [hint]
 workspace_not_found = "planroom scan DIR"
@@ -50,6 +51,7 @@ path_refused = "planroom scan {path}"
 git_too_old = "install git 2.34.1 or newer, then retry"
 packs_mismatch = "restart this Planroom process, or update Planroom"
 data_root = "export PLANROOM_DATA=DIR"
+serve_limit = "retry in a few seconds"
 
 # The data root's shared files (DR-78).
 [data]
@@ -174,6 +176,11 @@ rekeyed = "Replaced this workspace's person key with {fingerprint}."
 [serve]
 summary = "Serving the canvas at {url}; open it with the login page this serve wrote."
 session = "Signed in."
+reused = "Serving the canvas at {url}, from the serve already running; open it with the login page this serve wrote."
+reused_other_build = "Serving the canvas at {url}, from a serve of another build that is already running; open it with the login page this serve wrote."
+newer_running = "A newer Planroom ({running}) is already serving this workspace, and this engine is {own}. Update Planroom: /plugin marketplace update planroom, then /plugin update planroom@planroom, then restart this session."
+limit_request_time = "a request still running at 10 s"
+limit_stream_clients = "64 live streams are already open"
 
 [canvas]
 missing_title = "Planroom"

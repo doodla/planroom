@@ -73,6 +73,7 @@ test("the_mod_store_file_is_guarded: agents can't read the person key or the sto
     "/home/u/.local/share/planroom/ledger.db",
     "/home/u/.local/share/planroom/backups/ws1/events.ndjson",
     "/home/u/.local/share/planroom/open/abc.html",
+    "/home/u/.local/share/planroom/serve/41873.json",
     "/home/u/.config/planroom/config.toml",
   ]) {
     expect(verdict("Read", { file_path })?.decision, file_path).toBe("deny");
@@ -220,6 +221,9 @@ const BYPASSES = [
   "cd ~/.claude/plugins && cat store/planroom_x.json",
   "cd ~/.claude/plugins/store; cat planroom_x.json",
   "cd /home/u/.local/share/planroom && cat open/abc.html",
+  // A running serve's record, which holds its control token.
+  "cat /home/u/.local/share/planroom/serve/*.json",
+  "grep -r token /home/u/.local/share/planroom",
   // A guarded variable's name split by quotes.
   'env PLANROOM_PERSON"_TOKEN"=1 planroom map',
   'env PLANROOM_RELEASE"_BASE_URL"=http://127.0.0.1:1 planroom map',
@@ -465,6 +469,10 @@ test("security-r3-1: relative paths resolve from the shell's directory for this 
     expect(inState("Bash", { command })?.decision, command).toBe("deny");
   }
   expect(inState("Read", { file_path: "serve.json" })?.decision).toBe("deny");
+  // The control token lives in the server's record under the data root, and the reason says so.
+  const reason = inState("Read", { file_path: "serve.json" })?.reason ?? "";
+  expect(reason).toContain("serve/<port>.json");
+  expect(reason).not.toMatch(/serve\.json holds/);
   expect(
     from("/home/u/.claude/plugins")("Bash", {
       command: "cat store/planroom_x.json",

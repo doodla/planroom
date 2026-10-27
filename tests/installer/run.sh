@@ -62,6 +62,12 @@ make_plugin() {
   fi
 }
 
+# The cache directory, or with $3 = src the source clone, of version $2 under the plugin copy at $1:
+# keyed by the version and the first 8 characters of make_plugin's catalogue hash, h$2.
+cached() {
+  printf '%s/data/%s/%s+%.8s' "$1" "${3:-engine}" "$2" "h$2"
+}
+
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk '{ print $1 }'
@@ -235,9 +241,9 @@ a_stale_checkout_build_names_the_rebuild() {
   make_plugin "$d" 1.0.0 checkout
   fake_engine "$d/target/debug/planroom" 0.9.0 stale
   # A cached release must not stand in for the stale build.
-  mkdir -p "$d/data/engine/1.0.0"
-  fake_engine "$d/data/engine/1.0.0/planroom" 1.0.0 cache
-  echo x >"$d/data/engine/1.0.0/.ok"
+  mkdir -p "$(cached "$d" 1.0.0)"
+  fake_engine "$(cached "$d" 1.0.0)/planroom" 1.0.0 cache
+  echo x >"$(cached "$d" 1.0.0)/.ok"
   PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" focus --json
   expect_eq "$code" 7
   expect_contains "$out" '"reason":"stale_build"'
@@ -262,8 +268,8 @@ a_verified_download_is_cached() {
   PLANROOM_DATA="$d/data" PLANROOM_RELEASE_BASE_URL="$base" run "$d/plugin/scripts/planroom" map --json
   expect_eq "$code" 0 "$(cat "$work/stderr")"
   expect_eq "$out" "downloaded: map --json"
-  expect_eq "$(cat "$d/data/engine/1.2.0/.ok")" "$(sha256_of "$d/data/engine/1.2.0/planroom")"
-  [ -f "$d/data/engine/1.2.0/last_used" ] || fail "no last_used stamp"
+  expect_eq "$(cat "$(cached "$d" 1.2.0)/.ok")" "$(sha256_of "$(cached "$d" 1.2.0)/planroom")"
+  [ -f "$(cached "$d" 1.2.0)/last_used" ] || fail "no last_used stamp"
   # The second run needs no server: it comes from the cache.
   rm -rf "$work/www/v1.2.0"
   PLANROOM_DATA="$d/data" PLANROOM_RELEASE_BASE_URL="$base" run "$d/plugin/scripts/planroom" status --json
@@ -281,7 +287,7 @@ a_bad_checksum_is_refused() {
   expect_eq "$code" 7
   expect_contains "$out" '"code":"engine_unavailable"'
   expect_contains "$out" "doesn't match its SHA256SUMS entry"
-  [ ! -e "$d/data/engine/1.3.0/planroom" ] || fail "a tampered engine was cached"
+  [ ! -e "$(cached "$d" 1.3.0)/planroom" ] || fail "a tampered engine was cached"
   [ -z "$(find "$d/data/engine" -name '.fetch.*')" ] || fail "the download's temp directory was left"
   [ ! -d "$d/data/engine/.lock" ] || fail "the fetch lock was left"
 }
@@ -329,9 +335,9 @@ a_missing_toolchain_names_its_install() {
 resolve_checkout_skips_the_cache_and_the_download() {
   d="$work/checkout-mode"
   make_plugin "$d" 1.7.0
-  mkdir -p "$d/data/engine/1.7.0"
-  fake_engine "$d/data/engine/1.7.0/planroom" 1.7.0 cache
-  echo x >"$d/data/engine/1.7.0/.ok"
+  mkdir -p "$(cached "$d" 1.7.0)"
+  fake_engine "$(cached "$d" 1.7.0)/planroom" 1.7.0 cache
+  echo x >"$(cached "$d" 1.7.0)/.ok"
   path=$(sandbox_path "$d")
   fake_tool "$d" cargo
   fake_tool "$d" cc
@@ -410,8 +416,8 @@ a_clone_build_is_cached_and_its_clone_removed() {
   PATH=$path PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" build
   expect_eq "$code" 0 "$(cat "$work/stderr")"
   expect_contains "$(calls "$d")" "|pnpm install --frozen-lockfile --offline|cargo xtask gen --canvas|cargo build"
-  [ -x "$d/data/engine/3.2.0-dev/planroom" ] || fail "the built engine wasn't cached"
-  [ ! -e "$d/data/src/3.2.0-dev" ] || fail "the clone was left in the data root"
+  [ -x "$(cached "$d" 3.2.0-dev)/planroom" ] || fail "the built engine wasn't cached"
+  [ ! -e "$(cached "$d" 3.2.0-dev src)" ] || fail "the clone was left in the data root"
 }
 
 the_repo_checkout_resolves_its_own_build() {
@@ -495,17 +501,17 @@ a_swapped_cached_engine_is_refused() {
   publish 2.1.0 genuine
   PLANROOM_DATA="$d/data" PLANROOM_RELEASE_BASE_URL="$base" run "$d/plugin/scripts/planroom" map --json
   expect_eq "$out" "genuine: map --json" "$(cat "$work/stderr")"
-  fake_engine "$d/data/engine/2.1.0/planroom" 2.1.0 swapped
+  fake_engine "$(cached "$d" 2.1.0)/planroom" 2.1.0 swapped
   PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" status --json
   expect_eq "$code" 1
   expect_eq "$out" '{"ok":false,"step":"download","version":"2.1.0"}'
   PLANROOM_DATA="$d/data" PLANROOM_RELEASE_BASE_URL="$base" run "$d/plugin/scripts/planroom" map --json
   expect_eq "$code" 0 "$(cat "$work/stderr")"
   expect_eq "$out" "genuine: map --json"
-  expect_eq "$(cat "$d/data/engine/2.1.0/.ok")" "$(sha256_of "$d/data/engine/2.1.0/planroom")"
+  expect_eq "$(cat "$(cached "$d" 2.1.0)/.ok")" "$(sha256_of "$(cached "$d" 2.1.0)/planroom")"
   # A link in the binary's place is no install either, even to a binary whose sum matches.
-  mv "$d/data/engine/2.1.0/planroom" "$d/genuine"
-  ln -s "$d/genuine" "$d/data/engine/2.1.0/planroom"
+  mv "$(cached "$d" 2.1.0)/planroom" "$d/genuine"
+  ln -s "$d/genuine" "$(cached "$d" 2.1.0)/planroom"
   PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" status --json
   expect_eq "$code" 1
 }
@@ -537,6 +543,135 @@ a_data_root_with_no_absolute_place_is_refused() {
   [ -z "$(ls -A "$d/cwd")" ] || fail "the resolver wrote into the folder it ran in: $(ls -A "$d/cwd")"
 }
 
+# The cache is keyed by the version and the catalogue hash, so a newer -dev build, which serves
+# another catalogue under the same version, never resolves the older one (DR-78).
+a_newer_dev_catalogue_misses_the_cache() {
+  d="$work/dev-catalogue"
+  make_plugin "$d" 4.0.0-dev
+  path=$(sandbox_path "$d")
+  fake_build_tools "$d" 4.0.0-dev
+  PATH=$path PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" build
+  expect_eq "$code" 0 "$(cat "$work/stderr")"
+  PATH=$path PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" status --json
+  expect_eq "$code" 0
+  expect_contains "$out" '"step":"cache"'
+  expect_contains "$out" "$(cached "$d" 4.0.0-dev)/planroom"
+  # The plugin moves on to a newer catalogue under the same version: the old build isn't it.
+  sed 's/^PLANROOM_CATALOGUE_HASH=.*/PLANROOM_CATALOGUE_HASH=0123abcd-newer/' \
+    "$d/plugin/scripts/engine.env" >"$d/engine.env" && mv "$d/engine.env" "$d/plugin/scripts/engine.env"
+  PATH=$path PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" focus --json
+  expect_eq "$code" 7
+  expect_contains "$out" '"reason":"no_release"'
+  [ -x "$(cached "$d" 4.0.0-dev)/planroom" ] || fail "the older catalogue's build was removed"
+}
+
+# A rebuild swaps the new engine in so that a resolve at any step finds an engine it installed:
+# every rename the build makes is followed by a status from another process, and each says cache.
+a_rebuild_never_leaves_the_cache_missing() {
+  d="$work/rebuild"
+  make_plugin "$d" 4.1.0-dev
+  path=$(sandbox_path "$d")
+  fake_build_tools "$d" 4.1.0-dev
+  PATH=$path PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" build
+  expect_eq "$code" 0 "$(cat "$work/stderr")"
+  first=$(sha256_of "$(cached "$d" 4.1.0-dev)/planroom")
+  # The second build makes another engine of the same version and catalogue.
+  fake_engine "$d/built-engine" 4.1.0-dev rebuilt
+  rm "$d/bin/mv"
+  real_mv=$(path_of mv)
+  cat >"$d/bin/mv" <<EOF
+#!/bin/sh
+"$real_mv" "\$@" || exit 1
+PLANROOM_DATA="$d/data" "$d/plugin/scripts/planroom" status >>"$d/steps" 2>&1 || echo "missing" >>"$d/steps"
+EOF
+  chmod 755 "$d/bin/mv"
+  PATH=$path PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" build
+  expect_eq "$code" 0 "$(cat "$work/stderr")"
+  [ -s "$d/steps" ] || fail "the build renamed nothing"
+  if grep -v '^cache ' "$d/steps" >/dev/null; then
+    fail "a resolve during the rebuild found no cache: $(tr '\n' '|' <"$d/steps")"
+  fi
+  expect_eq "$(cat "$(cached "$d" 4.1.0-dev)/.ok")" "$(sha256_of "$(cached "$d" 4.1.0-dev)/planroom")"
+  [ "$(sha256_of "$(cached "$d" 4.1.0-dev)/planroom")" != "$first" ] || fail "the rebuild wasn't installed"
+  PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" map --json
+  expect_eq "$out" "rebuilt: map --json"
+}
+
+# An install cut short leaves one engine valid, never two. `.ok`'s second sum, the engine being
+# replaced, counts only while the new engine is staged beside it as `planroom.new`: cut short before
+# the rename, the old engine still runs; cut short after it, the old engine swapped back in is no
+# install, though `.ok` still names its sum on its second line.
+an_interrupted_install_leaves_one_engine_valid() {
+  d="$work/interrupted"
+  make_plugin "$d" 2.2.0
+  publish 2.2.0 genuine
+  PLANROOM_DATA="$d/data" PLANROOM_RELEASE_BASE_URL="$base" run "$d/plugin/scripts/planroom" map --json
+  expect_eq "$out" "genuine: map --json" "$(cat "$work/stderr")"
+  c=$(cached "$d" 2.2.0)
+  fake_engine "$d/older" 2.2.0 older
+  # Cut short after the rename: the new engine is in place and `.ok` still names both sums.
+  printf '%s\n%s\n' "$(sha256_of "$c/planroom")" "$(sha256_of "$d/older")" >"$c/.ok"
+  PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" status --json
+  expect_eq "$code" 0
+  expect_contains "$out" '"step":"cache"'
+  cp "$d/older" "$c/planroom"
+  PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" status --json
+  expect_eq "$code" 1 "the replaced engine counted once its successor was in place: $out"
+  expect_eq "$out" '{"ok":false,"step":"download","version":"2.2.0"}'
+  # Cut short before the rename: the old engine runs while the new one waits staged beside it.
+  fake_engine "$c/planroom.new" 2.2.0 staged
+  printf '%s\n%s\n' "$(sha256_of "$c/planroom.new")" "$(sha256_of "$c/planroom")" >"$c/.ok"
+  PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" map --json
+  expect_eq "$code" 0 "$(cat "$work/stderr")"
+  expect_eq "$out" "older: map --json"
+  # A staged binary that isn't the one the first sum names keeps nothing valid but the first sum.
+  fake_engine "$c/planroom.new" 2.2.0 other
+  PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" status --json
+  expect_eq "$code" 1 "$out"
+}
+
+# An install that follows one cut short with its successor staged keeps the old engine valid at
+# every step: the old engine counts only through `.ok`'s second line, and restaging `planroom.new`
+# with a third engine must not leave it uncounted. Every copy and rename the rebuild makes is
+# followed by a status from another process, and each says cache.
+an_install_after_one_cut_short_never_leaves_the_cache_missing() {
+  d="$work/resumed"
+  make_plugin "$d" 4.2.0-dev
+  path=$(sandbox_path "$d")
+  fake_build_tools "$d" 4.2.0-dev
+  PATH=$path PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" build
+  expect_eq "$code" 0 "$(cat "$work/stderr")"
+  c=$(cached "$d" 4.2.0-dev)
+  # Cut short before the rename: a staged successor, and `.ok` naming it first and the old second.
+  fake_engine "$c/planroom.new" 4.2.0-dev staged
+  printf '%s\n%s\n' "$(sha256_of "$c/planroom.new")" "$(sha256_of "$c/planroom")" >"$c/.ok"
+  PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" map --json
+  expect_eq "$out" "built: map --json" "$(cat "$work/stderr")"
+  # The next build makes a third engine of the same version and catalogue.
+  fake_engine "$d/built-engine" 4.2.0-dev rebuilt
+  for tool in cp mv; do
+    real=$(path_of "$tool")
+    rm "$d/bin/$tool"
+    cat >"$d/bin/$tool" <<EOF
+#!/bin/sh
+"$real" "\$@" || exit 1
+PLANROOM_DATA="$d/data" "$d/plugin/scripts/planroom" status >>"$d/steps" 2>&1 \
+  || echo "missing after $tool \$*" >>"$d/steps"
+EOF
+    chmod 755 "$d/bin/$tool"
+  done
+  PATH=$path PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" build
+  expect_eq "$code" 0 "$(cat "$work/stderr")"
+  [ -s "$d/steps" ] || fail "the build copied and renamed nothing"
+  if grep -v '^cache ' "$d/steps" >/dev/null; then
+    fail "a resolve during the install found no cache: $(tr '\n' '|' <"$d/steps")"
+  fi
+  expect_eq "$(cat "$c/.ok")" "$(sha256_of "$c/planroom")"
+  [ ! -e "$c/planroom.new" ] || fail "the staged engine was left behind"
+  PLANROOM_DATA="$d/data" run "$d/plugin/scripts/planroom" map --json
+  expect_eq "$out" "rebuilt: map --json"
+}
+
 # --- runner -------------------------------------------------------------------------------------
 
 start_server
@@ -552,7 +687,9 @@ for t in override_runs_the_named_binary a_missing_override_is_engine_unavailable
   a_clone_build_is_cached_and_its_clone_removed the_repo_checkout_resolves_its_own_build \
   the_resolver_spells_no_code_or_reason_itself resolver_outputs_are_one_document_with_their_size \
   a_swapped_cached_engine_is_refused a_data_root_with_no_absolute_place_is_refused \
-  empty_overrides_count_as_unset; do
+  empty_overrides_count_as_unset a_newer_dev_catalogue_misses_the_cache \
+  a_rebuild_never_leaves_the_cache_missing an_interrupted_install_leaves_one_engine_valid \
+  an_install_after_one_cut_short_never_leaves_the_cache_missing; do
   case $t in *"$filter"*) ;; *) continue ;; esac
   # Not an `if` condition: there `set -e` would be off, and a failed assertion would go on.
   set +e

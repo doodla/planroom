@@ -1,21 +1,22 @@
 //! Output budgets: `map` honors the budget its catalogue entry declares, on a synthetic repo of
 //! 20 directories of 100 `.ts` files each (unasked-8). Over the budget it keeps the blocks that
 //! fit, sets `meta.truncated` with a `truncated` warning, and hands a drill-down that works today.
-//! The canvas's layout input, `--detail graph` over `serve`, takes the whole graph.
+//! The canvas's layout input, `--detail graph` over `serve`'s real route, takes the whole graph.
 //!
 //! Every other reply an agent reads keeps to its leaf's budget too, warnings included (DR-85):
 //! `scan` on a repo past the walk's 50,000-file bound, and every built leaf's `--json` reply on the
 //! fixture, each `schema --command LEAF` among them (correctness-17, drift-r2-1).
 
 use std::collections::BTreeSet;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use p256::ecdsa::signature::Signer;
 use p256::ecdsa::{Signature, SigningKey};
-use planroom_contract::{Command as Leaf, Detail, Level, MapReq};
+use planroom_contract::{Command as Leaf, MapReq};
 use planroom_kernel::keys::person_token_message;
 use planroom_testkit::{fixture, git_repo};
 use serde_json::{Value, json};
@@ -93,18 +94,76 @@ fn a_map_within_its_budget_is_whole_and_untruncated() {
     assert!(env["meta"].get("warnings").is_none(), "{env}");
 }
 
+/// A foreground `serve` in `root`, killed when dropped, signed in with the code its login page holds.
+struct Served {
+    child: std::process::Child,
+    port: u16,
+    token: String,
+}
+
+impl Drop for Served {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Served {
+    fn start(root: &Path) -> Served {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_planroom"))
+            .args(["serve", "--json"])
+            .current_dir(root)
+            .env("PLANROOM_DATA", root.join(".data"))
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        let env: Value = serde_json::from_str(&line).unwrap_or_else(|e| panic!("{e}: {line}"));
+        let port = env["result"]["port"].as_u64().unwrap() as u16;
+        let page = std::fs::read_to_string(env["result"]["login_page"].as_str().unwrap()).unwrap();
+        let code = page.split("#code=").nth(1).unwrap().split('"').next().unwrap().to_owned();
+        let mut served = Served { child, port, token: String::new() };
+        let session = served.post("/api/v1/session", &json!({"code": code}).to_string());
+        served.token = session["result"]["token"].as_str().unwrap().to_owned();
+        served
+    }
+
+    /// One `POST` from the page's origin with the tab's token; the reply's envelope.
+    fn post(&self, path: &str, body: &str) -> Value {
+        let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        let request = format!(
+            "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\n\
+             Authorization: Bearer {token}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len(),
+            port = self.port,
+            token = self.token,
+        );
+        stream.write_all(request.as_bytes()).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        let body = response.split_once("\r\n\r\n").map(|(_, b)| b).unwrap_or_default();
+        serde_json::from_str(body).unwrap_or_else(|e| panic!("{e}: {response}"))
+    }
+}
+
 #[test]
 fn the_canvas_graph_over_serve_takes_every_block() {
     let tmp = tempfile::tempdir().unwrap();
     large_workspace(tmp.path());
-    let req = MapReq { level: Some(Level::Code), detail: Detail::Graph, ..MapReq::default() };
-    let reply = planroom::app::map::for_canvas(&req, tmp.path()).unwrap();
-    assert_eq!(reply.result.nodes.len(), 2_000);
-    assert!(reply.warnings.is_empty());
+    let served = Served::start(tmp.path());
+    // What the canvas asks for its layout: the whole graph, over the real route.
+    let env = served.post("/api/v1/map", r#"{"level": "code", "detail": "graph"}"#);
+    assert_eq!(env["ok"], true, "{}", env["error"]);
+    assert_eq!(env["result"]["nodes"].as_array().unwrap().len(), 2_000);
+    assert!(env["meta"].get("warnings").is_none(), "{}", env["meta"]);
+    assert!(env["meta"].get("truncated").is_none(), "{}", env["meta"]);
     // A summary over serve is still an agent's read, and keeps to the budget.
-    let req = MapReq { level: Some(Level::Code), ..MapReq::default() };
-    let reply = planroom::app::map::for_canvas(&req, tmp.path()).unwrap();
-    assert!(reply.result.nodes.len() < 2_000 && !reply.warnings.is_empty());
+    let env = served.post("/api/v1/map", r#"{"level": "code"}"#);
+    let budget = u64::from(Leaf::Map(MapReq::default()).spec().budget_tokens);
+    assert!(env["result"]["nodes"].as_array().unwrap().len() < 2_000, "{}", env["meta"]);
+    assert_eq!(env["meta"]["truncated"], true);
+    assert!(env["meta"]["size"]["tokens_est"].as_u64().unwrap() <= budget);
 }
 
 /// `scan`'s reply carries the top-level map, which an agent reads too: it keeps to `scan`'s own

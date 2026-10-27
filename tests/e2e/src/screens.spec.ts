@@ -1,8 +1,8 @@
 /**
  * The walking skeleton's screenshots, written only by `cargo xtask e2e --screens`, at 1440x900
  * and 390x844, in both themes, into docs/screenshots/: the main view from the real
- * `planroom serve` on the scanned fixture, and the empty state from the stand-in's real
- * `map-empty.json`, since `serve` can't start in an unscanned workspace yet (M1). Two more show
+ * `planroom serve` on the scanned fixture, and the empty state from the real `planroom serve` on
+ * the fixture before its first scan. Two more show
  * the way back up (ux-4) and a level with no blocks (ux-3): the container level the next action
  * opens, its `⋯` lid open on the phone; and the intent level, which the desktop's rail reaches.
  */
@@ -13,7 +13,7 @@ import type { Page } from "@playwright/test";
 
 import { startEngine } from "./engine";
 import { DESKTOP, PHONE, expect, test } from "./fixtures";
-import { ROOT, standIn } from "./standin";
+import { ROOT } from "./standin";
 
 const OUT = join(ROOT, "docs/screenshots");
 
@@ -74,9 +74,7 @@ for (const view of VIEWS) {
     for (const colorScheme of ["light", "dark"] as const) {
       const file = `${view.name}-${viewport.width}x${viewport.height}-${colorScheme}.png`;
       test(file, async ({ browser }) => {
-        const server = view.scanned
-          ? await startEngine()
-          : await standIn({ map: "map-empty.json" });
+        const server = await startEngine({ scanned: view.scanned });
         const phone = viewport === PHONE;
         const context = await browser.newContext({
           viewport,
@@ -101,7 +99,7 @@ for (const view of VIEWS) {
           expect(errors).toEqual([]);
         } finally {
           await context.close();
-          await server.close();
+          server.close();
         }
       });
     }

@@ -1,8 +1,8 @@
 /**
  * The mod's `tool.check` guard for every agent (architecture.md, "Actors"; DR-52, DR-64, DR-75):
- * no reads of the stores, the serve file, the data root's stores, ledger, backups and login pages,
- * the user-level config or the mod's own `$.store` file that holds the person key, by any tool and
- * any input that names a path (security-r3-2); no writes under a state directory, the data root or
+ * no reads of the stores, the serve file, the data root's stores, ledger, backups, login pages and
+ * serve records (each with its control token), the user-level config or the mod's own `$.store`
+ * file that holds the person key, by any tool and any input that names a path (security-r3-2); no writes under a state directory, the data root or
  * the plugin's own folder (security-r3-3); and no Bash that runs a person-only command, sets a
  * variable that hands out the person's authority or picks the engine, or pushes `refs/planroom/`,
  * nor any write that puts such a variable in a shell's start-up file or a Claude Code settings
@@ -34,8 +34,8 @@
  * user, and architecture.md ("Actors") lists what it doesn't read: a script the agent runs by
  * path, a variable or `dotglob` set outside the line, a program that walks or writes files through
  * its own arguments (`python -c`, `node -e`, a build tool), a tree read rooted at or above the
- * workspace (`grep -r x .` reaches `serve.json`), a crafted tree unpacked into the workspace, and
- * deleting a folder that holds another workspace.
+ * workspace (`grep -r x .` reaches the stores in its state directory, though no control token), a
+ * crafted tree unpacked into the workspace, and deleting a folder that holds another workspace.
  */
 
 import { CATALOGUE } from "@planroom/contract";
@@ -335,6 +335,12 @@ export function gitFileDir(text: string, folder: string): string | null {
 
 const STORE_FILE = /^(store|ledger)\.db(-wal|-shm|-journal)?$/;
 
+/**
+ * What no agent reads in the data root: the stores, backups, login pages, each running `serve`'s
+ * record with its control token (`serve/<port>.json`), and the ledger.
+ */
+const DATA_SECRETS = ["stores", "backups", "open", "serve", "ledger.db"];
+
 /** Another process's environment or memory, which may hold a person token (security-3). */
 const PROC_SECRETS = /^\/proc\/[^/]+\/(task\/[^/]+\/)?(environ|mem)$/;
 
@@ -363,12 +369,12 @@ export function readDenied(path: string, places: GuardPlaces): string | null {
     return "Planroom's store is read through the planroom CLI, never directly.";
   }
   if (inStateDir(path, places) && name === "serve.json") {
-    return "serve.json holds the canvas server's control token.";
+    return "serve.json is the canvas server's record; an older engine's copy may still hold its control token, which now lives under the data root at serve/<port>.json.";
   }
   const data = places.dataRoot;
-  for (const sub of ["stores", "backups", "open", "ledger.db"]) {
+  for (const sub of DATA_SECRETS) {
     if (within(path, `${data}/${sub}`)) {
-      return "The Planroom data root's stores, ledger, backups and login pages are off limits.";
+      return "The Planroom data root's stores, ledger, backups, login pages and serve control tokens are off limits.";
     }
   }
   if (path === places.userConfig) {
@@ -557,14 +563,14 @@ function arrivalDenied(
 /**
  * The files an agent never reads, by any tool, nor reaches through a folder above them: the mod's
  * `$.store` folder (the person key), the user-level config (the gateway key), and the data root's
- * stores, backups, login pages and ledger (security-r2-2).
+ * stores, backups, login pages, serve records and ledger (security-r2-2).
  */
 function secretPlaces(places: GuardPlaces): string[] {
   const data = places.dataRoot;
   return [
     modStoreDir(places),
     places.userConfig,
-    ...["stores", "backups", "open", "ledger.db"].map((s) => `${data}/${s}`),
+    ...DATA_SECRETS.map((s) => `${data}/${s}`),
   ];
 }
 
@@ -2645,7 +2651,7 @@ export function globDenied(
   const prefix = `/${segments.slice(0, first).join("/")}`;
   const data = places.dataRoot;
   const guarded = [
-    ...["stores", "backups", "open", "ledger.db"].map((s) => `${data}/${s}`),
+    ...DATA_SECRETS.map((s) => `${data}/${s}`),
     places.userConfig,
     modStoreDir(places),
   ];

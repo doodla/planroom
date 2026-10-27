@@ -162,19 +162,70 @@ case $data in
     ;;
 esac
 
-cache_dir="$data/engine/$version"
+# The cache is keyed by the version and the catalogue hash's first 8 characters, so a newer `-dev`
+# build, which serves another catalogue under the same version, never resolves an older one (DR-78).
+key="$version+$(printf '%.8s' "$catalogue")"
+cache_dir="$data/engine/$key"
 
 touch_last_used() {
   : >"$cache_dir/last_used"
 }
 
-# Whether the cache holds the engine it installed: a regular executable file whose sha256 is the one
-# `.ok` recorded then. Anything else, such as a binary another process swapped in, counts as no
-# cache, so the next run fetches the release again.
+# Whether the cache holds an engine it installed: a regular executable file whose sha256 is the
+# first line of `.ok`. Anything else, such as a binary another process swapped in, counts as no
+# cache, so the next run fetches the release again. `.ok` has a second line only while `install`
+# swaps a new engine in: that line, the replaced engine's sum, counts only while the new engine
+# sits staged beside it as `planroom.new` with the first line's sum. So an install cut short after
+# its rename leaves the new sum alone valid, and one cut short before it leaves the old engine,
+# which was the installed one.
 cache_ok() {
   [ -f "$cache_dir/planroom" ] && [ ! -h "$cache_dir/planroom" ] && [ -x "$cache_dir/planroom" ] \
     && [ -s "$cache_dir/.ok" ] || return 1
-  [ "$(sha256_of "$cache_dir/planroom")" = "$(head -n 1 "$cache_dir/.ok")" ]
+  ok_sum=$(sha256_of "$cache_dir/planroom") || return 1
+  ok_first=$(awk 'NR == 1' "$cache_dir/.ok")
+  ok_second=$(awk 'NR == 2' "$cache_dir/.ok")
+  [ -n "$ok_first" ] || return 1
+  if [ "$ok_sum" = "$ok_first" ]; then
+    return 0
+  fi
+  [ -n "$ok_second" ] && [ "$ok_sum" = "$ok_second" ] && [ -f "$cache_dir/planroom.new" ] \
+    && [ ! -h "$cache_dir/planroom.new" ] \
+    && [ "$(sha256_of "$cache_dir/planroom.new")" = "$ok_first" ]
+}
+
+# Install the engine at $1 into the cache, so a resolve at any moment of the swap finds either the
+# old engine or the new one, never a missing cache. The new binary is copied to `planroom.part`, a
+# name no resolve reads, then renamed to `planroom.new`, staged beside the old one; `.ok` names
+# both sums, the binary is renamed into place, then `.ok` names the new sum alone. Every step a
+# resolve can see is an atomic rename, and `cache_ok` takes the second sum only while the staged
+# binary is there, so an install cut short at any step leaves one engine valid. Whether the old
+# engine counts is settled before anything is staged. When it counts only through `.ok`'s second
+# line, because an earlier install was cut short with its successor staged, `.ok` first names the
+# old engine alone, so restaging `planroom.new` never leaves it uncounted. Returns non-zero on any
+# failed step.
+install() {
+  old_sum=''
+  if cache_ok; then
+    old_sum=$ok_sum
+  fi
+  mkdir -p "$cache_dir" || return 1
+  if [ -n "$old_sum" ] && [ "$old_sum" != "$ok_first" ]; then
+    printf '%s\n' "$old_sum" >"$cache_dir/.ok.new" && mv -f "$cache_dir/.ok.new" "$cache_dir/.ok" \
+      || return 1
+  fi
+  rm -f "$cache_dir/planroom.part" && cp "$1" "$cache_dir/planroom.part" \
+    && chmod 755 "$cache_dir/planroom.part" || return 1
+  new_sum=$(sha256_of "$cache_dir/planroom.part") || return 1
+  mv -f "$cache_dir/planroom.part" "$cache_dir/planroom.new" || return 1
+  {
+    printf '%s\n' "$new_sum"
+    if [ -n "$old_sum" ] && [ "$old_sum" != "$new_sum" ]; then
+      printf '%s\n' "$old_sum"
+    fi
+  } >"$cache_dir/.ok.new" && mv -f "$cache_dir/.ok.new" "$cache_dir/.ok" \
+    && mv -f "$cache_dir/planroom.new" "$cache_dir/planroom" \
+    && printf '%s\n' "$new_sum" >"$cache_dir/.ok.new" && mv -f "$cache_dir/.ok.new" "$cache_dir/.ok" \
+    && touch_last_used
 }
 
 # Remove cached versions nobody used for 7 days; a session on an older plugin keeps its binary.
@@ -329,9 +380,7 @@ download() {
     return 1
   fi
   # `download` runs as an `if` condition, where `set -e` is off, so each step is checked.
-  if ! { chmod 755 "$bin" && mkdir -p "$cache_dir" && rm -f "$cache_dir/.ok" \
-    && mv -f "$bin" "$cache_dir/planroom" && sha256_of "$cache_dir/planroom" >"$cache_dir/.ok.new" \
-    && mv -f "$cache_dir/.ok.new" "$cache_dir/.ok" && touch_last_used; }; then
+  if ! install "$bin"; then
     drop_lock
     why="Couldn't install the engine into $cache_dir."
     return 1
@@ -413,7 +462,7 @@ build() {
     (cd "$checkout" && cargo build --release --locked -p planroom) >&2
     exit $?
   fi
-  src="$data/src/$version"
+  src="$data/src/$key"
   ref="v$version"
   if is_dev; then
     ref=main
@@ -428,15 +477,14 @@ build() {
   build_canvas "$src"
   (cd "$src" && cargo build --release --locked -p planroom) >&2
   built="$src/target/release/planroom"
-  if [ "$(engine_version "$built")" != "$version" ]; then
+  # A build whose version or catalogue isn't the plugin's keeps no binary: the cache key would
+  # name an engine that doesn't serve this plugin.
+  if [ "$(engine_version "$built")" != "$version" ] || [ "$(engine_catalogue "$built")" != "$catalogue" ]; then
+    rm -rf "$src"
     say "This plugin is older than main. Update it: /plugin marketplace update planroom"
     exit "$contract_engine_unavailable_exit"
   fi
-  mkdir -p "$cache_dir"
-  cp "$built" "$cache_dir/planroom.new"
-  mv -f "$cache_dir/planroom.new" "$cache_dir/planroom"
-  sha256_of "$cache_dir/planroom" >"$cache_dir/.ok"
-  touch_last_used
+  install "$built"
   # The clone and its build directory run to gigabytes, and the cache now holds the engine.
   rm -rf "$src"
   exit 0
