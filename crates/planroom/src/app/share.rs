@@ -132,8 +132,8 @@ fn snapshot(store: &Store, root: &Path, req: &ShareReq) -> Result<Snapshot, AppE
     // store than its map (DR-73).
     let read = store.snapshot()?;
     let map = map::for_canvas_in(&read, root, &MapReq { detail: Detail::Graph, ..MapReq::default() })?;
-    let seq = map.seq;
-    let mut top = map.result;
+    let seq = map.reply.seq;
+    let mut top = map.reply.result;
     let mut pane = focus::reply_in(store, &read, root)?.result;
     let workspace_id = read.meta("workspace_id")?.unwrap_or_default();
     drop(read);

@@ -114,7 +114,8 @@ pub struct Meta {                            // every field but seq and size is 
                                              // transaction its fold ran in (DR-73); pass it back as `base`
     pub took_ms: u32,
     pub size: Size,                          // { bytes, tokens_est = ceil(bytes / 4) }
-    pub next: Option<Cursor>,                // opaque: (seq, last_id, filter hash)
+    pub next: Option<Cursor>,                // opaque: (seq, last_id, filter hash); map's also holds the last block's level,
+                                             // never a name; a cursor from other filters is invalid_argument
     pub truncated: bool,
     pub replayed: bool,                      // an idempotent replay of a stored reply
     pub replayed_from: Option<Seq>,          // a replay of a derived idem: the original seq; the hint says to pass a new --idem
@@ -182,6 +183,7 @@ No level or view is blank: an empty one carries an `Empty`, whose `next` runs to
 | `nothing_mapped` | the top of the map after a scan found nothing to map, while a repo with a commit could be mapped | `scan ROOT`, "Scan again" (DR-85, DR-87) |
 | `nothing_under` | `map --focus ID` where nothing lies under that node at the level shown | `map --level L --focus PARENT`, the node among the blocks beside it at its own level `L`; `map --level L` for a node with no parent (DR-85) |
 | `not_in_snapshot` | the Artifact's request state for a view the snapshot doesn't hold | the read request row (DR-77) |
+| `nothing_after_cursor` | a `map --cursor` page whose map moved on, so no block is left after the cursor's; the page also carries `stale_page` | `map` with the same flags and no cursor, "Show the first page" (DR-73) |
 
 Redaction is by field [DR-64]. A field that holds repo-derived free text carries the `#[redact]` mark, `#[schemars(extend("x-redact" = true))]`, in `crates/contract/src/`: `Evidence.contains`, `Hint.value` and `Hint.attrs`, `Node.name`, the string values of `Node.props` and `Edge.props`, the names a view shows (`MapNode.name`, `Crumb.name`, `MiniBlock.name`, `AskItem.name`, `FindItem.name`), `DiffLine.hunk`, `PresenceRow.doing`, `HandoffStep.note` (a note can quote a test's output) and `Card.vars` (the names a card's lines fill in) [DR-91]; and, as their types land, `ContextExcerpt.excerpt`, `RunStep::Command.output_excerpt`, the `stderr` in `git_failed`'s `details`, and prompt text. `cargo xtask gen` writes the marked field paths into `crates/kernel/src/redact_fields.rs`: for each output type that holds a marked field, the paths from it to each one, such as `MapView`'s `nodes[].name` (`.` joins fields, `[]` is an array's items, `{}` a map's values). `kernel::redact` masks secrets in every string under exactly those fields, keys excepted, on every output path [DR-89], CLI text and `--json` included. `contract/tests/schema.rs::every_redacted_field_is_listed` checks that every mark is listed and that none is on an ID. It never touches an ID, a handle, a cursor or a hash; join keys such as `Hint.key`, `Edge.via` and `Node.aliases` stay unmarked, and an edit's `fields` and `over` stay unmarked until the `edit` leaf gives them types [DR-91]. `PLANROOM_RAW=1` turns it off for the truth comparator alone, and only on a read command's `--json` stdout: model requests, session request files, the snapshot, `live/head`, acks, tool results and logs stay redacted whatever it says. The mod's guard denies that variable to agents (DR-75).
 
@@ -1124,7 +1126,7 @@ Until Ask Claude and Send to Claude land, `share`'s publish arguments declare on
 | `live/head` | the session (`ArtifactData` with `if_version`), written last in each batch | `planroom.live-head/v1` | at most 256 KiB |
 | `inbox/<uid>` | the viewer | `{ seq, updated_at, sample: [{ at, prompt_chars, response_chars, model }] }`; `sample` logs each Ask Claude call and the model the platform applied, which import prices into the ledger and, when `PLANROOM_SPEND_LOG` is set, appends to the spend log (DR-65) | |
 | `inbox/<uid>/events/<docId>` | the viewer (`collection.doc()` mints `docId`) | `planroom.inbox/v1` | deleted after import |
-| `answers/<docId>` | the session, in the sync's batch | `planroom.answer/v1`: `{ format, handle, seq, result, error? }`, the result of a read request row, redacted, with `result` null and `error` set when the read failed (DR-83); every viewer reads it, and a republish clears the folder (DR-77) | the leaf's budget |
+| `answers/<docId>` | the session, in the sync's batch | `planroom.answer/v1`: `{ format, handle, seq, result, error?, next?, warnings? }`, the result of a read request row, redacted, with `result` null and `error` set when the read failed (DR-83); `next` is the page's `meta.next`, which a read request passes back as its `cursor` for the page after; `warnings` are the reply's `meta.warnings`, such as `stale_page` for a cursor from a map that has moved on, and absent when there are none; every viewer reads it, and a republish clears the folder (DR-77) | the leaf's budget |
 | `acks/<uid>` | the session | `planroom.ack/v1`: `{ format, imported_through, rows: { <docId>: imported \| held \| conflict \| refused } }`; `held` is a row waiting for the desk, as a ghost or a pre-selected pick (DR-75); an existing ack is written as an `update`, so its rows merge (DR-83); the page marks its own rows queued until they appear here | one per viewer |
 
 ```rust
@@ -1168,7 +1170,9 @@ pub struct Snapshot {
 }
 pub struct Answer { pub format: String /* "planroom.answer/v1" */, pub handle: Handle, pub seq: Seq,
                     pub result: Value,               // null when the read failed
-                    pub error: Option<ErrorObject> }  // also under answers/<docId> (DR-83)
+                    pub error: Option<ErrorObject>,   // also under answers/<docId> (DR-83)
+                    pub next: Option<Cursor>,         // the page's meta.next; absent on the last page
+                    pub warnings: Vec<Warning> }      // the reply's meta.warnings, such as stale_page; absent when none
 pub struct LiveHead { pub format: String /* "planroom.live-head/v1" */, pub seq: Seq, pub snapshot_seq: Seq,
                       pub cards: Vec<DecisionCard>, pub changes: Vec<StreamFrame>,
                       pub delta: Diff,       // nodes and edges of the snapshot's maps since snapshot_seq; the page applies it

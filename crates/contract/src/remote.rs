@@ -9,7 +9,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::envelope::{CommandName, Empty, ErrorObject, Handle};
+use crate::envelope::{CommandName, Cursor, Empty, ErrorObject, Handle, Warning};
 use crate::event::Timestamp;
 use crate::format::{Document, Extra};
 use crate::model::Seq;
@@ -104,6 +104,14 @@ pub struct Answer {
     /// Why the read failed, when it did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorObject>,
+    /// The cursor of the page after this one, as the command's `meta.next`: a read request with
+    /// it as its `cursor` asks for that page. Absent on the last page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<Cursor>,
+    /// The warnings the command's reply carried, as its `meta.warnings`, such as `stale_page`
+    /// when the request's cursor came from a map that has moved on. Absent when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<Warning>,
     /// Fields a later version added, kept and written back unchanged.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
     pub extra: Extra,

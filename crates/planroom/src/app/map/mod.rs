@@ -5,14 +5,16 @@
 //! (DR-73). A scan, an undo or a review refolds; in `serve` the fold is kept between replies and
 //! caught up one event at a time (DR-61, `live::model`).
 //!
-//! The leaf honors its catalogue budget (`CommandSpec::budget_tokens`): over it, the map keeps its
-//! blocks in their documented order while they fit, keeps the lifted edges between the kept ones,
-//! and says so with a `truncated` warning whose `details.next` is a handle that works today. Only
-//! the canvas's layout input, `--detail graph` over `serve` and in the `share` snapshot, takes the
-//! whole graph, until M2's paging pages it (architecture.md, The CLI: "`graph` pages").
+//! The leaf honors its catalogue budget (`CommandSpec::budget_tokens`) at every detail: over it,
+//! the map gives its first page, the blocks that fit taken by level and then ID and listed in
+//! their documented order ([`page`]), with the lifted edges that land there, and `meta.next`, the
+//! cursor `--cursor` takes for the page after it, with a `truncated` warning whose
+//! `details.next` is a drill-down that works today. Only the canvas's layout input, `--detail
+//! graph` over `serve` and in the `share` snapshot, takes the whole graph, until M2 pages it
+//! (architecture.md, Token budgets).
 //!
-//! A map is read ([`read`]), filtered by its lens ([`lens`]), cut to a page ([`page`]) and fitted
-//! to the leaf's budget; [`focus`] finds the node `--focus` names, whose blocks the view shows.
+//! A map is read ([`read`]), filtered by its lens ([`lens`]) and cut to a page within the leaf's
+//! budget ([`page`]); [`focus`] finds the node `--focus` names, whose blocks the view shows.
 
 mod focus;
 pub(crate) mod lens;
@@ -22,13 +24,13 @@ mod read;
 use std::collections::HashMap;
 use std::path::Path;
 
-use planroom_contract::{Command, Detail, Level, MapNode, MapReq, MapView, Vocabulary, Warning};
+use planroom_contract::{Command, Detail, Level, MapNode, MapReq, MapView, Vocabulary};
 use planroom_kernel::tree;
 use planroom_store::{Snapshot, Store};
 
-use crate::app::Reply;
 use crate::app::error::AppError;
 use crate::app::workspace;
+use crate::app::{Paged, Reply};
 use crate::text;
 
 pub(crate) use page::fit_beside;
@@ -41,20 +43,20 @@ const ALL_LENSES: &str = "all";
 const SUMMARY_NAMES: usize = 12;
 
 /// `planroom map` as an agent reads it, through the CLI or the tools: within the leaf's budget.
-pub fn run(req: &MapReq, cwd: &Path) -> Result<Reply<MapView>, AppError> {
+pub fn run(req: &MapReq, cwd: &Path) -> Result<Paged<MapView>, AppError> {
     run_within(req, cwd, Some(budget_tokens()))
 }
 
 /// `map` for the canvas: `--detail graph` is its layout input and takes every block; a summary
 /// stays within the leaf's budget.
-pub fn for_canvas(req: &MapReq, cwd: &Path) -> Result<Reply<MapView>, AppError> {
+pub fn for_canvas(req: &MapReq, cwd: &Path) -> Result<Paged<MapView>, AppError> {
     let budget = (req.detail == Detail::Summary).then(budget_tokens);
     run_within(req, cwd, budget)
 }
 
 /// [`for_canvas`] inside a read transaction the caller holds, so the rest of what it builds, such
 /// as `share`'s pane and its snapshot's `seq`, comes from the same version of the store as the map.
-pub fn for_canvas_in(snapshot: &Snapshot<'_>, root: &Path, req: &MapReq) -> Result<Reply<MapView>, AppError> {
+pub fn for_canvas_in(snapshot: &Snapshot<'_>, root: &Path, req: &MapReq) -> Result<Paged<MapView>, AppError> {
     let budget = (req.detail == Detail::Summary).then(budget_tokens);
     reply_in(snapshot, root, req, budget)
 }
@@ -63,14 +65,15 @@ fn budget_tokens() -> u32 {
     Command::Map(MapReq::default()).spec().budget_tokens
 }
 
-fn run_within(req: &MapReq, cwd: &Path, budget: Option<u32>) -> Result<Reply<MapView>, AppError> {
+fn run_within(req: &MapReq, cwd: &Path, budget: Option<u32>) -> Result<Paged<MapView>, AppError> {
     let lens_id = req.lens.clone().unwrap_or_else(|| ALL_LENSES.into());
+    let whole = |reply: Reply<MapView>| Paged { reply, next: None };
     // Outside a workspace, the same empty state `focus` shows (DR-57).
     let Some(root) = workspace::find_root(cwd) else {
-        return read::not_scanned(cwd, lens_id, req.level, 0);
+        return read::not_scanned(cwd, lens_id, req.level, 0).map(whole);
     };
     let Some(store) = Store::open_existing(&workspace::store_path(&root))? else {
-        return read::not_scanned(&root, lens_id, req.level, 0);
+        return read::not_scanned(&root, lens_id, req.level, 0).map(whole);
     };
     reply_in(&store.snapshot()?, &root, req, budget)
 }
@@ -81,32 +84,30 @@ fn reply_in(
     root: &Path,
     req: &MapReq,
     budget: Option<u32>,
-) -> Result<Reply<MapView>, AppError> {
+) -> Result<Paged<MapView>, AppError> {
     let lens_id = req.lens.clone().unwrap_or_else(|| ALL_LENSES.into());
     let seq = snapshot.seq();
-    // No pack is loaded yet, so the lens keeps the whole view, and the page is the whole view with
-    // no cursor after it.
+    // No pack is loaded yet, so the lens keeps the whole view.
     let vocabulary = Vocabulary::default();
     let (mut view, under) = read::view(snapshot, root, req.level, req.focus.as_deref(), &vocabulary)?;
     view.lens = lens_id.clone();
-    let view = lens::filter(view, &vocabulary, &lens_id);
-    let (mut view, _next) = page::cut(view, req.cursor.as_ref(), budget);
+    let mut view = lens::filter(view, &vocabulary, &lens_id);
     if view.empty.is_none() {
         match req.detail {
+            // Positions come from the whole map's layout, whichever page shows them.
             Detail::Graph => read::place(snapshot, &mut view)?,
             // Agents get the counts and the lifted edges; evidence is a `show` away.
             Detail::Summary => view.edges.iter_mut().for_each(|e| e.evidence_sample.clear()),
         }
     }
-    let total = view.nodes.len();
-    let warnings: Vec<Warning> =
-        budget.and_then(|budget| page::fit(&mut view, budget, req.level)).into_iter().collect();
-    let mut text = text_of(&view, total, req.level, under.as_deref());
-    for warning in &warnings {
+    // The page is cut from the view as the reply carries it, so it is measured as it is sent.
+    let page = page::cut(view, req, seq, budget)?;
+    let mut text = text_of(&page.view, page.total, req.level, under.as_deref());
+    for warning in &page.warnings {
         text.push('\n');
         text.push_str(&warning.message);
     }
-    Ok(Reply { text, result: view, seq, warnings })
+    Ok(Paged { reply: Reply { text, result: page.view, seq, warnings: page.warnings }, next: page.next })
 }
 
 /// The text mode's first line, which the envelope also carries as `summary`: the empty state's

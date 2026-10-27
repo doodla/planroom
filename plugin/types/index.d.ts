@@ -111,6 +111,50 @@ export type Category =
  */
 export type Retry = "never" | "now" | "after_reread" | "later";
 /**
+ * An opaque page cursor over `(seq, last_id, filter hash)`; `map`'s also holds the last block's
+ * level, since its pages are cut by level and then ID. A page whose `seq` is behind continues
+ * after that row (DR-73).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Cursor".
+ */
+export type Cursor = string;
+/**
+ * A stable warning code.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "WarningCode".
+ */
+export type WarningCode =
+  | (
+      | "truncated"
+      | "unresolved_ref"
+      | "evidence_dropped"
+      | "partial_parse"
+      | "partial_scan"
+      | "workspace_nested"
+      | "repo_unborn"
+      | "repo_skipped"
+      | "scan_superseded"
+      | "claimed"
+      | "deterministic_fallback"
+      | "workspace_untrusted"
+      | "config_key_ignored"
+      | "inferred_unconfirmed"
+      | "cache_regression"
+      | "cache_not_applied"
+      | "hidden_characters"
+      | "outside_touch_points"
+      | "scan_changed_under_edit"
+      | "stale_page"
+      | "model_request_pending"
+      | "store_migrated"
+      | "temporary_host"
+      | "reconcile_paused"
+      | "duty_failed"
+    )
+  | string;
+/**
  * A snake_case code naming why something is empty.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -234,13 +278,6 @@ export type Command =
  * via the `definition` "Level".
  */
 export type Level = "intent" | "system" | "container" | "component" | "code";
-/**
- * An opaque page cursor over `(seq, last_id, filter hash)`.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "Cursor".
- */
-export type Cursor = string;
 /**
  * A node ID, `<namespace>:<kind-short>:<key>`, such as `orders:pkg:internal/http`.
  *
@@ -599,41 +636,6 @@ export type EngineStatus =
   | "person_key_mismatch"
   | "ready";
 /**
- * A stable warning code.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "WarningCode".
- */
-export type WarningCode =
-  | (
-      | "truncated"
-      | "unresolved_ref"
-      | "evidence_dropped"
-      | "partial_parse"
-      | "partial_scan"
-      | "workspace_nested"
-      | "repo_unborn"
-      | "repo_skipped"
-      | "scan_superseded"
-      | "claimed"
-      | "deterministic_fallback"
-      | "workspace_untrusted"
-      | "config_key_ignored"
-      | "inferred_unconfirmed"
-      | "cache_regression"
-      | "cache_not_applied"
-      | "hidden_characters"
-      | "outside_touch_points"
-      | "scan_changed_under_edit"
-      | "stale_page"
-      | "model_request_pending"
-      | "store_migrated"
-      | "temporary_host"
-      | "reconcile_paused"
-      | "duty_failed"
-    )
-  | string;
-/**
  * An RFC 3339 UTC timestamp.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -917,6 +919,16 @@ export interface Answer {
    * Why the read failed, when it did.
    */
   error?: ErrorObject | null;
+  /**
+   * The cursor of the page after this one, as the command's `meta.next`: a read request with
+   * it as its `cursor` asks for that page. Absent on the last page.
+   */
+  next?: Cursor | null;
+  /**
+   * The warnings the command's reply carried, as its `meta.warnings`, such as `stale_page`
+   * when the request's cursor came from a map that has moved on. Absent when there are none.
+   */
+  warnings?: Warning[];
   [k: string]: unknown;
 }
 /**
@@ -955,6 +967,17 @@ export interface ErrorObject {
   details: {
     [k: string]: unknown;
   };
+}
+/**
+ * A warning attached to a reply.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Warning".
+ */
+export interface Warning {
+  code: WarningCode;
+  message: string;
+  details: unknown;
 }
 /**
  * One argument a question takes, such as `X` in `fires-if X`.
@@ -1874,17 +1897,6 @@ export interface Size {
    * `ceil(bytes / 4)`.
    */
   tokens_est: number;
-}
-/**
- * A warning attached to a reply.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "Warning".
- */
-export interface Warning {
-  code: WarningCode;
-  message: string;
-  details: unknown;
 }
 /**
  * Model calls this reply made.

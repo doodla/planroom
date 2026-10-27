@@ -198,6 +198,24 @@
             }
           ],
           "description": "Why the read failed, when it did."
+        },
+        "next": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The cursor of the page after this one, as the command's `meta.next`: a read request with\nit as its `cursor` asks for that page. Absent on the last page."
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Warning"
+          },
+          "description": "The warnings the command's reply carried, as its `meta.warnings`, such as `stale_page`\nwhen the request's cursor came from a map that has moved on. Absent when there are none."
         }
       },
       "required": [
@@ -895,7 +913,7 @@
     },
     "Cursor": {
       "type": "string",
-      "description": "An opaque page cursor over `(seq, last_id, filter hash)`."
+      "description": "An opaque page cursor over `(seq, last_id, filter hash)`; `map`'s also holds the last block's\nlevel, since its pages are cut by level and then ID. A page whose `seq` is behind continues\nafter that row (DR-73)."
     },
     "DbBatch": {
       "type": "object",

@@ -39,7 +39,7 @@ use serde_json::{Value, json};
 use crate::app::actor::{self, Bound, Caller};
 use crate::app::error::AppError;
 use crate::app::share::SNAPSHOT_SEQ_META;
-use crate::app::{Reply, data, map, workspace};
+use crate::app::{Paged, Reply, data, map, workspace};
 use crate::{clock, live, text};
 
 /// The commands a row may name that only read; any sync answers them (DR-77).
@@ -245,6 +245,8 @@ fn read(root: &Path, command: &str, request: Value) -> Answer {
         seq: 0,
         result: Value::Null,
         error: Some(e.object()),
+        next: None,
+        warnings: vec![],
         extra: Default::default(),
     };
     if command != "map" {
@@ -265,8 +267,11 @@ fn read(root: &Path, command: &str, request: Value) -> Answer {
         }
     };
     let handle = map_handle(&req);
+    // The answer is the map's page, as the CLI gives it: within the leaf's budget, with the cursor
+    // of the page after it, which a read request passes back as its `cursor`, and the reply's
+    // warnings, such as `stale_page` for a cursor from a map that has moved on.
     match map::run(&req, root) {
-        Ok(reply) => {
+        Ok(Paged { reply, next }) => {
             let mut view = reply.result;
             redact::map_view(&mut view, false);
             let mut answer = Answer {
@@ -275,6 +280,8 @@ fn read(root: &Path, command: &str, request: Value) -> Answer {
                 seq: reply.seq,
                 result: serde_json::to_value(&view).unwrap_or(Value::Null),
                 error: None,
+                next,
+                warnings: reply.warnings,
                 extra: Default::default(),
             };
             if size(&answer) > DB_DOC_MAX_BYTES {
@@ -305,6 +312,9 @@ fn map_handle(req: &MapReq) -> Handle {
     }
     if req.detail == Detail::Graph {
         args.extend(["--detail".to_owned(), "graph".to_owned()]);
+    }
+    if let Some(cursor) = &req.cursor {
+        args.extend(["--cursor".to_owned(), cursor.0.clone()]);
     }
     let level = tree::level_name(req.level.unwrap_or(planroom_contract::Level::System));
     Handle {

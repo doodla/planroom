@@ -85,10 +85,10 @@
         "crates/store/tests/commit.rs::one_commit_under_other_inputs_is_another_snapshot",
         "crates/planroom/tests/s01_first_look.rs::every_truth_item_the_loaded_packs_declare_matches_with_evidence",
         "crates/planroom/tests/s01_first_look.rs::truth_recall_never_drops",
-        "crates/planroom/tests/config.rs::fixture_and_test_data_trees_are_excluded_by_default"
+        "crates/planroom/tests/config.rs::fixture_and_test_data_trees_are_excluded_by_default",
+        "crates/planroom/tests/budgets.rs::map_pages_to_the_whole_map_at_every_detail"
       ],
       "due": {
-        "crates/planroom/tests/s01_first_look.rs::cold_scan_under_5_s": "M1",
         "crates/planroom/tests/next.rs::top_level_has_one_next_action": "M1",
         "crates/planroom/tests/s01_first_look.rs::zoom_to_code_and_back_is_faithful": "M1",
         "crates/planroom/tests/s01_first_look.rs::every_truth_container_component_and_relation_with_evidence": "M3",

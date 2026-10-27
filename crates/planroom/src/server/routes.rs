@@ -21,7 +21,7 @@ use axum::response::sse::{Event as SseEvent, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use planroom_contract::{
-    Category, CodeReq, DrainReq, ErrorCode, FocusReq, LayoutPut, MapReq, ScanReq, Seq, SessionReq,
+    Category, CodeReq, DrainReq, ErrorCode, FocusReq, LayoutPut, MapReq, Meta, ScanReq, Seq, SessionReq,
     SessionToken, StreamFrame,
 };
 use planroom_store::{Store, StoreError, Tail};
@@ -33,7 +33,7 @@ use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tokio_stream::wrappers::{BroadcastStream, WatchStream};
 
 use crate::app::error::AppError;
-use crate::app::{self, Reply};
+use crate::app::{self, Paged, Reply};
 use crate::live::Live;
 use crate::server::{auth, canvas};
 use crate::{cli, text};
@@ -200,14 +200,21 @@ fn guard(state: &State, headers: &HeaderMap, get_request: bool, bearer: bool) ->
 
 /// An envelope with the HTTP status its error's category maps to.
 fn reply<T: Serialize>(command: &str, result: Result<Reply<T>, AppError>, started: Instant) -> Response {
+    reply_paged(command, result.map(|reply| Paged { reply, next: None }), started)
+}
+
+/// [`reply`] for a page: `meta.next` carries the cursor of the page after it.
+fn reply_paged<T: Serialize>(
+    command: &str,
+    result: Result<Paged<T>, AppError>,
+    started: Instant,
+) -> Response {
     let took_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
     let (status, body) = match result {
-        Ok(r) => {
+        Ok(Paged { reply: r, next }) => {
             let summary = cli::summary_of(&r.text);
-            (
-                StatusCode::OK,
-                cli::envelope(command, Some(&r.result), None, r.seq, took_ms, r.warnings, summary),
-            )
+            let meta = Meta { seq: r.seq, took_ms, next, warnings: r.warnings, ..Meta::default() };
+            (StatusCode::OK, cli::envelope_with(command, Some(&r.result), None, meta, summary))
         }
         Err(e) => {
             let status = match (e.code, e.code.category()) {
@@ -428,7 +435,9 @@ fn dispatch(name: &str, body: Value, root: &Path, started: Instant) -> Response 
         serde_json::from_value(body).map_err(|e| bad_body(&e))
     }
     match name {
-        "map" => reply(name, parse::<MapReq>(body).and_then(|req| app::map::for_canvas(&req, root)), started),
+        "map" => {
+            reply_paged(name, parse::<MapReq>(body).and_then(|req| app::map::for_canvas(&req, root)), started)
+        }
         "focus" => reply(name, parse::<FocusReq>(body).and_then(|req| app::focus::run(&req, root)), started),
         "scan" => {
             let ran = parse::<ScanReq>(body).and_then(|mut req| {

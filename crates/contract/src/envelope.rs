@@ -87,7 +87,9 @@ pub struct Size {
     pub tokens_est: u32,
 }
 
-/// An opaque page cursor over `(seq, last_id, filter hash)`.
+/// An opaque page cursor over `(seq, last_id, filter hash)`; `map`'s also holds the last block's
+/// level, since its pages are cut by level and then ID. A page whose `seq` is behind continues
+/// after that row (DR-73).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
 pub struct Cursor(pub String);

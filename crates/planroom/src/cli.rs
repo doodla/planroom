@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 
 use crate::app::actor::Caller;
 use crate::app::error::AppError;
-use crate::app::{self, Reply, workspace};
+use crate::app::{self, Paged, Reply, workspace};
 use crate::live::Live;
 use crate::text;
 
@@ -118,7 +118,7 @@ pub fn main() -> ExitCode {
         }
         Cmd::Map(req) => {
             let name = Command::Map(req.clone()).name();
-            finish(cli.json, &name.0, app::map::run(&req, &cwd), started)
+            finish_paged(cli.json, &name.0, app::map::run(&req, &cwd), started)
         }
         Cmd::Focus(req) => {
             let name = Command::Focus(req.clone()).name();
@@ -164,13 +164,25 @@ pub(crate) fn finish<T: Serialize>(
     reply: Result<Reply<T>, AppError>,
     started: Instant,
 ) -> ExitCode {
+    finish_paged(json, command, reply.map(|reply| Paged { reply, next: None }), started)
+}
+
+/// [`finish`] for a page, whose envelope carries the cursor of the page after it in `meta.next`.
+pub(crate) fn finish_paged<T: Serialize>(
+    json: bool,
+    command: &str,
+    reply: Result<Paged<T>, AppError>,
+    started: Instant,
+) -> ExitCode {
     let took_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
     let (code, out) = match reply {
-        Ok(reply) => {
+        Ok(Paged { reply, next }) => {
             let line = if json {
                 let summary = summary_of(&reply.text);
                 let budget = budget_of(command);
-                envelope_within(command, &reply.result, reply.seq, took_ms, reply.warnings, summary, budget)
+                let meta =
+                    Meta { seq: reply.seq, took_ms, next, warnings: reply.warnings, ..Meta::default() };
+                envelope_within(command, &reply.result, meta, summary, budget)
             } else {
                 sanitize_lines(&reply.text)
             };
@@ -212,7 +224,18 @@ pub(crate) fn envelope<T: Serialize>(
     warnings: Vec<Warning>,
     summary: Option<String>,
 ) -> String {
-    let truncated = warnings.iter().any(|w| w.code == WarningCode::Truncated);
+    envelope_with(command, result, error, Meta { seq, took_ms, warnings, ..Meta::default() }, summary)
+}
+
+/// [`envelope`] with the rest of `meta`, such as `next`; `size` and `truncated` are set here.
+pub(crate) fn envelope_with<T: Serialize>(
+    command: &str,
+    result: Option<&T>,
+    error: Option<&AppError>,
+    meta: Meta,
+    summary: Option<String>,
+) -> String {
+    let truncated = meta.warnings.iter().any(|w| w.code == WarningCode::Truncated);
     let mut env = Envelope {
         schema_version: SCHEMA_VERSION,
         ok: error.is_none(),
@@ -220,7 +243,7 @@ pub(crate) fn envelope<T: Serialize>(
         summary,
         result,
         error: error.map(AppError::object),
-        meta: Meta { seq, took_ms, size: Size::default(), truncated, warnings, ..Meta::default() },
+        meta: Meta { size: Size::default(), truncated, ..meta },
     };
     // The size counts its own digits, so settle it: at most a few rounds.
     let mut line = serde_json::to_string(&env).expect("an envelope serializes");
@@ -250,18 +273,17 @@ fn budget_of(command: &str) -> Option<u32> {
 pub(crate) fn envelope_within<T: Serialize>(
     command: &str,
     result: &T,
-    seq: Seq,
-    took_ms: u32,
-    warnings: Vec<Warning>,
+    meta: Meta,
     summary: Option<String>,
     budget: Option<u32>,
 ) -> String {
-    let whole = envelope(command, Some(result), None, seq, took_ms, warnings.clone(), summary.clone());
+    let whole = envelope_with(command, Some(result), None, meta.clone(), summary.clone());
     let Some(budget) = budget else { return whole };
     let tokens = |line: &str| line.len().div_ceil(4);
     if tokens(&whole) <= budget as usize {
         return whole;
     }
+    let warnings = &meta.warnings;
     let optional: Vec<usize> =
         (0..warnings.len()).filter(|i| warnings[*i].code != WarningCode::Truncated).collect();
     // Keep the first `n` optional warnings and summarise the rest.
@@ -274,7 +296,8 @@ pub(crate) fn envelope_within<T: Serialize>(
             .map(|(_, w)| w.clone())
             .collect();
         kept.push(left_out(&left, budget, over));
-        envelope(command, Some(result), None, seq, took_ms, kept, summary.clone())
+        let meta = Meta { warnings: kept, ..meta.clone() };
+        envelope_with(command, Some(result), None, meta, summary.clone())
     };
     let (mut fits, mut over) = (0, optional.len().saturating_sub(1));
     while fits < over {
@@ -492,10 +515,15 @@ mod tests {
         serde_json::from_str(line).unwrap()
     }
 
+    /// The `meta` a reply at `seq` 1 with `warnings` starts from.
+    fn meta(warnings: Vec<Warning>) -> Meta {
+        Meta { seq: 1, warnings, ..Meta::default() }
+    }
+
     #[test]
     fn a_reply_within_its_budget_is_untouched() {
         let warnings = vec![warning(WarningCode::PartialScan, 1)];
-        let line = envelope_within("scan", &json!({}), 1, 0, warnings.clone(), None, Some(1_500));
+        let line = envelope_within("scan", &json!({}), meta(warnings.clone()), None, Some(1_500));
         assert_eq!(line, envelope("scan", Some(&json!({})), None, 1, 0, warnings, None));
     }
 
@@ -509,7 +537,7 @@ mod tests {
             message: "map cut".into(),
             details: json!({}),
         });
-        let env = parse(&envelope_within("scan", &json!({}), 1, 0, warnings, None, Some(1_500)));
+        let env = parse(&envelope_within("scan", &json!({}), meta(warnings), None, Some(1_500)));
         let meta = &env["meta"];
         assert!(meta["size"]["tokens_est"].as_u64().unwrap() <= 1_500, "{meta}");
         assert_eq!(meta["truncated"], true);
@@ -528,7 +556,7 @@ mod tests {
     #[test]
     fn a_result_past_the_budget_on_its_own_says_so() {
         let result = json!({"text": "x".repeat(8_000)});
-        let env = parse(&envelope_within("scan", &result, 1, 0, vec![], None, Some(1_500)));
+        let env = parse(&envelope_within("scan", &result, meta(vec![]), None, Some(1_500)));
         assert_eq!(env["meta"]["truncated"], true);
         let warning = &env["meta"]["warnings"][0];
         assert_eq!(

@@ -17,7 +17,7 @@ pub mod workspace;
 use std::sync::OnceLock;
 use std::sync::mpsc::Sender;
 
-use planroom_contract::{EventId, Level, MapView, Seq, Warning};
+use planroom_contract::{Cursor, EventId, Level, MapView, Seq, Warning};
 
 /// Where this process's own commits are announced: `serve`'s live loop, which `data_version`
 /// can't wake for them as fast (DR-1). Unset in a one-shot CLI process.
@@ -42,6 +42,14 @@ pub struct Reply<T> {
     pub seq: Seq,
     pub warnings: Vec<Warning>,
     pub text: String,
+}
+
+/// A page of a reply, and the cursor of the page after it, which `meta.next` carries; none on the
+/// last page.
+#[derive(Debug, Clone)]
+pub struct Paged<T> {
+    pub reply: Reply<T>,
+    pub next: Option<Cursor>,
 }
 
 /// A fresh event ID: a UUID v7.
