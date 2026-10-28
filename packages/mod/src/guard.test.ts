@@ -2915,3 +2915,314 @@ test("a tree read above a git directory a .git file names, through unhidden fold
     })?.decision,
   ).toBe("deny");
 });
+
+test("person_key_is_guarded: no agent reads the mod's $.store file, which holds the person key", () => {
+  for (const [tool, input] of [
+    ["Read", { file_path: "/home/u/.claude/plugins/store/planroom_x.json" }],
+    ["Read", { file_path: "~/.claude/plugins/store/planroom_x.json" }],
+    ["Grep", { pattern: "privateKey", path: "/home/u/.claude/plugins" }],
+    ["Bash", { command: "cat ~/.claude/plugins/store/planroom_x.json" }],
+    ["Bash", { command: "grep -r privateKey ~/.claude" }],
+    [
+      "mcp__other__upload",
+      { attachment: "file:///home/u/.claude/plugins/store/planroom_x.json" },
+    ],
+  ] as const) {
+    expect(
+      verdict(tool, input)?.decision,
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBe("deny");
+  }
+});
+
+test("the_user_config_is_guarded: no agent reads, writes or searches the user-level config", () => {
+  for (const [tool, input] of [
+    ["Read", { file_path: "/home/u/.config/planroom/config.toml" }],
+    [
+      "Write",
+      { file_path: "/home/u/.config/planroom/config.toml", content: "" },
+    ],
+    ["Grep", { pattern: "api_key", path: "/home/u/.config" }],
+    ["Bash", { command: "cat ~/.config/planroom/config.toml" }],
+    ["Bash", { command: "rm -rf ~/.config/planroom" }],
+  ] as const) {
+    expect(
+      verdict(tool, input)?.decision,
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBe("deny");
+  }
+});
+
+test("agents_cannot_choose_the_engine: PLANROOM_ENGINE and PLANROOM_RELEASE_BASE_URL are never set", () => {
+  for (const command of [
+    "PLANROOM_ENGINE=/tmp/p planroom map",
+    "export PLANROOM_ENGINE=/tmp/p",
+    "env PLANROOM_RELEASE_BASE_URL=http://127.0.0.1:1 planroom version",
+    "PLANROOM_ENGINE+=x",
+  ]) {
+    expect(bashDenied(command), command).not.toBeNull();
+  }
+  expect(bashDenied("planroom version --json")).toBeNull();
+});
+
+test("agents_cannot_init_the_person_key: person init and its rekey are the person's", () => {
+  for (const command of [
+    "planroom person init < key",
+    "planroom --json person init --rekey",
+    'bash -c "planroom --workspace /w person init < key"',
+    "p=planroom; $p person init",
+    "echo person init | xargs planroom",
+  ]) {
+    expect(bashDenied(command), command).not.toBeNull();
+  }
+});
+
+test("an_agent_push_of_planroom_refs_is_denied: refs/planroom/ move only through the CLI", () => {
+  for (const command of [
+    "git push origin refs/planroom/archive/K1",
+    "git push origin 'refs/planroom/*:refs/planroom/*'",
+  ]) {
+    expect(bashDenied(command), command).not.toBeNull();
+  }
+  expect(bashDenied("git push origin main")).toBeNull();
+});
+
+test("a_pty_wrapped_person_command_is_denied: script, unbuffer, expect and socat hide no person-only command", () => {
+  for (const command of [
+    "script -qc 'planroom open' /dev/null",
+    "script -q -c 'planroom person init' /dev/null",
+    "unbuffer planroom open",
+    "expect -c 'spawn planroom open; interact'",
+    "socat - EXEC:'planroom open',pty",
+    "socat -,raw,echo=0 exec:'planroom handoff merge K1',pty,setsid",
+    'socat - "SYSTEM:planroom person init < key",pty',
+    "socat STDIO SHELL:'planroom open'",
+  ]) {
+    expect(bashDenied(command), command).not.toBeNull();
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of [
+    "socat - EXEC:'planroom map --json',pty",
+    "socat TCP-LISTEN:8080 STDOUT",
+  ]) {
+    expect(bashDenied(command), command).toBeNull();
+  }
+});
+
+/** A spawned implementer's places: its clones under the data root, and its result file. */
+const HANDOFF = "/home/u/.local/share/planroom/handoffs/ws1/K1";
+const implementer = {
+  ...guardPlaces(
+    `${HANDOFF}/clones/storefront`,
+    { HOME: "/home/u" },
+    { workspace: "/work", plugin: [PLUGIN] },
+  ),
+  implementer: {
+    clones: [`${HANDOFF}/clones/storefront`, `${HANDOFF}/clones/orders`],
+    result: `${HANDOFF}/result.json`,
+  },
+};
+
+function implementerVerdict(
+  tool: string,
+  input: unknown,
+  links: Record<string, string> = {},
+) {
+  return guardCall(
+    tool,
+    input,
+    (p) => (links[p] === undefined ? [] : [links[p]]),
+    implementer,
+  );
+}
+
+test("implementer_cannot_reach_the_store_by_a_relative_path: its relative reads land where they resolve", () => {
+  for (const [tool, input] of [
+    ["Read", { file_path: "../../../../../../../../work/.planroom/store.db" }],
+    [
+      "Read",
+      { file_path: "../../../../../../../../work/.planroom/serve.json" },
+    ],
+    ["Read", { file_path: "../../../../../stores/ws1/store.db" }],
+    ["Read", { file_path: "../../../../../ledger.db" }],
+    ["Grep", { pattern: "x", path: "../../../.." }],
+    ["Glob", { pattern: "../../../../**/store.db" }],
+  ] as const) {
+    expect(
+      implementerVerdict(tool, input)?.decision,
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBe("deny");
+  }
+  // A link in its clone that lands on the store is the store.
+  expect(
+    implementerVerdict(
+      "Read",
+      { file_path: "notes.db" },
+      { "notes.db": "/work/.planroom/store.db" },
+    )?.decision,
+  ).toBe("deny");
+  // Its own clone is under the data root, and reads there go on to the session's rules.
+  for (const [tool, input] of [
+    ["Read", { file_path: "src/cart.ts" }],
+    ["Read", { file_path: `${HANDOFF}/clones/orders/README.md` }],
+    ["Grep", { pattern: "TODO" }],
+    ["Grep", { pattern: "TODO", path: "src", glob: "*.ts" }],
+    ["Glob", { pattern: "**/*.ts" }],
+  ] as const) {
+    expect(
+      implementerVerdict(tool, input),
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBeNull();
+  }
+  // Every Bash call is denied in M1, with the reason that tells it to carry on.
+  for (const command of [
+    "cat ../../../../../../../../work/.planroom/store.db",
+    "npm test",
+    "ls",
+  ]) {
+    const v = implementerVerdict("Bash", { command });
+    expect(v?.decision, command).toBe("deny");
+    expect(v?.reason, command).toContain("carry on");
+  }
+  for (const command of [
+    "sqlite3 ../../x.db",
+    "script -qc ls /dev/null",
+    "git push origin HEAD",
+    "planroom handoff report K1",
+  ]) {
+    const v = implementerVerdict("Bash", { command });
+    expect(v?.decision, command).toBe("deny");
+    expect(v?.reason, command).toContain("never runs sqlite3");
+  }
+});
+
+test("implementer_writes_only_in_its_clones: its clones and result.json, nowhere else", () => {
+  for (const [tool, input] of [
+    ["Write", { file_path: "src/cart.ts", content: "x" }],
+    [
+      "Edit",
+      {
+        file_path: `${HANDOFF}/clones/orders/src/a.ts`,
+        old_string: "a",
+        new_string: "b",
+      },
+    ],
+    ["MultiEdit", { file_path: "README.md", edits: [] }],
+    ["NotebookEdit", { notebook_path: "nb/a.ipynb", new_source: "" }],
+    ["Write", { file_path: `${HANDOFF}/result.json`, content: "{}" }],
+  ] as const) {
+    expect(
+      implementerVerdict(tool, input)?.decision,
+      `${tool} ${JSON.stringify(input)}`,
+    ).toBe("allow");
+  }
+  for (const [tool, input] of [
+    ["Write", { file_path: "/work/storefront/src/cart.ts", content: "x" }],
+    ["Write", { file_path: "../../spec.json", content: "x" }],
+    ["Write", { file_path: `${HANDOFF}/clones/other/src/a.ts`, content: "x" }],
+    ["Write", { file_path: "/home/u/.bashrc", content: "x" }],
+    ["Write", { file_path: "/tmp/scratch.txt", content: "x" }],
+    [
+      "Edit",
+      {
+        file_path: "/home/u/.local/share/planroom/ledger.db",
+        old_string: "a",
+        new_string: "b",
+      },
+    ],
+  ] as const) {
+    const v = implementerVerdict(tool, input);
+    expect(v?.decision, `${tool} ${JSON.stringify(input)}`).toBe("deny");
+    expect(v?.reason).toContain("only inside its hand-off's clones");
+  }
+  // A link in its clone that lands outside it writes outside it.
+  expect(
+    implementerVerdict(
+      "Write",
+      { file_path: "out.ts", content: "x" },
+      { "out.ts": "/work/storefront/out.ts" },
+    )?.decision,
+  ).toBe("deny");
+  // Its write is still the person's to decide when it would run on another machine.
+  expect(
+    implementerVerdict("Write", {
+      file_path: "src/a.ts",
+      content: "x",
+      _host: "laptop",
+    })?.decision,
+  ).toBe("ask");
+  // No other agent gets the allow: the same write from the chat is the session's to decide.
+  expect(
+    verdict("Write", {
+      file_path: `${HANDOFF}/clones/storefront/src/a.ts`,
+      content: "x",
+    })?.decision,
+  ).toBe("deny");
+});
+
+test("implementer_cannot_edit_its_clones_git_dir: a clone's .git/ is never its to write", () => {
+  for (const file_path of [
+    ".git/config",
+    ".git/hooks/pre-commit",
+    `${HANDOFF}/clones/orders/.git/HEAD`,
+    "src/../.git/refs/heads/main",
+  ]) {
+    const v = implementerVerdict("Write", { file_path, content: "x" });
+    expect(v?.decision, file_path).toBe("deny");
+  }
+  expect(
+    implementerVerdict(
+      "Edit",
+      { file_path: "hook", old_string: "a", new_string: "b" },
+      {
+        hook: `${HANDOFF}/clones/storefront/.git/hooks/post-commit`,
+      },
+    )?.decision,
+  ).toBe("deny");
+});
+
+test("a Glob of every file from a single repo's root passes with plain places", () => {
+  const single = guardPlaces(
+    "/work",
+    { HOME: "/home/u" },
+    { plugin: [PLUGIN] },
+  );
+  expect(guardCall("Glob", { pattern: "**/*" }, () => [], single)).toBeNull();
+});
+
+test("an append, an archive's own names and gio hide no guarded place", () => {
+  for (const command of [
+    // `+=` appends to a name the line set, or to one it doesn't know.
+    "X=.plan; X+=room; rm -rf $X",
+    "X=.planroom/store; X+=.db; cat $X",
+    "X=$HOME/.config/planroom; X+=/config.toml; cat $X",
+    "X=/home/u/.local/share/planroom/led; X+=ger.db; cat $X",
+    "declare X=.plan; X+=room; rm -rf $X",
+    // An archive whose names may be absolute, or a rewrite of them, unpacks anywhere.
+    "pax -rf crafted.tar",
+    "pax -r -f crafted.tar -s ',^,/home/u/.local/,'",
+    "cpio -id < crafted.cpio",
+    "tar xPf crafted.tar",
+    "tar -xf crafted.tar --transform 's,^,/home/u/.local/,'",
+    "bsdtar -xf crafted.tar -s ',^,/home/u/.local/,'",
+    "unzip -: crafted.zip",
+    // gio's trash, remove and move dispose of a state directory as rm and mv do.
+    "gio trash .planroom",
+    "gio remove .git/planroom",
+    "gio move .planroom /tmp/x",
+  ]) {
+    expect(verdict("Bash", { command })?.decision, command).toBe("deny");
+  }
+  for (const command of [
+    "X=src; X+=/main.rs; cat $X",
+    "tar xf bundle.tar",
+    "tar -xzf bundle.tgz -C build",
+    "cpio -id --no-absolute-filenames < bundle.cpio",
+    "pax -w -f out.tar src",
+    "unzip bundle.zip -d out",
+    "gio trash build",
+    "gio list .",
+  ]) {
+    expect(verdict("Bash", { command }), command).toBeNull();
+  }
+});

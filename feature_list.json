@@ -914,9 +914,6 @@
         "packages/mod/src/actor.test.ts::tool_handlers_send_agent": "M1",
         "packages/mod/src/guard.test.ts::edit_on_touch_set_asks": "M2",
         "packages/mod/src/broker.test.ts": "M2",
-        "packages/mod/src/guard.test.ts::implementer_cannot_reach_the_store_by_a_relative_path": "M1",
-        "packages/mod/src/guard.test.ts::implementer_writes_only_in_its_clones": "M1",
-        "packages/mod/src/guard.test.ts::a_pty_wrapped_person_command_is_denied": "M1",
         "packages/mod/src/prompt.test.ts::section_is_byte_identical_across_states": "M1",
         "packages/mod/src/tools.test.ts::tool_results_within_budget": "M1",
         "packages/mod/src/engine.test.ts::a_catalogue_mismatch_shows_one_line": "M1",
@@ -931,7 +928,6 @@
         "packages/mod/src/keys.test.tsx::a_band_press_from_the_prompt_offers_undo": "M1",
         "packages/mod/src/engine.test.ts::a_missing_binary_resolves_once_more": "M1",
         "packages/mod/src/engine.test.ts::schema_mismatch_names_the_right_action": "M1",
-        "packages/mod/src/guard.test.ts::implementer_cannot_edit_its_clones_git_dir": "M1",
         "packages/mod/src/guard.test.ts::without_a_sandbox_approved_commands_ask": "M2",
         "packages/mod/src/agents.test.ts::the_implementer_spawns_sandboxed": "M2",
         "packages/mod/src/agents.test.ts::installs_run_before_the_implementer": "M2",
@@ -1582,6 +1578,8 @@
         "crates/planroom/tests/confine.rs::a_read_outside_the_workspace_is_path_refused",
         "crates/planroom/tests/confine.rs::a_credential_path_needs_a_person",
         "crates/planroom/tests/confine.rs::workspace_flag_on_a_read_needs_an_existing_store",
+        "packages/mod/src/guard.test.ts::agents_cannot_init_the_person_key",
+        "crates/planroom/tests/trust.rs::a_planted_store_key_cannot_pick_the_trust_card",
         "crates/planroom/tests/actor.rs::a_token_works_once_and_only_for_its_command",
         "crates/planroom/tests/actor.rs::repo_changing_commands_refuse_the_terminal_path",
         "crates/planroom/tests/actor.rs::children_never_inherit_the_token",
@@ -1609,14 +1607,7 @@
         "tests/installer/run.sh::a_swapped_cached_engine_is_refused"
       ],
       "due": {
-        "packages/mod/src/guard.test.ts::person_key_is_guarded": "M1",
-        "crates/planroom/tests/actor.rs::model_responses_only_for_pending_requests": "M2",
-        "crates/planroom/tests/confine.rs::a_read_outside_the_workspace_is_path_refused": "M1",
-        "crates/planroom/tests/confine.rs::a_credential_path_needs_a_person": "M1",
-        "crates/planroom/tests/confine.rs::workspace_flag_on_a_read_needs_an_existing_store": "M1",
-        "packages/mod/src/guard.test.ts::agents_cannot_choose_the_engine": "M1",
-        "packages/mod/src/guard.test.ts::the_user_config_is_guarded": "M1",
-        "packages/mod/src/guard.test.ts::an_agent_push_of_planroom_refs_is_denied": "M1"
+        "crates/planroom/tests/actor.rs::model_responses_only_for_pending_requests": "M2"
       },
       "decision": "DR-4, DR-52, DR-64, DR-72, DR-75, DR-85, DR-86"
     },
@@ -1964,16 +1955,14 @@
         "crates/planroom/tests/trust.rs::an_out_of_tree_pack_loads_without_a_card",
         "crates/planroom/tests/trust.rs::an_out_of_tree_pack_cannot_enable_its_own_auto_action",
         "crates/planroom/tests/trust.rs::planroom_packs_loads_nothing_outside_doctor",
-        "crates/planroom/tests/trust.rs::accepting_the_trust_card_loads_the_config"
+        "crates/planroom/tests/trust.rs::accepting_the_trust_card_loads_the_config",
+        "crates/planroom/tests/trust.rs::a_recorded_workspace_is_trusted",
+        "crates/planroom/tests/trust.rs::rejecting_the_trust_card_keeps_the_config_unloaded"
       ],
       "due": {
-        "crates/planroom/tests/trust.rs::a_committed_planroom_config_is_not_loaded": "M1",
-        "crates/planroom/tests/trust.rs::credential_settings_come_only_from_user_config": "M1",
-        "crates/planroom/tests/trust.rs::api_key_env_outside_the_allow_list_is_refused": "M1",
         "crates/planroom/tests/trust.rs::an_out_of_tree_pack_loads_without_a_card": "M1",
         "crates/planroom/tests/trust.rs::an_out_of_tree_pack_cannot_enable_its_own_auto_action": "M2",
-        "crates/planroom/tests/trust.rs::planroom_packs_loads_nothing_outside_doctor": "M1",
-        "crates/planroom/tests/trust.rs::accepting_the_trust_card_loads_the_config": "M1"
+        "crates/planroom/tests/trust.rs::planroom_packs_loads_nothing_outside_doctor": "M1"
       },
       "decision": "DR-48"
     },

@@ -5,7 +5,11 @@
 //! - A dealer never deals a second card of one kind and subject while one is open: the open cards
 //!   are the `card` events no standing review names and no undo reverses, which the store reads
 //!   and the kernel decides ([`open`]).
-//! - `scan` asks each of [`SCAN_DEALERS`] for its card inside the scan's commit.
+//! - `scan` asks each of [`SCAN_DEALERS`] for its card inside the scan's commit: the trust card
+//!   for a state directory the engine can't vouch for, whose subject is the workspace ID, so a
+//!   moved workspace keeps one card. A person's pick of it records or removes the workspace's
+//!   trust once `review` commits ([`picked`]), and an undo of an accept removes it again
+//!   ([`after_trust_undo`]).
 //! - `focus` puts the first open card face up in `PaneModel.decision` and counts the rest.
 //! - The Apply card's subject is the workspace ID. Its ghosts name it as their cause, its count is
 //!   derived live from them, and it resolves with its last ghost's review.
@@ -16,18 +20,23 @@
 //!   resolves ([`undo_beside`]), so a dealer's later rows always join its one open card.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
 use planroom_contract::{
-    Actor, BatchInfo, Card, CardKind, Choice, Client, CommandName, DecisionCard, ErrorCode, Event, EventBody,
-    EventId, Handle, Seq, Stakes, Status, Surface, Timestamp, Verdict,
+    Actor, BatchInfo, Card, CardKind, Choice, Client, CommandName, DecisionCard, EditResult, ErrorCode,
+    Event, EventBody, EventId, Handle, ReviewResult, Seq, Stakes, Status, Surface, Timestamp, Verdict,
+    Warning, WarningCode,
 };
 use planroom_kernel::fold::{Folded, Writer};
 use planroom_kernel::keys;
-use planroom_store::{Dealt, NewEvent, Snapshot};
+use planroom_store::{Dealt, NewEvent, Snapshot, Store};
 use serde_json::json;
 
+use crate::app::data::TrustedBy;
+use crate::app::edit::Written;
 use crate::app::error::AppError;
 use crate::app::new_event_id;
+use crate::app::trust::{self, Trust};
 use crate::text;
 
 /// The Apply card's kind: unsigned inbox edits, waiting as ghosts (DR-83).
@@ -37,15 +46,183 @@ pub const BATCH_ITEMS: usize = 5;
 /// The most characters of one of a card's values its lines quote.
 const VAR_CHARS: usize = 80;
 
-/// One dealer of a card a scan deals: what it would deal, read from the store as the scan's
-/// commit finds it, or none. [`deal_for_scan`] drops a card one already open makes a second.
-pub struct Dealer {
-    pub kind: &'static str,
-    pub deal: fn(&Snapshot<'_>) -> Result<Option<Card>, AppError>,
+/// The trust card's kind: a state directory the engine can't vouch for (DR-48, DR-89).
+pub const TRUST: &str = "trust";
+
+/// What a scan's dealers know besides the store: the workspace the scan ran in, and how its trust
+/// stood as the scan committed.
+#[derive(Debug, Clone)]
+pub struct ScanCx<'a> {
+    pub root: &'a Path,
+    pub state_dir: &'a Path,
+    pub trust: Trust,
 }
 
-/// The dealers `scan` asks, in order. The trust, changed-source and restore cards join here.
-pub const SCAN_DEALERS: &[Dealer] = &[];
+/// One dealer of a card a scan deals: what it would deal, read from the store as the scan's
+/// commit finds it and from the scan's own context, or none. [`deal_for_scan`] drops a card one
+/// already open makes a second.
+pub struct Dealer {
+    pub kind: &'static str,
+    pub deal: fn(&Snapshot<'_>, &ScanCx<'_>) -> Result<Option<Card>, AppError>,
+}
+
+/// The dealers `scan` asks, in order. The changed-source and restore cards join here.
+pub const SCAN_DEALERS: &[Dealer] = &[Dealer { kind: TRUST, deal: deal_trust }];
+
+/// The trust card, for a workspace whose state directory is untrusted, unless a pick of an earlier
+/// one still stands as a reject: the reject keeps the config unloaded until an undo reopens it.
+/// After a standing accept, a workspace untrusted again, as when it moved or its state directory
+/// was replaced, gets a fresh card.
+fn deal_trust(snapshot: &Snapshot<'_>, cx: &ScanCx<'_>) -> Result<Option<Card>, AppError> {
+    if cx.trust != Trust::Untrusted {
+        return Ok(None);
+    }
+    let workspace = snapshot.meta("workspace_id")?.unwrap_or_default();
+    if standing_pick(snapshot, TRUST, &workspace)? == Some(Verdict::Reject) {
+        return Ok(None);
+    }
+    Ok(Some(Card {
+        kind: CardKind(TRUST.into()),
+        subject: workspace,
+        question: "card.trust_question".into(),
+        why: "card.trust_why".into(),
+        vars: [("dir".to_owned(), trust::dir_name(cx.root).to_owned())].into(),
+        stakes: Stakes::Person,
+        choices: vec![
+            Choice { id: "accept".into(), label: "card.trust_accept".into(), preselected: false },
+            Choice { id: "reject".into(), label: "card.trust_reject".into(), preselected: true },
+        ],
+        default: "reject".into(),
+        dealt_by: CommandName("scan".into()),
+    }))
+}
+
+/// The pick that stands on the closed cards of `kind` about `subject`: the last review naming one
+/// of them. A second pick of a closed card is `already_resolved`, so a later review exists only
+/// after the earlier one was undone, and a card an undo reopened is open, not closed. `None` when
+/// no card of that kind and subject is closed.
+pub fn standing_pick(
+    snapshot: &Snapshot<'_>,
+    kind: &str,
+    subject: &str,
+) -> Result<Option<Verdict>, AppError> {
+    let events = snapshot.card_events()?;
+    let open: BTreeSet<EventId> = planroom_kernel::fold::open_cards(&events).into_iter().collect();
+    let closed: BTreeSet<&EventId> = events
+        .iter()
+        .filter(|e| !open.contains(&e.id))
+        .filter(|e| matches!(&e.body, EventBody::Card(c) if c.kind.0 == kind && c.subject == subject))
+        .map(|e| &e.id)
+        .collect();
+    let mut last = None;
+    for event in &events {
+        if let EventBody::Review { of, verdict } = &event.body
+            && closed.contains(of)
+            && event.status != Status::Conflict
+        {
+            last = Some(*verdict);
+        }
+    }
+    Ok(last)
+}
+
+/// The open trust card of the store's workspace, if one is.
+pub fn open_trust(snapshot: &Snapshot<'_>) -> Result<Option<OpenCard>, AppError> {
+    let workspace = snapshot.meta("workspace_id")?.unwrap_or_default();
+    open_of(snapshot, TRUST, &workspace)
+}
+
+/// `workspace_untrusted`, naming the open trust card and the state directory it asks about.
+pub fn untrusted_warning(id: &EventId, card: &Card) -> Warning {
+    let dir = card.vars.get("dir").cloned().unwrap_or_else(|| ".planroom/".into());
+    Warning {
+        code: WarningCode::WorkspaceUntrusted,
+        message: text::get("warning.workspace_untrusted", &[("dir", &dir), ("card", &id.0)]),
+        details: json!({"card": id.0}),
+    }
+}
+
+/// What a person's pick of a trust card does once `review` committed it (DR-89), acting on the
+/// workspace at `root`, where the review ran: an accept records its state directory as trusted by
+/// a person, with its current identity, and a reject removes any record. A replayed pick acts only
+/// while that review still stands, so a retry repairs a record write that failed, and a pick an
+/// undo reversed never trusts the workspace again. The reply gains its line, or, when the record
+/// can't be written, `trust_not_recorded`: the pick stands, and the next scan deals a fresh card.
+pub fn picked(store: &Store, written: &mut Written<ReviewResult>, root: &Path) -> Result<(), AppError> {
+    let result = &written.reply.result;
+    let Some(card) = result.card_resolved.clone() else { return Ok(()) };
+    if result.of != card {
+        return Ok(());
+    }
+    let snapshot = store.snapshot()?;
+    let events = snapshot.card_events()?;
+    let is_trust =
+        events.iter().any(|e| e.id == card && matches!(&e.body, EventBody::Card(c) if c.kind.0 == TRUST));
+    if !is_trust {
+        return Ok(());
+    }
+    let open: BTreeSet<EventId> = planroom_kernel::fold::open_cards(&events).into_iter().collect();
+    let last = events.iter().rev().find(|e| {
+        matches!(&e.body, EventBody::Review { of, .. } if *of == card) && e.status != Status::Conflict
+    });
+    let stands = !open.contains(&card) && last.is_some_and(|e| e.id == result.event);
+    drop(snapshot);
+    if !stands {
+        return Ok(());
+    }
+    let verdict = result.verdict;
+    let done = match verdict {
+        Verdict::Accept => trust::record(root, TrustedBy::Person),
+        Verdict::Reject => trust::revoke(root),
+    };
+    let reply = &mut written.reply;
+    match done {
+        Ok(()) => {
+            let key = if verdict == Verdict::Accept { "review.trusted" } else { "review.kept" };
+            reply.text.push(' ');
+            reply.text.push_str(&text::get(key, &[]));
+        }
+        Err(_) => reply.warnings.push(Warning {
+            code: WarningCode::TrustNotRecorded,
+            message: text::get("warning.trust_not_recorded", &[("card", &card.0)]),
+            details: json!({"card": card.0}),
+        }),
+    }
+    Ok(())
+}
+
+/// After an `edit undo` commits: when it reversed a person's accept of a trust card, which is open
+/// again, the workspace's trust record goes with it. An undo of that undo records nothing, so the
+/// next scan deals a fresh card, and an agent's undo, a ghost that applies nothing, leaves the card
+/// closed and changes nothing. An undo never trusts a workspace.
+pub fn after_trust_undo(store: &Store, result: &EditResult, root: &Path) -> Result<(), AppError> {
+    if result.status != Status::Applied {
+        return Ok(());
+    }
+    let snapshot = store.snapshot()?;
+    let events = snapshot.card_events()?;
+    // The command's first event: for an undo, the `undo` event itself.
+    let Some(written) = events.iter().find(|e| e.id == result.event) else { return Ok(()) };
+    if !matches!(written.body, EventBody::Undo { .. }) {
+        return Ok(());
+    }
+    // Follow the undos back to what the first one reversed.
+    let mut at = written;
+    for _ in 0..=events.len() {
+        let EventBody::Undo { of } = &at.body else { break };
+        let Some(next) = events.iter().find(|e| &e.id == of) else { return Ok(()) };
+        at = next;
+    }
+    let EventBody::Review { of: card, verdict: Verdict::Accept } = &at.body else { return Ok(()) };
+    let is_trust =
+        events.iter().any(|e| &e.id == card && matches!(&e.body, EventBody::Card(c) if c.kind.0 == TRUST));
+    let open = planroom_kernel::fold::open_cards(&events);
+    drop(snapshot);
+    if is_trust && open.contains(card) {
+        trust::revoke(root)?;
+    }
+    Ok(())
+}
 
 /// An open card: its event and its body.
 #[derive(Debug, Clone)]
@@ -75,10 +252,14 @@ pub fn open_of(snapshot: &Snapshot<'_>, kind: &str, subject: &str) -> Result<Opt
 }
 
 /// The cards `scan`'s commit deals: each dealer's, unless one of its kind and subject is open.
-pub fn deal_for_scan(snapshot: &Snapshot<'_>, at: &Timestamp) -> Result<Vec<Dealt>, AppError> {
+pub fn deal_for_scan(
+    snapshot: &Snapshot<'_>,
+    cx: &ScanCx<'_>,
+    at: &Timestamp,
+) -> Result<Vec<Dealt>, AppError> {
     let mut dealt = Vec::new();
     for dealer in SCAN_DEALERS {
-        let Some(card) = (dealer.deal)(snapshot)? else { continue };
+        let Some(card) = (dealer.deal)(snapshot, cx)? else { continue };
         debug_assert_eq!(card.kind.0, dealer.kind);
         if open_of(snapshot, &card.kind.0, &card.subject)?.is_some() {
             continue;

@@ -66,7 +66,10 @@ pub fn run(
         Some(store) => store.meta("person_pubkey")?,
         None => None,
     };
-    let keys: Vec<_> = registered.as_deref().and_then(actor::parse_key).into_iter().collect();
+    let keys = match &store {
+        Some(store) => actor::registered_keys(store, &root, caller, &command)?,
+        None => vec![],
+    };
     let keys: Vec<_> = keys.iter().collect();
     let now = clock::unix_micros() / 1_000_000;
     let path = actor::terminal_path(&command, registered.is_some());

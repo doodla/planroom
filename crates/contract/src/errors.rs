@@ -288,7 +288,10 @@ warning_codes! {
         "no model was reachable, allowed or within budget; deterministic tiers run, low kinds keep their default and cards pre-select it",
         [];
     WorkspaceUntrusted = "workspace_untrusted",
-        "the workspace's .planroom/ is untrusted, so its config wasn't loaded; details name the trust card",
+        "the state directory is untrusted, so its config wasn't loaded; details name the trust card",
+        ["card"];
+    TrustNotRecorded = "trust_not_recorded",
+        "a person's pick of the trust card stands, but the workspace's trust couldn't be recorded, so the next scan deals a fresh card; details name the card",
         ["card"];
     ConfigKeyIgnored = "config_key_ignored",
         "a user-level key in a workspace's config, or api_key in a user-level config that isn't mode 0600",

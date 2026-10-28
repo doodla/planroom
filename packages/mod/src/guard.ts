@@ -30,6 +30,10 @@
  * the plugin; a deleting `find`, or an `rm` that xargs or a command substitution feeds, may not
  * select Planroom's state (security-r3-4).
  *
+ * A spawned implementer's calls (`GuardPlaces.implementer`) write with no prompt only in its
+ * hand-off's clones, outside each clone's `.git/`, and its `result.json`, read its clones under the
+ * session's own rules, and run no Bash in M1 (DR-52, DR-64, DR-75).
+ *
  * It is a guardrail for "AI proposes, person disposes", not a boundary between processes of one
  * user, and architecture.md ("Actors") lists what it doesn't read: a script the agent runs by
  * path, a variable or `dotglob` set outside the line, a program that walks or writes files through
@@ -75,12 +79,21 @@ export interface GuardPlaces {
    * then asks before every call rather than check against the wrong folders (tests-3-1).
    */
   unplaced?: string;
+  /**
+   * Set when the call is a spawned `planroom:implementer`'s [A-12]: its hand-off's clones under
+   * `DATA_ROOT/handoffs/`, each absolute and normal, and the hand-off's `result.json`. It writes
+   * only there, outside each clone's `.git/`, and runs no Bash in M1 (DR-52, DR-64, DR-75).
+   */
+  implementer?: { clones: readonly string[]; result: string };
 }
 
 /** The guard's verdict on a call it doesn't let through to the session's own rules. */
 export interface Verdict {
-  /** `deny` refuses the call; `ask` puts it to the person, and where nobody can be asked it's a deny. */
-  decision: "deny" | "ask";
+  /**
+   * `deny` refuses the call; `ask` puts it to the person, and where nobody can be asked it's a
+   * deny; `allow` lets it run with no prompt, as the implementer's writes in its own clones do.
+   */
+  decision: "deny" | "ask" | "allow";
   reason: string;
 }
 
@@ -918,6 +931,18 @@ function simpleCommands(command: string): string[][] {
     .map((c) => c.split(/[\s<>]+/).filter((w) => w !== ""));
 }
 
+/**
+ * The command lines socat's `EXEC:`, `SYSTEM:` and `SHELL:` addresses run, in a line with its
+ * quotes taken out: each value up to its first option (`,`) or the dual-address `!!`. socat reads
+ * an address's keyword in any case, and each value is shorter than the line it came from.
+ */
+function socatCommands(plain: string): string[] {
+  if (!shellWords(plain).some((w) => basename(w) === "socat")) return [];
+  return [
+    ...plain.matchAll(/(?:^|[\s"'])(?:exec|system|shell):([^,!]*)/gi),
+  ].map((m) => m[1] ?? "");
+}
+
 /** The guard's verdict on a Bash command's text alone, before its paths are resolved. */
 export function bashDenied(command: string): string | null {
   const plain = unquote(command);
@@ -925,6 +950,12 @@ export function bashDenied(command: string): string | null {
   const words = shellWords(plain);
   for (const line of planroomLines(words)) {
     const reason = personOnlyLine(line);
+    if (reason !== null) return reason;
+  }
+  // socat runs an `EXEC:`, `SYSTEM:` or `SHELL:` address's value as a command line, under a pty
+  // with `,pty`: `socat - EXEC:'planroom open',pty` is a pty-wrapped person-only command.
+  for (const line of socatCommands(plain)) {
+    const reason = bashDenied(line);
     if (reason !== null) return reason;
   }
   // `$p person init`: an expansion in command position may be the engine, so the words after it
@@ -1990,6 +2021,13 @@ function commandEffects(
   const unpack = (into: readonly string[]): void => {
     effects.unpacks.push(...(into.length > 0 ? into : ["."]));
   };
+  /**
+   * An archive whose own names choose where they land, an absolute one or one a rewrite makes, may
+   * unpack anywhere: as into `/`.
+   */
+  const unpackAnywhere = (): void => {
+    effects.unpacks.push("/");
+  };
   /** A search's roots: its operands after the pattern, or `.` when it names none. */
   const roots = (): string[] => {
     const given =
@@ -1998,9 +2036,15 @@ function commandEffects(
     return named.length > 0 ? named : ["."];
   };
   const target = values("t", ["--target-directory"]);
-  if (REMOVERS.has(name)) {
-    effects.writes.push(...ops);
-    effects.removes.push(...ops);
+  // `gio trash`, `gio remove` and `gio move` delete or move what they name, as `rm` and `mv` do.
+  const gio = name === "gio" ? (ops[0] ?? "") : "";
+  if (REMOVERS.has(name) || gio === "trash" || gio === "remove") {
+    const named = gio === "" ? ops : ops.slice(1);
+    effects.writes.push(...named);
+    effects.removes.push(...named);
+  } else if (gio === "move" || gio === "rename") {
+    effects.writes.push(...ops.slice(1));
+    effects.removes.push(...ops.slice(1, gio === "move" ? -1 : 2));
   } else if (name === "mv") {
     effects.writes.push(...ops);
     const sources =
@@ -2026,6 +2070,16 @@ function commandEffects(
       const mode = /^[A-Za-z]+$/.test(args[0] ?? "") ? (args[0] ?? "") : "";
       if (short("x") || long("--extract", "--get") || mode.includes("x")) {
         unpack(values("C", ["--directory"]));
+        // `-P` keeps a name's leading `/`, and a name rewrite (GNU tar's `--transform`, bsdtar's
+        // `-s`) puts a name wherever it says.
+        if (
+          short("P") ||
+          mode.includes("P") ||
+          long("--absolute-names", "--transform", "--xform") ||
+          (name === "bsdtar" && short("s"))
+        ) {
+          unpackAnywhere();
+        }
       }
     }
   } else if (COPIERS.has(name)) {
@@ -2074,6 +2128,8 @@ function commandEffects(
     const into = values("d", []);
     effects.writes.push(...into);
     unpack(into);
+    // `-:` keeps a name's leading `/` and its `../`.
+    if (short(":")) unpackAnywhere();
   } else if (SEVEN_ZIP.has(name)) {
     const mode = ops[0] ?? "";
     if (mode === "a" || mode === "u") {
@@ -2083,11 +2139,15 @@ function commandEffects(
       unpack(values("o", []));
     }
   } else if (name === "cpio") {
+    // cpio keeps an absolute name unless told not to.
     if (short("i")) unpack([]);
+    if (short("i") && !long("--no-absolute-filenames")) unpackAnywhere();
     if (short("p")) unpack(ops.slice(-1));
   } else if (name === "pax") {
     trees(ops);
     if (short("r")) unpack(short("w") ? ops.slice(-1) : []);
+    // pax keeps an absolute name, and `-s` rewrites names to anywhere.
+    if (short("r") && !short("w")) unpackAnywhere();
   } else if (COMPRESSORS.has(name)) {
     if (short("r") || long("--recursive")) trees(ops);
   } else if (name === "zip") {
@@ -2372,9 +2432,20 @@ export function bashPaths(command: string, places: GuardPlaces): BashPaths {
     for (const [i, raw] of simple.words.entries()) {
       // `NAME=value` and `--flag=value`: the value may be a path, and a name the line sets is known.
       const eq = raw.indexOf("=");
-      const assigned =
-        eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(raw.slice(0, eq));
-      const value = eq >= 0 ? shown(expand(raw.slice(eq + 1), vars)) : null;
+      // `NAME+=value` appends: `X=.plan; X+=room` names `.planroom`, and an append to a name the
+      // line doesn't know joins an unknown to the value.
+      const appends = eq > 1 && raw.charAt(eq - 1) === "+";
+      const name = raw.slice(0, appends ? eq - 1 : eq);
+      const assigned = eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
+      const value =
+        eq < 0
+          ? null
+          : shown(
+              expand(
+                (assigned && appends ? `\${${name}}` : "") + raw.slice(eq + 1),
+                vars,
+              ),
+            );
       // `A=$(echo .config)`: what the substitution prints may be any name, a hidden one too.
       const substituted =
         assigned &&
@@ -2382,7 +2453,7 @@ export function bashPaths(command: string, places: GuardPlaces): BashPaths {
         ((simple.sep === "(" && raw.endsWith("$")) || simple.sep === "`");
       if (assigned && value !== null) {
         vars.set(
-          raw.slice(0, eq),
+          name,
           !substituted
             ? value
             : substitutionNames(k)
@@ -3256,10 +3327,111 @@ export function guardCall(
   if (places.unplaced !== undefined) {
     return { decision: "ask", reason: places.unplaced };
   }
+  if (places.implementer !== undefined) {
+    const own = implementerVerdict(
+      tool,
+      input,
+      resolved,
+      places,
+      places.implementer,
+    );
+    if (own !== undefined) {
+      if (own?.decision === "deny") return own;
+      const why = elsewhere(input);
+      return why === null ? own : { decision: "ask", reason: why };
+    }
+  }
   const verdict = localVerdict(tool, input, resolved, places, readOnly);
   if (verdict?.decision === "deny") return verdict;
   const why = elsewhere(input);
   return why === null ? verdict : { decision: "ask", reason: why };
+}
+
+/** The tools that write the file their input names. */
+const WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+
+/** What the implementer runs that DR-52 names: the store's shell, a pty, a push, the hand-off. */
+const IMPLEMENTER_NEVER =
+  "The implementer never runs sqlite3, script, git push or planroom handoff: the hand-off's own steps do that for it.";
+
+/** architecture.md, Actors: the implementer carries on without what it wasn't approved to run. */
+const IMPLEMENTER_CARRY_ON =
+  "This command isn't on the hand-off's approved list, so it doesn't run; carry on without it. The review card lists it, with a retry that allows it.";
+
+const IMPLEMENTER_WRITE =
+  "The implementer writes only inside its hand-off's clones, never in a clone's .git/, and its result.json.";
+
+/**
+ * The verdict on a spawned implementer's call, or undefined when the guard's rules for every agent
+ * decide it. Its writes are allowed in its own clones, outside each clone's `.git/`, and on the
+ * hand-off's `result.json`, checked before the data-root write rule, since the clones sit under
+ * `DATA_ROOT/handoffs/`; every other write is denied, the workspace's included. A Read, Grep or
+ * Glob that stays inside its clones is exempt from the data-root rules and goes on to the
+ * session's own (null). Every Bash call is denied in M1, which approves no command yet.
+ */
+function implementerVerdict(
+  tool: string,
+  input: unknown,
+  resolved: (path: string) => readonly string[],
+  places: GuardPlaces,
+  own: { clones: readonly string[]; result: string },
+): Verdict | null | undefined {
+  const deny = (reason: string): Verdict => ({ decision: "deny", reason });
+  const clones = own.clones.map((c) => normalize(c, "/", places.home));
+  const result = normalize(own.result, "/", places.home);
+  const spell = (p: string): string[] => [
+    normalize(p, places.cwd, places.home),
+    ...resolved(p),
+  ];
+  const inClone = (s: string): boolean =>
+    clones.some((c) => within(s, c) && !within(s, `${c}/.git`));
+  const { reads, writes, bash } = callPaths(tool, input);
+  if (bash !== null) {
+    const words = shellWords(unquote(bash)).map(basename);
+    const never =
+      words.includes("sqlite3") ||
+      words.includes("script") ||
+      words.some(
+        (w, i) => w === "git" && words.slice(i + 1).includes("push"),
+      ) ||
+      words.some((w, i) => w === "planroom" && words[i + 1] === "handoff");
+    return deny(never ? IMPLEMENTER_NEVER : IMPLEMENTER_CARRY_ON);
+  }
+  if (WRITE_TOOLS.has(tool)) {
+    if (writes.length === 0) return deny(IMPLEMENTER_WRITE);
+    const ok = writes.every((p) =>
+      spell(p).every((s) => s === result || (!GLOB.test(s) && inClone(s))),
+    );
+    return ok
+      ? {
+          decision: "allow",
+          reason: "The implementer writes in its own clone.",
+        }
+      : deny(IMPLEMENTER_WRITE);
+  }
+  if (tool === "Read" || tool === "Grep" || tool === "Glob") {
+    const fields = (input ?? {}) as Record<string, unknown>;
+    const rootField = fields["path"];
+    const root =
+      typeof rootField === "string" && rootField !== "" ? rootField : ".";
+    const filter = fields[tool === "Grep" ? "glob" : "pattern"];
+    const filterStays =
+      typeof filter !== "string" ||
+      (!filter.startsWith("/") &&
+        !filter.startsWith("~") &&
+        !segmentsOf(filter).includes(".."));
+    const paths = tool === "Read" ? reads : [root, ...reads];
+    if (
+      (tool === "Read" || filterStays) &&
+      paths.length > 0 &&
+      paths.every((p) =>
+        spell(p).every((s) => clones.some((c) => within(s, c))),
+      )
+    ) {
+      return null;
+    }
+  }
+  return undefined;
 }
 
 /** `guardCall`'s verdict for a call run here, on this machine, in the sandbox the session has. */

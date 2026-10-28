@@ -74,6 +74,8 @@ pub fn run(
             return Err(mismatch(&store)?);
         }
     }
+    // The data root pins the key for this root, while the workspace is trusted (DR-88).
+    actor::pin_registered(&store, &root)?;
     let registered_at = Timestamp(store.meta(AT)?.unwrap_or_default());
     let surface: Surface = store
         .meta(SURFACE)?

@@ -27,14 +27,19 @@ pub const REPOS: [&str; 5] = ["kit", "orders", "platform", "storefront", "worker
 /// What a fixture build made.
 #[derive(Debug, Clone)]
 pub struct Fixture {
-    /// The workspace root: the five repos and `.planroom/config.toml`.
+    /// The workspace root: the five repos, and no `.planroom/` yet: the engine's first scan
+    /// creates the state directory and records it as trusted in the test's data root (DR-48).
     pub root: PathBuf,
     /// `build-fixture`'s output: each repo's branch heads.
     pub heads: Value,
 }
 
-/// Copy the fixture into `out`, then write the workspace config that loads the Ruby pack, as
-/// `cargo xtask fixture` does (DR-13). `out` may be absent or an empty directory.
+/// Copy the fixture's five repos into `out`. `out` may be absent or an empty directory.
+///
+/// It writes no `.planroom/`: a state directory the engine didn't make is untrusted, and its
+/// config stays unloaded until a person accepts the trust card (DR-48). So the engine's first
+/// scan creates it and records it in the data root the test runs with, and a test that needs a
+/// loaded workspace config scans first, then calls [`write_config`].
 ///
 /// `examples/build-fixture` runs once per set of fixture sources, not once per test: the first
 /// call builds into the target directory beside the test binaries and every later call, in any
@@ -47,7 +52,6 @@ pub fn fixture(out: &Path) -> Fixture {
     copy_tree(&built.join("tree"), out);
     let heads = fs::read(built.join("heads.json")).expect("the built fixture's heads.json reads");
     let heads = serde_json::from_slice(&heads).expect("build-fixture prints its heads as JSON");
-    write_config(out, &root.join("examples/packs/ruby"));
     // The engine reports physical paths, and on macOS a temporary directory sits behind a link
     // (/var is /private/var), so the root a test compares with is the physical one (DR-83).
     let root = out.canonicalize().unwrap_or_else(|_| out.to_path_buf());
@@ -210,7 +214,8 @@ fn copy_tree(from: &Path, to: &Path) {
     );
 }
 
-/// `OUT/.planroom/config.toml` naming one pack, with the modes the engine uses (0700, 0600).
+/// `OUT/.planroom/config.toml` naming one pack, with the modes the engine uses (0700, 0600). It
+/// loads only once the engine trusts `OUT/.planroom/`, as after the first scan created it.
 pub fn write_config(out: &Path, pack: &Path) {
     let dir = out.join(".planroom");
     fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).expect(".planroom is created");
@@ -362,8 +367,7 @@ mod tests {
             );
             git(&dir, &["fsck", "--no-dangling", "--no-progress"]);
         }
-        let config = fix.root.join(".planroom/config.toml");
-        assert_eq!(fs::metadata(&config).unwrap().permissions().mode() & 0o777, 0o600);
+        assert!(!fix.root.join(".planroom").exists(), "the engine's first scan makes the state directory");
     }
 
     #[test]

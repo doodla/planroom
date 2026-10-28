@@ -2,7 +2,8 @@
 //!
 //! In a directory with no store it returns the not-yet-a-workspace empty state and creates
 //! nothing (DR-57). In a scanned one it lists the open cards a write dealt, the first face up in
-//! `decision` and the rest counted in `more_decisions`, and deals none itself (DR-89). Every string
+//! `decision` and the rest counted in `more_decisions`, and deals none itself (DR-89); while the
+//! workspace's trust card is open it carries `workspace_untrusted`. Every string
 //! comes from `text/en.toml` (DR-21).
 
 use std::path::Path;
@@ -57,7 +58,12 @@ pub fn reply_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<R
     }
     let pane = pane_in(store, snapshot, root)?;
     let seq = pane.focus.seq;
-    let warnings = partly_mapped(snapshot)?;
+    let mut warnings = partly_mapped(snapshot)?;
+    // While the trust card is open, the workspace's config stays unloaded, and the pane says so
+    // from the store alone (DR-89).
+    if let Some(open) = cards::open_trust(snapshot)? {
+        warnings.push(cards::untrusted_warning(&open.event.id, &open.card));
+    }
     Ok(Reply { text: text_of(&pane, None), result: pane, seq, warnings })
 }
 

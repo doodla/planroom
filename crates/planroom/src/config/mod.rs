@@ -162,8 +162,15 @@ fn typed(key_path: &str, value: toml::Value) -> Result<toml::Value, String> {
     .and_then(|value| check(key_path, value))
 }
 
-/// What a key's type alone can't say: `scan.exclude` holds globs that parse.
+/// What a key's type alone can't say: `scan.exclude` holds globs that parse, and
+/// `claude.api_key_env` names one of the variables a credential may come from (DR-48).
 fn check(key_path: &str, value: toml::Value) -> Result<toml::Value, String> {
+    if key_path == "claude.api_key_env"
+        && !value.as_str().is_some_and(|v| planroom_models::claude::KEY_VARIABLES.contains(&v))
+    {
+        let allowed = planroom_models::claude::KEY_VARIABLES.join(", ");
+        return Err(text::get("argument.config_key_variable", &[("allowed", &allowed)]));
+    }
     if key_path == "scan.exclude" {
         let globs: Vec<&str> =
             value.as_array().into_iter().flatten().filter_map(toml::Value::as_str).collect();

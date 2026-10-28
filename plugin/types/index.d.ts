@@ -145,6 +145,7 @@ export type WarningCode =
       | "claimed"
       | "deterministic_fallback"
       | "workspace_untrusted"
+      | "trust_not_recorded"
       | "config_key_ignored"
       | "inferred_unconfirmed"
       | "cache_regression"

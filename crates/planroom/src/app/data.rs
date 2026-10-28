@@ -9,6 +9,8 @@
 //!   refuses with `schema_mismatch` naming the file, neither reading nor rewriting it;
 //! - every field this engine doesn't know, at the top level and in each entry, is kept and written
 //!   back unchanged;
+//! - besides the entries, it holds the state directories recorded as trusted (`trusted`) and the
+//!   person key each root pinned (`person_keys`), each list left out when empty;
 //! - a record holds an exclusive lock on `workspaces.json.lock` across its read, its change and its
 //!   rename, so two engines recording at once lose nothing.
 
@@ -100,6 +102,46 @@ impl WorkspaceEntry {
     }
 }
 
+/// Who recorded a state directory as trusted: the engine that created it, or a person who
+/// accepted its trust card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrustedBy {
+    Engine,
+    Person,
+}
+
+/// One state directory recorded as trusted (architecture.md, Where the workspace lives: Trust).
+/// It matches only the directory it was written for: its canonical root, its state directory's
+/// path, its inode number and, where the filesystem reports one, its birth time.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Trusted {
+    pub root: String,
+    pub state_dir: String,
+    pub ino: u64,
+    /// The state directory's birth time in nanoseconds since the epoch; left out where the
+    /// filesystem reports none (a network mount, 9p or drvfs, FUSE).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<u64>,
+    pub by: TrustedBy,
+    pub at: String,
+    /// Fields a later version added, kept and written back unchanged.
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Extra,
+}
+
+/// The SHA-256 of the person key a root registered, written while the workspace was trusted, so a
+/// store unpacked over the state directory can't bring a key of its own (DR-88).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersonKeyPin {
+    pub root: String,
+    pub fingerprint: String,
+    pub at: String,
+    /// Fields a later version added, kept and written back unchanged.
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Extra,
+}
+
 /// `workspaces.json`: `planroom.workspaces/v1`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Workspaces {
@@ -108,6 +150,14 @@ struct Workspaces {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     min_reader_version: Option<String>,
     workspaces: Vec<WorkspaceEntry>,
+    /// The state directories recorded as trusted, one per root and state directory; left out when
+    /// empty. An older engine keeps the list in `extra` and writes it back unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    trusted: Vec<Trusted>,
+    /// The fingerprint of the person key each root registered while trusted, one per root; left
+    /// out when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    person_keys: Vec<PersonKeyPin>,
     /// Fields a later version added, kept and written back unchanged.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
     extra: Extra,
@@ -123,6 +173,8 @@ impl Workspaces {
             format: Workspaces::format_tag(),
             min_reader_version: Some(MIN_READER_VERSION.into()),
             workspaces: vec![],
+            trusted: vec![],
+            person_keys: vec![],
             extra: Extra::new(),
         }
     }
@@ -191,6 +243,65 @@ pub fn update<T>(
     let text = serde_json::to_string_pretty(&doc).map_err(AppError::internal)?;
     write_private(&path(data), text.as_bytes())?;
     Ok(out)
+}
+
+/// The trust records for the workspace at `root`: one per state directory it was recorded with.
+pub fn trusted(data: &Path, root: &str) -> Result<Vec<Trusted>, AppError> {
+    Ok(load(data)?.trusted.into_iter().filter(|t| t.root == root).collect())
+}
+
+/// Record `entry`, replacing the record for the same root and state directory and keeping the
+/// fields it held that `entry` doesn't set, under the same exclusive lock as [`record`].
+pub fn trust(data: &Path, mut entry: Trusted) -> Result<(), AppError> {
+    change(data, |doc| {
+        let same = |t: &Trusted| t.root == entry.root && t.state_dir == entry.state_dir;
+        if let Some(old) = doc.trusted.iter().find(|t| same(t)) {
+            for (key, value) in &old.extra {
+                entry.extra.entry(key.clone()).or_insert_with(|| value.clone());
+            }
+        }
+        doc.trusted.retain(|t| !same(t));
+        doc.trusted.push(entry);
+        doc.trusted.sort_by(|a, b| (&a.root, &a.state_dir).cmp(&(&b.root, &b.state_dir)));
+    })
+}
+
+/// Remove every trust record for the workspace at `root`.
+pub fn untrust(data: &Path, root: &str) -> Result<(), AppError> {
+    if !load(data)?.trusted.iter().any(|t| t.root == root) {
+        return Ok(());
+    }
+    change(data, |doc| doc.trusted.retain(|t| t.root != root))
+}
+
+/// The person key fingerprint pinned for the workspace at `root`, if any.
+pub fn person_key(data: &Path, root: &str) -> Result<Option<PersonKeyPin>, AppError> {
+    Ok(load(data)?.person_keys.into_iter().find(|p| p.root == root))
+}
+
+/// Pin `pin` for its root, replacing the root's pin and keeping the fields it held.
+pub fn pin_person_key(data: &Path, mut pin: PersonKeyPin) -> Result<(), AppError> {
+    change(data, |doc| {
+        if let Some(old) = doc.person_keys.iter().find(|p| p.root == pin.root) {
+            for (key, value) in &old.extra {
+                pin.extra.entry(key.clone()).or_insert_with(|| value.clone());
+            }
+        }
+        doc.person_keys.retain(|p| p.root != pin.root);
+        doc.person_keys.push(pin);
+        doc.person_keys.sort_by(|a, b| a.root.cmp(&b.root));
+    })
+}
+
+/// Change the document with `edit` under the exclusive lock, and write it back.
+fn change(data: &Path, edit: impl FnOnce(&mut Workspaces)) -> Result<(), AppError> {
+    ensure_dir(data)?;
+    let _lock = lock(data)?;
+    let mut doc = load(data)?;
+    edit(&mut doc);
+    doc.min_reader_version.get_or_insert_with(|| MIN_READER_VERSION.into());
+    let text = serde_json::to_string_pretty(&doc).map_err(AppError::internal)?;
+    write_private(&path(data), text.as_bytes())
 }
 
 /// An exclusive lock on `workspaces.json.lock`, held until the returned file is dropped. Every

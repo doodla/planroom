@@ -4,6 +4,7 @@
 pub mod actor;
 pub mod ask;
 pub mod cards;
+pub mod confine;
 pub mod data;
 pub mod dirty;
 pub mod doctor;
@@ -20,6 +21,7 @@ pub mod person;
 pub mod review;
 pub mod scan;
 pub mod share;
+pub mod trust;
 pub mod version;
 pub mod workspace;
 

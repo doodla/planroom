@@ -74,8 +74,8 @@ pub fn run(
         .ok_or_else(|| AppError::workspace_not_found(&root))?;
     crate::app::hook(&mut store);
     let base = req.common.base.ok_or_else(base_required)?;
-    let writer = cli_writer(req, caller, &mut store, base, terminal)?;
-    write(req, &mut store, writer, base)
+    let writer = cli_writer(req, caller, &mut store, &root, base, terminal)?;
+    write(req, &mut store, &root, writer, base)
 }
 
 /// `POST /api/v1/edit` on `serve`: a signed-in tab writes as the person who serves it, from the
@@ -104,7 +104,7 @@ pub fn run_http(
         .ok_or_else(|| AppError::invalid_argument("client", "edit.client_required"))?;
     let writer =
         Writer { actor: actor::os_person(), client: Client { surface: Surface::Canvas, id: client } };
-    write(&req, &mut store, writer, base)
+    write(&req, &mut store, root, writer, base)
 }
 
 fn base_required() -> AppError {
@@ -156,17 +156,19 @@ fn cli_writer(
     req: &EditReq,
     caller: &Caller,
     store: &mut Store,
+    root: &Path,
     base: Seq,
     terminal: &mut dyn Terminal,
 ) -> Result<Writer, AppError> {
     let spec = planroom_contract::Command::Edit(req.clone()).spec();
-    let registered = store.meta("person_pubkey")?;
-    let keys: Vec<_> = registered.as_deref().and_then(actor::parse_key).into_iter().collect();
+    // A refusal names this very edit as the line a person runs from a terminal.
+    let name = spec.name();
+    let line = terminal_line(req, base);
+    let keys = actor::registered_keys(store, root, caller, &name)
+        .map_err(|e| actor::naming_line(e, &name, actor::TerminalPath::Takes, &line))?;
     let now = clock::unix_micros() / 1_000_000;
     let bound = Bound { idem: req.common.idem.as_deref(), base: Some(base) };
-    // A refusal names this very edit as the line a person runs from a terminal.
-    let (name, path) = (spec.name(), actor::terminal_path(&spec.name(), !keys.is_empty()));
-    let line = terminal_line(req, base);
+    let path = actor::terminal_path(&name, !keys.is_empty());
     let acting = actor::writer(caller, spec, &bound, &keys.iter().collect::<Vec<_>>(), now, terminal)
         .map_err(|e| actor::naming_line(e, &name, path, &line))?;
     if let Some(digest) = &acting.digest {
@@ -207,6 +209,7 @@ pub(crate) struct Plan {
 fn write(
     req: &EditReq,
     store: &mut Store,
+    root: &Path,
     writer: Writer,
     base: Seq,
 ) -> Result<Written<EditResult>, AppError> {
@@ -282,6 +285,8 @@ fn write(
                 .with_hint(text::get("hint.stale_write", &[("event", &event)])))
         }
         Stored::Done { result, mut text } => {
+            // An undo of a trust card's accept takes the workspace's trust with it (DR-48).
+            cards::after_trust_undo(store, &result, root)?;
             let replayed_from = (committed.replayed && derived).then_some(first);
             if replayed_from.is_some() {
                 text.push('\n');

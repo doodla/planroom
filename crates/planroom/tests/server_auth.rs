@@ -818,9 +818,8 @@ fn a_serve_of_an_older_engine_that_kept_its_token_in_serve_json_is_still_drained
 fn serve_starts_before_the_first_scan_and_the_empty_map_comes_from_it() {
     let tmp = tempfile::tempdir().unwrap();
     let (root, data) = (tmp.path().join("shop"), tmp.path().join("data"));
+    // A directory no scan has touched: the fixture writes no state directory.
     fixture(&root);
-    // A directory no scan has touched: the fixture's config goes, and with it its state directory.
-    std::fs::remove_dir_all(root.join(".planroom")).unwrap();
     let first = detach(&root, &data);
     let (pid, port) = served(&first);
     let running = Detached(pid);

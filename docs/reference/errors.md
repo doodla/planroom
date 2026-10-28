@@ -72,7 +72,8 @@ A warning never changes the exit code.
 | `scan_superseded` | a repo's HEAD moved on while the scan read it, or the workspace's repos changed and a newer scan mapped it or named it otherwise meanwhile, so its map stays as it was and a scan never moves it back; details name the repo, the commit this scan read, the reason (head_moved or repos_changed) and the commit the map holds (mapped, empty when none) | `repo` (masked), `commit`, `reason`, `mapped` |
 | `claimed` | the target is claimed by someone else | `by`, `until` |
 | `deterministic_fallback` | no model was reachable, allowed or within budget; deterministic tiers run, low kinds keep their default and cards pre-select it | none |
-| `workspace_untrusted` | the workspace's .planroom/ is untrusted, so its config wasn't loaded; details name the trust card | `card` |
+| `workspace_untrusted` | the state directory is untrusted, so its config wasn't loaded; details name the trust card | `card` |
+| `trust_not_recorded` | a person's pick of the trust card stands, but the workspace's trust couldn't be recorded, so the next scan deals a fresh card; details name the card | `card` |
 | `config_key_ignored` | a user-level key in a workspace's config, or api_key in a user-level config that isn't mode 0600 | `file`, `key` |
 | `inferred_unconfirmed` | the result includes inferred facts no person confirmed | none |
 | `cache_regression` | an unchanged Claude prefix wrote the cache again inside its TTL | none |

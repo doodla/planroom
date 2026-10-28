@@ -103,8 +103,7 @@ pub fn run(
     // A token, or a person's claim, makes this a person's import, checked before anything is read;
     // a tokenless sync only answers reads and leaves the rest (DR-77). An agent is never a person,
     // and may import nothing a person must (below).
-    let registered = store.meta("person_pubkey")?;
-    let keys: Vec<_> = registered.as_deref().and_then(actor::parse_key).into_iter().collect();
+    let keys = actor::registered_keys(&store, &root, caller, &spec.name())?;
     let keys: Vec<_> = keys.iter().collect();
     let now = clock::unix_micros() / 1_000_000;
     let claims_person = caller.actor.as_deref().is_some_and(|a| a.starts_with("person:"));

@@ -74,7 +74,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "name": "scan",
     "idea": "setup",
     "summary": "Discover, extract and link the workspace's repos.",
-    "actor": "any",
+    "actor": "mixed",
     "class": "change",
     "budget_tokens": 1500,
     "needs_base": false,
@@ -229,7 +229,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
 ];
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
-export const CATALOGUE_HASH = "bf22c202097b71b51be6e6713a90fa9025198cab096ee9a2052c42778a7feb51";
+export const CATALOGUE_HASH = "0f92b1865c10d10138a91a03dd2c649588da1be523398fd6c32460d0efd1e639";
 
 /** One pane the mod draws before the engine answers `focus` (DR-57). */
 export interface FallbackPane {

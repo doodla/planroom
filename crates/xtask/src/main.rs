@@ -868,7 +868,7 @@ fn e2e(root: &Path, r: &mut Report, screens: bool) {
     {
         return r.failed("fixture", &format!("{}: {e}", parent.display()), "remove target/e2e/fixture/");
     }
-    match fixture::build(root, &fixture, true) {
+    match fixture::build(root, &fixture, false) {
         Ok(_) => r.ok(&format!("fixture ({E2E_FIXTURE})")),
         Err(e) => return r.failed("fixture", &e, &format!("cargo xtask fixture {E2E_FIXTURE}")),
     }

@@ -86,9 +86,10 @@ pub fn prepare_with(req: &ScanReq, cwd: &Path, packs: Loaded) -> Result<Prepared
         None => (0, BTreeMap::new()),
     };
     let mut warnings = ws.warnings.clone();
-    // A workspace's own config loads only once the workspace is trusted, and no workspace is
-    // recorded as trusted yet, so only the user-level file and the variables apply.
-    let loaded = config::for_workspace(&ws.state_dir(), false)?;
+    // A workspace's own config loads only from a state directory the data root records as
+    // trusted (DR-48); otherwise only the user-level file and the variables apply.
+    let trusted = crate::app::trust::check(&ws) == crate::app::trust::Trust::Trusted;
+    let loaded = config::for_workspace(&ws.state_dir(), trusted)?;
     warnings.extend(loaded.warnings);
     let exclude = loaded.config.scan.exclude;
     let globs = walk::Exclude::new(&exclude)?;
@@ -154,8 +155,26 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     let mut same_repos: Option<bool> = None;
     // The cards a scan deals go in its own transaction, read from the store as it commits (DR-89).
     let dealt_at = write.at.clone();
-    let mut deal =
-        |snapshot: &planroom_store::Snapshot<'_>| crate::app::cards::deal_for_scan(snapshot, &dealt_at);
+    // The trust dealer reads how trust stands once this scan made the state directory, and the
+    // reply says while the workspace's trust card is open (DR-89).
+    let state_dir = ws.state_dir();
+    let mut deal = |snapshot: &planroom_store::Snapshot<'_>| {
+        let trust = crate::app::trust::check(&ws);
+        let cx = crate::app::cards::ScanCx { root: &ws.root, state_dir: &state_dir, trust };
+        let dealt = crate::app::cards::deal_for_scan(snapshot, &cx, &dealt_at)?;
+        warnings.retain(|w| w.code != WarningCode::WorkspaceUntrusted);
+        let card = dealt.iter().find_map(|d| match &d.event.body {
+            planroom_contract::EventBody::Card(card) if card.kind.0 == crate::app::cards::TRUST => {
+                Some((d.event.id.clone(), card.clone()))
+            }
+            _ => None,
+        });
+        let open = crate::app::cards::open_trust(snapshot)?.map(|o| (o.event.id, o.card));
+        if let Some((id, card)) = card.or(open) {
+            warnings.push(crate::app::cards::untrusted_warning(&id, &card));
+        }
+        Ok::<_, AppError>(dealt)
+    };
     let done = store.commit_scan_dealing(
         &write,
         RULES,

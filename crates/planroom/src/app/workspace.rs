@@ -305,8 +305,10 @@ fn dirs_at(root: &Path, depth: usize) -> Vec<PathBuf> {
     level
 }
 
-/// Create the state directory (mode 0700) if it's missing. As `.planroom/` it gets a `.gitignore`
-/// of `*` (mode 0600); inside a git directory nothing tracks it, so it needs none.
+/// Create the state directory (mode 0700) if it's missing, and record it as trusted by the engine
+/// that made it (DR-48). With no data root to record it in, the workspace goes on untrusted. As
+/// `.planroom/` it gets a `.gitignore` of `*` (mode 0600); inside a git directory nothing tracks
+/// it, so it needs none.
 pub fn ensure_dir(root: &Path) -> Result<PathBuf, AppError> {
     let dir = state_dir(root);
     if !dir.is_dir() {
@@ -314,6 +316,11 @@ pub fn ensure_dir(root: &Path) -> Result<PathBuf, AppError> {
             .mode(0o700)
             .create(&dir)
             .map_err(|e| AppError::internal(format!("{}: {e}", dir.display())))?;
+        if let Err(e) = crate::app::trust::record(root, crate::app::data::TrustedBy::Engine)
+            && crate::app::data::root().is_ok()
+        {
+            return Err(e);
+        }
     }
     if dir != root.join(DIR) {
         return Ok(dir);

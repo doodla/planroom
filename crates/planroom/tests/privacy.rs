@@ -641,8 +641,9 @@ impl Tab {
         reply
     }
 
-    /// The live stream, read until its text holds `needle` or 10 s pass; what it read.
-    fn stream_until(&self, start: impl FnOnce(), needle: &str) -> String {
+    /// The live stream, read until its text holds every one of `needles` or 10 s pass; what it
+    /// read. One write's events can arrive in separate reads, so a caller names each frame it needs.
+    fn stream_until(&self, start: impl FnOnce(), needles: &[&str]) -> String {
         let mut socket = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
         let request = format!(
             "GET /api/v1/stream HTTP/1.1\r\nHost: 127.0.0.1:{0}\r\nOrigin: http://127.0.0.1:{0}\r\nAuthorization: Bearer {1}\r\n\r\n",
@@ -654,7 +655,7 @@ impl Tab {
         let mut buf = [0u8; 4096];
         let mut start = Some(start);
         let began = Instant::now();
-        while began.elapsed() < Duration::from_secs(10) && !seen.contains(needle) {
+        while began.elapsed() < Duration::from_secs(10) && !needles.iter().all(|n| seen.contains(n)) {
             // Once the stream is open, so the writes' frames come after its first ping.
             if seen.contains("event: ping")
                 && let Some(start) = start.take()
@@ -667,7 +668,9 @@ impl Tab {
                 Err(_) => {}
             }
         }
-        assert!(seen.contains(needle), "the stream carries {needle}: {seen}");
+        for needle in needles {
+            assert!(seen.contains(needle), "the stream carries {needle}: {seen}");
+        }
         seen
     }
 }
@@ -843,7 +846,9 @@ fn a_planted_repo_secret_reaches_no_request_or_tool_output() {
             commit_in(&root.join("billing"));
             scanned = tab.post("scan", &json!({}));
         },
-        "Scanned billing at",
+        // Each repo's scan event is its own frame: billing's, and the planted repo's, whose summary
+        // names it masked. Its ID is whole in the frame's target.
+        &["Scanned billing at", &format!("\"target\":\"{repo_id}\"")],
     );
     ids.check_masked("POST /api/v1/scan", &scanned);
     ids.check_masked("the SSE frames", &frames);

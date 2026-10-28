@@ -17,6 +17,7 @@
 
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, IsTerminal, Write};
+use std::path::Path;
 
 use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature, VerifyingKey};
@@ -25,7 +26,9 @@ use planroom_kernel::keys;
 use planroom_store::Store;
 use serde_json::json;
 
+use crate::app::data;
 use crate::app::error::AppError;
+use crate::app::trust::{self, Trust};
 use crate::text;
 
 /// How long a token is good for, either side of its `at`.
@@ -112,6 +115,10 @@ pub enum Refused {
     TerminalRefused,
     /// The person at the terminal didn't confirm.
     NotConfirmed,
+    /// The store registers a key the data root doesn't pin for this workspace, and the workspace
+    /// isn't trusted, so no token under it counts (DR-88): a store unpacked over the state
+    /// directory can't bring a key that signs its own trust.
+    KeyNotPinned,
 }
 
 impl Refused {
@@ -125,8 +132,82 @@ impl Refused {
             Refused::NotAPerson => "not_a_person",
             Refused::TerminalRefused => "terminal_refused",
             Refused::NotConfirmed => "not_confirmed",
+            Refused::KeyNotPinned => "key_not_pinned",
         }
     }
+}
+
+/// The SHA-256 of a registered key's text, as the data root pins it for a workspace's root.
+pub fn pin_fingerprint(text: &str) -> String {
+    keys::sha256_plain_hex(text.trim().as_bytes())
+}
+
+/// The keys a person's token may verify under in the workspace at `root`: the store's registered
+/// key when its fingerprint matches the root's pin, or, with no pin, when the workspace is
+/// trusted, which covers a key registered before pins existed (DR-88). Otherwise none counts,
+/// and a caller who brings a token for `command` is refused with `person_required`, reason
+/// `key_not_pinned`; a terminal confirmation still serves where `command` takes one.
+pub fn registered_keys(
+    store: &Store,
+    root: &Path,
+    caller: &Caller,
+    command: &str,
+) -> Result<Vec<VerifyingKey>, AppError> {
+    let Some(text) = store.meta("person_pubkey")? else { return Ok(vec![]) };
+    let Some(key) = parse_key(&text) else { return Ok(vec![]) };
+    let root = trust::canonical(root);
+    let pinned = data::root()
+        .and_then(|data| data::person_key(&data, &root.display().to_string()))
+        .map(|pin| pin.map(|p| p.fingerprint));
+    let counts = match pinned {
+        Ok(Some(fingerprint)) => fingerprint == pin_fingerprint(&text),
+        Ok(None) => trust::at(&root) == Trust::Trusted,
+        Err(_) => false,
+    };
+    if counts {
+        return Ok(vec![key]);
+    }
+    let agent = caller.actor.as_deref().is_some_and(|a| !a.starts_with("person:"));
+    if caller.token.is_some() && !agent {
+        let path = terminal_path(command, true);
+        let refused = person_required(command, Refused::KeyNotPinned, path);
+        if path == TerminalPath::Refused {
+            // No press can serve until the workspace is trusted: the trust card's accept, at a
+            // terminal, is the way on.
+            let snapshot = store.snapshot()?;
+            if let Some(card) = crate::app::cards::open_trust(&snapshot)? {
+                let line = format!(
+                    "planroom review --base {} {} accept",
+                    snapshot.seq(),
+                    text::shell_word(&card.event.id.0)
+                );
+                return Err(refused.with_hint(text::get("hint.person_required_terminal", &[("line", &line)])));
+            }
+        }
+        return Err(naming_line(refused, command, path, &terminal_line(command)));
+    }
+    Ok(vec![])
+}
+
+/// Pin the store's registered key for the workspace at `root`, when the workspace is trusted:
+/// `person init` calls it once its key is registered, so a later store with another key is no
+/// person's (DR-88).
+pub fn pin_registered(store: &Store, root: &Path) -> Result<(), AppError> {
+    let Some(text) = store.meta("person_pubkey")? else { return Ok(()) };
+    let root = trust::canonical(root);
+    if trust::at(&root) != Trust::Trusted {
+        return Ok(());
+    }
+    let data = data::root()?;
+    data::pin_person_key(
+        &data,
+        data::PersonKeyPin {
+            root: root.display().to_string(),
+            fingerprint: pin_fingerprint(&text),
+            at: crate::clock::now().0,
+            extra: Default::default(),
+        },
+    )
 }
 
 /// The request fields a token binds, besides the command.
@@ -437,7 +518,15 @@ pub fn person_path_with(command: &str, path: TerminalPath, line: &str) -> String
 /// `e`, when it is a `person_required` refusal of `command`, with its hint naming `line` as the
 /// terminal command (see [`person_path_with`]); any other error as it is.
 pub fn naming_line(e: AppError, command: &str, path: TerminalPath, line: &str) -> AppError {
-    if e.code == ErrorCode::PersonRequired { e.with_hint(person_path_with(command, path, line)) } else { e }
+    if e.code != ErrorCode::PersonRequired {
+        return e;
+    }
+    // A key the data root doesn't pin signs nothing here, a press's or a typed `/room`'s token
+    // included, so where the terminal serves, it's the one way.
+    if e.details["reason"] == Refused::KeyNotPinned.as_str() && path == TerminalPath::Takes {
+        return e.with_hint(text::get("hint.person_required_terminal", &[("line", &line)]));
+    }
+    e.with_hint(person_path_with(command, path, line))
 }
 
 /// The exact line that runs `command` from a terminal: its path, and `-` for `import`, whose rows

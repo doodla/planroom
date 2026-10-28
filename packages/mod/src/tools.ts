@@ -100,6 +100,14 @@ export function toolArgv(
   if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) {
     return { refused: "args must be an array of strings." };
   }
+  // room_query and most of room_change run with no prompt, so no tool may name another
+  // workspace: a tool reads and writes only the session's own (DR-52).
+  if (args.some((a) => a === "--workspace" || a.startsWith("--workspace="))) {
+    return {
+      refused:
+        "Planroom's tools work in this session's workspace only, so --workspace isn't one of their arguments.",
+    };
+  }
   const argv = [...leaf.name.split(" "), ...args];
   if (leaf.class !== "read") {
     const base =

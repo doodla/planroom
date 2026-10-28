@@ -53,6 +53,8 @@ pub const LABELS: &[&str] = &[
     "card.apply_accept",
     "card.apply_item",
     "card.apply_reject",
+    "card.trust_accept",
+    "card.trust_reject",
     "edit.undo_label",
     "ask.next_page",
     "ask.run",

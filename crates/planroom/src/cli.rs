@@ -35,6 +35,9 @@ struct Cli {
     /// Print one JSON document on stdout (for `watch`, one JSON frame per line).
     #[arg(long, global = true)]
     json: bool,
+    /// Run in the workspace at DIR; a read needs DIR to hold a scanned workspace.
+    #[arg(long, global = true, value_name = "DIR")]
+    workspace: Option<std::path::PathBuf>,
     #[command(subcommand)]
     command: Option<Cmd>,
 }
@@ -124,15 +127,18 @@ pub fn main() -> ExitCode {
         let _ = write!(out, "{}", Cli::command().render_help()).and_then(|()| out.flush());
         return ExitCode::SUCCESS;
     };
-    let cwd = match std::env::current_dir() {
+    let leaf = leaf_path(&args).join(" ");
+    let cwd = match app::confine::cwd(cli.workspace.as_deref(), &leaf, std::env::current_dir()) {
         Ok(cwd) => cwd,
-        Err(e) => return finish::<()>(cli.json, "scan", Err(AppError::internal(e)), Instant::now()),
+        Err(e) => return finish::<()>(cli.json, &leaf, Err(e), Instant::now()),
     };
     let started = Instant::now();
     match command {
         Cmd::Scan(req) => {
             let name = Command::Scan(req.clone()).name();
-            finish_paged(cli.json, &name.0, app::scan::run(&req, &cwd), started)
+            let scan = app::confine::scan(&req, &cwd, cli.workspace.as_deref(), &caller, &mut Tty)
+                .and_then(|()| app::scan::run(&req, &cwd));
+            finish_paged(cli.json, &name.0, scan, started)
         }
         Cmd::Map(req) => {
             let name = Command::Map(req.clone()).name();
@@ -146,7 +152,9 @@ pub fn main() -> ExitCode {
         Cmd::Ask(req) => {
             let name = Command::Ask(req.clone()).name();
             let budget = app::ask::budget(&req);
-            finish_within(cli.json, &name.0, app::ask::run(&req, &cwd), started, budget)
+            let ask =
+                app::confine::ask(&req, &cwd, &caller, &mut Tty).and_then(|()| app::ask::run(&req, &cwd));
+            finish_within(cli.json, &name.0, ask, started, budget)
         }
         Cmd::Focus(req) => {
             let name = Command::Focus(req.clone()).name();
@@ -542,11 +550,17 @@ fn usage_error(e: &clap::Error, args: &[OsString]) -> ExitCode {
 fn leaf_path(args: &[OsString]) -> Vec<String> {
     let mut cmd = Cli::command();
     let mut path = Vec::new();
+    let mut value = false;
     for arg in args.iter().skip(1).filter_map(|a| a.to_str()) {
         if arg == "--" {
             break;
         }
+        // `--workspace DIR` takes the next word as its value; `--workspace=DIR` is one word.
+        if std::mem::take(&mut value) {
+            continue;
+        }
         if arg.starts_with('-') {
+            value = arg == "--workspace";
             continue;
         }
         let Some(sub) = cmd.find_subcommand(arg).cloned() else { break };

@@ -205,6 +205,19 @@ impl Git {
             .collect())
     }
 
+    /// Whether git tracks any file at or below `path`, relative to this directory, in the repo that
+    /// holds it (`git ls-files -z -- PATH`). A directory in no repo tracks nothing; any other
+    /// failure is an error, which a caller reads as "can't tell".
+    pub fn tracks_any(&self, path: &Path) -> Result<bool, GitError> {
+        let path = path.as_os_str().to_string_lossy();
+        let args = ["ls-files", "-z", "--", path.as_ref()];
+        match self.run_bytes(&args) {
+            Ok(out) => Ok(!out.is_empty()),
+            Err(e) if e.stderr.contains("not a git repository") => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     /// How many files this working tree holds that `HEAD` doesn't: changed, staged, deleted and
     /// untracked, as `git status --porcelain=v1 -z --untracked-files=normal` lists them, with
     /// `.gitignore` honoured (DR-71, DR-85). It never writes the index (`--no-optional-locks`).

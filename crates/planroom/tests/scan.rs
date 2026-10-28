@@ -11,11 +11,12 @@ use planroom_store::{Shape, Store};
 use planroom_testkit::{evidence_matches, fixture, truth};
 use serde_json::Value;
 
+/// The binary in `cwd`, with this test process's data root (`cargo xtask test` sets a temporary
+/// one), so the tests that also scan in-process read the trust the CLI's scans recorded.
 fn planroom(cwd: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_planroom"))
         .args(args)
         .current_dir(cwd)
-        .env("PLANROOM_DATA", cwd.join(".data"))
         .output()
         .expect("the binary runs")
 }
@@ -496,7 +497,10 @@ fn a_scan_that_read_an_older_repo_set_never_moves_a_repo_back() {
     }
     assert_eq!(scan_events(&root).last().unwrap().0, 11, "no revert in the log");
     assert_eq!(the_map(&root), joined, "the map is the newer scan's");
-    let fresh = fixture(&dir.path().join("fresh")).root;
+    // Beside the workspace, not inside it: the fixture writes no state directory, so a copy in it
+    // would be part of it.
+    let beside = tempfile::tempdir().unwrap();
+    let fresh = fixture(&beside.path().join("fresh")).root;
     planroom_testkit::git_repo(&fresh.join("redis"), &[("README.md".into(), b"# Redis\n".to_vec())]);
     scan(&fresh);
     assert_eq!(the_map(&fresh), joined, "the same heads and repos give the same map");

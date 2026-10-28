@@ -84,6 +84,30 @@ test("a tool refuses a leaf it doesn't serve and arguments that aren't strings",
   });
 });
 
+test("a_tool_call_never_names_another_workspace: --workspace and --workspace= are refused in every tool", () => {
+  const tools = ["room_query", "room_change", "room_handoff"] as const;
+  for (const tool of tools) {
+    for (const leaf of CATALOGUE.filter((l) => l.tool === tool)) {
+      for (const args of [
+        ["--workspace", "/elsewhere"],
+        ["--workspace=/elsewhere"],
+        ["--level", "container", "--workspace", "../other"],
+      ]) {
+        const out = toolArgv(tool, { command: leaf.name, args, base: 3 });
+        expect("refused" in out, `${tool} ${leaf.name} ${args.join(" ")}`).toBe(
+          true,
+        );
+      }
+      // A word that only starts like the flag is no flag.
+      const fine = toolArgv(tool, {
+        command: leaf.name,
+        args: ["--workspaces"],
+      });
+      expect("argv" in fine, `${tool} ${leaf.name}`).toBe(true);
+    }
+  }
+});
+
 test("a scan gets process.run's longest wait", () => {
   expect(timeoutFor(["scan", "--json"])).toBe(600_000);
   expect(timeoutFor(["map", "--json"])).toBe(30_000);

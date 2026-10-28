@@ -58,6 +58,12 @@ impl AppError {
         self
     }
 
+    /// Drop the code's catalog hint, where no command a person could run fixes this case.
+    pub fn without_hint(mut self) -> AppError {
+        self.0.hint = None;
+        self
+    }
+
     pub fn invalid_argument(field: &str, key: &str) -> AppError {
         AppError::new(ErrorCode::InvalidArgument, &[("what", &text::get(key, &[]))])
             .details(json!({"field": field}))

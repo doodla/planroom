@@ -374,7 +374,7 @@ var CATALOGUE = [
     "name": "scan",
     "idea": "setup",
     "summary": "Discover, extract and link the workspace's repos.",
-    "actor": "any",
+    "actor": "mixed",
     "class": "change",
     "budget_tokens": 1500,
     "needs_base": false,
@@ -1079,12 +1079,22 @@ function isExpansion(word) {
 function simpleCommands(command) {
   return unquote(command).split(/[;&|\n]+/).map((c) => c.split(/[\s<>]+/).filter((w) => w !== ""));
 }
+function socatCommands(plain) {
+  if (!shellWords(plain).some((w) => basename(w) === "socat")) return [];
+  return [
+    ...plain.matchAll(/(?:^|[\s"'])(?:exec|system|shell):([^,!]*)/gi)
+  ].map((m) => m[1] ?? "");
+}
 function bashDenied(command) {
   const plain = unquote(command);
   if (GUARDED_SET.test(plain)) return GUARDED_SET_REASON;
   const words = shellWords(plain);
   for (const line of planroomLines(words)) {
     const reason = personOnlyLine(line);
+    if (reason !== null) return reason;
+  }
+  for (const line of socatCommands(plain)) {
+    const reason = bashDenied(line);
     if (reason !== null) return reason;
   }
   for (const simple of simpleCommands(command)) {
@@ -1858,15 +1868,23 @@ function commandEffects(all, piped, joined = []) {
   const unpack = (into) => {
     effects.unpacks.push(...into.length > 0 ? into : ["."]);
   };
+  const unpackAnywhere = () => {
+    effects.unpacks.push("/");
+  };
   const roots = () => {
     const given = values("ef", ["--regexp", "--file"]).length > 0 || long("--files");
     const named = given ? ops : ops.slice(1);
     return named.length > 0 ? named : ["."];
   };
   const target = values("t", ["--target-directory"]);
-  if (REMOVERS.has(name)) {
-    effects.writes.push(...ops);
-    effects.removes.push(...ops);
+  const gio = name === "gio" ? ops[0] ?? "" : "";
+  if (REMOVERS.has(name) || gio === "trash" || gio === "remove") {
+    const named = gio === "" ? ops : ops.slice(1);
+    effects.writes.push(...named);
+    effects.removes.push(...named);
+  } else if (gio === "move" || gio === "rename") {
+    effects.writes.push(...ops.slice(1));
+    effects.removes.push(...ops.slice(1, gio === "move" ? -1 : 2));
   } else if (name === "mv") {
     effects.writes.push(...ops);
     const sources = target.length > 0 ? ops.filter((o) => !target.includes(o)) : ops.slice(0, -1);
@@ -1888,6 +1906,9 @@ function commandEffects(all, piped, joined = []) {
       const mode = /^[A-Za-z]+$/.test(args[0] ?? "") ? args[0] ?? "" : "";
       if (short("x") || long("--extract", "--get") || mode.includes("x")) {
         unpack(values("C", ["--directory"]));
+        if (short("P") || mode.includes("P") || long("--absolute-names", "--transform", "--xform") || name === "bsdtar" && short("s")) {
+          unpackAnywhere();
+        }
       }
     }
   } else if (COPIERS.has(name)) {
@@ -1926,6 +1947,7 @@ function commandEffects(all, piped, joined = []) {
     const into = values("d", []);
     effects.writes.push(...into);
     unpack(into);
+    if (short(":")) unpackAnywhere();
   } else if (SEVEN_ZIP.has(name)) {
     const mode = ops[0] ?? "";
     if (mode === "a" || mode === "u") {
@@ -1936,10 +1958,12 @@ function commandEffects(all, piped, joined = []) {
     }
   } else if (name === "cpio") {
     if (short("i")) unpack([]);
+    if (short("i") && !long("--no-absolute-filenames")) unpackAnywhere();
     if (short("p")) unpack(ops.slice(-1));
   } else if (name === "pax") {
     trees(ops);
     if (short("r")) unpack(short("w") ? ops.slice(-1) : []);
+    if (short("r") && !short("w")) unpackAnywhere();
   } else if (COMPRESSORS.has(name)) {
     if (short("r") || long("--recursive")) trees(ops);
   } else if (name === "zip") {
@@ -2128,12 +2152,19 @@ function bashPaths(command, places2) {
     const assignments = [];
     for (const [i, raw] of simple.words.entries()) {
       const eq = raw.indexOf("=");
-      const assigned = eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(raw.slice(0, eq));
-      const value = eq >= 0 ? shown2(expand(raw.slice(eq + 1), vars)) : null;
+      const appends = eq > 1 && raw.charAt(eq - 1) === "+";
+      const name = raw.slice(0, appends ? eq - 1 : eq);
+      const assigned = eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
+      const value = eq < 0 ? null : shown2(
+        expand(
+          (assigned && appends ? `\${${name}}` : "") + raw.slice(eq + 1),
+          vars
+        )
+      );
       const substituted2 = assigned && i === simple.words.length - 1 && (simple.sep === "(" && raw.endsWith("$") || simple.sep === "`");
       if (assigned && value !== null) {
         vars.set(
-          raw.slice(0, eq),
+          name,
           !substituted2 ? value : substitutionNames(k) ? ANY_JOINED : `${value}*`.replace(/\*+$/, "*")
         );
       }
@@ -2735,10 +2766,70 @@ function guardCall(tool, input, resolved, places2, readOnly = false) {
   if (places2.unplaced !== void 0) {
     return { decision: "ask", reason: places2.unplaced };
   }
+  if (places2.implementer !== void 0) {
+    const own = implementerVerdict(
+      tool,
+      input,
+      resolved,
+      places2,
+      places2.implementer
+    );
+    if (own !== void 0) {
+      if (own?.decision === "deny") return own;
+      const why2 = elsewhere(input);
+      return why2 === null ? own : { decision: "ask", reason: why2 };
+    }
+  }
   const verdict = localVerdict(tool, input, resolved, places2, readOnly);
   if (verdict?.decision === "deny") return verdict;
   const why = elsewhere(input);
   return why === null ? verdict : { decision: "ask", reason: why };
+}
+var WRITE_TOOLS = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+var IMPLEMENTER_NEVER = "The implementer never runs sqlite3, script, git push or planroom handoff: the hand-off's own steps do that for it.";
+var IMPLEMENTER_CARRY_ON = "This command isn't on the hand-off's approved list, so it doesn't run; carry on without it. The review card lists it, with a retry that allows it.";
+var IMPLEMENTER_WRITE = "The implementer writes only inside its hand-off's clones, never in a clone's .git/, and its result.json.";
+function implementerVerdict(tool, input, resolved, places2, own) {
+  const deny = (reason) => ({ decision: "deny", reason });
+  const clones = own.clones.map((c) => normalize(c, "/", places2.home));
+  const result = normalize(own.result, "/", places2.home);
+  const spell = (p) => [
+    normalize(p, places2.cwd, places2.home),
+    ...resolved(p)
+  ];
+  const inClone = (s) => clones.some((c) => within(s, c) && !within(s, `${c}/.git`));
+  const { reads, writes, bash } = callPaths(tool, input);
+  if (bash !== null) {
+    const words = shellWords(unquote(bash)).map(basename);
+    const never = words.includes("sqlite3") || words.includes("script") || words.some(
+      (w, i) => w === "git" && words.slice(i + 1).includes("push")
+    ) || words.some((w, i) => w === "planroom" && words[i + 1] === "handoff");
+    return deny(never ? IMPLEMENTER_NEVER : IMPLEMENTER_CARRY_ON);
+  }
+  if (WRITE_TOOLS.has(tool)) {
+    if (writes.length === 0) return deny(IMPLEMENTER_WRITE);
+    const ok = writes.every(
+      (p) => spell(p).every((s) => s === result || !GLOB.test(s) && inClone(s))
+    );
+    return ok ? {
+      decision: "allow",
+      reason: "The implementer writes in its own clone."
+    } : deny(IMPLEMENTER_WRITE);
+  }
+  if (tool === "Read" || tool === "Grep" || tool === "Glob") {
+    const fields = input ?? {};
+    const rootField = fields["path"];
+    const root = typeof rootField === "string" && rootField !== "" ? rootField : ".";
+    const filter = fields[tool === "Grep" ? "glob" : "pattern"];
+    const filterStays = typeof filter !== "string" || !filter.startsWith("/") && !filter.startsWith("~") && !segmentsOf(filter).includes("..");
+    const paths = tool === "Read" ? reads : [root, ...reads];
+    if ((tool === "Read" || filterStays) && paths.length > 0 && paths.every(
+      (p) => spell(p).every((s) => clones.some((c) => within(s, c)))
+    )) {
+      return null;
+    }
+  }
+  return void 0;
 }
 function localVerdict(tool, input, resolved, places2, readOnly) {
   const { reads, writes, uploads, bash, linked, unknown, unread } = callPaths(
@@ -6535,6 +6626,11 @@ function toolArgv(tool, input, defaults = {}) {
   const args = input.args ?? [];
   if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) {
     return { refused: "args must be an array of strings." };
+  }
+  if (args.some((a) => a === "--workspace" || a.startsWith("--workspace="))) {
+    return {
+      refused: "Planroom's tools work in this session's workspace only, so --workspace isn't one of their arguments."
+    };
   }
   const argv = [...leaf2.name.split(" "), ...args];
   if (leaf2.class !== "read") {

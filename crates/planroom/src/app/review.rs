@@ -72,8 +72,11 @@ pub fn run(
     }
     let base =
         req.common.base.ok_or_else(|| AppError::new(ErrorCode::BaseRequired, &[("command", &"review")]))?;
-    let writer = cli_writer(req, caller, &mut store, base, terminal)?;
-    write(req, &mut store, writer, base)
+    let writer = cli_writer(req, caller, &mut store, &root, base, terminal)?;
+    let mut written = write(req, &mut store, writer, base)?;
+    // A trust card's pick records or removes the workspace's trust where it ran (DR-89).
+    cards::picked(&store, &mut written, &root)?;
+    Ok(written)
 }
 
 fn is_agent(writer: &Writer) -> bool {
@@ -150,16 +153,18 @@ fn cli_writer(
     req: &ReviewReq,
     caller: &Caller,
     store: &mut Store,
+    root: &Path,
     base: Seq,
     terminal: &mut dyn Terminal,
 ) -> Result<Writer, AppError> {
     let spec = Command::Review(req.clone()).spec();
-    let registered = store.meta("person_pubkey")?;
-    let keys: Vec<_> = registered.as_deref().and_then(actor::parse_key).into_iter().collect();
+    let name = spec.name();
+    let line = terminal_line(req, &req.id, base);
+    let keys = actor::registered_keys(store, root, caller, &name)
+        .map_err(|e| actor::naming_line(e, &name, TerminalPath::Takes, &line))?;
     let now = clock::unix_micros() / 1_000_000;
     let bound = Bound { idem: req.common.idem.as_deref(), base: Some(base) };
-    let (name, path) = (spec.name(), actor::terminal_path(&spec.name(), !keys.is_empty()));
-    let line = terminal_line(req, &req.id, base);
+    let path = actor::terminal_path(&name, !keys.is_empty());
     let acting = actor::writer(caller, spec, &bound, &keys.iter().collect::<Vec<_>>(), now, terminal)
         .map_err(|e| actor::naming_line(e, &name, path, &line))?;
     if let Some(digest) = &acting.digest {

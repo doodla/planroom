@@ -114,6 +114,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 98 | Review, one open Apply card, a viewer's row that keeps its viewer, and schema types by handle | DR-5, DR-21, DR-67, DR-75, DR-83, DR-86, DR-89 | extended, amends DR-75 | the merge of M1's review leaf, card store and inbox edits |
 | 99 | One hook for a model request's tail, every invisible character marked, and evidence paths left whole | DR-49, DR-64, DR-75, DR-91 | extended | the merge of M1's redaction on every path and the sanitizing pass |
 | 100 | The declarative runner's bounds: per file, one repo cut, and templates capped at load | DR-9, DR-46, DR-47, DR-86, DR-89 | extended, amends DR-47 and DR-86 | the merge of M1's declarative runner |
+| 101 | Workspace trust by record, a pinned person key, confined reads, and the credential paths a scan checks | DR-48, DR-52, DR-74, DR-78, DR-88, DR-89 | extended, amends DR-48 and DR-88 | the merge of M1's workspace trust and confined reads |
 
 ## Where the design reviews disagreed
 
@@ -940,7 +941,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-48: Workspace trust, user-level credential settings and policy-bearing packs
 
-- **Status:** accepted (decided in review round 1, D7 and D19). Amended in review rounds 2 and 3.
+- **Status:** accepted (decided in review round 1, D7 and D19). Amended in review rounds 2 and 3, and by DR-101.
 - **Starting point:** extended "Packs. Declarative files ..." and the constraint "The engine reads its gateway key from environment or config."
 - **Origin:** review round 1: security-1, security-5 and security-11.
 - **Context:**
@@ -963,6 +964,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: a cloned repo with Planroom state asks once before its config counts.
 - **Amended in review round 2:** a pack loads only from the built-ins and a trusted config, which the person-only `pack add` and `pack remove` write. `PLANROOM_PACKS` no longer loads one, so an agent's environment can't add a policy-bearing pack (E6, extensibility-1) [DR-62]. Test `trust.rs::an_agent_cannot_add_a_pack`. The scenarios consequence no longer deals a first-load card on every fixture, which DR-60 removed, and S7's CI path no longer keeps one (principles-5).
 - **Amended in review round 3:** trust covers both forms of the state directory. A clone can't bring a `.git/planroom/`, so a single repo's state directory needs only the `workspaces.json` record (F6, unasked-4) [DR-74].
+- **Amended by DR-101:** trust is a record in the data root's `workspaces.json` (`trusted`), matching the canonical root, the state directory's path, its inode and, where both sides have one, its birth time. The engine records the directory it creates, which also needs git to track nothing in it; a person's accept of the trust card records it whatever git tracks. A repo-root `.planroom/` gets no card and nothing in it loads.
 - **Sources (checked 2026-10-26):** KICKOFF `<constraints>` Claude; review round 1 security-1, security-5, security-11 and owner decisions D7 and D19.
 
 ## DR-49: Model calls are opt-in, consented and redacted
@@ -2225,7 +2227,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-88: The guard's residual risks, decided
 
-- **Status:** accepted (decided at round 3's close, 2026-10-26). Amended by DR-90.
+- **Status:** accepted (decided at round 3's close, 2026-10-26). Amended by DR-90 and DR-101.
 - **Starting point:** extended "Actors: agents never act as a person".
 - **Origin:** the walking skeleton review's round 3: the guard's residual risks DR-85 to DR-87 left, and the minor security findings of rounds 2 and 3, each checked against the code before it was decided ([accepted risk](research/skeleton-review/accepted-risk.md#the-guards-residual-risks-decided)). The owner delegated these risk decisions on 2026-10-26.
 - **Context:** Round 3 closed with a list of what the guard didn't cover. Checking each against the code confirmed them and found more: a deleting `find` (`find . -name '*.db' -delete`) removed the workspace's store, a quoted `'>'` turned a secret's parent into a redirect target and let a tree read pass, a tool the guard didn't know could write anywhere, and `cd $(...)` hid a guarded folder. With `HOME` unset the guard failed open, and the engine put its data root under the current directory.
@@ -2254,6 +2256,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Milestones: the three M1 checks above join the actor, mod and serve slices, and the actor slice also pins the registered person key's fingerprint.
   - It amends DR-58 (an absolute data root), DR-75 (when the mod registers its key) and DR-87 (the guard's rule for tools it doesn't know).
 - **Amended by DR-90:** the guard reads `**` as Bash does, takes a `sed` or `perl -i` script as no file it writes, lets a dry-run `git clean` and a `find -empty` delete pass, counts a bare `store.db` only in a state directory, asks on `_host` and `dangerouslyDisableSandbox`, and refuses a guarded variable in a start-up or settings file; the mod's runs set the engine variables empty.
+- **Amended by DR-101:** the pin is `workspaces.json`'s `person_keys`, written by `person init` only while the workspace is trusted. A token counts under the pinned key, or, with no pin, in a trusted workspace, which covers a key registered before pins existed; otherwise `person_required` with reason `key_not_pinned`.
 - **Sources (checked 2026-10-26):** `packages/mod/src/guard.ts`, `register.tsx` and `person.ts`; `crates/planroom/src/app/data.rs`; `crates/planroom/src/server/routes.rs` (what the control token unlocks); `plugin/scripts/planroom`; [accepted risk](research/skeleton-review/accepted-risk.md).
 
 ## DR-89: What M1 builds, compares and leaves to later milestones
@@ -2660,3 +2663,34 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Known cost: a crafted repo at the walk's bounds, every file at its work budget, can take minutes to scan. It is bounded, linear in the walk and the same on every machine.
   - Tests: `crates/extract/tests/contract.rs`'s bound, heap, linear-time and per-file tests, among them `a_files_facts_never_depend_on_the_files_before_it`, `the_repo_bound_cuts_an_extractors_facts_in_sorted_path_order`, `a_runs_kept_matches_count_against_its_capture_budget` and `dense_everyday_files_keep_their_facts`; `packs.rs::a_template_past_its_bounds_is_refused_at_load` and `a_file_a_bound_refuses_is_reported_apart_from_parse_errors`.
 - **Sources (checked 2026-10-28):** `crates/extract/src/declarative/{mod, work, template, nesting}.rs`; `crates/planroom/src/packs/validate.rs`; [The extractor contract](architecture.md#the-extractor-contract); [Contracts](contracts.md).
+
+## DR-101: Workspace trust by record, a pinned person key, confined reads, and the credential paths a scan checks
+
+- **Status:** accepted (decided at the merge of M1's workspace trust, 2026-10-28).
+- **Starting point:** extended DR-52, DR-74, DR-78 and DR-89; amends DR-48 and DR-88.
+- **Origin:** the merge of M1's workspace trust, confined reads and guarded places, read against the docs by independent checks over three rounds.
+- **Context:**
+  - DR-48 trusted a state directory the engine created, with git tracking nothing in it. "The engine created it" had no record behind it: a `.planroom/` deleted and unpacked again, or carried in by a clone, looked the same as the engine's own.
+  - DR-89 says accepting the trust card trusts the workspace, which a directory git tracks could never pass under DR-48's git check.
+  - A crafted `.planroom/` can carry its own store and person key, and so sign the one pick that would trust it, unless something outside the workspace says which key is the person's.
+  - The credential list the `scan` catalogue row gives was read two ways: "a dotfile" in the row, and "a final component that starts with `.`" in the build plan. The second makes every hidden directory a credential path: a temporary root such as `/tmp/.tmpXXXX`, a `.github`, a `~/.dotfiles` repo. A plain `scan` and `scan .` read the same directory, but only the second was checked.
+- **Decision:**
+  - **Trust is a record in the data root.** `workspaces.json` gains `trusted: [{root, state_dir, ino, created, by, at}]`, one item per `(root, state_dir)`. A record matches only the directory it was written for: its canonical root, its state-directory path, its inode and, where both sides have one, its birth time, which a freed inode reused at once never shares. `by: engine` is written when the engine creates the state directory, and also needs git to track nothing in it. `by: person` is written by an accept of the trust card and waives the git check, so accepting trusts a tracked directory too. No data root means untrusted. A remount that renumbers inodes on a filesystem with no birth time asks again.
+  - **A repo-root `.planroom/`** is never a state directory (DR-74): no card is dealt for it and nothing in it loads.
+  - **The trust card** is dealt by `scan` for an untrusted state directory when no card for the workspace is open and none stands rejected, with `reject` preselected. A pick records or removes the trust, an `edit undo` of an accept removes it, and an undo of that undo records nothing, so an agent's undo never trusts a workspace. `workspace_untrusted` now says "the state directory is untrusted"; a pick whose record fails to write stands and carries the new warning `trust_not_recorded`.
+  - **The person key is pinned.** `workspaces.json` gains `person_keys: [{root, fingerprint, at}]`, the SHA-256 of the registered key, written by `person init` and its rekey only while the workspace is trusted. A token counts only under the pinned key, or, with no pin, in a trusted workspace; otherwise `person_required` with reason `key_not_pinned`. Older engines keep both lists in `extra`, so `min_reader_version` stays.
+  - **Confined reads.** The global `--workspace DIR` runs a leaf in DIR; on a read it needs a store there, and `focus` and `map` give their empty state only without it. A relative DIR is placed from the process's own directory. `ask`'s path-shaped arguments are checked as given and as resolved, and anything outside the workspace's repos is `path_refused` (`outside_workspace`), with no hint until `scan FILE` makes a snapshot in M4.
+  - **Credential paths.** A credential path is a dotfile (a file whose name starts with `.`), anything under `~/.ssh`, `~/.aws`, `~/.gnupg` or `~/.password-store`, `~/.config/*/credentials`, or a final name matching `*.pem` or `.env*`. A hidden directory is no credential path by its name alone: the stores kept as directories are named in the list, and a directory holds what the rest of the list names. `scan` checks the directory it reads: the one it's named, the `--workspace` given, and for a plain `scan` the one it runs in. A non-person gets `path_refused` (`credential`).
+  - **The guard** reads `X+=word` as the name it makes; refuses an archive whose names may be absolute or rewritten (`pax -r`, `cpio -i` without `--no-absolute-filenames`, `tar -P` or `--transform`, bsdtar `-s`, `unzip -:`) as an unpack at `/`; and treats `gio trash`, `remove` and `move` as `rm` and `mv`. These extend the guard rules at architecture.md's guard bullets; they add no new kind of rule.
+  - **The fixture records its own trust.** `testkit::fixture` writes no `.planroom/` and has no data root of its own, and `cargo xtask fixture` records the fixture workspace's trust with a small writer, so neither testkit nor xtask depends on the engine crate. This departs from the M1 plan's fixture line, which had the testkit call the engine.
+- **Alternatives rejected:**
+  - Trust from the `workspaces.json` entry alone: `serve` writes an entry for any root, so an entry can't mean the engine made the directory.
+  - A device number in the record: it changes across remounts and btrfs subvolumes.
+  - Every hidden directory a credential path: it refuses temporary roots, `.github` folders and dotfiles repos for no secret, and an empty map's own `next` handle (`scan <root>`) would be refused in a `~/.dotfiles` workspace.
+  - Leaving a plain `scan` unchecked: an agent running inside `~/.ssh/keys` would map what `scan .` there may not.
+- **Consequences:**
+  - Contracts: `workspaces.json`'s `trusted` and `person_keys`; `person_required`'s reason `key_not_pinned`; `path_refused`'s `credential` and `outside_workspace` with no hint; the warnings `workspace_untrusted` (reworded) and `trust_not_recorded`; the global `--workspace`; `scan`'s actor is `mixed`, as the catalogue already said.
+  - The mod's tools refuse `--workspace` in every call, since `room_query` and some `room_change` leaves are auto-allowed.
+  - Known gap: a store planted over a workspace whose key is already pinned leaves a person no way to re-register under their own key after accepting its trust card, since `person init` refuses the mismatch and `--rekey` needs a token under the planted key. Deleting the planted state directory clears it. M2 lets `person init` re-register when the store's key doesn't match the root's pin, with the pinned key's token as the authority.
+  - Tests: `trust.rs`; `confine.rs::a_credential_path_needs_a_person`, `a_read_outside_the_workspace_is_path_refused` and `workspace_flag_on_a_read_needs_an_existing_store`; `tools.test.ts::a_tool_call_never_names_another_workspace`; `guard.test.ts::an append, an archive's own names and gio hide no guarded place`.
+- **Sources (checked 2026-10-28):** `crates/planroom/src/app/{trust, confine, data, cards, review, person, actor}.rs`; `packages/mod/src/{guard, tools}.ts`; `crates/xtask/src/fixture.rs`; [Where the workspace lives](architecture.md#where-the-workspace-lives); [Contracts](contracts.md).
