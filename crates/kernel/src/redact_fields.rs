@@ -245,6 +245,42 @@ pub const DETAILS: &[(&str, &[(&str, &str)])] = &[
     ]),
 ];
 
+/// Each output type above, by name, that also holds an open value no mark covers, with the path to
+/// each one (`{}` at the type itself for the unknown fields it keeps), both sorted: what such a
+/// value holds is masked only by its writer, so `redact::is_listed` refuses the type
+/// (`planroom_contract::schema::open_paths`).
+#[rustfmt::skip]
+pub const OPEN: &[(&str, &[&str])] = &[
+    ("Answer", &[
+        "result",
+        "{}",
+    ]),
+    ("Envelope", &[
+        "result",
+    ]),
+    ("Event", &[
+        "body.fields{}",
+        "body.over{}",
+        "body.scores",
+    ]),
+    ("EventBody", &[
+        "fields{}",
+        "over{}",
+        "scores",
+    ]),
+    ("LiveHead", &[
+        "{}",
+    ]),
+    ("Snapshot", &[
+        "answers[].result",
+        "answers[]{}",
+        "{}",
+    ]),
+    ("ToolResult", &[
+        "result",
+    ]),
+];
+
 /// Each error code whose `details` hold repo-derived free text, with those keys, as the
 /// registry's `redact` names them.
 #[rustfmt::skip]

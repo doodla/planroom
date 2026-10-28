@@ -18,7 +18,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::redact_fields::{DETAILS, ERROR_DETAILS, PATHS, WARNING_DETAILS};
+use crate::redact_fields::{DETAILS, ERROR_DETAILS, OPEN, PATHS, WARNING_DETAILS};
 
 /// What a masked value becomes.
 pub const MASK: &str = "[redacted]";
@@ -244,6 +244,23 @@ pub fn value_of<T>(json: &mut Value) {
     value(type_name::<T>(), json);
 }
 
+/// Whether [`value_of`] masks every repo-derived string `T` can hold: `T` is a contract type that
+/// [`redact_fields`](crate::redact_fields) lists, because it holds a marked field or an error or a
+/// warning, and it holds no open value that no mark covers (`redact_fields::OPEN`). `value_of`
+/// finds a type by its last path segment and passes one it doesn't list through unmasked, such as
+/// a `Vec<Node>` or an app's own wrapper around a contract type. It masks only a listed type's own
+/// marks, never what its open values hold, such as `Envelope`'s or `Answer`'s `result`, and it
+/// can't see a generic type's arguments, since its name leaves them out. So a caller that must mask
+/// whatever it is given, such as a model request's slice, checks this first.
+pub fn is_listed<T>() -> bool {
+    let full = std::any::type_name::<T>();
+    let name = type_name::<T>();
+    full.starts_with("planroom_contract::")
+        && !full.contains('<')
+        && (!paths(name).is_empty() || !details_paths(name).is_empty())
+        && !OPEN.iter().any(|(open, _)| *open == name)
+}
+
 /// The name [`redact_fields::PATHS`](crate::redact_fields::PATHS) lists `T` under: its last path
 /// segment with its type arguments left out, so `Envelope<Value>` is `Envelope`.
 fn type_name<T>() -> &'static str {
@@ -379,6 +396,32 @@ mod tests {
             "[redacted]"
         );
         assert_eq!(text("token wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"), "token [redacted]");
+    }
+
+    #[test]
+    fn only_a_listed_contract_type_is_listed() {
+        use planroom_contract::{FactBatch, Node, Seq};
+        assert!(is_listed::<FactBatch>() && is_listed::<Node>() && is_listed::<planroom_contract::MapView>());
+        // A list, an option, a contract type with nothing to mask, and a type of another crate
+        // that shares a listed type's name all pass `value_of` unmasked.
+        #[allow(dead_code)]
+        struct MapView {
+            name: String,
+        }
+        assert!(!is_listed::<Vec<Node>>());
+        assert!(!is_listed::<Option<FactBatch>>());
+        assert!(!is_listed::<Seq>());
+        assert!(!is_listed::<MapView>());
+        assert!(!is_listed::<serde_json::Value>());
+        // A listed type whose payload no mark covers: a generic wrapper, whose type arguments its
+        // name leaves out, and a type that carries another command's result or unknown fields as
+        // open JSON, masked by its own writer rather than by marks.
+        use planroom_contract::{Answer, Envelope, MapView as View, Snapshot, ToolResult};
+        assert!(!is_listed::<Envelope<View>>());
+        assert!(!is_listed::<Envelope>());
+        assert!(!is_listed::<ToolResult<View>>());
+        assert!(!is_listed::<Answer>());
+        assert!(!is_listed::<Snapshot>());
     }
 
     #[test]

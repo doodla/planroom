@@ -206,6 +206,40 @@ pub fn redacted_details() -> Vec<(String, Vec<(String, String)>)> {
         .collect()
 }
 
+/// For each type of the output view that holds an open value outside every marked field and every
+/// error or warning, by name, the path to each one, sorted: a field of any JSON, such as
+/// `Envelope`'s `result` or `Answer`'s, or the unknown fields a document keeps (`{}` at the
+/// type itself). No mark covers what such a value holds, so `kernel::redact` masks it only when
+/// its writer masks it by its own type; `cargo xtask gen` writes these into
+/// `crates/kernel/src/redact_fields.rs`, and `redact::is_listed` refuses each.
+pub fn open_paths() -> Vec<(String, Vec<String>)> {
+    paths_to(|schema| {
+        let marked =
+            schema.get(REDACT_MARK) == Some(&Value::Bool(true)) || schema.get(REDACT_DETAILS_MARK).is_some();
+        if marked {
+            return Some("masked".to_owned());
+        }
+        is_open(schema).then(|| "open".to_owned())
+    })
+    .into_iter()
+    .map(|(name, paths)| {
+        (name, paths.into_iter().filter(|(_, tag)| tag == "open").map(|(path, _)| path).collect::<Vec<_>>())
+    })
+    .filter(|(_, paths)| !paths.is_empty())
+    .collect()
+}
+
+/// Whether `schema` admits any JSON: `true`, or an object with nothing but annotations.
+fn is_open(schema: &Value) -> bool {
+    const ANNOTATIONS: [&str; 7] =
+        ["description", "title", "default", "examples", "deprecated", "readOnly", "writeOnly"];
+    match schema {
+        Value::Bool(admits) => *admits,
+        Value::Object(o) => o.keys().all(|k| ANNOTATIONS.contains(&k.as_str())),
+        _ => false,
+    }
+}
+
 /// For each type of the output view, the paths to each schema `mark` gives a tag, with that tag.
 fn paths_to(mark: impl Fn(&Value) -> Option<String>) -> Vec<(String, BTreeSet<(String, String)>)> {
     let root = generate(View::Output);

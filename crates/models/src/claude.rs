@@ -57,8 +57,10 @@ pub struct Call {
     /// The stable prefix's text blocks: the pack's prompt file first.
     pub prefix: Vec<String>,
     pub ttl: CacheTtl,
-    /// The uncached tail's text blocks: the slice as JSON, then the question. Repo-derived text in
-    /// it has already passed `kernel::redact`.
+    /// The uncached tail's text blocks: the slice as JSON, then the question. The engine builds
+    /// them with `planroom::app::models::request_tail`, which masks the slice by its type's marks
+    /// and the question as an engine line through `kernel::redact`, so no repo text reaches a
+    /// request unmasked.
     pub tail: Vec<String>,
     /// The JSON Schema the reply must validate against; it ends the prefix.
     pub output_schema: Option<Value>,

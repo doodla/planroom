@@ -363,6 +363,29 @@ pub const DETAILS: &[(&str, &[(&str, &str)])] = &[
         contents.push_str("    ]),\n");
     }
     contents.push_str("];\n");
+    contents.push_str(
+        "
+/// Each output type above, by name, that also holds an open value no mark covers, with the path to
+/// each one (`{}` at the type itself for the unknown fields it keeps), both sorted: what such a
+/// value holds is masked only by its writer, so `redact::is_listed` refuses the type
+/// (`planroom_contract::schema::open_paths`).
+#[rustfmt::skip]
+pub const OPEN: &[(&str, &[&str])] = &[
+",
+    );
+    let listed: std::collections::BTreeSet<String> = schema::redacted_paths()
+        .into_iter()
+        .map(|(name, _)| name)
+        .chain(schema::redacted_details().into_iter().map(|(name, _)| name))
+        .collect();
+    for (name, paths) in schema::open_paths().into_iter().filter(|(name, _)| listed.contains(name)) {
+        contents.push_str(&format!("    ({name:?}, &[\n"));
+        for path in paths {
+            contents.push_str(&format!("        {path:?},\n"));
+        }
+        contents.push_str("    ]),\n");
+    }
+    contents.push_str("];\n");
     let codes = |title: &str, name: &str, specs: Vec<(&str, &[&str])>| {
         let mut out = format!(
             "

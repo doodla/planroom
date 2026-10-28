@@ -514,7 +514,8 @@ fn frame_text(frame: &StreamFrame) -> String {
 
 /// A clap usage error. `--help` and `--version` print as clap prints them. Otherwise, with `--json`
 /// in argv, one `invalid_argument` envelope naming the leaf, with its synopsis and its `schema
-/// --command LEAF` handle (DR-21, DR-66); without it, clap's text on stderr, display-sanitized.
+/// --command LEAF` handle (DR-21, DR-66); without it, clap's text on stderr, masked and
+/// display-sanitized as every error line is, since it quotes argv, which can carry repo text.
 /// Either way, exit 2.
 fn usage_error(e: &clap::Error, args: &[OsString]) -> ExitCode {
     if matches!(e.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) {
@@ -524,7 +525,7 @@ fn usage_error(e: &clap::Error, args: &[OsString]) -> ExitCode {
     let rendered = e.render().to_string();
     if !json {
         let mut err = std::io::stderr().lock();
-        let _ = write!(err, "{}", sanitize_lines(&rendered));
+        let _ = write!(err, "{}", sanitize_lines(&redact::text(&rendered)));
         return ExitCode::from(ErrorCode::InvalidArgument.exit_code() as u8);
     }
     let path = leaf_path(args);

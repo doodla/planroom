@@ -112,6 +112,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 96 | Where a store lives on an unsafe filesystem, its pointer's type, migration copies, and the engine's libc calls | DR-1, DR-53, DR-69, DR-78, DR-85 | extended | the merge of M1's store open and migrations |
 | 97 | Namespaces fixed at the first mapping scan, reserved names, and an unborn repo that writes no event | DR-47, DR-74, DR-87, DR-89 | extended, amends DR-74 and DR-87 | the merge of M1's namespaces, renames and fold benchmark |
 | 98 | Review, one open Apply card, a viewer's row that keeps its viewer, and schema types by handle | DR-5, DR-21, DR-67, DR-75, DR-83, DR-86, DR-89 | extended, amends DR-75 | the merge of M1's review leaf, card store and inbox edits |
+| 99 | One hook for a model request's tail, every invisible character marked, and evidence paths left whole | DR-49, DR-64, DR-75, DR-91 | extended | the merge of M1's redaction on every path and the sanitizing pass |
 
 ## Where the design reviews disagreed
 
@@ -2604,3 +2605,28 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `review.rs`; `cards.rs`; `inbox_edits.rs`; `s11_remote.rs::a_confirmed_row_keeps_the_viewer_as_actor` and `a_stale_row_held_as_a_conflict_applies_as_its_viewer`; `kernel/tests/fold.rs`'s open-card checks; `version.rs`'s `every_leaf_holds_or_hands_off_each_type_it_references` and `every_type_fits_and_hands_off_what_it_leaves_out`; `budgets.rs` with `schema --def`.
   - Known gap: a type whose own body passes the budget can't be handed off. The largest, `Command`, has about 1,500 bytes of room, some seven more leaves; `every_type_fits_and_hands_off_what_it_leaves_out` fails before such a reply ships, and `Command` then splits by idea.
 - **Sources (checked 2026-10-27):** `crates/planroom/src/app/{review, cards, import, edit, version}.rs`; `crates/store/src/cards.rs`; `crates/kernel/src/fold/{state, prepass}.rs`; [Contracts](contracts.md); [Remote mode through the Artifact](architecture.md#remote-mode-through-the-artifact-s11).
+
+## DR-99: One hook for a model request's tail, every invisible character marked, and evidence paths left whole
+
+- **Status:** accepted (decided at the merge of M1's redaction on every path and the sanitizing pass, 2026-10-28).
+- **Starting point:** extended DR-49, DR-64, DR-75 and DR-91.
+- **Origin:** the merge of the redaction work, read against the docs by an independent check over two rounds.
+- **Context:**
+  - Every engine output path already masked by field, but a model request's tail had no engine-side builder: the Claude transport assumed its caller had masked it. A slice of a type the generated list doesn't name, or a generic wrapper whose name leaves out its type argument, would have gone through unmasked.
+  - The sanitizing pass marked bidi and zero-width characters, but line and paragraph separators, Unicode tag characters and other invisible format characters passed both ports raw.
+  - An evidence path, `<repo>/<path>`, is repo-derived text that no mark covers, and it repeats the text of the file's own ID, which is never masked (security-8).
+  - `hidden_characters` describes bidi controls and zero-width characters, and nothing emits it yet.
+- **Decision:**
+  - **One hook for a request's tail.** `app::models::request_tail` masks the slice by its own type's marks and the question as an engine line. It refuses with `internal` a slice whose type the generated list doesn't name, a generic type, and a listed type that holds an open value no mark covers (`redact_fields::OPEN`). It takes no raw flag and reads no environment, so `cli::raw_for` stays the one reader of `PLANROOM_RAW`.
+  - **Every invisible character is marked, in both ports.** Every code point Unicode marks `Default_Ignorable_Code_Point`, every other format character (Cf), and the line and paragraph separators show as `⟨U+XXXX⟩` markers, the Tags block U+E0000 to U+E007F included. `display_parity` holds one table, written out in both ports' tests.
+  - **Evidence paths stay whole.** `Evidence.path` and `PartialFile.path` are never masked, like the IDs whose text they repeat: masking the path alone would hide nothing and would break its match with the ID.
+  - **A usage error's argv is masked** in text mode, as the error path already was in `--json`.
+  - **`hidden_characters` keeps its meaning for now.** The change that first emits it widens it to every character the pass marks, and its record says why that isn't a `schema_version` bump while nothing has shipped the narrower meaning.
+- **Alternatives rejected:**
+  - Marking `Evidence.path`: the high-entropy rule would mask ordinary long paths unless paths took the ID's exemption, and the same text sits unmasked in the ID.
+  - A shared golden table both sanitizing ports read: `packages/ui` may not read `tests/golden/`, and two literal copies of one table, checked against each other by their tests, need no new generator.
+- **Consequences:**
+  - Contracts: the redaction paragraph names the hook, its refusals and evidence paths.
+  - Tests: `privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output` (names and content planted, over CLI text and `--json`, HTTP, SSE and `watch`, `share`, `import`, the serve log and a model request, with fake keys in every process's environment) and `raw_never_reaches_share_or_model_requests`; `display_parity` in `crates/kernel/tests/display.rs` and `packages/ui/src/display.test.ts`; `redact.rs`'s `only_a_listed_contract_type_is_listed`.
+  - Closes: redaction running only in share and import, line and paragraph separators and tag characters shown raw.
+- **Sources (checked 2026-10-28):** `crates/kernel/src/{redact, display}.rs`; `crates/planroom/src/app/models.rs`; `crates/planroom/src/cli.rs`; `packages/ui/src/display.ts`; [Contracts](contracts.md); [Security and privacy](architecture.md#security-and-privacy).

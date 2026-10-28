@@ -1,13 +1,16 @@
 //! The engine's side of the model boundary: it reads the live gate before any command that may
-//! call a model, and turns a model error into an envelope error with the engine's own line.
+//! call a model, builds a request's uncached tail with its repo text masked, and turns a model
+//! error into an envelope error with the engine's own line.
 //!
 //! The gate's rules live in `planroom-models` (architecture.md, Spend guards; DR-65, DR-89): a
 //! relative `PLANROOM_SPEND_LOG`, or a `PLANROOM_LIVE_*` flag with no spend log, is
 //! `invalid_argument` before the command does anything.
 
 use planroom_contract::ErrorCode;
-use planroom_models::ModelError;
+use planroom_kernel::redact;
 use planroom_models::gate::{self, LiveEnv};
+use planroom_models::{ModelError, canonical};
+use serde::Serialize;
 
 use crate::app::error::AppError;
 use crate::text;
@@ -15,6 +18,33 @@ use crate::text;
 /// The live gate, read from this process's environment.
 pub fn live_env() -> Result<LiveEnv, AppError> {
     LiveEnv::from_process().map_err(AppError::from)
+}
+
+/// A model request's uncached tail, the two blocks `planroom_models::claude::Call::tail` holds:
+/// first the slice, masked by its own type's marks and written as canonical JSON, then the
+/// question, masked as an engine line built from names, like `Envelope.summary` (contracts.md, the
+/// redaction paragraph; DR-49, DR-64). Every model request's tail is built here.
+///
+/// It takes no raw flag and reads no environment, so a model request stays redacted whatever
+/// `PLANROOM_RAW` says: `cli::raw_for` stays that variable's one reader, and the variable reaches
+/// only a read command's `--json` stdout (DR-75).
+///
+/// A slice whose type `kernel::redact` doesn't list, such as a `Vec<Node>` or a wrapper of the
+/// app's own, would pass through unmasked, and so would what a listed type's open value holds,
+/// such as an `Envelope`'s or a `ToolResult`'s `result`; so `redact::is_listed` refuses each, and
+/// the slice is refused with `internal`. A slice is always a contract type whose marks reach every
+/// string it holds, such as `Node`, `MapView` or `FactBatch`.
+pub fn request_tail<T: Serialize>(slice: &T, question: &str) -> Result<Vec<String>, AppError> {
+    if !redact::is_listed::<T>() {
+        let name = std::any::type_name::<T>();
+        return Err(AppError::internal(format!(
+            "a model request's slice of type {name} has no redaction entry"
+        )));
+    }
+    let mut json = serde_json::to_value(slice).map_err(AppError::internal)?;
+    redact::value_of::<T>(&mut json);
+    let slice = String::from_utf8(canonical::bytes(&json)).map_err(AppError::internal)?;
+    Ok(vec![slice, redact::text(question)])
 }
 
 impl From<ModelError> for AppError {

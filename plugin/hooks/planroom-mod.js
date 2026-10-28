@@ -4,27 +4,52 @@
 import { read as read2, update as update2 } from "claude-code";
 
 // ../ui/src/display.ts
-var INVISIBLE = /* @__PURE__ */ new Set([
-  1564,
-  8203,
-  8204,
-  8205,
-  8206,
-  8207,
-  8234,
-  8235,
-  8236,
-  8237,
-  8238,
-  8288,
-  8294,
-  8295,
-  8296,
-  8297,
-  65279
-]);
+var INVISIBLE = [
+  // Unicode 16's `Default_Ignorable_Code_Point`: bidi controls, zero-width
+  // characters, fillers, invisible operators and variation selectors.
+  [173, 173],
+  [847, 847],
+  [1564, 1564],
+  [4447, 4448],
+  [6068, 6069],
+  [6155, 6159],
+  [8203, 8207],
+  [8234, 8238],
+  [8288, 8303],
+  [12644, 12644],
+  [65024, 65039],
+  [65279, 65279],
+  [65440, 65440],
+  [65520, 65528],
+  [113824, 113827],
+  [119155, 119162],
+  // The tag characters, which can spell hidden text as a subdivision flag's do,
+  // then the variation selectors supplement and the rest of the block Unicode
+  // reserves as default-ignorable.
+  [917504, 917631],
+  [917632, 917759],
+  [917760, 917999],
+  [918e3, 921599],
+  // The other format characters (Unicode category Cf): prepended concatenation
+  // marks, the interlinear annotation characters and the Egyptian hieroglyph
+  // format controls.
+  [1536, 1541],
+  [1757, 1757],
+  [1807, 1807],
+  [2192, 2193],
+  [2274, 2274],
+  [65529, 65531],
+  [69821, 69821],
+  [69837, 69837],
+  [78896, 78911],
+  // The line and paragraph separators.
+  [8232, 8233]
+];
 function isControl(code) {
   return code < 32 || code >= 127 && code <= 159;
+}
+function isInvisible(code) {
+  return INVISIBLE.some(([first, last]) => code >= first && code <= last);
 }
 function sanitize(text2) {
   let out = "";
@@ -32,7 +57,7 @@ function sanitize(text2) {
     const code = ch.codePointAt(0) ?? 0;
     if (isControl(code)) {
       out += `\\x${code.toString(16).padStart(2, "0")}`;
-    } else if (INVISIBLE.has(code)) {
+    } else if (isInvisible(code)) {
       out += `⟨U+${code.toString(16).toUpperCase().padStart(4, "0")}⟩`;
     } else {
       out += ch;

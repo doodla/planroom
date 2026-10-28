@@ -1890,9 +1890,7 @@
         "crates/planroom/tests/privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output",
         "crates/contract/tests/schema.rs::every_redacted_field_is_listed"
       ],
-      "due": {
-        "crates/planroom/tests/privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output": "M1"
-      },
+      "due": {},
       "decision": "security table"
     },
     {
@@ -2026,9 +2024,7 @@
       ],
       "due": {
         "crates/planroom/tests/privacy.rs::the_first_billable_call_waits_for_consent": "M2",
-        "crates/planroom/tests/privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output": "M1",
         "packages/mod/src/tools.test.ts::handles_round_trip_after_redaction": "M1",
-        "crates/planroom/tests/privacy.rs::raw_never_reaches_share_or_model_requests": "M2",
         "crates/planroom/tests/privacy.rs::pending_consents_batch_into_one_card": "M2",
         "crates/planroom/tests/privacy.rs::the_setup_choice_preselects_yes_on_consent": "M2"
       },
@@ -2375,6 +2371,7 @@
         "crates/planroom/tests/git_hardening.rs::a_repo_whose_config_names_a_command_is_refused_before_merge",
         "crates/kernel/tests/display.rs::controls_and_bidi_show_as_markers",
         "packages/ui/src/display.test.ts::display_parity",
+        "crates/kernel/tests/display.rs::display_parity",
         "crates/planroom/tests/handoff_clone.rs::a_hidden_character_hunk_warns",
         "crates/planroom/tests/handoff_clone.rs::an_out_of_scope_change_is_flagged",
         "crates/planroom/tests/git_hardening.rs::a_repo_another_user_owns_is_refused",
@@ -2394,7 +2391,6 @@
       "due": {
         "crates/planroom/tests/git_hardening.rs::textconv_ext_diff_and_drivers_never_fire": "M2",
         "crates/planroom/tests/git_hardening.rs::a_repo_whose_config_names_a_command_is_refused_before_merge": "M2",
-        "packages/ui/src/display.test.ts::display_parity": "M1",
         "crates/planroom/tests/handoff_clone.rs::a_hidden_character_hunk_warns": "M2",
         "crates/planroom/tests/handoff_clone.rs::an_out_of_scope_change_is_flagged": "M2",
         "crates/planroom/tests/git_hardening.rs::a_repo_another_user_owns_is_refused": "M1",
