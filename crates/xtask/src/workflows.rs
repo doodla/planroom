@@ -5,9 +5,18 @@
 use std::fs;
 use std::path::Path;
 
-/// The setup steps a job may run besides `cargo xtask`.
-pub const SETUP_STEPS: &[&str] =
-    &["rustup toolchain install", "corepack enable", "pnpm install --frozen-lockfile"];
+/// The setup steps a job may run besides `cargo xtask`. The ones after the first three set up the
+/// oldest-git job's `ubuntu:22.04` container, which has neither git nor Rust (A-21).
+pub const SETUP_STEPS: &[&str] = &[
+    "rustup toolchain install",
+    "corepack enable",
+    "pnpm install --frozen-lockfile",
+    "apt-get update",
+    "apt-get install -y --no-install-recommends git build-essential ca-certificates curl pkg-config python3.11",
+    "ln -sf /usr/bin/python3.11 /usr/local/bin/python3",
+    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y",
+    "echo \"$HOME/.cargo/bin\" >> \"$GITHUB_PATH\"",
+];
 
 /// Each `run:` command in a workflow file, with its line: a one-line value, or each line of a
 /// block scalar (`run: |`).
@@ -38,11 +47,22 @@ pub fn run_steps(text: &str) -> Vec<(usize, String)> {
                 i += 1;
             }
         } else {
-            out.push((i + 1, value.trim_matches('"').trim_matches('\'').to_owned()));
+            out.push((i + 1, unquote(value).to_owned()));
             i += 1;
         }
     }
     out
+}
+
+/// A one-line value without the quotes of a quoted scalar: only a pair that wraps the whole value,
+/// so a plain value that ends in a quote, such as `echo "$X" >> "$GITHUB_PATH"`, stays whole.
+fn unquote(value: &str) -> &str {
+    for quote in ['"', '\''] {
+        if value.len() >= 2 && value.starts_with(quote) && value.ends_with(quote) {
+            return &value[1..value.len() - 1];
+        }
+    }
+    value
 }
 
 /// Whether a command is a setup step or one `cargo xtask` command.
@@ -94,5 +114,12 @@ mod tests {
         assert!(!allowed("cargo xtaskfoo"));
         assert!(!allowed("cargo deny check"));
         assert!(!allowed("python3 .claude/guardrails/tests/test_guardrails.py"));
+    }
+
+    #[test]
+    fn a_quoted_value_loses_its_quotes_and_a_plain_one_ending_in_a_quote_keeps_them() {
+        let yml = "      - run: \"cargo xtask check\"\n      - run: echo \"$HOME/.cargo/bin\" >> \"$GITHUB_PATH\"\n";
+        let steps: Vec<String> = run_steps(yml).into_iter().map(|(_, c)| c).collect();
+        assert_eq!(steps, ["cargo xtask check", "echo \"$HOME/.cargo/bin\" >> \"$GITHUB_PATH\""]);
     }
 }

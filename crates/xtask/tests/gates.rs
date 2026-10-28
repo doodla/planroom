@@ -776,6 +776,33 @@ fn ci_runs_only_xtask() {
             && found[0].contains("`cargo test` is neither a setup step nor one cargo xtask command"),
         "{found:?}"
     );
+
+    // The oldest-git job: its container's setup lines are setup steps, exactly as the job spells
+    // them, and it runs the git adapter's tests through cargo xtask.
+    use xtask::workflows::{allowed, run_steps};
+    let text = fs::read_to_string(repo().join(".github/workflows/ci.yml")).unwrap();
+    let job = text.split("\n  oldest-git:\n").nth(1).expect("the oldest-git job");
+    let job = job.split("\n\n").next().unwrap();
+    let steps: Vec<String> = run_steps(job).into_iter().map(|(_, c)| c).collect();
+    for xtask in ["cargo xtask test -p planroom-extract", "cargo xtask test -p planroom git_hardening"] {
+        assert!(steps.iter().any(|s| s == xtask), "{xtask}: {steps:?}");
+    }
+    assert!(steps.iter().all(|s| allowed(s)), "{steps:?}");
+    // A step of that job that is neither fails, named with its file.
+    let c = Clone::new("ci-oldest-git");
+    fs::write(c.path(".github/workflows/ci.yml"), &text).unwrap();
+    c.replace(
+        ".github/workflows/ci.yml",
+        "      - run: cargo xtask test -p planroom-extract\n",
+        "      - run: cargo test -p planroom-extract\n",
+    );
+    let found = xtask::workflows::problems(&c.dir).unwrap();
+    assert!(
+        found.len() == 1
+            && found[0].contains("ci.yml")
+            && found[0].contains("`cargo test -p planroom-extract`"),
+        "{found:?}"
+    );
 }
 
 #[test]

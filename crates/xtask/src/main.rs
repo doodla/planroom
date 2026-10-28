@@ -28,7 +28,8 @@ usage: cargo xtask <command>
                               audit (network)
   check guardrails            the two guardrails test files alone
   test [-p CRATE [FILTER]]    the canvas build, the Rust tests (nextest when installed) and vitest;
-                              with -p, one crate's tests, those whose name holds FILTER
+                              with -p, one crate's tests, those whose name holds FILTER,
+                              or else those of its test file tests/FILTER.rs
   test --ts PATH              vitest on one file or folder
   test --installer            ShellCheck, then tests/installer/run.sh under sh, dash and (Linux) BusyBox
   gen                         write every generated file
@@ -676,15 +677,24 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>, filter: Option<&str>) 
             }
         }
     }
-    // A filter that matches nothing fails here, so a mistyped name never reports `ok`.
+    // A filter that matches nothing fails here, so a mistyped name never reports `ok`. One that
+    // names no test but names one of the crate's test files, `tests/FILTER.rs`, runs that file.
     if let (Some(k), Some(f)) = (krate, filter) {
         let name = format!("test filter `{f}` in {k}");
         match util::capture(root, "cargo", &testrun::list_args(k, f)) {
-            Ok(listing) => match testrun::unmatched(k, f, &listing) {
-                Some(why) => {
+            Ok(listing) if testrun::listed(&listing) > 0 => {
+                r.ok(&format!("{name} ({} tests)", testrun::listed(&listing)))
+            }
+            Ok(listing) => match util::capture(root, "cargo", &testrun::list_file_args(k, f)) {
+                Ok(file) if testrun::listed(&file) > 0 => {
+                    scope.truncate(2);
+                    scope.extend(["--test", f]);
+                    r.ok(&format!("{name}: tests/{f}.rs ({} tests)", testrun::listed(&file)))
+                }
+                _ => {
+                    let why = testrun::unmatched(k, f, &listing).unwrap_or_default();
                     return r.failed(&name, &why, "check the name, or run the crate's tests with no filter");
                 }
-                None => r.ok(&format!("{name} ({} tests)", testrun::listed(&listing))),
             },
             Err(e) => return r.failed(&name, &e, "fix the build errors above"),
         }
@@ -714,9 +724,13 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>, filter: Option<&str>) 
             Ok(ignored) => skips::report(r, "cargo nextest", &ignored),
             Err(e) => r.failed(name, &e, "fix the error above"),
         }
-        let mut args = vec!["test", "--doc", "--locked"];
-        args.extend(&scope);
-        r.tool(root, "cargo test --doc", "cargo", &args, "fix the failing doctests above");
+        if scope.contains(&"--test") {
+            r.not_asked("cargo test --doc", "only one test file was asked for");
+        } else {
+            let mut args = vec!["test", "--doc", "--locked"];
+            args.extend(&scope);
+            r.tool(root, "cargo test --doc", "cargo", &args, "fix the failing doctests above");
+        }
     } else if let Err(why) = nextest {
         r.skipped("cargo nextest run", &format!("{why}; ran cargo test instead"));
         // Every test binary runs, so one failure doesn't hide the next (a CI run shows them all).
@@ -731,12 +745,12 @@ fn test(root: &Path, r: &mut Report, krate: Option<&str>, filter: Option<&str>) 
         skips::report(r, "cargo test", &skips::libtest_ignored(&out));
     }
     match krate {
-        Some(k) => r.skipped("vitest run", &format!("only {k} was asked for")),
+        Some(k) => r.not_asked("vitest run", &format!("only {k} was asked for")),
         None if root.join("node_modules").is_dir() => vitest(root, r),
         None => r.failed("vitest run", "node_modules is missing", PNPM_FIX),
     }
     match krate {
-        Some(k) => r.skipped("claude plugin test target/mod-test", &format!("only {k} was asked for")),
+        Some(k) => r.not_asked("claude plugin test target/mod-test", &format!("only {k} was asked for")),
         None => mod_tests(root, r),
     }
     if krate.is_none() {

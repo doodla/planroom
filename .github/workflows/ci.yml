@@ -130,6 +130,35 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: cargo xtask e2e
 
+  # The git adapter's tests on the oldest git it runs, Ubuntu 22.04's 2.34.1, which settles A-21:
+  # the extract crate's tests, then the engine's git hardening tests. git comes first, so checkout
+  # makes a real clone; rustup picks the toolchain rust-toolchain.toml pins. The fixture needs
+  # Python 3.11 as python3, and the engine's tests build the canvas, so Node and pnpm too.
+  oldest-git:
+    name: oldest git (ubuntu:22.04)
+    runs-on: ubuntu-24.04
+    container: ubuntu:22.04
+    timeout-minutes: 45
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - run: apt-get update
+      - run: apt-get install -y --no-install-recommends git build-essential ca-certificates curl pkg-config python3.11
+      - run: ln -sf /usr/bin/python3.11 /usr/local/bin/python3
+      - run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y
+      - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: cargo xtask test -p planroom-extract
+      - run: cargo xtask test -p planroom git_hardening
+
   # ShellCheck, then the suite under sh, dash and (Linux only) BusyBox sh. Under CI=true a skipped
   # step fails, so cargo xtask installs a missing tool first (DR-79).
   installer:

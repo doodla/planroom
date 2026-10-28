@@ -121,6 +121,7 @@ id = "person"
 id_prefix = "person"
 level = "component"
 label = "Person"
+parents = ["code.repo"]
 
 [[kinds]]
 id = "commit"
@@ -320,6 +321,12 @@ emit = [
   { hint = "code.sql", scope = "@id:code.file:$file", key = "$6", attrs = { verb = "$5", table = "$6" } },
   { hint = "code.sql", scope = "@id:code.file:$file", key = "$8", attrs = { verb = "$7", table = "$8" } },
 ]
+# The repo's history at the scanned commit: its people, its owner and its co-changing files.
+[[extractors]]
+id = "git"
+builtin = "git"
+files = ["**"]
+options = { kinds = { repo = "code.repo", file = "code.file", person = "code.person" }, relations = { co_change = "code.co_change", owned_by = "code.owned_by" } }
 
 # Lenses: which relationships a map shows (DR-15).
 

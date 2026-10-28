@@ -115,6 +115,8 @@ pub fn parse_leaf(command: &str, args: &[String]) -> Result<Command, clap::Error
 pub fn main() -> ExitCode {
     // The store's filesystem check and its migration copies need the data root (DR-1, DR-53).
     app::fs_type::register();
+    // The git adapter refuses a repo another user owns before git runs there (DR-78).
+    app::owner::register();
     let caller = Caller::from_env();
     let args: Vec<OsString> = std::env::args_os().collect();
     let cli = match Cli::try_parse_from(&args) {
@@ -182,7 +184,9 @@ pub fn main() -> ExitCode {
         }
         Cmd::Doctor(req) => {
             let name = Command::Doctor(req.clone()).name();
-            let reply = app::doctor::Check::of(&req, &cwd).and_then(|check| app::doctor::run(check, &cwd));
+            let reply = app::doctor::git()
+                .and_then(|()| app::doctor::Check::of(&req, &cwd))
+                .and_then(|check| app::doctor::run(check, &cwd));
             finish(cli.json, &name.0, reply, started)
         }
         Cmd::Version(req) => {

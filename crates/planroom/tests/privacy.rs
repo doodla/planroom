@@ -146,7 +146,8 @@ fn engine_lines_mask_repo_text_and_keep_engine_tokens() {
     let summary = focus["summary"].as_str().unwrap();
     assert_masked("map --focus's summary", summary);
     assert!(
-        summary.starts_with(&format!("3 under db_PASSWORD={MASK} at the container level: ")),
+        // The container, the directory, and the repo's one author.
+        summary.starts_with(&format!("4 under db_PASSWORD={MASK} at the container level: ")),
         "{summary}"
     );
     assert!(summary.contains(&format!("{MASK} (1 code)")), "{summary}");
@@ -398,7 +399,11 @@ fn details_mask_the_repo_text_their_code_declares_and_keep_ids() {
         .iter()
         .map(|c| c.as_str().unwrap())
         .collect();
-    assert!(closest.contains(&format!("{REPO}:repo:{REPO}").as_str()), "{missing}");
+    // The first five in ID order, each whole, the planted namespace unmasked: the repo's own
+    // container, directory, files and author come before its repo node.
+    assert_eq!(closest.len(), 5, "{missing}");
+    assert!(closest.iter().all(|id| id.starts_with(&format!("{REPO}:")) && !id.contains(MASK)), "{missing}");
+    assert!(closest.contains(&format!("{REPO}:file:docker-compose.yml").as_str()), "{missing}");
 
     // PLANROOM_RAW=1 shows a read's details raw; a scan's stay masked.
     let raw = json(&root, &["scan", root.to_str().unwrap()], true);

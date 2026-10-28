@@ -10,7 +10,8 @@
 //! against its input file, and reads each eval case file. The first check that fails fails the
 //! command with `pack_invalid`.
 //!
-//! The inputs aren't a git repo, so their facts name a fixed commit, all zeros.
+//! The inputs aren't a git repo, so their facts name a fixed commit, all zeros, and an extractor
+//! that reads history, such as `git`, doesn't run over them.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -211,6 +212,11 @@ fn extract(inputs: &[Input], runs: &[Run]) -> Result<Vec<(String, String, FactBa
     let mut out = Vec::new();
     for input in inputs {
         for run in runs {
+            // The inputs are files with no history, so an extractor that reads history has
+            // nothing here to read; its own tests run it over real repos.
+            if run.reads_history() {
+                continue;
+            }
             let globs: Vec<&str> = run.files.iter().map(String::as_str).collect();
             let selected = select(&input.files, &globs)?;
             let batch = run.extract(&input.view, &selected).map_err(|e| {

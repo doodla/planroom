@@ -29,6 +29,7 @@ repo_config_refused = "{repo}'s local git config names a command git would run (
 budget_exceeded = "The {guard} budget stopped this call: {spent} of {limit} spent."
 model_unavailable = "{provider} can't be reached, so this command can't run."
 git_too_old = "git {found} is too old; Planroom needs {minimum} or newer."
+git_missing = "No git on PATH answered; Planroom needs git {minimum} or newer."
 packs_mismatch = "This engine loaded other packs than the ones this workspace records, so it won't write."
 replay_missing = "No recorded model reply for {key}, and replay is strict."
 serve_limit = "The canvas server is at its limit: {what}."
@@ -48,7 +49,8 @@ person_required_key = "claude, started in this workspace: the Planroom mod regis
 person_key_mismatch = "press Use this session's key in the Planroom pane"
 engine_fetching = "try again in a few seconds"
 engine_unavailable = "scripts/planroom build"
-git_failed = "git -C {path} status"
+git_failed = "git -C {path} --git-dir=.git status"
+git_failed_not_a_file = "ls -l {path}"
 base_required = "pass --base with the seq from meta.seq"
 actor_required = "export PLANROOM_ACTOR=agent:<id>:<role>"
 stale_write = "planroom show {event}"
@@ -114,6 +116,8 @@ purpose = "A model call's purpose must be lowercase letters, digits, dots, dashe
 [warning]
 evidence_dropped = "{count} evidence items in {repo} didn't match commit {commit} and were dropped."
 partial_scan = "{count} files in {repo} weren't scanned by {extractor}: past its bound, or missing from a partial clone."
+partial_scan_history = "{extractor} read the last {bound} commits of {repo}; its history before {commit} isn't mapped."
+partial_scan_shallow = "{extractor} read {repo}'s history back to where its shallow clone stops; its history before {commit} isn't mapped."
 partial_parse = "{count} files in {repo} couldn't be read in full."
 unnamed_paths = "{count} files in {repo} have paths that aren't UTF-8, or hold a newline or a backslash, so they aren't on the map."
 unparsed_files_nesting_limit = "{count} files in {repo} nest too deep to parse, so they gave no facts."
@@ -121,7 +125,13 @@ unparsed_files_work_limit = "{count} files in {repo} took too much work to parse
 unparsed_files_repo_limit = "{count} files in {repo} came after its facts reached their bound for the repo, so they gave no facts."
 workspace_nested = "Another workspace sits inside this one, at {other_root}; the two stay apart."
 repo_unborn = "{repo} has no commits yet; it maps after its first commit."
-repo_skipped_other_owner = "Another user owns {repo}, so git won't read it and this scan left it out. {fix}"
+# Who owns a repo another user owns, as a repo_skipped line names them: by user ID, or, when its
+# owner can't be read, as another user.
+repo_skipped_user = "User {uid}"
+repo_skipped_someone = "Another user"
+repo_skipped_other_owner = "{who} owns {repo}, and Planroom never runs git in another user's repo, so this scan left it out. Its owner can scan it, or you can scan a copy you own."
+repo_skipped_other_owner_git_dir = "{who} owns the git directory {repo} uses, {place}, and Planroom never runs git in another user's repo, so this scan left it out. Its owner can scan it, or you can scan a copy you own."
+repo_skipped_other_owner_objects = "{who} owns {place}, an object directory {repo} reads, and Planroom never runs git in another user's repo, so this scan left it out. You can scan a copy of {repo} that borrows none of its objects."
 repo_skipped_git_failed = "git can't read {repo}, so this scan left it out. {fix}"
 scan_superseded_head_moved = "{repo}'s HEAD moved on while this scan read {commit}, so its map stays at {mapped}. Scan again to map HEAD."
 scan_superseded_head_moved_mapped = "{repo}'s HEAD moved on while this scan read {commit}, and a newer scan has mapped HEAD, {mapped}."
@@ -172,6 +182,16 @@ nothing_after_cursor = "The map moved on, and nothing is left after this page's 
 nothing_after_cursor_next = "Show the first page"
 repos_unborn = "No commits yet in {names}, so there's nothing to map. Make a first commit, then check again."
 repos_unreadable = "git can't read {names} here, so there's nothing to map yet. Run git status in each to see why, then check again."
+repos_other_owner = "A user other than you owns {others}, and Planroom never runs git in another user's repo, so there's nothing to map yet. Its owner can scan each, or you can scan a copy you own, then check again."
+repos_unreadable_other_owner = "git can't read {names} here, and a user other than you owns {others}, where Planroom never runs git, so there's nothing to map yet. Run git status in each repo git can't read to see why, then check again."
+# Repos whose own places are the person's but that read objects another user owns: the person
+# owns them, so the line never says their owner can scan them. Worded to fit one repo or several.
+repos_borrowed = "Another user owns objects read by {borrowers}, and Planroom never runs git in another user's repo, so there's nothing to map yet. You can scan a copy of each that borrows none of those objects, then check again."
+# Beside other reasons, each reason is one sentence of `{reasons}`, in this order.
+repos_mixed = "Nothing here can be mapped yet. {reasons} Then check again."
+reason_unreadable = "git can't read {names}; run git status in each to see why."
+reason_other_owner = "A user other than you owns {others}, where Planroom never runs git; its owner can scan each, or you can scan a copy you own."
+reason_borrowed = "Another user owns objects read by {borrowers}, and Planroom never runs git there; you can scan a copy of each that borrows none of those objects."
 check_again_next = "Check again"
 no_match = "Nothing on the map matches {text}."
 lens_shows_nothing = "The {lens} lens shows nothing at the {level} level."
@@ -179,10 +199,11 @@ lens_shows_nothing_next = "Show every block at this level"
 no_answer = "{asked}: nothing on the map answers it."
 no_answer_next = "Show what you can ask"
 
-# The fix a repo_skipped warning names, by its reason.
+# The fix a repo_skipped warning names for git_failed. other_owner has none: Planroom never runs git
+# in another user's repo, and names no command to run there.
 [fix]
-other_owner = "Make it yours with chown -R \"$(id -un)\" {path}, or scan as the user who owns it."
-git_failed = "Run git -C {path} status to see why, fix it, then scan again."
+git_failed = "Run git -C {path} --git-dir=.git status to see why, fix it, then scan again."
+git_failed_not_a_file = "Run ls -l {path} to see what it is: git needs a directory or a regular file there. Replace it, then scan again."
 
 [scan]
 summary = "Mapped {repos} repos, {moved} of them moved: {containers} containers, {nodes} nodes, {hints} hints."
@@ -404,8 +425,8 @@ options = "the options of {name} must be a table, and its kinds a table of kind 
 # A built-in's options, read through its declared table, and a declarative extractor compiled as
 # the runner will run it.
 option_unknown = "{key} isn't an option of {name}; a pack sets only {keys}, and the engine fills in the rest"
-role_unknown = "{role} isn't a kind role of {name}; it emits {roles}"
-role_missing = "{name} emits a {role}, so options.kinds names its kind"
+role_unknown = "{role} isn't a role of {name}; it emits {roles}"
+role_missing = "{name} emits a {role}, so its options name one for it"
 hint_attr = "{attr} isn't an attribute of the hint kind {hint}; it declares {attrs}"
 not_an_id = "{reference} names no node by its ID: a parent or a hint's scope is @id:KIND:KEY or an ID, never an alias"
 unknown_variable = "{reference} isn't a variable: a template takes $file, $stem, $repo, $line, $1 to $9 for a regex's groups, and @name for a query's captures"

@@ -21,7 +21,7 @@ Read first, from [Repo layout](../docs/contributing/repo-layout.md#read-first-pe
 
 Each directory here is a built-in pack: `crates/planroom/build.rs` embeds every one, so a new pack needs no code edit. `README.md` is the page for users.
 
-- `code/`: the base pack every other pack builds on: code kinds and relations, languages, image roles, hint kinds, the `files`, `compose`, `manifest` and `openapi` built-ins, the code lenses, kind tones and next-action suggestions. Its `tests/` holds the conformance kit `planroom doctor --pack packs/code` runs.
+- `code/`: the base pack every other pack builds on: code kinds and relations, languages, image roles, hint kinds, the `files`, `compose`, `manifest`, `openapi` and `git` built-ins, the code lenses, kind tones and next-action suggestions. Its `tests/` holds the conformance kit `planroom doctor --pack packs/code` runs.
 - `code/languages/`: one file per language with a built-in grammar: its `[[languages]]` entry and its extractors.
 - `code/queries/`: the tree-sitter queries those extractors run.
 - `code/tests/**`: the code pack's conformance kit: each case's inputs and what it expects; the tree's layout is data.

@@ -17,6 +17,7 @@ pub mod import;
 pub mod map;
 pub mod models;
 pub mod open;
+pub mod owner;
 pub mod person;
 pub mod review;
 pub mod scan;

@@ -26,7 +26,8 @@ pub struct Builtin {
     /// files, not hints, so it consumes none.
     pub consumes: &'static [&'static str],
     /// The options a pack sets, as a table of parameters the loader reads them through, as it
-    /// reads a query shape's: `kinds`, a table naming the kind of each role the built-in emits.
+    /// reads a query shape's: `kinds`, a table naming the kind of each role the built-in emits,
+    /// and for a built-in that emits edges, `relations`, naming the relation of each such role.
     /// Every key is required, since the built-in emits every role. A key the table doesn't
     /// declare is `pack_invalid`: what else a built-in reads, such as `files`'s merged
     /// `languages` or `compose`'s `image_roles` and `repos`, the engine fills in.
@@ -41,6 +42,16 @@ const fn kinds(roles: &'static [Param]) -> Param {
 /// A role of `kinds`, which names a node kind.
 const fn role(key: &'static str) -> Param {
     Param { key, names: ParamNames::NodeKind }
+}
+
+/// `relations = { ROLE = RELATION }`, one role per relation a built-in emits.
+const fn relations(roles: &'static [Param]) -> Param {
+    Param { key: "relations", names: ParamNames::Table(roles) }
+}
+
+/// A role of `relations`, which names a relation.
+const fn relation(key: &'static str) -> Param {
+    Param { key, names: ParamNames::Relation }
 }
 
 /// Every built-in extractor, in the order a scan runs them.
@@ -72,6 +83,16 @@ pub const EXTRACTORS: &[Builtin] = &[
         role: Role::Extractor,
         consumes: &[],
         options: &[kinds(&[role("spec"), role("repo"), role("directory")])],
+    },
+    Builtin {
+        name: crate::history::NAME,
+        builtin: "git",
+        role: Role::Extractor,
+        consumes: &[],
+        options: &[
+            kinds(&[role("repo"), role("file"), role("person")]),
+            relations(&[relation("co_change"), relation("owned_by")]),
+        ],
     },
 ];
 
@@ -140,24 +161,48 @@ mod tests {
             blobs: crate::walk::Blobs::default(),
         };
         let kind = json!({"kind": "p.k", "id_prefix": "k", "level": "code"});
+        // A role of `kinds` names a kind as the engine fills it in; a role of `relations`, a name.
+        let value = |names: ParamNames| match names {
+            ParamNames::Relation => json!("p.r"),
+            _ => kind.clone(),
+        };
         for entry in EXTRACTORS {
-            let [Param { key: "kinds", names: ParamNames::Table(roles) }] = entry.options else {
-                panic!("{}: options are a kinds table", entry.name)
-            };
-            let all: serde_json::Map<String, Value> =
-                roles.iter().map(|r| (r.key.to_owned(), kind.clone())).collect();
-            let run = |kinds: &serde_json::Map<String, Value>| {
-                crate::builtin(entry.builtin).unwrap().run(&repo, &[], &json!({ "kinds": kinds }))
-            };
-            assert!(run(&all).is_ok(), "{}", entry.name);
-            for role in *roles {
-                let mut less = all.clone();
-                less.remove(role.key);
-                assert!(run(&less).is_err(), "{} runs without {}", entry.name, role.key);
+            let mut all = serde_json::Map::new();
+            for param in entry.options {
+                let ParamNames::Table(roles) = param.names else {
+                    panic!("{}: option {} is a table of roles", entry.name, param.key)
+                };
+                assert!(matches!(param.key, "kinds" | "relations"), "{}: {}", entry.name, param.key);
+                let table: serde_json::Map<String, Value> =
+                    roles.iter().map(|r| (r.key.to_owned(), value(r.names))).collect();
+                all.insert(param.key.to_owned(), Value::Object(table));
             }
-            let mut more = all.clone();
-            more.insert("extra".into(), kind.clone());
-            assert!(run(&more).is_err(), "{} reads an undeclared role", entry.name);
+            assert!(all.contains_key("kinds"), "{}: options hold a kinds table", entry.name);
+            // Whether the options are refused: a built-in that reads more than the walk's files,
+            // such as `git`'s history, may still fail to read the repo, which is no refusal.
+            let refused = |options: &serde_json::Map<String, Value>| {
+                let options = Value::Object(options.clone());
+                matches!(
+                    crate::builtin(entry.builtin).unwrap().run(&repo, &[], &options),
+                    Err(crate::ExtractError::InvalidOptions(_))
+                )
+            };
+            assert!(!refused(&all), "{}", entry.name);
+            let extractor = crate::builtin(entry.builtin).unwrap();
+            if !extractor.reads_history() {
+                assert!(extractor.run(&repo, &[], &Value::Object(all.clone())).is_ok(), "{}", entry.name);
+            }
+            for param in entry.options {
+                let ParamNames::Table(roles) = param.names else { unreachable!() };
+                for role in roles {
+                    let mut less = all.clone();
+                    less[param.key].as_object_mut().unwrap().remove(role.key);
+                    assert!(refused(&less), "{} runs without {}.{}", entry.name, param.key, role.key);
+                }
+                let mut more = all.clone();
+                more[param.key].as_object_mut().unwrap().insert("extra".into(), value(roles[0].names));
+                assert!(refused(&more), "{} reads an undeclared role of {}", entry.name, param.key);
+            }
         }
     }
 

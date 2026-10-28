@@ -32,7 +32,8 @@ fn hint_id_of(kind: &Kind, scope: &NodeId, keys: &[&str], evidence: &[Evidence])
 }
 
 /// `e:` and 12 hex characters of `sha256(kind ‖ from ‖ to ‖ via)`, each part ended by a NUL: one
-/// ID per relation between two ends, whatever lines cite it, so a rescan keeps it.
+/// ID per relation between two ends, whatever lines cite it, so a rescan keeps it. Every extracted
+/// edge ID is made this way; an edge with no `via` hashes an empty one.
 pub fn edge_id(kind: &Kind, from: &Ref, to: &Ref, via: Option<&str>) -> EdgeId {
     let end = |r: &Ref| match r {
         Ref::Id(id) => format!("id:{}", id.0),

@@ -580,7 +580,10 @@ fn an_unborn_and_an_unreadable_repo_leave_the_rest_of_the_workspace_mapped() {
     assert_eq!(reasons, want, "{env}");
     let broken = skipped.iter().find(|w| w["details"]["repo"] == "broken").unwrap();
     let fix = broken["details"]["fix"].as_str().unwrap();
-    assert!(fix.contains(&format!("git -C {} status", root.join("broken").display())), "{fix}");
+    assert!(
+        fix.contains(&format!("git -C {} --git-dir=.git status", root.join("broken").display())),
+        "{fix}"
+    );
 
     let top = map_ids(&root, "");
     assert!(

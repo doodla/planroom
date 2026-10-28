@@ -134,6 +134,23 @@ impl Run {
             Runner::Declarative(program) => Ok(program.run(repo, files)),
         }
     }
+
+    /// Whether it reads the repo's history rather than the files of one commit, as the `git`
+    /// built-in does. A declarative extractor reads only files.
+    pub fn reads_history(&self) -> bool {
+        self.builtin()
+            .and_then(|(builtin, _)| planroom_extract::builtin(builtin))
+            .is_some_and(|e| e.reads_history())
+    }
+
+    /// What its own bound left out of `repo`, such as the `git` built-in's `history before <sha>`
+    /// (DR-47). Empty for a declarative extractor, whose bounds are per file.
+    pub fn uncovered(&self, repo: &RepoView) -> Result<Vec<String>, ExtractError> {
+        match self.builtin().and_then(|(builtin, _)| planroom_extract::builtin(builtin)) {
+            Some(extractor) => extractor.uncovered(repo),
+            None => Ok(Vec::new()),
+        }
+    }
 }
 
 /// Compiled declarative extractors, by pack-qualified name.

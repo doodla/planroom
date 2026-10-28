@@ -16,7 +16,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use planroom_contract::{Warning, WarningCode};
-use planroom_extract::git::{Git, is_repo};
+use planroom_extract::git::{self, Git, GitError, OwnedPlace, Refusal, is_repo};
 use planroom_store::{META_REPOS, Store};
 use serde_json::json;
 
@@ -60,7 +60,10 @@ impl Workspace {
 }
 
 /// The state directory of the workspace rooted at `root`, whether or not it exists yet:
-/// `planroom/` in the git directory when `root` is a repo, else `.planroom/` at `root`.
+/// `planroom/` in the git directory when `root` is a repo, else `.planroom/` at `root`. A root
+/// whose `.git` is a file naming a git directory git can't name, as when the owner check refuses
+/// the repo, has none: the path then sits under that file, where no store is found and none can be
+/// made, so the scan skips the root like any other repo it can't read.
 pub fn state_dir(root: &Path) -> PathBuf {
     if is_repo(root) {
         return git_dir(root).unwrap_or_else(|| root.join(".git")).join(GIT_DIR_NAME);
@@ -108,11 +111,19 @@ pub fn discover(dir: &Path) -> Result<Workspace, AppError> {
     let mut warnings = Vec::new();
     if is_repo(&root) {
         found.push(root.clone());
-        // A root repo git can't read leaves the repo set itself unknown, so this one fails whole.
-        let subs = Git::new(&root).submodules().map_err(|e| {
-            let name = root.file_name().map_or_else(|| "root".to_owned(), |n| escape(n.as_bytes()));
-            AppError::git(&name, &root, &e)
-        })?;
+        // The listing runs the owner check on the root first, before it reads anything there,
+        // and runs no git in a submodule: each is a repo of its own, whose own check runs before
+        // any git call in it. A root another user owns, or one that borrows another user's object
+        // store, lists none and is skipped as other_owner like any other repo. A root repo git
+        // can't read otherwise leaves the repo set itself unknown, so that one fails whole.
+        let subs = match Git::new(&root).submodules() {
+            Ok(subs) => subs,
+            Err(e) if e.is_other_owner() => Vec::new(),
+            Err(e) => {
+                let name = root.file_name().map_or_else(|| "root".to_owned(), |n| escape(n.as_bytes()));
+                return Err(AppError::git(&name, &root, &e));
+            }
+        };
         for sub in subs {
             let path = root.join(&sub);
             if is_repo(&path) {
@@ -266,6 +277,76 @@ pub struct Scannable {
     pub unborn: Vec<String>,
     /// The names of the repos git refuses, which a scan skips, sorted.
     pub unreadable: Vec<String>,
+    /// The names of the repos another user owns, or whose git directory or common directory
+    /// another user owns, which a scan skips before git runs there, sorted.
+    pub others: Vec<String>,
+    /// The names of the repos whose own places are the person's but which read objects from a
+    /// directory another user owns, which a scan skips before git runs there too, sorted.
+    pub borrowers: Vec<String>,
+}
+
+/// Why a scan left a repo out, as its `repo_skipped` warning says it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Skip {
+    /// `other_owner` or `git_failed`.
+    pub reason: &'static str,
+    /// The warning's line, which ends with the fix when there is one.
+    pub message: String,
+    /// For `git_failed`, one line with an exact command that needs no root, each path quoted for
+    /// the shell (DR-86). For `other_owner`, `None`: Planroom never runs git in another user's
+    /// repo, and names no command to run there either.
+    pub fix: Option<String>,
+}
+
+/// Why git can't read the repo `name` at `path`, and its fix (DR-86). When another user owns the
+/// repo or a place git uses for it, the line says who, that Planroom never runs git in another
+/// user's repo, and who can scan it: its owner, or the person, a copy they own; for an object
+/// directory a repo reads, only a copy that borrows none of its objects, since the repo itself
+/// may be the person's. There's no fix to run. A place git needs as a directory or a regular
+/// file that is neither, such as a FIFO, is shown with `ls -l`, which never opens it, where git
+/// would block on it.
+pub fn skip(name: &str, path: &Path, e: &GitError) -> Skip {
+    let word = |p: &Path| text::shell_word(&p.display().to_string());
+    let line = |key: &str, fix: String| {
+        let message = text::get(&format!("warning.repo_skipped_{key}"), &[("repo", &name), ("fix", &fix)]);
+        (message, Some(fix))
+    };
+    let (reason, (message, fix)) = match &e.refusal {
+        _ if e.is_other_owner() => {
+            // git refused it itself (`safe.directory`), as in a repo it looked into on its own: the
+            // engine's own check names the place, as it would have.
+            let refusal = e.refusal.clone().or_else(|| git::owner_refusal(path));
+            let (place, uid, what) = match refusal {
+                Some(Refusal::Owned { place, uid, what }) => (place, Some(uid), what),
+                _ => (path.to_path_buf(), owner_of(path), OwnedPlace::Tree),
+            };
+            let who = match uid {
+                Some(uid) => text::get("warning.repo_skipped_user", &[("uid", &uid)]),
+                None => text::get("warning.repo_skipped_someone", &[]),
+            };
+            let key = match what {
+                OwnedPlace::Tree if place == path => "other_owner",
+                OwnedPlace::Tree | OwnedPlace::GitDir => "other_owner_git_dir",
+                OwnedPlace::Objects => "other_owner_objects",
+            };
+            let shown = place.display().to_string();
+            let vars: [(&str, &dyn std::fmt::Display); 3] =
+                [("who", &who), ("repo", &name), ("place", &shown)];
+            ("other_owner", (text::get(&format!("warning.repo_skipped_{key}"), &vars), None))
+        }
+        Some(Refusal::NotAFile(place)) => (
+            "git_failed",
+            line("git_failed", text::get("fix.git_failed_not_a_file", &[("path", &word(place))])),
+        ),
+        _ => ("git_failed", line("git_failed", text::get("fix.git_failed", &[("path", &word(path))]))),
+    };
+    Skip { reason, message, fix }
+}
+
+/// The user who owns `path`, when it can be read.
+fn owner_of(path: &Path) -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    fs::metadata(path).ok().map(|m| m.uid())
 }
 
 /// Which of `dir`'s workspace repos a scan can map: one `git rev-parse` each.
@@ -274,12 +355,14 @@ pub fn scannable(dir: &Path) -> Scannable {
     let mut out = Scannable::default();
     for repo in ws.repos {
         let git = Git::new(&repo.path);
-        if git.head().is_ok() {
-            out.readable += 1;
-        } else if git.unborn_branch().is_some() {
-            out.unborn.push(repo.name);
-        } else {
-            out.unreadable.push(repo.name);
+        match git.head() {
+            Ok(_) => out.readable += 1,
+            Err(GitError { refusal: Some(Refusal::Owned { what: OwnedPlace::Objects, .. }), .. }) => {
+                out.borrowers.push(repo.name)
+            }
+            Err(e) if e.is_other_owner() => out.others.push(repo.name),
+            Err(_) if git.unborn_branch().is_some() => out.unborn.push(repo.name),
+            Err(_) => out.unreadable.push(repo.name),
         }
     }
     out

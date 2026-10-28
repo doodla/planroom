@@ -353,6 +353,17 @@ fn a_pointer_is_followed_only_to_its_place_under_the_data_root() {
 }
 
 #[test]
+fn a_state_directory_under_a_regular_file_holds_no_store() {
+    // A repo root whose `.git` is a file, when the engine can't name the git directory it
+    // points to, leaves its state directory's path under that file: no store is there.
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join(".git"), "gitdir: elsewhere\n").unwrap();
+    let asked = root.path().join(".git/planroom/store.db");
+    assert!(Store::open_existing(&asked).unwrap().is_none());
+    assert!(Tail::open(&asked).unwrap().is_none());
+}
+
+#[test]
 fn sync_folders_and_wsl_drives_count_as_unsafe() {
     use planroom_store::fs_check::classify;
     for (fs, path) in [

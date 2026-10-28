@@ -237,8 +237,9 @@ const LINE_NAMES: usize = 3;
 const NAME_CHARS: usize = 40;
 
 /// The empty state of a directory with no scan: map the repos a scan can map, those with a commit.
-/// With none, no scan can map anything, so the line says what to do (make a first commit, or see
-/// why git can't read them) and the action checks again.
+/// With none, no scan can map anything, so the line says what to do (make a first commit, see why
+/// git can't read them, or, for repos another user owns, who can scan them) and the action checks
+/// again.
 pub(crate) fn scan_empty(root: &Path, repos: &workspace::Scannable) -> Empty {
     let check_again = |reason: &str, line: String| Empty {
         reason: EmptyReason(reason.into()),
@@ -253,9 +254,33 @@ pub(crate) fn scan_empty(root: &Path, repos: &workspace::Scannable) -> Empty {
         let names = listed(&repos.unborn);
         return check_again("repos_unborn", text::get("empty.repos_unborn", &[("names", &names)]));
     }
-    if repos.readable == 0 && !repos.unreadable.is_empty() {
-        let names = listed(&repos.unreadable);
-        return check_again("repos_unreadable", text::get("empty.repos_unreadable", &[("names", &names)]));
+    // A repo another user owns is one Planroom never runs git in, so its line names no command to
+    // run there; only a repo git itself refuses gets `git status`. A repo the person owns that
+    // reads another user's objects is theirs, so its line never says its owner can scan it.
+    let refused = [&repos.unreadable, &repos.others, &repos.borrowers];
+    if repos.readable == 0 && refused.iter().any(|names| !names.is_empty()) {
+        let (names, others) = (listed(&repos.unreadable), listed(&repos.others));
+        let borrowers = listed(&repos.borrowers);
+        let line = match (repos.unreadable.is_empty(), repos.others.is_empty(), repos.borrowers.is_empty()) {
+            (false, true, true) => text::get("empty.repos_unreadable", &[("names", &names)]),
+            (true, false, true) => text::get("empty.repos_other_owner", &[("others", &others)]),
+            (false, false, true) => {
+                text::get("empty.repos_unreadable_other_owner", &[("names", &names), ("others", &others)])
+            }
+            (true, true, false) => text::get("empty.repos_borrowed", &[("borrowers", &borrowers)]),
+            (no_unreadable, no_others, _) => {
+                let mut reasons = Vec::new();
+                if !no_unreadable {
+                    reasons.push(text::get("empty.reason_unreadable", &[("names", &names)]));
+                }
+                if !no_others {
+                    reasons.push(text::get("empty.reason_other_owner", &[("others", &others)]));
+                }
+                reasons.push(text::get("empty.reason_borrowed", &[("borrowers", &borrowers)]));
+                text::get("empty.repos_mixed", &[("reasons", &reasons.join(" "))])
+            }
+        };
+        return check_again("repos_unreadable", line);
     }
     if repos.readable == 0 {
         return check_again("no_repos", text::get("empty.no_repos", &[]));

@@ -302,7 +302,7 @@ pub const WARNING_DETAILS: &[(&str, &[&str])] = &[
     ("unparsed_files", &["repo", "paths"]),
     ("partial_scan", &["repo", "uncovered"]),
     ("repo_unborn", &["repo"]),
-    ("repo_skipped", &["repo"]),
+    ("repo_skipped", &["repo", "fix"]),
     ("scan_superseded", &["repo"]),
     ("temporary_host", &["repo"]),
     ("reconcile_paused", &["repo"]),

@@ -85,11 +85,14 @@ const REDACTION_KEPT: Readonly<Record<string, string>> = { PLANROOM_RAW: "" };
 
 /**
  * The engine's test-only seams, set empty on every run as well: a debug engine reads
- * `PLANROOM_TEST_OPENER` as the program that opens the login page, and an empty value as none, so a
- * value the session inherited never picks what a press of `open` runs (DR-92).
+ * `PLANROOM_TEST_OPENER` as the program that opens the login page, and `PLANROOM_TEST_EUID` as the
+ * user the repo-ownership check compares owners with, and an empty value of either as none, so a
+ * value the session inherited never picks what a press of `open` runs or which repos count as
+ * another user's (DR-78, DR-92).
  */
 const TEST_SEAMS_OFF: Readonly<Record<string, string>> = {
   PLANROOM_TEST_OPENER: "",
+  PLANROOM_TEST_EUID: "",
 };
 
 /**

@@ -42,12 +42,15 @@ pub(crate) fn pointer_path(path: &Path) -> PathBuf {
     path.with_file_name(STORE_POINTER_FILE)
 }
 
-/// The pointer beside `path`, read and checked; `None` when there is none.
+/// The pointer beside `path`, read and checked; `None` when there is none, which includes a
+/// state directory whose place is a regular file, such as the `.git` file of a repo whose git
+/// directory the engine can't name: nothing can be stored under a file.
 pub(crate) fn read(path: &Path) -> Result<Option<StorePointer>, StoreError> {
+    use std::io::ErrorKind;
     let file = pointer_path(path);
     let text = match fs::read_to_string(&file) {
         Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => return Ok(None),
         Err(e) => return Err(StoreError::Io(format!("{}: {e}", file.display()))),
     };
     match format::read_str::<StorePointer>(&text) {

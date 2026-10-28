@@ -117,10 +117,31 @@ impl AppError {
         AppError::new(ErrorCode::Internal, &[("what", &what)]).details(json!({"report": null}))
     }
 
-    /// git failed in the repo at `path`; the hint is the command that shows why.
+    /// The git on `PATH` is older than the adapter's floor, or no git answers: the fix names the
+    /// floor (DR-78).
+    pub fn git_too_old(e: &planroom_extract::git::TooOld) -> AppError {
+        let minimum = planroom_extract::git::TooOld::minimum();
+        let fix = text::get("hint.git_too_old", &[("minimum", &minimum)]);
+        let error = match &e.found {
+            Some(found) => AppError::new(ErrorCode::GitTooOld, &[("found", found), ("minimum", &minimum)]),
+            None => AppError::new(ErrorCode::GitTooOld, &[("minimum", &minimum)])
+                .with_message(text::get("error.git_missing", &[("minimum", &minimum)])),
+        };
+        error.details(json!({"found": e.found, "minimum": minimum, "fix": fix})).with_hint(fix)
+    }
+
+    /// git failed in the repo at `path`; the hint is the command that shows why: git with the
+    /// repo's own git directory named, so it never reports a repo above it, or `ls -l` of a place
+    /// git needs as a directory or a regular file that is neither, which git would block on.
     pub fn git(repo: &str, path: &std::path::Path, e: &GitError) -> AppError {
         let first = e.stderr.lines().next().unwrap_or_default().to_owned();
-        let hint = text::get("hint.git_failed", &[("path", &path.display())]);
+        let hint = match &e.refusal {
+            Some(planroom_extract::git::Refusal::NotAFile(place)) => {
+                let place = text::shell_word(&place.display().to_string());
+                text::get("hint.git_failed_not_a_file", &[("path", &place)])
+            }
+            _ => text::get("hint.git_failed", &[("path", &text::shell_word(&path.display().to_string()))]),
+        };
         AppError::new(ErrorCode::GitFailed, &[("repo", &repo), ("what", &first)])
             .details(json!({"argv": e.argv, "stderr": e.stderr}))
             .with_hint(hint)

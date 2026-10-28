@@ -25,4 +25,6 @@ test("every_engine_run_blanks_raw_output_and_the_engine_pick", async () => {
   // A debug engine's opener seam reads empty as none, so a press of open never runs a program
   // the session's environment named.
   expect(env.PLANROOM_TEST_OPENER).toBe("");
+  // Nor does its ownership seam: an inherited value never makes another user's repo read as yours.
+  expect(env.PLANROOM_TEST_EUID).toBe("");
 });

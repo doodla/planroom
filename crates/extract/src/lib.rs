@@ -8,6 +8,7 @@ pub mod compose;
 pub mod declarative;
 pub mod files;
 pub mod git;
+pub mod history;
 mod ids;
 mod lines;
 pub mod manifest;
@@ -24,7 +25,7 @@ use planroom_contract::{FactBatch, Level};
 use serde::Deserialize;
 use serde_json::Value;
 
-pub use ids::{hex, node_id};
+pub use ids::{edge_id, hex, node_id};
 
 /// One repo at one commit, as an extractor sees it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,12 +59,16 @@ pub enum ExtractError {
     InvalidOptions(String),
     /// The repo itself couldn't be walked.
     Io(String),
+    /// git couldn't read what the extractor needs, such as the history: the scan leaves the repo
+    /// out, as it does one git can't walk.
+    Git(git::GitError),
 }
 
 impl fmt::Display for ExtractError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ExtractError::InvalidOptions(e) | ExtractError::Io(e) => f.write_str(e),
+            ExtractError::Git(e) => e.fmt(f),
         }
     }
 }
@@ -75,6 +80,20 @@ pub trait Extractor {
     /// Pack-qualified, such as `code/compose`.
     fn name(&self) -> &'static str;
     fn run(&self, repo: &RepoView, files: &[RepoPath], opts: &Value) -> Result<FactBatch, ExtractError>;
+
+    /// What this extractor leaves out of `repo` past a bound of its own, beyond the walk's cut,
+    /// as `partial_scan` lists it, such as the `git` built-in's `history before <sha>` (DR-47).
+    /// Empty for an extractor that reads only the walk's files.
+    fn uncovered(&self, _repo: &RepoView) -> Result<Vec<String>, ExtractError> {
+        Ok(Vec::new())
+    }
+
+    /// Whether it reads the repo's history rather than the files of one commit: a pack's
+    /// conformance inputs are files, not a repo, so `doctor --pack` runs only extractors that
+    /// don't.
+    fn reads_history(&self) -> bool {
+        false
+    }
 }
 
 /// A kind a built-in emits, as its options name it: the pack's `options.kinds` names the kind, and
@@ -133,6 +152,7 @@ pub fn builtin(name: &str) -> Option<&'static dyn Extractor> {
         "compose" => Some(&compose::Compose),
         "manifest" => Some(&manifest::Manifest),
         "openapi" => Some(&openapi::OpenApi),
+        "git" => Some(&history::History),
         _ => None,
     }
 }

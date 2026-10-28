@@ -410,14 +410,14 @@ fn a_built_in_extractors_options_are_read_through_its_declared_table() {
         FILES,
         &module,
         "module",
-        "module isn't a kind role of code/files; it emits repo, directory, file",
+        "module isn't a role of code/files; it emits repo, directory, file",
         Some(FILES),
     );
     // A role it emits, left out.
     let no_file = FILES.replace(", file = \"code.file\"", "");
-    expect(FILES, &no_file, "file", "code/files emits a file, so options.kinds names its kind", Some(FILES));
+    expect(FILES, &no_file, "file", "code/files emits a file, so its options name one for it", Some(FILES));
     // No options at all leaves every role out, the first named.
-    expect(COMPOSE, "", "service", "code/compose emits a service, so options.kinds names its kind", None);
+    expect(COMPOSE, "", "service", "code/compose emits a service, so its options name one for it", None);
     // The tables as the code pack writes them load.
     assert!(packs::builtins().is_ok());
 }

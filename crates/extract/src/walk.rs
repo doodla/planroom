@@ -148,7 +148,7 @@ pub fn walk(git: &Git, commit: &str, exclude: &Exclude) -> Result<Walked, GitErr
 pub fn walk_within(git: &Git, commit: &str, exclude: &Exclude, bounds: &Bounds) -> Result<Walked, GitError> {
     let partial = git.is_partial_clone()?;
     let listing = git.ls_tree(commit, !partial)?;
-    let mut entries = parse(&listing).map_err(|stderr| GitError { argv: vec!["ls-tree".into()], stderr })?;
+    let mut entries = parse(&listing).map_err(|stderr| GitError::new(&["ls-tree"], stderr))?;
     if partial {
         // `ls-tree -l` would read every blob, so the sizes come from the blobs this clone holds.
         let missing = git.missing_objects(commit)?;

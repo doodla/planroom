@@ -42,6 +42,12 @@ pub fn list_args<'a>(krate: &'a str, filter: &'a str) -> Vec<&'a str> {
     vec!["test", "--locked", "-p", krate, filter, "--", "--list", "--format", "terse"]
 }
 
+/// The `cargo test` arguments that list, without running, every test in `krate`'s test file
+/// `tests/FILE.rs`.
+pub fn list_file_args<'a>(krate: &'a str, file: &'a str) -> Vec<&'a str> {
+    vec!["test", "--locked", "-p", krate, "--test", file, "--", "--list", "--format", "terse"]
+}
+
 /// How many tests a `--list --format terse` listing names, across every test binary.
 pub fn listed(listing: &str) -> usize {
     listing.lines().filter(|l| l.trim_end().ends_with(": test")).count()

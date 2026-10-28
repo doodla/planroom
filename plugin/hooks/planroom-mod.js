@@ -3635,7 +3635,8 @@ var ENGINE_UNPICKED = {
 };
 var REDACTION_KEPT = { PLANROOM_RAW: "" };
 var TEST_SEAMS_OFF = {
-  PLANROOM_TEST_OPENER: ""
+  PLANROOM_TEST_OPENER: "",
+  PLANROOM_TEST_EUID: ""
 };
 var pinnedData = Promise.resolve(UNPLACED);
 function pinDataRoot(root) {

@@ -269,7 +269,7 @@ warning_codes! {
         "files an extractor took no facts from because they pass a nesting or work bound, would hold more heap in facts and kept matches than their size allows, or come at or after the first file in sorted order whose facts would take the repo past its bound; details name the repo, the count, the bound (nesting_limit, work_limit or repo_limit) and the first 10 paths in sorted order",
         ["repo", "count", "bound", "paths"] redact ["repo", "paths"];
     PartialScan = "partial_scan",
-        "an extractor reached its file or byte bound, or a partial clone lacks some blobs; details name the extractor, the repo, the count of uncovered files and the first 10 in sorted order",
+        "an extractor reached its file or byte bound, or the git history its commit bound or a shallow clone's boundary, or a partial clone lacks some blobs; details name the extractor, the repo, the count of uncovered files and the first 10 in sorted order, or a `history before <sha>` for each cut",
         ["extractor", "repo", "count", "uncovered"] redact ["repo", "uncovered"];
     WorkspaceNested = "workspace_nested",
         "another workspace's .planroom/ sits inside this one, or this one inside it; details name the other root",
@@ -278,8 +278,8 @@ warning_codes! {
         "a repo has no commit yet, so it maps nothing until its first commit; details name the repo and its branch",
         ["repo", "branch"] redact ["repo"];
     RepoSkipped = "repo_skipped",
-        "git couldn't read a repo, so the scan left it out and its last map stays; details name the repo, the reason (other_owner or git_failed) and the fix",
-        ["repo", "reason", "fix"] redact ["repo"];
+        "git couldn't read a repo, or another user owns a place git uses for it, so the scan left it out and its last map stays; details name the repo, the reason (other_owner or git_failed) and the fix, null for other_owner, since Planroom never runs git in another user's repo",
+        ["repo", "reason", "fix"] redact ["repo", "fix"];
     ScanSuperseded = "scan_superseded",
         "a repo's HEAD moved on while the scan read it, or the workspace's repos changed and a newer scan mapped it or named it otherwise meanwhile, so its map stays as it was and a scan never moves it back; details name the repo, the commit this scan read, the reason (head_moved or repos_changed) and the commit the map holds (mapped, empty when none)",
         ["repo", "commit", "reason", "mapped"] redact ["repo"];
@@ -368,7 +368,11 @@ mod tests {
         // A handle, an ID, a field name or a command is never masked.
         for key in ["next", "field", "closest", "candidates", "fix", "card", "argv"] {
             assert!(ErrorCode::ALL.iter().all(|c| !c.spec().redact.contains(&key)), "{key}");
-            assert!(WarningCode::ALL.iter().all(|c| !c.spec().redact.contains(&key)), "{key}");
+            let masked = |c: &&WarningCode| c.spec().redact.contains(&key);
+            // Save one: repo_skipped's fix is a line that names the repo's path, which is repo text,
+            // so it's masked as the repo's name is.
+            let allowed: &[WarningCode] = if key == "fix" { &[WarningCode::RepoSkipped] } else { &[] };
+            assert!(WarningCode::ALL.iter().filter(masked).all(|c| allowed.contains(c)), "{key}");
         }
     }
 

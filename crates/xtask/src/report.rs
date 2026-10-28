@@ -140,6 +140,13 @@ impl Report {
         }
     }
 
+    /// A step this run's own scope leaves out, such as vitest in `test -p CRATE`: the caller asked
+    /// for less, so nothing was skipped. It neither passes nor fails, in CI too, where a job may run
+    /// one crate's tests.
+    pub fn not_asked(&mut self, name: &str, why: &str) {
+        self.line(format!("not run  {name} ({why})"));
+    }
+
     /// A documented step that no code runs yet, with the milestone that builds it. It neither
     /// passes nor fails, so a green run never reads as one that ran it.
     pub fn not_built(&mut self, name: &str, milestone: &str) {

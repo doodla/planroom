@@ -117,6 +117,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 101 | Workspace trust by record, a pinned person key, confined reads, and the credential paths a scan checks | DR-48, DR-52, DR-74, DR-78, DR-88, DR-89 | extended, amends DR-48 and DR-88 | the merge of M1's workspace trust and confined reads |
 | 102 | Every directory's purpose checked, generated paths marked from one table, and golden reads caught by literal | DR-38, DR-59, DR-79, DR-81, DR-83, DR-89 | extended, amends DR-81 | the merge of M1's layout and docs gates |
 | 103 | Five languages' formats and queries: queries compiled only to extract, every built-in bounded, and hint keys masked | DR-9, DR-12, DR-46, DR-47, DR-83, DR-91, DR-100 | extended, amends DR-83 and DR-91 | the merge of M1's formats and queries for five languages |
+| 104 | Git history, an owner check before every git call, and another user's repo skipped with no command | DR-12, DR-16, DR-47, DR-74, DR-78, DR-79, DR-85, DR-86, DR-92 | extended, amends DR-16, DR-79, DR-86 and DR-92 | the merge of M1's git history adapter |
 
 ## Where the design reviews disagreed
 
@@ -432,7 +433,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-16: The git CLI is the only git adapter
 
-- **Status:** accepted. Amended in review rounds 2 and 3.
+- **Status:** accepted. Amended in review rounds 2 and 3, and by DR-104.
 - **Starting point:** replaced "`gix` or `git2`."
 - **Origin:** the simplicity-first design (D7).
 - **Context:** the scan needs history with numstat, tags and branches; the hand-off needs `worktree add`, `apply --3way`, `commit` and `merge --no-ff`. gix has no porcelain merge and its worktree mutation was not tried [rust-stack §6]. The truth's post-hand-off state is defined by `git apply` [TRUTH scenarios.S4.post_handoff].
@@ -444,6 +445,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Performance: `git log --numstat` took 0.90 s against 1.67 s for gix on 2,023 commits [rust-stack §6].
 - **Amended in review round 2:** git runs with `--no-ext-diff --no-textconv` on every `diff`, `show` and `log`, with `GIT_TERMINAL_PROMPT=0`, `GIT_LFS_SKIP_SMUDGE=1` and a cleared environment, at version 2.35.2 or later, so `safe.directory` refuses a repo another user owns. A checkout or merge in a repo whose local config names a command git would run (a filter, a diff command or textconv, a merge driver, an editor, a pager, an ssh command or an include) is refused with `repo_config_refused` and one card. The hand-off's writes are `clone --local --no-checkout` and `fetch`, not `worktree add` (E15; security-2, security-6) [DR-64]. Tests `git_hardening.rs::textconv_ext_diff_and_drivers_never_fire`, `a_repo_whose_config_names_a_command_is_refused_before_merge`.
 - **Amended in review round 3:** the engine itself refuses a repo whose git directory another user owns, so the floor drops to git 2.34.1, Ubuntu 22.04's, whose backported fix a version check refused; below it `scan` and `doctor` return `git_too_old` (unasked-8) [DR-78].
+- **Amended by DR-104:** every git call pins the repo's own git directory and working tree, so git's own `safe.directory` check doesn't run; the engine's owner check, which runs before any git call there and covers the working tree, the git and common directories and every alternate object directory, is the one that counts.
 - **Sources (checked 2026-10-25):** [rust-stack §6]; the design reviews.
 
 ## DR-17: Kernel roles
@@ -1856,7 +1858,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-79: Gates that fire only where they mean something
 
-- **Status:** accepted (decided in review round 3, F18).
+- **Status:** accepted (decided in review round 3, F18). Amended by DR-104.
 - **Starting point:** extended DR-59's and DR-70's repo gates, and "Repo layout: a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` in TypeScript".
 - **Origin:** review round 3: repo-1, repo-2 and operability-4; the minor findings repo-3 to repo-9.
 - **Context:**
@@ -1891,6 +1893,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It changes gated surfaces: `boundaries.toml`, the area contracts table, and the Boundaries and Conventions sections of `AGENTS.md`. The lock that records them names this record.
   - Milestones: M1's repo-gates slice grows 3 h.
   - It amends DR-59 and DR-70.
+- **Amended by DR-104:** a step a run's own scope leaves out, such as vitest in `cargo xtask test -p CRATE`, reports `not run`, which neither passes nor fails, apart from `not built` and `skipped`.
 - **Sources (checked 2026-10-26):** KICKOFF R16, S14, S15 and the repo-tooling constraint; `crates/*/Cargo.toml` for the allow-lists' current entries; `crates/xtask/src/boundaries.rs` and `main.rs` (skips that return `Ok`); review round 3 repo-1 to repo-9 and operability-4, and owner decision F18.
 
 ## DR-80: Hand-off results land however the change reaches the tracked branch
@@ -2163,7 +2166,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-86: What the walking skeleton's review settled in round 2
 
-- **Status:** accepted (decided at the merge of round 2's fixes, 2026-10-26). Amended by DR-87 and DR-100.
+- **Status:** accepted (decided at the merge of round 2's fixes, 2026-10-26). Amended by DR-87, DR-100 and DR-104.
 - **Starting point:** extended "Extractors read the repo", "Actors: agents never act as a person" and "Surfaces read one contract".
 - **Origin:** round 2 of the walking skeleton's review. Its 16 material findings, 12 distinct defects, are in [the review's index](research/skeleton-review/README.md). Four fix branches fixed them (the scan, budget, guard and canvas fixes), and one was fixed in the plan.
 - **Context:** Round 1's fixes held. Round 2 found what they left: inputs outside a snapshot's key, a late scan that could move a repo back, a partial clone that fetched, one unreadable repo failing a whole scan, warnings and two leaves over budget, a guard with no write rule for Bash and no rule for recursive reads, and two canvas controls that led nowhere.
@@ -2195,6 +2198,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - A workspace whose repos have no commits returns `repos_unborn`, and scan's summary counts no unborn or skipped repo.
   - The guard reads the shell's directory per call, checks every tool's paths and uploads, and protects the plugin's root.
 - **Amended by DR-100:** the per-blob cache's key adds the file's repo-qualified path to the options this record added.
+- **Amended by DR-104:** a repo another user owns, or one that borrows another user's object store, is skipped with `repo_skipped`, reason `other_owner`, and a `null` fix: its line says who can scan it, since no copy command works in every layout.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/round2-*.json`; the four fix branches' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
 
 ## DR-87: What the walking skeleton's review settled in round 3
@@ -2435,7 +2439,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-92: The truth comparator's floor, edit's first ops, the dirty count's git call, and test-only seams
 
-- **Status:** accepted (decided at the merges of M1's truth comparator, discovery, person authority and edit work, 2026-10-27).
+- **Status:** accepted (decided at the merges of M1's truth comparator, discovery, person authority and edit work, 2026-10-27). Amended by DR-104.
 - **Starting point:** extended DR-71 (as DR-85 amended it), DR-73, DR-75, DR-86, DR-89 and DR-91.
 - **Origin:** the merges of the truth comparator, the dirty-repo count, person authority and the `edit` leaf, each read against the docs by an independent check or at merge.
 - **Context:**
@@ -2465,6 +2469,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: `WriteCommon.client` required over HTTP; `EditOp::Forbid`'s `None` refused; the pending ops' comment.
   - Tests: `crates/testkit/tests/truth.rs`; `s01_first_look.rs::truth_recall_never_drops`; `edit.rs::a_base_past_the_head_is_refused`, `an_http_write_without_its_client_is_refused`; the git adapter's `counting_uncommitted_files_runs_no_filter_the_repo_or_a_submodule_names`; `server_auth.rs::an_expired_or_reused_code_is_refused`; `open.rs`.
   - It amends DR-71 (the dirty count's git call) and DR-91 (when `set`, `text` and `propose` arrive).
+- **Amended by DR-104:** `PLANROOM_TEST_EUID` joins the test-only seams: in a debug build it stands in for the effective user ID, release builds compile it out, and the mod sets it empty for every engine run.
 - **Sources (checked 2026-10-27):** `crates/testkit/src/truth.rs`; `crates/planroom/src/app/{edit, open, dirty}.rs`; `crates/planroom/src/server/auth.rs`; `crates/extract/src/git.rs`; [Testing strategy](architecture.md#testing-strategy); [Contracts](contracts.md).
 
 ## DR-93: The model adapter's crate edges, its transport's crypto provider, and an environment variable's own hint
@@ -2750,3 +2755,32 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Known gaps: in a repo whose compose service name differs from the repo's name, the manifest's root container and compose's service are two containers until M3's linkers join them; the compose built-in has no heap charge of its own, finds lines per evidence item in quadratic time, and puts a service name holding a newline or backslash into a node ID, and the runner's node emits take such a captured key too, which the cross-repo links change closes; two Rust `use` forms (`self as x` in a group, a comment inside a plain path) give wrong import keys; a dense `Cargo.toml` can be refused whole by the per-file budget.
   - Tests: `crates/extract/tests/formats.rs`; `contract.rs::imports_and_calls_for_each_language`; `packs.rs::every_built_in_query_compiles`, `a_broken_query_loads_and_is_pack_invalid_wherever_a_process_extracts` and `read_commands_and_watch_frames_compile_no_query`; `privacy.rs::a_route_call_key_holding_a_secret_is_masked_where_hints_are_shown`.
 - **Sources (checked 2026-10-28):** `crates/extract/src/{manifest, openapi, declarative/charge}.rs`; `packs/code/{languages, queries}/`; `crates/planroom/src/packs/mod.rs`; [The extractor contract](architecture.md#the-extractor-contract); [Contracts](contracts.md).
+
+## DR-104: Git history, an owner check before every git call, and another user's repo skipped with no command
+
+- **Status:** accepted (decided at the merge of M1's git history adapter, 2026-10-28).
+- **Starting point:** extended DR-12, DR-47, DR-74, DR-78 and DR-85; amends DR-16, DR-79, DR-86 and DR-92.
+- **Origin:** the merge of M1's git history adapter, read against the docs by independent checks over nine rounds.
+- **Context:**
+  - The `git` extractor reads a snapshot's history for co-change, ownership and churn, and a repo chooses what that history and its git directory hold: replace refs, a graft file, a shallow cut, alternates into another user's object store, special files where git opens a regular one, submodules whose git directories live elsewhere.
+  - DR-78 has the engine refuse a repo whose git directory another user owns. Git itself still ran in places the check didn't reach: listing submodules ran git inside each one, and a repo borrowing another user's object store let that user stall a scan.
+  - DR-86 had every `repo_skipped` name a fix. For another user's repo, each printed copy command failed in some layout (symlinks, nested workspaces, special files carried into the copy, clashing names).
+- **Decision:**
+  - **History is the commit's own.** Every git call pins the repo's own git directory and working tree (`GIT_DIR`, `GIT_WORK_TREE`), reads no graft file and no replace refs, and never looks above a workspace repo. A shallow clone's boundary is reported in `partial_scan` as DR-47 reports its 5,000-commit cut, one `history before <sha>` per boundary the read reached.
+  - **The owner check runs before any git call there (amends DR-16).** It compares, with the effective user ID, the owner of the working tree, the `.git` file and the git directory it names, the common directory, and every object directory git would read through `objects/info/alternates`, as deep as git reads them. A repo that fails it is skipped with `repo_skipped`, reason `other_owner`. With the git directory named, git's own `safe.directory` check doesn't run; the engine's is the one that counts, on every git version from 2.34.1.
+  - **Submodules are listed without running git in them.** A root repo's submodules are the gitlinks of its own index (`git ls-files -s -z`) whose paths its `.gitmodules`, read as a file and never through git, names. Each is then a repo with its own owner check before any git call in it. The root's own check runs first, so a root another user owns, or one borrowing another user's objects, is skipped like any repo, never `git_failed`.
+  - **Special files fail before git opens them.** A file git opens in a git or common directory (`HEAD`, `config`, `config.worktree`, `packed-refs`, `index`, `shallow`, `objects/info/alternates`, `info/exclude`, `info/attributes`) that exists and is neither a regular file nor `/dev/null`, which git reads as empty, gives `git_failed` with `ls -l` of its path, so nothing blocks on a FIFO.
+  - **Another user's repo names no command (amends DR-86).** An `other_owner` skip's `fix` is `null`: its one line says who owns what and that the owner can scan it, or the person can scan a copy they own. `path_refused`'s `other_owner` reason stays in the registry, reserved for a later read that names a path in another user's repo; no M1 path produces it.
+  - **A step a run's own scope leaves out reads `not run` (amends DR-79).** `cargo xtask test -p CRATE` reports vitest and the other suites it doesn't run as `not run`, which neither passes nor fails, apart from `not built` and `skipped`.
+  - **`PLANROOM_TEST_EUID` joins the test-only seams (amends DR-92).** In a debug build only, it stands in for the effective user ID, so a test plants another user's repo without root; release builds compile it out, and the mod sets it empty for every engine run.
+  - **The oldest-git CI job** runs the adapter's tests on git 2.34.1 in an `ubuntu:22.04` container, which has neither git nor Rust. `ci_runs_only_xtask`'s setup steps gain the lines that install them: `apt-get update`, `apt-get install` of git, a build toolchain, `ca-certificates`, `curl`, `pkg-config` and `python3.11` (with `python3` linked to it), the rustup installer over HTTPS, and the cargo path line.
+  - The plan's test `git_hardening.rs::the_other_owner_fix_runs_without_root` is renamed `the_other_owner_skip_names_no_command`, since that fix no longer exists, and `feature_list.json`'s git-checks step now says the scan skips such a repo with `repo_skipped`, reason `other_owner`, fix `null`.
+- **Alternatives rejected:**
+  - Printing a copy command for another user's repo: every form tried failed in some layout, and a copy carries that user's special files.
+  - A wall-clock deadline on git calls: DR-47's bounds are deterministic.
+  - `git submodule status`: it runs git inside each submodule before that submodule's owner check.
+- **Consequences:**
+  - Contracts: `repo_skipped`'s `other_owner` with a `null` fix; `partial_scan`'s shallow-clone `uncovered`; `git_failed` for a special file; the reserved `path_refused` reason.
+  - Known gaps: a group-shared repo (`core.sharedRepository`) lets a member of its group plant a FIFO that stalls a scan; a copy of another user's repo can carry their special files; loose refs, loose objects, working-tree `.gitignore` and `.gitattributes`, and files config names aren't checked for special files, since only someone who can write there can plant one; a `git_failed` fix's `ls -l` path under `.git/modules/<name>/` or `.git/worktrees/<name>/` can come out partly masked when the name is short; `focus` and `map` show `no_repos` for a root whose submodule listing fails; the empty-state line says another user owns a working tree when only its git directory is theirs.
+  - Tests: `crates/extract/tests/git.rs`; `crates/planroom/tests/git_hardening.rs`; the oldest-git job.
+- **Sources (checked 2026-10-28):** `crates/extract/src/git.rs`; `crates/planroom/src/app/{workspace, scan}.rs`; `crates/xtask/src/{report, workflows}.rs`; `.github/workflows/ci.yml`; [Adapters](architecture.md#adapters); [Contracts](contracts.md).

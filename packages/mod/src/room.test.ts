@@ -215,8 +215,9 @@ test("/room draws a map's full result: one row a block, then the handles", () =>
   });
   const blocks = rows.filter((r) => r.key.startsWith("block-"));
   expect(blocks).toHaveLength(mapReply.result.nodes.length);
+  // kit's four directories, its package and its two authors; its library is the container.
   expect(blocks[0]).toMatchObject({
-    text: "□ kit · 11 code, 5 component, 1 container",
+    text: "□ kit · 11 code, 7 component, 1 container",
   });
 });
 

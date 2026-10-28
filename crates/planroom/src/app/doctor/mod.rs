@@ -36,6 +36,12 @@ pub enum DoctorReply {
     Pack(PackReport),
 }
 
+/// The git on `PATH` is new enough for the adapter, checked before any other doctor check, or
+/// `git_too_old` (DR-78).
+pub fn git() -> Result<(), AppError> {
+    planroom_extract::git::check_version().map_err(|e| AppError::git_too_old(&e))
+}
+
 /// Run `check` for the workspace at or above `cwd`.
 pub fn run(check: Check, _cwd: &Path) -> Result<Reply<DoctorReply>, AppError> {
     match check {

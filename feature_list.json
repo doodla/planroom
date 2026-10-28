@@ -2336,7 +2336,7 @@
           "a fixture repo whose .git/config defines diff.x.textconv, diff.external, a filter.x.smudge and a merge.x.driver, each a script that writes a marker file, with a .gitattributes line naming them: planroom scan, diff --handoff and handoff collect run none of them; handoff merge refuses that repo with repo_config_refused and one card; git below 2.34.1 gets git_too_old from doctor and scan, and the engine refuses a repo another user owns on any git (DR-64, DR-78)",
           "a file named with an OSC 52 escape, and an implementer diff hunk with U+202E and U+2066: CLI text, /room text, the pane rows and the canvas show visible escapes and markers, and the collected diff's summary carries hidden_characters naming the lines (DR-64)",
           "an implementer diff that also changes .github/workflows/ci.yml, outside the spec's touch points: the review card carries outside_touch_points naming it and expands its hunks before it offers Merge (DR-75)",
-          "a workspace repo whose git directory another user owns, on a git without safe.directory: scan refuses it with path_refused, reason other_owner; a git stub that reports 2.30.0: scan and doctor return git_too_old with the fix line (DR-78)"
+          "a workspace repo whose git directory another user owns, on a git without safe.directory: scan skips it with a repo_skipped warning, reason other_owner, fix null; a git stub that reports 2.30.0: scan and doctor return git_too_old with the fix line (DR-78)"
         ],
         "compare": [],
         "stand_ins": [
@@ -2376,9 +2376,7 @@
         "crates/planroom/tests/git_hardening.rs::textconv_ext_diff_and_drivers_never_fire": "M2",
         "crates/planroom/tests/git_hardening.rs::a_repo_whose_config_names_a_command_is_refused_before_merge": "M2",
         "crates/planroom/tests/handoff_clone.rs::a_hidden_character_hunk_warns": "M2",
-        "crates/planroom/tests/handoff_clone.rs::an_out_of_scope_change_is_flagged": "M2",
-        "crates/planroom/tests/git_hardening.rs::a_repo_another_user_owns_is_refused": "M1",
-        "crates/planroom/tests/git_hardening.rs::an_old_git_gets_git_too_old": "M1"
+        "crates/planroom/tests/handoff_clone.rs::an_out_of_scope_change_is_flagged": "M2"
       },
       "decision": "DR-64, DR-75, DR-78, DR-85, DR-86"
     }

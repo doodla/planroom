@@ -1,6 +1,7 @@
-//! The extractor contract for the built-ins and the declarative runner: deterministic, sorted,
-//! tolerant, bounded in sorted path order, code and never comments, emit props typed by the prop
-//! schema, and every fact's evidence verifies against the commit.
+//! The extractor contract for the built-ins (`files`, `compose`, `manifest`, `openapi` and `git`)
+//! and the declarative runner: deterministic, sorted, tolerant, bounded in sorted path order, code
+//! and never comments, emit props typed by the prop schema, and every fact's evidence verifies
+//! against the commit.
 
 mod code_pack;
 
@@ -104,11 +105,16 @@ fn run(view: &RepoView, name: &str, files: &[RepoPath], opts: serde_json::Value)
                              "repo": repo, "directory": directory}),
         "openapi" => json!({"spec": kind("code.api_spec", "spec", "component"), "repo": repo,
                             "directory": directory}),
+        "git" => json!({"repo": repo, "file": kind("code.file", "file", "code"),
+                        "person": kind("code.person", "person", "component")}),
         _ => json!({"service": kind("code.service", "container", "container"),
                     "tooling": kind("code.tooling", "container", "container"), "repo": repo}),
     };
     let mut opts = if opts.is_null() { json!({}) } else { opts };
     opts["kinds"] = kinds;
+    if name == "git" {
+        opts["relations"] = json!({"co_change": "code.co_change", "owned_by": "code.owned_by"});
+    }
     builtin(name).unwrap().run(view, files, &opts).unwrap()
 }
 
@@ -2431,4 +2437,66 @@ fn an_ordinary_file_keeps_its_facts_under_a_predicate_on_nesting_nodes() {
         assert!(batch.partial.is_empty(), "{query}: {:?}", batch.partial);
         assert_eq!(!batch.hints.is_empty(), facts, "{query}");
     }
+}
+
+#[test]
+fn git_facts_carry_ref_evidence() {
+    // Two more commits that change the compose file and main.ts together, a tag and a branch.
+    let dir = tempfile::tempdir().unwrap();
+    let first = repo(dir.path());
+    let root = first.root.clone();
+    for n in 2..4 {
+        fs::write(root.join("src/app/main.ts"), format!("export const x = {n};\n")).unwrap();
+        fs::write(root.join("docker-compose.yml"), format!("{COMPOSE}# {n}\n")).unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "Change both"]);
+    }
+    git(&root, &["-c", "tag.gpgsign=false", "tag", "-a", "v1.0.0", "-m", "v1.0.0"]);
+    git(&root, &["branch", "feature"]);
+    let view = view(&root);
+    let files = walked(&view).files;
+    let batch = run(&view, "git", &files, json!(null));
+    assert_eq!(
+        serde_json::to_string(&batch).unwrap(),
+        serde_json::to_string(&run(&view, "git", &files, json!(null))).unwrap(),
+        "deterministic"
+    );
+
+    // Tags and branches make no nodes: only the one author is one.
+    let kinds: BTreeSet<&str> = batch.nodes.iter().map(|n| n.kind.0.as_str()).collect();
+    assert_eq!(kinds, BTreeSet::from(["code.person"]));
+    assert_eq!(batch.nodes.len(), 1);
+    let relations: BTreeSet<&str> = batch.edges.iter().map(|e| e.kind.0.as_str()).collect();
+    assert_eq!(relations, BTreeSet::from(["code.co_change", "code.owned_by"]));
+    let pair = batch.edges.iter().find(|e| e.kind.0 == "code.co_change").unwrap();
+    assert_eq!(pair.props["count"], 3, "the first commit and the two after it");
+
+    // Every fact's evidence is a Ref to a commit of the history, naming no ref, and verifies.
+    let history = Command::new("git").args(["rev-list", "HEAD"]).current_dir(&root).output().unwrap();
+    let history: BTreeSet<String> =
+        String::from_utf8_lossy(&history.stdout).lines().map(str::to_owned).collect();
+    let evidence =
+        batch.nodes.iter().flat_map(|n| &n.evidence).chain(batch.edges.iter().flat_map(|e| &e.evidence));
+    for item in evidence {
+        match item {
+            Evidence::Ref { commit, ref_name: None } => assert!(history.contains(commit), "{commit}"),
+            other => panic!("not a Ref with no ref name: {other:?}"),
+        }
+    }
+    let refs = Git::new(&root).refs().unwrap();
+    let mut checked = batch.clone();
+    let mut verifier = Verifier::new(&view.name, &view.commit, &refs, Git::new(&root).objects().unwrap());
+    assert!(verifier.verify(&mut checked).unwrap().is_empty());
+    assert_eq!(checked, batch);
+
+    // A Ref that names a tag or a branch names it in full: a short name, which a tag and a branch
+    // can share, doesn't verify.
+    let at = |name: &str| Evidence::Ref { commit: view.commit.clone(), ref_name: Some(name.into()) };
+    let mut named = batch.clone();
+    named.nodes[0].evidence =
+        vec![at("refs/tags/v1.0.0"), at("refs/heads/feature"), at("v1.0.0"), at("feature")];
+    let dropped = verifier.verify(&mut named).unwrap();
+    let reasons: Vec<&str> = dropped.iter().map(|d| d.reason.as_str()).collect();
+    assert_eq!(reasons, ["ref v1.0.0 doesn't exist", "ref feature doesn't exist"]);
+    assert_eq!(named.nodes[0].evidence, [at("refs/tags/v1.0.0"), at("refs/heads/feature")]);
 }

@@ -1063,7 +1063,7 @@ pub(super) fn runnable(
 /// A built-in extractor's `options`, read through the table its registry entry declares, as a
 /// query shape's parameters are: a key the table doesn't declare is refused at its own line, a
 /// `kinds` role the built-in doesn't emit too, and every role it emits names a kind in scope,
-/// since it emits each (DR-46).
+/// since it emits each (DR-46); a `relations` role names a relation in scope the same way.
 fn builtin_options(
     ctx: &Ctx<'_>,
     table: &[Param],
@@ -1095,14 +1095,18 @@ fn builtin_options(
             Some(_) => return Err(ctx.bad(&here, eid, "options", &[("name", &name)])),
         };
         for (role, kind) in kinds {
-            if !roles.iter().any(|r| r.key == role) {
+            let Some(declared) = roles.iter().find(|r| r.key == role) else {
                 let vars: &Vars<'_> = &[("role", role), ("name", &name), ("roles", &listed(roles))];
                 return Err(src.invalid_at(&here.key(role), At::Key, role, "role_unknown", vars));
-            }
+            };
             let Some(kind) = kind.as_str() else {
                 return Err(ctx.bad(&here.key(role), eid, "options", &[("name", &name)]));
             };
-            ctx.kind(kind, &here.key(role))?;
+            // A `relations` role names a relation the built-in emits, loaded as its kinds are.
+            match declared.names {
+                ParamNames::Relation => ctx.relation(kind, &here.key(role))?,
+                _ => drop(ctx.kind(kind, &here.key(role))?),
+            }
         }
         if let Some(missing) = roles.iter().find(|r| !kinds.contains_key(r.key)) {
             // Named at the kinds table, or at the options or the entry when those aren't written.

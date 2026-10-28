@@ -82,7 +82,8 @@ fn map_keeps_to_its_budget_and_says_where_to_go_next() {
         args.push("--json");
         let coarser = planroom(tmp.path(), &args);
         assert!(coarser["meta"]["size"]["tokens_est"].as_u64().unwrap() <= budget);
-        assert!(coarser["summary"].as_str().unwrap().starts_with("21 at the component level"), "{coarser}");
+        // src, its 20 directories, and the repo's one author.
+        assert!(coarser["summary"].as_str().unwrap().starts_with("22 at the component level"), "{coarser}");
     }
 }
 
@@ -340,6 +341,34 @@ fn an_empty_state_lists_a_few_repos_and_counts_the_rest() {
         let line = empty["line"].as_str().unwrap();
         assert!(line.contains("; and 9 more"), "{args:?}: {line}");
         assert!(line.chars().count() < 300, "{args:?}: {line}");
+        let budget = u64::from(leaf.spec().budget_tokens);
+        assert!(env["meta"]["size"]["tokens_est"].as_u64().unwrap() <= budget, "{args:?}: {}", env["meta"]);
+        let warnings = env["meta"]["warnings"].as_array().map_or(&[][..], |w| w.as_slice());
+        assert!(!warnings.iter().any(|w| w["message"].as_str().unwrap().contains("budget")), "{warnings:?}");
+    }
+}
+
+/// The empty state of a workspace git can read no repo of names no path, so a workspace at a
+/// long path keeps `map` and `focus` to their budgets: here every repo counts as another user's,
+/// through the debug build's stand-in for the effective user ID.
+#[test]
+fn an_unreadable_workspace_at_a_long_path_keeps_its_empty_state_to_its_budget() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut ws = tmp.path().to_path_buf();
+    for i in 0..15 {
+        ws.push(format!("{}{i}", "d".repeat(200)));
+    }
+    for name in ["a", "b"] {
+        git_repo(&ws.join(name), &[("f.txt".to_owned(), b"x\n".to_vec())]);
+    }
+    let me = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&ws).unwrap());
+    let other = me.wrapping_add(1).to_string();
+    for (args, leaf) in
+        [(vec!["map"], Leaf::Map(MapReq::default())), (vec!["focus"], Leaf::Focus(Default::default()))]
+    {
+        let env = reply(&ws, &args, "", &[("PLANROOM_TEST_EUID", &other)]);
+        let empty = &env["result"]["empty"];
+        assert_eq!(empty["reason"], "repos_unreadable", "{env}");
         let budget = u64::from(leaf.spec().budget_tokens);
         assert!(env["meta"]["size"]["tokens_est"].as_u64().unwrap() <= budget, "{args:?}: {}", env["meta"]);
         let warnings = env["meta"]["warnings"].as_array().map_or(&[][..], |w| w.as_slice());

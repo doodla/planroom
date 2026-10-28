@@ -17,7 +17,7 @@ use planroom_contract::{
 };
 use planroom_extract::git::{Git, GitError};
 use planroom_extract::verify::Verifier;
-use planroom_extract::{RepoView, files, select, walk};
+use planroom_extract::{ExtractError, RepoView, files, select, walk};
 use planroom_kernel::{facts, keys, redact};
 use planroom_store::{FactRow, Init, RepoOutcome, RepoScan, ScanKey, ScanRules, ScanWrite, Shape, Store};
 use serde_json::{Value, json};
@@ -73,6 +73,8 @@ pub fn prepare_with(req: &ScanReq, cwd: &Path, packs: Loaded) -> Result<Prepared
     // A scan's decision run may call a model, so the live gate is read first: a relative spend
     // log, or a live flag with none, stops the scan before it reads anything (DR-65).
     models::live_env()?;
+    // A git older than the adapter's floor, checked once before any repo is read (DR-78).
+    planroom_extract::git::check_version().map_err(|e| AppError::git_too_old(&e))?;
     let dir = req.dir.as_deref().map_or_else(|| cwd.to_path_buf(), |d| cwd.join(d));
     let ws = workspace::discover(&dir)?;
     if ws.repos.is_empty() {
@@ -341,15 +343,25 @@ impl From<GitError> for RepoError {
     }
 }
 
-/// The `repo_skipped` warning for a repo git can't read: its reason and the fix.
+/// An extractor git couldn't serve leaves its repo out, as a repo git can't walk does; any other
+/// extractor failure is a bug.
+impl From<ExtractError> for RepoError {
+    fn from(e: ExtractError) -> RepoError {
+        match e {
+            ExtractError::Git(e) => RepoError::Git(e),
+            other => RepoError::App(other.into()),
+        }
+    }
+}
+
+/// The `repo_skipped` warning for a repo git can't read, or another user owns: its reason and the
+/// fix.
 fn skipped(repo: &Repo, e: &GitError) -> Warning {
-    let path = repo.path.display().to_string();
-    let reason = if e.is_other_owner() { "other_owner" } else { "git_failed" };
-    let fix = text::get(&format!("fix.{reason}"), &[("path", &path)]);
+    let skip = workspace::skip(&repo.name, &repo.path, e);
     Warning {
         code: WarningCode::RepoSkipped,
-        message: text::get(&format!("warning.repo_skipped_{reason}"), &[("repo", &repo.name), ("fix", &fix)]),
-        details: json!({"repo": repo.name, "reason": reason, "fix": fix}),
+        message: skip.message,
+        details: json!({"repo": repo.name, "reason": skip.reason, "fix": skip.fix}),
     }
 }
 
@@ -416,11 +428,21 @@ fn extract(
     };
     let walked = walk::walk(&git, &head.commit, exclude)?;
     // Which blobs a partial clone holds changes what the walk read, so it keys the snapshot too.
-    let inputs = if walked.missing.is_empty() {
+    let mut inputs = if walked.missing.is_empty() {
         inputs.to_owned()
     } else {
         keys::sha256_hex(&[inputs, "missing", &walked.missing.join("\n")])
     };
+    // So do the shallow boundaries a history read stops at: a clone deepened later reads more of
+    // the same commit's history.
+    let shallow = if runs.iter().any(Run::reads_history) {
+        git.shallow_cut(&head.commit, planroom_extract::history::BOUND)?
+    } else {
+        Vec::new()
+    };
+    if !shallow.is_empty() {
+        inputs = keys::sha256_hex(&[&inputs, "shallow", &shallow.join("\n")]);
+    }
     let view = RepoView {
         name: repo.name.clone(),
         root: repo.path.clone(),
@@ -464,9 +486,45 @@ fn extract(
     for run in runs {
         let globs: Vec<&str> = run.files.iter().map(String::as_str).collect();
         let selected = select(&walked.files, &globs).map_err(|e| RepoError::App(e.into()))?;
-        let mut batch = run.extract(&view, &selected).map_err(|e| RepoError::App(e.into()))?;
+        let mut batch = run.extract(&view, &selected).map_err(RepoError::from)?;
         dropped.extend(verifier.verify(&mut batch)?);
         batches.push(batch);
+        // What the extractor's own bound left out, such as history past its commit bound (DR-47).
+        let uncovered = run.uncovered(&view).map_err(RepoError::from)?;
+        if let Some(cut) = uncovered.first().and_then(|u| u.strip_prefix("history before ")) {
+            let bound = planroom_extract::history::BOUND;
+            // The bound's cut comes first when there is one; otherwise each is a shallow clone's
+            // boundary.
+            let message = if shallow.iter().any(|sha| sha == cut) {
+                text::get(
+                    "warning.partial_scan_shallow",
+                    &[("extractor", &run.name), ("repo", &repo.name), ("commit", &short(cut))],
+                )
+            } else {
+                text::get(
+                    "warning.partial_scan_history",
+                    &[
+                        ("extractor", &run.name),
+                        ("bound", &bound),
+                        ("repo", &repo.name),
+                        ("commit", &short(cut)),
+                    ],
+                )
+            };
+            let mut sample = uncovered.clone();
+            sample.sort();
+            sample.truncate(WARNING_SAMPLE);
+            warnings.push(Warning {
+                code: WarningCode::PartialScan,
+                message,
+                details: json!({
+                    "extractor": run.name,
+                    "repo": repo.name,
+                    "count": uncovered.len(),
+                    "uncovered": sample,
+                }),
+            });
+        }
     }
     if !dropped.is_empty() {
         let sample: Vec<Value> =
