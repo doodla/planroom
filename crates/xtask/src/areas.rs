@@ -353,8 +353,9 @@ fn tracked_areas(root: &Path) -> Result<BTreeSet<String>, String> {
 }
 
 /// `area_contracts_match_repo_layout`, less the block drift `cargo xtask check`'s drift checks
-/// cover: every area has a row, its `AGENTS.md` and its `CLAUDE.md` (none in `plugin/`), and the
-/// "May depend on" cells name exactly the allow-lists in `boundaries.toml`.
+/// cover: every area has a row, its `AGENTS.md` and its `CLAUDE.md` (none in `plugin/`), the
+/// "May depend on" cells name exactly the allow-lists in `boundaries.toml`, and each "How to test
+/// it" cell starts with its `cargo xtask` command and names files that resolve and no test function.
 pub fn problems(root: &Path, rules: &Boundaries) -> Result<Vec<String>, String> {
     let rows = areas(root)?;
     let mut problems = Vec::new();
@@ -379,8 +380,10 @@ pub fn problems(root: &Path, rules: &Boundaries) -> Result<Vec<String>, String> 
             problems.push(format!("{dir}/CLAUDE.md must exist and hold the one line `@AGENTS.md`"));
         }
     }
+    let listed = util::listed_files(root)?;
     for area in &rows {
         problems.extend(may_depend_problems(area, rules));
+        problems.extend(test_cell_problems(root, area, &listed));
     }
     Ok(problems)
 }
@@ -459,9 +462,364 @@ fn may_depend_problems(area: &Area, rules: &Boundaries) -> Vec<String> {
     problems
 }
 
+/// The file extensions whose names a How to test it cell must resolve.
+const TESTED_EXTENSIONS: [&str; 4] = ["rs", "ts", "tsx", "sh"];
+
+/// The How to test it cells' rules: each starts with a `cargo xtask` command, then names files and
+/// commands only. A named `.rs`, `.ts`, `.tsx` or `.sh` file resolves from the repo root, or as a
+/// bare or area-relative name under the area, unless `(Mn)` follows it; a backticked snake_case
+/// name is a test function's, whose home is traceability.md and feature_list.json.
+fn test_cell_problems(root: &Path, area: &Area, listed: &[String]) -> Vec<String> {
+    let mut problems = Vec::new();
+    let row = format!("{REPO_LAYOUT}: the `{}` row's How to test it cell", area.dir);
+    if !area.test.starts_with("`cargo xtask") {
+        problems
+            .push(format!("{row} doesn't start with the `cargo xtask` command that runs the area's tests"));
+    }
+    let parts: Vec<&str> = area.test.split('`').collect();
+    for i in (1..parts.len()).step_by(2) {
+        let span = parts[i];
+        let after = parts.get(i + 1).copied().unwrap_or_default();
+        // A test function's name, bare, called, or after its file or module, as
+        // `truth.rs::truth_compares_by_name`.
+        let name = span.rsplit("::").next().unwrap_or(span).trim_end_matches("()");
+        let snake = name.contains('_')
+            && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+        let qualified = span.split_once("::").is_some_and(|(file, _)| {
+            file.rsplit_once('.').is_some_and(|(_, ext)| TESTED_EXTENSIONS.contains(&ext))
+        });
+        if snake || qualified {
+            problems.push(format!(
+                "{row} names `{span}`, a test function; name its file instead, and keep the test in traceability.md and feature_list.json"
+            ));
+            continue;
+        }
+        let file = !span.contains(char::is_whitespace)
+            && span.rsplit_once('.').is_some_and(|(_, ext)| TESTED_EXTENSIONS.contains(&ext));
+        if !file || span.contains('*') || span.contains("NN") || crate::docs::leading_tag(after).is_some() {
+            continue;
+        }
+        let under = format!("{}/", area.dir);
+        let resolves = root.join(span).is_file()
+            || root.join(&area.dir).join(span).is_file()
+            || listed.iter().any(|f| f.starts_with(&under) && (f.ends_with(&format!("/{span}"))));
+        if !resolves {
+            problems.push(format!(
+                "{row} names `{span}`, which resolves neither from the repo root nor under `{}/`; write the file's path, or tag it with the milestone that builds it, as `(M2)`",
+                area.dir
+            ));
+        }
+    }
+    problems
+}
+
+/// The `(Mn)` tag anywhere in `text`.
+fn tag_in(text: &str) -> Option<String> {
+    text.match_indices("(M").find_map(|(at, _)| crate::docs::leading_tag(&text[at..]))
+}
+
+/// One path a Directory map line or a Layout list item names, from the repo root.
+#[derive(Debug, Clone)]
+pub struct Named {
+    pub path: String,
+    /// Where it is named, as `file:line`.
+    pub at: String,
+    /// The milestone its line carries, `(Mn)`.
+    pub due: Option<String>,
+}
+
+/// The names on the Directory map's lines: only a line with a `├── ` or `└── ` connector carries
+/// names; its depth is the number of 4-column glyph groups before the connector; the rest splits on
+/// runs of two or more spaces, and the names are the leading tokens holding a `/` or a `.` and no
+/// space. Each joins the path of the line above it at one depth less.
+pub fn map_names(text: &str) -> Vec<Named> {
+    let mut out = Vec::new();
+    let mut lines = text.lines().enumerate().skip_while(|(_, l)| l.trim_end() != "## Directory map");
+    let mut parents: Vec<String> = Vec::new();
+    let mut inside = false;
+    for (n, line) in lines.by_ref() {
+        if line.starts_with("```") {
+            if inside {
+                break;
+            }
+            inside = true;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        let Some(at) = line.find("├── ").or_else(|| line.find("└── ")) else { continue };
+        let depth = line[..at].chars().count() / 4;
+        let rest = &line[at + "├── ".len()..];
+        let mut names = Vec::new();
+        for token in rest.split("  ").map(str::trim).filter(|t| !t.is_empty()) {
+            if token.contains(' ') || !(token.contains('/') || token.contains('.')) {
+                break;
+            }
+            names.push(token.to_owned());
+        }
+        parents.truncate(depth);
+        let parent = parents.last().cloned().unwrap_or_default();
+        let due = tag_in(line);
+        for name in &names {
+            out.push(Named {
+                path: format!("{parent}{name}"),
+                at: format!("{REPO_LAYOUT}:{}", n + 1),
+                due: due.clone(),
+            });
+        }
+        let first = names.first().map_or_else(String::new, |name| format!("{parent}{name}"));
+        parents.push(first);
+    }
+    out
+}
+
+/// The paths an area's `## Layout` list names: each item's leading code spans before its first
+/// `:`, relative to the area. `None` when the `AGENTS.md` has no `## Layout`.
+pub fn layout_names(area: &str, text: &str) -> Option<Vec<Named>> {
+    let start = text.lines().position(|l| l.trim_end() == "## Layout")?;
+    let mut out = Vec::new();
+    for (n, line) in text.lines().enumerate().skip(start + 1) {
+        if line.starts_with("# ") || line.starts_with("## ") {
+            break;
+        }
+        let Some(item) = line.strip_prefix("- ") else { continue };
+        let mut prefix = String::new();
+        let mut code = false;
+        for c in item.chars() {
+            if c == '`' {
+                code = !code;
+            } else if c == ':' && !code {
+                break;
+            }
+            prefix.push(c);
+        }
+        let due = tag_in(item);
+        for (i, span) in prefix.split('`').enumerate() {
+            if i % 2 == 1 && !span.is_empty() {
+                out.push(Named {
+                    path: format!("{area}/{span}"),
+                    at: format!("{area}/AGENTS.md:{}", n + 1),
+                    due: due.clone(),
+                });
+            }
+        }
+    }
+    Some(out)
+}
+
+/// The trees whose layout is data, the only places an entry may end `/**`: the code spans ending
+/// `/**` in the sentence of repo-layout.md's Area contracts that says where `**` stands.
+pub fn data_trees(text: &str) -> Result<Vec<String>, String> {
+    const SAYS: &str = "`**` stands only where a tree's layout is data:";
+    let line = text
+        .lines()
+        .find(|l| l.contains(SAYS))
+        .ok_or_else(|| format!("{REPO_LAYOUT}'s Area contracts no longer say where {SAYS:?}"))?;
+    let rest = &line[line.find(SAYS).unwrap_or_default() + SAYS.len()..];
+    let sentence = rest.split(". ").next().unwrap_or(rest);
+    let trees: Vec<String> = sentence
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .filter(|span| span.ends_with("/**"))
+        .map(str::to_owned)
+        .collect();
+    if trees.is_empty() {
+        return Err(format!("{REPO_LAYOUT}: the sentence {SAYS:?} names no tree ending `/**`"));
+    }
+    Ok(trees)
+}
+
+/// Whether `named`, a path or pattern from a map or Layout entry, names directory `dir`: the entry
+/// is that directory, a path below it, or an ancestor written with a trailing `**`.
+fn names_directory(named: &str, dir: &str) -> bool {
+    let named = named.trim_end_matches('/');
+    if let Some(base) = named.strip_suffix("/**")
+        && util::path_matches(&format!("{base}/**"), dir)
+    {
+        return true;
+    }
+    let segments: Vec<&str> = named.split('/').collect();
+    let depth = dir.split('/').count();
+    segments.len() >= depth && util::path_matches(&segments[..depth].join("/"), dir)
+}
+
+/// Whether a named path exists: a literal path on disk; a pattern when some listed file or
+/// directory matches it; a `**` entry when its base does.
+fn named_exists(root: &Path, named: &str, listed: &[String], dirs: &BTreeSet<String>) -> bool {
+    let named = named.trim_end_matches('/');
+    let named = named.strip_suffix("/**").unwrap_or(named);
+    if util::is_pattern(named) {
+        listed.iter().chain(dirs.iter()).any(|p| util::path_matches(named, p))
+    } else {
+        root.join(named).exists()
+    }
+}
+
+/// `every_directory_has_a_purpose`: every directory `git ls-files` holds, except under
+/// `examples/fixture/` and the Generated directories table's directory rows, is named by the
+/// Directory map or by its area's `## Layout` list (a dot directory, which has no area, by the map
+/// alone). An entry holding `**` is one of the trees repo-layout.md lists as data. An area with such a
+/// subdirectory has a Layout list. A named path that doesn't exist
+/// carries the milestone that builds it, `(Mn)`, on its line, and a line whose paths all exist
+/// carries none; the area table's Owns cell holds the same two rules for its rows
+/// (repo-layout.md, Area contracts; DR-79).
+pub fn purpose_problems(root: &Path) -> Result<Vec<String>, String> {
+    let listed = util::listed_files(root)?;
+    let all_dirs = util::directories_of(&listed);
+    let generated: Vec<String> = crate::docs::generated_table(root)?
+        .into_iter()
+        .filter(|r| r.shape == crate::docs::Shape::Directory)
+        .flat_map(|r| r.paths.into_iter().map(|p| p.path.trim_end_matches('/').to_owned()))
+        .chain(["examples/fixture".to_owned()])
+        .collect();
+    let skipped = |d: &str| generated.iter().any(|g| d == g || d.starts_with(&format!("{g}/")));
+    let dirs: Vec<&String> = all_dirs.iter().filter(|d| !skipped(d)).collect();
+    let text = read(root, REPO_LAYOUT)?;
+    let map = map_names(&text);
+    let rows = areas(root)?;
+    let mut problems = Vec::new();
+    let mut layouts: Vec<(String, Option<Vec<Named>>)> = Vec::new();
+    for area in rows.iter().filter(|a| root.join(&a.dir).is_dir()) {
+        let agents = fs::read_to_string(root.join(&area.dir).join("AGENTS.md")).unwrap_or_default();
+        layouts.push((area.dir.clone(), layout_names(&area.dir, &agents)));
+    }
+    let area_of = |dir: &str| {
+        layouts.iter().filter(|(a, _)| dir.starts_with(&format!("{a}/"))).max_by_key(|(a, _)| a.len())
+    };
+    for dir in &dirs {
+        let in_map = map.iter().any(|n| names_directory(&n.path, dir));
+        let area = area_of(dir);
+        let in_layout = area
+            .and_then(|(_, l)| l.as_ref())
+            .is_some_and(|l| l.iter().any(|n| names_directory(&n.path, dir)));
+        if in_map || in_layout {
+            continue;
+        }
+        problems.push(match area {
+            Some((a, _)) => format!(
+                "`{dir}/` has no stated purpose: add a line for it to {a}/AGENTS.md's ## Layout list (or the Directory map in {REPO_LAYOUT})"
+            ),
+            None => format!("`{dir}/` has no stated purpose: add it to the Directory map in {REPO_LAYOUT}"),
+        });
+    }
+    for (area, layout) in &layouts {
+        let subdirs: Vec<&&String> = dirs.iter().filter(|d| d.starts_with(&format!("{area}/"))).collect();
+        if layout.is_none() && !subdirs.is_empty() {
+            problems.push(format!(
+                "{area}/AGENTS.md has no ## Layout list, but `{area}/` holds subdirectories such as `{}/`; add the list, one line per subdirectory",
+                subdirs[0]
+            ));
+        }
+    }
+    let named: Vec<&Named> =
+        map.iter().chain(layouts.iter().filter_map(|(_, l)| l.as_ref()).flatten()).collect();
+    let trees = data_trees(&text)?;
+    for n in &named {
+        let path = n.path.trim_end_matches('/');
+        if path.contains("**") && !trees.iter().any(|t| t == path) {
+            problems.push(format!(
+                "{}: names `{path}`, but `**` stands only where a tree's layout is data, which {REPO_LAYOUT}'s Area contracts list (`{}`); name each subdirectory instead",
+                n.at,
+                trees.join("`, `")
+            ));
+        } else if path.replace("**", "").contains('*') {
+            problems.push(format!(
+                "{}: names `{path}`, but a single `*` names no directory; name each subdirectory, or write a placeholder (`<name>`, `sNN`)",
+                n.at
+            ));
+        }
+    }
+    let mut lines: Vec<&str> = named.iter().map(|n| n.at.as_str()).collect();
+    lines.dedup();
+    for at in lines {
+        let on_line: Vec<&&Named> = named.iter().filter(|n| n.at == at).collect();
+        let missing: Vec<&str> = on_line
+            .iter()
+            .filter(|n| !named_exists(root, &n.path, &listed, &all_dirs))
+            .map(|n| n.path.as_str())
+            .collect();
+        match (&on_line[0].due, missing.is_empty()) {
+            (None, false) => problems.push(format!(
+                "{at}: names `{}`, which {}; fix the path, or tag the line with the milestone that builds it, such as `(M2)`",
+                missing.join("`, `"),
+                if missing.len() == 1 { "doesn't exist" } else { "don't exist" }
+            )),
+            (Some(m), true) => problems.push(format!(
+                "{at}: carries ({m}), but every path it names exists; drop the tag"
+            )),
+            _ => {}
+        }
+    }
+    for area in &rows {
+        let exists = root.join(&area.dir).is_dir();
+        let ends_tagged = area.owns.rfind("(M").is_some_and(|at| {
+            crate::docs::leading_tag(&area.owns[at..]).is_some() && area.owns.ends_with(')')
+        });
+        let tagged = tag_in(&area.owns).is_some();
+        if !exists && !ends_tagged {
+            problems.push(format!(
+                "{REPO_LAYOUT}: the `{}` row's area doesn't exist; end its Owns cell with the milestone that builds it, as `(M2)`",
+                area.dir
+            ));
+        } else if exists && tagged {
+            problems.push(format!(
+                "{REPO_LAYOUT}: the `{}` row's area exists, but its Owns cell still carries a milestone tag; drop it",
+                area.dir
+            ));
+        }
+    }
+    Ok(problems)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn map_lines_name_paths_by_depth() {
+        let text = "## Directory map\n\n```text\nplanroom/\n├── README.md  LICENSE         the readme\n├── crates/\n│   ├── kernel/     planroom-kernel     pure\n│   │                                   no I/O\n│   └── xtask/      xtask\n├── scripts/a.sh  scripts/b.sh   (M5) release helpers\n└── docs/\n    └── evidence/sNN/   live runs\n```\n";
+        let names: Vec<(String, Option<String>)> =
+            map_names(text).into_iter().map(|n| (n.path, n.due)).collect();
+        let m5 = Some("M5".to_owned());
+        assert_eq!(
+            names,
+            [
+                ("README.md".to_owned(), None),
+                ("crates/".to_owned(), None),
+                ("crates/kernel/".to_owned(), None),
+                ("crates/xtask/".to_owned(), None),
+                ("scripts/a.sh".to_owned(), m5.clone()),
+                ("scripts/b.sh".to_owned(), m5),
+                ("docs/".to_owned(), None),
+                ("docs/evidence/sNN/".to_owned(), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn layout_items_name_their_leading_code_spans() {
+        let text = "# x\n\n## Layout\n\n- `src/`, `src/fold/`: the fold; see `other/`.\n- `jev/`: (M2) Jev calls.\nProse `not/`.\n\n## Next\n\n- `after/`: no.\n";
+        let names = layout_names("crates/kernel", text).unwrap();
+        let paths: Vec<&str> = names.iter().map(|n| n.path.as_str()).collect();
+        assert_eq!(paths, ["crates/kernel/src/", "crates/kernel/src/fold/", "crates/kernel/jev/"]);
+        assert_eq!(names[2].due.as_deref(), Some("M2"));
+        assert!(layout_names("a", "# a\n").is_none());
+    }
+
+    #[test]
+    fn an_entry_names_itself_its_ancestors_and_with_stars_its_subtree() {
+        assert!(names_directory("src/views/", "src"));
+        assert!(names_directory("src/views/", "src/views"));
+        assert!(!names_directory("src/views/", "src/views/x"));
+        assert!(names_directory("docs/contributing/research/**", "docs/contributing/research/arch/a"));
+        assert!(names_directory("docs/contributing/research/**", "docs/contributing"));
+        assert!(names_directory("plugin/skills/<name>/", "plugin/skills/room-plan"));
+        assert!(names_directory("docs/evidence/sNN/", "docs/evidence/s15"));
+        assert!(!names_directory("docs/evidence/sNN/", "docs/evidence/old"));
+        assert!(names_directory("plugin/.claude-plugin/plugin.json", "plugin/.claude-plugin"));
+    }
 
     #[test]
     fn table_cells_ignore_formatting() {

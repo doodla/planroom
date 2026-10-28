@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../docs/contributing/repo-layout.md#are
 - **Owns:** the two generated schema views and `baseline/`.
 - **May depend on:** `crates/contract` through `cargo xtask gen`.
 - **Must not:** hand edits; moving `baseline/` without a `schema_version` bump.
-- **How to test it:** `committed_schema_matches_the_generated_schema`; `breaking_change_guard`.
+- **How to test it:** `cargo xtask check` (`drift: schema/`; the breaking-change guard).
 
 Read first, from [Repo layout](../docs/contributing/repo-layout.md#read-first-per-area):
 

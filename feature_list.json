@@ -1444,7 +1444,7 @@
           "planroom --help shows exactly the five ideas and the help --all line (DR-77)",
           "every shipped crate's dependencies are on its allow-list, only models and planroom open sockets, and the contract crate does no I/O; each plant fails by its rule's name (DR-79)",
           "no check is skipped in CI unless declared, and a skipped listed test keeps its entry failing (DR-79)",
-          "every tracked directory has a stated purpose, every Read first name resolves, and every generated path has its header or markers (DR-79)"
+          "every tracked directory has a stated purpose, every Read first name resolves, and every generated path has its stub, header or markers (DR-79)"
         ],
         "stand_ins": [
           "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing"
@@ -1495,6 +1495,8 @@
         "crates/planroom/tests/golden.rs::golden_outputs_equal_engine_output",
         "crates/planroom/tests/docs.rs::read_first_names_resolve",
         "crates/planroom/tests/docs.rs::an_amended_record_says_so_in_its_status",
+        "crates/xtask/tests/docs.rs::generated_headers",
+        "crates/xtask/tests/gates.rs::a_branch_merge_lists_its_gated_changes",
         "crates/planroom/tests/usage.rs::a_bad_flag_or_value_with_json_is_one_invalid_argument_envelope",
         "crates/planroom/tests/usage.rs::the_schema_handle_of_a_usage_error_resolves",
         "crates/planroom/tests/usage.rs::an_unknown_command_with_json_names_the_catalogue",
@@ -1518,14 +1520,9 @@
         "packages/mod/src/room.test.ts::room_commands_snapshot": "M1",
         "tests/e2e/src/surface.spec.ts::empty_state_audit": "M1",
         "tests/plugin/surface_tokens.sh": "M1",
-        "crates/xtask/tests/gates.rs::ci_runs_only_xtask": "M1",
-        "crates/xtask/tests/gates.rs::area_contracts_match_repo_layout": "M1",
         "crates/planroom/tests/catalogue.rs::every_leaf_has_a_budget_or_streams": "M1",
         "packages/mod/src/tools.test.ts::a_wrong_argument_returns_the_leaf_synopsis": "M1",
-        "crates/planroom/tests/s15_surface.rs::help_shows_five_ideas": "M5",
-        "crates/xtask/tests/gates.rs::every_directory_has_a_purpose": "M1",
-        "crates/planroom/tests/docs.rs::read_first_names_resolve": "M1",
-        "crates/planroom/tests/docs.rs::an_amended_record_says_so_in_its_status": "M1"
+        "crates/planroom/tests/s15_surface.rs::help_shows_five_ideas": "M5"
       }
     },
     {

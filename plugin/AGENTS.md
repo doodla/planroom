@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../docs/contributing/repo-layout.md#are
 - **Owns:** the shipped plugin.
 - **May depend on:** built outputs and hand-written skills, agents, resolver.
 - **Must not:** `bin/`; symlinks; hand-written copies of generated files; contributor rules in its user-facing `README.md`.
-- **How to test it:** `claude plugin validate --strict`; `tests/plugin/`; `tests/installer/`.
+- **How to test it:** `cargo xtask check` (`claude plugin validate --strict`); `cargo xtask test --installer`.
 
 Read first, from [Repo layout](../docs/contributing/repo-layout.md#read-first-per-area):
 
@@ -16,6 +16,15 @@ Read first, from [Repo layout](../docs/contributing/repo-layout.md#read-first-pe
 - **Scenarios:** S14.
 
 <!-- END GENERATED -->
+
+## Layout
+
+- `.claude-plugin/`: `plugin.json`, whose version `cargo xtask gen` stamps, and `icon.png`.
+- `agents/`: the implementer and curator agents.
+- `hooks/`: GENERATED, with its `GENERATED.md`: `hooks.json`, naming the one hooks module, and `planroom-mod.js`, the mod's bundle.
+- `scripts/`: the POSIX sh resolver `planroom`, and the GENERATED `engine.env` and `contract.sh` it reads.
+- `skills/<name>/`: one skill each, its `SKILL.md` with `user-invocable: false`.
+- `types/`: GENERATED, with its `GENERATED.md`: `index.d.ts`, the `$.state` contract.
 
 ## Notes
 

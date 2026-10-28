@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Owns:** `Transport` (live, record, replay), Jev codecs, the Claude gateway and session backends, retries, spend accounting, the live gate and the host allow-list.
 - **May depend on:** `contract`, and its allow-list in `boundaries.toml`: `reqwest`, `rustls`, `tokio`, `sha2`, `serde`, `serde_json`, `thiserror` [DR-79].
 - **Must not:** other workspace crates; any network call without `PLANROOM_LIVE_*` or a consented credential; treating an ambient proxy as a credential.
-- **How to test it:** `jev_contract.rs` (both codecs over every fixture), `claude_decoders.rs`, `session_backend.rs`, `redact.rs`.
+- **How to test it:** `cargo xtask test -p planroom-models` (`claude_decoders.rs`, `redact.rs`, `transport.rs`, `replay.rs`, `hosts.rs`; `jev_contract.rs` (M2), both codecs over every fixture; `session_backend.rs` (M2)).
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
 
@@ -16,3 +16,9 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 - **Scenarios:** S7.
 
 <!-- END GENERATED -->
+
+## Layout
+
+- `src/`: the transport (live, record and replay), replay files, the Claude gateway, the live gate, the host allow-list, spend accounting and canonical request hashing.
+- `tests/`: one file per behavior: the Claude decoders, hosts, redaction, replay and the transport.
+- `tests/support/`: the helpers those test files share, as a module each includes.

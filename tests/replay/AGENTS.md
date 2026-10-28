@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Owns:** recorded Jev and Claude responses keyed by request hash.
 - **May depend on:** `cargo xtask live record`.
 - **Must not:** hand edits; a credential or a planted secret.
-- **How to test it:** the secret scan; every record parses through its codec.
+- **How to test it:** `cargo xtask check` (the secret scan); every record parses through its codec.
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
 
@@ -29,5 +29,5 @@ To test it, run `cargo xtask test -p planroom-models`: the adapter's replay, dec
 
 ## Layout
 
-- `claude/<purpose>/<key>.json`: Claude calls, one folder per purpose, such as `claude/plan.stage.outcome/`.
-- `jev/`: Jev calls, once the Jev adapter records them.
+- `claude/<purpose>/<key>.json`: (M1) Claude calls, one folder per purpose, such as `claude/plan.stage.outcome/`.
+- `jev/`: (M2) Jev calls, once the Jev adapter records them.

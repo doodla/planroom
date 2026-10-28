@@ -9,6 +9,10 @@ use crate::plugin;
 use crate::util;
 
 pub const BUNDLE: &str = "plugin/hooks/planroom-mod.js";
+pub const HOOKS_JSON: &str = "plugin/hooks/hooks.json";
+/// `plugin/hooks/hooks.json`: the one hooks module, the bundle. It holds only `modules`, since the
+/// plugin has no classic hooks (`plugin::layout_problems`).
+const HOOKS_JSON_CONTENTS: &str = "{ \"modules\": [\"./planroom-mod.js\"] }\n";
 pub const STATE_TYPES: &str = "plugin/types/index.d.ts";
 
 /// The atoms the mod keeps under `planroom`, each `Shaped<T>` so a reload that changes a value's
@@ -67,7 +71,13 @@ fn esbuild(root: &Path, entry: &str, externals: &[&str]) -> Result<String, Strin
 /// The committed bundle of `packages/mod`: ESM, no splitting, `claude-code` external.
 pub fn bundle(root: &Path) -> Result<Group, String> {
     let contents = export_register_inline(&esbuild(root, "src/register.tsx", &["claude-code"])?)?;
-    Ok(Group { name: BUNDLE, files: vec![Generated { path: BUNDLE.into(), contents }] })
+    Ok(Group {
+        name: "plugin/hooks/",
+        files: vec![
+            Generated { path: HOOKS_JSON.into(), contents: HOOKS_JSON_CONTENTS.into() },
+            Generated { path: BUNDLE.into(), contents },
+        ],
+    })
 }
 
 /// The host loads a hooks module only when `register` is a function declared and exported at its
@@ -106,8 +116,9 @@ pub fn harness(root: &Path) -> Result<std::path::PathBuf, String> {
             "{{\"name\": \"planroom\", \"version\": \"{version}\", \"description\": \"The planroom mod under test.\", \"types\": \"./types/index.d.ts\"}}\n"
         ),
     )?;
-    write("hooks/hooks.json", "{\"modules\": [\"./planroom-mod.js\"]}\n")?;
-    write("hooks/planroom-mod.js", &bundle(root)?.files.remove(0).contents)?;
+    for file in bundle(root)?.files {
+        write(file.path.strip_prefix("plugin/").unwrap_or(&file.path), &file.contents)?;
+    }
     let types = fs::read_to_string(root.join(STATE_TYPES)).map_err(|e| format!("{STATE_TYPES}: {e}"))?;
     write("types/index.d.ts", &types)?;
     let tests_dir = root.join("packages/mod/plugin-tests");

@@ -102,7 +102,8 @@ pub struct TsGlobalRules {
     pub entry_only: bool,
     pub no_circular: bool,
     pub not_to_unresolvable: bool,
-    pub generated_read_only: Vec<String>,
+    /// Where the generated paths are listed: the Generated directories table, never a copy of it.
+    pub generated_read_only: String,
     pub golden_readers: Vec<String>,
     pub domain_free: Vec<String>,
     pub test_tooling: TestTooling,
@@ -127,7 +128,15 @@ pub struct PackRules {
 pub fn load(root: &Path) -> Result<Boundaries, String> {
     let path = root.join("boundaries.toml");
     let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    toml::from_str(&text).map_err(|e| format!("boundaries.toml: {e}"))
+    let rules: Boundaries = toml::from_str(&text).map_err(|e| format!("boundaries.toml: {e}"))?;
+    if rules.ts.rules.generated_read_only != crate::docs::GENERATED_TABLE {
+        return Err(format!(
+            "boundaries.toml: generated_read_only is {:?}; it must name the one list of generated paths, \"{}\", which cargo xtask gen and generated_headers read",
+            rules.ts.rules.generated_read_only,
+            crate::docs::GENERATED_TABLE
+        ));
+    }
+    Ok(rules)
 }
 
 /// Every boundary violation in the tree at `root`: the crate graph and allow-lists, the network
@@ -387,9 +396,20 @@ pub fn check_rust_literals(root: &Path, rules: &Boundaries) -> Result<Vec<String
     Ok(violations)
 }
 
-/// No string literal in the `domain_free` TypeScript packages names a built-in pack kind.
+/// The rule a golden read outside `golden_readers` breaks, by the name the depcruise rule has.
+pub const GOLDEN_RULE: &str = "golden-only-in-mod-tests";
+/// The path every golden output sits under.
+const GOLDEN_DIR: &str = "tests/golden";
+/// Every extension a script that Node, Vite or a test runner loads may carry.
+const SCRIPT_EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
+
+/// No string literal in the `domain_free` TypeScript packages names a built-in pack kind; and no
+/// string or template literal in a script under `packages/` or `tests/`, outside the files
+/// `golden_readers` names, reaches `tests/golden`, by naming it or by a relative path that resolves
+/// into it from the script's directory, so a runtime read of a golden output fails as an import of
+/// one does (DR-81). A path split across several literals isn't caught.
 pub fn check_ts_literals(root: &Path, rules: &Boundaries) -> Result<Vec<String>, String> {
-    let mut violations = Vec::new();
+    let mut violations = check_golden_reads(root, rules)?;
     for pkg in &rules.ts.rules.domain_free {
         let dir = root.join("packages").join(pkg);
         if !dir.is_dir() {
@@ -419,6 +439,54 @@ pub fn check_ts_literals(root: &Path, rules: &Boundaries) -> Result<Vec<String>,
     Ok(violations)
 }
 
+/// Whether a literal in the script `file` reaches the golden outputs: it holds `tests/golden`, or
+/// one of its whitespace-separated runs (a template's `${...}` part reads as a space), taken as a
+/// path relative to the script's directory, resolves to `tests/golden` or below it.
+fn reaches_golden(file: &str, value: &str) -> bool {
+    if value.contains(GOLDEN_DIR) {
+        return true;
+    }
+    let dir: Vec<&str> = file.rsplit_once('/').map_or(Vec::new(), |(d, _)| d.split('/').collect());
+    value.split_whitespace().filter(|run| !run.contains("://")).any(|run| {
+        let mut at = dir.clone();
+        for segment in run.trim_start_matches('/').split('/') {
+            match segment {
+                "" | "." => {}
+                ".." => {
+                    if at.pop().is_none() {
+                        return false;
+                    }
+                }
+                s => at.push(s),
+            }
+        }
+        at.len() >= 2 && at[0] == "tests" && at[1] == "golden"
+    })
+}
+
+/// Every string or template literal that reaches `tests/golden` in a script under `packages/` or
+/// `tests/` that `golden_readers` doesn't name.
+fn check_golden_reads(root: &Path, rules: &Boundaries) -> Result<Vec<String>, String> {
+    let readers = &rules.ts.rules.golden_readers;
+    let mut violations = Vec::new();
+    for file in util::listed_files(root)? {
+        let scanned = (file.starts_with("packages/") || file.starts_with("tests/"))
+            && file.rsplit_once('.').is_some_and(|(_, ext)| SCRIPT_EXTENSIONS.contains(&ext));
+        if !scanned || readers.iter().any(|g| util::path_matches(g, &file)) {
+            continue;
+        }
+        let text = fs::read_to_string(root.join(&file)).map_err(|e| format!("{file}: {e}"))?;
+        for (line, value) in ts_string_literals(&text) {
+            if reaches_golden(&file, &value) {
+                violations.push(format!(
+                    "{file}:{line}: {GOLDEN_RULE}: this literal names a path in {GOLDEN_DIR}/, which only golden_readers in boundaries.toml read; give the test its data inline or beside it, or list the file in golden_readers with a decision record"
+                ));
+            }
+        }
+    }
+    Ok(violations)
+}
+
 /// The string and template literals of a TypeScript file, with their lines, comments skipped.
 /// Regular expression literals aren't told apart from division, which the scan can live with.
 pub fn ts_string_literals(src: &str) -> Vec<(usize, String)> {
@@ -435,14 +503,17 @@ pub fn ts_string_literals(src: &str) -> Vec<(usize, String)> {
                 i = src[i + 2..].find("*/").map_or(b.len(), |n| i + 2 + n + 2);
             }
             q @ (b'"' | b'\'' | b'`') => {
-                // A template's `${...}` parts are code, not text: they read as one space.
+                // A template's `${...}` parts are code, not text: they read as one space, and the
+                // literals inside them count as literals of their own.
                 let mut j = i + 1;
                 let mut text = String::new();
                 let mut from = j;
+                let mut nested = Vec::new();
                 while j < b.len() && b[j] != q {
                     if q == b'`' && b[j] == b'$' && b.get(j + 1) == Some(&b'{') {
                         text.push_str(&src[from..j]);
                         text.push(' ');
+                        let start = j + 2;
                         let mut depth = 0usize;
                         while j < b.len() {
                             match b[j] {
@@ -457,6 +528,10 @@ pub fn ts_string_literals(src: &str) -> Vec<(usize, String)> {
                             }
                             j += 1;
                         }
+                        let close = j.min(b.len());
+                        let offset = line_at(start.min(close)) - 1;
+                        let inner = &src[start.min(close)..close];
+                        nested.extend(ts_string_literals(inner).into_iter().map(|(l, t)| (l + offset, t)));
                         j += 1;
                         from = j.min(b.len());
                         continue;
@@ -466,6 +541,7 @@ pub fn ts_string_literals(src: &str) -> Vec<(usize, String)> {
                 let end = j.min(b.len());
                 text.push_str(&src[from.min(end)..end]);
                 out.push((line_at(i), text));
+                out.extend(nested);
                 i = end + 1;
             }
             _ => i += 1,
@@ -1320,6 +1396,24 @@ pub fn self_test(root: &Path) -> Result<SelfTest, String> {
         )?;
         t.step("canvas reads a golden CLI output", &depcruise(&tmp), "golden-only-in-mod-tests");
     }
+    {
+        // A runtime read names the path in a string literal, which no import rule sees.
+        let _a = Restore::create(
+            &tmp.join("packages/canvas/src/planted.ts"),
+            "export const GOLDEN = \"tests/golden/cli/focus.json\";\n",
+        )?;
+        let found = check_ts_literals(&tmp, &rules)?;
+        t.step("canvas names a golden CLI output's path in a string literal", &found, GOLDEN_RULE);
+    }
+    {
+        // The same read by a path relative to the script, which never spells `tests/golden`.
+        let _a = Restore::create(
+            &tmp.join("tests/e2e/src/planted.ts"),
+            "export const GOLDEN = new URL(\"../../golden/cli/focus.json\", import.meta.url);\n",
+        )?;
+        let found = check_ts_literals(&tmp, &rules)?;
+        t.step("the e2e tests read a golden CLI output by a relative path", &found, GOLDEN_RULE);
+    }
 
     // Pack plants: requires point inward by origin, and a pack holds no executable.
     let manifest = |id: &str, requires: &str| {
@@ -1559,6 +1653,12 @@ mod tests {
         assert_eq!(glob_regex("packages/mod/plugin-tests/**"), "^packages/mod/plugin-tests/.*$");
         assert_eq!(package_path("@fontsource/*"), "(^|/)node_modules/(@types/)?@fontsource/[^/]+/");
         assert_eq!(package_path("react"), "(^|/)node_modules/(@types/)?react/");
+    }
+
+    #[test]
+    fn literals_inside_a_template_expression_count() {
+        let found = ts_string_literals("const q = `a ${f(\"x/y\")} b`;\n");
+        assert_eq!(found, [(1, "a   b".to_owned()), (1, "x/y".to_owned())]);
     }
 
     #[test]

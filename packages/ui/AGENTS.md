@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Owns:** design tokens (TS and CSS variables, light and dark), view-model rows, hotkey and row-key assignment, truncation, the display-sanitizing pass [DR-64], the braille raster, the machine stepper.
 - **May depend on:** `@planroom/contract`; no third-party package.
 - **Must not:** React, the DOM, Node APIs, directly or through a third-party package.
-- **How to test it:** vitest; `machine_step_parity` against Rust golden outputs; `display_parity` against the engine's golden table; `contrast_meets_the_bar` over the tokens.
+- **How to test it:** `cargo xtask test --ts packages/ui` (vitest: the machine stepper; the display-sanitizing pass, whose parity with the engine's is one table repeated in both ports' tests; the tokens' contrast).
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
 
@@ -16,3 +16,7 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 - **Scenarios:** S9, S13.
 
 <!-- END GENERATED -->
+
+## Layout
+
+- `src/`: the design tokens, view-model rows, hotkeys and row keys, truncation and the display-sanitizing pass, each with its vitest file, and `index.ts`, the package's one export.

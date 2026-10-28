@@ -523,6 +523,33 @@ pub fn walk(root: &Path, rev_list: &[String]) -> Result<Walk, String> {
     Ok(walk)
 }
 
+/// The lock of the one Cargo workspace, committed (AGENTS.md, Dependencies).
+pub const CARGO_LOCK: &str = "Cargo.lock";
+pub const CARGO_LOCK_STEP: &str = "Cargo.lock is committed and current";
+pub const CARGO_LOCK_FIX: &str = "run cargo xtask check, then git add Cargo.lock and commit";
+
+/// `Cargo.lock is committed and current`: by the time a check step runs, building xtask has
+/// brought `Cargo.lock` in line with every manifest, so a change to it against the commit means a
+/// manifest changed without its lock. Under CI that fails, since the commit that changed the
+/// manifest must carry the lock; locally it passes and notes the change, which the next commit
+/// takes. The `cargo xtask` alias leaves out `--locked`, which would leave no `cargo xtask` command
+/// that updates the lock after a manifest edit. Returns the note to add to the `ok` line.
+pub fn cargo_lock_is_current(root: &Path, ci: bool) -> Result<String, String> {
+    let status = util::capture(root, "git", &["status", "--porcelain", "--", CARGO_LOCK])?;
+    let status = status.trim();
+    if status.is_empty() {
+        return Ok(String::new());
+    }
+    let what = match status.get(..2) {
+        Some("??") => format!("{CARGO_LOCK} is not committed"),
+        Some(" D" | "D ") => format!("{CARGO_LOCK} is deleted"),
+        _ => format!(
+            "{CARGO_LOCK} differs from the commit: building xtask rewrote it, so a manifest changed without it"
+        ),
+    };
+    if ci { Err(what) } else { Ok(format!(" (note: {what}; commit it with the manifest change)")) }
+}
+
 /// The hand-ratcheted budgets file at the repo root (contracts.md, budgets.json; DR-59, DR-89).
 pub const BUDGETS: &str = "budgets.json";
 

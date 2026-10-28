@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Owns:** the CLI, the server, the live loop, app services (orchestration only), actor resolution, workspace trust, consent cards, pack loading and embedding, canvas embedding, config (workspace and user-level), the string catalog, the daemonizing of `serve --detach`.
 - **May depend on:** every workspace crate, and its allow-list in `boundaries.toml`: `axum`, `tower-http`, `tokio`, `tokio-stream`, `tracing`, `anyhow`, `clap`, `serde`, `serde_json`, `toml`, `uuid`, `libc` (fork, `setsid`, `statfs` and `geteuid` only) [DR-69], `p256` [DR-72] [DR-79].
 - **Must not:** business rules that belong in the kernel; spelling an error code outside the registry; reading a credential setting from a workspace's config.
-- **How to test it:** scenario tests `tests/sNN_*.rs`, `budgets.rs`, `actor.rs`, `trust.rs`, `privacy.rs`, `live_gate.rs`, `backup.rs`, `git_hardening.rs`, `handoff_clone.rs`, `evals.rs` (the kernel's eval recompute over pack files), golden outputs.
+- **How to test it:** `cargo xtask test -p planroom` (the scenario tests `tests/sNN_*.rs`, `budgets.rs`, `actor.rs`, `trust.rs`, `privacy.rs`, `live_gate.rs`, `backup.rs`, `git_hardening.rs`, `golden.rs` against the golden outputs, `handoff_clone.rs` (M2), and `evals.rs` (M2), the kernel's eval recompute over pack files).
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
 
@@ -16,3 +16,15 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 - **Scenarios:** S1 to S15.
 
 <!-- END GENERATED -->
+
+## Layout
+
+- `src/`: the binary's entry (`main.rs`), the CLI (`cli.rs`), the live loop (`live.rs`), the string catalog's loader (`text.rs`) and the clock.
+- `src/app/`: the app services, orchestration only: one handler per command, actor resolution, workspace trust, confinement to the workspace, and the data root.
+- `src/app/doctor/`: `doctor`, and its pack conformance kit in `pack.rs`.
+- `src/app/map/`: `map`'s reads: the fold read, lenses, paging and focus.
+- `src/config/`: configuration: `defaults.toml`, the one home of every key, and its schema and loading.
+- `src/packs/`: loading and validating packs, and embedding the built-in ones.
+- `src/server/`: `serve`: routes, auth and the embedded canvas.
+- `text/`: `en.toml`, the string catalog every engine-authored message comes from.
+- `tests/`: the scenario tests `sNN_*.rs` and the engine's tests through the CLI's `--json`, one file per behavior, with their data files.

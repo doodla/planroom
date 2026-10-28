@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Owns:** the canvas app, both transports, views, hand edits and the keyboard model, the ELK worker, motion.
 - **May depend on:** `@planroom/contract`, `@planroom/ui`, and its `third_party` list: React, `@xyflow/react`, `elkjs`, `zustand`, `motion`, `radix-ui`, the `@fontsource` faces.
 - **Must not:** `@planroom/mod`; engine internals; fetching any host but its own origin.
-- **How to test it:** vitest, Playwright e2e.
+- **How to test it:** `cargo xtask test --ts packages/canvas` (vitest); `cargo xtask e2e` (Playwright).
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
 

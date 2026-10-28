@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Owns:** every public type, `ErrorCode`, `WarningCode`, `Command` and `CommandSpec`.
 - **May depend on:** its allow-list in `boundaries.toml`: `serde`, `serde_json`, `schemars`, `clap` (derive only), `uuid`, `indexmap` [DR-79].
 - **Must not:** any other workspace crate or third-party crate; I/O, which its generated `clippy.toml` refuses as the kernel's does [DR-79]; logic beyond validation; any built-in pack kind or relation name as a string literal, with or without its pack prefix, since the kernel reads every constant here.
-- **How to test it:** `cargo xtask test -p planroom-contract` (schema snapshot, round trips).
+- **How to test it:** `cargo xtask test -p planroom-contract` (`tests/schema.rs`: the schema snapshot and round trips).
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
 
@@ -16,3 +16,8 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 - **Scenarios:** S15.
 
 <!-- END GENERATED -->
+
+## Layout
+
+- `src/`: every public type, one module per part of the contract: the command catalogue (`command.rs`), the error and warning registries (`errors.rs`), the envelope, view models, events, cards, the pack manifest, requests and the resolver's types, and `schema.rs`, which renders the two schema views; `lib.rs` re-exports them.
+- `tests/`: `schema.rs`, the schema snapshot and round trips.

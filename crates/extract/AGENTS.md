@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Owns:** the `Extractor` and `Linker` traits, built-ins, the declarative runner, evidence location and verification, the git CLI adapter.
 - **May depend on:** `contract`, and its allow-list in `boundaries.toml`: `tree-sitter` and grammars, `ignore`, `globset`, `regex`, `saphyr-parser`, `toml`, `pulldown-cmark`, `promql-parser`, `serde`, `serde_json`, `sha2`, `thiserror` [DR-79].
 - **Must not:** other workspace crates; any other third-party crate; opening a socket [DR-79]; running anything from a scanned repo except `git` with hooks, external diffs and textconv off; a checkout or merge in a repo whose local git config names a command [DR-64].
-- **How to test it:** `contract.rs` (every extractor over the fixture and a fuzz corpus), `link.rs`, per-extractor fixtures, the ABI floor test.
+- **How to test it:** `cargo xtask test -p planroom-extract` (`contract.rs`, every extractor over the fixture and a fuzz corpus; `link.rs` (M1)).
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
 
@@ -16,3 +16,9 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 - **Scenarios:** S1, S2, S4, S10.
 
 <!-- END GENERATED -->
+
+## Layout
+
+- `src/`: the git CLI adapter, the file walk, the built-in extractors (files, compose, YAML), the extractor registry, IDs, line evidence and its verification.
+- `src/declarative/`: the declarative runner: grammars, templates, nesting, comments and prose, value coercion, and the work it schedules.
+- `tests/`: `contract.rs`, every extractor over the fixture and a fuzz corpus.

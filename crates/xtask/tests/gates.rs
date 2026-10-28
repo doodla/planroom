@@ -31,6 +31,18 @@ impl Clone {
         clone
     }
 
+    /// A clone that keeps this repository's `layout.lock`, for the checks that read the tree as it
+    /// stands rather than the lock's history.
+    fn with_lock(name: &str) -> Self {
+        let clone = Self::new(name);
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        if let Ok(lock) = fs::read(repo.join(LOCK)) {
+            fs::write(clone.path(LOCK), lock).unwrap();
+            clone.commit("keep the layout.lock");
+        }
+        clone
+    }
+
     fn path(&self, rel: &str) -> PathBuf {
         self.dir.join(rel)
     }
@@ -694,5 +706,259 @@ fn check_names_no_m1_gap() {
     let main = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/main.rs")).unwrap();
     for (cmd, _, _) in NOT_BUILT {
         assert!(main.contains(&format!("r.not_built_in(\"{cmd}\")")), "{cmd} never prints its lines");
+    }
+}
+
+fn repo() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+#[test]
+fn every_directory_has_a_purpose() {
+    use xtask::areas::purpose_problems;
+    let c = Clone::with_lock("purpose");
+    let dirs = xtask::util::directories_of(&xtask::util::listed_files(&c.dir).unwrap());
+    for dir in [
+        ".claude/guardrails/rules",
+        ".claude/skills/review-round/scripts",
+        "tests/replay",
+        "packs/code/tests/inputs/web/src",
+    ] {
+        assert!(dirs.contains(dir), "the clone holds {dir}");
+    }
+    assert_eq!(purpose_problems(&c.dir).unwrap(), Vec::<String>::new());
+
+    // A directory nothing names fails, naming it.
+    fs::create_dir_all(c.path("crates/store/src/planted")).unwrap();
+    fs::write(c.path("crates/store/src/planted/x.rs"), "").unwrap();
+    c.commit("a directory with no stated purpose");
+    let found = purpose_problems(&c.dir).unwrap();
+    assert!(
+        found.len() == 1 && found[0].contains("`crates/store/src/planted/` has no stated purpose"),
+        "{found:?}"
+    );
+    fs::remove_dir_all(c.path("crates/store/src/planted")).unwrap();
+    assert!(purpose_problems(&c.dir).unwrap().is_empty());
+
+    // A Layout line for a path that doesn't exist fails until it carries the milestone that builds it.
+    c.append("crates/store/AGENTS.md", "- `src/later/`: a module a later change adds.\n");
+    let found = purpose_problems(&c.dir).unwrap();
+    assert!(
+        found.len() == 1
+            && found[0].contains("crates/store/AGENTS.md:")
+            && found[0].contains("`crates/store/src/later/`, which doesn't exist"),
+        "{found:?}"
+    );
+    c.replace("crates/store/AGENTS.md", "- `src/later/`: a module", "- `src/later/`: (M2) a module");
+    assert_eq!(purpose_problems(&c.dir).unwrap(), Vec::<String>::new());
+
+    // A tag on a line whose paths all exist fails, so the change that creates a path drops it.
+    c.replace("crates/store/AGENTS.md", "- `migrations/`: the", "- `migrations/`: (M2) the");
+    let found = purpose_problems(&c.dir).unwrap();
+    assert!(
+        found.len() == 1 && found[0].contains("carries (M2), but every path it names exists"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn ci_runs_only_xtask() {
+    assert_eq!(xtask::workflows::problems(&repo()).unwrap(), Vec::<String>::new());
+    let c = Clone::new("ci-steps");
+    c.replace(
+        ".github/workflows/ci.yml",
+        "      - run: cargo xtask check\n",
+        "      - run: cargo test\n      - run: cargo xtask check\n",
+    );
+    let found = xtask::workflows::problems(&c.dir).unwrap();
+    assert!(
+        found.len() == 1
+            && found[0].contains("`cargo test` is neither a setup step nor one cargo xtask command"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn area_contracts_match_repo_layout() {
+    use xtask::areas;
+    let root = repo();
+    let rules = xtask::boundaries::load(&root).unwrap();
+    assert_eq!(areas::problems(&root, &rules).unwrap(), Vec::<String>::new());
+    for block in areas::generated(&root).unwrap() {
+        let committed = fs::read_to_string(root.join(&block.path)).unwrap();
+        assert!(committed == block.contents, "{} differs from a fresh generation", block.path);
+    }
+
+    let c = Clone::with_lock("areas");
+    let problems = || areas::problems(&c.dir, &rules).unwrap();
+    // A new top-level directory has no row.
+    fs::create_dir_all(c.path("newtop")).unwrap();
+    fs::write(c.path("newtop/x.txt"), "x").unwrap();
+    let found = problems();
+    assert!(found.iter().any(|p| p.contains("`newtop/` has no row")), "{found:?}");
+    fs::remove_dir_all(c.path("newtop")).unwrap();
+    assert_eq!(problems(), Vec::<String>::new());
+    // A How to test it cell naming a file that resolves nowhere.
+    let cell = "`cargo xtask test -p planroom-testkit` (its own tests, `truth.rs`)";
+    c.replace("docs/contributing/repo-layout.md", cell, &cell.replace("`truth.rs`", "`nowhere.rs`"));
+    let found = problems();
+    assert!(
+        found.len() == 1
+            && found[0].contains(
+                "names `nowhere.rs`, which resolves neither from the repo root nor under `crates/testkit/`"
+            ),
+        "{found:?}"
+    );
+    // A cell naming a test function, whose home is traceability.md and feature_list.json.
+    c.replace("docs/contributing/repo-layout.md", "`nowhere.rs`", "`truth_compares_by_name`");
+    let found = problems();
+    assert!(
+        found.len() == 1 && found[0].contains("names `truth_compares_by_name`, a test function"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_branch_merge_lists_its_gated_changes() {
+    let c = Clone::new("branch");
+    let fork = c.head();
+    git(&c.dir, &["checkout", "--quiet", "-b", "a-branch"]);
+    c.append("boundaries.toml", "\n# a branch's change\n");
+    c.commit("a branch changes a boundary");
+    c.append("README.md", "\nA change touching no gated surface.\n");
+    let tip = c.commit("a branch changes the readme");
+    let walk = c.walk(&format!("{fork}..{tip}"));
+    assert!(walk.failures.is_empty(), "{walk:?}");
+    assert_eq!(walk.commits, 2);
+    assert_eq!(walk.lines.len(), 1, "{walk:?}");
+    assert!(
+        walk.lines[0].ends_with("a branch changes a boundary: gated surfaces changed: boundaries.toml"),
+        "{walk:?}"
+    );
+}
+
+#[test]
+fn a_changed_cargo_lock_fails_under_ci() {
+    use xtask::layout::cargo_lock_is_current;
+    let c = Clone::new("cargo-lock");
+    assert_eq!(cargo_lock_is_current(&c.dir, true).unwrap(), "");
+    assert_eq!(cargo_lock_is_current(&c.dir, false).unwrap(), "");
+    c.append("Cargo.lock", "\n");
+    let err = cargo_lock_is_current(&c.dir, true).unwrap_err();
+    assert!(err.contains("Cargo.lock differs from the commit"), "{err}");
+    let note = cargo_lock_is_current(&c.dir, false).unwrap();
+    assert!(note.contains("note: Cargo.lock differs from the commit"), "{note}");
+}
+
+#[test]
+fn a_golden_read_by_any_literal_path_fails() {
+    use xtask::boundaries::{GOLDEN_RULE, check_ts_literals, load};
+    let c = Clone::new("golden-reads");
+    let rules = load(&c.dir).unwrap();
+    assert_eq!(check_ts_literals(&c.dir, &rules).unwrap(), Vec::<String>::new());
+    let plant = |rel: &str, text: &str| {
+        fs::create_dir_all(c.path(rel).parent().unwrap()).unwrap();
+        fs::write(c.path(rel), text).unwrap();
+    };
+    // A relative path from the file that resolves under tests/golden, each way a script writes one.
+    plant(
+        "tests/e2e/src/probe.ts",
+        "import { readFileSync } from \"node:fs\";\nexport const F = readFileSync(new URL(\"../../golden/cli/focus.json\", import.meta.url));\n",
+    );
+    plant(
+        "tests/probe.ts",
+        "export const F = \"golden/cli/focus.json\";\nexport const G = join(here, \"golden\");\n",
+    );
+    plant("tests/e2e/src/probe2.ts", "export const F = (here: string) => `${here}/../../golden/cli`;\n");
+    // The path itself, in the script extensions beyond .ts.
+    plant("packages/canvas/src/probe3.mts", "export const F = \"tests/golden/cli/focus.json\";\n");
+    plant("packages/canvas/src/probe4.jsx", "export const F = \"tests/golden/cli/focus.json\";\n");
+    plant("packages/canvas/src/probe5.cts", "export const F = \"tests/golden/cli/focus.json\";\n");
+    // A relative path that stays out of tests/golden passes.
+    plant(
+        "tests/e2e/src/fine.ts",
+        "export const F = \"../../replay/x.json\";\nexport const G = \"./golden.ts\";\n",
+    );
+    let found = check_ts_literals(&c.dir, &rules).unwrap();
+    for at in [
+        "tests/e2e/src/probe.ts:2",
+        "tests/probe.ts:1",
+        "tests/probe.ts:2",
+        "tests/e2e/src/probe2.ts:1",
+        "packages/canvas/src/probe3.mts:1",
+        "packages/canvas/src/probe4.jsx:1",
+        "packages/canvas/src/probe5.cts:1",
+    ] {
+        assert!(
+            found.iter().any(|v| v.starts_with(&format!("{at}: {GOLDEN_RULE}"))),
+            "{at} isn't caught: {found:#?}"
+        );
+    }
+    assert_eq!(found.len(), 7, "{found:#?}");
+}
+
+#[test]
+fn a_subtree_wildcard_names_only_a_data_tree() {
+    use xtask::areas::purpose_problems;
+    let c = Clone::with_lock("stars");
+    fs::create_dir_all(c.path("crates/kernel/src/newdir/deeper")).unwrap();
+    fs::write(c.path("crates/kernel/src/newdir/deeper/x.rs"), "").unwrap();
+    c.append("crates/kernel/AGENTS.md", "- `src/**`: anything.\n");
+    let found = purpose_problems(&c.dir).unwrap();
+    assert!(
+        found.len() == 1
+            && found[0].contains("crates/kernel/AGENTS.md:")
+            && found[0].contains("`crates/kernel/src/**`")
+            && found[0].contains("only where a tree's layout is data"),
+        "{found:#?}"
+    );
+    // So does one in the middle of a path, which names every directory at its depth.
+    c.replace("crates/kernel/AGENTS.md", "- `src/**`: anything.", "- `src/**/views/`: anything.");
+    let found = purpose_problems(&c.dir).unwrap();
+    assert!(
+        found.iter().any(|p| p.contains("`crates/kernel/src/**/views`, but `**` stands only")),
+        "{found:#?}"
+    );
+    // A single `*` names nothing, so it can't silence the check for a directory's children.
+    c.replace("crates/kernel/AGENTS.md", "- `src/**/views/`: anything.", "- `src/*/`: anything.");
+    let found = purpose_problems(&c.dir).unwrap();
+    assert!(
+        found.iter().any(|p| p.contains("`crates/kernel/src/*`, but a single `*` names no directory")),
+        "{found:#?}"
+    );
+}
+
+#[test]
+fn a_test_cell_naming_a_test_function_with_its_file_fails() {
+    use xtask::areas;
+    let c = Clone::with_lock("cell-fn");
+    let rules = xtask::boundaries::load(&c.dir).unwrap();
+    let cell = "`cargo xtask test -p planroom-testkit` (its own tests, `truth.rs`)";
+    c.replace(
+        "docs/contributing/repo-layout.md",
+        cell,
+        &cell.replace("`truth.rs`", "`truth.rs::truth_compares_by_name`"),
+    );
+    let found = areas::problems(&c.dir, &rules).unwrap();
+    assert!(
+        found.len() == 1 && found[0].contains("names `truth.rs::truth_compares_by_name`, a test function"),
+        "{found:#?}"
+    );
+    for written in ["truth::truth_compares_by_name", "truth_compares_by_name()"] {
+        c.replace(
+            "docs/contributing/repo-layout.md",
+            "`truth.rs::truth_compares_by_name`",
+            &format!("`{written}`"),
+        );
+        let found = areas::problems(&c.dir, &rules).unwrap();
+        assert!(
+            found.len() == 1 && found[0].contains(&format!("names `{written}`, a test function")),
+            "{found:#?}"
+        );
+        c.replace(
+            "docs/contributing/repo-layout.md",
+            &format!("`{written}`"),
+            "`truth.rs::truth_compares_by_name`",
+        );
     }
 }

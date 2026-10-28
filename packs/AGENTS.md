@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../docs/contributing/repo-layout.md#are
 - **Owns:** kinds, relations, hints, languages, image roles, extractor and linker declarations, lenses, questions, rules, decision kinds, suggestions, prompts, stages, evals, pack tests.
 - **May depend on:** the kernel's vocabulary and the `code` pack.
 - **Must not:** code or executable files; other packs except `code` (an out-of-tree pack may also require any built-in pack).
-- **How to test it:** `tests/packs.rs` (validation, the inward-only rule); `planroom doctor --pack` on each; each pack's scenario tests.
+- **How to test it:** `cargo xtask test -p planroom` (`crates/planroom/tests/packs.rs`: validation, the inward-only rule); `planroom doctor --pack` on each; each pack's scenario tests.
 
 Read first, from [Repo layout](../docs/contributing/repo-layout.md#read-first-per-area):
 
@@ -22,5 +22,6 @@ Read first, from [Repo layout](../docs/contributing/repo-layout.md#read-first-pe
 Each directory here is a built-in pack: `crates/planroom/build.rs` embeds every one, so a new pack needs no code edit. `README.md` is the page for users.
 
 - `code/`: the base pack every other pack builds on: code kinds and relations, languages, image roles, hint kinds, the `files` and `compose` built-ins, the code lenses, kind tones and next-action suggestions. Its `tests/` holds the conformance kit `planroom doctor --pack packs/code` runs.
+- `code/tests/**`: the code pack's conformance kit: each case's inputs and what it expects; the tree's layout is data.
 
 The other built-in packs (`plan/`, `observability/`, `release/`, `artifacts/`, `machines/`) each get a directory here when their milestone builds them.

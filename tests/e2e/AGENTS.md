@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Owns:** Playwright specs and the browser shims; the test-only overlays, named by milestone, for states the engine can't produce yet; the vitest global setup that runs the built engine's `watch --json` for the mod's integration test, since the mod has no Node APIs [DR-82].
 - **May depend on:** `@planroom/contract`, `@playwright/test`, `@axe-core/playwright` [DR-68].
 - **Must not:** product code (it drives the built canvas).
-- **How to test it:** it is the test.
+- **How to test it:** `cargo xtask e2e`; it is the test.
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
 

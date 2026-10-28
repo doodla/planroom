@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../docs/contributing/repo-layout.md#are
 - **Owns:** guides, concepts, reference, contributing, evidence, screenshots, art.
 - **May depend on:** nothing.
 - **Must not:** restating a fact that has a home; hand edits to generated reference pages.
-- **How to test it:** the docs tests (links, prose rules, CLI reference).
+- **How to test it:** `cargo xtask check` (the docs tests (M5): links, prose rules, CLI reference).
 
 Read first, from [Repo layout](../docs/contributing/repo-layout.md#read-first-per-area):
 
@@ -16,3 +16,14 @@ Read first, from [Repo layout](../docs/contributing/repo-layout.md#read-first-pe
 - **Scenarios:** S14.
 
 <!-- END GENERATED -->
+
+## Layout
+
+- `art/`: Iris images, their prompts and style, and `spend.jsonl`, one line per Iris run.
+- `contributing/`: the pages for building Planroom: architecture, decisions, contracts, repo layout, traceability and design language.
+- `contributing/research/**`: the Phase 1 notes, the candidate designs, and each review's records; the tree's layout is data.
+- `evidence/sNN/`: live runs, recorded once per scenario; `evidence/spend.jsonl` beside them logs every live call of the build.
+- `reference/`: the reference pages, `errors.md` and `configuration.md` among them, both GENERATED.
+- `screenshots/`: every main view at 1440×900 and 390×844, both themes.
+- `guides/`: (M5) how to do a task.
+- `concepts/`: (M5) how Planroom works and why.

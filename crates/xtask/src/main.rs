@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use xtask::report::Report;
+use xtask::report::{self, Report};
 use xtask::testrun::skips;
 use xtask::tools::{self, Tool, pin_age};
 use xtask::{
@@ -205,22 +205,9 @@ fn run(root: &Path, args: &[&str]) -> ExitCode {
     report.finish()
 }
 
-/// The Rust tests that own a file under `tests/golden/`, each run once with
-/// `PLANROOM_GOLDEN=write`; a plain test run only compares (DR-79).
-const GOLDEN_TESTS: &[(&str, &str, &[&str])] = &[(
-    "planroom",
-    "golden",
-    &[
-        "tests/golden/cli/focus.json",
-        "tests/golden/cli/map-graph.json",
-        "tests/golden/cli/map-empty.json",
-        "tests/golden/cli/watch-frames.json",
-    ],
-)];
-
 fn golden(root: &Path) -> Result<Vec<String>, String> {
     let mut written = Vec::new();
-    for (krate, test, files) in GOLDEN_TESTS {
+    for (krate, test, files) in generate::GOLDEN_TESTS {
         let out = std::process::Command::new("cargo")
             .args(["test", "--locked", "-p", krate, "--test", test])
             .current_dir(root)
@@ -304,6 +291,10 @@ fn check(root: &Path, r: &mut Report) {
     area_checks(root, r);
     docs_checks(root, r);
     layout_checks(root, r, None);
+    match layout::cargo_lock_is_current(root, report::under_ci()) {
+        Ok(note) => r.ok(&format!("{}{note}", layout::CARGO_LOCK_STEP)),
+        Err(e) => r.failed(layout::CARGO_LOCK_STEP, &e, layout::CARGO_LOCK_FIX),
+    }
     python_checks(root, r);
     plugin_checks(root, r);
     deny(root, r, &["licenses", "bans", "sources"]);
@@ -475,6 +466,16 @@ fn area_checks(root: &Path, r: &mut Report) {
         }
         Err(e) => r.failed(name, &e, "fix the error above"),
     }
+    let name = "every_directory_has_a_purpose";
+    match areas::purpose_problems(root) {
+        Ok(p) if p.is_empty() => r.ok(name),
+        Ok(p) => r.failed(
+            name,
+            &p.join("\n"),
+            "state each directory's purpose in the Directory map or its area's ## Layout list, and keep each (Mn) tag on exactly the lines whose paths don't exist yet (repo-layout.md, Area contracts)",
+        ),
+        Err(e) => r.failed(name, &e, "fix the error above"),
+    }
 }
 
 fn docs_checks(root: &Path, r: &mut Report) {
@@ -573,6 +574,8 @@ fn boundary_checks(root: &Path, r: &mut Report, self_test: bool) {
 }
 
 fn drift_checks(root: &Path, r: &mut Report) {
+    let mut groups = Vec::new();
+    let mut all_built = true;
     for group in generate::all(root) {
         match group {
             Ok(group) => {
@@ -585,19 +588,24 @@ fn drift_checks(root: &Path, r: &mut Report) {
                         "cargo xtask gen",
                     ),
                 }
+                groups.push(group);
             }
-            Err(e) => r.failed("drift", &e, "cargo xtask gen"),
+            Err(e) => {
+                all_built = false;
+                r.failed("drift", &e, "cargo xtask gen")
+            }
         }
     }
-    let globs = boundaries::load(root).map(|b| b.ts.rules.generated_read_only);
-    match globs.and_then(|g| generate::missing_headers(root, &g)) {
-        Ok(m) if m.is_empty() => r.ok("generated headers"),
-        Ok(m) => r.failed(
-            "generated headers",
-            &format!("no GENERATED header: {}", m.join(", ")),
-            "delete the file or generate it with cargo xtask gen",
+    let written = docs::generator_outputs(&groups);
+    let name = "generated_headers: every path in repo-layout.md's Generated directories table is marked";
+    match docs::generated_headers(root, all_built.then_some(&written)) {
+        Ok(p) if p.is_empty() => r.ok(name),
+        Ok(p) => r.failed(
+            name,
+            &p.join("\n"),
+            "run cargo xtask gen, or fix the Generated directories table in docs/contributing/repo-layout.md as the lines above say",
         ),
-        Err(e) => r.failed("generated headers", &e, "fix the error above"),
+        Err(e) => r.failed(name, &e, "fix the error above"),
     }
 }
 

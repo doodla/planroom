@@ -32,7 +32,8 @@ module.exports = {
       "from": {
         "pathNot": [
           "^packages/mod/plugin-tests/.*$",
-          "^packages/mod/src/(|.*/)[^/]*\\.test\\.ts$"
+          "^packages/mod/src/(|.*/)[^/]*\\.test\\.ts$",
+          "^tests/e2e/src/standin\\.ts$"
         ]
       },
       "to": {
@@ -110,7 +111,8 @@ module.exports = {
       "from": {
         "path": [
           "^packages/mod/plugin-tests/.*$",
-          "^packages/mod/src/(|.*/)[^/]*\\.test\\.ts$"
+          "^packages/mod/src/(|.*/)[^/]*\\.test\\.ts$",
+          "^tests/e2e/src/standin\\.ts$"
         ]
       },
       "to": {

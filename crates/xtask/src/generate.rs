@@ -29,8 +29,8 @@ type Generator = fn(&Path) -> Result<Group, String>;
 
 /// Every generator, in the order `gen` writes them: the mod bundle last, since esbuild reads the
 /// generated TypeScript from disk.
-/// The area blocks come before the plugin's version stamp, which hashes `plugin/AGENTS.md` and the
-/// bundle with every other file under `plugin/`.
+/// The area blocks and the `GENERATED.md` stubs come before the plugin's version stamp, which
+/// hashes `plugin/AGENTS.md`, the stubs and the bundle with every other file under `plugin/`.
 const GENERATORS: &[Generator] = &[
     |_| schemas(),
     typescript,
@@ -43,10 +43,24 @@ const GENERATORS: &[Generator] = &[
     configuration_reference,
     area_contracts,
     modgen::bundle,
+    crate::docs::generated_marks,
     plugin_version,
     redact_fields,
     errors_reference,
 ];
+
+/// The Rust tests that own a file under `tests/golden/`, each run once with
+/// `PLANROOM_GOLDEN=write`; a plain test run only compares (DR-79).
+pub const GOLDEN_TESTS: &[(&str, &str, &[&str])] = &[(
+    "planroom",
+    "golden",
+    &[
+        "tests/golden/cli/focus.json",
+        "tests/golden/cli/map-graph.json",
+        "tests/golden/cli/map-empty.json",
+        "tests/golden/cli/watch-frames.json",
+    ],
+)];
 
 /// Every generated file, grouped by drift check.
 pub fn all(root: &Path) -> Vec<Result<Group, String>> {
@@ -652,30 +666,6 @@ pub fn drift(root: &Path, group: &Group) -> Vec<String> {
         .filter(|f| fs::read_to_string(root.join(&f.path)).ok().as_deref() != Some(f.contents.as_str()))
         .map(|f| f.path.clone())
         .collect()
-}
-
-/// Files under the read-only globs of `boundaries.toml` that lack the header.
-pub fn missing_headers(root: &Path, globs: &[String]) -> Result<Vec<String>, String> {
-    let mut missing = Vec::new();
-    for glob in globs {
-        let mut paths = Vec::new();
-        match glob.strip_suffix("/**") {
-            Some(dir) if root.join(dir).is_dir() => {
-                util::walk(&root.join(dir), &mut |p| paths.push(p.to_path_buf()))?
-            }
-            Some(_) => {}
-            None if root.join(glob).is_file() => paths.push(root.join(glob)),
-            None => {}
-        }
-        for path in paths {
-            let text = fs::read_to_string(&path).unwrap_or_default();
-            if !text.chars().take(512).collect::<String>().contains(GENERATED_HEADER) {
-                missing.push(util::rel(root, &path));
-            }
-        }
-    }
-    missing.sort();
-    Ok(missing)
 }
 
 /// The configuration defaults file the engine compiles in, the one home of every key.

@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Owns:** the fixture wrapper (`examples/build-fixture` plus the workspace config), the truth comparator and its planted-name mapping, the S8 load harness and fault injection, golden helpers.
 - **May depend on:** `contract`, `assert_cmd`, `tempfile`, `serde_json`.
 - **Must not:** being a normal dependency of any crate (dev-only).
-- **How to test it:** its own unit tests; every scenario test uses it.
+- **How to test it:** `cargo xtask test -p planroom-testkit` (its own tests, `truth.rs`); every scenario test uses it.
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
 
@@ -16,3 +16,8 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 - **Scenarios:** S1, S8.
 
 <!-- END GENERATED -->
+
+## Layout
+
+- `src/`: `lib.rs`, the fixture wrapper and the helpers the engine's tests share, and `truth.rs`, the truth comparator.
+- `tests/`: `truth.rs`, the comparator's own tests.

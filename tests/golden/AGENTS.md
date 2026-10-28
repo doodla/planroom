@@ -4,10 +4,10 @@
 
 This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#area-contracts).
 
-- **Owns:** the Rust tests' outputs, which only the mod's tests read and `tsc` type-checks [DR-81].
+- **Owns:** the Rust tests' outputs, which only `golden_readers` read: the mod's tests and the e2e stand-in; `tsc` type-checks them [DR-81].
 - **May depend on:** `cargo xtask gen --golden`.
 - **Must not:** hand edits.
-- **How to test it:** `golden_outputs_type_check`; the mod tests.
+- **How to test it:** `cargo xtask check` (`tsc -b`, which type-checks them in the mod's tests); `cargo xtask test -p planroom` (`crates/planroom/tests/golden.rs`).
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
 

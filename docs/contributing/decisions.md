@@ -5,7 +5,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 ## How to read a record
 
 - **Status** is `accepted`, `accepted, verify in WS` (it rests on an assumption the walking skeleton checks), `needs confirmation` (it binds only once it is confirmed), or `superseded by DR-n`. A record a later review amended says so in its Status, naming the rounds [DR-79].
-- **An amendment overrides.** An "Amended in review round N" bullet changes the record: where it differs from the bullets above it, the amendment holds, and a later round's holds over an earlier one's. An "Amended by DR-n" bullet does the same for a later record's decision, and the Status names that record. An "Extended by DR-n" bullet adds to the record without changing what it decided, and the Status names that record too. The design pages state the current rule, and `docs.rs::an_amended_record_says_so_in_its_status` will check the Status (M1) [DR-79].
+- **An amendment overrides.** An "Amended in review round N" bullet changes the record: where it differs from the bullets above it, the amendment holds, and a later round's holds over an earlier one's. An "Amended by DR-n" bullet does the same for a later record's decision, and the Status names that record. An "Extended by DR-n" bullet adds to the record without changing what it decided, and the Status names that record too. The design pages state the current rule, and `docs.rs::an_amended_record_says_so_in_its_status` checks the Status [DR-79].
 - **Starting point** names the `<design_starting_points>` item and whether this record keeps, replaces or extends it, or says "none" when the record serves a requirement or constraint the starting points don't cover.
 - **Origin** says where the idea came from: one of the three candidate designs (the simplicity-first, extensibility-first and concurrency-first designs, in `research/arch/candidate-*.md`) or the design reviews that compared them; the Phase 1 research; architecture review round N; the walking skeleton or its review round N; milestone planning; or an owner decision.
 - Sources are the Phase 1 notes in `docs/contributing/research/`, checked on 2026-10-25, plus `examples/TRUTH.json` and `examples/README.md`.
@@ -115,6 +115,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 99 | One hook for a model request's tail, every invisible character marked, and evidence paths left whole | DR-49, DR-64, DR-75, DR-91 | extended | the merge of M1's redaction on every path and the sanitizing pass |
 | 100 | The declarative runner's bounds: per file, one repo cut, and templates capped at load | DR-9, DR-46, DR-47, DR-86, DR-89 | extended, amends DR-47 and DR-86 | the merge of M1's declarative runner |
 | 101 | Workspace trust by record, a pinned person key, confined reads, and the credential paths a scan checks | DR-48, DR-52, DR-74, DR-78, DR-88, DR-89 | extended, amends DR-48 and DR-88 | the merge of M1's workspace trust and confined reads |
+| 102 | Every directory's purpose checked, generated paths marked from one table, and golden reads caught by literal | DR-38, DR-59, DR-79, DR-81, DR-83, DR-89 | extended, amends DR-81 | the merge of M1's layout and docs gates |
 
 ## Where the design reviews disagreed
 
@@ -1915,7 +1916,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-81: What the walking skeleton's engine and plugin work settled
 
-- **Status:** accepted (decided at the merges of the engine and plugin work, 2026-10-26). Amended by DR-85 and DR-86.
+- **Status:** accepted (decided at the merges of the engine and plugin work, 2026-10-26). Amended by DR-85, DR-86 and DR-102.
 - **Starting point:** extended "Store: events carry ... an idempotency key", "Repo layout: a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` in TypeScript", and Remote mode.
 - **Origin:** the walking skeleton's engine work (WS3 and WS4) and plugin work, from their merge notes in `progress.md`, plus the decisions taken at the merges.
 - **Context:**
@@ -1968,6 +1969,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-8, DR-12, DR-39, DR-42, DR-57, DR-69, DR-70, DR-75, DR-77 and DR-79.
 - **Amended by DR-85:** the walk no longer reads the working tree. It lists `HEAD`'s tree and reads the files from the commit, so a snapshot's facts are a function of its key, and a directory or file node exists only for a path in the commit. Verification still checks every evidence item against the snapshot's commit, and `Evidence::Ref` still names no path.
 - **Amended by DR-86:** `Evidence::Ref` and `Line` evidence from a head scan name the commit and no branch. The branch is on the scan event, and a head snapshot records none, since a branch can move or be deleted while the commit stays.
+- **Amended by DR-102:** `golden_readers` is the mod's tests and the e2e stand-in, `tests/e2e/src/standin.ts`, and a string literal that reaches `tests/golden` counts as a read, as an import does.
 - **Sources (checked 2026-10-26):** `progress.md`, the 2026-10-26 entries for the engine and plugin merges; `docs/contributing/research/ws4-concurrency.md`; `crates/store/migrations/0001_init.sql`; `crates/store/src/commit.rs`; `crates/extract/src/{files,compose,verify}.rs`; `.dependency-cruiser.cjs`; `crates/xtask/src/{modgen,generate}.rs`; `plugin/scripts/planroom`; `eslint.config.js`; the decisions taken at the merges.
 
 ## DR-82: What the walking skeleton's serve, canvas and mod work settled
@@ -2694,3 +2696,28 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Known gap: a store planted over a workspace whose key is already pinned leaves a person no way to re-register under their own key after accepting its trust card, since `person init` refuses the mismatch and `--rekey` needs a token under the planted key. Deleting the planted state directory clears it. M2 lets `person init` re-register when the store's key doesn't match the root's pin, with the pinned key's token as the authority.
   - Tests: `trust.rs`; `confine.rs::a_credential_path_needs_a_person`, `a_read_outside_the_workspace_is_path_refused` and `workspace_flag_on_a_read_needs_an_existing_store`; `tools.test.ts::a_tool_call_never_names_another_workspace`; `guard.test.ts::an append, an archive's own names and gio hide no guarded place`.
 - **Sources (checked 2026-10-28):** `crates/planroom/src/app/{trust, confine, data, cards, review, person, actor}.rs`; `packages/mod/src/{guard, tools}.ts`; `crates/xtask/src/fixture.rs`; [Where the workspace lives](architecture.md#where-the-workspace-lives); [Contracts](contracts.md).
+
+## DR-102: Every directory's purpose checked, generated paths marked from one table, and golden reads caught by literal
+
+- **Status:** accepted (decided at the merge of M1's layout and docs gates, 2026-10-28).
+- **Starting point:** extended DR-38, DR-59, DR-79, DR-83 and DR-89; amends DR-81.
+- **Origin:** the merge of M1's layout and docs gates, read against the docs by independent checks over two rounds.
+- **Context:**
+  - AGENTS.md says every directory has a stated purpose and every generated path is marked, but no check held either: a new directory needed no line anywhere, and the generated-headers step read a glob list in `boundaries.toml` that had drifted from repo-layout.md's Generated directories table.
+  - DR-81 let only the mod's tests read `tests/golden/*.json`, enforced on imports. The e2e stand-in reads one golden by path, and a read by a string literal passed the import rule unseen.
+- **Decision:**
+  - **Every directory has a purpose, checked.** `every_directory_has_a_purpose` fails on a tracked directory that neither the Directory map nor its area's `## Layout` list names, on an area with subdirectories and no Layout list, on an entry naming a path that doesn't exist without the `(Mn)` tag of the milestone that builds it, and on a tag left on a path that exists. An entry names a directory when it is that directory, a path below it, or a data tree written with a trailing `**`; `**` stands only on `docs/contributing/research/**`, `packs/code/tests/**` and `.claude/skills/**`, and a single `*` names no directory. Placeholders `<name>` and `sNN` match one segment.
+  - **Generated paths are marked from one table.** repo-layout.md's Generated directories table is the one list. `cargo xtask gen` writes a `GENERATED.md` stub into each generated directory and `.gitattributes` from it, and `generated_headers` checks that every path it names carries its stub, header or markers, and that a generated directory holds only what its generator writes. `boundaries.toml`'s `generated_read_only` names that table rather than a list of its own. `plugin/hooks/hooks.json` joins the mod bundle's group, so `gen` writes it and its drift check covers it; the stubs under `plugin/` pass `claude plugin validate --strict`.
+  - **Golden reads by literal (amends DR-81).** `golden_readers` is the mod's tests and the e2e stand-in, `tests/e2e/src/standin.ts`. A string or template literal that reaches `tests/golden` from any other TypeScript or JavaScript file fails as `golden-only-in-mod-tests`, as an import does; the boundaries self-test plants one. A path split across concatenated literals isn't caught, as repo-layout.md's Boundaries table says.
+  - **The area contracts table** starts every How to test it cell with its `cargo xtask` command, names files and never a test function, and carries `(Mn)` on an area that doesn't exist yet.
+  - **Cargo.lock** is checked as committed and current, and the `cargo xtask` alias stays without `--locked`, since `--locked` would leave no `cargo xtask` command that can update the lock after a manifest edit.
+- **Alternatives rejected:**
+  - Keeping a glob list in `boundaries.toml` beside the table: two lists of generated paths drift.
+  - A file-row exemption for the plugin's generated files: validate passes with the stubs.
+  - `**` anywhere a layout list wants it: one line would silence the check for a whole crate.
+- **Consequences:**
+  - Layout: every area's `AGENTS.md` gains a `## Layout` list; `GENERATED.md` stubs in each generated directory; `.gitattributes` generated; `boundaries.toml`'s `generated_read_only` and `golden_readers`; the area contracts table's How to test it cells. `layout.lock` is regenerated with this record.
+  - A change that adds a directory adds its Layout or map line, and a change that creates a tagged path drops its tag. The link change adds `crates/extract/src/link/`; five languages adds `packs/code/queries/` if it creates it.
+  - Known gaps: a How to test it cell can still name a test function joined to its file by a separator other than `::`, and a golden path written root-relative with `./` or `//` segments passes the literal scan.
+  - Tests: `crates/xtask/tests/gates.rs`'s `every_directory_has_a_purpose`, `a_changed_cargo_lock_fails_under_ci`, `a_golden_read_by_any_literal_path_fails`, `a_subtree_wildcard_names_only_a_data_tree` and `a_test_cell_naming_a_test_function_with_its_file_fails`; `crates/xtask/tests/docs.rs::generated_headers`; the boundaries self-test's golden-literal plant.
+- **Sources (checked 2026-10-28):** `crates/xtask/src/{areas, docs, boundaries, generate, modgen, layout}.rs`; `boundaries.toml`; [Repo layout](repo-layout.md#area-contracts) and its Generated directories table; AGENTS.md's Boundaries and Working in this repository sections.

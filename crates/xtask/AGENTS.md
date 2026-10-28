@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Owns:** task commands.
 - **May depend on:** anything.
 - **Must not:** shipping in a release.
-- **How to test it:** it runs in CI.
+- **How to test it:** `cargo xtask test -p xtask` (`gates.rs`, `docs.rs`, `skips.rs`, `schema_guard.rs`, `bench.rs`); CI runs its commands.
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
 
@@ -16,3 +16,8 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 - **Scenarios:** S14, S15.
 
 <!-- END GENERATED -->
+
+## Layout
+
+- `src/`: one module per job: the checks (boundaries, the layout gate, area contracts and directory purposes, the generated marks, the feature list, CI workflows, the schema guard, the secret scan), the generators, the test, bench, live and fixture runners, the pinned tools, the report, and `main.rs`'s dispatcher.
+- `tests/`: the gate tests, each run on a temporary clone or copy of the repo.
