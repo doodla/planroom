@@ -64,6 +64,7 @@ A warning never changes the exit code.
 | `unresolved_ref` | an alias or a linker join had zero or several candidates; no edge was made | none |
 | `evidence_dropped` | an evidence item failed verification at ingest | `repo` (masked), `count`, `items` |
 | `partial_parse` | files parsed with error nodes, so their facts are weak; details name the repo, the count and the first 10 paths in sorted order | `repo` (masked), `count`, `paths` (masked) |
+| `unparsed_files` | files an extractor took no facts from because they pass a nesting or work bound, would hold more heap in facts and kept matches than their size allows, or come at or after the first file in sorted order whose facts would take the repo past its bound; details name the repo, the count, the bound (nesting_limit, work_limit or repo_limit) and the first 10 paths in sorted order | `repo` (masked), `count`, `bound`, `paths` (masked) |
 | `partial_scan` | an extractor reached its file or byte bound, or a partial clone lacks some blobs; details name the extractor, the repo, the count of uncovered files and the first 10 in sorted order | `extractor`, `repo` (masked), `count`, `uncovered` (masked) |
 | `workspace_nested` | another workspace's .planroom/ sits inside this one, or this one inside it; details name the other root | `other_root` |
 | `repo_unborn` | a repo has no commit yet, so it maps nothing until its first commit; details name the repo and its branch | `repo` (masked), `branch` |

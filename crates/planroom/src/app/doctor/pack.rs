@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
-use planroom_contract::{Evidence, ExtractorDecl, FactBatch, PackCheck, PackReport};
+use planroom_contract::{Evidence, FactBatch, PackCheck, PackReport};
 use planroom_extract::walk::Blobs;
 use planroom_extract::{RepoPath, RepoView, select};
 
@@ -113,13 +113,6 @@ fn conformance(
         checks.push(PackCheck { check: "expected".into(), line: text::get("pack.check_no_inputs", &[]) });
         return Ok(());
     }
-    // A declarative extractor's error names its own `id` line, in the manifest or a languages file.
-    let pack = loaded.pack(id).expect("the pack just loaded");
-    if let Some(i) = pack.file.extractors.iter().position(|d| !matches!(d, ExtractorDecl::Builtin { .. })) {
-        let name = format!("{id}/{}", load::extractor_id(&pack.file.extractors[i]));
-        let at = load::KeyPath::root().key("extractors").at(i).key("id");
-        return Err(pack.source.invalid_at(&at, load::At::Value, &name, "declarative", &[("name", &name)]));
-    }
     let inputs = read_inputs(&inputs_dir)?;
     let names: BTreeSet<&str> = inputs.iter().map(|i| i.name.as_str()).collect();
     let prefix = format!("{id}/");
@@ -215,10 +208,9 @@ fn extract(inputs: &[Input], runs: &[Run]) -> Result<Vec<(String, String, FactBa
     let mut out = Vec::new();
     for input in inputs {
         for run in runs {
-            let extractor = planroom_extract::builtin(&run.builtin).expect("a built-in this build has");
             let globs: Vec<&str> = run.files.iter().map(String::as_str).collect();
             let selected = select(&input.files, &globs)?;
-            let batch = extractor.run(&input.view, &selected, &run.options).map_err(|e| {
+            let batch = run.extract(&input.view, &selected).map_err(|e| {
                 let why = e.to_string();
                 AppError::pack_invalid(
                     &input.view.root.display().to_string(),

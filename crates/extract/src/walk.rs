@@ -30,6 +30,29 @@ pub const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 /// A NUL byte in this many leading bytes marks a file as binary, as git decides.
 const BINARY_SNIFF: usize = 8000;
 
+/// What one walk takes at most. Every scan walks within [`Bounds::DEFAULT`]; a test passes
+/// smaller bounds to see a cut without writing 50,000 files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Bounds {
+    /// A file larger than this is skipped.
+    pub max_file_bytes: u64,
+    /// At most this many files, in sorted path order.
+    pub max_files: usize,
+    /// At most this many bytes, in sorted path order.
+    pub max_total_bytes: u64,
+}
+
+impl Bounds {
+    pub const DEFAULT: Bounds =
+        Bounds { max_file_bytes: MAX_FILE_BYTES, max_files: MAX_FILES, max_total_bytes: MAX_TOTAL_BYTES };
+}
+
+impl Default for Bounds {
+    fn default() -> Bounds {
+        Bounds::DEFAULT
+    }
+}
+
 /// The `[scan] exclude` globs, relative to the repo's root: a file a glob matches, or under a
 /// directory one matches, is never read. `**/fixture/**` leaves out every `fixture` directory at
 /// any depth, the root's own included.
@@ -117,6 +140,12 @@ struct Entry {
 /// doesn't ignore and `exclude` doesn't leave out, hidden files included. A submodule is a repo of
 /// its own, and a symlink is never followed.
 pub fn walk(git: &Git, commit: &str, exclude: &Exclude) -> Result<Walked, GitError> {
+    walk_within(git, commit, exclude, &Bounds::DEFAULT)
+}
+
+/// [`walk`] within `bounds`: files are cut in sorted path order, so the cut is the same on every
+/// machine, and the files past it are the `uncovered` list (DR-47).
+pub fn walk_within(git: &Git, commit: &str, exclude: &Exclude, bounds: &Bounds) -> Result<Walked, GitError> {
     let partial = git.is_partial_clone()?;
     let listing = git.ls_tree(commit, !partial)?;
     let mut entries = parse(&listing).map_err(|stderr| GitError { argv: vec!["ls-tree".into()], stderr })?;
@@ -155,7 +184,7 @@ pub fn walk(git: &Git, commit: &str, exclude: &Exclude) -> Result<Walked, GitErr
             missing.push(rel.to_owned());
             continue;
         };
-        if size > MAX_FILE_BYTES {
+        if size > bounds.max_file_bytes {
             skipped += 1;
             continue;
         }
@@ -180,7 +209,10 @@ pub fn walk(git: &Git, commit: &str, exclude: &Exclude) -> Result<Walked, GitErr
             continue;
         }
         let size = bytes.len() as u64;
-        if walked.files.len() >= MAX_FILES || total + size > MAX_TOTAL_BYTES || !walked.uncovered.is_empty() {
+        if walked.files.len() >= bounds.max_files
+            || total + size > bounds.max_total_bytes
+            || !walked.uncovered.is_empty()
+        {
             walked.uncovered.push(path);
             continue;
         }

@@ -203,6 +203,23 @@ mod tests {
     }
 
     #[test]
+    fn every_bound_that_refuses_a_file_has_its_warning_line() {
+        use planroom_contract::PartialReason;
+        // Listed through a match, so a new bound can't be left out of this list.
+        let every = |r: PartialReason| match r {
+            PartialReason::NestingLimit | PartialReason::WorkLimit | PartialReason::RepoLimit => r,
+        };
+        for reason in
+            [PartialReason::NestingLimit, PartialReason::WorkLimit, PartialReason::RepoLimit].map(every)
+        {
+            let bound = serde_json::to_value(reason).unwrap();
+            let key = format!("warning.unparsed_files_{}", bound.as_str().unwrap());
+            let line = try_get(&key).unwrap_or_else(|| panic!("text/en.toml has no {key}"));
+            assert!(line.contains("{count}") && line.contains("{repo}"), "{key}: {line}");
+        }
+    }
+
+    #[test]
     fn a_value_that_holds_a_placeholder_is_written_as_it_is() {
         let line = get("frame.scan", &[("repo", &"{commit}"), ("commit", &"0b305cb")]);
         assert_eq!(line, "Scanned {commit} at 0b305cb.");

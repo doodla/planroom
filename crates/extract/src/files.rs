@@ -103,12 +103,12 @@ impl Extractor for Files {
                     }],
                     Ok(_) => tree_evidence(),
                     Err(_) => {
-                        partial.push(PartialFile { path: full.clone(), errors: 1 });
+                        partial.push(PartialFile { path: full.clone(), errors: 1, reason: None });
                         tree_evidence()
                     }
                 },
                 None => {
-                    partial.push(PartialFile { path: full.clone(), errors: 1 });
+                    partial.push(PartialFile { path: full.clone(), errors: 1, reason: None });
                     continue;
                 }
             };

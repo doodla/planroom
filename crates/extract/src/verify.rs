@@ -32,7 +32,9 @@ pub struct Verifier<'a> {
     commit: &'a str,
     refs: &'a BTreeSet<String>,
     objects: Objects,
-    blobs: HashMap<String, Option<String>>,
+    /// Each blob read so far, with its line index, so checking every line a file's facts cite
+    /// reads the blob once.
+    blobs: HashMap<String, Option<(String, lines::Index)>>,
     commits: HashMap<String, bool>,
 }
 
@@ -103,12 +105,16 @@ impl<'a> Verifier<'a> {
                 let key = format!("{commit}:{rel}");
                 if !self.blobs.contains_key(&key) {
                     let text = self.objects.get(&key)?.and_then(|b| String::from_utf8(b).ok());
-                    self.blobs.insert(key.clone(), text);
+                    let indexed = text.map(|t| {
+                        let index = lines::Index::new(&t);
+                        (t, index)
+                    });
+                    self.blobs.insert(key.clone(), indexed);
                 }
-                let Some(text) = self.blobs[&key].as_deref() else {
+                let Some((text, index)) = &self.blobs[&key] else {
                     return Ok(Some(format!("{path} is not in commit {commit}")));
                 };
-                Ok(match (lines::line(text, *line), contains) {
+                Ok(match (index.line(text, *line), contains) {
                     (None, _) => Some(format!("{path} has no line {line} at {commit}")),
                     (Some(actual), Some(expected)) if lines::cut(actual) != *expected => {
                         Some(format!("line {line} of {path} differs at {commit}"))

@@ -116,13 +116,13 @@ impl Extractor for Compose {
         for file in files {
             let full = format!("{}/{}", repo.name, file.0);
             let Some(text) = repo.read(file).and_then(|bytes| std::str::from_utf8(bytes).ok()) else {
-                batch.partial.push(PartialFile { path: full, errors: 1 });
+                batch.partial.push(PartialFile { path: full, errors: 1, reason: None });
                 continue;
             };
             let doc = match yaml::parse(text) {
                 Ok(mut docs) if !docs.is_empty() => docs.swap_remove(0),
                 _ => {
-                    batch.partial.push(PartialFile { path: full, errors: 1 });
+                    batch.partial.push(PartialFile { path: full, errors: 1, reason: None });
                     continue;
                 }
             };

@@ -5,6 +5,8 @@
 //! a `[[hints]]` kind no loaded linker consumes, both with `pack_invalid` (DR-9). Only built-in
 //! linkers join hints, so a new join is a new entry in [`LINKERS`].
 
+use planroom_contract::{Param, ParamNames};
+
 /// Whether a built-in reads one repo's files or joins hints across the workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Role {
@@ -23,12 +25,40 @@ pub struct Builtin {
     /// The hint kinds it consumes, pack-qualified, such as `code.env_set`. An extractor reads
     /// files, not hints, so it consumes none.
     pub consumes: &'static [&'static str],
+    /// The options a pack sets, as a table of parameters the loader reads them through, as it
+    /// reads a query shape's: `kinds`, a table naming the kind of each role the built-in emits.
+    /// Every key is required, since the built-in emits every role. A key the table doesn't
+    /// declare is `pack_invalid`: what else a built-in reads, such as `files`'s merged
+    /// `languages` or `compose`'s `image_roles` and `repos`, the engine fills in.
+    pub options: &'static [Param],
+}
+
+/// `kinds = { ROLE = KIND }`, one role per kind a built-in emits.
+const fn kinds(roles: &'static [Param]) -> Param {
+    Param { key: "kinds", names: ParamNames::Table(roles) }
+}
+
+/// A role of `kinds`, which names a node kind.
+const fn role(key: &'static str) -> Param {
+    Param { key, names: ParamNames::NodeKind }
 }
 
 /// Every built-in extractor, in the order a scan runs them.
 pub const EXTRACTORS: &[Builtin] = &[
-    Builtin { name: crate::files::NAME, builtin: "files", role: Role::Extractor, consumes: &[] },
-    Builtin { name: crate::compose::NAME, builtin: "compose", role: Role::Extractor, consumes: &[] },
+    Builtin {
+        name: crate::files::NAME,
+        builtin: "files",
+        role: Role::Extractor,
+        consumes: &[],
+        options: &[kinds(&[role("repo"), role("directory"), role("file")])],
+    },
+    Builtin {
+        name: crate::compose::NAME,
+        builtin: "compose",
+        role: Role::Extractor,
+        consumes: &[],
+        options: &[kinds(&[role("service"), role("tooling"), role("repo")])],
+    },
 ];
 
 /// Every built-in linker. None is built yet; each lands with the hint kinds it joins.
@@ -81,6 +111,39 @@ mod tests {
         for linker in LINKERS {
             assert_eq!(linker.role, Role::Linker);
             assert!(linker.consumes.iter().all(|k| k.split_once('.').is_some()), "{}", linker.name);
+        }
+    }
+
+    /// The options table is what each extractor reads: every role it declares runs, and one
+    /// left out, or one more, is refused.
+    #[test]
+    fn each_options_table_names_exactly_the_roles_its_extractor_reads() {
+        use serde_json::{Value, json};
+        let repo = crate::RepoView {
+            name: "r".into(),
+            root: "/nonexistent".into(),
+            commit: "c".repeat(40),
+            blobs: crate::walk::Blobs::default(),
+        };
+        let kind = json!({"kind": "p.k", "id_prefix": "k", "level": "code"});
+        for entry in EXTRACTORS {
+            let [Param { key: "kinds", names: ParamNames::Table(roles) }] = entry.options else {
+                panic!("{}: options are a kinds table", entry.name)
+            };
+            let all: serde_json::Map<String, Value> =
+                roles.iter().map(|r| (r.key.to_owned(), kind.clone())).collect();
+            let run = |kinds: &serde_json::Map<String, Value>| {
+                crate::builtin(entry.builtin).unwrap().run(&repo, &[], &json!({ "kinds": kinds }))
+            };
+            assert!(run(&all).is_ok(), "{}", entry.name);
+            for role in *roles {
+                let mut less = all.clone();
+                less.remove(role.key);
+                assert!(run(&less).is_err(), "{} runs without {}", entry.name, role.key);
+            }
+            let mut more = all.clone();
+            more.insert("extra".into(), kind.clone());
+            assert!(run(&more).is_err(), "{} reads an undeclared role", entry.name);
         }
     }
 

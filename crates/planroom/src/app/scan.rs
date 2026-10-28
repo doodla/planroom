@@ -18,7 +18,7 @@ use planroom_contract::{
 use planroom_extract::git::{Git, GitError};
 use planroom_extract::verify::Verifier;
 use planroom_extract::{RepoView, files, select, walk};
-use planroom_kernel::{facts, keys};
+use planroom_kernel::{facts, keys, redact};
 use planroom_store::{FactRow, Init, RepoOutcome, RepoScan, ScanKey, ScanRules, ScanWrite, Shape, Store};
 use serde_json::{Value, json};
 
@@ -57,8 +57,17 @@ pub fn run(req: &ScanReq, cwd: &Path) -> Result<Paged<ScanResult>, AppError> {
     Ok(Paged { dirty, ..Paged::whole(commit(prepared)?) })
 }
 
-/// Discover the workspace and extract each repo at its `HEAD`. Nothing is written yet.
+/// Discover the workspace and extract each repo at its `HEAD` with the built-in packs. Nothing is
+/// written yet.
 pub fn prepare(req: &ScanReq, cwd: &Path) -> Result<Prepared, AppError> {
+    // A workspace's own packs come from its config, which loads only once the workspace is
+    // trusted, so none loads yet.
+    prepare_with(req, cwd, packs::builtins()?)
+}
+
+/// [`prepare`] with the pack set `packs`: a scan runs every extractor the set declares, built-in
+/// and declarative alike.
+pub fn prepare_with(req: &ScanReq, cwd: &Path, packs: Loaded) -> Result<Prepared, AppError> {
     // A scan's decision run may call a model, so the live gate is read first: a relative spend
     // log, or a live flag with none, stops the scan before it reads anything (DR-65).
     models::live_env()?;
@@ -83,9 +92,6 @@ pub fn prepare(req: &ScanReq, cwd: &Path) -> Result<Prepared, AppError> {
     warnings.extend(loaded.warnings);
     let exclude = loaded.config.scan.exclude;
     let globs = walk::Exclude::new(&exclude)?;
-    // The built-in packs. A workspace's own packs come from its config, which loads only once
-    // the workspace is trusted, so none loads yet.
-    let packs = packs::builtins()?;
     let names: BTreeSet<&str> = ws.repos.iter().map(|r| r.name.as_str()).collect();
     let runs = packs.runs(&names);
     let inputs = inputs_hash(&packs.hash, &runs, &exclude);
@@ -274,8 +280,11 @@ pub fn open_store(ws: &Workspace) -> Result<Store, AppError> {
 /// moving a repo out of the workspace and back gives the map a fresh store gives, and so does
 /// changing the excludes and back.
 fn inputs_hash(packs_hash: &str, runs: &[Run], exclude: &[String]) -> String {
-    let options: Vec<String> =
-        runs.iter().map(|run| format!("{}={}", run.name, keys::canonical(&run.options))).collect();
+    // A declarative extractor's inputs are its pack's files, which the packs hash already holds.
+    let options: Vec<String> = runs
+        .iter()
+        .filter_map(|run| Some(format!("{}={}", run.name, keys::canonical(run.builtin()?.1))))
+        .collect();
     let exclude = keys::canonical(&json!(exclude));
     keys::sha256_hex(&["planroom.extract-inputs/v1", packs_hash, &options.join("\n"), "exclude", &exclude])
 }
@@ -356,7 +365,7 @@ fn unborn(
     })
 }
 
-/// One repo at its `HEAD`: every built-in's facts, verified, merged and ready to store. The files
+/// One repo at its `HEAD`: every extractor's facts, verified, merged and ready to store. The files
 /// come from `HEAD`'s tree, never the working tree, and every other input is in `inputs`, so the
 /// facts are a function of the snapshot's key alone: a dirty or untracked file never reaches a
 /// snapshot, and neither does the branch.
@@ -430,12 +439,9 @@ fn extract(
     let mut batches: Vec<FactBatch> = Vec::new();
     let mut dropped = Vec::new();
     for run in runs {
-        // The loader refused a pack naming a built-in this build doesn't have.
-        let extractor = planroom_extract::builtin(&run.builtin).expect("a built-in this build has");
         let globs: Vec<&str> = run.files.iter().map(String::as_str).collect();
         let selected = select(&walked.files, &globs).map_err(|e| RepoError::App(e.into()))?;
-        let mut batch =
-            extractor.run(&view, &selected, &run.options).map_err(|e| RepoError::App(e.into()))?;
+        let mut batch = run.extract(&view, &selected).map_err(|e| RepoError::App(e.into()))?;
         dropped.extend(verifier.verify(&mut batch)?);
         batches.push(batch);
     }
@@ -453,14 +459,49 @@ fn extract(
     }
     let partial: BTreeSet<&str> =
         batches.iter().flat_map(|b| b.partial.iter().map(|p| p.path.as_str())).collect();
-    if !partial.is_empty() {
+    // A file read with errors is `partial_parse`; one a bound refused gave no facts and wasn't
+    // parsed or queried in full, so it is `unparsed_files`, one warning per bound.
+    let mut read_with_errors: BTreeSet<&str> = BTreeSet::new();
+    let mut refused: BTreeMap<String, BTreeSet<&str>> = BTreeMap::new();
+    for p in batches.iter().flat_map(|b| &b.partial) {
+        match p.reason {
+            None => {
+                read_with_errors.insert(p.path.as_str());
+            }
+            Some(reason) => {
+                let bound = serde_json::to_value(reason).ok().and_then(|v| v.as_str().map(str::to_owned));
+                refused.entry(bound.unwrap_or_default()).or_default().insert(p.path.as_str());
+            }
+        }
+    }
+    if !read_with_errors.is_empty() {
         warnings.push(Warning {
             code: WarningCode::PartialParse,
-            message: text::get("warning.partial_parse", &[("count", &partial.len()), ("repo", &repo.name)]),
+            message: text::get(
+                "warning.partial_parse",
+                &[("count", &read_with_errors.len()), ("repo", &repo.name)],
+            ),
             details: json!({
                 "repo": repo.name,
-                "count": partial.len(),
-                "paths": partial.iter().take(WARNING_SAMPLE).collect::<Vec<_>>(),
+                "count": read_with_errors.len(),
+                "paths": read_with_errors.iter().take(WARNING_SAMPLE).collect::<Vec<_>>(),
+            }),
+        });
+    }
+    for (bound, paths) in &refused {
+        // Repo names and paths come from the repo, so they pass redaction.
+        let shown = redact::text(&repo.name);
+        warnings.push(Warning {
+            code: WarningCode::UnparsedFiles,
+            message: text::get(
+                &format!("warning.unparsed_files_{bound}"),
+                &[("count", &paths.len()), ("repo", &shown)],
+            ),
+            details: json!({
+                "repo": shown,
+                "count": paths.len(),
+                "bound": bound,
+                "paths": paths.iter().take(WARNING_SAMPLE).map(|p| redact::text(p)).collect::<Vec<_>>(),
             }),
         });
     }
@@ -512,8 +553,8 @@ fn mapped_commits(snapshot: &planroom_store::Snapshot<'_>) -> Result<BTreeMap<St
 /// The kinds the `files` built-in emits, with their ID prefixes, as this scan's packs name them:
 /// what a renamed file's or directory's IDs are made of. `None` when no pack declares `files`.
 fn id_prefixes(runs: &[Run]) -> Option<files::Kinds> {
-    let run = runs.iter().find(|r| r.builtin == "files")?;
-    serde_json::from_value(run.options.get("kinds")?.clone()).ok()
+    let (_, options) = runs.iter().filter_map(Run::builtin).find(|(name, _)| *name == "files")?;
+    serde_json::from_value(options.get("kinds")?.clone()).ok()
 }
 
 /// The renames git reports in `repo` from `old` to `new`, as old and new node IDs: each file, then

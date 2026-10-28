@@ -113,6 +113,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 97 | Namespaces fixed at the first mapping scan, reserved names, and an unborn repo that writes no event | DR-47, DR-74, DR-87, DR-89 | extended, amends DR-74 and DR-87 | the merge of M1's namespaces, renames and fold benchmark |
 | 98 | Review, one open Apply card, a viewer's row that keeps its viewer, and schema types by handle | DR-5, DR-21, DR-67, DR-75, DR-83, DR-86, DR-89 | extended, amends DR-75 | the merge of M1's review leaf, card store and inbox edits |
 | 99 | One hook for a model request's tail, every invisible character marked, and evidence paths left whole | DR-49, DR-64, DR-75, DR-91 | extended | the merge of M1's redaction on every path and the sanitizing pass |
+| 100 | The declarative runner's bounds: per file, one repo cut, and templates capped at load | DR-9, DR-46, DR-47, DR-86, DR-89 | extended, amends DR-47 and DR-86 | the merge of M1's declarative runner |
 
 ## Where the design reviews disagreed
 
@@ -915,7 +916,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-47: Deterministic scan bounds and a per-blob fact cache
 
-- **Status:** accepted (decided in review round 1, D21). Amended in review rounds 2 and 3, and by DR-85 and DR-86.
+- **Status:** accepted (decided in review round 1, D21). Amended in review rounds 2 and 3, and by DR-85, DR-86 and DR-100.
 - **Starting point:** none; replaces the extractor contract's 2 s wall-clock budget.
 - **Origin:** review round 1, unasked-4.
 - **Context:** a 2 s cut per extractor made a large repo's facts depend on machine load, which breaks "the same commit gives byte-identical facts". A dropped edge then read as a regression or a scan-changed-under-edit. Every head move also re-extracted every file.
@@ -934,6 +935,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 3:** a `gc` duty, under its lease after a scan, prunes `blob_facts` rows of other pack sets and `model_cache` rows of models no config pins. `budgets.json` gates a second fold benchmark at 50,000 events, since every one-shot read folds every event. Events are never pruned (unasked-9).
 - **Amended by DR-85:** the bounds apply to `HEAD`'s tree, which the walk lists with `git ls-tree` and reads with one `git cat-file --batch`, never to the working tree. The skipped "ignored paths" are only those a committed `.gitignore` ignores; `.git/info/exclude` isn't part of the commit, so it no longer applies.
 - **Amended by DR-86:** the per-blob cache keys facts by `(blob sha, extractor, the extractor's options, packs_hash)`, since an extractor's facts depend on its options; `compose`'s include the workspace's repo names.
+- **Amended by DR-100:** the per-blob cache key holds the file's repo-qualified path too, since a file's facts copy it into their evidence and IDs and its capture charge counts it; and every declarative bound is per file, with one coverage cut per repo in sorted path order.
 - **Sources (checked 2026-10-26):** [rust-stack §4] (690 files/s); review round 1 unasked-4 and owner decision D21.
 
 ## DR-48: Workspace trust, user-level credential settings and policy-bearing packs
@@ -2155,7 +2157,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-86: What the walking skeleton's review settled in round 2
 
-- **Status:** accepted (decided at the merge of round 2's fixes, 2026-10-26). Amended by DR-87.
+- **Status:** accepted (decided at the merge of round 2's fixes, 2026-10-26). Amended by DR-87 and DR-100.
 - **Starting point:** extended "Extractors read the repo", "Actors: agents never act as a person" and "Surfaces read one contract".
 - **Origin:** round 2 of the walking skeleton's review. Its 16 material findings, 12 distinct defects, are in [the review's index](research/skeleton-review/README.md). Four fix branches fixed them (the scan, budget, guard and canvas fixes), and one was fixed in the plan.
 - **Context:** Round 1's fixes held. Round 2 found what they left: inputs outside a snapshot's key, a late scan that could move a repo back, a partial clone that fetched, one unreadable repo failing a whole scan, warnings and two leaves over budget, a guard with no write rule for Bash and no rule for recursive reads, and two canvas controls that led nowhere.
@@ -2186,6 +2188,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Every git call also refuses each transport by name, so no call fetches even on a git without `GIT_NO_LAZY_FETCH`; a partial clone is told by reading its keys as git reads a boolean.
   - A workspace whose repos have no commits returns `repos_unborn`, and scan's summary counts no unborn or skipped repo.
   - The guard reads the shell's directory per call, checks every tool's paths and uploads, and protects the plugin's root.
+- **Amended by DR-100:** the per-blob cache's key adds the file's repo-qualified path to the options this record added.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/round2-*.json`; the four fix branches' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
 
 ## DR-87: What the walking skeleton's review settled in round 3
@@ -2630,3 +2633,30 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output` (names and content planted, over CLI text and `--json`, HTTP, SSE and `watch`, `share`, `import`, the serve log and a model request, with fake keys in every process's environment) and `raw_never_reaches_share_or_model_requests`; `display_parity` in `crates/kernel/tests/display.rs` and `packages/ui/src/display.test.ts`; `redact.rs`'s `only_a_listed_contract_type_is_listed`.
   - Closes: redaction running only in share and import, line and paragraph separators and tag characters shown raw.
 - **Sources (checked 2026-10-28):** `crates/kernel/src/{redact, display}.rs`; `crates/planroom/src/app/models.rs`; `crates/planroom/src/cli.rs`; `packages/ui/src/display.ts`; [Contracts](contracts.md); [Security and privacy](architecture.md#security-and-privacy).
+
+## DR-100: The declarative runner's bounds: per file, one repo cut, and templates capped at load
+
+- **Status:** accepted (decided at the merge of M1's declarative runner, 2026-10-28).
+- **Starting point:** extended DR-9, DR-46 and DR-89; amends DR-47 and DR-86.
+- **Origin:** the merge of the declarative runner, read against the docs by independent checks over ten rounds.
+- **Context:**
+  - A pack's regex and query extractors run over files a scanned repo chose, so every cost they meet has to be bounded the same way on every machine: nesting, parse and query work, the text predicates read, the facts and matches a run holds, and the templates it expands.
+  - A budget shared across a repo's files made a file's facts depend on the files before it, which DR-47's per-blob fact cache can't replay; a per-file floor with no repo bound let many small files exhaust memory.
+  - A file's facts copy its path and repo name into their evidence and IDs, so DR-47's and DR-86's cache key, which leaves the path out, can't be exact.
+  - Expanding a template walks its parts for every match, which no work budget counts, and the pack loader took a template of any length.
+- **Decision:**
+  - **Per file, never shared.** Parse and query work, the text a predicate reads included, is at most 2 steps a byte plus 16,384, counted by progress calls, chunk reads and summed tree depth, never a clock. A file's facts and kept matches hold at most 128 bytes of heap a byte plus 16 KiB, charged as each fact's measured shape, attrs and props maps included. A file past either is partial with `work_limit`, gives that extractor no fact, and is reported in `unparsed_files`; one nested past 256 is partial with `nesting_limit`.
+  - **One repo cut, like the walk's.** In sorted path order, each file that gives facts adds its charge; the first file whose charge would take an extractor's total past 256 MiB, and every file after it, are partial with `repo_limit`. The cut is computed every run from per-file charges; a cache stores each blob's facts and charge, never the cut.
+  - **The cache key holds the path.** A per-file extractor's facts are cached by `(blob sha, repo-qualified path, extractor, packs_hash)`. This amends DR-47 and DR-86 before any cache exists.
+  - **Templates are capped at load.** A template longer than 1,024 bytes or naming more than 64 variables refuses its pack with `pack_invalid` (`template_too_long`), so a template's cost per match is bounded and a pack can't stall a scan through it.
+  - **`unparsed_files`** reports files a bound refused, apart from `partial_parse`, which keeps meaning files parsed with error nodes; one warning per bound, with the count and the first 10 paths in sorted order.
+- **Alternatives rejected:**
+  - A capture budget shared across a repo: a file's facts would depend on other blobs.
+  - 16 bytes a byte for the capture budget: it refused the code pack's own URL hints on dense files, while the repo cut already bounds a repo's total.
+  - A wall-clock bound: a result would depend on the machine.
+  - Charging template expansion as work instead of capping templates: it bounds the same cost but lets a pack load that can never extract.
+- **Consequences:**
+  - Contracts: `PartialReason`'s `work_limit`, `nesting_limit` and `repo_limit`; the `unparsed_files` warning; `pack_invalid`'s `template_too_long`.
+  - Known cost: a crafted repo at the walk's bounds, every file at its work budget, can take minutes to scan. It is bounded, linear in the walk and the same on every machine.
+  - Tests: `crates/extract/tests/contract.rs`'s bound, heap, linear-time and per-file tests, among them `a_files_facts_never_depend_on_the_files_before_it`, `the_repo_bound_cuts_an_extractors_facts_in_sorted_path_order`, `a_runs_kept_matches_count_against_its_capture_budget` and `dense_everyday_files_keep_their_facts`; `packs.rs::a_template_past_its_bounds_is_refused_at_load` and `a_file_a_bound_refuses_is_reported_apart_from_parse_errors`.
+- **Sources (checked 2026-10-28):** `crates/extract/src/declarative/{mod, work, template, nesting}.rs`; `crates/planroom/src/packs/validate.rs`; [The extractor contract](architecture.md#the-extractor-contract); [Contracts](contracts.md).

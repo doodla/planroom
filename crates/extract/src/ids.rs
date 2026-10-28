@@ -1,6 +1,6 @@
 //! IDs and hashes that extractors derive.
 
-use planroom_contract::{Evidence, Kind, NodeId};
+use planroom_contract::{EdgeId, Evidence, Kind, NodeId, Ref};
 use sha2::{Digest, Sha256};
 
 /// `<namespace>:<kind-short>:<key>`.
@@ -18,6 +18,21 @@ pub fn hint_id(kind: &Kind, scope: &NodeId, key: &str, evidence: &[Evidence]) ->
     }
     hasher.update(serde_json::to_string(evidence).expect("evidence serializes").as_bytes());
     hex(&hasher.finalize())[..12].to_owned()
+}
+
+/// `e:` and 12 hex characters of `sha256(kind ‖ from ‖ to ‖ via)`, each part ended by a NUL: one
+/// ID per relation between two ends, whatever lines cite it, so a rescan keeps it.
+pub fn edge_id(kind: &Kind, from: &Ref, to: &Ref, via: Option<&str>) -> EdgeId {
+    let end = |r: &Ref| match r {
+        Ref::Id(id) => format!("id:{}", id.0),
+        Ref::Alias(alias) => format!("alias:{alias}"),
+    };
+    let mut hasher = Sha256::new();
+    for part in [kind.0.clone(), end(from), end(to), via.unwrap_or_default().to_owned()] {
+        hasher.update(part.as_bytes());
+        hasher.update([0]);
+    }
+    EdgeId(format!("e:{}", &hex(&hasher.finalize())[..12]))
 }
 
 /// Lowercase hex. Hand-rolled: two lines, where a crate would add a dependency.

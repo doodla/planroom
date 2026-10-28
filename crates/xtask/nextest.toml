@@ -26,5 +26,12 @@ filter = """
 | (binary_id(planroom-store::migrations) & test(=an_older_watch_exits_after_a_migration))
 | (binary_id(planroom::s01_first_look) & test(=cold_scan_under_5_s))
 | (binary_id(planroom-kernel::query) & test(=a_query_stays_linear_in_the_size_of_the_model))
+| (binary_id(planroom-extract::contract) & (
+    test(=a_regex_runs_in_linear_time_over_a_1_mib_file)
+  | test(=a_query_over_deeply_nested_code_runs_in_linear_time)
+  | test(=a_file_past_the_work_bound_is_partial_and_gives_no_fact)
+  | test(=what_many_small_files_hold_is_bounded_by_their_own_budgets)
+  | test(=a_text_predicate_reads_within_the_work_bound)
+  | test(=the_evidence_of_every_line_of_a_1_mib_file_verifies_in_linear_time)))
 """
 threads-required = "num-test-threads"

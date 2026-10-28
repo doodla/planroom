@@ -360,6 +360,91 @@ fn an_unconsumed_hint_kind_is_pack_invalid() {
     assert_invalid(&doctor(&dir), "$file", "isn't a reference");
 }
 
+/// The code pack's `pack.toml`, as this build embeds it.
+fn code_manifest() -> String {
+    let code = packs::embed::sources().into_iter().find(|s| s.label == "packs/code").expect("the code pack");
+    String::from_utf8(code.files["pack.toml"].clone()).unwrap()
+}
+
+/// The built-ins, with `from` in the code pack's `pack.toml` replaced by `to`.
+fn with_code_pack_edited(from: &str, to: &str) -> Result<packs::Loaded, planroom::app::error::AppError> {
+    let mut sources = packs::embed::sources();
+    let code = sources.iter_mut().find(|s| s.label == "packs/code").expect("the code pack");
+    let manifest = String::from_utf8(code.files["pack.toml"].clone()).unwrap();
+    assert!(manifest.contains(from), "the code pack holds {from}");
+    code.files.insert("pack.toml".into(), manifest.replace(from, to).into_bytes());
+    packs::resolve(sources)
+}
+
+#[test]
+fn a_built_in_extractors_options_are_read_through_its_declared_table() {
+    const FILES: &str = "options = { kinds = { repo = \"code.repo\", directory = \"code.directory\", file = \"code.file\" } }";
+    const COMPOSE: &str = "options = { kinds = { service = \"code.service\", tooling = \"code.tooling\", repo = \"code.repo\" } }";
+    let manifest = code_manifest();
+    // The 1-based line of the code pack's manifest that holds `text`.
+    let line_of =
+        |text: &str| manifest.lines().position(|l| l.contains(text)).expect("a line holds it") as u64 + 1;
+    let expect = |from: &str, to: &str, reference: &str, says: &str, on: Option<&str>| {
+        let (code, message, details) = refused(with_code_pack_edited(from, to));
+        assert_eq!(code, "pack_invalid", "{message}");
+        assert_eq!(details["reference"], reference, "{message}");
+        assert!(message.contains(says), "{message}");
+        if let Some(on) = on {
+            assert_eq!(details["line"], line_of(on), "{message}");
+        }
+    };
+
+    // An option key the table doesn't declare: `languages` is the engine's to fill in, never the
+    // pack's, so a pack that set it would be silently overridden.
+    let languages = FILES.replace("} }", "}, languages = [] }");
+    expect(
+        FILES,
+        &languages,
+        "languages",
+        "languages isn't an option of code/files; a pack sets only kinds",
+        Some(FILES),
+    );
+    // A kind role the built-in doesn't emit.
+    let module = FILES.replace("file = \"code.file\"", "file = \"code.file\", module = \"code.module\"");
+    expect(
+        FILES,
+        &module,
+        "module",
+        "module isn't a kind role of code/files; it emits repo, directory, file",
+        Some(FILES),
+    );
+    // A role it emits, left out.
+    let no_file = FILES.replace(", file = \"code.file\"", "");
+    expect(FILES, &no_file, "file", "code/files emits a file, so options.kinds names its kind", Some(FILES));
+    // No options at all leaves every role out, the first named.
+    expect(COMPOSE, "", "service", "code/compose emits a service, so options.kinds names its kind", None);
+    // The tables as the code pack writes them load.
+    assert!(packs::builtins().is_ok());
+}
+
+#[test]
+fn an_emitted_hints_attrs_are_ones_its_hint_kind_declares() {
+    let tmp = tempfile::tempdir().unwrap();
+    let body = |attrs: &str| {
+        format!(
+            "[[extractors]]\nid = \"http\"\nfiles = [\"**/*.rb\"]\nregex = \"'(https?)://([a-z0-9-]+)'\"\n\
+             emit = [{{ hint = \"code.url\", scope = \"@id:code.file:$file\", key = \"$2\",\n  \
+             attrs = {{ {attrs} }} }}]\n"
+        )
+    };
+    // `verb` isn't one of code.url's attributes, so no linker would read it.
+    let env = doctor(&pack_dir(tmp.path(), "verbs", &["code"], &body("scheme = \"$1\", verb = \"GET\"")));
+    assert_invalid(
+        &env,
+        "verb",
+        "verb isn't an attribute of the hint kind code.url; it declares scheme, host, port, path, method",
+    );
+    assert_eq!(line(&env), 12, "the attrs line: {env}");
+    // Declared attributes load.
+    let env = doctor(&pack_dir(tmp.path(), "urls", &["code"], &body("scheme = \"$1\", method = \"GET\"")));
+    assert_eq!(env["ok"], true, "{env}");
+}
+
 /// A `[[decisions]]` table about `subject`, whose precheck asks for no incoming `when` edge, whose
 /// slice lifts `slice` and whose yes puts an `effect` edge.
 fn decision(subject: &str, when: &str, slice: &str, effect: &str) -> String {
@@ -1465,4 +1550,400 @@ fn a_declared_id_past_64_characters_is_refused() {
     assert_invalid(&env, &long, "is longer than 64 characters");
     let env = doctor(&pack_dir(tmp.path(), "long_question", &["code"], &question(&long)));
     assert_invalid(&env, &long, "is longer than 64 characters");
+}
+
+/// An out-of-tree pack whose regex extractor reads `flags.txt`: a flag node per line, typed by its
+/// kind's prop schema, and an edge from the file that declares it.
+const TOGGLES: &str = r#"[[kinds]]
+id = "flag"
+id_prefix = "flag"
+level = "code"
+label = "Flag"
+parents = ["code.file"]
+props = { type = "object", properties = { enabled = { type = "boolean" } } }
+
+[[relations]]
+id = "declares"
+from = ["code.file"]
+to = ["toggles.flag"]
+label = "declares"
+
+[[extractors]]
+id = "flags"
+files = ["**/flags.txt"]
+regex = '(?m)^(\w+)=(true|false)$'
+emit = [
+  { node = "toggles.flag", key = "$1", parent = "@id:code.file:$file", props = { enabled = "$2" } },
+  { edge = "toggles.declares", from = "@id:code.file:$file", to = "@id:toggles.flag:$1" },
+]
+"#;
+
+const FLAGS: &str = "gift_wrap=false\nnew_checkout=true\n";
+
+/// A template's cost per match is bounded at load, so a pack can't stall a scan through it: one
+/// longer than 1,024 bytes or naming more than 64 variables is refused, and one at both bounds
+/// loads.
+#[test]
+fn a_template_past_its_bounds_is_refused_at_load() {
+    let tmp = tempfile::tempdir().unwrap();
+    // The pack's own kinds are `toggles.*`, so each case is a `toggles` pack in a folder of its own.
+    let load = |case: &str, key: &str| {
+        let dir = tmp.path().join(case);
+        fs::create_dir_all(&dir).unwrap();
+        let body = TOGGLES.replacen(r#"key = "$1""#, &format!(r#"key = "{key}""#), 1);
+        let pack = pack_dir(&dir, "toggles", &["code"], &body);
+        fs::create_dir_all(pack.join("tests/inputs/shop")).unwrap();
+        fs::write(pack.join("tests/inputs/shop/flags.txt"), FLAGS).unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_planroom"))
+            .args(["doctor", "--pack", pack.to_str().unwrap(), "--update", "--json"])
+            .current_dir(&dir)
+            .output()
+            .unwrap();
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()
+    };
+    let at_bounds = "$1".repeat(64) + &"x".repeat(1024 - 128);
+    let env = load("at_bounds", &at_bounds);
+    assert_eq!(env["ok"], true, "{env}");
+    let many = "$1".repeat(65);
+    assert_invalid(&load("many_vars", &many), &many, "names more than 64 variables");
+    let long = "x".repeat(1025);
+    assert_invalid(&load("long_text", &long), &long, "is longer than 1024 bytes");
+}
+
+#[test]
+fn a_loaded_packs_declarative_extractor_runs_in_scan_and_doctor() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pack = pack_dir(tmp.path(), "toggles", &["code"], TOGGLES);
+    fs::create_dir_all(pack.join("tests/inputs/shop")).unwrap();
+    fs::write(pack.join("tests/inputs/shop/flags.txt"), FLAGS).unwrap();
+
+    // doctor --pack runs it over tests/inputs/ as it runs a built-in, and compares the facts.
+    let out = Command::new(env!("CARGO_BIN_EXE_planroom"))
+        .args(["doctor", "--pack", pack.to_str().unwrap(), "--update", "--json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
+    let expected = fs::read_to_string(pack.join("tests/expected.jsonl")).unwrap();
+    let batch: Value = expected
+        .lines()
+        .map(|l| serde_json::from_str::<Value>(l).unwrap())
+        .find(|b| b["extractor"] == "toggles/flags")
+        .unwrap_or_else(|| panic!("the extractor ran: {expected}"));
+    let ids: Vec<&str> =
+        batch["nodes"].as_array().unwrap().iter().map(|n| n["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["shop:flag:gift_wrap", "shop:flag:new_checkout"], "{batch}");
+    assert_eq!(batch["nodes"][0]["props"]["enabled"], false, "{batch}");
+    let env = doctor(&pack);
+    assert_eq!(env["ok"], true, "{env}");
+    let checks: Vec<&str> =
+        env["result"]["checks"].as_array().unwrap().iter().map(|c| c["check"].as_str().unwrap()).collect();
+    assert_eq!(checks, ["validate", "expected", "determinism", "evidence", "evals"], "{env}");
+    assert_eq!(env["result"]["extractors"], serde_json::json!(["toggles/flags"]), "{env}");
+
+    // A scan with the pack loaded puts its nodes and edges in the map.
+    let ws = tmp.path().join("ws");
+    let web = ws.join("web");
+    fs::create_dir_all(&web).unwrap();
+    fs::write(web.join("flags.txt"), FLAGS).unwrap();
+    for args in [
+        &["init", "-q", "-b", "main"][..],
+        &["add", "-A"],
+        &[
+            "-c",
+            "user.name=T",
+            "-c",
+            "user.email=t@example.test",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "-m",
+            "flags",
+        ],
+    ] {
+        let out = Command::new("git").args(args).current_dir(&web).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    }
+    let loaded = with_builtins(vec![packs::read_dir(&pack).unwrap()]).expect("the pack loads");
+    let prepared =
+        planroom::app::scan::prepare_with(&planroom_contract::ScanReq::default(), &ws, loaded).unwrap();
+    planroom::app::scan::commit(prepared).unwrap();
+    let store = Store::open_existing(&ws.join(".planroom/store.db")).unwrap().expect("a store");
+    let facts: Vec<(Shape, Value)> = store
+        .facts(&store.active_set().unwrap().snapshots())
+        .unwrap()
+        .into_iter()
+        .map(|r| (r.shape, serde_json::from_str::<Value>(&r.body).unwrap()))
+        .collect();
+    let flag = facts
+        .iter()
+        .find(|(s, f)| *s == Shape::Node && f["id"] == "web:flag:gift_wrap")
+        .unwrap_or_else(|| panic!("the flag node is in the map: {facts:?}"));
+    assert_eq!(flag.1["kind"], "toggles.flag");
+    assert_eq!(flag.1["parent"], "web:file:flags.txt");
+    assert_eq!(flag.1["props"]["enabled"], false);
+    let edges: Vec<&Value> = facts
+        .iter()
+        .filter(|(s, f)| *s == Shape::Edge && f["kind"] == "toggles.declares")
+        .map(|(_, f)| f)
+        .collect();
+    assert_eq!(edges.len(), 2, "{edges:?}");
+    assert!(edges.iter().all(|e| e["from"]["id"] == "web:file:flags.txt"), "{edges:?}");
+}
+
+/// An out-of-tree pack whose regex extractor reads JavaScript, which the code pack's grammar
+/// parses: a link node for each URL in the code.
+const LINKS: &str = r#"[[kinds]]
+id = "link"
+id_prefix = "link"
+level = "code"
+label = "Link"
+parents = ["code.file"]
+
+[[extractors]]
+id = "urls"
+files = ["**/*.js"]
+regex = 'https?://([a-z0-9-]+)'
+emit = [{ node = "links.link", key = "$1", parent = "@id:code.file:$file" }]
+"#;
+
+#[test]
+fn a_file_a_bound_refuses_is_reported_apart_from_parse_errors() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pack = pack_dir(tmp.path(), "links", &["code"], LINKS);
+    let ws = tmp.path().join("ws");
+    let web = ws.join("web");
+    fs::create_dir_all(&web).unwrap();
+    let deep = format!("x = {}'http://deep-db/x'{};\n", "[".repeat(300), "]".repeat(300));
+    fs::write(web.join("deep.js"), &deep).unwrap();
+    // Block-comment opens that never close: a parse past its work budget.
+    fs::write(web.join("opens.js"), format!("const u = 'http://opens-db/x';\n{}", "/* ".repeat(20_000)))
+        .unwrap();
+    // A string of distinct short URLs on one line: each match makes a node, whose heap is many
+    // times the bytes of its URL, past what the file's capture budget holds.
+    let hosts: Vec<String> = (0..60_000).map(|i| format!("http://h{i:05}")).collect();
+    fs::write(web.join("copies.js"), format!("const u = '{}';\n", hosts.join(" "))).unwrap();
+    fs::write(web.join("broken.js"), "const u = 'http://broken-db/x';\nfunction ( {\n").unwrap();
+    fs::write(web.join("ok.js"), "const u = 'http://ok-db/x';\n").unwrap();
+    let out = Command::new("git").args(["init", "-q", "-b", "main"]).current_dir(&web).output().unwrap();
+    assert!(out.status.success());
+    let out = Command::new("git").args(["add", "-A"]).current_dir(&web).output().unwrap();
+    assert!(out.status.success());
+    let out = Command::new("git")
+        .args(["-c", "user.name=T", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false"])
+        .args(["commit", "-q", "-m", "links"])
+        .current_dir(&web)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let loaded = with_builtins(vec![packs::read_dir(&pack).unwrap()]).expect("the pack loads");
+    let prepared =
+        planroom::app::scan::prepare_with(&planroom_contract::ScanReq::default(), &ws, loaded).unwrap();
+    let reply = planroom::app::scan::commit(prepared).unwrap();
+    let warnings: Vec<Value> = reply.warnings.iter().map(|w| serde_json::to_value(w).unwrap()).collect();
+    let of = |code: &str| warnings.iter().filter(|w| w["code"] == code).cloned().collect::<Vec<_>>();
+    // Each file a bound refused, under its bound, and never as a parse error.
+    let unparsed = of("unparsed_files");
+    assert_eq!(unparsed.len(), 2, "{warnings:?}");
+    assert_eq!(
+        unparsed[0]["details"],
+        serde_json::json!({"repo": "web", "count": 1, "bound": "nesting_limit", "paths": ["web/deep.js"]})
+    );
+    assert!(unparsed[0]["message"].as_str().unwrap().contains("nest"), "{}", unparsed[0]);
+    assert_eq!(
+        unparsed[1]["details"],
+        serde_json::json!({"repo": "web", "count": 2, "bound": "work_limit", "paths": ["web/copies.js", "web/opens.js"]})
+    );
+    assert!(unparsed[1]["message"].as_str().unwrap().contains("work"), "{}", unparsed[1]);
+    // None gave a fact; the others did.
+    let store = Store::open_existing(&ws.join(".planroom/store.db")).unwrap().expect("a store");
+    let links: BTreeSet<String> = store
+        .facts(&store.active_set().unwrap().snapshots())
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.shape == Shape::Node)
+        .map(|r| serde_json::from_str::<Value>(&r.body).unwrap())
+        .filter(|n| n["kind"] == "links.link")
+        .map(|n| n["id"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(links, BTreeSet::from(["web:link:broken-db".to_owned(), "web:link:ok-db".to_owned()]));
+    let parse = of("partial_parse");
+    assert_eq!(parse.len(), 1, "{warnings:?}");
+    assert_eq!(parse[0]["details"]["paths"], serde_json::json!(["web/broken.js"]), "{}", parse[0]);
+}
+
+#[test]
+fn a_captured_prop_no_capture_can_fill_is_pack_invalid_at_load() {
+    let tmp = tempfile::tempdir().unwrap();
+    let body = TOGGLES.replace("enabled = { type = \"boolean\" }", "enabled = { type = \"object\" }");
+    let env = doctor(&pack_dir(tmp.path(), "toggles", &["code"], &body));
+    assert_invalid(&env, "$2", "enabled on toggles.flag is typed object, which no capture fills");
+}
+
+#[test]
+fn a_prop_schema_keyword_the_runner_doesnt_enforce_is_pack_invalid() {
+    let typed = "enabled = { type = \"boolean\" }";
+    let load = |body: String| with_builtins(vec![source(Origin::OutOfTree, "toggles", &["code"], &body)]);
+    let with_prop = |prop: &str| load(TOGGLES.replace(typed, prop));
+    for (prop, keyword) in [
+        ("enabled = { anyOf = [{ type = \"boolean\" }] }", "anyOf"),
+        ("enabled = { type = \"string\", pattern = \"^on$\" }", "pattern"),
+        ("enabled = { type = \"array\", items = { enum = [\"a\"] } }", "items"),
+        ("enabled = { type = \"array\", items = { type = \"string\", minLength = 1 } }", "items.minLength"),
+    ] {
+        let (code, message, details) = refused(with_prop(prop));
+        assert_eq!(code, "pack_invalid", "{prop}");
+        assert_eq!(details["reference"], keyword, "{prop}: {details}");
+        for named in ["toggles.flag", "enabled", keyword] {
+            assert!(message.contains(named), "{prop}: {message}");
+        }
+    }
+    // A keyword beside `properties` is refused the same way.
+    let required = TOGGLES.replace("properties = {", "required = [\"enabled\"], properties = {");
+    let (code, message, details) = refused(load(required));
+    assert_eq!((code.as_str(), &details["reference"]), ("pack_invalid", &Value::from("required")));
+    assert!(message.contains("toggles.flag"), "{message}");
+    // Every keyword coercion enforces loads.
+    with_prop(
+        "enabled = { type = \"boolean\", description = \"on or off\" }, \
+         tier = { type = \"integer\", enum = [0, 1, 2], minimum = 0, maximum = 2 }, \
+         tags = { type = \"array\", items = { type = \"string\" } }",
+    )
+    .expect("the enforced keywords load");
+}
+
+#[test]
+fn a_prop_schema_keyword_in_a_form_the_runner_cant_enforce_is_pack_invalid() {
+    let typed = "enabled = { type = \"boolean\" }";
+    let load = |prop: &str| {
+        with_builtins(vec![source(Origin::OutOfTree, "toggles", &["code"], &TOGGLES.replace(typed, prop))])
+    };
+    for (prop, name, keyword) in [
+        ("objs = { type = \"array\", items = { type = \"object\" } }", "objs", "items"),
+        ("e = { type = \"string\", enum = \"red\" }", "e", "enum"),
+        ("e = { type = \"string\", enum = [] }", "e", "enum"),
+        ("e = { type = \"string\", enum = [\"red\", 1] }", "e", "enum"),
+        ("m = { type = \"integer\", minimum = \"5\" }", "m", "minimum"),
+        ("m = { type = \"integer\", maximum = true }", "m", "maximum"),
+    ] {
+        let (code, message, details) = refused(load(&format!("{typed}, {prop}")));
+        assert_eq!(code, "pack_invalid", "{prop}");
+        assert_eq!(details["reference"], keyword, "{prop}: {details}");
+        let at = manifest("toggles", &["code"], TOGGLES).lines().position(|l| l.starts_with("props"));
+        assert_eq!(details["line"], at.unwrap() + 1, "{prop}: the kind's props line: {details}");
+        for named in ["toggles.flag", name, keyword] {
+            assert!(message.contains(named), "{prop}: {message}");
+        }
+    }
+}
+
+#[test]
+fn a_malformed_prop_schema_is_pack_invalid_at_load() {
+    let schema = "props = { type = \"object\", properties = { enabled = { type = \"boolean\" } } }";
+    let load = |props: &str| {
+        with_builtins(vec![source(Origin::OutOfTree, "toggles", &["code"], &TOGGLES.replace(schema, props))])
+    };
+    let with_prop = |prop: &str| {
+        format!(
+            "props = {{ type = \"object\", properties = {{ enabled = {{ type = \"boolean\" }}, {prop} }} }}"
+        )
+    };
+    for (props, prop, keyword) in [
+        // A prop schema that isn't a table: JSON Schema's `false` admits no value at all.
+        (with_prop("p = false"), Some("p"), "properties"),
+        (with_prop("p = \"integer\""), Some("p"), "properties"),
+        // `properties` that isn't a table.
+        ("props = { type = \"object\", properties = 5 }".to_owned(), None, "properties"),
+        // A `type` that isn't a type name, or names no JSON type.
+        (with_prop("p = { type = 5 }"), Some("p"), "type"),
+        (with_prop("p = { type = \"integr\" }"), Some("p"), "type"),
+        (with_prop("p = { type = [\"string\", 5] }"), Some("p"), "type"),
+        (with_prop("p = { type = \"array\", items = { type = 5 } }"), Some("p"), "items"),
+    ] {
+        let (code, message, details) = refused(load(&props));
+        assert_eq!(code, "pack_invalid", "{props}");
+        assert_eq!(details["reference"], keyword, "{props}: {details}");
+        let at = manifest("toggles", &["code"], TOGGLES).lines().position(|l| l.starts_with("props"));
+        assert_eq!(details["line"], at.unwrap() + 1, "{props}: the kind's props line: {details}");
+        for named in ["toggles.flag", keyword].into_iter().chain(prop) {
+            assert!(message.contains(named), "{props}: {message}");
+        }
+    }
+    // Every JSON type name, alone or in a list, loads.
+    load(&with_prop(
+        "a = { type = \"string\" }, b = { type = [\"integer\", \"null\"] }, c = { type = \"object\" }, \
+         d = { type = [\"number\", \"boolean\", \"array\"] }",
+    ))
+    .expect("the JSON types load");
+}
+
+#[test]
+fn a_kinds_props_that_isnt_an_object_schema_is_pack_invalid_at_load() {
+    let schema = "props = { type = \"object\", properties = { enabled = { type = \"boolean\" } } }";
+    let props = "properties = { enabled = { type = \"boolean\" } }";
+    for (body, keyword) in [
+        // `props` that isn't a table: no prop the runner emits could be checked against it.
+        ("props = false".to_owned(), "props"),
+        ("props = 5".to_owned(), "props"),
+        ("props = \"object\"".to_owned(), "props"),
+        ("props = [1]".to_owned(), "props"),
+        // A top-level `type` other than `object`: every emit gives an object of props.
+        (format!("props = {{ type = 5, {props} }}"), "type"),
+        (format!("props = {{ type = \"string\", {props} }}"), "type"),
+        (format!("props = {{ type = \"integr\", {props} }}"), "type"),
+        (format!("props = {{ type = [\"object\"], {props} }}"), "type"),
+    ] {
+        for (label, pack) in [
+            ("the kind", TOGGLES.replace(schema, &body)),
+            (
+                "the relation",
+                TOGGLES.replace("label = \"declares\"", &format!("label = \"declares\"\n{body}")),
+            ),
+        ] {
+            let loaded = with_builtins(vec![source(Origin::OutOfTree, "toggles", &["code"], &pack)]);
+            let (code, message, details) = refused(loaded);
+            assert_eq!(code, "pack_invalid", "{label}: {body}");
+            assert_eq!(details["reference"], keyword, "{label}: {body}: {details}");
+            let named = if label == "the kind" { "toggles.flag" } else { "toggles.declares" };
+            for named in [named, keyword] {
+                assert!(message.contains(named), "{label}: {body}: {message}");
+            }
+        }
+    }
+    // An object schema with no `type`, or with no props at all, still loads.
+    for props in ["props = { properties = { enabled = { type = \"boolean\" } } }", "props = {}"] {
+        let pack = TOGGLES.replace(schema, props).replace(", props = { enabled = \"$2\" }", "");
+        with_builtins(vec![source(Origin::OutOfTree, "toggles", &["code"], &pack)]).expect(props);
+    }
+}
+
+#[test]
+fn a_fixed_prop_that_breaks_its_schema_is_pack_invalid_at_load() {
+    let schema = "enabled = { type = \"boolean\" }";
+    let typed = TOGGLES.replace(
+        schema,
+        &format!("{schema}, color = {{ type = \"string\", enum = [\"red\", \"blue\"] }}, pct = {{ type = \"integer\", maximum = 100 }}"),
+    );
+    let load = |props: &str| {
+        let body = typed.replace("props = { enabled = \"$2\" }", props);
+        with_builtins(vec![source(Origin::OutOfTree, "toggles", &["code"], &body)])
+    };
+    for (props, prop, value, keyword) in [
+        ("props = { enabled = \"$2\", color = \"green\" }", "color", "green", "enum"),
+        ("props = { enabled = \"$2\", pct = 500 }", "pct", "500", "maximum"),
+        ("props = { enabled = \"$2\", pct = \"abc\" }", "pct", "abc", "type"),
+    ] {
+        let (code, message, details) = refused(load(props));
+        assert_eq!(code, "pack_invalid", "{props}");
+        assert_eq!(details["reference"], value, "{props}: {details}");
+        let at =
+            manifest("toggles", &["code"], TOGGLES).lines().position(|l| l.contains("props = { enabled"));
+        assert_eq!(details["line"], at.unwrap() + 1, "{props}: the emit's line: {details}");
+        for named in ["toggles/flags", "toggles.flag", prop, keyword] {
+            assert!(message.contains(named), "{props}: {message}");
+        }
+    }
+    load("props = { enabled = \"$2\", color = \"red\", pct = 100 }")
+        .expect("values that meet the schema load");
 }

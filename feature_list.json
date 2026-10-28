@@ -1042,7 +1042,6 @@
         "crates/planroom/tests/packs.rs::every_v0_1_decision_kind_validates_against_the_contract": "M2",
         "crates/planroom/tests/trust.rs::an_agent_cannot_add_a_pack": "M1",
         "crates/kernel/tests/effects.rs::retarget_needs_a_person_stakes_role_subject": "M2",
-        "crates/extract/tests/contract.rs::a_bare_path_reference_is_pack_invalid": "M1",
         "crates/planroom/tests/s10_extensibility.rs::an_edgeless_lens_kind_shows_on_its_map": "M5",
         "crates/kernel/tests/policy.rs::when_reads_graph_structure": "M2",
         "crates/planroom/tests/packs.rs::an_added_pack_loads_from_its_copy": "M1",

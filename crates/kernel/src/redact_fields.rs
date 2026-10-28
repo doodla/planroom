@@ -297,6 +297,7 @@ pub const ERROR_DETAILS: &[(&str, &[&str])] = &[
 pub const WARNING_DETAILS: &[(&str, &[&str])] = &[
     ("evidence_dropped", &["repo"]),
     ("partial_parse", &["repo", "paths"]),
+    ("unparsed_files", &["repo", "paths"]),
     ("partial_scan", &["repo", "uncovered"]),
     ("repo_unborn", &["repo"]),
     ("repo_skipped", &["repo"]),

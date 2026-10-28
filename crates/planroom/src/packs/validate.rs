@@ -23,11 +23,15 @@
 //! on a path is out-of-tree, and one that claims a built-in pack's ID is refused.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use planroom_contract::{
     ActionDecl, ArgDecl, Class, Command, DecisionKind, EffectOp, EmitTemplate, ExtractorDecl, Level,
     PREDICATE_PARAMS, Param, ParamNames, Predicate, Question, RuleType, Shape, SubjectKind, Undo,
     WriteCommon,
+};
+use planroom_extract::declarative::{
+    Declarative, Fault, Form, Spec, Step, TEMPLATE_MAX_BYTES, TEMPLATE_MAX_VARS, Why, fault, grammar,
 };
 use planroom_extract::registry::{self, Role};
 use serde_json::Value;
@@ -106,6 +110,7 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
             for (j, parent) in kind.parents.iter().enumerate() {
                 ctx.kind(parent, &at.key("parents").at(j))?;
             }
+            prop_schema(&ctx, &at.key("props"), &q, &kind.props)?;
         }
         for (i, relation) in pack.file.relations.iter().enumerate() {
             let at = root.key("relations").at(i);
@@ -114,6 +119,7 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
                     ctx.kind(kind, &at.key(end).at(j))?;
                 }
             }
+            prop_schema(&ctx, &at.key("props"), &qualify(id, &relation.id), &relation.props)?;
         }
         for (i, language) in pack.file.languages.iter().enumerate() {
             let at = root.key("languages").at(i);
@@ -874,33 +880,15 @@ fn extractor(
         ExtractorDecl::Builtin { id: eid, builtin, files, options } => {
             let name = format!("{id}/{eid}");
             let builtin_at = at.key("builtin");
-            match registry::find(builtin) {
-                Some(b) if b.role == Role::Extractor && b.name == name => {}
+            let entry = match registry::find(builtin) {
+                Some(b) if b.role == Role::Extractor && b.name == name => b,
                 Some(b) if b.role == Role::Extractor => {
                     let vars: &Vars<'_> = &[("builtin", builtin), ("name", &b.name)];
                     return Err(ctx.bad(&builtin_at, builtin, "builtin_name", vars));
                 }
                 _ => return Err(ctx.bad(&builtin_at, builtin, "unknown_extractor", &[("builtin", builtin)])),
-            }
-            let options_at = at.key("options");
-            match options {
-                Value::Null => {}
-                Value::Object(map) => {
-                    if let Some(kinds) = map.get("kinds") {
-                        let kinds_at = options_at.key("kinds");
-                        let Some(kinds) = kinds.as_object() else {
-                            return Err(ctx.bad(&kinds_at, eid, "options", &[("name", &name)]));
-                        };
-                        for (role, kind) in kinds {
-                            let Some(kind) = kind.as_str() else {
-                                return Err(ctx.bad(&kinds_at.key(role), eid, "options", &[("name", &name)]));
-                            };
-                            ctx.kind(kind, &kinds_at.key(role))?;
-                        }
-                    }
-                }
-                _ => return Err(ctx.bad(&options_at, eid, "options", &[("name", &name)])),
-            }
+            };
+            builtin_options(ctx, entry.options, eid, &name, options, &at.key("options"))?;
             (files, &[][..])
         }
         ExtractorDecl::Regex { id: eid, files, regex, emit } => {
@@ -953,6 +941,169 @@ fn extractor(
     Ok(())
 }
 
+/// Every declarative extractor of the merged set, compiled as the runner will run it: against the
+/// whole vocabulary, the merged `[[languages]]` table and every loaded `[[hints]]` kind. So a pack
+/// that loads runs, and what only the runner reads, such as a hint's `attrs` keys, a template's
+/// variables, a query's grammar and its `.scm` text, fails the load with `pack_invalid` at its
+/// own line. The compiled extractors, by pack-qualified name, are what a scan runs.
+pub(super) fn runnable(loaded: &super::Loaded) -> Result<BTreeMap<String, Arc<Declarative>>, AppError> {
+    let hints: BTreeMap<String, Vec<String>> = loaded
+        .packs
+        .iter()
+        .flat_map(|p| p.file.hints.iter().map(move |h| (qualify(p.id(), &h.id), h.attrs.clone())))
+        .collect();
+    let mut programs = BTreeMap::new();
+    for pack in &loaded.packs {
+        for (i, decl) in pack.file.extractors.iter().enumerate() {
+            let query = match decl {
+                ExtractorDecl::Builtin { .. } => continue,
+                ExtractorDecl::Regex { .. } => None,
+                ExtractorDecl::Query { query, .. } => {
+                    pack.source.text(query).or_else(|| pack.source.text(&format!("queries/{query}")))
+                }
+            };
+            let spec = Spec {
+                pack: pack.id(),
+                decl,
+                vocabulary: &loaded.vocabulary,
+                languages: &loaded.languages,
+                hints: &hints,
+                query,
+            };
+            let invalid = match Declarative::compile(&spec) {
+                Ok(program) => {
+                    programs.insert(program.name().to_owned(), Arc::new(program));
+                    continue;
+                }
+                Err(invalid) => invalid,
+            };
+            let mut path = KeyPath::root().key("extractors").at(i);
+            for step in &invalid.at {
+                path = match step {
+                    Step::Key(k) => path.key(k),
+                    Step::Index(n) => path.at(*n),
+                };
+            }
+            let name = format!("{}/{}", pack.id(), extractor_id(decl));
+            let reference = invalid.reference.as_str();
+            let (why, vars): (&str, Vec<(&str, String)>) = match &invalid.why {
+                Why::NotDeclarative => continue,
+                Why::BareRef => ("bare_ref", vec![("reference", reference.into())]),
+                Why::NotAnId => ("not_an_id", vec![("reference", reference.into())]),
+                Why::UnknownKind(k) => ("unknown_kind", vec![("reference", k.clone())]),
+                Why::UnknownRelation(r) => ("unknown_relation", vec![("reference", r.clone())]),
+                Why::UnknownHint(h) => ("unknown_hint", vec![("reference", h.clone())]),
+                Why::HintAttr { hint, declared } => (
+                    "hint_attr",
+                    vec![("attr", reference.into()), ("hint", hint.clone()), ("attrs", declared.join(", "))],
+                ),
+                Why::UnknownVariable(v) => ("unknown_variable", vec![("reference", v.clone())]),
+                Why::TemplateTooLong => (
+                    "template_too_long",
+                    vec![
+                        ("name", name.clone()),
+                        ("bytes", TEMPLATE_MAX_BYTES.to_string()),
+                        ("vars", TEMPLATE_MAX_VARS.to_string()),
+                    ],
+                ),
+                Why::UnknownGroup { group, groups } => (
+                    "unknown_group",
+                    vec![
+                        ("name", name.clone()),
+                        ("groups", groups.to_string()),
+                        ("group", group.to_string()),
+                    ],
+                ),
+                Why::Regex(why) => ("regex", vec![("name", name.clone()), ("why", why.clone())]),
+                Why::Query(why) => ("query", vec![("name", name.clone()), ("why", why.clone())]),
+                Why::QueryMissing => ("file_missing", vec![("reference", reference.into())]),
+                Why::UnknownLanguage(l) => ("unknown_language", vec![("reference", l.clone())]),
+                Why::NoGrammar(l) => (
+                    "no_grammar",
+                    vec![
+                        ("reference", l.clone()),
+                        ("grammars", grammar::ids().collect::<Vec<_>>().join(", ")),
+                    ],
+                ),
+                Why::Confidence => ("confidence", vec![("reference", reference.into())]),
+                Why::PropType { kind, prop, types } => (
+                    "prop_type",
+                    vec![("kind", kind.clone()), ("prop", prop.clone()), ("types", types.clone())],
+                ),
+                Why::PropValue { kind, prop, keyword } => (
+                    "prop_value",
+                    vec![
+                        ("reference", reference.into()),
+                        ("name", name.clone()),
+                        ("kind", kind.clone()),
+                        ("prop", prop.clone()),
+                        ("keyword", (*keyword).to_owned()),
+                    ],
+                ),
+            };
+            // An attribute is refused by its key, as a key no table declares is.
+            let at = if matches!(invalid.why, Why::HintAttr { .. }) { At::Key } else { At::Value };
+            let vars: Vec<(&str, &dyn std::fmt::Display)> =
+                vars.iter().map(|(k, v)| (*k, v as &dyn std::fmt::Display)).collect();
+            return Err(pack.source.invalid_at(&path, at, reference, why, &vars));
+        }
+    }
+    Ok(programs)
+}
+
+/// A built-in extractor's `options`, read through the table its registry entry declares, as a
+/// query shape's parameters are: a key the table doesn't declare is refused at its own line, a
+/// `kinds` role the built-in doesn't emit too, and every role it emits names a kind in scope,
+/// since it emits each (DR-46).
+fn builtin_options(
+    ctx: &Ctx<'_>,
+    table: &[Param],
+    eid: &str,
+    name: &str,
+    options: &Value,
+    at: &KeyPath,
+) -> Result<(), AppError> {
+    let src = &ctx.pack.source;
+    let empty = serde_json::Map::new();
+    let map = match options {
+        Value::Null => &empty,
+        Value::Object(map) => map,
+        _ => return Err(ctx.bad(at, eid, "options", &[("name", &name)])),
+    };
+    let listed = |params: &[Param]| params.iter().map(|p| p.key).collect::<Vec<_>>().join(", ");
+    for key in map.keys() {
+        if !table.iter().any(|p| p.key == key) {
+            let vars: &Vars<'_> = &[("key", key), ("name", &name), ("keys", &listed(table))];
+            return Err(src.invalid_at(&at.key(key), At::Key, key, "option_unknown", vars));
+        }
+    }
+    for param in table {
+        let ParamNames::Table(roles) = param.names else { continue };
+        let here = at.key(param.key);
+        let kinds = match map.get(param.key) {
+            None => &empty,
+            Some(Value::Object(kinds)) => kinds,
+            Some(_) => return Err(ctx.bad(&here, eid, "options", &[("name", &name)])),
+        };
+        for (role, kind) in kinds {
+            if !roles.iter().any(|r| r.key == role) {
+                let vars: &Vars<'_> = &[("role", role), ("name", &name), ("roles", &listed(roles))];
+                return Err(src.invalid_at(&here.key(role), At::Key, role, "role_unknown", vars));
+            }
+            let Some(kind) = kind.as_str() else {
+                return Err(ctx.bad(&here.key(role), eid, "options", &[("name", &name)]));
+            };
+            ctx.kind(kind, &here.key(role))?;
+        }
+        if let Some(missing) = roles.iter().find(|r| !kinds.contains_key(r.key)) {
+            // Named at the kinds table, or at the options or the entry when those aren't written.
+            let vars: &Vars<'_> = &[("role", &missing.key), ("name", &name)];
+            return Err(src.invalid_at(&here, At::Key, missing.key, "role_missing", vars));
+        }
+    }
+    Ok(())
+}
+
 /// Whether the pack holds `path`, named from the pack's root or from `dir` (`prompts/` for a
 /// `[[prompts]]` file, `queries/` for a query extractor's `.scm`).
 fn holds(src: &Source, dir: &str, path: &str) -> bool {
@@ -984,6 +1135,35 @@ fn bounded(src: &Source, at: &KeyPath, id: &str) -> Result<(), AppError> {
 fn glob(ctx: &Ctx<'_>, at: &KeyPath, glob: &str) -> Result<(), AppError> {
     planroom_extract::check_glob(glob)
         .map_err(|why| ctx.bad(at, glob, "glob", &[("glob", &glob), ("why", &why)]))
+}
+
+/// A kind's or a relation's prop schema, at `at`, takes only the keywords coercion enforces, each
+/// in a form it reads, and each prop's schema is a table, so a value the runner emits never breaks
+/// it; any other keyword, an enforced one it can't read, or a prop whose schema isn't a table is
+/// `pack_invalid` at its own key, naming the kind, the prop and the keyword.
+fn prop_schema(ctx: &Ctx<'_>, at: &KeyPath, kind: &str, schema: &Value) -> Result<(), AppError> {
+    let Some(Fault { prop, keyword, form }) = fault(schema) else { return Ok(()) };
+    let Some(prop) = prop else {
+        let vars: &Vars<'_> = &[("kind", &kind), ("keyword", &keyword)];
+        let (path, why) = match (form, keyword.as_str()) {
+            // `props` itself is what is wrong.
+            (Form::NotATable, _) => (at.clone(), "schema_not_a_table"),
+            (Form::Malformed, "type") => (at.key(&keyword), "schema_type"),
+            (Form::Malformed, _) => (at.key(&keyword), "schema_malformed"),
+            (Form::Unenforced, _) => (at.key(&keyword), "schema_keyword"),
+        };
+        return Err(ctx.pack.source.invalid_at(&path, At::Key, &keyword, why, vars));
+    };
+    let vars: &Vars<'_> = &[("kind", &kind), ("prop", &prop), ("keyword", &keyword)];
+    let (path, why) = match form {
+        // The prop's own entry under `properties` is what is wrong.
+        Form::NotATable => (at.key("properties").key(&prop), "prop_not_a_table"),
+        Form::Malformed | Form::Unenforced => {
+            let path = keyword.split('.').fold(at.key("properties").key(&prop), |path, k| path.key(k));
+            (path, if form == Form::Malformed { "prop_malformed" } else { "prop_keyword" })
+        }
+    };
+    Err(ctx.pack.source.invalid_at(&path, At::Key, &keyword, why, vars))
 }
 
 /// A merged table's key that an earlier pack, or an earlier entry, already claims (DR-46).

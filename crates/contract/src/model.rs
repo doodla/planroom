@@ -251,7 +251,7 @@ pub struct FactBatch {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
     pub hints: Vec<Hint>,
-    /// Files read with errors; their facts are weak.
+    /// Files read with errors, whose facts are weak, and files a bound refused, which gave none.
     pub partial: Vec<PartialFile>,
 }
 
@@ -261,6 +261,28 @@ pub struct PartialFile {
     /// `<repo>/<repo-relative path>`.
     pub path: String,
     pub errors: u32,
+    /// Why the extractor took no fact from the file, when a bound it can't cross stopped it; absent
+    /// for a file it read with errors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<PartialReason>,
+}
+
+/// The bound that stopped an extractor reading a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PartialReason {
+    /// The file nests brackets or indentation deeper than a grammar is run over, so it wasn't
+    /// parsed and the extractor took no fact from it.
+    NestingLimit,
+    /// Parsing or querying the file took more work than a grammar is given for a file of its
+    /// size, or its matches would hold more heap, in their facts and in what the extractor keeps
+    /// of them while it reads the file, than a file of its size is given, so the extractor
+    /// stopped and took no fact from it.
+    WorkLimit,
+    /// The file comes, in sorted path order, at or after the first file whose facts would take
+    /// what the extractor holds for the whole repo past its bound, so the extractor took no fact
+    /// from it.
+    RepoLimit,
 }
 
 #[cfg(test)]

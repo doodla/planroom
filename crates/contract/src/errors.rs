@@ -200,8 +200,9 @@ impl JsonSchema for ErrorCode {
 }
 
 /// How many items a warning's `details` list at most, in their sorted order, beside their
-/// `count`: `partial_scan`'s uncovered paths and `partial_parse`'s paths. A reply an agent reads
-/// keeps to its leaf's budget, so a warning never lists every path of a large repo.
+/// `count`: `partial_scan`'s uncovered paths, and `partial_parse`'s and `unparsed_files`' paths.
+/// A reply an agent reads keeps to its leaf's budget, so a warning never lists every path of a
+/// large repo.
 pub const WARNING_SAMPLE: usize = 10;
 
 /// A registered warning code, with its meaning and `details` fields.
@@ -264,6 +265,9 @@ warning_codes! {
     PartialParse = "partial_parse",
         "files parsed with error nodes, so their facts are weak; details name the repo, the count and the first 10 paths in sorted order",
         ["repo", "count", "paths"] redact ["repo", "paths"];
+    UnparsedFiles = "unparsed_files",
+        "files an extractor took no facts from because they pass a nesting or work bound, would hold more heap in facts and kept matches than their size allows, or come at or after the first file in sorted order whose facts would take the repo past its bound; details name the repo, the count, the bound (nesting_limit, work_limit or repo_limit) and the first 10 paths in sorted order",
+        ["repo", "count", "bound", "paths"] redact ["repo", "paths"];
     PartialScan = "partial_scan",
         "an extractor reached its file or byte bound, or a partial clone lacks some blobs; details name the extractor, the repo, the count of uncovered files and the first 10 in sorted order",
         ["extractor", "repo", "count", "uncovered"] redact ["repo", "uncovered"];

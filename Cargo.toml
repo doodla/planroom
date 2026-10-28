@@ -43,6 +43,13 @@ nucleo-matcher = "=0.3.1"
 # leaves the provider to planroom-models, which hands reqwest ring's.
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider", "blocking"] }
 rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+tree-sitter = "=0.27.1"
+tree-sitter-language = "=0.1.9"
+tree-sitter-typescript = "=0.23.2"
+tree-sitter-javascript = "=0.25.0"
+tree-sitter-python = "=0.25.0"
+tree-sitter-go = "=0.25.0"
+tree-sitter-rust = "=0.24.2"
 
 # Line tables keep backtraces readable at about a third of full debuginfo's disk,
 # so several worktrees' targets fit at once.

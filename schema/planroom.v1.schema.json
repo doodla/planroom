@@ -2755,7 +2755,7 @@
           "items": {
             "$ref": "#/$defs/PartialFile"
           },
-          "description": "Files read with errors; their facts are weak."
+          "description": "Files read with errors, whose facts are weak, and files a bound refused, which gave none."
         }
       },
       "required": [
@@ -4899,6 +4899,17 @@
           "type": "integer",
           "format": "uint32",
           "minimum": 0
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PartialReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the extractor took no fact from the file, when a bound it can't cross stopped it; absent\nfor a file it read with errors."
         }
       },
       "required": [
@@ -4906,6 +4917,26 @@
         "errors"
       ],
       "description": "A file an extractor read with errors, such as one that isn't UTF-8."
+    },
+    "PartialReason": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "nesting_limit",
+          "description": "The file nests brackets or indentation deeper than a grammar is run over, so it wasn't\nparsed and the extractor took no fact from it."
+        },
+        {
+          "type": "string",
+          "const": "work_limit",
+          "description": "Parsing or querying the file took more work than a grammar is given for a file of its\nsize, or its matches would hold more heap, in their facts and in what the extractor keeps\nof them while it reads the file, than a file of its size is given, so the extractor\nstopped and took no fact from it."
+        },
+        {
+          "type": "string",
+          "const": "repo_limit",
+          "description": "The file comes, in sorted path order, at or after the first file whose facts would take\nwhat the extractor holds for the whole repo past its bound, so the extractor took no fact\nfrom it."
+        }
+      ],
+      "description": "The bound that stopped an extractor reading a file."
     },
     "PersonInitReq": {
       "type": "object",
@@ -7083,6 +7114,7 @@
             "unresolved_ref",
             "evidence_dropped",
             "partial_parse",
+            "unparsed_files",
             "partial_scan",
             "workspace_nested",
             "repo_unborn",

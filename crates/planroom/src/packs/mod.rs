@@ -18,11 +18,14 @@ mod validate;
 pub use validate::ID_MAX;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use planroom_contract::{
-    ExtractorDecl, Flow, ImageRole, Kind, KindVocab, LanguageDecl, LensVocab, PackFile, PackRecord,
-    RelationVocab, Vocabulary,
+    ExtractorDecl, FactBatch, Flow, ImageRole, Kind, KindVocab, LanguageDecl, LensVocab, PackFile,
+    PackRecord, RelationVocab, Vocabulary,
 };
+use planroom_extract::declarative::Declarative;
+use planroom_extract::{ExtractError, RepoPath, RepoView};
 use planroom_kernel::keys;
 use serde_json::{Value, json};
 
@@ -83,16 +86,46 @@ pub struct Declared {
     pub decl: ExtractorDecl,
 }
 
-/// A built-in extractor as one scan runs it: its name, its `files` globs and its options, with
-/// the kinds it emits resolved against the vocabulary and the engine's inputs filled in.
-#[derive(Debug, Clone, PartialEq)]
+/// An extractor as one scan runs it: its name, its `files` globs and what runs it.
+#[derive(Debug, Clone)]
 pub struct Run {
     /// Pack-qualified: what its facts' provenance names.
     pub name: String,
-    /// What the pack names with `builtin = NAME`.
-    pub builtin: String,
     pub files: Vec<String>,
-    pub options: Value,
+    pub runner: Runner,
+}
+
+/// What runs one extractor.
+#[derive(Debug, Clone)]
+pub enum Runner {
+    /// A built-in, by the name the pack gives with `builtin = NAME`, with its options: the kinds
+    /// it emits resolved against the vocabulary and the engine's inputs filled in.
+    Builtin { builtin: String, options: Value },
+    /// A declarative extractor, compiled when its pack loaded.
+    Declarative(Arc<Declarative>),
+}
+
+impl Run {
+    /// The built-in's name and options, or `None` for a declarative extractor, whose every input
+    /// is its pack's files, which the packs hash holds.
+    pub fn builtin(&self) -> Option<(&str, &Value)> {
+        match &self.runner {
+            Runner::Builtin { builtin, options } => Some((builtin, options)),
+            Runner::Declarative(_) => None,
+        }
+    }
+
+    /// Its facts over `files` of `repo`.
+    pub fn extract(&self, repo: &RepoView, files: &[RepoPath]) -> Result<FactBatch, ExtractError> {
+        match &self.runner {
+            Runner::Builtin { builtin, options } => {
+                // The loader refused a pack naming a built-in this build doesn't have.
+                let extractor = planroom_extract::builtin(builtin).expect("a built-in this build has");
+                extractor.run(repo, files, options)
+            }
+            Runner::Declarative(program) => Ok(program.run(repo, files)),
+        }
+    }
 }
 
 /// The loaded pack set, in load order, and everything the engine reads from it.
@@ -108,6 +141,8 @@ pub struct Loaded {
     pub extractors: Vec<Declared>,
     /// Every declared built-in linker, pack-qualified.
     pub linkers: Vec<String>,
+    /// Every declarative extractor, compiled against the merged set, by its pack-qualified name.
+    pub programs: BTreeMap<String, Arc<Declarative>>,
     /// The set's hash: every pack's record under this engine's version, so an engine whose
     /// built-ins change re-extracts every repo (DR-62).
     pub hash: String,
@@ -145,7 +180,10 @@ pub fn resolve(sources: Vec<Source>) -> Result<Loaded, AppError> {
         Origin::OutOfTree => (1, false, String::new()),
     });
     validate::check(&packs)?;
-    Ok(merge(packs))
+    let mut loaded = merge(packs);
+    // Each declarative extractor compiles against the merged set, and runs as it compiled.
+    loaded.programs = validate::runnable(&loaded)?;
+    Ok(loaded)
 }
 
 impl Loaded {
@@ -159,16 +197,28 @@ impl Loaded {
         self.packs.iter().find(|p| p.id() == id)
     }
 
-    /// Every built-in extractor as a scan of a workspace whose repos are `repos` runs it, in load
-    /// order: `options.kinds` names become the kinds' levels and prefixes from the vocabulary;
-    /// `files` takes the merged `[[languages]]` table, and `compose` the merged `[[image_roles]]`
-    /// table and the sorted repo names, since it joins a service to a repo by name.
+    /// Every extractor as a scan of a workspace whose repos are `repos` runs it, in load order.
+    /// A declarative extractor runs as it compiled at load. For a built-in, `options.kinds` names
+    /// become the kinds' levels and prefixes from the vocabulary; `files` takes the merged
+    /// `[[languages]]` table, and `compose` the merged `[[image_roles]]` table and the sorted repo
+    /// names, since it joins a service to a repo by name.
     pub fn runs(&self, repos: &BTreeSet<&str>) -> Vec<Run> {
         let kinds: BTreeMap<&str, &KindVocab> =
             self.vocabulary.kinds.iter().map(|k| (k.kind.0.as_str(), k)).collect();
         let mut runs = Vec::new();
         for declared in &self.extractors {
-            let ExtractorDecl::Builtin { builtin, files, options, .. } = &declared.decl else { continue };
+            let (builtin, files, options) = match &declared.decl {
+                ExtractorDecl::Builtin { builtin, files, options, .. } => (builtin, files, options),
+                ExtractorDecl::Regex { files, .. } | ExtractorDecl::Query { files, .. } => {
+                    let program = self.programs.get(&declared.name).expect("compiled when its pack loaded");
+                    runs.push(Run {
+                        name: declared.name.clone(),
+                        files: files.clone(),
+                        runner: Runner::Declarative(Arc::clone(program)),
+                    });
+                    continue;
+                }
+            };
             let mut options = match options {
                 Value::Object(map) => map.clone(),
                 _ => serde_json::Map::new(),
@@ -198,9 +248,8 @@ impl Loaded {
             }
             runs.push(Run {
                 name: declared.name.clone(),
-                builtin: builtin.clone(),
                 files: files.clone(),
-                options: Value::Object(options),
+                runner: Runner::Builtin { builtin: builtin.clone(), options: Value::Object(options) },
             });
         }
         runs
@@ -209,8 +258,9 @@ impl Loaded {
     /// The kind the `files` extractor gives a repo's node, with the level and ID prefix the
     /// vocabulary gives it, as a scan resolves it: what a repo's node ID is made from.
     pub fn repo_kind(&self) -> Option<planroom_extract::KindRef> {
-        let run = self.runs(&BTreeSet::new()).into_iter().find(|r| r.builtin == "files")?;
-        serde_json::from_value(run.options.get("kinds")?.get("repo")?.clone()).ok()
+        let runs = self.runs(&BTreeSet::new());
+        let (_, options) = runs.iter().filter_map(Run::builtin).find(|(b, _)| *b == "files")?;
+        serde_json::from_value(options.get("kinds")?.get("repo")?.clone()).ok()
     }
 }
 
@@ -272,5 +322,5 @@ fn merge(packs: Vec<Pack>) -> Loaded {
         concat!("engine@", env!("CARGO_PKG_VERSION")),
         &keys::canonical(&json!(records)),
     ]);
-    Loaded { packs, vocabulary, languages, image_roles, extractors, linkers, hash }
+    Loaded { packs, vocabulary, languages, image_roles, extractors, linkers, programs: BTreeMap::new(), hash }
 }

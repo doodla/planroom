@@ -5,6 +5,7 @@
 //! every machine, and evidence on every fact, verified at ingest by [`verify`].
 
 pub mod compose;
+pub mod declarative;
 pub mod files;
 pub mod git;
 mod ids;

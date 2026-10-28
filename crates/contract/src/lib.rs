@@ -48,7 +48,7 @@ pub use event::{
 };
 pub use model::{
     CONTAINS_MAX_CHARS, Edge, EdgeId, Evidence, FACTS_FORMAT, FactBatch, Hint, HintRef, Kind, Layer, Level,
-    Node, NodeId, PartialFile, Provenance, Ref, Seq, Tier,
+    Node, NodeId, PartialFile, PartialReason, Provenance, Ref, Seq, Tier,
 };
 pub use models::{Measured, REPLAY_FORMAT, RecordedRequest, RecordedResponse, ReplayRecord};
 pub use pack::{

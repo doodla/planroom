@@ -243,6 +243,7 @@ A code that only a person can clear has retry `never` and names the card or comm
 | `unresolved_ref` | an alias or a linker join had zero or several candidates; no edge was made |
 | `evidence_dropped` | an evidence item failed verification at ingest; `details {repo, count, items}`, where `items` is a sample of the dropped items |
 | `partial_parse` | files parsed with error nodes, so their facts are weak; `details {repo, count, paths}`, where `paths` is a sample: the first 10 in sorted order (DR-86) |
+| `unparsed_files` | files an extractor took no facts from because they pass a nesting or work bound, would hold more heap in facts and kept matches than their size allows, or come at or after the first file in sorted order whose facts would take the repo past its bound; `details {repo, count, bound, paths}`, one warning per `bound` (`nesting_limit`, `work_limit` or `repo_limit`), where `paths` is a sample: the first 10 in sorted order; `repo` and `paths` pass redaction |
 | `partial_scan` | an extractor reached its file or byte bound, or a partial clone lacks blobs, which a scan never fetches; `details {extractor, repo, count, uncovered}`, where `count` counts every uncovered file and `uncovered` is a sample: the first 10 in sorted order (DR-86). `focus` repeats it for each repo whose active snapshot's scan was cut, from the count the scan event keeps, with `uncovered` empty |
 | `unnamed_paths` | files whose paths aren't UTF-8, or hold a newline or a backslash, which no node ID can name, so the scan reports them and doesn't map them; `details {repo, count, paths}`, where `paths` is a sample: the first 10 in sorted order, each escaped (`\xe9` for a byte that isn't UTF-8, `\n`, `\\`) |
 | `deterministic_fallback` | no model was reachable, allowed or within budget; deterministic tiers, `low` kinds keep their default and cards pre-select it |
@@ -548,9 +549,14 @@ pub struct FactBatch {                       // what every extractor and linker 
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
     pub hints: Vec<Hint>,
-    pub partial: Vec<PartialFile>,           // files parsed with error nodes
+    pub partial: Vec<PartialFile>,           // files read with errors, or refused by a bound
 }
-pub struct PartialFile { pub path: String, pub errors: u32 }
+pub struct PartialFile { pub path: String, pub errors: u32,
+                         pub reason: Option<PartialReason> /* NestingLimit: not parsed; WorkLimit: parse or query
+                                                              stopped past its work budget, or matches that would hold
+                                                              more than the file's capture budget; RepoLimit: at or
+                                                              after the repo's capture cut in sorted path order; each:
+                                                              no fact; absent otherwise */ }
 pub struct HintRef { pub id: String, pub extractor: String }
 ```
 
@@ -767,13 +773,20 @@ pub struct ImageRole { pub image: String /* glob */, pub role: String, pub kind:
 pub struct KindDecl { pub id: String, pub id_prefix: String /* the ID's kind-short; owned by one pack, except the kernel's
                                                                   "container", which every Container-level kind uses */,
                       pub level: Level, pub label: String, pub parents: Vec<String>,
-                      pub props: Value /* JSON Schema fragment */, pub icon: Option<String>,
+                      pub props: Value /* JSON Schema fragment: type, properties (a table) and description; each
+                                          prop's schema is a table of only the keywords coercion enforces: type (a
+                                          JSON type name, or a list of them), enum (a non-empty list of values of
+                                          the prop's type), minimum and maximum (numbers), items (a table whose
+                                          type a capture fills) and description; any other keyword or form is
+                                          pack_invalid at load, naming the kind, the prop and the keyword */,
+                      pub icon: Option<String>,
                       pub tone: Option<Tone> /* Service | Library | Store | Infra: a Container-level kind's block color;
                                                 surfaces style from MapNode.tone, never from a kind ID (DR-46) */,
                       pub empty_text: Option<String>, pub empty_action: Option<String> }
 pub struct RelationDecl { pub id: String, pub from: Vec<String>, pub to: Vec<String>, pub label: String,
-                          pub props: Value /* JSON Schema fragment */, pub inferred: bool }
-pub struct HintDecl { pub id: String, pub attrs: Vec<String> /* the attribute names it carries */ }
+                          pub props: Value /* JSON Schema fragment, read as KindDecl's */, pub inferred: bool }
+pub struct HintDecl { pub id: String, pub attrs: Vec<String> /* the attribute names it carries; an emit's attrs
+                                                                 key outside them is pack_invalid */ }
 pub enum ExtractorDecl {                     // untagged: told apart by which of builtin, regex or query it sets
     Builtin { id: String, builtin: String, files: Vec<String>, options: Value },
     Regex   { id: String, files: Vec<String>, regex: String, emit: Vec<EmitTemplate> },
@@ -782,9 +795,10 @@ pub enum ExtractorDecl {                     // untagged: told apart by which of
 }
 pub enum EmitTemplate {                      // untagged, by node, edge or hint; values may use $file, $stem, $repo, $line, $1..$9, @capture
     Node { node: String, key: String, name: Option<String>, parent: Option<String> /* a ref, as `to` */,
-           props: BTreeMap<String, Value>, aliases: Vec<String> },   // TOML values; captures coerced to the prop schema's type
+           props: BTreeMap<String, Value>, aliases: Vec<String> },   // TOML values; a capture coerced to the prop schema, left out (its file partial) when it fits none;
+                                                                     // a plain value checked against it at load, pack_invalid naming the keyword it breaks
     Edge { edge: String, from: String /* a ref, as `to` */, to: String /* @alias:..., an ID, @id:KIND:KEY, or @ext:NAME */,
-           via: Option<String>, confidence: Option<f32>, props: BTreeMap<String, Value> },
+           via: Option<String>, confidence: Option<f32>, props: BTreeMap<String, Value> },   // props as Node's
     Hint { hint: String, scope: String /* a ref, as `to` */, key: String, value: Option<String>, attrs: BTreeMap<String, String> },
 }                                            // a bare path such as "$file" in a ref is pack_invalid: write "@id:code.file:$file"
 pub struct LinkerDecl { pub builtin: String, pub options: Value }
@@ -854,7 +868,7 @@ pub struct LensVocab { pub id: String, pub label: String, pub relations: Vec<Kin
 
 The store's `meta.packs` records the loaded set in load order, one `PackRecord { id, version, source, sha256 }` per pack, where `source` is `builtin` or the directory the pack loaded from and `sha256` hashes the pack's files, each path and its bytes in path order (`tests/` left out). `meta.packs_hash` hashes those records under the engine's version.
 
-A built-in extractor's `options.kinds` names the kinds it emits, such as `kinds = { repo = "code.repo", directory = "code.directory", file = "code.file" }` for `files`. The engine replaces each name with `{ kind, id_prefix, level }` from the vocabulary, so no built-in spells a kind, a level or an ID prefix of its own. It also fills in `files`'s merged `languages`, and `compose`'s merged `image_roles` and the workspace's sorted `repos`.
+A built-in extractor's `options.kinds` names the kinds it emits, such as `kinds = { repo = "code.repo", directory = "code.directory", file = "code.file" }` for `files`. The engine replaces each name with `{ kind, id_prefix, level }` from the vocabulary, so no built-in spells a kind, a level or an ID prefix of its own. It also fills in `files`'s merged `languages`, and `compose`'s merged `image_roles` and the workspace's sorted `repos`. So a pack sets only `kinds`, read through the table `extract::registry::Builtin::options` declares for each built-in, with a kind for every role it emits: `files` takes `repo`, `directory` and `file`, `compose` takes `service`, `tooling` and `repo`. Any other option key, and an unknown or missing role, is `pack_invalid`.
 
 ## Extractor and linker contract
 
@@ -876,7 +890,23 @@ pub struct RepoView {                        // no branch: it's no input of the 
     pub commit: String,
     pub blobs: Blobs,                        // the commit's files the walk took; read them with RepoView::read
 }
+
+// crates/extract/src/declarative/mod.rs: the declarative runner
+pub struct Spec<'a> {                        // what one [[extractors]] entry compiles against
+    pub pack: &'a str,                       // the declaring pack: the extractor runs as <pack>/<id>
+    pub decl: &'a ExtractorDecl,             // a Regex or Query declaration
+    pub vocabulary: &'a Vocabulary,          // kinds' ID prefixes, levels and prop schemas; relations' prop schemas
+    pub languages: &'a [LanguageDecl],       // merged: each file's comment marks, a query's language
+    pub hints: &'a BTreeMap<String, Vec<String>>, // every loaded hint kind, qualified, with its declared attrs
+    pub query: Option<&'a str>,              // a query extractor's .scm text
+}
+impl Declarative {
+    pub fn compile(spec: &Spec) -> Result<Declarative, Invalid>; // Invalid { at, reference, why }: pack_invalid
+    pub fn run(&self, repo: &RepoView, files: &[RepoPath]) -> FactBatch; // tier pattern (regex) or syntactic (query)
+}
 ```
+
+The pack loader compiles every declarative extractor this way at load, and `scan` and `doctor --pack` run what it compiled beside the built-ins, so a pack that loads runs. A file the runner can't read, a parse with error nodes, a query that reaches its match limit and a captured prop that fits no declared type each give a `PartialFile`; the rest of the file's facts stand, and `scan` reports the file as `partial_parse`. A file that nests deeper than the nesting bound, which isn't parsed, one whose parse or query passes its work budget, its text predicates' reads included, which is stopped there, one whose matches would hold more heap, in their facts and in what the runner keeps of them while it reads the file, than the file's own capture budget, and one at or after the first file, in sorted path order, whose facts would take what the extractor holds for the repo past its bound each give a `PartialFile` with that bound as its `reason`: `nesting_limit` for the first, `work_limit` for the next two, `repo_limit` for the last; no fact of the file stands, and `scan` reports it as `unparsed_files`. A file's facts depend on that file alone, its text, its path and its repo's name, but for the repo's cut.
 
 Rules checked by `extract/tests/contract.rs`: deterministic and sorted output; tolerant of error nodes; only the commit's tree read, never the working tree (DR-85); files over 1 MiB, binaries and paths a committed `.gitignore` ignores skipped; at most 50,000 files and 256 MiB per repo, in sorted path order, from one walk every extractor reads, with `partial_scan` on a cut; unchanged blobs reuse cached facts; every fact has evidence, a `Line` whose `contains` verifies against the blob or a `Ref` that verifies against git; nodes, edges and joinable hints come from syntax nodes, never comments or docstrings, and only `metric_mentions` reads comments, for evidence; emit props coerce to the prop schema; cross-file targets go out as aliases or hints; nothing from the repo runs.
 

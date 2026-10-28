@@ -135,6 +135,7 @@ export type WarningCode =
       | "unresolved_ref"
       | "evidence_dropped"
       | "partial_parse"
+      | "unparsed_files"
       | "partial_scan"
       | "workspace_nested"
       | "repo_unborn"
@@ -811,6 +812,13 @@ export type ExtractorDecl =
  * via the `definition` "Kind".
  */
 export type Kind = string;
+/**
+ * The bound that stopped an extractor reading a file.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PartialReason".
+ */
+export type PartialReason = "nesting_limit" | "work_limit" | "repo_limit";
 /**
  * The direction a lens follows a relation.
  *
@@ -2258,7 +2266,7 @@ export interface FactBatch {
   edges: Edge[];
   hints: Hint[];
   /**
-   * Files read with errors; their facts are weak.
+   * Files read with errors, whose facts are weak, and files a bound refused, which gave none.
    */
   partial: PartialFile[];
 }
@@ -2360,6 +2368,11 @@ export interface PartialFile {
    */
   path: string;
   errors: number;
+  /**
+   * Why the extractor took no fact from the file, when a bound it can't cross stopped it; absent
+   * for a file it read with errors.
+   */
+  reason?: PartialReason | null;
 }
 /**
  * One match, with its level and kind.
