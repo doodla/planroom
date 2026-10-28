@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Owns:** the `Extractor` and `Linker` traits, built-ins, the declarative runner, evidence location and verification, the git CLI adapter.
 - **May depend on:** `contract`, and its allow-list in `boundaries.toml`: `tree-sitter` and grammars, `ignore`, `globset`, `regex`, `saphyr-parser`, `toml`, `pulldown-cmark`, `promql-parser`, `serde`, `serde_json`, `sha2`, `thiserror` [DR-79].
 - **Must not:** other workspace crates; any other third-party crate; opening a socket [DR-79]; running anything from a scanned repo except `git` with hooks, external diffs and textconv off; a checkout or merge in a repo whose local git config names a command [DR-64].
-- **How to test it:** `cargo xtask test -p planroom-extract` (`contract.rs`, every extractor over the fixture and a fuzz corpus; `link.rs` (M1)).
+- **How to test it:** `cargo xtask test -p planroom-extract` (`contract.rs`, every extractor over the fixture and a fuzz corpus; `formats.rs`, the manifest and OpenAPI built-ins and each language's queries; `git.rs`, the git history; `link.rs`, the built-in linkers).
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
 
@@ -21,5 +21,6 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 
 - `src/`: the git CLI adapter and its owner check, the file walk, the built-in extractors (files, compose, manifest, openapi, the git history in `history.rs`, YAML), the extractor registry, IDs, line evidence and its verification.
 - `src/declarative/`: the declarative runner: grammars, templates, nesting, comments and prose, value coercion, the work it schedules, and the charging every extractor's facts share.
-- `tests/`: `contract.rs`, every extractor over the fixture and a fuzz corpus; `formats.rs`, the manifest and OpenAPI built-ins; `git.rs`, the git history's co-change and owners against the truth.
+- `src/link/`: the built-in linkers, `runtime_wiring` among them, and the index of definitions and calls that evidence follows to callers.
+- `tests/`: `contract.rs`, every extractor over the fixture and a fuzz corpus; `formats.rs`, the manifest and OpenAPI built-ins; `git.rs`, the git history's co-change and owners against the truth; `link.rs`, the built-in linkers over hints and nodes built as values.
 - `tests/code_pack/`: the code pack's language cases that `contract.rs` runs.

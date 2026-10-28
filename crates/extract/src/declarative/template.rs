@@ -2,8 +2,9 @@
 //! hold (architecture.md, "The extractor contract").
 //!
 //! Variables: `$file` (the repo-relative path), `$stem` (the file name without its last
-//! extension), `$repo`, `$line`, `$1`..`$9` (a regex's groups) and `@name` (a tree-sitter
-//! query's captures). In a query extractor an `@` that names none of the query's captures is
+//! extension), `$repo`, `$line` (the line the match starts on), `$end` (the line it ends on: the
+//! last its captures, or a regex's whole match, reach), `$1`..`$9` (a regex's groups) and `@name`
+//! (a tree-sitter query's captures). In a query extractor an `@` that names none of the query's captures is
 //! text, so a literal such as `pkg:@acme/kit` stays as written. A `$` that names no variable is
 //! refused, as is a group the regex doesn't have.
 //!
@@ -33,6 +34,7 @@ enum Part {
     Stem,
     Repo,
     Line,
+    End,
     Group(usize),
     Capture(usize),
 }
@@ -48,20 +50,28 @@ pub const TEMPLATE_MAX_BYTES: usize = 1024;
 /// The most variables a template may name; see [`TEMPLATE_MAX_BYTES`].
 pub const TEMPLATE_MAX_VARS: usize = 64;
 
-/// A variable of a template that can change within a file: the line, a regex's group or a
-/// query's capture.
+/// A variable of a template that can change within a file: the line, the end line, a regex's
+/// group or a query's capture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Var {
     Line,
+    End,
     Group(usize),
     Capture(usize),
 }
 
 impl Var {
-    /// What one match at `line` with `groups` or `captures` gives it.
-    pub fn value<'t>(self, line: u32, groups: &[Option<&'t str>], captures: &[Option<&'t str>]) -> Val<'t> {
+    /// What one match from line `line` to line `end` with `groups` or `captures` gives it.
+    pub fn value<'t>(
+        self,
+        line: u32,
+        end: u32,
+        groups: &[Option<&'t str>],
+        captures: &[Option<&'t str>],
+    ) -> Val<'t> {
         match self {
             Var::Line => Val::Line(line),
+            Var::End => Val::Line(end),
             Var::Group(n) => Val::Text(groups.get(n).copied().flatten()),
             Var::Capture(i) => Val::Text(captures.get(i).copied().flatten()),
         }
@@ -69,7 +79,7 @@ impl Var {
 }
 
 /// What one match gives one of a template's variables that can change within a file: a group's
-/// or a capture's text, or the line.
+/// or a capture's text, or a line.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Val<'t> {
     Text(Option<&'t str>),
@@ -91,6 +101,8 @@ pub struct Env<'a> {
     pub repo: &'a str,
     pub file: &'a str,
     pub line: u32,
+    /// The last line the match reaches: its captures', or a regex's whole match's.
+    pub end: u32,
     /// A regex's groups, the whole match first; a query has none.
     pub groups: &'a [Option<&'a str>],
     /// A query's captures by index, each its first node's text; a regex has none.
@@ -125,6 +137,7 @@ impl Template {
                         ("stem", Part::Stem),
                         ("repo", Part::Repo),
                         ("line", Part::Line),
+                        ("end", Part::End),
                     ]
                     .into_iter()
                     .find(|(name, _)| after.starts_with(name));
@@ -203,6 +216,7 @@ impl Template {
                 Part::Stem => out.push_str(env.stem()),
                 Part::Repo => out.push_str(env.repo),
                 Part::Line => out.push_str(&env.line.to_string()),
+                Part::End => out.push_str(&env.end.to_string()),
                 Part::Group(n) => out.push_str(env.groups.get(*n).copied().flatten()?),
                 Part::Capture(i) => out.push_str(env.captures.get(*i).copied().flatten()?),
             }
@@ -218,6 +232,7 @@ impl Template {
             match part {
                 Part::Text(_) | Part::File | Part::Stem | Part::Repo => {}
                 Part::Line => out.push(Var::Line),
+                Part::End => out.push(Var::End),
                 Part::Group(n) => out.push(Var::Group(*n)),
                 Part::Capture(i) => out.push(Var::Capture(*i)),
             }
@@ -225,7 +240,7 @@ impl Template {
     }
 
     /// The bytes [`Template::expand`] gives for one match, an unset variable counting as none and
-    /// `$line` as the most digits a line number has, without building the text.
+    /// `$line` and `$end` as the most digits a line number has, without building the text.
     pub fn size(&self, env: &Env<'_>) -> usize {
         let value = |v: Option<&Option<&str>>| v.copied().flatten().map_or(0, str::len);
         self.0
@@ -236,7 +251,7 @@ impl Template {
                 Part::Stem => env.stem().len(),
                 Part::Repo => env.repo.len(),
                 // The digits of `u32::MAX`, the widest line number.
-                Part::Line => 10,
+                Part::Line | Part::End => 10,
                 Part::Group(n) => value(env.groups.get(*n)),
                 Part::Capture(i) => value(env.captures.get(*i)),
             })
@@ -331,7 +346,7 @@ mod tests {
     use super::*;
 
     fn env<'a>(groups: &'a [Option<&'a str>], captures: &'a [Option<&'a str>]) -> Env<'a> {
-        Env { repo: "web", file: "src/api/orders.client.ts", line: 7, groups, captures }
+        Env { repo: "web", file: "src/api/orders.client.ts", line: 7, end: 9, groups, captures }
     }
 
     #[test]
@@ -342,6 +357,17 @@ mod tests {
         assert_eq!(t.expand(&env(&groups, &[])).unwrap(), "web/orders.client@7:src/api/orders.client.ts#one");
         assert_eq!(t.expand(&env(&[Some("all"), None], &[])), None, "an unset group skips the emit");
         assert!(Template::parse("pkg:@acme/kit", Names::Regex { groups: 0 }).unwrap().is_text());
+    }
+
+    #[test]
+    fn end_is_the_last_line_a_match_reaches() {
+        let names = Names::Query { captures: &["test"] };
+        let t = Template::parse("@test:$end from $line", names).unwrap();
+        assert_eq!(t.expand(&env(&[], &[Some("test")])).unwrap(), "test:9 from 7");
+        let mut vars = Vec::new();
+        t.vars(&mut vars);
+        assert_eq!(vars, [Var::Capture(0), Var::End, Var::Line]);
+        assert_eq!(Var::End.value(7, 9, &[], &[]), Val::Line(9));
     }
 
     #[test]
@@ -357,8 +383,9 @@ mod tests {
                 assert_eq!(t.size(&e), expanded, "{text}");
             }
         }
-        let line = Template::parse("$line", names).unwrap();
-        assert_eq!(line.size(&e), u32::MAX.to_string().len());
+        for text in ["$line", "$end"] {
+            assert_eq!(Template::parse(text, names).unwrap().size(&e), u32::MAX.to_string().len(), "{text}");
+        }
         let prefix = |k: &str| (k == "code.file").then(|| "file".to_owned());
         for text in ["@id:code.file:$file", "@alias:host:$1", "@ext:$1", "ws:container:$1"] {
             let r = RefTemplate::parse(text, names, prefix).unwrap();

@@ -333,6 +333,58 @@ fn two_default_lenses_are_pack_invalid() {
     assert_invalid(&doctor(&dir), "two", "both the default");
 }
 
+/// A `[[linkers]]` entry's options are read through the table the linker's registry entry
+/// declares, as a built-in extractor's are: every kind and relation they name must be in scope,
+/// every role named, and nothing else.
+#[test]
+fn a_linker_naming_an_unknown_kind_is_refused() {
+    let manifest = code_manifest();
+    let at = manifest
+        .lines()
+        .position(|l| l.starts_with("options = { kinds = { service = \"code.service\", repo"))
+        .expect("the linker's options") as u64
+        + 1;
+    let expect = |from: &str, to: &str, reference: &str, says: &str| {
+        let (code, message, details) = refused(with_code_pack_edited(from, to));
+        assert_eq!(code, "pack_invalid", "{message}");
+        assert_eq!(details["reference"], reference, "{message}");
+        assert!(message.contains(says), "{message}");
+        assert_eq!(details["line"], at, "{message}");
+    };
+    let endpoint = "endpoint = \"code.endpoint\"";
+    // A kind no loaded pack declares.
+    expect(
+        endpoint,
+        "endpoint = \"code.endpointz\"",
+        "code.endpointz",
+        "no loaded pack declares the kind code.endpointz",
+    );
+    // A relation no loaded pack declares.
+    let db = "db = \"code.db\" }";
+    expect(db, "db = \"code.dbz\" }", "code.dbz", "no loaded pack declares the relation code.dbz");
+    // A relation where a kind belongs, and a kind where a relation belongs.
+    expect(endpoint, "endpoint = \"code.http\"", "code.http", "the kind code.http");
+    expect(db, "db = \"code.datastore\" }", "code.datastore", "the relation code.datastore");
+    // A role the linker doesn't emit, one left out, and options that aren't a table.
+    expect(
+        db,
+        "db = \"code.db\", cache = \"code.db\" }",
+        "cache",
+        "cache isn't a relation role of code/runtime_wiring",
+    );
+    expect(", db = \"code.db\" }", " }", "db", "code/runtime_wiring emits a db relation");
+    expect(
+        endpoint,
+        "endpoint = \"code.endpoint\", queue = \"code.queue\"",
+        "queue",
+        "queue isn't a kind role",
+    );
+    let options = manifest.lines().nth(at as usize - 1).unwrap();
+    expect(options, "options = 3", "runtime_wiring", "the options of code/runtime_wiring must be a table");
+    // The options as the code pack writes them load.
+    assert!(packs::builtins().is_ok());
+}
+
 #[test]
 fn an_unconsumed_hint_kind_is_pack_invalid() {
     let tmp = tempfile::tempdir().unwrap();
@@ -379,7 +431,7 @@ fn with_code_pack_edited(from: &str, to: &str) -> Result<packs::Loaded, planroom
 #[test]
 fn a_built_in_extractors_options_are_read_through_its_declared_table() {
     const FILES: &str = "options = { kinds = { repo = \"code.repo\", directory = \"code.directory\", file = \"code.file\" } }";
-    const COMPOSE: &str = "options = { kinds = { service = \"code.service\", tooling = \"code.tooling\", repo = \"code.repo\" } }";
+    const COMPOSE: &str = "options = { kinds = { service = \"code.service\", tooling = \"code.tooling\", repo = \"code.repo\", file = \"code.file\" } }";
     let manifest = code_manifest();
     // The 1-based line of the code pack's manifest that holds `text`.
     let line_of =
@@ -410,14 +462,14 @@ fn a_built_in_extractors_options_are_read_through_its_declared_table() {
         FILES,
         &module,
         "module",
-        "module isn't a role of code/files; it emits repo, directory, file",
+        "module isn't a kind role of code/files; it emits repo, directory, file",
         Some(FILES),
     );
     // A role it emits, left out.
     let no_file = FILES.replace(", file = \"code.file\"", "");
-    expect(FILES, &no_file, "file", "code/files emits a file, so its options name one for it", Some(FILES));
+    expect(FILES, &no_file, "file", "code/files emits a file, so options.kinds names its kind", Some(FILES));
     // No options at all leaves every role out, the first named.
-    expect(COMPOSE, "", "service", "code/compose emits a service, so its options name one for it", None);
+    expect(COMPOSE, "", "service", "code/compose emits a service, so options.kinds names its kind", None);
     // The tables as the code pack writes them load.
     assert!(packs::builtins().is_ok());
 }
@@ -553,6 +605,111 @@ fn a_pack_found_on_a_path_never_takes_a_built_in_ring() {
     let env = doctor(&same);
     assert_eq!(env["ok"], true, "{env}");
     assert_eq!(env["result"]["origin"], "builtin");
+}
+
+/// A language's `tests` globs are checked at load like an extractor's `files`: one that doesn't
+/// parse is `pack_invalid` at its own line.
+#[test]
+fn a_languages_test_glob_that_does_not_parse_is_pack_invalid() {
+    let tmp = tempfile::tempdir().unwrap();
+    let body = |glob: &str| {
+        format!(
+            "[[languages]]\nid = \"zig\"\nextensions = [\"zig\"]\ntests = [\"**/*_test.zig\", \"{glob}\"]\n"
+        )
+    };
+    let dir = pack_dir(tmp.path(), "broken", &["code"], &body("**/[tests/**"));
+    let env = doctor(&dir);
+    assert_invalid(&env, "**/[tests/**", "**/[tests/**");
+    assert_eq!(env["error"]["details"]["line"], 10, "the glob's own line: {env}");
+    let dir = pack_dir(tmp.path(), "fixed", &["code"], &body("**/tests/**"));
+    let env = doctor(&dir);
+    assert_eq!(env["ok"], true, "{env}");
+}
+
+/// The code pack's test globs name each of its languages' common test layouts, and no file a
+/// runtime is built from: a file is a test file by its own language's globs only.
+#[test]
+fn the_code_packs_test_globs_name_each_languages_test_files() {
+    let loaded = packs::builtins().unwrap();
+    let tests = planroom_extract::link::TestFiles::new(&loaded.languages).unwrap();
+    let test_files = [
+        // Python: pytest's and unittest's layouts, as the fixture's worker has them.
+        "tests/test_consumer.py",
+        "tests/conftest.py",
+        "worker/tests/helpers.py",
+        "test/test_api.py",
+        "worker/test_jobs.py",
+        "worker/jobs_test.py",
+        "conftest.py",
+        // Django's layout, and an end-to-end suite.
+        "orders/tests.py",
+        "e2e/test_checkout.py",
+        "e2e/pages.py",
+        // Go.
+        "internal/order/lifecycle_test.go",
+        "main_test.go",
+        "internal/parse/testdata/case.go",
+        "test/e2e/framework/util.go",
+        // TypeScript and TSX, as the fixture's kit and storefront have them.
+        "test/money.test.ts",
+        "src/cart.spec.ts",
+        "src/__tests__/cart.ts",
+        "tests/e2e/checkout.mts",
+        "src/Cart.test.tsx",
+        "src/components/__tests__/Cart.tsx",
+        // Cypress's and Playwright's layouts, and Jest's mocks.
+        "cypress/e2e/checkout.cy.ts",
+        "src/Cart.cy.tsx",
+        "cypress/support/commands.ts",
+        "e2e/checkout.ts",
+        "packages/web/e2e/fixtures.ts",
+        "src/__mocks__/api.ts",
+        // JavaScript.
+        "src/cart.test.js",
+        "lib/cart.spec.mjs",
+        "test/cart.cjs",
+        "src/__tests__/Cart.jsx",
+        "cypress/e2e/checkout.cy.js",
+        "e2e/checkout.mjs",
+        // Rust.
+        "tests/link.rs",
+        "crates/extract/tests/contract.rs",
+        "benches/fold.rs",
+        // A unit test module in a file of its own, as `#[cfg(test)] mod tests;` declares it.
+        "src/tests.rs",
+        "crates/extract/src/link/tests.rs",
+    ];
+    for path in test_files {
+        assert!(tests.matches(path), "{path} is a test file");
+    }
+    let runtime_files = [
+        "worker/consumer.py",
+        "worker/contest.py",
+        "worker/testing.py",
+        "worker/attest.py",
+        "src/latest.py",
+        "cmd/server/main.go",
+        "internal/test_queue.go",
+        "src/latest.ts",
+        "src/contest.tsx",
+        "src/testing.js",
+        "src/main.rs",
+        "src/tests_util.rs",
+        "src/test.rs",
+        "src/contests.rs",
+        "src/bin/cargo/commands/test.rs",
+        "orders/views.py",
+        "src/e2e.ts",
+        "src/policy.ts",
+        "src/fancy.js",
+        // A file of no language, or of a language that declares no test globs.
+        "tests/fixtures/data.json",
+        "tests/docker-compose.yml",
+        "tests/README",
+    ];
+    for path in runtime_files {
+        assert!(!tests.matches(path), "{path} is no test file");
+    }
 }
 
 #[test]
@@ -2112,7 +2269,7 @@ fn a_broken_query_loads_and_is_pack_invalid_wherever_a_process_extracts() {
         assert!(e.message.contains("calls/calls"), "{}", e.message);
     };
     // A run of the set, each time it is asked.
-    says(&loaded.runs(&BTreeSet::new()).unwrap_err());
+    says(&loaded.runs().unwrap_err());
     says(&loaded.programs().unwrap_err());
 
     // A scan, before it reads a repo.
@@ -2133,7 +2290,7 @@ fn a_broken_query_loads_and_is_pack_invalid_wherever_a_process_extracts() {
     let good = "(call_expression function: (identifier) @name)\n";
     let loaded = with_builtins(vec![calls_pack(good)]).unwrap();
     assert!(!loaded.compiled());
-    let runs = loaded.runs(&BTreeSet::new()).unwrap();
+    let runs = loaded.runs().unwrap();
     assert!(runs.iter().any(|r| r.name == "calls/calls"));
     assert!(loaded.compiled());
     fs::write(dir.join("queries/calls.scm"), good).unwrap();

@@ -25,14 +25,15 @@ mod validate;
 
 pub use validate::ID_MAX;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
 use planroom_contract::{
-    ExtractorDecl, FactBatch, Flow, ImageRole, Kind, KindVocab, LanguageDecl, LensVocab, PackFile,
-    PackRecord, RelationVocab, Vocabulary,
+    ExtractorDecl, FactBatch, Flow, ImageRole, Kind, KindVocab, LanguageDecl, LensVocab, LinkerDecl,
+    PackFile, PackRecord, RelationVocab, Vocabulary,
 };
 use planroom_extract::declarative::Declarative;
+use planroom_extract::link::{Linked, WorkspaceFacts};
 use planroom_extract::{ExtractError, RepoPath, RepoView};
 use planroom_kernel::keys;
 use serde_json::{Value, json};
@@ -153,6 +154,33 @@ impl Run {
     }
 }
 
+/// A `[[linkers]]` entry of a loaded pack.
+#[derive(Debug, Clone)]
+pub struct DeclaredLinker {
+    /// Pack-qualified, such as `code/runtime_wiring`: what linked facts' provenance names.
+    pub name: String,
+    pub decl: LinkerDecl,
+}
+
+/// A linker as one scan runs it: its name, the built-in, and its options with the kinds and
+/// relations they name resolved against the vocabulary.
+#[derive(Debug, Clone)]
+pub struct LinkRun {
+    pub name: String,
+    pub builtin: String,
+    pub options: Value,
+}
+
+impl LinkRun {
+    /// Its facts over the active set's `facts`.
+    pub fn link(&self, facts: &WorkspaceFacts) -> Result<Linked, ExtractError> {
+        // The loader refused a pack naming a linker this build doesn't have.
+        let linker =
+            planroom_extract::link::builtin(&self.builtin).expect("a built-in linker this build has");
+        linker.link(facts, &self.options)
+    }
+}
+
 /// Compiled declarative extractors, by pack-qualified name.
 pub type Programs = BTreeMap<String, Arc<Declarative>>;
 
@@ -167,8 +195,8 @@ pub struct Loaded {
     pub image_roles: Vec<ImageRole>,
     /// Every pack's extractors, in load order.
     pub extractors: Vec<Declared>,
-    /// Every declared built-in linker, pack-qualified.
-    pub linkers: Vec<String>,
+    /// Every declared built-in linker, in load order.
+    pub linkers: Vec<DeclaredLinker>,
     /// Every regex extractor, compiled against the merged set at load, by its pack-qualified name.
     patterns: BTreeMap<String, Arc<Declarative>>,
     /// Every declarative extractor, the query ones compiled against the merged set, by its
@@ -248,24 +276,19 @@ impl Loaded {
         self.programs.get().is_some()
     }
 
-    /// Every extractor as a scan of a workspace whose repos are `repos` runs it, in load order,
-    /// the declarative ones compiled ([`Self::programs`]). For a built-in, `options.kinds` names
-    /// become the kinds' levels and prefixes from the vocabulary; `files` takes the merged
-    /// `[[languages]]` table, and `compose` the merged `[[image_roles]]` table and the sorted repo
-    /// names, since it joins a service to a repo by name.
-    pub fn runs(&self, repos: &BTreeSet<&str>) -> Result<Vec<Run>, AppError> {
-        Ok(self.runs_with(repos, Some(self.programs()?)))
+    /// Every extractor as a scan runs it, in load order, the declarative ones compiled
+    /// ([`Self::programs`]). For a built-in, `options.kinds` names become the kinds' levels and
+    /// prefixes from the vocabulary; `files` takes the merged `[[languages]]` table, and
+    /// `compose` the merged `[[image_roles]]` table. No extractor reads which repos the workspace
+    /// holds: the join across repos is the linkers' ([`Self::linker_runs`]), so a repo's snapshot
+    /// is a function of its own inputs (DR-86).
+    pub fn runs(&self) -> Result<Vec<Run>, AppError> {
+        Ok(self.runs_with(Some(self.programs()?)))
     }
 
     /// [`Self::runs`] with the declarative extractors `programs`, or the built-ins alone without
     /// them, which compiles nothing.
-    fn runs_with(
-        &self,
-        repos: &BTreeSet<&str>,
-        programs: Option<&BTreeMap<String, Arc<Declarative>>>,
-    ) -> Vec<Run> {
-        let kinds: BTreeMap<&str, &KindVocab> =
-            self.vocabulary.kinds.iter().map(|k| (k.kind.0.as_str(), k)).collect();
+    fn runs_with(&self, programs: Option<&BTreeMap<String, Arc<Declarative>>>) -> Vec<Run> {
         let mut runs = Vec::new();
         for declared in &self.extractors {
             let (builtin, files, options) = match &declared.decl {
@@ -281,29 +304,12 @@ impl Loaded {
                     continue;
                 }
             };
-            let mut options = match options {
-                Value::Object(map) => map.clone(),
-                _ => serde_json::Map::new(),
-            };
-            if let Some(Value::Object(named)) = options.get("kinds").cloned() {
-                let resolved: serde_json::Map<String, Value> = named
-                    .iter()
-                    .filter_map(|(role, kind)| {
-                        let vocab = kinds.get(kind.as_str()?)?;
-                        Some((
-                            role.clone(),
-                            json!({"kind": vocab.kind.0, "id_prefix": vocab.id_prefix, "level": vocab.level}),
-                        ))
-                    })
-                    .collect();
-                options.insert("kinds".into(), Value::Object(resolved));
-            }
+            let mut options = self.resolved(options);
             match builtin.as_str() {
                 "files" => {
                     options.insert("languages".into(), json!(self.languages));
                 }
                 "compose" => {
-                    options.insert("repos".into(), json!(repos));
                     options.insert("image_roles".into(), json!(self.image_roles));
                 }
                 _ => {}
@@ -317,11 +323,74 @@ impl Loaded {
         runs
     }
 
+    /// Every linker as a scan runs it, in load order: `options.kinds` names become the kinds'
+    /// levels and prefixes, and `options.relations` names the relations with the kinds each end
+    /// may be, from the vocabulary, so no linker spells a kind or a relation of its own.
+    /// `runtime_wiring` also takes the merged `[[languages]]` table, whose test globs name the
+    /// files its joins never read.
+    pub fn linker_runs(&self) -> Vec<LinkRun> {
+        let relations: BTreeMap<&str, &RelationVocab> =
+            self.vocabulary.relations.iter().map(|r| (r.kind.0.as_str(), r)).collect();
+        self.linkers
+            .iter()
+            .map(|declared| {
+                let mut options = self.resolved(&declared.decl.options);
+                if let Some(Value::Object(named)) = options.get("relations").cloned() {
+                    let resolved: serde_json::Map<String, Value> = named
+                        .iter()
+                        .filter_map(|(role, relation)| {
+                            let vocab = relations.get(relation.as_str()?)?;
+                            Some((
+                                role.clone(),
+                                json!({"kind": vocab.kind.0, "from": vocab.from, "to": vocab.to}),
+                            ))
+                        })
+                        .collect();
+                    options.insert("relations".into(), Value::Object(resolved));
+                }
+                // The merged languages, whose test globs name the files no runtime join reads.
+                if declared.decl.builtin == "runtime_wiring" {
+                    options.insert("languages".into(), json!(self.languages));
+                }
+                LinkRun {
+                    name: declared.name.clone(),
+                    builtin: declared.decl.builtin.clone(),
+                    options: Value::Object(options),
+                }
+            })
+            .collect()
+    }
+
+    /// A built-in's `options`, with the kind each `kinds` role names resolved to its kind, ID
+    /// prefix and level from the vocabulary.
+    fn resolved(&self, options: &Value) -> serde_json::Map<String, Value> {
+        let kinds: BTreeMap<&str, &KindVocab> =
+            self.vocabulary.kinds.iter().map(|k| (k.kind.0.as_str(), k)).collect();
+        let mut options = match options {
+            Value::Object(map) => map.clone(),
+            _ => serde_json::Map::new(),
+        };
+        if let Some(Value::Object(named)) = options.get("kinds").cloned() {
+            let resolved: serde_json::Map<String, Value> = named
+                .iter()
+                .filter_map(|(role, kind)| {
+                    let vocab = kinds.get(kind.as_str()?)?;
+                    Some((
+                        role.clone(),
+                        json!({"kind": vocab.kind.0, "id_prefix": vocab.id_prefix, "level": vocab.level}),
+                    ))
+                })
+                .collect();
+            options.insert("kinds".into(), Value::Object(resolved));
+        }
+        options
+    }
+
     /// The kind the `files` extractor gives a repo's node, with the level and ID prefix the
     /// vocabulary gives it, as a scan resolves it: what a repo's node ID is made from. It reads the
     /// built-ins alone, so it compiles no declarative extractor.
     pub fn repo_kind(&self) -> Option<planroom_extract::KindRef> {
-        let runs = self.runs_with(&BTreeSet::new(), None);
+        let runs = self.runs_with(None);
         let (_, options) = runs.iter().filter_map(Run::builtin).find(|(b, _)| *b == "files")?;
         serde_json::from_value(options.get("kinds")?.get("repo")?.clone()).ok()
     }
@@ -377,7 +446,11 @@ fn merge(packs: Vec<Pack>) -> Loaded {
             pack: id.to_owned(),
             decl: decl.clone(),
         }));
-        linkers.extend(file.linkers.iter().map(|l| format!("{id}/{}", l.builtin)));
+        linkers.extend(
+            file.linkers
+                .iter()
+                .map(|l| DeclaredLinker { name: format!("{id}/{}", l.builtin), decl: l.clone() }),
+        );
     }
     let records: Vec<PackRecord> = packs.iter().map(Pack::record).collect();
     let hash = keys::sha256_hex(&[

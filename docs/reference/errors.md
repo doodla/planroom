@@ -61,7 +61,7 @@ A warning never changes the exit code.
 | Code | Meaning | `details` |
 |---|---|---|
 | `truncated` | the result hit its budget; the summary and first page are kept | `kept`, `total`, `budget_tokens`, `next`, `left_out`, `codes` |
-| `unresolved_ref` | an alias or a linker join had zero or several candidates; no edge was made | none |
+| `unresolved_ref` | an alias had zero or several candidates, or a linker join had two or more; no edge was made. A linker's warning comes from the scan that built the link: details give the count of join hints left unresolved and the first 10 by hint ID, each with its linker, hint, first 3 candidate IDs and candidate_count | `count`, `items` |
 | `evidence_dropped` | an evidence item failed verification at ingest | `repo` (masked), `count`, `items` |
 | `partial_parse` | files parsed with error nodes, so their facts are weak; details name the repo, the count and the first 10 paths in sorted order | `repo` (masked), `count`, `paths` (masked) |
 | `unparsed_files` | files an extractor took no facts from because they pass a nesting or work bound, would hold more heap in facts and kept matches than their size allows, or come at or after the first file in sorted order whose facts would take the repo past its bound; details name the repo, the count, the bound (nesting_limit, work_limit or repo_limit) and the first 10 paths in sorted order | `repo` (masked), `count`, `bound`, `paths` (masked) |

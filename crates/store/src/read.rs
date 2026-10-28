@@ -71,7 +71,37 @@ impl ActiveSet {
     }
 }
 
+/// What a snapshot row is keyed by: its repo (`ws` for the workspace link snapshot), its commit ID
+/// (for a link snapshot, the hash of its member snapshot IDs and the packs hash), its purpose
+/// (`head` or `link`) and its inputs hash, in the column still named `packs_hash`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotKey {
+    pub repo: String,
+    pub commit_id: String,
+    pub purpose: String,
+    pub packs_hash: String,
+}
+
 impl Store {
+    /// The key of snapshot `id`, if the store holds it.
+    pub fn snapshot_key(&self, id: u64) -> Result<Option<SnapshotKey>, StoreError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT repo, commit_id, purpose, packs_hash FROM snapshots WHERE id = ?1",
+                params![id as i64],
+                |r| {
+                    Ok(SnapshotKey {
+                        repo: r.get(0)?,
+                        commit_id: r.get(1)?,
+                        purpose: r.get(2)?,
+                        packs_hash: r.get(3)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
     /// The active snapshot set at the latest `seq`. Each call reads on its own; a reply that
     /// reads more than one thing reads them through one [`Store::snapshot`].
     pub fn active_set(&self) -> Result<ActiveSet, StoreError> {

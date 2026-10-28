@@ -217,7 +217,7 @@ pub struct Hint {
     pub id: String,
     /// Such as `code.url` or `code.env_read`.
     pub kind: Kind,
-    /// The file, the compose service or the API spec.
+    /// The file it was read from, or the API spec an OpenAPI operation is in.
     pub scope: NodeId,
     /// The join key: a host, an environment variable name, a path, a queue key, a table, a name.
     /// Repo text, such as a `code.route_call`'s URL argument as the source writes it: a join reads
@@ -226,7 +226,8 @@ pub struct Hint {
     pub key: String,
     #[schemars(extend("x-redact" = true))]
     pub value: Option<String>,
-    /// Scheme, port, path, method, op, driver, default.
+    /// Scheme, port, path, method, op, driver, default; a test scope's `end`, its last line, and a
+    /// test module's `module` and `path`.
     #[schemars(extend("x-redact" = true))]
     pub attrs: BTreeMap<String, Value>,
     pub evidence: Vec<Evidence>,

@@ -4,13 +4,19 @@
 # parse names them, and the two extractors that read it (architecture.md, "Hints and
 # linkers"): one for its imports, definitions and calls, one for the hints a deployment joins.
 # Two queries, not one, so each match keeps only the captures its own query has. Each emit names
-# only captures its query sets; a definition's value is its parameter list, or a constant's
-# string, and a call's value its arguments, as the source writes them.
+# only captures its query sets; a definition's value is its parameter list, a constant's its
+# string, and a call's its arguments, as the source writes them.
 
 [[languages]]
 id = "python"
 extensions = ["py"]
 line_comment = "#"
+# Test files, which no runtime join reads: pytest's, unittest's and Django's layouts, fixtures and
+# end-to-end suites.
+tests = [
+  "**/tests/**", "**/test/**", "**/e2e/**", "**/test_*.py", "**/*_test.py", "**/tests.py",
+  "**/conftest.py",
+]
 
 [[extractors]]
 id = "python"
@@ -20,7 +26,7 @@ query = "queries/python.scm"
 emit = [
   { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@import", via = "@import" },
   { hint = "code.def", scope = "@id:code.file:$file", key = "@def", value = "@def.params" },
-  { hint = "code.def", scope = "@id:code.file:$file", key = "@const", value = "@const.value" },
+  { hint = "code.const", scope = "@id:code.file:$file", key = "@const", value = "@const.value" },
   { hint = "code.call", scope = "@id:code.file:$file", key = "@call", value = "@call.args" },
 ]
 

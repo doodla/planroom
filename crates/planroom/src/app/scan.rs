@@ -5,17 +5,20 @@
 //! no commit yet maps nothing until its first commit, with `repo_unborn`, and the rest of the
 //! workspace maps.
 //!
-//! The commit asks each of `app::cards`' scan dealers for a card, in the scan's own transaction.
+//! The commit links the new active set into the workspace link snapshot, running every linker the
+//! packs declare over its member snapshots, and asks each of `app::cards`' scan dealers for a
+//! card, all in the scan's own transaction.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use planroom_contract::errors::WARNING_SAMPLE;
 use planroom_contract::{
-    Actor, Client, Command, CommandName, FACTS_FORMAT, FactBatch, Handle, Rename, ScanReq, ScanResult,
+    Actor, Client, Command, CommandName, FACTS_FORMAT, FactBatch, Handle, Level, Rename, ScanReq, ScanResult,
     ScanStats, Seq, Surface, Tier, Warning, WarningCode,
 };
 use planroom_extract::git::{Git, GitError};
+use planroom_extract::link::{Unresolved, WorkspaceFacts};
 use planroom_extract::verify::Verifier;
 use planroom_extract::{ExtractError, RepoView, files, select, walk};
 use planroom_kernel::{facts, keys, redact};
@@ -39,10 +42,6 @@ pub struct Prepared {
     ws: Workspace,
     /// The pack set this scan extracted with.
     packs: Loaded,
-    /// The `[scan] exclude` globs this scan walked with.
-    exclude: Vec<String>,
-    /// Every repo's extraction inputs besides its commit and a partial clone's missing blobs.
-    inputs: String,
     /// The store's latest `seq` before any repo was read.
     started: Seq,
     repos: Vec<RepoScan>,
@@ -97,10 +96,9 @@ pub fn prepare_with(req: &ScanReq, cwd: &Path, packs: Loaded) -> Result<Prepared
     warnings.extend(loaded.warnings);
     let exclude = loaded.config.scan.exclude;
     let globs = walk::Exclude::new(&exclude)?;
-    let names: BTreeSet<&str> = ws.repos.iter().map(|r| r.name.as_str()).collect();
     // Compiles the declarative extractors, once per process: a pack's broken query is
     // `pack_invalid` here, before any repo is read.
-    let runs = packs.runs(&names)?;
+    let runs = packs.runs()?;
     let inputs = inputs_hash(&packs.hash, &runs, &exclude);
     let prefixes = id_prefixes(&runs);
     let mut repos = Vec::with_capacity(ws.repos.len());
@@ -112,14 +110,16 @@ pub fn prepare_with(req: &ScanReq, cwd: &Path, packs: Loaded) -> Result<Prepared
             Err(RepoError::App(e)) => return Err(e),
         }
     }
-    Ok(Prepared { ws, packs, exclude, inputs, started, repos, warnings })
+    Ok(Prepared { ws, packs, started, repos, warnings })
 }
 
 /// Commit a prepared scan. A repo stays where it is when its `HEAD` moved on since it was read, or
-/// when another scan moved it meanwhile and the workspace's repos changed since this scan read
-/// them: a late scan never moves a repo back, whatever input changed.
+/// when another scan fixed its namespace otherwise: a late scan never moves a repo back. A repo's
+/// inputs are its own, never the workspace's repo set, so a scan that read an older repo set
+/// moves no repo back either: the join across repos is the link snapshot's, built here from the
+/// active set the commit finds (DR-12, DR-86).
 pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
-    let Prepared { ws, packs, exclude, inputs, started, repos, mut warnings } = prepared;
+    let Prepared { ws, packs, started, repos, mut warnings } = prepared;
     // With nothing to write, a workspace with no store stays without one: a repo with no commit
     // yet writes nothing (DR-86).
     let store = if repos.iter().all(|r| r.commit.is_empty()) {
@@ -155,15 +155,29 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     store.meta_insert_once("packs", &records)?;
     store.meta_insert_once("packs_hash", &write.packs_hash)?;
     let paths: BTreeMap<&str, &PathBuf> = ws.repos.iter().map(|r| (r.name.as_str(), &r.path)).collect();
-    // Why each superseded repo stays, and whether this scan's repo set is still the workspace's,
-    // which is asked once, and only when another scan moved a repo after this one began.
+    // Why each superseded repo stays.
     let mut why: BTreeMap<String, &str> = BTreeMap::new();
-    let mut same_repos: Option<bool> = None;
     // The cards a scan deals go in its own transaction, read from the store as it commits (DR-89).
     let dealt_at = write.at.clone();
     // The trust dealer reads how trust stands once this scan made the state directory, and the
     // reply says while the workspace's trust card is open (DR-89).
     let state_dir = ws.state_dir();
+    // The link snapshot's facts: every linker the packs declare, over the member snapshots of
+    // the active set the commit finds, read inside its transaction (DR-12). A join a linker
+    // left unresolved is reported once, by the scan that built the link.
+    let linkers = packs.linker_runs();
+    let linked_kinds = linked_kinds(&packs);
+    let mut unresolved: Vec<Unresolved> = Vec::new();
+    let mut link = |snapshot: &planroom_store::Snapshot<'_>, set: &BTreeMap<String, u64>| {
+        let facts = workspace_facts(snapshot, set, &linked_kinds)?;
+        let mut batches = Vec::with_capacity(linkers.len());
+        for run in &linkers {
+            let linked = run.link(&facts)?;
+            unresolved.extend(linked.unresolved);
+            batches.push(linked.batch);
+        }
+        Ok::<_, AppError>(rows(batches, ScanStats::default())?.0)
+    };
     let mut deal = |snapshot: &planroom_store::Snapshot<'_>| {
         let trust = crate::app::trust::check(&ws);
         let cx = crate::app::cards::ScanCx { root: &ws.root, state_dir: &state_dir, trust };
@@ -184,23 +198,19 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     let done = store.commit_scan_dealing(
         &write,
         RULES,
-        &mut |repo, newer_scan| {
+        &mut |repo, _newer_scan| {
+            // A repo's inputs hold nothing of another repo's, so only its own HEAD can have moved
+            // since this scan read it.
             if !paths.get(repo.repo.as_str()).is_some_and(|p| is_head(p, &repo.commit)) {
                 why.insert(repo.repo.clone(), "head_moved");
-                return false;
-            }
-            if newer_scan
-                && !*same_repos.get_or_insert_with(|| {
-                    current_inputs(&ws.root, &packs, &exclude).as_deref() == Some(&inputs)
-                })
-            {
-                why.insert(repo.repo.clone(), "repos_changed");
                 return false;
             }
             true
         },
         &mut deal,
+        &mut link,
     )?;
+    warnings.extend(unresolved_warning(unresolved));
     let superseded =
         |o: &RepoOutcome| matches!(o, RepoOutcome::Superseded { .. } | RepoOutcome::NamespaceTaken { .. });
     // The commit each superseded repo's map stays at: what the newer scan mapped.
@@ -314,12 +324,70 @@ fn inputs_hash(packs_hash: &str, runs: &[Run], exclude: &[String]) -> String {
     keys::sha256_hex(&["planroom.extract-inputs/v1", packs_hash, &options.join("\n"), "exclude", &exclude])
 }
 
-/// The extraction inputs the workspace at `root` gives now, with the excludes this scan read, as
-/// [`prepare`] derives them: `None` when its repos can't be listed.
-fn current_inputs(root: &Path, packs: &Loaded, exclude: &[String]) -> Option<String> {
-    let ws = workspace::discover(root).ok()?;
-    let names: BTreeSet<&str> = ws.repos.iter().map(|r| r.name.as_str()).collect();
-    Some(inputs_hash(&packs.hash, &packs.runs(&names).ok()?, exclude))
+/// The node kinds a linker reads: the System- and Container-level kinds of the vocabulary.
+fn linked_kinds(packs: &Loaded) -> BTreeSet<String> {
+    packs
+        .vocabulary
+        .kinds
+        .iter()
+        .filter(|k| matches!(k.level, Level::System | Level::Container))
+        .map(|k| k.kind.0.clone())
+        .collect()
+}
+
+/// What a linker reads of the active set `set`, repo name to snapshot: its repo names, its
+/// members' System- and Container-level nodes (of the `kinds` given) and every hint, read through
+/// `snapshot`, the commit's own transaction.
+fn workspace_facts(
+    snapshot: &planroom_store::Snapshot<'_>,
+    set: &BTreeMap<String, u64>,
+    kinds: &BTreeSet<String>,
+) -> Result<WorkspaceFacts, AppError> {
+    let mut members: Vec<u64> = set.values().copied().collect();
+    members.sort_unstable();
+    let mut facts = WorkspaceFacts { repos: set.keys().cloned().collect(), ..WorkspaceFacts::default() };
+    for row in snapshot.facts(&members)? {
+        match row.shape {
+            Shape::Hint => facts.hints.push(serde_json::from_str(&row.body).map_err(AppError::internal)?),
+            Shape::Node if kinds.contains(&row.kind) => {
+                let node: planroom_contract::Node =
+                    serde_json::from_str(&row.body).map_err(AppError::internal)?;
+                if matches!(node.level, Level::System | Level::Container) {
+                    facts.nodes.push(node);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(facts)
+}
+
+/// The `unresolved_ref` warning for the joins the linkers left unresolved, if any: their count
+/// and the first [`WARNING_SAMPLE`] by hint ID, each with its first candidates by ID. Every item
+/// is an ID, so nothing in it is masked.
+fn unresolved_warning(mut unresolved: Vec<Unresolved>) -> Option<Warning> {
+    if unresolved.is_empty() {
+        return None;
+    }
+    unresolved.sort_by(|a, b| (&a.hint, &a.linker).cmp(&(&b.hint, &b.linker)));
+    unresolved.dedup_by(|a, b| a.hint == b.hint && a.linker == b.linker);
+    let items: Vec<Value> = unresolved
+        .iter()
+        .take(WARNING_SAMPLE)
+        .map(|u| {
+            json!({
+                "linker": u.linker,
+                "hint": u.hint,
+                "candidates": u.candidates,
+                "candidate_count": u.candidate_count,
+            })
+        })
+        .collect();
+    Some(Warning {
+        code: WarningCode::UnresolvedRef,
+        message: text::get("warning.unresolved_ref", &[("count", &unresolved.len())]),
+        details: json!({"count": unresolved.len(), "items": items}),
+    })
 }
 
 /// Whether `HEAD` in the repo at `path` still names `commit` (empty: still no commit).

@@ -105,12 +105,17 @@ pub struct Dealt {
     pub event: NewEvent,
 }
 
+/// What builds a link snapshot's facts: the caller's linkers over the new active set, each repo's
+/// name to its snapshot, read through the commit's own transaction.
+pub type LinkFacts<'a, E> = dyn FnMut(&Snapshot<'_>, &BTreeMap<String, u64>) -> Result<Vec<FactRow>, E> + 'a;
+
 /// What a scan commit did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanCommitted {
     /// In the order of `ScanWrite::repos`.
     pub repos: Vec<(String, RepoOutcome)>,
-    /// The link snapshot built for the new active set, when any repo moved.
+    /// The link snapshot of the new active set, when any repo moved: the one this commit built,
+    /// or the one an earlier commit built for the same active set.
     pub link: Option<u64>,
     /// The store's latest `seq` after the commit.
     pub seq: Seq,
@@ -129,28 +134,38 @@ impl Store {
     /// `is_current` re-reads a repo's inputs under the write lock: a repo with an active snapshot
     /// moves only when this scan's snapshot is still the repo's current one. Its second argument
     /// says whether another scan moved the repo after [`ScanWrite::started`], to a snapshot other
-    /// than this one; then the caller checks every input, not only `HEAD`, since that scan may
-    /// have read a newer repo set. Otherwise a newer scan has landed, or will, so the repo is
-    /// [`RepoOutcome::Superseded`] and nothing moves back.
+    /// than this one, for a caller whose inputs another scan could have read newer. When it says
+    /// no, a newer scan has landed, or will, so the repo is [`RepoOutcome::Superseded`] and
+    /// nothing moves back.
     pub fn commit_scan(
         &mut self,
         scan: &ScanWrite,
         rules: ScanRules,
         is_current: &mut dyn FnMut(&RepoScan, bool) -> bool,
     ) -> Result<ScanCommitted, StoreError> {
-        self.commit_scan_dealing(scan, rules, is_current, &mut |_| Ok(Vec::new()))
+        self.commit_scan_dealing(scan, rules, is_current, &mut |_| Ok(Vec::new()), &mut |_, _| Ok(Vec::new()))
     }
 
-    /// [`Store::commit_scan`], then, in the same transaction, the cards `deal` returns: it reads the
-    /// store as the commit finds it, the scan's own events included, so it never deals a card one
-    /// already open makes a second, and a card is never dealt without the scan that dealt it. An
-    /// error from `deal` writes nothing. The store holds no rules: `deal` is the caller's.
+    /// [`Store::commit_scan`], with the link snapshot's facts that `link_facts` returns, then, in the same
+    /// transaction, the cards `deal` returns.
+    ///
+    /// `link_facts` runs only when this commit creates the link snapshot row of the new active set: a
+    /// row that already exists holds that set's one link (DR-12). It gets the new active set, each
+    /// repo's name (its namespace) to its snapshot, and reads their facts through the snapshot it
+    /// is given, never `active_set()`, which inside this transaction still names the old set. Its
+    /// rows go into the link snapshot before any card is dealt.
+    ///
+    /// `deal` reads the store as the commit finds it, the scan's own events included, so it never
+    /// deals a card one already open makes a second, and a card is never dealt without the scan
+    /// that dealt it. An error from `link_facts` or `deal` writes nothing. The store holds no rules:
+    /// `link_facts` and `deal` are the caller's.
     pub fn commit_scan_dealing<E: From<StoreError>>(
         &mut self,
         scan: &ScanWrite,
         rules: ScanRules,
         is_current: &mut dyn FnMut(&RepoScan, bool) -> bool,
         deal: &mut dyn FnMut(&Snapshot<'_>) -> Result<Vec<Dealt>, E>,
+        link_facts: &mut LinkFacts<'_, E>,
     ) -> Result<ScanCommitted, E> {
         let tx =
             self.conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(StoreError::from)?;
@@ -209,7 +224,12 @@ impl Store {
             let mut members: Vec<u64> = active.values().map(|a| a.snapshot).collect();
             members.sort_unstable();
             let commit_id = (rules.link_key)(&members, &scan.packs_hash);
-            let (link_id, _) = put_snapshot(tx, "ws", &commit_id, "", "link", &scan.packs_hash)?;
+            let (link_id, created) = put_snapshot(tx, "ws", &commit_id, "", "link", &scan.packs_hash)?;
+            if created {
+                let set: BTreeMap<String, u64> =
+                    active.iter().map(|(repo, a)| (repo.clone(), a.snapshot)).collect();
+                insert_facts(tx, link_id, &link_facts(&snapshot, &set)?)?;
+            }
             link = Some(link_id);
             for (repo, snapshot, idem, request_hash) in moved {
                 let event = NewEvent {

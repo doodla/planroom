@@ -259,7 +259,9 @@ macro_rules! warning_codes {
 warning_codes! {
     Truncated = "truncated", "the result hit its budget; the summary and first page are kept",
         ["kept", "total", "budget_tokens", "next", "left_out", "codes"];
-    UnresolvedRef = "unresolved_ref", "an alias or a linker join had zero or several candidates; no edge was made", [];
+    UnresolvedRef = "unresolved_ref",
+        "an alias had zero or several candidates, or a linker join had two or more; no edge was made. A linker's warning comes from the scan that built the link: details give the count of join hints left unresolved and the first 10 by hint ID, each with its linker, hint, first 3 candidate IDs and candidate_count",
+        ["count", "items"];
     EvidenceDropped = "evidence_dropped", "an evidence item failed verification at ingest", ["repo", "count", "items"]
         redact ["repo"];
     PartialParse = "partial_parse",

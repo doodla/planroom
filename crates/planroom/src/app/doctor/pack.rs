@@ -13,7 +13,7 @@
 //! The inputs aren't a git repo, so their facts name a fixed commit, all zeros, and an extractor
 //! that reads history, such as `git`, doesn't run over them.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -118,9 +118,8 @@ fn conformance(
         return Ok(());
     }
     let inputs = read_inputs(&inputs_dir)?;
-    let names: BTreeSet<&str> = inputs.iter().map(|i| i.name.as_str()).collect();
     let prefix = format!("{id}/");
-    let runs: Vec<Run> = loaded.runs(&names)?.into_iter().filter(|r| r.name.starts_with(&prefix)).collect();
+    let runs: Vec<Run> = loaded.runs()?.into_iter().filter(|r| r.name.starts_with(&prefix)).collect();
     let first = extract(&inputs, &runs)?;
     let second = extract(&inputs, &runs)?;
     for ((repo, name, a), (_, _, b)) in first.iter().zip(&second) {

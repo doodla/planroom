@@ -75,6 +75,11 @@ pub struct LanguageDecl {
     /// The opening and closing marks.
     #[serde(default)]
     pub block_comment: Option<[String; 2]>,
+    /// Globs over a repo-relative path that name this language's test files, such as
+    /// `**/*_test.go`. Their definitions, imports and calls are extracted as any file's, but no
+    /// linker's runtime join anchors in one or cites it.
+    #[serde(default)]
+    pub tests: Vec<String>,
 }
 
 /// `[[image_roles]]`: a compose image glob's kind and role, such as `redis*` to a queue kind with
@@ -171,7 +176,7 @@ pub enum ExtractorDecl {
 }
 
 /// What a declarative extractor emits per match. Values may use `$file`, `$stem`, `$repo`,
-/// `$line`, `$1`..`$9` and `@capture`. A reference is `@alias:...`, an ID, `@id:KIND:KEY` or
+/// `$line`, `$end` (the line the match ends on), `$1`..`$9` and `@capture`. A reference is `@alias:...`, an ID, `@id:KIND:KEY` or
 /// `@ext:NAME`; a bare path such as `$file` is `pack_invalid`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]

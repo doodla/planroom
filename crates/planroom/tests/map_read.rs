@@ -390,6 +390,17 @@ fn on_top_at(moves: &[(u64, bool)], seq: u64) -> bool {
     moves.iter().rev().find(|(at, _)| *at <= seq).is_some_and(|(_, top)| *top)
 }
 
+/// The blocks a reply's map has in all, when it holds only the first of them: its `truncated`
+/// warning's `total`.
+fn cut_total(reply: &Value) -> Option<usize> {
+    reply["meta"]["warnings"]
+        .as_array()?
+        .iter()
+        .find(|w| w["code"] == "truncated")
+        .and_then(|w| w["details"]["total"].as_u64())
+        .map(|t| t as usize)
+}
+
 fn holds(nodes: &Value, id: &str) -> bool {
     nodes.as_array().unwrap().iter().any(|n| n["id"] == id)
 }
@@ -398,6 +409,9 @@ fn holds(nodes: &Value, id: &str) -> bool {
 fn a_scan_reply_reads_its_map_and_seq_in_one_transaction() {
     let (_tmp, root) = scanned();
     let containers = ok(&root, &["map", "--level", "container"])["result"]["nodes"].as_array().unwrap().len();
+    let first = ok(&root, &["scan"]);
+    let blocks =
+        cut_total(&first).unwrap_or_else(|| first["result"]["map"]["nodes"].as_array().unwrap().len());
     let mover = Mover::start(&root);
     let mut replies = Vec::new();
     for _ in 0..20 {
@@ -408,15 +422,20 @@ fn a_scan_reply_reads_its_map_and_seq_in_one_transaction() {
     assert!(!moves.is_empty());
 
     // Each scan's map and its summary's container count hold no write past its seq, and every
-    // write at or below it.
+    // write at or below it. Linked edges' evidence can take the top level past the scan's budget:
+    // then the reply holds the map's first blocks, and its `truncated` warning counts them all.
     for scan in &replies {
         let seq = scan["meta"]["seq"].as_u64().unwrap();
         let top = on_top_at(&moves, seq);
-        assert_eq!(
-            holds(&scan["result"]["map"]["nodes"], &file),
-            top,
-            "the map in the scan reply at seq {seq}"
-        );
+        let shown = holds(&scan["result"]["map"]["nodes"], &file);
+        match cut_total(scan) {
+            Some(total) => {
+                let counted = blocks + usize::from(top);
+                assert_eq!(total, counted, "the blocks the scan reply's map counts at seq {seq}");
+                assert!(!shown || top, "the map in the scan reply at seq {seq}");
+            }
+            None => assert_eq!(shown, top, "the map in the scan reply at seq {seq}"),
+        }
         let summary = scan["summary"].as_str().unwrap();
         let counted: usize =
             summary.split(": ").nth(1).and_then(|s| s.split(' ').next()).unwrap().parse().unwrap();

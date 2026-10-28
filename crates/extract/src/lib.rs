@@ -11,6 +11,7 @@ pub mod git;
 pub mod history;
 mod ids;
 mod lines;
+pub mod link;
 pub mod manifest;
 pub mod openapi;
 pub mod registry;

@@ -71,15 +71,23 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 
 /**
  * `patch` laid over `base`: objects merge key by key, an array of objects with `id`s merges with
- * an object keyed by those ids, and anything else replaces.
+ * an object keyed by those ids, where a whole item (one naming its own `id`) that the array lacks
+ * is added after it, and anything else replaces.
  */
 export function overlay(base: unknown, patch: unknown): unknown {
   if (Array.isArray(base) && isObject(patch)) {
-    return base.map((item: unknown) =>
+    const ids = new Set(
+      base.map((item: unknown) => (isObject(item) ? item.id : undefined)),
+    );
+    const merged = base.map((item: unknown) =>
       isObject(item) && typeof item.id === "string" && item.id in patch
         ? overlay(item, patch[item.id])
         : item,
     );
+    const added = Object.entries(patch)
+      .filter(([id, v]) => !ids.has(id) && isObject(v) && v.id === id)
+      .map(([, v]) => v);
+    return [...merged, ...added];
   }
   if (isObject(base) && isObject(patch)) {
     const out: Record<string, unknown> = { ...base };

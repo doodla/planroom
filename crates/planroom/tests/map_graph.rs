@@ -38,7 +38,23 @@ fn the_graph_carries_cached_positions_and_its_layout_key() {
     assert!(summary["result"].get("layout").is_none(), "only the graph names a layout key");
     let graph = map(&root, &["--detail", "graph"]);
     let view = &graph["result"];
-    assert_eq!(view["nodes"], summary["result"]["nodes"], "the same top-level blocks");
+    // The same top-level blocks: the graph's evidence samples can take its blocks past one page,
+    // so its pages, followed to the end, hold them.
+    let mut blocks = view["nodes"].as_array().unwrap().clone();
+    let mut next = graph["meta"]["next"].as_str().map(str::to_owned);
+    while let Some(cursor) = next {
+        let page = map(&root, &["--detail", "graph", "--cursor", &cursor]);
+        blocks.extend(page["result"]["nodes"].as_array().unwrap().iter().cloned());
+        next = page["meta"]["next"].as_str().map(str::to_owned);
+    }
+    let by_id = |nodes: &[Value]| -> std::collections::BTreeMap<String, Value> {
+        nodes.iter().map(|n| (n["id"].as_str().unwrap().to_owned(), n.clone())).collect()
+    };
+    assert_eq!(
+        by_id(&blocks),
+        by_id(summary["result"]["nodes"].as_array().unwrap()),
+        "the same top-level blocks"
+    );
     assert!(view["nodes"].as_array().unwrap().iter().all(|n| n["position"].is_null()));
     let key = &view["layout"];
     assert_eq!(key["view_key"], "map:system:runtime");

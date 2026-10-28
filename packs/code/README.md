@@ -10,10 +10,11 @@ Planroom embeds it in the binary, so every workspace loads it first.
 |---|---|
 | `[[kinds]]` | `workspace`, `repo`, `service`, `datastore`, `queue`, `library`, `tooling`, `package`, `module`, `directory`, `file`, `api_spec`, `endpoint`, `person`, `commit`. Every Container-level kind uses the kernel's `container` ID prefix and has a tone, the block color surfaces draw it in: `service` for a service, `store` for a datastore or a queue, `library` for a library, `infra` for tooling. |
 | `[[relations]]` | `http`, `queue_publish`, `queue_consume`, `db`, `imports`, `depends_on_package`, `co_change`, `owned_by` |
-| `[[languages]]` | TypeScript, TSX, JavaScript, Python, Go, Rust, YAML and JSON, by file extension. Each of the six with a grammar has its own file in `languages/`, with its extractors |
+| `[[languages]]` | TypeScript, TSX, JavaScript, Python, Go, Rust, YAML and JSON, by file extension. Each of the six with a grammar has its own file in `languages/`, with its extractors and the globs of its test files, `tests` (see [Test files](#test-files)) |
 | `[[image_roles]]` | `postgres*` and `mysql*` are a `datastore`; `redis*` and `rabbitmq*` are a `queue` |
-| `[[hints]]` | `url`, `env_read`, `env_set`, `depends_on`, `route_serve`, `route_call`, `queue_op`, `db_open`, `sql`, `def`, `call` |
+| `[[hints]]` | `url`, `env_read`, `env_set`, `depends_on`, `route_serve`, `route_call`, `queue_op`, `db_open`, `sql`, `def`, `call`, `compose_service`, `const`, `test_scope` |
 | `[[extractors]]` | the `files`, `compose`, `manifest` and `openapi` built-ins; `urls` and `sql`, regexes over the code of the five languages; and in each language's file, a query for its imports, definitions and calls and one for the hints a deployment joins, from `queries/` |
+| `[[linkers]]` | the `runtime_wiring` built-in, which joins the hints of every repo into containers, endpoints and the `http`, `queue_publish`, `queue_consume` and `db` edges between them |
 | `[[lenses]]` | `runtime` (the default), `flow`, `dependencies`, `history` |
 | `[[questions]]` | `path A B`, a shortest path over `flow`; `why A B`, every edge between the two with its evidence and confidence; `impact X`, what depends on X and what it depends on, over `runtime` and `dependencies`. `planroom ask` lists them with every loaded kind and lens |
 | `[[suggestions]]` | the pane's next action: open the containers when the map has any, else the components, else the files |
@@ -26,9 +27,24 @@ A compose service whose image no image role matches is a `service`. A repo whose
 |---|---|
 | `languages/<id>.toml` | one language with a built-in grammar: its `[[languages]]` entry and the extractors that read it |
 | `queries/<language>.scm` | the imports, definitions, string constants and calls of a language, which TypeScript and TSX read with JavaScript's |
-| `queries/<language>_runtime.scm` | the hints a deployment joins: environment reads, routes served and called, queue operations and database opens |
+| `queries/<language>_runtime.scm` | the hints a deployment joins: environment reads, routes served and called, queue operations and database opens; and Rust's test scopes |
 
 A query never reads a comment or a docstring: a match that captures one is dropped, and a capture's text has them blanked. Each emit in a language's file names only captures its query sets.
+
+### Test files
+
+A test exercises your runtime; it isn't your runtime's wiring. Each language's `tests` globs name its test files, and `runtime_wiring` reads no hint from one: a test's queue push, call, database open or environment read joins nothing, and a test that calls your code is never cited as its caller. The definitions, imports and calls in a test file are still extracted. A file is a test file when its extension gives the language and one of that language's globs matches its path in the repo.
+
+Test code inside a runtime file counts too, where the pack names it. In Rust, each item `#[cfg(test)]` marks, such as `#[cfg(test)] mod tests { ... }`, a test function, an impl, a `use`, a `const`, a statement or a match arm, is a test scope from the attribute's line to the item's last line, and so is a module body or a file an inner `#![cfg(test)]` marks, and a function `#[test]` marks, or an attribute whose path's last segment is `test`, such as `#[tokio::test]`. `runtime_wiring` reads no hint on a line a test scope holds, as it reads none from a test file. A module `#[cfg(test)]` marks at a file's top level is test code in whole, in the files Rust reads it from (a module declared inline has none of its own, so only the files of the modules it declares out of line, below `<name>/`, are its): the file its `#[path]` names, relative to the declaring file's folder; or else `<name>.rs` and every file below `<name>/`, in the declaring file's folder when that file is a `mod.rs`, `lib.rs`, `main.rs` or `build.rs` or a binary in `src/bin/` or `examples/`, and in the folder named for its stem otherwise. So `#[cfg(test)] mod test;` in `src/lib.rs` makes `src/test.rs` and `src/test/` test code. The file of a test module declared inside another module, and of a module a `#[path]` test module declares, counts only as the test globs and its own test scopes say. Of the `cfg` attributes, only a bare `cfg(test)` marks a scope: `#[cfg(all(test, unix))]` and `#[cfg(not(test))]` don't. Inline test code in the other languages, such as Vitest's in-source `if (import.meta.vitest)` block, is read as runtime code.
+
+| Language | Its test files |
+|---|---|
+| Python | `**/tests/**`, `**/test/**`, `**/e2e/**`, `**/test_*.py`, `**/*_test.py`, `**/tests.py`, `**/conftest.py` |
+| Go | `**/*_test.go`, `**/testdata/**`, `**/e2e/**` |
+| TypeScript, TSX and JavaScript | `**/*.test.*`, `**/*.spec.*`, `**/*.cy.*`, `**/__tests__/**`, `**/__mocks__/**`, `**/test/**`, `**/tests/**`, `**/e2e/**`, `**/cypress/**` |
+| Rust | `**/tests/**`, `**/benches/**`, `**/tests.rs` |
+
+YAML and JSON name no test files, so a compose file is read wherever it sits. A glob that doesn't parse is refused when the pack loads.
 
 ## Extend it
 
@@ -44,7 +60,8 @@ Your pack may:
 - write a literal node ID whose kind-short is one of the code pack's ID prefixes, such as `web:file:src/app.ts`;
 - add a language whose extensions no loaded pack claims;
 - add an image role for a glob no loaded pack claims;
-- emit the code pack's hint kinds, such as `code.url`. The code pack declares no `[[linkers]]` yet, and this build has no built-in linker, so nothing joins those hints today. A hint kind your own pack declares is refused, because no loaded linker would join it.
+- name the test files of a language you add in its `tests`, which `runtime_wiring` then reads no hint from;
+- emit the code pack's hint kinds, such as `code.url`, which `runtime_wiring` joins. A hint kind your own pack declares is refused, because no loaded linker would join it.
 
 A question step's `$NAME`, whole or inside an ID, must be one of the question's `args`. A key that names nothing, such as `depth` or `direction`, takes a number, a word or text, or a list of them, never a table.
 

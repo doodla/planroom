@@ -2067,7 +2067,7 @@
           ]
         }
       ],
-      "description": "What a declarative extractor emits per match. Values may use `$file`, `$stem`, `$repo`,\n`$line`, `$1`..`$9` and `@capture`. A reference is `@alias:...`, an ID, `@id:KIND:KEY` or\n`@ext:NAME`; a bare path such as `$file` is `pack_invalid`."
+      "description": "What a declarative extractor emits per match. Values may use `$file`, `$stem`, `$repo`,\n`$line`, `$end` (the line the match ends on), `$1`..`$9` and `@capture`. A reference is `@alias:...`, an ID, `@id:KIND:KEY` or\n`@ext:NAME`; a bare path such as `$file` is `pack_invalid`."
     },
     "Empty": {
       "type": "object",
@@ -3108,7 +3108,7 @@
         },
         "scope": {
           "$ref": "#/$defs/NodeId",
-          "description": "The file, the compose service or the API spec."
+          "description": "The file it was read from, or the API spec an OpenAPI operation is in."
         },
         "key": {
           "type": "string",
@@ -3125,7 +3125,7 @@
         "attrs": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Scheme, port, path, method, op, driver, default.",
+          "description": "Scheme, port, path, method, op, driver, default; a test scope's `end`, its last line, and a\ntest module's `module` and `path`.",
           "x-redact": true
         },
         "evidence": {
@@ -3846,13 +3846,22 @@
           "maxItems": 2,
           "description": "The opening and closing marks.",
           "default": null
+        },
+        "tests": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs over a repo-relative path that name this language's test files, such as\n`**/*_test.go`. Their definitions, imports and calls are extracted as any file's, but no\nlinker's runtime join anchors in one or cites it.",
+          "default": []
         }
       },
       "required": [
         "id",
         "extensions",
         "line_comment",
-        "block_comment"
+        "block_comment",
+        "tests"
       ],
       "description": "`[[languages]]`: a language's file extensions and comment forms."
     },

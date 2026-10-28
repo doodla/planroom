@@ -53,7 +53,9 @@ test("room_text_within_budget: /room text is the summary line and handles, never
   expect(text).toBe(GOLDEN_SUMMARY);
   expect(() => JSON.parse(text) as unknown).toThrow();
   // With no summary in the envelope, the mod's own line, still never JSON.
-  expect(roomText("map", ran(BARE_MAP))).toBe("10 blocks at the system level");
+  expect(roomText("map", ran(BARE_MAP))).toBe(
+    `${mapReply.result.nodes.length} blocks at the system level`,
+  );
   // The engine's own summary line, when the envelope carries one, and the handles to go on.
   const withSummary = JSON.stringify({
     ...mapReply,
@@ -211,13 +213,14 @@ test("/room draws a map's full result: one row a block, then the handles", () =>
   expect(rows[0]).toMatchObject({ key: "summary", text: GOLDEN_SUMMARY });
   expect(roomRows("map", ran(BARE_MAP))[0]).toMatchObject({
     key: "summary",
-    text: "10 blocks at the system level",
+    text: `${mapReply.result.nodes.length} blocks at the system level`,
   });
   const blocks = rows.filter((r) => r.key.startsWith("block-"));
   expect(blocks).toHaveLength(mapReply.result.nodes.length);
-  // kit's four directories, its package and its two authors; its library is the container.
+  // orders leads: 14 directories, its package, its API spec and its two authors; its 23 files and
+  // the 5 endpoints the link snapshot makes of its routes.
   expect(blocks[0]).toMatchObject({
-    text: "□ kit · 11 code, 7 component, 1 container",
+    text: "□ orders · 28 code, 18 component, 1 container",
   });
 });
 

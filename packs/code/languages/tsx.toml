@@ -4,14 +4,20 @@
 # parse names them, and the two extractors that read it (architecture.md, "Hints and
 # linkers"): one for its imports, definitions and calls, one for the hints a deployment joins.
 # Two queries, not one, so each match keeps only the captures its own query has. Each emit names
-# only captures its query sets; a definition's value is its parameter list, or a constant's
-# string, and a call's value its arguments, as the source writes them.
+# only captures its query sets; a definition's value is its parameter list, a constant's its
+# string, and a call's its arguments, as the source writes them.
 
 [[languages]]
 id = "tsx"
 extensions = ["tsx"]
 line_comment = "//"
 block_comment = ["/*", "*/"]
+# Test files, which no runtime join reads: Jest's, Vitest's, Mocha's, Cypress's and Playwright's
+# layouts, and Jest's mocks.
+tests = [
+  "**/*.test.*", "**/*.spec.*", "**/*.cy.*", "**/__tests__/**", "**/__mocks__/**", "**/test/**",
+  "**/tests/**", "**/e2e/**", "**/cypress/**",
+]
 
 [[extractors]]
 id = "tsx"
@@ -22,7 +28,7 @@ emit = [
   { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@import", via = "@import" },
   { hint = "code.def", scope = "@id:code.file:$file", key = "@def", value = "@def.params" },
   { hint = "code.def", scope = "@id:code.file:$file", key = "@arrow", value = "(@arrow.param)" },
-  { hint = "code.def", scope = "@id:code.file:$file", key = "@const", value = "@const.value" },
+  { hint = "code.const", scope = "@id:code.file:$file", key = "@const", value = "@const.value" },
   { hint = "code.call", scope = "@id:code.file:$file", key = "@call", value = "@call.args" },
 ]
 

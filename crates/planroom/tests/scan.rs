@@ -2,7 +2,7 @@
 //! containers and their evidence against `TRUTH.json`, the cold-scan budget, the scan-key rule on
 //! a rescan, and `map --json` before and after a scan.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
@@ -96,10 +96,18 @@ fn a_scan_finds_the_truths_compose_containers_with_evidence_on_their_lines() {
     assert_eq!(env["meta"]["seq"], 5, "one scan event per repo: {env}");
     let facts = active_facts(&root);
     let nodes: Vec<&Value> = facts.iter().filter(|(s, _)| *s == Shape::Node).map(|(_, v)| v).collect();
-    // The compose file's own fact for a container: a repo's root manifest gives the container of
-    // the same ID, on the manifest's line.
+    // The compose file's own fact for a container: the tooling container compose gives, or the
+    // container `runtime_wiring` makes of a compose service in the link snapshot. A repo's root
+    // manifest gives the container of the same ID, on the manifest's line.
     let composed = |id: &str| {
-        nodes.iter().find(|n| n["id"] == id && n["provenance"]["extractor"] == "code/compose").copied()
+        nodes
+            .iter()
+            .find(|n| {
+                n["id"] == id
+                    && (n["provenance"]["extractor"] == "code/compose"
+                        || n["provenance"]["linker"] == "code/runtime_wiring")
+            })
+            .copied()
     };
     let truth = truth();
 
@@ -148,20 +156,24 @@ fn a_scan_finds_the_truths_compose_containers_with_evidence_on_their_lines() {
             assert!(all_evidence.iter().any(|g| evidence_matches(want, g)), "{}: {want}", relation["kind"]);
         }
     }
-    let env_set: BTreeSet<(String, String)> = facts
-        .iter()
-        .filter(|(s, v)| *s == Shape::Hint && v["kind"] == "code.env_set")
-        .map(|(_, v)| (v["scope"].as_str().unwrap().to_owned(), v["key"].as_str().unwrap().to_owned()))
-        .collect();
-    assert!(env_set.contains(&("worker:container:worker".into(), "DATABASE_URL".into())));
-    assert!(env_set.contains(&("storefront:container:storefront".into(), "ORDERS_URL".into())));
-    let depends: BTreeSet<(String, String)> = facts
-        .iter()
-        .filter(|(s, v)| *s == Shape::Hint && v["kind"] == "code.depends_on")
-        .map(|(_, v)| (v["scope"].as_str().unwrap().to_owned(), v["key"].as_str().unwrap().to_owned()))
-        .collect();
-    assert!(depends.contains(&("orders:container:orders".into(), "orders-db".into())));
-    assert!(depends.contains(&("ws:container:grafana".into(), "prometheus".into())));
+    // Compose's hints are scoped to the compose file, and name the service that sets or depends.
+    let scoped = |kind: &str| -> BTreeSet<(String, String, String)> {
+        facts
+            .iter()
+            .filter(|(s, v)| *s == Shape::Hint && v["kind"] == kind)
+            .map(|(_, v)| {
+                let text = |key: &str| v[key].as_str().unwrap().to_owned();
+                (text("scope"), v["attrs"]["service"].as_str().unwrap().to_owned(), text("key"))
+            })
+            .collect()
+    };
+    let file = || "platform:file:docker-compose.yml".to_owned();
+    let env_set = scoped("code.env_set");
+    assert!(env_set.contains(&(file(), "worker".into(), "DATABASE_URL".into())));
+    assert!(env_set.contains(&(file(), "storefront".into(), "ORDERS_URL".into())));
+    let depends = scoped("code.depends_on");
+    assert!(depends.contains(&(file(), "orders".into(), "orders-db".into())));
+    assert!(depends.contains(&(file(), "grafana".into(), "prometheus".into())));
 
     // Every repo and every component path the truth lists exists in the file tree [TRUTH about].
     let ids: BTreeSet<&str> = nodes.iter().map(|n| n["id"].as_str().unwrap()).collect();
@@ -227,11 +239,31 @@ fn map_lists_the_repos_and_workspace_containers_with_counts() {
     let map = &env["result"];
     assert_eq!(map["level"], "system");
     assert!(map.get("empty").is_none_or(Value::is_null));
-    let names: Vec<&str> =
-        map["nodes"].as_array().unwrap().iter().map(|n| n["name"].as_str().unwrap()).collect();
+    // The page lists its blocks by the lifted edges they carry, most first, then level, name and
+    // ID: linked edges join some of them, so the order is not by name alone.
+    let blocks = map["nodes"].as_array().unwrap();
+    let mut carried: BTreeMap<&str, u64> = BTreeMap::new();
+    for edge in map["edges"].as_array().unwrap() {
+        for end in ["from", "to"] {
+            *carried.entry(edge[end].as_str().unwrap()).or_default() += edge["count"].as_u64().unwrap();
+        }
+    }
+    let key = |n: &&Value| {
+        let id = n["id"].as_str().unwrap();
+        let level = ["system", "container"].iter().position(|l| n["level"] == *l).unwrap();
+        let name = n["name"].as_str().unwrap().to_owned();
+        (std::cmp::Reverse(carried.get(id).copied().unwrap_or(0)), level, name, id.to_owned())
+    };
+    let mut ordered: Vec<&Value> = blocks.iter().collect();
+    ordered.sort_by_key(key);
+    let order =
+        |list: Vec<&Value>| list.iter().map(|n| n["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
+    assert_eq!(order(blocks.iter().collect()), order(ordered));
+    assert!(carried.len() >= 4, "the linked edges join blocks: {carried:?}");
+    let names: BTreeSet<&str> = blocks.iter().map(|n| n["name"].as_str().unwrap()).collect();
     assert_eq!(
         names,
-        [
+        BTreeSet::from([
             "kit",
             "orders",
             "platform",
@@ -242,14 +274,14 @@ fn map_lists_the_repos_and_workspace_containers_with_counts() {
             "otel-collector",
             "prometheus",
             "redis"
-        ]
+        ])
     );
-    let orders = &map["nodes"][1];
-    assert_eq!(orders["id"], "orders:repo:orders");
+    let node = |id: &str| map["nodes"].as_array().unwrap().iter().find(|n| n["id"] == id).unwrap();
+    let orders = node("orders:repo:orders");
     assert_eq!(orders["counts"]["container"], 1);
     assert!(orders["counts"]["code"].as_u64().unwrap() > 10);
     assert!(orders["counts"]["component"].as_u64().unwrap() >= 6);
-    assert_eq!(map["nodes"][9]["id"], "ws:container:redis");
+    assert_eq!(node("ws:container:redis")["level"], "container");
 }
 
 #[test]
@@ -312,12 +344,30 @@ fn the_store_and_its_directory_are_private() {
 }
 
 /// The IDs `map --level LEVEL --json` lists, or plain `map --json` for an empty level.
+/// Every block's ID at `level`, the map's default when empty, following its pages to the end.
 fn map_ids(root: &Path, level: &str) -> BTreeSet<String> {
-    let args: &[&str] =
-        if level.is_empty() { &["map", "--json"] } else { &["map", "--level", level, "--json"] };
-    let (env, out) = envelope(root, args);
-    assert!(out.status.success(), "{env}");
-    env["result"]["nodes"].as_array().unwrap().iter().map(|n| n["id"].as_str().unwrap().to_owned()).collect()
+    let mut args: Vec<String> = vec!["map".into(), "--json".into()];
+    if !level.is_empty() {
+        args.extend(["--level".into(), level.into()]);
+    }
+    let mut ids = BTreeSet::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let mut page = args.clone();
+        if let Some(c) = &cursor {
+            page.extend(["--cursor".into(), c.clone()]);
+        }
+        let page: Vec<&str> = page.iter().map(String::as_str).collect();
+        let (env, out) = envelope(root, &page);
+        assert!(out.status.success(), "{env}");
+        ids.extend(
+            env["result"]["nodes"].as_array().unwrap().iter().map(|n| n["id"].as_str().unwrap().to_owned()),
+        );
+        match env["meta"]["next"].as_str() {
+            Some(next) => cursor = Some(next.to_owned()),
+            None => return ids,
+        }
+    }
 }
 
 /// Every level's IDs and every active fact, sorted: what two stores at the same heads share.
@@ -401,8 +451,9 @@ fn warnings_of<'a>(env: &'a Value, code: &str) -> Vec<&'a Value> {
 
 #[test]
 fn moving_a_repo_out_and_back_gives_the_map_a_fresh_store_gives() {
-    // correctness-13: compose joins a service to a repo of the workspace by name, so the repo set
-    // is an input of every snapshot's facts, and part of its key.
+    // correctness-13: a compose service joins a repo of the workspace by name. The join is the
+    // link snapshot's, a function of the active set, so a repo's own snapshot holds no other
+    // repo's name, and the map follows the repo set out and back.
     let dir = tempfile::tempdir().unwrap();
     let root = fixture(&dir.path().join("moved")).root;
     std::fs::rename(root.join("orders"), dir.path().join("orders-away")).unwrap();
@@ -472,35 +523,40 @@ fn a_scan_that_read_an_older_head_never_moves_the_repo_back() {
 fn a_scan_that_read_an_older_repo_set_never_moves_a_repo_back() {
     // correctness-r3-1: no HEAD moves, but a repo joins the workspace while the first scan is
     // between extraction and commit. Its name matches platform's compose image `redis:7.4`, so the
-    // newer scan joins the redis service to it; the late scan read the older repo set.
+    // newer scan's link joins the redis service to it; the late scan read the older repo set. A
+    // repo's snapshot holds no other repo's name (DR-86), so the new repo re-keys only the link:
+    // the newer scan records the new repo alone, and the late scan finds its five repos where it
+    // read them.
     use planroom::app::scan as app_scan;
     let dir = tempfile::tempdir().unwrap();
     let root = fixture(dir.path()).root;
     scan(&root);
+    let link_before = link_of_last_scan(&root);
     let slow = app_scan::prepare(&planroom_contract::ScanReq::default(), &root).unwrap();
     planroom_testkit::git_repo(&root.join("redis"), &[("README.md".into(), b"# Redis\n".to_vec())]);
     let newer = scan(&root);
-    assert_eq!(newer["meta"]["seq"], 11, "the new repo set re-keys all six repos: {newer}");
+    assert_eq!(newer["meta"]["seq"], 6, "one scan event, for the new repo: {newer}");
+    assert_eq!(scan_events(&root).last().unwrap(), &(6, "redis".to_owned()));
+    let link = link_of_last_scan(&root);
+    assert_ne!(link, link_before, "a new active set has a new link");
     let joined = the_map(&root);
     assert!(joined.0[2].contains("redis:container:redis"), "{:?}", joined.0[2]);
     assert!(!joined.0[2].contains("ws:container:redis"), "{:?}", joined.0[2]);
+    // The redis container is the link's: no repo's own snapshot holds it.
+    let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
+    let in_link = store.facts(&[link]).unwrap();
+    assert!(in_link.iter().any(|r| r.id == "redis:container:redis"), "the link mints it");
+    let heads: Vec<u64> = store.active_set().unwrap().repos.values().copied().collect();
+    assert!(store.facts(&heads).unwrap().iter().all(|r| r.id != "redis:container:redis"));
+    drop(store);
 
     let late = app_scan::commit(slow).unwrap();
-    assert_eq!(late.seq, 11, "the late scan wrote nothing");
-    let superseded: BTreeSet<String> = late
-        .warnings
-        .iter()
-        .filter(|w| w.code == planroom_contract::WarningCode::ScanSuperseded)
-        .map(|w| w.details["repo"].as_str().unwrap().to_owned())
-        .collect();
-    let five: BTreeSet<String> =
-        ["kit", "orders", "platform", "storefront", "worker"].iter().map(|s| s.to_string()).collect();
-    assert_eq!(superseded, five, "{:?}", late.warnings);
-    for w in late.warnings.iter().filter(|w| w.code == planroom_contract::WarningCode::ScanSuperseded) {
-        assert_eq!(w.details["reason"], "repos_changed", "{w:?}");
-        assert!(w.message.starts_with("The workspace's repos changed"), "{}", w.message);
-    }
-    assert_eq!(scan_events(&root).last().unwrap().0, 11, "no revert in the log");
+    assert_eq!(late.seq, 6, "the late scan wrote nothing");
+    let superseded: Vec<&planroom_contract::Warning> =
+        late.warnings.iter().filter(|w| w.code == planroom_contract::WarningCode::ScanSuperseded).collect();
+    assert_eq!(superseded, Vec::<&planroom_contract::Warning>::new(), "its five repos are unchanged");
+    assert_eq!(scan_events(&root).last().unwrap().0, 6, "no revert in the log");
+    assert_eq!(link_of_last_scan(&root), link, "the link stays the newer scan's");
     assert_eq!(the_map(&root), joined, "the map is the newer scan's");
     // Beside the workspace, not inside it: the fixture writes no state directory, so a copy in it
     // would be part of it.
@@ -509,7 +565,13 @@ fn a_scan_that_read_an_older_repo_set_never_moves_a_repo_back() {
     planroom_testkit::git_repo(&fresh.join("redis"), &[("README.md".into(), b"# Redis\n".to_vec())]);
     scan(&fresh);
     assert_eq!(the_map(&fresh), joined, "the same heads and repos give the same map");
-    assert_eq!(scan(&root)["meta"]["seq"], 11, "a rescan finds nothing to move");
+    assert_eq!(scan(&root)["meta"]["seq"], 6, "a rescan finds nothing to move");
+}
+
+/// The link snapshot the last `scan` event names.
+fn link_of_last_scan(root: &Path) -> u64 {
+    let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
+    store.active_set().unwrap().link.expect("a link snapshot")
 }
 
 #[test]

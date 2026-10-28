@@ -134,6 +134,9 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
                     return Err(claimed(&ctx, &at.key("extensions").at(j), &ext, "languages", other));
                 }
             }
+            for (j, g) in language.tests.iter().enumerate() {
+                glob(&ctx, &at.key("tests").at(j), g)?;
+            }
         }
         for (i, role) in pack.file.image_roles.iter().enumerate() {
             let at = root.key("image_roles").at(i);
@@ -168,7 +171,17 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
             let at = root.key("linkers").at(i).key("builtin");
             let name = format!("{id}/{}", linker.builtin);
             match registry::find(&linker.builtin) {
-                Some(b) if b.role == Role::Linker && b.name == name => {}
+                Some(b) if b.role == Role::Linker && b.name == name => {
+                    let entry = root.key("linkers").at(i);
+                    builtin_options(
+                        &ctx,
+                        b.options,
+                        &linker.builtin,
+                        &name,
+                        &linker.options,
+                        &entry.key("options"),
+                    )?;
+                }
                 Some(b) if b.role == Role::Linker => {
                     let vars: &Vars<'_> = &[("builtin", &linker.builtin), ("name", &b.name)];
                     return Err(ctx.bad(&at, &linker.builtin, "builtin_name", vars));
@@ -1077,10 +1090,10 @@ pub(super) fn runnable(
     Ok(programs)
 }
 
-/// A built-in extractor's `options`, read through the table its registry entry declares, as a
-/// query shape's parameters are: a key the table doesn't declare is refused at its own line, a
-/// `kinds` role the built-in doesn't emit too, and every role it emits names a kind in scope,
-/// since it emits each (DR-46); a `relations` role names a relation in scope the same way.
+/// A built-in extractor's or linker's `options`, read through the table its registry entry
+/// declares, as a query shape's parameters are: a key the table doesn't declare is refused at its
+/// own line, a `kinds` or `relations` role the built-in doesn't emit too, and every role it emits
+/// names a kind, or a relation, in scope, since it emits each (DR-46).
 fn builtin_options(
     ctx: &Ctx<'_>,
     table: &[Param],
@@ -1106,6 +1119,13 @@ fn builtin_options(
     for param in table {
         let ParamNames::Table(roles) = param.names else { continue };
         let here = at.key(param.key);
+        // A `relations` table names relations, and its messages say so; a `kinds` table names kinds.
+        let relations = roles.iter().any(|r| r.names == ParamNames::Relation);
+        let (unknown, absent) = if relations {
+            ("relation_role_unknown", "relation_role_missing")
+        } else {
+            ("role_unknown", "role_missing")
+        };
         let kinds = match map.get(param.key) {
             None => &empty,
             Some(Value::Object(kinds)) => kinds,
@@ -1114,12 +1134,13 @@ fn builtin_options(
         for (role, kind) in kinds {
             let Some(declared) = roles.iter().find(|r| r.key == role) else {
                 let vars: &Vars<'_> = &[("role", role), ("name", &name), ("roles", &listed(roles))];
-                return Err(src.invalid_at(&here.key(role), At::Key, role, "role_unknown", vars));
+                return Err(src.invalid_at(&here.key(role), At::Key, role, unknown, vars));
             };
             let Some(kind) = kind.as_str() else {
                 return Err(ctx.bad(&here.key(role), eid, "options", &[("name", &name)]));
             };
-            // A `relations` role names a relation the built-in emits, loaded as its kinds are.
+            // A `relations` role names a relation the built-in or linker emits, loaded as its
+            // kinds are.
             match declared.names {
                 ParamNames::Relation => ctx.relation(kind, &here.key(role))?,
                 _ => drop(ctx.kind(kind, &here.key(role))?),
@@ -1128,7 +1149,7 @@ fn builtin_options(
         if let Some(missing) = roles.iter().find(|r| !kinds.contains_key(r.key)) {
             // Named at the kinds table, or at the options or the entry when those aren't written.
             let vars: &Vars<'_> = &[("role", &missing.key), ("name", &name)];
-            return Err(src.invalid_at(&here, At::Key, missing.key, "role_missing", vars));
+            return Err(src.invalid_at(&here, At::Key, missing.key, absent, vars));
         }
     }
     Ok(())

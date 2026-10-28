@@ -1,7 +1,7 @@
 {
   "overlay": "map-graph.json",
   "milestone": "M1",
-  "why": "The engine draws no tones and no lifted edges yet: kind tones come with the packs (DR-46) and relations with the linkers, both M1. Until then this test-only overlay paints the real fixture's blocks and joins them, so tone and edge rendering stay covered.",
+  "why": "The engine draws no tones and no lifted edges yet: kind tones come with the packs (DR-46) and relations with the linkers, both M1. Until then this test-only overlay paints the real fixture's blocks and joins them, so tone and edge rendering stay covered. The engine's page of the golden map, within its CLI budget, leaves redis out, so the overlay adds that block whole.",
   "patch": {
     "nodes": {
       "kit:repo:kit": {
@@ -32,7 +32,16 @@
         "tone": "infra"
       },
       "ws:container:redis": {
-        "tone": "store"
+        "id": "ws:container:redis",
+        "kind": "code.queue",
+        "tone": "store",
+        "name": "redis",
+        "level": "container",
+        "parent": null,
+        "counts": {},
+        "position": null,
+        "ghost": false,
+        "claimed_by": null
       }
     },
     "edges": [

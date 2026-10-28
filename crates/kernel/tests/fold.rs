@@ -369,7 +369,8 @@ fn card_body() -> EventBody {
 
 // The incremental fold: one random history of scans, edits, ghosts, conflicts, undos (redos
 // included) and reviews of older events, folded one event at a time, equals a fold from scratch
-// after every event.
+// after every event. A scan may change only the link snapshot's linked edge, and edits and undos
+// retract it.
 
 #[derive(Debug, Clone)]
 enum Step {
@@ -457,27 +458,40 @@ fn status(n: u8) -> Status {
     }
 }
 
-/// Three snapshot sets: the base, one that renames and moves, one that drops the item.
+/// The edge a link snapshot joins, `e:000000000005` from `a` to `b`: what a scan whose only
+/// change is the active set's link gives, and what edits and undos on a linked edge target.
+fn linked_edge() -> Edge {
+    let mut e = edge(5, "r:x:a", "r:x:b");
+    e.provenance = Provenance::Linked {
+        linker: "p/wiring".into(),
+        hints: vec![planroom_contract::HintRef { id: "000000000001".into(), extractor: "p/x".into() }],
+    };
+    e
+}
+
+/// Four snapshot sets: the base, one that renames and moves, one that drops the item, and the
+/// base with a link snapshot that adds one linked edge.
 fn facts_variant(v: u8) -> Facts {
     let mut f = facts();
-    match v % 3 {
+    match v % 4 {
         0 => {}
         1 => {
             f.nodes[3].name = "item-v2".into();
             f.nodes[2].parent = Some(id("r:x:a"));
             f.edges.push(edge(2, "r:x:a", "r:x:b"));
         }
-        _ => {
+        2 => {
             f.nodes.pop();
             f.edges.clear();
         }
+        _ => f.edges.push(linked_edge()),
     }
     f
 }
 
 fn step() -> impl Strategy<Value = Step> {
     prop_oneof![
-        (0u8..3).prop_map(Step::Scan),
+        (0u8..4).prop_map(Step::Scan),
         (0u8..3, 0u8..4, 0u8..6, 0u8..5, 0u8..6).prop_map(|(writer, status, node, field, value)| Step::Set {
             writer,
             status,
@@ -594,8 +608,14 @@ fn history(steps: &[Step]) -> (Vec<Event>, Vec<Facts>) {
                 log.push(&writer(w), Status::Applied, EventBody::Edit(edit));
             }
             Step::Retract { writer: w, edge: is_edge, key } => {
+                // Key 5 retracts the linked edge.
+                let n = match key {
+                    5 => 5,
+                    k if k % 2 == 0 => 1,
+                    k => 10 + k % 3,
+                };
                 let target = if is_edge {
-                    Target::Edge(EdgeId(format!("e:{:012x}", if key % 2 == 0 { 1 } else { 10 + key % 3 })))
+                    Target::Edge(EdgeId(format!("e:{n:012x}")))
                 } else {
                     Target::Node(id(NODES[key as usize]))
                 };

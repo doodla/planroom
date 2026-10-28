@@ -664,7 +664,7 @@ export type Tier = ("universal" | "syntactic" | "config" | "pattern" | "inferenc
 export type Op = "put" | "set" | "retract";
 /**
  * What a declarative extractor emits per match. Values may use `$file`, `$stem`, `$repo`,
- * `$line`, `$1`..`$9` and `@capture`. A reference is `@alias:...`, an ID, `@id:KIND:KEY` or
+ * `$line`, `$end` (the line the match ends on), `$1`..`$9` and `@capture`. A reference is `@alias:...`, an ID, `@id:KIND:KEY` or
  * `@ext:NAME`; a bare path such as `$file` is `pack_invalid`.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -2500,7 +2500,8 @@ export interface Hint {
   key: string;
   value: string | null;
   /**
-   * Scheme, port, path, method, op, driver, default.
+   * Scheme, port, path, method, op, driver, default; a test scope's `end`, its last line, and a
+   * test module's `module` and `path`.
    */
   attrs: {
     [k: string]: unknown;
@@ -3031,6 +3032,12 @@ export interface LanguageDecl {
    * @maxItems 2
    */
   block_comment: [string, string] | null;
+  /**
+   * Globs over a repo-relative path that name this language's test files, such as
+   * `** /*_test.go`. Their definitions, imports and calls are extracted as any file's, but no
+   * linker's runtime join anchors in one or cites it.
+   */
+  tests: string[];
 }
 /**
  * The mod's `lastSeq` atom: the `seq` of the last frame the watch loop read, so the loop starts

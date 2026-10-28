@@ -22,8 +22,26 @@ import {
 } from "./fixtures";
 
 /** The engine's own map of the workspace, as the canvas asks for it. */
+/**
+ * The engine's whole top-level map, as the canvas reads it over HTTP: the CLI keeps each reply to
+ * its budget and pages, so the pages are followed to the end and their blocks joined.
+ */
 function engineMap(engine: Engine): MapView {
-  return engine.cli(["map", "--detail", "graph"]).result as MapView;
+  const args = ["map", "--detail", "graph"];
+  const first = engine.cli(args);
+  const view = first.result as MapView;
+  let next = first.meta.next;
+  while (next) {
+    const page = engine.cli([...args, "--cursor", next]);
+    const more = page.result as MapView;
+    view.nodes.push(...more.nodes);
+    const seen = new Set(view.edges.map((e) => `${e.kind} ${e.from} ${e.to}`));
+    view.edges.push(
+      ...more.edges.filter((e) => !seen.has(`${e.kind} ${e.from} ${e.to}`)),
+    );
+    next = page.meta.next;
+  }
+  return view;
 }
 
 /**
@@ -169,9 +187,10 @@ test.describe("at 1440x900", () => {
     expect(looks.filter((l) => l.tone !== "none")).toHaveLength(5);
     const orders = page.locator(".block", { hasText: /^orders\s*repo/ });
     await expect(orders.locator(".block-kind")).toHaveText("repo");
-    // 14 directories, its package, its API spec and the repo's two authors at the component level.
+    // 14 directories, its package, its API spec and the repo's two authors at the component level;
+    // its 23 files and the 5 endpoints the link snapshot makes of its routes at the code level.
     await expect(orders.locator(".block-counts")).toHaveText(
-      "1 container · 18 component · 23 code",
+      "1 container · 18 component · 28 code",
     );
     // The code pack's image roles give a compose service its kind: redis is a queue and orders-db
     // a datastore.
@@ -181,9 +200,13 @@ test.describe("at 1440x900", () => {
     await expect(
       page.locator(".block", { hasText: /^orders-db/ }).locator(".block-kind"),
     ).toHaveText("datastore");
-    // The five repos hold others and show a lid; the engine lifts no relations yet (M1).
+    // The five repos hold others and show a lid, and the link snapshot's relations are lifted
+    // between the blocks, one edge each.
     await expect(page.locator(".block[data-holds] .block-lid")).toHaveCount(5);
-    await expect(page.locator(".react-flow__edge")).toHaveCount(0);
+    expect(view.edges.length).toBeGreaterThan(0);
+    await expect(page.locator(".react-flow__edge")).toHaveCount(
+      view.edges.length,
+    );
     // The screen-reader outline names every block with its kind and level.
     await expect(page.getByRole("tree")).toBeAttached();
     await expect(

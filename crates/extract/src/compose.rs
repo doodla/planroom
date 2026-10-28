@@ -1,27 +1,40 @@
-//! The `compose` built-in: each service is a container node with `host:` and `service:` aliases,
-//! its image and role as props, its environment as `code.env_set` hints and its `depends_on` as
-//! `code.depends_on` hints. The compose file's own repo gets a tooling container for the
-//! deployment definition itself [TRUTH containers].
+//! The `compose` built-in: each service as a `code.compose_service` hint, its environment as
+//! `code.env_set` hints and its `depends_on` as `code.depends_on` hints, all scoped to the
+//! compose file; and the compose file's own repo as a tooling container for the deployment
+//! definition itself [TRUTH containers].
 //!
-//! A service joins a workspace repo by its `build:` context or its image name (`acme/orders` to
-//! repo `orders`), and then takes that repo's namespace; any other service sits under the
-//! workspace, `ws:container:<name>`. Its kind and role come from the merged `[[image_roles]]`
-//! table, first match in load order; any other service takes the pack's service kind, with role
-//! `service`. The pack that declares this built-in names its kinds in `options.kinds`, and every
-//! container's ID takes the service kind's prefix, the kernel's `container`, so a reclassified
-//! container keeps its ID (DR-46).
+//! A service's hint is keyed by its name and cites its `image:` line, or its key's line when it
+//! has no image. Its attributes are the `image`, the `build` context's last segment, and the
+//! `kind` and `role` the merged `[[image_roles]]` table gives its image, first match in load
+//! order; any other service takes the pack's service kind, with role `service`. Joining a
+//! service to a workspace repo, by its build context or its image name, and minting its
+//! container are the `runtime_wiring` linker's, in the link snapshot ([`crate::link::runtime`]).
+//! So this built-in reads one repo's files and nothing else, and a repo's snapshot holds no other
+//! repo's name (DR-86). The pack that declares it names its kinds in `options.kinds`.
+//!
+//! A service whose name holds a newline or a backslash, which no node ID can hold, gives no hint,
+//! and its file is partial. A file that isn't UTF-8 or doesn't parse is partial and gives
+//! nothing; a byte order mark before the document is read past. Each file's lines are indexed
+//! once, and its facts are bounded as the declarative runner's are
+//! ([`crate::declarative::charge`]): a file whose facts would hold more heap than its size allows
+//! is partial with `work_limit`, and in sorted path order the first file that would take the
+//! repo's total past its bound, and every one after it, with `repo_limit`; each gives no fact.
 
 use std::collections::BTreeMap;
 
 use globset::{Glob, GlobMatcher};
 use planroom_contract::{
-    Evidence, FACTS_FORMAT, FactBatch, Hint, Kind, Layer, Node, NodeId, PartialFile, Provenance, Tier,
+    Evidence, FACTS_FORMAT, FactBatch, Hint, Kind, Layer, Node, NodeId, PartialFile, PartialReason,
+    Provenance, Tier,
 };
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::declarative::REPO_CAPTURE_MAX;
+use crate::declarative::charge::{self, Charges};
 use crate::files::repo_id;
 use crate::ids::{hint_id, node_id};
+use crate::link::nameable;
 use crate::yaml::{self, Yaml};
 use crate::{ExtractError, Extractor, KindRef, RepoPath, RepoView, lines};
 
@@ -30,6 +43,7 @@ pub const NAME: &str = "code/compose";
 pub const DEFAULT_FILES: &[&str] =
     &["**/docker-compose.yml", "**/docker-compose.yaml", "**/compose.yml", "**/compose.yaml"];
 
+pub const COMPOSE_SERVICE_HINT: &str = "code.compose_service";
 pub const ENV_SET_HINT: &str = "code.env_set";
 pub const DEPENDS_ON_HINT: &str = "code.depends_on";
 
@@ -45,20 +59,19 @@ pub struct ImageRole {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Kinds {
-    /// A service no image role classifies.
+    /// A service no image role classifies: its kind, and the ID prefix every container takes.
     pub service: KindRef,
     /// The compose file's own repo, as the deployment definition.
     pub tooling: KindRef,
-    /// A repo's own node, which a joined service sits under.
+    /// A repo's own node, which the tooling container sits under.
     pub repo: KindRef,
+    /// The compose file's node, which every hint is scoped to.
+    pub file: KindRef,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Options {
-    /// The workspace's repo names, for the join by build context or image name.
-    #[serde(default)]
-    repos: Vec<String>,
     #[serde(default)]
     image_roles: Vec<ImageRole>,
     kinds: Kinds,
@@ -66,11 +79,15 @@ struct Options {
 
 pub struct Compose;
 
+/// One compose file as it is read.
 struct Ctx<'a> {
     repo: &'a RepoView,
     path: String,
     text: &'a str,
-    kinds: &'a Kinds,
+    /// The text's line starts, read once, so each fact finds its line by a binary search.
+    index: lines::Index,
+    /// The file's node, which its hints are scoped to.
+    scope: NodeId,
 }
 
 impl Ctx<'_> {
@@ -78,12 +95,21 @@ impl Ctx<'_> {
         vec![Evidence::Line {
             path: self.path.clone(),
             line,
-            contains: lines::line(self.text, line).map(lines::cut),
+            contains: self.index.line(self.text, line).map(lines::cut),
             commit: Some(self.repo.commit.clone()),
             // A snapshot is keyed by its commit, never a branch, which can move or go (DR-85).
             branch: None,
         }]
     }
+}
+
+/// One file's facts, before they join the batch.
+#[derive(Default)]
+struct Read {
+    tooling: Option<Node>,
+    hints: Vec<Hint>,
+    /// Services whose name no node ID can hold.
+    errors: u32,
 }
 
 impl Extractor for Compose {
@@ -92,6 +118,33 @@ impl Extractor for Compose {
     }
 
     fn run(&self, repo: &RepoView, files: &[RepoPath], opts: &Value) -> Result<FactBatch, ExtractError> {
+        self.run_within(repo, files, opts, REPO_CAPTURE_MAX)
+    }
+}
+
+impl Compose {
+    /// [`Extractor::run`] with the repo's bound at `max` in place of [`REPO_CAPTURE_MAX`], so a
+    /// test can reach the cut without a repo whose facts hold 256 MiB. Builds without debug
+    /// assertions leave it out, so no release can lower the bound.
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn run_with_repo_capture_max(
+        &self,
+        repo: &RepoView,
+        files: &[RepoPath],
+        opts: &Value,
+        max: u64,
+    ) -> Result<FactBatch, ExtractError> {
+        self.run_within(repo, files, opts, max)
+    }
+
+    fn run_within(
+        &self,
+        repo: &RepoView,
+        files: &[RepoPath],
+        opts: &Value,
+        max: u64,
+    ) -> Result<FactBatch, ExtractError> {
         let opts: Options = serde_json::from_value(opts.clone())
             .map_err(|e| ExtractError::InvalidOptions(format!("{NAME}: {e}")))?;
         let roles: Vec<(GlobMatcher, &ImageRole)> = opts
@@ -103,6 +156,9 @@ impl Extractor for Compose {
                 })
             })
             .collect::<Result<_, _>>()?;
+        let mut files: Vec<&RepoPath> = files.iter().collect();
+        files.sort();
+        files.dedup();
         let mut batch = FactBatch {
             format: FACTS_FORMAT.into(),
             extractor: NAME.into(),
@@ -112,14 +168,20 @@ impl Extractor for Compose {
             hints: vec![],
             partial: vec![],
         };
-        let mut tooling_done = false;
+        let mut charges = Charges::new(max);
         for file in files {
             let full = format!("{}/{}", repo.name, file.0);
-            let Some(text) = repo.read(file).and_then(|bytes| std::str::from_utf8(bytes).ok()) else {
+            let bytes = repo.read(file);
+            if let Err(reason) = charges.start(bytes.map_or(0, <[u8]>::len)) {
+                // Past the repo's cut: not read at all.
+                batch.partial.push(PartialFile { path: full, errors: 1, reason: Some(reason) });
+                continue;
+            }
+            let Some(text) = bytes.and_then(|bytes| std::str::from_utf8(bytes).ok()) else {
                 batch.partial.push(PartialFile { path: full, errors: 1, reason: None });
                 continue;
             };
-            let doc = match yaml::parse(text) {
+            let doc = match yaml::parse(lines::strip_bom(text)) {
                 Ok(mut docs) if !docs.is_empty() => docs.swap_remove(0),
                 _ => {
                     batch.partial.push(PartialFile { path: full, errors: 1, reason: None });
@@ -129,130 +191,152 @@ impl Extractor for Compose {
             let Some(services) = doc.get("services").and_then(Yaml::entries) else {
                 continue;
             };
-            let ctx = Ctx { repo, path: full, text, kinds: &opts.kinds };
-            if !tooling_done {
-                tooling_done = true;
-                let at =
-                    doc.get("name").map_or_else(|| doc.get("services").map_or(1, Yaml::line), Yaml::line);
-                let mut props = BTreeMap::new();
-                props.insert("role".into(), Value::from("tooling"));
-                if let Some(project) = doc.get("name").and_then(Yaml::as_str) {
-                    props.insert("compose_project".into(), Value::from(project));
+            let ctx = Ctx {
+                repo,
+                path: full.clone(),
+                text,
+                index: lines::Index::new(text),
+                scope: node_id(&repo.name, &opts.kinds.file.id_prefix, &file.0),
+            };
+            // The first compose file in path order that runs services gives the tooling container.
+            let tooling = batch.nodes.is_empty();
+            let read = match read(&ctx, &doc, services, &opts.kinds, &roles, tooling, &mut charges) {
+                Ok(read) => read,
+                Err(reason) => {
+                    batch.partial.push(PartialFile { path: full, errors: 1, reason: Some(reason) });
+                    continue;
                 }
-                let kinds = &opts.kinds;
-                batch.nodes.push(container(
-                    node_id(&repo.name, &kinds.service.id_prefix, &repo.name),
-                    &kinds.tooling,
-                    &repo.name,
-                    Some(repo_id(&repo.name, &kinds.repo)),
-                    vec![],
-                    props,
-                    ctx.evidence(at),
-                ));
+            };
+            if let Err(reason) = charges.finish() {
+                batch.partial.push(PartialFile { path: full, errors: 1, reason: Some(reason) });
+                continue;
             }
-            for (key, service) in services {
-                let Some(name) = key.as_str() else { continue };
-                service_facts(&ctx, name, key.line(), service, &opts.repos, &roles, &mut batch);
+            if read.errors > 0 {
+                batch.partial.push(PartialFile { path: full, errors: read.errors, reason: None });
             }
+            batch.nodes.extend(read.tooling);
+            batch.hints.extend(read.hints);
         }
         batch.nodes.sort_by(|a, b| a.id.cmp(&b.id));
         batch.hints.sort_by(|a, b| a.id.cmp(&b.id));
+        batch.hints.dedup_by(|a, b| a.id == b.id);
         Ok(batch)
     }
 }
 
-fn container(
-    id: NodeId,
-    kind: &KindRef,
-    name: &str,
-    parent: Option<NodeId>,
-    aliases: Vec<String>,
-    props: BTreeMap<String, Value>,
-    evidence: Vec<Evidence>,
-) -> Node {
-    Node {
-        id,
-        kind: Kind(kind.kind.clone()),
-        level: kind.level,
-        parent,
-        name: name.into(),
-        aliases,
-        props,
-        layer: Layer::Actual,
-        provenance: Provenance::Extracted { extractor: NAME.into(), tier: Tier::Config },
-        evidence,
+/// One compose file's facts, each charged to `charges` as it is made ([`charge`]); `Err` with a
+/// reason when they would charge more than the file's budget.
+fn read(
+    ctx: &Ctx<'_>,
+    doc: &Yaml,
+    services: &[(Yaml, Yaml)],
+    kinds: &Kinds,
+    roles: &[(GlobMatcher, &ImageRole)],
+    tooling: bool,
+    charges: &mut Charges,
+) -> Result<Read, PartialReason> {
+    let mut read = Read::default();
+    let repo = &ctx.repo.name;
+    if tooling {
+        let at = doc.get("name").map_or_else(|| doc.get("services").map_or(1, Yaml::line), Yaml::line);
+        let mut props = BTreeMap::new();
+        props.insert("role".into(), Value::from("tooling"));
+        if let Some(project) = doc.get("name").and_then(Yaml::as_str) {
+            props.insert("compose_project".into(), Value::from(project));
+        }
+        let node = Node {
+            id: node_id(repo, &kinds.service.id_prefix, repo),
+            kind: Kind(kinds.tooling.kind.clone()),
+            level: kinds.tooling.level,
+            parent: Some(repo_id(repo, &kinds.repo)),
+            name: repo.clone(),
+            aliases: vec![],
+            props,
+            layer: Layer::Actual,
+            provenance: Provenance::Extracted { extractor: NAME.into(), tier: Tier::Config },
+            evidence: ctx.evidence(at),
+        };
+        charges.add(charge::node(&node))?;
+        read.tooling = Some(node);
     }
+    for (key, service) in services {
+        let Some(name) = key.as_str() else { continue };
+        if !nameable(name) {
+            read.errors += 1;
+            continue;
+        }
+        let service = Service { name, line: key.line(), yaml: service };
+        service_hints(ctx, &service, kinds, roles, charges, &mut read.hints)?;
+    }
+    Ok(read)
 }
 
-fn service_facts(
-    ctx: &Ctx<'_>,
-    name: &str,
+/// One service as its hints read it: its name, its key's line and its definition.
+struct Service<'a> {
+    name: &'a str,
     line: u32,
-    service: &Yaml,
-    repos: &[String],
-    roles: &[(GlobMatcher, &ImageRole)],
-    batch: &mut FactBatch,
-) {
-    let image = service.get("image");
-    let image_name = image.and_then(Yaml::as_str);
-    let build =
-        service.get("build").and_then(|b| b.as_str().or_else(|| b.get("context").and_then(Yaml::as_str)));
-    let joined = build
-        .and_then(|b| b.trim_end_matches('/').rsplit('/').next())
-        .filter(|b| repos.iter().any(|r| r == b))
-        .or_else(|| image_name.map(image_repo).filter(|i| repos.iter().any(|r| r == i)));
-    let kinds = ctx.kinds;
-    let id = node_id(joined.unwrap_or("ws"), &kinds.service.id_prefix, name);
-    let role = image_name.and_then(|i| roles.iter().find(|(m, _)| m.is_match(i)).map(|(_, r)| *r));
-    let mut props = BTreeMap::new();
-    props.insert("role".into(), Value::from(role.map_or("service", |r| r.role.as_str())));
-    if let Some(image) = image_name {
-        props.insert("image".into(), Value::from(image));
-    }
-    let aliases = vec![format!("host:{name}"), format!("service:{name}")];
-    let evidence = ctx.evidence(image.map_or(line, Yaml::line));
-    // An image role's kind is Container-level, as the pack loader checks, so it takes the level
-    // and prefix of the service kind.
-    let kind = role
-        .map_or_else(|| kinds.service.clone(), |r| KindRef { kind: r.kind.clone(), ..kinds.service.clone() });
-    let parent = joined.map(|r| repo_id(r, &kinds.repo));
-    batch.nodes.push(container(id.clone(), &kind, name, parent, aliases, props, evidence));
+    yaml: &'a Yaml,
+}
 
+/// One service's hints, onto `out`: what it runs, the environment it sets and the services it
+/// depends on. Each is charged as it is made, so a service whose long name each of its many
+/// variables copies is refused before its facts pass the file's budget, never once they are all
+/// made.
+fn service_hints(
+    ctx: &Ctx<'_>,
+    service: &Service<'_>,
+    kinds: &Kinds,
+    roles: &[(GlobMatcher, &ImageRole)],
+    charges: &mut Charges,
+    out: &mut Vec<Hint>,
+) -> Result<(), PartialReason> {
+    let Service { name, line, yaml: service } = *service;
     let mut hint = |kind: &str, key: &str, value: Option<&str>, attrs: BTreeMap<String, Value>, line: u32| {
         let kind = Kind(kind.into());
         let evidence = ctx.evidence(line);
-        let provenance = Provenance::Extracted { extractor: NAME.into(), tier: Tier::Config };
-        let hint_id = hint_id(&kind, &id, key, &evidence);
-        batch.hints.push(Hint {
-            id: hint_id,
+        let hint = Hint {
+            id: hint_id(&kind, &ctx.scope, key, &evidence),
             kind,
-            scope: id.clone(),
+            scope: ctx.scope.clone(),
             key: key.into(),
             value: value.map(str::to_owned),
             attrs,
             evidence,
-            provenance,
-        });
+            provenance: Provenance::Extracted { extractor: NAME.into(), tier: Tier::Config },
+        };
+        charges.add(charge::hint(&hint))?;
+        out.push(hint);
+        Ok(())
     };
+    let image = service.get("image");
+    let image_name = image.and_then(Yaml::as_str);
+    let build =
+        service.get("build").and_then(|b| b.as_str().or_else(|| b.get("context").and_then(Yaml::as_str)));
+    let role = image_name.and_then(|i| roles.iter().find(|(m, _)| m.is_match(i)).map(|(_, r)| *r));
+    let mut attrs = BTreeMap::new();
+    attrs.insert("kind".into(), Value::from(role.map_or(kinds.service.kind.as_str(), |r| r.kind.as_str())));
+    attrs.insert("role".into(), Value::from(role.map_or("service", |r| r.role.as_str())));
+    if let Some(image) = image_name {
+        attrs.insert("image".into(), Value::from(image));
+    }
+    let context = build.and_then(|b| b.trim_end_matches('/').rsplit('/').next()).filter(|b| !b.is_empty());
+    if let Some(context) = context {
+        attrs.insert("build".into(), Value::from(context));
+    }
+    hint(COMPOSE_SERVICE_HINT, name, None, attrs, image.map_or(line, Yaml::line))?;
     for (var, value, line) in environment(service.get("environment")) {
         let mut attrs = BTreeMap::new();
         attrs.insert("service".into(), Value::from(name));
         attrs.insert("name".into(), Value::from(var.as_str()));
         attrs.insert("value".into(), value.as_deref().map_or(Value::Null, Value::from));
-        hint(ENV_SET_HINT, &var, value.as_deref(), attrs, line);
+        hint(ENV_SET_HINT, &var, value.as_deref(), attrs, line)?;
     }
     for (target, line) in depends_on(service.get("depends_on")) {
         let mut attrs = BTreeMap::new();
         attrs.insert("service".into(), Value::from(name));
-        hint(DEPENDS_ON_HINT, &target, None, attrs, line);
+        hint(DEPENDS_ON_HINT, &target, None, attrs, line)?;
     }
-}
-
-/// `acme/orders:1.4.0` to `orders`; `registry:5000/x/y@sha256:..` to `y`.
-fn image_repo(image: &str) -> &str {
-    let image = image.split('@').next().unwrap_or(image);
-    let last = image.rsplit('/').next().unwrap_or(image);
-    last.split(':').next().unwrap_or(last)
+    Ok(())
 }
 
 /// `environment` as a list of `NAME=VALUE` or a mapping: `(name, value, line)`.
@@ -287,17 +371,5 @@ fn depends_on(deps: Option<&Yaml>) -> Vec<(String, u32)> {
             entries.iter().filter_map(|(k, _)| Some((k.as_str()?.to_owned(), k.line()))).collect()
         }
         _ => vec![],
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn image_names_join_by_their_last_path_segment() {
-        assert_eq!(image_repo("acme/orders:1.4.0"), "orders");
-        assert_eq!(image_repo("redis:7.4"), "redis");
-        assert_eq!(image_repo("registry:5000/x/y@sha256:abc"), "y");
     }
 }

@@ -243,7 +243,7 @@ A code that only a person can clear has retry `never` and names the card or comm
 |---|---|
 | `claimed` | the target is claimed by someone else; `details {by, until}` |
 | `truncated` | the result hit its budget; the summary and first page are kept. For `map`, `details {kept, total, budget_tokens, next}`, where `next` is the drill-down handle in [Token budgets](architecture.md#token-budgets-s7) (DR-85). From the CLI's check of a whole reply against its leaf's budget, `details {budget_tokens, left_out, codes}`: `left_out` counts the warnings it left out after those it kept in order, and `codes` counts them by code. A page of `ask`'s listing that leaves out an entry too long for any page adds `entries_left_out`, the count of those entries. A page of `intent list` that cuts an entry's touches, pending edits and review handles to fit adds `entries_cut`, the count of those entries, and says so even on the last page. A result that passes the budget alone keeps only the leaf's own `truncated` warning and leaves out every other, so `left_out` counts them all. Only the message marks that case: it says the reply passes its budget (DR-86) |
-| `unresolved_ref` | an alias or a linker join had zero or several candidates; no edge was made |
+| `unresolved_ref` | an alias had zero or several candidates, or a linker join two or more; no edge was made. A linker never guesses: a join hint (`route_call`, `url`, `queue_op`, `db_open`) whose repo holds two or more containers, or whose host reaches two or more targets the relation accepts, joins nothing, and the scan that builds the link snapshot warns once, with `details {count, items}`: `count` counts the join hints left unresolved, and `items` is a sample, the first 10 by hint ID, each `{linker, hint, candidates, candidate_count}`, where `candidates` is the first 3 candidate node IDs by ID. Every item is an ID, so nothing in it is masked (DR-12) |
 | `evidence_dropped` | an evidence item failed verification at ingest; `details {repo, count, items}`, where `items` is a sample of the dropped items |
 | `partial_parse` | files parsed with error nodes, so their facts are weak; `details {repo, count, paths}`, where `paths` is a sample: the first 10 in sorted order (DR-86) |
 | `unparsed_files` | files an extractor took no facts from because they pass a nesting or work bound, would hold more heap in facts and kept matches than their size allows, or come at or after the first file in sorted order whose facts would take the repo past its bound; `details {repo, count, bound, paths}`, one warning per `bound` (`nesting_limit`, `work_limit` or `repo_limit`), where `paths` is a sample: the first 10 in sorted order; `repo` and `paths` pass redaction |
@@ -267,7 +267,7 @@ A code that only a person can clear has retry `never` and names the card or comm
 | `workspace_nested` | another workspace's `.planroom/` sits inside this one, or this one inside it; `details {other_root}` (DR-71) |
 | `repo_unborn` | a repo has no commit yet, so it maps nothing until its first commit; the rest of the workspace maps. `details {repo, branch}` (DR-86) |
 | `repo_skipped` | git refused a repo, or another user owns a place git uses for it, which the engine checks itself before git runs there (DR-78), so the scan left it out and its last map stays; the rest of the workspace maps. `details {repo, reason, fix}`, where `reason` is `other_owner` or `git_failed`; `fix` names paths, so it's masked like `repo`. For `other_owner`, `fix` is `null`: Planroom never runs git in another user's repo and names no command to run there, not even a copy. Its message, one line, says who owns what, by user ID: the repo itself, the git directory or common directory it uses, or an object directory it reads (its own `objects`, or one `objects/info/alternates` names); that Planroom never runs git in another user's repo; and that its owner can scan it, or the person can scan a copy they own. For an object directory, it says only that the person can scan a copy that borrows none of its objects, since the repo itself may be the person's. A copy of another user's repo can carry that user's FIFOs and config includes ([Adapters](architecture.md#adapters) has the gap). For `git_failed`, `fix` is one line with an exact command that needs no root, its paths quoted for the shell (DR-86): it runs `git -C 'PATH' --git-dir=.git status`, as `git_failed`'s hint does; git refuses a `.git` that is neither a directory nor a regular file, such as a FIFO, at once without opening it. When a `commondir` file, the common directory it names, the git directory a `.git` file names, a file git opens at a fixed path in the git directory or the common directory (`HEAD`, `config`, `config.worktree`, `packed-refs`, `index`, `shallow`, `objects/info/alternates`, `info/exclude`, `info/attributes`), or the `info/alternates` of an object directory git reads, exists and is neither a directory or a regular file as git needs it, nor the null device, which git reads as empty (a FIFO, another device or a socket, which git would block on or can't use), the engine refuses it before git runs and the fix runs `ls -l 'THATPATH'` instead, which never opens it |
-| `scan_superseded` | the scan read a state that's no longer the repo's, so its map stays as it was and nothing of this scan's is stored for it, no snapshot and no facts; `details {repo, commit, reason, mapped}`, where `commit` is the commit this scan read, `mapped` the commit the repo's map holds (empty when no scan mapped that namespace), and `reason` is `head_moved` (the repo's `HEAD` moved on while the scan read it) or `repos_changed` (another scan moved the repo after this one began, and the workspace's repos changed since this one read them; or another scan fixed the repo's root under another namespace, or this namespace for another root, in `meta.repos`) (DR-74, DR-86, DR-87) |
+| `scan_superseded` | the scan read a state that's no longer the repo's, so its map stays as it was and nothing of this scan's is stored for it, no snapshot and no facts; `details {repo, commit, reason, mapped}`, where `commit` is the commit this scan read, `mapped` the commit the repo's map holds (empty when no scan mapped that namespace), and `reason` is `head_moved` (the repo's `HEAD` moved on while the scan read it) or `repos_changed` (another scan fixed the repo's root under another namespace, or this namespace for another root, in `meta.repos`, after this one named its repos). A repo's snapshot holds no other repo's name, since the join across repos is the link snapshot's, so a scan that read an older repo set is never superseded for that alone (DR-12, DR-74, DR-86, DR-87) |
 | `duty_failed` | a background duty failed and hasn't succeeded since; `details {duty, at, log}`, the log under the data root (DR-58) |
 | `unsafe_filesystem` | the store's place is on a filesystem that can't share a write-ahead log between processes: a new store moved under the data root with a `store.pointer` left behind, an existing one stayed, or the data root is on one too and a new store stayed; `details {path, fs, store}`: the unsafe place (the state directory, or the data root), its filesystem, and where the store is, `path` and `store` masked (DR-1) |
 
@@ -552,11 +552,14 @@ pub enum Evidence {
 
 pub struct Hint {
     pub id: String,                          // 12 hex of sha256(kind ‖ scope ‖ key ‖ evidence); an OpenAPI operation's method follows its key
-    pub kind: Kind,                          // "code.url", "code.env_read", "code.route_serve", ...
-    pub scope: NodeId,                       // the file, the compose service or the API spec
+    pub kind: Kind,                          // "code.url", "code.env_read", "code.route_serve", "code.test_scope", ...
+    pub scope: NodeId,                       // the file it was read from, or the API spec an OpenAPI operation is in
     #[schemars(extend("x-redact" = true))] pub key: String,   // the join key: a host, an env var name, a path, a queue key, a table, a name; joins read it raw
     #[schemars(extend("x-redact" = true))] pub value: Option<String>,
-    #[schemars(extend("x-redact" = true))] pub attrs: BTreeMap<String, Value>,   // scheme, port, path, method, op, driver, default
+    #[schemars(extend("x-redact" = true))] pub attrs: BTreeMap<String, Value>,   // scheme, port, path, method, op, driver, default; a
+                                             // code.test_scope's end, the last line of the span its evidence line starts,
+                                             // and a test module's module, its name, path, the file its #[path] names, and
+                                             // inline, for one declared inline
     pub evidence: Vec<Evidence>,
     pub provenance: Provenance,              // always Extracted
 }
@@ -785,7 +788,8 @@ pub struct PackFile {
     pub version: u32,
     pub title: String,
     pub requires: Vec<String>,               // a built-in pack: [] or ["code"]; an out-of-tree pack: any built-in packs (DR-62)
-    #[serde(default)] pub languages: Vec<LanguageDecl>,  // merged across packs; read by the files extractor; a duplicate extension is pack_invalid
+    #[serde(default)] pub languages: Vec<LanguageDecl>,  // merged across packs; read by the files extractor and runtime_wiring; a duplicate
+                                                         // extension is pack_invalid
     #[serde(default)] pub image_roles: Vec<ImageRole>,   // merged across packs; read by the compose extractor; a duplicate glob is
                                                          // pack_invalid, and overlapping globs take the first match in load order
     #[serde(default)] pub kinds: Vec<KindDecl>,
@@ -802,7 +806,10 @@ pub struct PackFile {
     #[serde(default)] pub stages: Vec<StageDecl>,      // plan pack only
 }
 pub struct LanguageDecl { pub id: String, pub extensions: Vec<String>, pub line_comment: Option<String>,
-                          pub block_comment: Option<[String; 2]> }
+                          pub block_comment: Option<[String; 2]>,
+                          #[serde(default)] pub tests: Vec<String> /* globs over a repo-relative path naming the language's test
+                                                                      files, each one that doesn't parse pack_invalid; no runtime
+                                                                      join reads a hint from a file of the language they match */ }
 pub struct ImageRole { pub image: String /* glob */, pub role: String, pub kind: String }
 pub struct KindDecl { pub id: String, pub id_prefix: String /* the ID's kind-short; owned by one pack, except the kernel's
                                                                   "container", which every Container-level kind uses */,
@@ -827,7 +834,7 @@ pub enum ExtractorDecl {                     // untagged: told apart by which of
     Query   { id: String, files: Vec<String>, language: String /* a [[languages]] ID */, query: String /* path to .scm */,
               emit: Vec<EmitTemplate> },
 }
-pub enum EmitTemplate {                      // untagged, by node, edge or hint; values may use $file, $stem, $repo, $line, $1..$9, @capture
+pub enum EmitTemplate {                      // untagged, by node, edge or hint; values may use $file, $stem, $repo, $line, $end, $1..$9, @capture
     Node { node: String, key: String, name: Option<String>, parent: Option<String> /* a ref, as `to` */,
            props: BTreeMap<String, Value>, aliases: Vec<String> },   // TOML values; a capture coerced to the prop schema, left out (its file partial) when it fits none;
                                                                      // a plain value checked against it at load, pack_invalid naming the keyword it breaks
@@ -902,7 +909,9 @@ pub struct LensVocab { pub id: String, pub label: String, pub relations: Vec<Kin
 
 The store's `meta.packs` records the loaded set in load order, one `PackRecord { id, version, source, sha256 }` per pack, where `source` is `builtin` or the directory the pack loaded from and `sha256` hashes the pack's files, each path and its bytes in path order (`tests/` left out). `meta.packs_hash` hashes those records under the engine's version.
 
-A built-in extractor's `options.kinds` names the kinds it emits, such as `kinds = { repo = "code.repo", directory = "code.directory", file = "code.file" }` for `files`. The engine replaces each name with `{ kind, id_prefix, level }` from the vocabulary, so no built-in spells a kind, a level or an ID prefix of its own. It also fills in `files`'s merged `languages`, and `compose`'s merged `image_roles` and the workspace's sorted `repos`. So a pack sets `kinds`, and for `git` also `relations`, read through the tables `extract::registry::Builtin::options` declares for each built-in, with a kind for every role it emits and a relation for every relation role: `files` takes `repo`, `directory` and `file`, `compose` takes `service`, `tooling` and `repo`, `manifest` takes `package`, `library`, `repo` and `directory`, `openapi` takes `spec`, `repo` and `directory`, and `git` takes `repo`, `file` and `person` in `kinds` and `co_change` and `owned_by` in `relations` [DR-104]. Any other option key, and an unknown or missing role, is `pack_invalid`.
+A built-in extractor's `options.kinds` names the kinds it emits, such as `kinds = { repo = "code.repo", directory = "code.directory", file = "code.file" }` for `files`. The engine replaces each name with `{ kind, id_prefix, level }` from the vocabulary, so no built-in spells a kind, a level or an ID prefix of its own. It also fills in `files`'s merged `languages` and `compose`'s merged `image_roles`; no extractor is given the workspace's repos, since the join across repos is a linker's. So a pack sets `kinds`, and for `git` also `relations`, read through the tables `extract::registry::Builtin::options` declares for each built-in, with a kind for every role it emits and a relation for every relation role: `files` takes `repo`, `directory` and `file`, `compose` takes `service`, `tooling`, `repo` and `file`, `manifest` takes `package`, `library`, `repo` and `directory`, `openapi` takes `spec`, `repo` and `directory`, and `git` takes `repo`, `file` and `person` in `kinds` and `co_change` and `owned_by` in `relations` [DR-104]. Any other option key, and an unknown or missing role, is `pack_invalid`.
+
+A `[[linkers]]` entry's `options` are read the same way: `kinds` names a kind for each role, and `relations` a relation for each relation the linker emits, which the engine replaces with `{ kind, from, to }` from the vocabulary. `runtime_wiring` takes `kinds = { service, repo, endpoint }` and `relations = { http, queue_publish, queue_consume, db }`, and the engine fills in its merged `languages`, whose `tests` globs name the files it reads no hint from. A role's value that names no kind or relation in scope, an unknown or missing role, and a value that isn't a table are `pack_invalid`.
 
 ## Extractor and linker contract
 
@@ -916,7 +925,16 @@ pub trait Extractor {
 }
 pub trait Linker {                           // pure: the workspace's hints and nodes in, linked facts out
     fn name(&self) -> &'static str;
-    fn link(&self, ws: &WorkspaceFacts, opts: &Value) -> Result<FactBatch, ExtractError>;
+    fn link(&self, ws: &WorkspaceFacts, opts: &Value) -> Result<Linked, ExtractError>;
+}
+pub struct WorkspaceFacts {                  // crates/extract/src/link/mod.rs: one active set's facts
+    pub repos: BTreeSet<String>,             // the active set's repo names, its namespaces
+    pub nodes: Vec<Node>,                    // the member snapshots' System- and Container-level nodes
+    pub hints: Vec<Hint>,                    // every hint of the member snapshots
+}
+pub struct Linked {
+    pub batch: FactBatch,                    // tier Linked, sorted by ID; evidence copied from hints verified at ingest
+    pub unresolved: Vec<Unresolved>,         // { linker, hint, candidates (the first 3 by ID), candidate_count }, by hint ID
 }
 pub struct RepoView {                        // no branch: it's no input of the facts (DR-86)
     pub name: String,

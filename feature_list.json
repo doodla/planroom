@@ -88,7 +88,10 @@
         "crates/planroom/tests/s01_first_look.rs::every_truth_item_the_loaded_packs_declare_matches_with_evidence",
         "crates/planroom/tests/s01_first_look.rs::truth_recall_never_drops",
         "crates/planroom/tests/config.rs::fixture_and_test_data_trees_are_excluded_by_default",
-        "crates/planroom/tests/budgets.rs::map_pages_to_the_whole_map_at_every_detail"
+        "crates/planroom/tests/budgets.rs::map_pages_to_the_whole_map_at_every_detail",
+        "crates/extract/tests/link.rs::runtime_wiring_joins_route_calls_to_endpoints",
+        "crates/extract/tests/link.rs::evidence_follows_callers_two_hops",
+        "crates/planroom/tests/link_snapshot.rs::adding_a_repo_rekeys_only_the_link_snapshot"
       ],
       "due": {
         "crates/planroom/tests/s01_first_look.rs::every_truth_container_component_and_relation_with_evidence": "M3",
@@ -308,6 +311,7 @@
         "crates/kernel/tests/reconcile.rs::a_partial_scan_raises_no_regression",
         "crates/planroom/tests/retries.rs::a_rescan_after_a_head_move_writes_a_new_scan_event",
         "crates/planroom/tests/duties.rs::concurrent_rescans_link_the_final_active_set",
+        "crates/planroom/tests/link_snapshot.rs::the_link_snapshot_matches_the_active_set",
         "crates/kernel/tests/reconcile.rs::the_first_scan_is_a_baseline",
         "crates/kernel/tests/undo.rs::regroup_undo_is_atomic",
         "crates/planroom/tests/handoff_clone.rs::the_implementer_cannot_move_the_real_repos_refs",
@@ -340,12 +344,10 @@
         "crates/kernel/tests/reconcile.rs::regression_over_unplanned": "M2",
         "crates/kernel/tests/reconcile.rs::resolved_stays_done": "M2",
         "crates/kernel/tests/impact.rs::impact_includes_via_endpoint_evidence": "M2",
-        "crates/extract/tests/link.rs::literal_dsn_resolves_by_host": "M1",
         "crates/kernel/tests/reconcile.rs::merge_commits_are_never_change_units": "M2",
         "crates/kernel/tests/reconcile.rs::a_branch_from_an_older_main_keeps_its_regression": "M2",
         "crates/kernel/tests/reconcile.rs::classes_survive_later_scans": "M2",
         "crates/kernel/tests/reconcile.rs::a_partial_scan_raises_no_regression": "M2",
-        "crates/planroom/tests/duties.rs::concurrent_rescans_link_the_final_active_set": "M1",
         "crates/kernel/tests/reconcile.rs::the_first_scan_is_a_baseline": "M2",
         "crates/planroom/tests/handoff_clone.rs::the_implementer_cannot_move_the_real_repos_refs": "M2",
         "crates/kernel/tests/reconcile.rs::a_backward_checkout_deals_no_card": "M2",

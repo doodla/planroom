@@ -32,6 +32,14 @@ filter = """
   | test(=a_file_past_the_work_bound_is_partial_and_gives_no_fact)
   | test(=what_many_small_files_hold_is_bounded_by_their_own_budgets)
   | test(=a_text_predicate_reads_within_the_work_bound)
-  | test(=the_evidence_of_every_line_of_a_1_mib_file_verifies_in_linear_time)))
+  | test(=the_evidence_of_every_line_of_a_1_mib_file_verifies_in_linear_time)
+  | test(=a_compose_file_cites_its_lines_in_linear_time)))
+| (binary_id(planroom-extract::link) & (
+    test(=one_files_many_opens_and_calls_link_in_linear_time)
+  | test(=calls_against_many_endpoints_at_one_path_link_in_linear_time)
+  | test(=many_reads_of_a_variable_set_many_times_link_in_linear_time)
+  | test(=many_files_reading_a_variable_set_many_times_link_in_linear_time)
+  | test(=many_containers_sharing_one_host_link_in_linear_time)
+  | test(=many_containers_combining_a_shared_host_with_their_own_link_in_linear_time)))
 """
 threads-required = "num-test-threads"

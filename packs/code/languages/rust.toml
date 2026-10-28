@@ -4,14 +4,20 @@
 # parse names them, and the two extractors that read it (architecture.md, "Hints and
 # linkers"): one for its imports, definitions and calls, one for the hints a deployment joins.
 # Two queries, not one, so each match keeps only the captures its own query has. Each emit names
-# only captures its query sets; a definition's value is its parameter list, or a constant's
-# string, and a call's value its arguments, as the source writes them.
+# only captures its query sets; a definition's value is its parameter list, a constant's its
+# string, and a call's its arguments, as the source writes them.
 
 [[languages]]
 id = "rust"
 extensions = ["rs"]
 line_comment = "//"
 block_comment = ["/*", "*/"]
+# Test files, which no runtime join reads: a crate's integration tests and benchmarks, and a unit
+# test module in a file of its own named `tests.rs`. An item `#[cfg(test)]` or `#[test]` marks
+# inside any other file is a `code.test_scope`, which rust_runtime emits; one for a module a file
+# declares at its top level names the module, so runtime_wiring reads the files Rust reads it from,
+# whatever its name, as test files too.
+tests = ["**/tests/**", "**/benches/**", "**/tests.rs"]
 
 [[extractors]]
 id = "rust"
@@ -24,7 +30,7 @@ emit = [
   { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@use.outer::@use.mid", via = "@use.outer::@use.mid" },
   { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@use.base::@use.inner::@use.leaf", via = "@use.base::@use.inner::@use.leaf" },
   { hint = "code.def", scope = "@id:code.file:$file", key = "@def", value = "@def.params" },
-  { hint = "code.def", scope = "@id:code.file:$file", key = "@const", value = "@const.value" },
+  { hint = "code.const", scope = "@id:code.file:$file", key = "@const", value = "@const.value" },
   { hint = "code.call", scope = "@id:code.file:$file", key = "@call", value = "@call.args" },
 ]
 
@@ -40,4 +46,8 @@ emit = [
   { hint = "code.queue_op", scope = "@id:code.file:$file", key = "@queue.publish", attrs = { op = "publish", key = "@queue.publish" } },
   { hint = "code.queue_op", scope = "@id:code.file:$file", key = "@queue.consume", attrs = { op = "consume", key = "@queue.consume" } },
   { hint = "code.db_open", scope = "@id:code.file:$file", key = "@db.driver", attrs = { driver = "@db.driver" } },
+  { hint = "code.test_scope", scope = "@id:code.file:$file", key = "@test:$end", attrs = { end = "$end" } },
+  { hint = "code.test_scope", scope = "@id:code.file:$file", key = "module:@test.module:$end", attrs = { end = "$end", module = "@test.module" } },
+  { hint = "code.test_scope", scope = "@id:code.file:$file", key = "inline:@test.inline:$end", attrs = { end = "$end", module = "@test.inline", inline = "true" } },
+  { hint = "code.test_scope", scope = "@id:code.file:$file", key = "path:@test.module:$end:@test.path", attrs = { end = "$end", module = "@test.module", path = "@test.path" } },
 ]

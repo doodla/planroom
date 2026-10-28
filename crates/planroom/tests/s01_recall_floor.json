@@ -51,6 +51,20 @@
     "container storefront",
     "container storefront kind service",
     "container worker",
-    "container worker kind service"
+    "container worker kind service",
+    "relation orders -> orders-db db",
+    "relation orders -> orders-db db evidence orders/internal/store/postgres.go:26",
+    "relation orders -> orders-db db evidence platform/docker-compose.yml:20",
+    "relation orders -> redis queue_publish",
+    "relation orders -> redis queue_publish evidence orders/internal/queue/publisher.go:14",
+    "relation orders -> redis queue_publish evidence orders/internal/queue/publisher.go:49",
+    "relation orders -> redis queue_publish evidence platform/docker-compose.yml:21",
+    "relation worker -> orders-db db",
+    "relation worker -> orders-db db evidence platform/docker-compose.yml:31",
+    "relation worker -> orders-db db evidence worker/worker/db.py:22",
+    "relation worker -> redis queue_consume",
+    "relation worker -> redis queue_consume evidence platform/docker-compose.yml:30",
+    "relation worker -> redis queue_consume evidence worker/worker/consumer.py:15",
+    "relation worker -> redis queue_consume evidence worker/worker/consumer.py:41"
   ]
 }

@@ -120,6 +120,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 104 | Git history, an owner check before every git call, and another user's repo skipped with no command | DR-12, DR-16, DR-47, DR-74, DR-78, DR-79, DR-85, DR-86, DR-92 | extended, amends DR-16, DR-79, DR-86 and DR-92 | the merge of M1's git history adapter |
 | 105 | Pane sections with row keys and a 7-row page, the mod's lines from the string catalog, and one budget for `focus` | DR-54, DR-57, DR-65, DR-77, DR-82 | extended, amends DR-54 and DR-57 | the merge of M1's pane sections |
 | 106 | The plan pack's stages and lint, the deterministic `intent` leaves, and `ask stage` | DR-15, DR-23, DR-52, DR-66, DR-89, DR-101 | extended, amends DR-5, DR-23, DR-66, DR-92 and DR-94 | the merge of M1's plan pack |
+| 107 | The link snapshot and `runtime_wiring`, with test code kept out of every runtime join | DR-12, DR-42, DR-86, DR-87, DR-100 | extended, amends DR-86 and DR-87 | the merge of M1's link snapshot |
 
 ## Where the design reviews disagreed
 
@@ -2173,7 +2174,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-86: What the walking skeleton's review settled in round 2
 
-- **Status:** accepted (decided at the merge of round 2's fixes, 2026-10-26). Amended by DR-87, DR-100 and DR-104.
+- **Status:** accepted (decided at the merge of round 2's fixes, 2026-10-26). Amended by DR-87, DR-100, DR-104 and DR-107.
 - **Starting point:** extended "Extractors read the repo", "Actors: agents never act as a person" and "Surfaces read one contract".
 - **Origin:** round 2 of the walking skeleton's review. Its 16 material findings, 12 distinct defects, are in [the review's index](research/skeleton-review/README.md). Four fix branches fixed them (the scan, budget, guard and canvas fixes), and one was fixed in the plan.
 - **Context:** Round 1's fixes held. Round 2 found what they left: inputs outside a snapshot's key, a late scan that could move a repo back, a partial clone that fetched, one unreadable repo failing a whole scan, warnings and two leaves over budget, a guard with no write rule for Bash and no rule for recursive reads, and two canvas controls that led nowhere.
@@ -2206,11 +2207,12 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - The guard reads the shell's directory per call, checks every tool's paths and uploads, and protects the plugin's root.
 - **Amended by DR-100:** the per-blob cache's key adds the file's repo-qualified path to the options this record added.
 - **Amended by DR-104:** a repo another user owns, or one that borrows another user's object store, is skipped with `repo_skipped`, reason `other_owner`, and a `null` fix: its line says who can scan it, since no copy command works in every layout.
+- **Amended by DR-107:** the join across repos is the link snapshot's, so a repo's snapshot key holds no workspace repo names again: adding or removing a repo re-keys only the link, and a late scan is never superseded because the repo set changed.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/round2-*.json`; the four fix branches' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
 
 ## DR-87: What the walking skeleton's review settled in round 3
 
-- **Status:** accepted (decided at the merge of round 3's fixes, 2026-10-26). Amended by DR-88 and DR-97.
+- **Status:** accepted (decided at the merge of round 3's fixes, 2026-10-26). Amended by DR-88, DR-97 and DR-107.
 - **Starting point:** extended "Extractors read the repo", "Actors: agents never act as a person", "Surfaces read one contract" and Remote mode.
 - **Origin:** round 3, the last, of the walking skeleton's review. Its 9 material findings, 8 distinct defects, are in [the review's index](research/skeleton-review/README.md), with what stays open in [its accepted risk](research/skeleton-review/accepted-risk.md). One fix repaired CI, and two fix branches fixed the rest (the engine and guard fixes).
 - **Context:** Round 2's fixes held where they were aimed. Round 3 found their edges: a late scan could still move a repo back when the repo set changed rather than `HEAD`; a repo's own config could re-allow a transport on a git without `GIT_NO_LAZY_FETCH`; a workspace whose repos had no commit looped on a scan that mapped nothing; import's reply passed its budget with many rows; and the guard resolved paths against a directory the shell had left, checked only four tools' paths, and let an agent rewrite the mod that guards it.
@@ -2237,6 +2239,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - `SECURITY.md` (M5) adds the guard's residual risks listed in the accepted risk.
   - It amends DR-86 (the late scan, the transports, `repo_unborn` in scan's summary, the guard's reach), DR-83 (import's result) and DR-85 (the resolver's reason types).
 - **Amended by DR-88:** a tool the guard doesn't know is held through every string it's given, not only strings that look like a path, and a string that reaches only a place the write rule holds is put to the person.
+- **Amended by DR-107:** with no repo names in a repo's snapshot, a late scan no longer re-derives its inputs under the write lock; `scan_superseded`'s `repos_changed` means only that another scan fixed the repo's root under another namespace, or this namespace for another root.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/round3-*.json`; the two fix branches' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
 - **Amended by DR-97:** an unborn repo writes no snapshot and no scan event; `repo_unborn` and the scan's summary say it maps after its first commit, and the live frame's unborn line remains only for empty-commit events an older engine wrote.
 
@@ -2848,3 +2851,29 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Known gaps: `ask stage` and `intent lint` read the built-in packs only, as other reads do until the pack set loads a workspace's; the four M2 stage checks; an automatic version 1.
   - Tests: `crates/planroom/tests/s03_plan.rs`; `crates/planroom/tests/intent.rs`; `crates/planroom/tests/packs.rs`'s plan-pack validation tests; `budgets.rs::an_intent_list_page_keeps_to_its_budget_however_long_its_touch_ids`; the kernel's plan and lint unit tests.
 - **Sources (checked 2026-10-28):** `packs/plan/`; `crates/kernel/src/{plan, lint}.rs`; `crates/planroom/src/app/{intent, ask, confine, edit}.rs`; `crates/contract/src/plan.rs`; [Planning](architecture.md#planning-stages-ghosts-and-lint-r5); [Contracts](contracts.md).
+
+## DR-107: The link snapshot and `runtime_wiring`, with test code kept out of every runtime join
+
+- **Status:** accepted (decided at the merge of M1's link snapshot, 2026-10-28).
+- **Starting point:** extended DR-12, DR-42 and DR-100; amends DR-86 and DR-87.
+- **Origin:** the merge of M1's link snapshot, read against the docs and the truth by independent checks over seven rounds.
+- **Context:**
+  - DR-12 put the join across repos in a linker over hints, so each repo's snapshot can hold only its own facts. Until now compose joined services to repos itself, which put the workspace's repo names in every repo's snapshot key, and no relation between containers was mapped.
+  - Linking reads every repo's hints at once, so a linker's work, its evidence and what counts as runtime code decide whether the map invents relations or stalls a scan.
+- **Decision:**
+  - **The link snapshot.** The `ws` link row is keyed by the active set and the packs, written inside the scan's transaction only when that commit creates it, and holds the facts `runtime_wiring` derives from the active set's hints. A repo's snapshot holds no other repo's name, so adding or removing a repo re-keys only the link (amends DR-86); a scan that read an older repo set is never superseded for that alone, and the input re-check under the write lock is gone (amends DR-87). Compose's service containers are now Linked, its hints scoped to the compose file, and constants are `code.const` hints.
+  - **`runtime_wiring`** joins `route_call`s to endpoints, `url`s and `env_read`s through compose's `env_set`s to hosts, `queue_op`s to queues and `db_open`s to databases: `http`, `queue_publish`, `queue_consume` and `db`. It never guesses: a join hint whose repo holds two or more containers, or whose host reaches two or more targets, joins nothing, and the scan that builds the link warns once with `unresolved_ref`. When exactly one compose service joins a repo, that service's container is the repo's for joins, and the manifest's Universal-tier root container yields to it (DR-42). An edge cites its anchor hint, its callers two hops up, and at most three wiring items per join hint, the first by path and line.
+  - **The link's work grows with the hints, never their product**: endpoints indexed by path and method, each host resolved once a link and shared, a variable's first three reads. The one disclosed exception is a union of distinct target sets, built once per combination.
+  - **Test code never anchors or cites a runtime join.** A `[[languages]]` entry's `tests` globs name its test files; a `code.test_scope` hint (attributes `end`, and for a module a file declares at its top level `module`, `path` and `inline`) marks a span of test code inside a file, which the code pack's Rust query emits for every item `#[cfg(test)]`, `#[test]` or an attribute ending in `test` marks; and the files Rust reads a `#[cfg(test)]` module from are test code in whole. A module declared inline has no file of its own: only the files of the modules it declares out of line are its. The declarative runner's templates gain `$end`, a match's last line. Inline test code in other languages, such as Vitest's in-source block, is read as runtime code until a pack names it.
+  - **Compose is bounded as the runner is (DR-100):** each fact charged as it is made, its file's lines indexed once.
+  - **The map's top level pages** on the fixture now that lifted edges carry evidence: 9 of 10 blocks on the CLI's first page, as the paging rule says. No budget changed.
+- **Alternatives rejected:**
+  - Keeping the repo set in every snapshot key: every repo re-scanned when one is added.
+  - Joining a hint with several candidates by a heuristic: an invented relation is worse than a missing one.
+  - Leaving test code in the joins: a test that pushes to a queue mapped a publisher the system doesn't have.
+  - Column spans for test scopes: they change the Evidence and Hint contracts; whole lines need formatting rustfmt never writes.
+- **Consequences:**
+  - Contracts: `LanguageDecl.tests`; the `code.test_scope` and `code.const` hint kinds; the template `$end`; `unresolved_ref`'s `details {count, items}`; `scan_superseded`'s narrowed `repos_changed`; the linker options table.
+  - Known gaps: storefront's call to orders, whose URL is read in another file, waits for wrapper binding; the healthcheck edges wait for the Ruby pack in the fixture's set; the deploy, scrape and telemetry linkers come with their packs; a queue key that is an identifier no same-file constant resolves keeps its raw text until imported constants resolve; `cfg(all(test, ...))` marks no scope; an item overlapping a parse error gives no scope; runtime code on a test item's first or last line is dropped; a removed repo's service stays joined until removed repos leave the active set; the link runs inside the scan's write transaction, which lengthens how long a scan holds the lock.
+  - Tests: `crates/extract/tests/link.rs`; `crates/planroom/tests/{link_snapshot, duties}.rs`; `crates/extract/tests/formats.rs`'s Rust test-scope cases; the recall floor's new checks.
+- **Sources (checked 2026-10-28):** `crates/extract/src/link/`; `crates/extract/src/compose.rs`; `crates/store/src/commit/scan.rs`; `packs/code/`; [Hints and linkers](architecture.md#hints-and-linkers); [Contracts](contracts.md).

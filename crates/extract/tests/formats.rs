@@ -670,7 +670,7 @@ fn the_fixture_code_gives_the_hints_its_relations_join() {
         None,
         &[("op", "publish"), ("key", "JobsKey")],
     );
-    one("orders/internal/queue/publisher.go", 14, "code.def", "JobsKey", Some("order-jobs"), &[]);
+    one("orders/internal/queue/publisher.go", 14, "code.const", "JobsKey", Some("order-jobs"), &[]);
     one("orders/internal/store/postgres.go", 26, "code.db_open", "pgxpool", None, &[("driver", "pgxpool")]);
     one(
         "orders/internal/config/config.go",
@@ -689,7 +689,7 @@ fn the_fixture_code_gives_the_hints_its_relations_join() {
         None,
         &[("op", "consume"), ("key", "JOBS_KEY")],
     );
-    one("worker/worker/consumer.py", 15, "code.def", "JOBS_KEY", Some("order-jobs"), &[]);
+    one("worker/worker/consumer.py", 15, "code.const", "JOBS_KEY", Some("order-jobs"), &[]);
     one("worker/worker/db.py", 22, "code.db_open", "psycopg", None, &[("driver", "psycopg")]);
     one("worker/worker/db.py", 46, "code.sql", "orders", None, &[("verb", "UPDATE"), ("table", "orders")]);
     one("worker/worker/config.py", 24, "code.env_read", "REDIS_URL", None, &[("name", "REDIS_URL")]);
@@ -916,4 +916,216 @@ fn every_capture_an_emit_names_is_one_its_query_sets() {
             }
         }
     }
+}
+
+/// Rust's inline test code: each item `#[cfg(test)]` marks, wherever it sits and whatever it is,
+/// is a `code.test_scope` from its attribute's line to the item's last, whatever attributes and
+/// comments stand between them; a module whose inner `#![cfg(test)]` marks it is one, and so is a
+/// file that `#![cfg(test)]` opens, and a match arm or a statement it marks. An item a `cfg`
+/// other than `test` marks is runtime code, and the runtime line after a scope stays outside it.
+#[test]
+fn rust_test_scopes_span_each_item_cfg_test_marks() {
+    let lib = "\
+pub fn consume(conn: &mut Conn) {
+    conn.brpop(\"jobs\", 0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pushes() {
+        conn.lpush(\"probe-jobs\", 1);
+    }
+}
+pub fn after(conn: &mut Conn) { conn.lpush(\"after-jobs\", 1); }
+
+#[cfg(test)]
+#[allow(dead_code)]
+// A helper only the tests call.
+fn helper(conn: &mut Conn) {
+    conn.lpush(\"fn-jobs\", 1);
+}
+
+mod outer {
+    #[cfg(test)]
+    use std::fmt;
+    #[cfg(test)]
+    const KEY: &str = \"const-jobs\";
+    #[cfg(test)]
+    impl Probe {
+        fn go(&self) {}
+    }
+    mod inner {
+        #![cfg(test)]
+        fn go() {}
+    }
+    pub fn runtime(conn: &mut Conn) { conn.lpush(\"outer-jobs\", 1); }
+}
+
+#[cfg(not(test))]
+fn not_test() {}
+#[cfg(feature = \"test\")]
+fn feature() {}
+#[cfg(test)] fn one_line() {}
+fn arms(x: Option<u8>, conn: &mut Conn) {
+    match x {
+        #[cfg(test)]
+        Some(_) => {
+            conn.lpush(\"arm-jobs\", 1);
+        }
+        None => {}
+    }
+    #[cfg(test)]
+    conn.lpush(\"statement-jobs\", 1);
+}
+";
+    let whole = "#![cfg(test)]\n\nfn a() {}\n\nfn b() {}\n";
+    let files = [("src/lib.rs", lib), ("src/probe.rs", whole)];
+    let (view, paths) = memory("worker", &files);
+    let pack = code_pack::load();
+    let mut scopes: BTreeSet<(String, u32, String)> = BTreeSet::new();
+    for program in pack.queries("rust") {
+        let batch = program.run(&view, &paths);
+        assert!(batch.partial.is_empty(), "{:?}", batch.partial);
+        // A module's declaration names its module too: rust_test_modules_name_their_files reads
+        // those.
+        for hint in
+            batch.hints.iter().filter(|h| h.kind.0 == "code.test_scope" && !h.attrs.contains_key("module"))
+        {
+            let Evidence::Line { path, .. } = &hint.evidence[0] else { unreachable!() };
+            assert_eq!(hint.scope.0, format!("worker:file:{}", path.trim_start_matches("worker/")));
+            let end = hint.attrs["end"].as_str().unwrap().to_owned();
+            assert_eq!(hint.key, format!("test:{end}"));
+            scopes.insert((path.clone(), line_of(&view, &hint.evidence[0]), end));
+        }
+    }
+    let want: BTreeSet<(String, u32, String)> = [
+        ("worker/src/lib.rs", 5, "13"),
+        // The `#[test]` function inside it.
+        ("worker/src/lib.rs", 9, "12"),
+        // The function, and the shorter span the attribute after `#[cfg(test)]` gives inside it.
+        ("worker/src/lib.rs", 16, "17"),
+        ("worker/src/lib.rs", 16, "21"),
+        ("worker/src/lib.rs", 24, "25"),
+        ("worker/src/lib.rs", 26, "27"),
+        ("worker/src/lib.rs", 28, "31"),
+        ("worker/src/lib.rs", 32, "35"),
+        ("worker/src/lib.rs", 43, "43"),
+        // A match arm, and a statement in a function's body.
+        ("worker/src/lib.rs", 46, "47"),
+        ("worker/src/lib.rs", 46, "49"),
+        ("worker/src/lib.rs", 52, "53"),
+        ("worker/src/probe.rs", 1, "5"),
+    ]
+    .iter()
+    .map(|(p, l, e)| ((*p).to_owned(), *l, (*e).to_owned()))
+    .collect();
+    assert_eq!(scopes, want);
+}
+
+/// Rust's test functions and test modules: an item `#[test]` marks, or an attribute whose path
+/// has `test` for its last segment does, is a test scope as a `#[cfg(test)]` item is, while
+/// `#[test_case]` isn't. A raw string names a module's path as a string does.
+/// A module `#[cfg(test)]` marks at a file's top level also gives a scope that names it, keyed
+/// `module:<name>:<end>`, and one keyed `path:<name>:<end>:<path>` with the file its `#[path]` names,
+/// whichever side of `#[cfg(test)]` that stands on. A module only a `#[path]` or another `cfg`
+/// marks, and one nested in a module, names none.
+#[test]
+fn rust_test_modules_name_their_files() {
+    let lib = "\
+pub fn run(c: &mut C) { c.lpush(\"rt\", 1); }
+
+#[test]
+fn bare(c: &mut C) {
+    c.lpush(\"bare\", 1);
+}
+
+#[tokio::test(flavor = \"multi_thread\")]
+async fn tokio_test() {
+    probe();
+}
+#[test_case(1)]
+fn not_a_test_attr() {}
+#[cfg(test)]
+mod test;
+#[cfg(test)]
+#[path = \"lib_tests.rs\"]
+mod lib_tests;
+#[path = \"other.rs\"]
+/// Docs.
+#[cfg(test)]
+mod other_tests;
+#[cfg(test)]
+mod inline {
+    #[cfg(test)]
+    mod nested;
+}
+#[path = \"runtime.rs\"]
+mod runtime;
+mod plain;
+#[cfg(not(test))]
+mod not_test;
+#[cfg(test)]
+#[path = r\"raw_tests.rs\"]
+mod raw;
+#[cfg(test)]
+use std::fmt;
+mod after_use;
+#[cfg(test)]
+fn helper() {}
+#[path = \"p.rs\"]
+mod after_fn;
+";
+    let (view, paths) = memory("worker", &[("src/lib.rs", lib)]);
+    let pack = code_pack::load();
+    let mut spans: BTreeSet<(u32, String)> = BTreeSet::new();
+    let mut modules: BTreeSet<(String, u32, String, Option<String>, bool)> = BTreeSet::new();
+    for program in pack.queries("rust") {
+        let batch = program.run(&view, &paths);
+        assert!(batch.partial.is_empty(), "{:?}", batch.partial);
+        for hint in batch.hints.iter().filter(|h| h.kind.0 == "code.test_scope") {
+            let line = line_of(&view, &hint.evidence[0]);
+            let end = hint.attrs["end"].as_str().unwrap().to_owned();
+            match hint.attrs.get("module") {
+                None => {
+                    spans.insert((line, end));
+                }
+                Some(module) => {
+                    let path = hint.attrs.get("path").map(|p| p.as_str().unwrap().to_owned());
+                    let inline = hint.attrs.contains_key("inline");
+                    let module = module.as_str().unwrap();
+                    let key = match &path {
+                        Some(path) => format!("path:{module}:{end}:{path}"),
+                        None if inline => format!("inline:{module}:{end}"),
+                        None => format!("module:{module}:{end}"),
+                    };
+                    assert_eq!(hint.key, key);
+                    modules.insert((module.to_owned(), line, end, path, inline));
+                }
+            }
+        }
+    }
+    for want in [(3, "6"), (8, "11")] {
+        assert!(spans.contains(&(want.0, want.1.to_owned())), "{want:?} in {spans:?}");
+    }
+    assert!(!spans.iter().any(|(line, _)| (12..=13).contains(line)), "{spans:?}");
+    // A module declared inline is `inline`: it has no file of its own.
+    let want: BTreeSet<(String, u32, String, Option<String>, bool)> = [
+        ("test", 14, "15", None, false),
+        ("lib_tests", 16, "18", None, false),
+        ("lib_tests", 16, "18", Some("lib_tests.rs"), false),
+        ("other_tests", 21, "22", None, false),
+        // The match that starts on `#[path]` gives the module's scope without its path as well.
+        ("other_tests", 19, "22", None, false),
+        ("other_tests", 19, "22", Some("other.rs"), false),
+        ("inline", 23, "24", None, true),
+        ("raw", 33, "35", None, false),
+        ("raw", 33, "35", Some("raw_tests.rs"), false),
+    ]
+    .iter()
+    .map(|(m, l, e, p, i)| ((*m).to_owned(), *l, (*e).to_owned(), p.map(str::to_owned), *i))
+    .collect();
+    assert_eq!(modules, want);
 }

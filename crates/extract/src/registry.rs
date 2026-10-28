@@ -30,7 +30,8 @@ pub struct Builtin {
     /// and for a built-in that emits edges, `relations`, naming the relation of each such role.
     /// Every key is required, since the built-in emits every role. A key the table doesn't
     /// declare is `pack_invalid`: what else a built-in reads, such as `files`'s merged
-    /// `languages` or `compose`'s `image_roles` and `repos`, the engine fills in.
+    /// `languages` or `compose`'s `image_roles`, the engine fills in. A linker's options also
+    /// name, in `relations`, the relation of each role it emits.
     pub options: &'static [Param],
 }
 
@@ -44,7 +45,7 @@ const fn role(key: &'static str) -> Param {
     Param { key, names: ParamNames::NodeKind }
 }
 
-/// `relations = { ROLE = RELATION }`, one role per relation a built-in emits.
+/// `relations = { ROLE = RELATION }`, one role per relation a built-in or a linker emits.
 const fn relations(roles: &'static [Param]) -> Param {
     Param { key: "relations", names: ParamNames::Table(roles) }
 }
@@ -68,7 +69,7 @@ pub const EXTRACTORS: &[Builtin] = &[
         builtin: "compose",
         role: Role::Extractor,
         consumes: &[],
-        options: &[kinds(&[role("service"), role("tooling"), role("repo")])],
+        options: &[kinds(&[role("service"), role("tooling"), role("repo"), role("file")])],
     },
     Builtin {
         name: crate::manifest::NAME,
@@ -96,8 +97,17 @@ pub const EXTRACTORS: &[Builtin] = &[
     },
 ];
 
-/// Every built-in linker. None is built yet; each lands with the hint kinds it joins.
-pub const LINKERS: &[Builtin] = &[];
+/// Every built-in linker, each with the hint kinds it joins.
+pub const LINKERS: &[Builtin] = &[Builtin {
+    name: crate::link::runtime::NAME,
+    builtin: "runtime_wiring",
+    role: Role::Linker,
+    consumes: crate::link::runtime::CONSUMES,
+    options: &[
+        kinds(&[role("service"), role("repo"), role("endpoint")]),
+        relations(&[relation("http"), relation("queue_publish"), relation("queue_consume"), relation("db")]),
+    ],
+}];
 
 /// Every built-in, extractors first.
 pub fn all() -> impl Iterator<Item = &'static Builtin> {
@@ -202,6 +212,60 @@ mod tests {
                 let mut more = all.clone();
                 more[param.key].as_object_mut().unwrap().insert("extra".into(), value(roles[0].names));
                 assert!(refused(&more), "{} reads an undeclared role of {}", entry.name, param.key);
+            }
+        }
+    }
+
+    #[test]
+    fn every_registered_linker_runs_under_its_name() {
+        for entry in LINKERS {
+            let linker = crate::link::builtin(entry.builtin).expect("a registered linker this build has");
+            assert_eq!(linker.name(), entry.name);
+            assert_eq!(find(entry.builtin), Some(entry));
+        }
+    }
+
+    /// A linker's options are its kinds and relations tables: every role it declares runs, and
+    /// one left out, or one more, is refused.
+    #[test]
+    fn each_linker_options_table_names_exactly_the_roles_it_reads() {
+        use serde_json::{Value, json};
+        let kind = json!({"kind": "p.k", "id_prefix": "k", "level": "container"});
+        let relation = json!({"kind": "p.r", "from": ["p.k"], "to": ["p.k"]});
+        for entry in LINKERS {
+            let tables: Vec<(&str, &[Param])> = entry
+                .options
+                .iter()
+                .map(|p| match p.names {
+                    ParamNames::Table(roles) => (p.key, roles),
+                    _ => panic!("{}: options are tables", entry.name),
+                })
+                .collect();
+            let full = || -> serde_json::Map<String, Value> {
+                tables
+                    .iter()
+                    .map(|(key, roles)| {
+                        let value = if *key == "kinds" { &kind } else { &relation };
+                        let table = roles.iter().map(|r| (r.key.to_owned(), value.clone())).collect();
+                        ((*key).to_owned(), Value::Object(table))
+                    })
+                    .collect()
+            };
+            let run = |opts: serde_json::Map<String, Value>| {
+                crate::link::builtin(entry.builtin)
+                    .unwrap()
+                    .link(&crate::link::WorkspaceFacts::default(), &Value::Object(opts))
+            };
+            assert!(run(full()).is_ok(), "{}", entry.name);
+            for (key, roles) in &tables {
+                for role in *roles {
+                    let mut less = full();
+                    less[*key].as_object_mut().unwrap().remove(role.key);
+                    assert!(run(less).is_err(), "{} runs without {key}.{}", entry.name, role.key);
+                }
+                let mut more = full();
+                more[*key].as_object_mut().unwrap().insert("extra".into(), kind.clone());
+                assert!(run(more).is_err(), "{} reads an undeclared {key} role", entry.name);
             }
         }
     }

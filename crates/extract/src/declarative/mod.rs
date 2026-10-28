@@ -642,9 +642,11 @@ impl Declarative {
                 continue;
             }
             let groups: Vec<Option<&str>> = caps.iter().map(|m| m.map(|m| m.as_str())).collect();
-            // Blanking keeps every byte offset, so the text's line index places the match.
+            // Blanking keeps every byte offset, so the text's line index places the match: from
+            // the line its first byte is on to the line its last byte is on.
             let line = at.lines.line_of(whole.start);
-            if !self.keep(at, &mut matches, line, groups, Vars::Groups, bound.file) {
+            let end = at.lines.line_of(whole.end.saturating_sub(1).max(whole.start));
+            if !self.keep(at, &mut matches, (line, end), groups, Vars::Groups, bound.file) {
                 return Err(PartialReason::WorkLimit);
             }
         }
@@ -672,24 +674,24 @@ impl Declarative {
         &self,
         at: &At<'_>,
         matches: &mut Matches<'t>,
-        line: u32,
+        (line, end): (u32, u32),
         values: Vec<Option<&'t str>>,
         vars: Vars,
         budget: u64,
     ) -> bool {
         use std::collections::hash_map::Entry;
         let compared = values.iter().flatten().map(|v| v.len()).sum::<usize>() <= SAME_MAX;
-        let key = (line, values);
+        let key = ((line, end), values);
         if compared && let Some(&i) = matches.index.get(&key) {
-            matches.kept[i].2 = matches.kept[i].2.saturating_add(1);
+            matches.kept[i].1 = matches.kept[i].1.saturating_add(1);
             return true;
         }
-        let (line, values) = key;
+        let ((line, end), values) = key;
         let (groups, captures): (&[Option<&'t str>], &[Option<&'t str>]) = match vars {
             Vars::Groups => (&values, &[]),
             Vars::Captures => (&[], &values),
         };
-        let env = Env { repo: &at.repo.name, file: at.file, line, groups, captures };
+        let env = Env { repo: &at.repo.name, file: at.file, line, end, groups, captures };
         let size = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
         // Each emit's ID values, or `None` for an emit this match doesn't fire: one whose key,
         // scope, ends or via name a group or a capture the match leaves unset, as a query's
@@ -699,7 +701,8 @@ impl Declarative {
             .identities
             .iter()
             .map(|identity| {
-                let id: Vec<Val<'t>> = identity.iter().map(|v| v.value(line, groups, captures)).collect();
+                let id: Vec<Val<'t>> =
+                    identity.iter().map(|v| v.value(line, end, groups, captures)).collect();
                 (!id.iter().any(|v| matches!(v, Val::Text(None)))).then_some(id)
             })
             .collect();
@@ -780,9 +783,9 @@ impl Declarative {
             return false;
         }
         if compared {
-            matches.index.insert((line, values.clone()), matches.kept.len());
+            matches.index.insert(((line, end), values.clone()), matches.kept.len());
         }
-        matches.kept.push((line, values, 1));
+        matches.kept.push((((line, end), values), 1));
         true
     }
 
@@ -790,12 +793,12 @@ impl Declarative {
     /// coerce, a repeated match's counted each time it came.
     fn emit_all(&self, matches: &Matches<'_>, vars: Vars, at: &At<'_>, out: &mut Collected) -> u32 {
         let mut errors = 0u32;
-        for (line, values, times) in &matches.kept {
+        for (((line, end), values), times) in &matches.kept {
             let (groups, captures): (&[Option<&str>], &[Option<&str>]) = match vars {
                 Vars::Groups => (values, &[]),
                 Vars::Captures => (&[], values),
             };
-            let env = Env { repo: &at.repo.name, file: at.file, line: *line, groups, captures };
+            let env = Env { repo: &at.repo.name, file: at.file, line: *line, end: *end, groups, captures };
             errors = errors.saturating_add(self.emit(&env, at, out).saturating_mul(*times));
         }
         // Every line of evidence names its file, so no later file's can repeat one of these.
@@ -911,8 +914,12 @@ impl Declarative {
             }
             let row = m.captures().iter().map(|c| c.node.start_position().row).min().unwrap_or(0);
             let line = u32::try_from(row + 1).unwrap_or(u32::MAX);
+            // The last line a capture reaches: its last byte's, so a node that ends with its
+            // line's newline ends on that line, not the next.
+            let last = m.captures().iter().map(|c| last_row(&c.node)).max().unwrap_or(row).max(row);
+            let end = u32::try_from(last + 1).unwrap_or(u32::MAX);
             // What the emits copy: overlapping captures could make it the file's square.
-            if !self.keep(at, &mut matches, line, captures, Vars::Captures, bound.file) {
+            if !self.keep(at, &mut matches, (line, end), captures, Vars::Captures, bound.file) {
                 return Err(PartialReason::WorkLimit);
             }
         }
@@ -946,6 +953,12 @@ impl Declarative {
             match emit {
                 Emit::Node { kind, level, prefix, key, name, parent, props, aliases } => {
                     let Some(key) = key.expand(env).filter(|k| !k.is_empty()) else { continue };
+                    // A key with a newline or a backslash can stand in no node ID, as no path the
+                    // walk maps can: the match gives no node, and its file is partial.
+                    if !crate::link::nameable(&key) {
+                        errors += 1;
+                        continue;
+                    }
                     let parent = match parent {
                         Some(p) => match p.expand_id(env) {
                             Some(id) => Some(id),
@@ -1110,14 +1123,19 @@ enum Vars {
     Captures,
 }
 
+/// What tells one match of a file from another: the lines it starts and ends on, and its groups'
+/// or captures' values.
+type MatchKey<'t> = ((u32, u32), Vec<Option<&'t str>>);
+
 /// One file's matches as the runner keeps them before it emits them, and what they charge its
 /// capture budget ([`Declarative::keep`]).
 #[derive(Default)]
 struct Matches<'t> {
-    /// Each distinct match in text order: its line, its values and how many times it came.
-    kept: Vec<(u32, Vec<Option<&'t str>>, u32)>,
+    /// Each distinct match in text order: its first and last lines, its values and how many times
+    /// it came.
+    kept: Vec<(MatchKey<'t>, u32)>,
     /// Where each kept match whose values are short enough to compare sits in `kept`.
-    index: HashMap<(u32, Vec<Option<&'t str>>), usize>,
+    index: HashMap<MatchKey<'t>, usize>,
     /// Each node and edge emit's facts so far in the file, by the values their IDs take, each
     /// numbered in the order it came; and each line a node or an edge cites, by its number.
     facts: HashMap<(usize, Vec<Val<'t>>), usize>,
@@ -1414,6 +1432,13 @@ impl Errors {
         let first = self.regions.partition_point(|r| r.end <= bytes.start);
         self.regions.get(first).is_some_and(|r| r.start < bytes.end)
     }
+}
+
+/// The row a node's last byte is on: its end's, or the row before when it ends at the start of a
+/// row, as a node that holds its line's newline does.
+fn last_row(node: &tree_sitter::Node<'_>) -> usize {
+    let (start, end) = (node.start_position(), node.end_position());
+    if end.column == 0 && end.row > start.row { end.row - 1 } else { end.row }
 }
 
 /// Whether `node`, `depth` levels below the root, is statement-level: a statement, a

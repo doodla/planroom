@@ -260,8 +260,8 @@ id = "sql"
 attrs = ["verb", "table"]
 
 # A definition and a call carry no attributes: the key is the name, and the value a definition's
-# parameter list or a constant's string, and a call's arguments, as the source writes them. A map
-# of attributes would hold more than the hint itself, on every call of every file.
+# parameter list and a call's arguments, as the source writes them. A map of attributes would hold
+# more than the hint itself, on every call of every file.
 [[hints]]
 id = "def"
 attrs = []
@@ -269,6 +269,28 @@ attrs = []
 [[hints]]
 id = "call"
 attrs = []
+
+# A compose service, scoped to its compose file and keyed by its name: what runtime_wiring makes
+# a container of, joined to the repo its build context or image names.
+[[hints]]
+id = "compose_service"
+attrs = ["image", "build", "kind", "role"]
+
+# A string constant, keyed by its name, with its string as the value: what resolves a queue key or
+# an environment read's default named in its file.
+[[hints]]
+id = "const"
+attrs = []
+
+# A span of test code inside a file, such as a Rust item `#[cfg(test)]` marks: its line is the
+# span's first and `end` its last. runtime_wiring reads no hint on a line one holds, as it reads
+# none from a test file, and never shows the span itself. A module's declaration at a file's top
+# level also names the `module`, and the `path` its `#[path]` attribute gives: runtime_wiring
+# reads no hint from the files Rust reads that module from. A module declared inline is `inline`,
+# and has no file of its own.
+[[hints]]
+id = "test_scope"
+attrs = ["end", "module", "path", "inline"]
 
 # Built-in extractors. Each names the kinds it emits; the engine gives it their levels and prefixes.
 
@@ -282,7 +304,7 @@ options = { kinds = { repo = "code.repo", directory = "code.directory", file = "
 id = "compose"
 builtin = "compose"
 files = ["**/docker-compose.yml", "**/docker-compose.yaml", "**/compose.yml", "**/compose.yaml"]
-options = { kinds = { service = "code.service", tooling = "code.tooling", repo = "code.repo" } }
+options = { kinds = { service = "code.service", tooling = "code.tooling", repo = "code.repo", file = "code.file" } }
 
 # Each manifest's package and dependencies; the root manifest's package is the repo's container,
 # a library until a deployment runs it as a service.
@@ -327,6 +349,13 @@ id = "git"
 builtin = "git"
 files = ["**"]
 options = { kinds = { repo = "code.repo", file = "code.file", person = "code.person" }, relations = { co_change = "code.co_change", owned_by = "code.owned_by" } }
+
+# Linkers: built-in joins of the hints above across the workspace, into the link snapshot (DR-12).
+# runtime_wiring makes each compose service's container and each served route's endpoint, and
+# joins calls, queue operations and database opens to the containers they reach.
+[[linkers]]
+builtin = "runtime_wiring"
+options = { kinds = { service = "code.service", repo = "code.repo", endpoint = "code.endpoint" }, relations = { http = "code.http", queue_publish = "code.queue_publish", queue_consume = "code.queue_consume", db = "code.db" } }
 
 # Lenses: which relationships a map shows (DR-15).
 

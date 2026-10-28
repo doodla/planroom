@@ -26,12 +26,12 @@ use planroom_contract::{Seq, StorePointer};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
 pub use commit::{
-    Committed, Dealt, META_REPOS, NewEvent, Planned, RepoOutcome, RepoScan, ScanCommitted, ScanKey,
-    ScanRules, ScanWrite, Write,
+    Committed, Dealt, LinkFacts, META_REPOS, NewEvent, Planned, RepoOutcome, RepoScan, ScanCommitted,
+    ScanKey, ScanRules, ScanWrite, Write,
 };
 pub use error::StoreError;
 pub use fs_check::{Environment, Notice, Placement, register, take_notices};
-pub use read::{ActiveSet, FactRow, Shape, Snapshot};
+pub use read::{ActiveSet, FactRow, Shape, Snapshot, SnapshotKey};
 pub use tail::Tail;
 
 use crate::fs_check::{check_dir, notify};

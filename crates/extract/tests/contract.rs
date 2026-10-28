@@ -18,6 +18,7 @@ use planroom_extract::declarative::{
     CAPTURE_FLOOR, CAPTURE_PER_BYTE, Declarative, Invalid, Spec, Step, TEMPLATE_MAX_VARS, Why,
 };
 use planroom_extract::git::{Git, is_repo};
+use planroom_extract::link::WorkspaceFacts;
 use planroom_extract::verify::{self, Verifier};
 use planroom_extract::walk::Blobs;
 use planroom_extract::{RepoPath, RepoView, builtin, select, walk};
@@ -108,7 +109,8 @@ fn run(view: &RepoView, name: &str, files: &[RepoPath], opts: serde_json::Value)
         "git" => json!({"repo": repo, "file": kind("code.file", "file", "code"),
                         "person": kind("code.person", "person", "component")}),
         _ => json!({"service": kind("code.service", "container", "container"),
-                    "tooling": kind("code.tooling", "container", "container"), "repo": repo}),
+                    "tooling": kind("code.tooling", "container", "container"), "repo": repo,
+                    "file": kind("code.file", "file", "code")}),
     };
     let mut opts = if opts.is_null() { json!({}) } else { opts };
     opts["kinds"] = kinds;
@@ -237,17 +239,45 @@ fn files_language_from_the_languages_table() {
     );
 }
 
+/// The `runtime_wiring` linker's options, with the kinds and relations the code pack names for it,
+/// as the engine fills them in from the loaded vocabulary.
+fn link_opts() -> serde_json::Value {
+    let kind = |kind: &str, id_prefix: &str, level: &str| json!({"kind": kind, "id_prefix": id_prefix, "level": level});
+    let from = json!(["code.service", "code.library", "code.tooling"]);
+    json!({
+        "kinds": {"service": kind("code.service", "container", "container"),
+                  "repo": kind("code.repo", "repo", "system"),
+                  "endpoint": kind("code.endpoint", "endpoint", "code")},
+        "relations": {"http": {"kind": "code.http", "from": from, "to": ["code.service", "code.library"]},
+                      "queue_publish": {"kind": "code.queue_publish", "from": from, "to": ["code.queue"]},
+                      "queue_consume": {"kind": "code.queue_consume", "from": from, "to": ["code.queue"]},
+                      "db": {"kind": "code.db", "from": from, "to": ["code.datastore"]}},
+    })
+}
+
+/// Compose reads one repo: the tooling container and a hint for each service, its environment and
+/// its dependencies, all scoped to the compose file. The `runtime_wiring` linker makes each
+/// service's container from its hint and joins it to the repo its build context or image names.
 #[test]
 fn compose_emits_containers_aliases_and_hints_on_their_lines() {
     let dir = tempfile::tempdir().unwrap();
     let view = repo(dir.path());
     let files = compose_files(&walked(&view).files);
-    let opts = json!({"repos": ["deploy", "api", "web"],
-                      "image_roles": [{"image": "postgres*", "role": "datastore", "kind": "code.datastore"}]});
+    let opts =
+        json!({"image_roles": [{"image": "postgres*", "role": "datastore", "kind": "code.datastore"}]});
     let batch = run(&view, "compose", &files, opts);
-    let ids: Vec<&str> = batch.nodes.iter().map(|n| n.id.0.as_str()).collect();
+    let facts = WorkspaceFacts {
+        repos: ["deploy", "api", "web"].iter().map(|r| (*r).to_owned()).collect(),
+        nodes: batch.nodes.clone(),
+        hints: batch.hints.clone(),
+    };
+    let linked =
+        planroom_extract::link::builtin("runtime_wiring").unwrap().link(&facts, &link_opts()).unwrap();
+    assert_eq!(linked.unresolved, []);
+    let mut ids: Vec<&str> = batch.nodes.iter().chain(&linked.batch.nodes).map(|n| n.id.0.as_str()).collect();
+    ids.sort_unstable();
     assert_eq!(ids, ["api:container:api", "deploy:container:deploy", "web:container:web", "ws:container:db"]);
-    let node = |id: &str| batch.nodes.iter().find(|n| n.id.0 == id).unwrap();
+    let node = |id: &str| batch.nodes.iter().chain(&linked.batch.nodes).find(|n| n.id.0 == id).unwrap();
     let web = node("web:container:web");
     assert_eq!(web.aliases, ["host:web", "service:web"]);
     assert_eq!(web.parent.as_ref().unwrap().0, "web:repo:web");
@@ -260,22 +290,32 @@ fn compose_emits_containers_aliases_and_hints_on_their_lines() {
     assert_eq!(db.parent, None);
     assert_eq!(node("api:container:api").kind.0, "code.service");
     assert!(matches!(&node("deploy:container:deploy").evidence[0], Evidence::Line { line: 2, .. }));
-    let env: Vec<(&str, &str, Option<&str>)> = batch
+    let file = "deploy:file:docker-compose.yml";
+    let env: Vec<(&str, &str, &str, Option<&str>)> = batch
         .hints
         .iter()
         .filter(|h| h.kind.0 == "code.env_set")
-        .map(|h| (h.scope.0.as_str(), h.key.as_str(), h.value.as_deref()))
+        .map(|h| {
+            (h.scope.0.as_str(), h.attrs["service"].as_str().unwrap(), h.key.as_str(), h.value.as_deref())
+        })
         .collect();
     assert_eq!(env.len(), 2);
-    assert!(env.contains(&("web:container:web", "API_URL", Some("http://api:8080"))));
-    assert!(env.contains(&("api:container:api", "DATABASE_URL", Some("postgres://db:5432/app"))));
-    let deps: BTreeSet<(&str, &str)> = batch
+    assert!(env.contains(&(file, "web", "API_URL", Some("http://api:8080"))));
+    assert!(env.contains(&(file, "api", "DATABASE_URL", Some("postgres://db:5432/app"))));
+    let deps: BTreeSet<(&str, &str, &str)> = batch
         .hints
         .iter()
         .filter(|h| h.kind.0 == "code.depends_on")
+        .map(|h| (h.scope.0.as_str(), h.attrs["service"].as_str().unwrap(), h.key.as_str()))
+        .collect();
+    assert_eq!(deps, BTreeSet::from([(file, "web", "api"), (file, "api", "db")]));
+    let services: BTreeSet<(&str, &str)> = batch
+        .hints
+        .iter()
+        .filter(|h| h.kind.0 == "code.compose_service")
         .map(|h| (h.scope.0.as_str(), h.key.as_str()))
         .collect();
-    assert_eq!(deps, BTreeSet::from([("web:container:web", "api"), ("api:container:api", "db")]));
+    assert_eq!(services, BTreeSet::from([(file, "api"), (file, "db"), (file, "web")]));
     let hint_ids: Vec<&String> = batch.hints.iter().map(|h| &h.id).collect();
     let mut sorted = hint_ids.clone();
     sorted.sort();
@@ -289,7 +329,7 @@ fn extraction_is_deterministic_and_every_fact_verifies() {
     let files = walked(&view).files;
     let refs = Git::new(&view.root).refs().unwrap();
     for (name, files, opts) in
-        [("files", files.clone(), json!(null)), ("compose", compose_files(&files), json!({"repos": ["web"]}))]
+        [("files", files.clone(), json!(null)), ("compose", compose_files(&files), json!(null))]
     {
         let first = run(&view, name, &files, opts.clone());
         assert_eq!(
@@ -672,6 +712,26 @@ fn regex_skips_comment_spans() {
         ]
     );
     assert!(batch.partial.is_empty());
+}
+
+/// `$end` is the line a match ends on, its last byte's: a match that spans lines ends on its
+/// last, and one that takes its line's newline ends on that line, not the next.
+#[test]
+fn end_is_the_line_a_regex_match_ends_on() {
+    let decl = json!({"id": "spans", "files": ["**/*.txt"], "regex": r"(?s)begin (\w+).*?end\n?",
+                      "emit": [{"hint": "code.url", "scope": "@id:code.file:$file", "key": "$1@$end",
+                                "attrs": {"port": "$end", "path": "$line"}}]});
+    let text = "x\nbegin one\na\nend\nbegin two end\n";
+    let (view, paths) = memory(&[("a.txt", text)]);
+    let batch = compile(decl, None).unwrap().run(&view, &paths);
+    let got: Vec<(&str, &str, &str)> = batch
+        .hints
+        .iter()
+        .map(|h| (h.key.as_str(), h.attrs["path"].as_str().unwrap(), h.attrs["port"].as_str().unwrap()))
+        .collect();
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert!(got.contains(&("one@4", "2", "4")), "{got:?}");
+    assert!(got.contains(&("two@5", "5", "5")), "{got:?}");
 }
 
 #[test]
@@ -2499,4 +2559,140 @@ fn git_facts_carry_ref_evidence() {
     let reasons: Vec<&str> = dropped.iter().map(|d| d.reason.as_str()).collect();
     assert_eq!(reasons, ["ref v1.0.0 doesn't exist", "ref feature doesn't exist"]);
     assert_eq!(named.nodes[0].evidence, [at("refs/tags/v1.0.0"), at("refs/heads/feature")]);
+}
+
+/// A compose service whose name holds a newline or a backslash, which no node ID can hold, gives
+/// no hint at all: no container could be made of it. The file is partial; its other services
+/// stand.
+#[test]
+fn a_compose_service_name_no_node_id_can_hold_gives_no_hint() {
+    let text = "services:\n  \"a\\nb\":\n    image: acme/a:1\n    environment:\n      - X=1\n  'back\\slash':\n    image: acme/b:1\n  web:\n    image: acme/web:1\n";
+    let (view, files) = memory(&[("docker-compose.yml", text)]);
+    let batch = run(&view, "compose", &files, json!(null));
+    for hint in &batch.hints {
+        assert!(!hint.key.contains(['\n', '\\']), "{hint:?}");
+        assert_eq!(hint.attrs.get("service").and_then(|s| s.as_str()).unwrap_or("web"), "web", "{hint:?}");
+    }
+    let services: Vec<&str> =
+        batch.hints.iter().filter(|h| h.kind.0 == "code.compose_service").map(|h| h.key.as_str()).collect();
+    assert_eq!(services, ["web"]);
+    assert_eq!(
+        batch.partial,
+        [PartialFile { path: "web/docker-compose.yml".into(), errors: 2, reason: None }]
+    );
+    // The tooling container still names the file's own repo.
+    let ids: Vec<&str> = batch.nodes.iter().map(|n| n.id.0.as_str()).collect();
+    assert_eq!(ids, ["web:container:web"]);
+}
+
+/// Compose's facts are bounded as the declarative runner's are: a file whose facts would hold more
+/// heap than its size allows gives none and is partial with `work_limit`, and in sorted path order
+/// the repo's cut falls on the first file whose facts would take the total past its bound.
+#[test]
+fn compose_facts_past_a_files_capture_budget_or_the_repo_bound_are_refused() {
+    use planroom_extract::compose::Compose;
+    use planroom_extract::declarative::CAPTURE_FLOOR;
+    // An environment of a few bytes a variable on one line: each variable's hint holds far more
+    // heap than its bytes.
+    let vars: Vec<String> = (0..2_000).map(|i| format!("V{i}=1")).collect();
+    let dense = format!("services:\n  big: {{image: acme/big:1, environment: [{}]}}\n", vars.join(", "));
+    let small = "services:\n  web:\n    image: acme/web:1\n";
+    let (view, files) = memory(&[("dense/docker-compose.yml", &dense), ("ok/docker-compose.yml", small)]);
+    let batch = run(&view, "compose", &files, json!(null));
+    let reasons: Vec<(&str, Option<PartialReason>)> =
+        batch.partial.iter().map(|p| (p.path.as_str(), p.reason)).collect();
+    assert_eq!(reasons, [("web/dense/docker-compose.yml", Some(PartialReason::WorkLimit))]);
+    assert!(batch.hints.iter().all(|h| h.scope.0 == "web:file:ok/docker-compose.yml"), "{:?}", batch.hints);
+    assert_eq!(batch.hints.len(), 1);
+
+    // Six small files under a repo bound of half a floor, which the first file's facts, its
+    // tooling container and its service, keep within: the cut is a suffix, after a kept file.
+    let six: Vec<(String, &str)> = (0..6).map(|i| (format!("d{i}/docker-compose.yml"), small)).collect();
+    let all: Vec<(&str, &str)> = six.iter().map(|(p, t)| (p.as_str(), *t)).collect();
+    let (view, files) = memory(&all);
+    let kinds = |k: &str, p: &str, l: &str| json!({"kind": k, "id_prefix": p, "level": l});
+    let opts = json!({"kinds": {"service": kinds("code.service", "container", "container"),
+                                "tooling": kinds("code.tooling", "container", "container"),
+                                "repo": kinds("code.repo", "repo", "system"),
+                                "file": kinds("code.file", "file", "code")}});
+    let cut = Compose.run_with_repo_capture_max(&view, &files, &opts, CAPTURE_FLOOR / 2).unwrap();
+    let reasons: Vec<(&str, Option<PartialReason>)> =
+        cut.partial.iter().map(|p| (p.path.as_str(), p.reason)).collect();
+    assert!(!reasons.is_empty() && reasons.len() < 6, "{reasons:?}");
+    assert!(reasons.iter().all(|(_, r)| *r == Some(PartialReason::RepoLimit)), "{reasons:?}");
+    let first = 6 - reasons.len();
+    let suffix: Vec<String> = (first..6).map(|i| format!("web/d{i}/docker-compose.yml")).collect();
+    assert_eq!(reasons.iter().map(|(p, _)| (*p).to_owned()).collect::<Vec<_>>(), suffix);
+    let facts = serde_json::to_string(&(&cut.nodes, &cut.hints)).unwrap();
+    for path in &suffix {
+        assert!(!facts.contains(&format!("\"path\":\"{path}\"")), "{path} gave a fact");
+    }
+    // Under the real bound nothing is cut.
+    assert!(run(&view, "compose", &files, json!(null)).partial.is_empty());
+}
+
+/// Compose charges each fact as it makes it, so a service whose long name every one of its many
+/// variables copies is refused before its facts hold more heap than its file's budget, never after
+/// they are all made.
+#[test]
+fn a_compose_files_run_holds_no_more_heap_than_its_capture_budget() {
+    let name = "s".repeat(8_000);
+    // An explicit key: a plain one may not run past 1,024 characters.
+    let mut text = format!("services:\n  ? {name}\n  : image: acme/app:1\n    environment:\n");
+    for i in 0..2_000 {
+        text.push_str(&format!("      - V{i}=1\n"));
+    }
+    let files = [("docker-compose.yml", text.as_str())];
+    let (view, paths) = memory(&files);
+    let before = heap::held();
+    let batch = run(&view, "compose", &paths, json!(null));
+    let (_, peak) = heap_of(&batch, before);
+    let budget = capture_budget(&files);
+    assert_eq!(batch.partial.iter().map(|p| p.reason).collect::<Vec<_>>(), [Some(PartialReason::WorkLimit)]);
+    assert!(peak <= 2 * budget, "the run held {peak} bytes of heap, past twice {budget}");
+}
+
+/// What [`a_compose_file_cites_its_lines_in_linear_time`] may take in a debug build: it takes under
+/// 2 s, and reading each line by a pass over the file took over 25 s.
+const COMPOSE_1_MIB_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// A compose file of nearly 1 MiB whose services sit after a long comment: every fact's evidence
+/// is found through one index of the file's lines, never a pass over the text before it.
+#[test]
+fn a_compose_file_cites_its_lines_in_linear_time() {
+    let mut text = String::new();
+    while text.len() < 300_000 {
+        text.push_str("# a long note before the services, as a generated file might carry it\n");
+    }
+    text.push_str("services:\n  app:\n    image: acme/app:1\n    environment:\n");
+    let mut n = 0;
+    while text.len() < 1_040_000 {
+        text.push_str(&format!("      - VAR_{n}=val\n"));
+        n += 1;
+    }
+    let (view, files) = memory(&[("docker-compose.yml", &text)]);
+    let started = std::time::Instant::now();
+    let batch = run(&view, "compose", &files, json!(null));
+    let took = started.elapsed();
+    assert!(batch.partial.is_empty(), "{:?}", batch.partial);
+    assert_eq!(batch.hints.iter().filter(|h| h.kind.0 == "code.env_set").count(), n);
+    assert!(took < COMPOSE_1_MIB_BUDGET, "{n} variables took {took:?}");
+}
+
+/// A declarative node emit whose captured key holds a newline or a backslash, which no node ID can
+/// hold, makes no node, and its file is partial.
+#[test]
+fn a_captured_key_no_node_id_can_hold_gives_no_node() {
+    let flags = "flag: plain;\nflag: back\\slash;\nflag: two\nlines;\n";
+    let (view, files) = memory(&[("flags.txt", flags)]);
+    let program = compile(
+        json!({"id": "flags", "files": ["**/flags.txt"], "regex": r"flag: ([^;]+);",
+               "emit": [{"node": "flags.flag", "key": "$1", "parent": "@id:code.file:$file"}]}),
+        None,
+    )
+    .unwrap();
+    let batch = program.run(&view, &files);
+    let ids: Vec<&str> = batch.nodes.iter().map(|n| n.id.0.as_str()).collect();
+    assert_eq!(ids, ["web:flag:plain"]);
+    assert_eq!(batch.partial, [PartialFile { path: "web/flags.txt".into(), errors: 2, reason: None }]);
 }
