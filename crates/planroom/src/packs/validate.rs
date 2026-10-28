@@ -74,6 +74,7 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
     let mut globs: BTreeMap<&str, &str> = BTreeMap::new();
     let mut lenses: BTreeMap<&str, &str> = BTreeMap::new();
     let mut questions: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut rule_ids: BTreeMap<&str, &str> = BTreeMap::new();
     // Each default lens: its pack, its ID, its index, and whether that pack is the built-in code
     // pack.
     let mut defaults: Vec<(&str, &str, usize, bool)> = Vec::new();
@@ -228,8 +229,17 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
                 ctx.shape(step.shape, &step.params, &params, Use::step(&question.args))?;
             }
         }
+        let mut own_rules = BTreeSet::new();
         for (i, rule) in pack.file.rules.iter().enumerate() {
             let at = root.key("rules").at(i);
+            syntax(src, &at.key("id"), &rule.id)?;
+            if !own_rules.insert(rule.id.as_str()) {
+                return Err(twice(&ctx, &at.key("id"), "rules", &rule.id));
+            }
+            // A bare rule ID names one rule across the set, as a question ID does.
+            if let Some(other) = rule_ids.insert(&rule.id, id) {
+                return Err(claimed(&ctx, &at.key("id"), &rule.id, "rules", other));
+            }
             ctx.kind(&rule.subject, &at.key("subject"))?;
             let owner = text::get("pack.owner_rule", &[("name", &serde_name(&rule.kind))]);
             ctx.params(&owner, RuleType::params(rule.kind), &rule.params, &at.key("params"), Use::plain())?;
@@ -247,6 +257,7 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
             let first = &pack.file.stages[0].id;
             return Err(ctx.bad(&root.key("stages").at(0).key("id"), first, "stages", &[]));
         }
+        stages(&ctx, &own_rules)?;
         for (i, prompt) in pack.file.prompts.iter().enumerate() {
             if !holds(src, "prompts", &prompt.file) {
                 let at = root.key("prompts").at(i).key("file");
@@ -608,6 +619,12 @@ impl Ctx<'_> {
             Command::Edit(req) => project(&req.common)?,
             // Its item is an event ID, which no pack can name ahead of the event.
             Command::Review(req) => project(&req.common)?,
+            // A project's text, a proposal's file and a version's label name no kind or ID.
+            Command::IntentNew(req) => project(&req.common)?,
+            Command::IntentPropose(req) => project(&req.common)?,
+            Command::IntentVersion(req) => project(&req.common)?,
+            // A project there is an ID, a slug or a name, resolved when it runs.
+            Command::IntentLint(_) | Command::IntentList(_) => {}
             // The text `find` searches for names no kind, relation, lens or ID.
             Command::Find(_)
             | Command::Ask(_)
@@ -1177,6 +1194,58 @@ fn prop_schema(ctx: &Ctx<'_>, at: &KeyPath, kind: &str, schema: &Value) -> Resul
         }
     };
     Err(ctx.pack.source.invalid_at(&path, At::Key, &keyword, why, vars))
+}
+
+/// A pack's table that declares `id` twice.
+fn twice(ctx: &Ctx<'_>, at: &KeyPath, table: &str, id: &str) -> AppError {
+    ctx.bad(at, id, "duplicate_decl", &[("table", &table), ("id", &id)])
+}
+
+/// The plan pack's stages: each stage's and item type's ID is a declared ID, no stage twice, each
+/// `lint` entry one of the pack's own `[[rules]]`, and each item type's props a prop schema the
+/// runner's coercion reads. An item type's schema is the union of every stage's declaration of it,
+/// so one prop declared two ways is refused at its second declaration.
+fn stages(ctx: &Ctx<'_>, rules: &BTreeSet<&str>) -> Result<(), AppError> {
+    let src = &ctx.pack.source;
+    let root = KeyPath::root();
+    let mut seen = BTreeSet::new();
+    let mut props: BTreeMap<&str, BTreeMap<&str, &Value>> = BTreeMap::new();
+    for (i, stage) in ctx.pack.file.stages.iter().enumerate() {
+        let at = root.key("stages").at(i);
+        syntax(src, &at.key("id"), &stage.id)?;
+        if !seen.insert(stage.id.as_str()) {
+            return Err(twice(ctx, &at.key("id"), "stages", &stage.id));
+        }
+        for (j, rule) in stage.lint.iter().enumerate() {
+            if !rules.contains(rule.as_str()) {
+                let vars: &Vars<'_> = &[("rule", rule), ("stage", &stage.id)];
+                return Err(ctx.bad(&at.key("lint").at(j), rule, "stage_rule", vars));
+            }
+        }
+        for (j, item) in stage.items.iter().enumerate() {
+            let item_at = at.key("items").at(j);
+            syntax(src, &item_at.key("id"), &item.id)?;
+            if item.props.is_null() {
+                continue;
+            }
+            prop_schema(ctx, &item_at.key("props"), &item.id, &item.props)?;
+            let declared = item.props.get("properties").and_then(Value::as_object).into_iter().flatten();
+            let merged = props.entry(item.id.as_str()).or_default();
+            for (prop, schema) in declared {
+                match merged.get(prop.as_str()) {
+                    Some(earlier) if *earlier != schema => {
+                        let path = item_at.key("props").key("properties").key(prop);
+                        let vars: &Vars<'_> = &[("item", &item.id), ("prop", prop)];
+                        return Err(src.invalid_at(&path, At::Key, prop, "item_prop_conflict", vars));
+                    }
+                    _ => {
+                        merged.insert(prop, schema);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A merged table's key that an earlier pack, or an earlier entry, already claims (DR-46).

@@ -1,6 +1,6 @@
 //! Idempotency keys and content hashes (DR-8): pure functions of their inputs.
 
-use planroom_contract::Seq;
+use planroom_contract::{EdgeId, Kind, NodeId, Seq};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -12,6 +12,29 @@ pub fn sha256_hex(parts: &[&str]) -> String {
         hasher.update([0]);
     }
     hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// An intended edge's ID: `e:` and 12 hex characters of `sha256(kind ‖ from ‖ to ‖ via)`, with
+/// no `via`, so a hand relation and a plan item's `touches` keep one ID however often they are
+/// written.
+pub fn edge_id(kind: &Kind, from: &NodeId, to: &NodeId) -> EdgeId {
+    let hash = sha256_hex(&[&kind.0, &from.0, &to.0, ""]);
+    EdgeId(format!("e:{}", &hash[..12]))
+}
+
+/// A key from a name: lowercase ASCII letters and digits, every other run a `-`, with no `-` at
+/// either end; `None` when the name holds no letter or digit.
+pub fn slug(name: &str) -> Option<String> {
+    let mut out = String::new();
+    for c in name.trim().chars().flat_map(char::to_lowercase) {
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+        } else if !out.ends_with('-') && !out.is_empty() {
+            out.push('-');
+        }
+    }
+    let out = out.trim_end_matches('-').to_owned();
+    (!out.is_empty()).then_some(out)
 }
 
 /// sha256 of `bytes` as lowercase hex, with nothing added: for a hash another tool recomputes,
@@ -82,6 +105,20 @@ pub fn link_key(members: &[u64], packs_hash: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_slug_is_a_name_in_lowercase_words() {
+        assert_eq!(slug("Purchase flow").as_deref(), Some("purchase-flow"));
+        assert_eq!(slug("  Ünïcode / Cart!! ").as_deref(), Some("n-code-cart"));
+        assert_eq!(slug("!!!"), None);
+    }
+
+    #[test]
+    fn an_intended_edge_id_has_the_edge_id_shape() {
+        let id = edge_id(&Kind("p.rel".into()), &NodeId("a:x:1".into()), &NodeId("b:x:2".into()));
+        assert!(id.0.starts_with("e:") && id.0.len() == 14, "{id:?}");
+        assert!(id.0[2..].bytes().all(|b| b.is_ascii_hexdigit()));
+    }
 
     #[test]
     fn a_token_message_ends_each_field_with_a_nul() {

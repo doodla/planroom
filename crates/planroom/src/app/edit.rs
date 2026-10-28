@@ -20,9 +20,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use planroom_contract::{
-    Actor, Client, CommandName, CommandSpec, Edge, EdgeId, Edit, EditOp, EditReq, EditResult, ErrorCode,
-    Event, EventBody, EventId, Handle, Kind, Layer, Level, Node, NodeId, Op, Seq, Status, Surface, Target,
-    Verdict, Vocabulary,
+    Actor, Client, CommandName, CommandSpec, Edge, Edit, EditOp, EditReq, EditResult, ErrorCode, Event,
+    EventBody, EventId, Handle, Kind, Layer, Level, Node, NodeId, Op, Seq, Status, Surface, Target, Verdict,
+    Vocabulary,
 };
 use planroom_kernel::cas::{self, Authority, Check, Proposed};
 use planroom_kernel::fold::{Folded, HIDDEN, NAME, PARENT, POS_PREFIX, Writer, actor_key};
@@ -162,24 +162,41 @@ fn cli_writer(
 ) -> Result<Writer, AppError> {
     let spec = planroom_contract::Command::Edit(req.clone()).spec();
     // A refusal names this very edit as the line a person runs from a terminal.
-    let name = spec.name();
     let line = terminal_line(req, base);
+    writer_for(spec, &req.common, &line, caller, store, root, Some(base), terminal)
+}
+
+/// The CLI's writer instance for a write of `spec` whose common fields are `common`, resolved by
+/// the actor rules as [`cli_writer`] resolves an edit's: a refusal names `line`, the exact command
+/// a person runs from a terminal, and a token binds the request's `idem` and `base`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn writer_for(
+    spec: &'static CommandSpec,
+    common: &planroom_contract::WriteCommon,
+    line: &str,
+    caller: &Caller,
+    store: &mut Store,
+    root: &Path,
+    base: Option<Seq>,
+    terminal: &mut dyn Terminal,
+) -> Result<Writer, AppError> {
+    let name = spec.name();
     let keys = actor::registered_keys(store, root, caller, &name)
-        .map_err(|e| actor::naming_line(e, &name, actor::TerminalPath::Takes, &line))?;
+        .map_err(|e| actor::naming_line(e, &name, actor::TerminalPath::Takes, line))?;
     let now = clock::unix_micros() / 1_000_000;
-    let bound = Bound { idem: req.common.idem.as_deref(), base: Some(base) };
+    let bound = Bound { idem: common.idem.as_deref(), base };
     let path = actor::terminal_path(&name, !keys.is_empty());
     let acting = actor::writer(caller, spec, &bound, &keys.iter().collect::<Vec<_>>(), now, terminal)
-        .map_err(|e| actor::naming_line(e, &name, path, &line))?;
+        .map_err(|e| actor::naming_line(e, &name, path, line))?;
     if let Some(digest) = &acting.digest {
         actor::spend(store, digest, now, &name, path)
-            .map_err(|e| actor::naming_line(e, &name, path, &line))?;
+            .map_err(|e| actor::naming_line(e, &name, path, line))?;
     }
     let default = match (&acting.actor, caller.actor.as_deref()) {
         (Actor::Agent { .. }, Some(named)) => named.to_owned(),
         _ => format!("cli:{}", std::process::id()),
     };
-    let id = req.common.client.clone().or_else(|| caller.client.clone()).unwrap_or(default);
+    let id = common.client.clone().or_else(|| caller.client.clone()).unwrap_or(default);
     let surface = if id.starts_with("mod:") { Surface::Mod } else { Surface::Cli };
     Ok(Writer { actor: acting.actor, client: Client { surface, id } })
 }
@@ -204,6 +221,8 @@ pub(crate) struct Plan {
     /// The cards an undo closes, each with its review, which the write keys apart from its own
     /// events ([`crate::app::cards::card_review`]).
     pub(crate) closes: Vec<(EventId, Verdict)>,
+    /// The project the events carry, when the plan resolved it; else the request's.
+    pub(crate) project: Option<NodeId>,
 }
 
 fn write(
@@ -215,28 +234,68 @@ fn write(
 ) -> Result<Written<EditResult>, AppError> {
     let vocabulary = crate::packs::vocabulary()?;
     let args = serde_json::to_value(&req.op).map_err(AppError::internal)?;
-    let project = req.common.project.clone();
+    let writing = Writing {
+        spec: planroom_contract::Command::Edit(req.clone()).spec(),
+        args,
+        idem: req.common.idem.as_deref(),
+        project: req.common.project.clone(),
+        writer: writer.clone(),
+        base: Some(base),
+    };
+    commit(store, root, writing, |snapshot, folded, base| {
+        plan(&req.op, snapshot, folded, vocabulary, &writer, base)
+    })
+}
+
+/// One write a leaf commits through [`commit`]: what it is keyed and hashed by, and who writes it.
+pub(crate) struct Writing<'a> {
+    pub(crate) spec: &'static CommandSpec,
+    /// The request's own arguments, as the request hash and a derived key read them: the parsed
+    /// request, never a transport field or a file's path.
+    pub(crate) args: Value,
+    pub(crate) idem: Option<&'a str>,
+    /// The project the request names; a plan that resolves its own project names it instead.
+    pub(crate) project: Option<NodeId>,
+    pub(crate) writer: Writer,
+    /// The `seq` of the view the writer acted on; with none, the commit's own snapshot's, so a
+    /// write that needs no base still records the view it was checked against.
+    pub(crate) base: Option<Seq>,
+}
+
+/// The one write path `edit` and the `intent` writes take: `plan` runs inside the write's
+/// own IMMEDIATE transaction, over the fold of the store as the commit finds it, with the base the
+/// write is checked at, and its events are stored under one key with the reply on the first (DR-5,
+/// DR-8, DR-61, DR-73). A conflict is stored and returns `stale_write`; a retry of the key returns
+/// the stored reply.
+pub(crate) fn commit(
+    store: &mut Store,
+    root: &Path,
+    writing: Writing<'_>,
+    plan: impl FnOnce(&Snapshot<'_>, &Folded, Seq) -> Result<Plan, AppError>,
+) -> Result<Written<EditResult>, AppError> {
+    let vocabulary = crate::packs::vocabulary()?;
+    let Writing { spec, args, idem, project, writer, base } = writing;
     let who = actor_key(&writer.actor);
     let request = json!({
         "args": args, "base": base, "project": project, "actor": who, "client": writer.client,
     });
-    let request_hash = keys::request_hash("edit", &request);
-    let spec = planroom_contract::Command::Edit(req.clone()).spec();
+    let request_hash = keys::request_hash(&spec.name(), &request);
     let keyed = json!({"args": args, "project": project});
-    let (idem, derived) = write_key(spec, req.common.idem.as_deref(), &who, &keyed, Some(base))?;
+    let (idem, derived) = write_key(spec, idem, &who, &keyed, base)?;
     let at = clock::now();
-    let planned: RefCell<Option<(Plan, Vec<EventId>)>> = RefCell::new(None);
+    let planned: RefCell<Option<(Plan, Vec<EventId>, Seq)>> = RefCell::new(None);
     let committed = store.commit_keyed(
         &idem,
         &request_hash,
         |snapshot| {
             // A base past the head names a version this writer can't have read, and compare-and-set
             // would take it as covering every write before it (DR-73).
-            if base > snapshot.seq() {
+            if base.is_some_and(|b| b > snapshot.seq()) {
                 return Err(AppError::invalid_argument("base", "edit.base_ahead"));
             }
+            let base = base.unwrap_or_else(|| snapshot.seq());
             let folded = live::folded(snapshot, vocabulary)?;
-            let plan = plan(&req.op, snapshot, &folded, vocabulary, &writer, base)?;
+            let plan = plan(snapshot, &folded, base)?;
             let status = match &plan.check {
                 Check::Cycle { cycle } => return Err(cycle_refused(cycle)),
                 Check::Superseded { .. } => {
@@ -244,6 +303,7 @@ fn write(
                 }
                 check => check.status().expect("an applied, ghost or conflict write is stored"),
             };
+            let project = plan.project.clone().or_else(|| project.clone());
             let events: Vec<NewEvent> = plan
                 .bodies
                 .iter()
@@ -265,13 +325,13 @@ fn write(
                 let review = cards::card_review(card, *verdict, &writer, &idem, &request_hash, &at);
                 events.push(Planned::Own(review));
             }
-            *planned.borrow_mut() = Some((plan, ids));
+            *planned.borrow_mut() = Some((plan, ids, base));
             Ok(events)
         },
         |seqs| {
             let planned = planned.borrow();
-            let (plan, ids) = planned.as_ref().expect("the plan ran before the reply");
-            serde_json::to_value(stored(plan, ids, seqs, base)).expect("a stored reply serializes")
+            let (plan, ids, base) = planned.as_ref().expect("the plan ran before the reply");
+            serde_json::to_value(stored(plan, ids, seqs, *base)).expect("a stored reply serializes")
         },
     )?;
     let first = *committed.seqs.first().ok_or_else(|| AppError::internal("a commit wrote no event"))?;
@@ -465,7 +525,8 @@ pub(crate) fn plan(
                     members.push(node);
                 }
             }
-            let slug = slug(name).ok_or_else(|| AppError::invalid_argument("name", "edit.group_name"))?;
+            let slug =
+                keys::slug(name).ok_or_else(|| AppError::invalid_argument("name", "edit.group_name"))?;
             let namespace = common_namespace(&members);
             let group = NodeId(format!("{namespace}:group:{slug}"));
             let level = members.iter().map(|m| m.level).min().unwrap_or(Level::Component);
@@ -540,7 +601,7 @@ pub(crate) fn plan(
             let rule = if matches!(op, EditOp::Forbid { .. }) { "forbid" } else { "require" };
             let kind = relation(vocabulary, kind)?;
             let (from, to) = (resolve(nodes, from)?, resolve(nodes, to)?);
-            let id = edge_id(&kind, &from.id, &to.id);
+            let id = keys::edge_id(&kind, &from.id, &to.id);
             let fields = BTreeMap::from([
                 ("kind".to_owned(), json!(kind)),
                 ("from".to_owned(), json!({"id": from.id})),
@@ -565,7 +626,7 @@ pub(crate) fn plan(
         EditOp::Unrelate { from, to, kind } => {
             let kind = relation(vocabulary, kind)?;
             let (from, to) = (resolve(nodes, from)?, resolve(nodes, to)?);
-            let id = edge_id(&kind, &from.id, &to.id);
+            let id = keys::edge_id(&kind, &from.id, &to.id);
             let (from_id, to_id) = (q(&from.id.0), q(&to.id.0));
             let vars: [(&str, &dyn std::fmt::Display); 3] =
                 [("from", &from_id), ("kind", &kind.0), ("to", &to_id)];
@@ -591,7 +652,7 @@ pub(crate) fn plan(
     let mut targets: Vec<String> = edits.iter().map(|e| target_id(&e.target)).collect();
     targets.dedup();
     let bodies = edits.into_iter().map(|e| (Some(target_id(&e.target)), EventBody::Edit(e))).collect();
-    Ok(Plan { bodies, targets, check, line, names, closes: Vec::new() })
+    Ok(Plan { bodies, targets, check, line, names, closes: Vec::new(), project: None })
 }
 
 /// An undo of the command that wrote `event`: one `undo` event, checked like any write (DR-61).
@@ -652,7 +713,7 @@ fn plan_undo(
         }
         closes = cards.close;
     }
-    Ok(Plan { bodies, targets, check, line, names, closes })
+    Ok(Plan { bodies, targets, check, line, names, closes, project: None })
 }
 
 /// The event `target` names: its ID, or the one event whose ID ends with it.
@@ -758,49 +819,9 @@ fn relation(vocabulary: &Vocabulary, kind: &str) -> Result<Kind, AppError> {
     }
 }
 
-/// An edge's ID: `e:` and 12 hex characters of `sha256(kind ‖ from ‖ to ‖ via)`; an intended
-/// relation has no `via`.
-fn edge_id(kind: &Kind, from: &NodeId, to: &NodeId) -> EdgeId {
-    let hash = keys::sha256_hex(&[&kind.0, &from.0, &to.0, ""]);
-    EdgeId(format!("e:{}", &hash[..12]))
-}
-
-/// A group's key from its name: lowercase letters and digits, every other run a `-`.
-fn slug(name: &str) -> Option<String> {
-    let mut out = String::new();
-    for c in name.trim().chars().flat_map(char::to_lowercase) {
-        if c.is_ascii_alphanumeric() {
-            out.push(c);
-        } else if !out.ends_with('-') && !out.is_empty() {
-            out.push('-');
-        }
-    }
-    let out = out.trim_end_matches('-').to_owned();
-    (!out.is_empty()).then_some(out)
-}
-
 /// The namespace a group of `members` takes: theirs when they share one, else `ws`.
 fn common_namespace(members: &[&Node]) -> String {
     let namespace = |n: &Node| n.id.0.split(':').next().unwrap_or_default().to_owned();
     let first = members.first().map(|n| namespace(n)).unwrap_or_default();
     if !first.is_empty() && members.iter().all(|n| namespace(n) == first) { first } else { "ws".to_owned() }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_group_key_is_its_name_in_lowercase_words() {
-        assert_eq!(slug("Purchase flow").as_deref(), Some("purchase-flow"));
-        assert_eq!(slug("  Ünïcode / Cart!! ").as_deref(), Some("n-code-cart"));
-        assert_eq!(slug("!!!"), None);
-    }
-
-    #[test]
-    fn an_intended_edge_id_has_the_edge_id_shape() {
-        let id = edge_id(&Kind("code.http".into()), &NodeId("a:x:1".into()), &NodeId("b:x:2".into()));
-        assert!(id.0.starts_with("e:") && id.0.len() == 14, "{id:?}");
-        assert!(id.0[2..].bytes().all(|b| b.is_ascii_hexdigit()));
-    }
 }

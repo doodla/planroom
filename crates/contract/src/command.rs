@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::envelope::{CommandName, Cursor, Empty, Handle};
 use crate::errors::ErrorCode;
 use crate::model::{Level, NodeId, Seq};
-use crate::requests::{AskReq, EditReq, FindReq, ReviewReq};
+use crate::plan::{IntentListReq, IntentNewReq, IntentVersionReq};
+use crate::requests::{AskReq, EditReq, FindReq, LintReq, ProposeReq, ReviewReq};
 use crate::view::MapView;
 
 /// Which of the five ideas (plus setup) a command belongs to; help is grouped by it.
@@ -106,6 +107,11 @@ pub enum Command {
     Edit(EditReq),
     Open(OpenReq),
     Review(ReviewReq),
+    IntentNew(IntentNewReq),
+    IntentPropose(ProposeReq),
+    IntentLint(LintReq),
+    IntentVersion(IntentVersionReq),
+    IntentList(IntentListReq),
 }
 
 const MAP: CommandSpec = CommandSpec {
@@ -453,6 +459,132 @@ const REVIEW: CommandSpec = CommandSpec {
     room: false,
 };
 
+/// The errors `intent new` may return; `intent propose` and `intent version` add theirs.
+const INTENT_NEW_ERRORS: &[ErrorCode] = &[
+    ErrorCode::InvalidArgument,
+    ErrorCode::ActorRequired,
+    ErrorCode::PersonRequired,
+    ErrorCode::WorkspaceNotFound,
+    ErrorCode::IdempotencyMismatch,
+    ErrorCode::PacksMismatch,
+    ErrorCode::StoreBusy,
+    ErrorCode::SchemaMismatch,
+    ErrorCode::Internal,
+];
+
+/// The errors `intent lint` and `intent list` may return.
+const INTENT_READ_ERRORS: &[ErrorCode] = &[
+    ErrorCode::InvalidArgument,
+    ErrorCode::AmbiguousRef,
+    ErrorCode::NotFound,
+    ErrorCode::WorkspaceNotFound,
+    ErrorCode::StoreBusy,
+    ErrorCode::SchemaMismatch,
+    ErrorCode::Internal,
+];
+
+const INTENT_NEW: CommandSpec = CommandSpec {
+    path: &["intent", "new"],
+    idea: Idea::Intent,
+    summary: "Start a plan: a new project named by its text.",
+    actor: ActorRule::Any,
+    class: Class::Change,
+    budget_tokens: 1_500,
+    needs_base: false,
+    spends: false,
+    errors: INTENT_NEW_ERRORS,
+    undo: Undo::Edit,
+    tool: Some(Tool::RoomChange),
+    room: true,
+};
+
+const INTENT_PROPOSE: CommandSpec = CommandSpec {
+    path: &["intent", "propose"],
+    idea: Idea::Intent,
+    summary: "Propose plan items from a file or stdin; an agent's wait as ghosts for a person.",
+    actor: ActorRule::Any,
+    class: Class::Change,
+    budget_tokens: 1_500,
+    needs_base: true,
+    spends: false,
+    errors: &[
+        ErrorCode::InvalidArgument,
+        ErrorCode::AmbiguousRef,
+        ErrorCode::BaseRequired,
+        ErrorCode::ActorRequired,
+        ErrorCode::PersonRequired,
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::NotFound,
+        ErrorCode::PathRefused,
+        ErrorCode::StaleWrite,
+        ErrorCode::IdempotencyMismatch,
+        ErrorCode::PacksMismatch,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Edit,
+    tool: Some(Tool::RoomChange),
+    room: true,
+};
+
+const INTENT_LINT: CommandSpec = CommandSpec {
+    path: &["intent", "lint"],
+    idea: Idea::Intent,
+    summary: "The plan's lint findings: what each stage still lacks.",
+    actor: ActorRule::Any,
+    class: Class::Read,
+    budget_tokens: 1_500,
+    needs_base: false,
+    spends: false,
+    errors: INTENT_READ_ERRORS,
+    undo: Undo::Query,
+    tool: Some(Tool::RoomChange),
+    room: true,
+};
+
+const INTENT_VERSION: CommandSpec = CommandSpec {
+    path: &["intent", "version"],
+    idea: Idea::Intent,
+    summary: "Tag the plan as it stands with a version label; a person's alone.",
+    actor: ActorRule::PersonOnly,
+    class: Class::Change,
+    budget_tokens: 1_500,
+    needs_base: false,
+    spends: false,
+    errors: &[
+        ErrorCode::InvalidArgument,
+        ErrorCode::NotFound,
+        ErrorCode::AmbiguousRef,
+        ErrorCode::ActorRequired,
+        ErrorCode::PersonRequired,
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::IdempotencyMismatch,
+        ErrorCode::PacksMismatch,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Edit,
+    tool: None,
+    room: true,
+};
+
+const INTENT_LIST: CommandSpec = CommandSpec {
+    path: &["intent", "list"],
+    idea: Idea::Intent,
+    summary: "Every project, and the items of the one named, each ghost with its review.",
+    actor: ActorRule::Any,
+    class: Class::Read,
+    budget_tokens: 1_500,
+    needs_base: false,
+    spends: false,
+    errors: INTENT_READ_ERRORS,
+    undo: Undo::Query,
+    tool: Some(Tool::RoomChange),
+    room: true,
+};
+
 impl Command {
     /// Every leaf's spec, in catalogue order.
     pub const SPECS: &'static [CommandSpec] = &[
@@ -472,6 +604,11 @@ impl Command {
         EDIT,
         OPEN,
         REVIEW,
+        INTENT_NEW,
+        INTENT_PROPOSE,
+        INTENT_LINT,
+        INTENT_VERSION,
+        INTENT_LIST,
     ];
 
     pub const fn spec(&self) -> &'static CommandSpec {
@@ -492,6 +629,11 @@ impl Command {
             Command::Edit(_) => &EDIT,
             Command::Open(_) => &OPEN,
             Command::Review(_) => &REVIEW,
+            Command::IntentNew(_) => &INTENT_NEW,
+            Command::IntentPropose(_) => &INTENT_PROPOSE,
+            Command::IntentLint(_) => &INTENT_LINT,
+            Command::IntentVersion(_) => &INTENT_VERSION,
+            Command::IntentList(_) => &INTENT_LIST,
         }
     }
 

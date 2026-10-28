@@ -19,5 +19,5 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 
 ## Layout
 
-- `src/`: every public type, one module per part of the contract: the command catalogue (`command.rs`), the error and warning registries (`errors.rs`), the envelope, view models, events, cards, the pack manifest, requests and the resolver's types, and `schema.rs`, which renders the two schema views; `lib.rs` re-exports them.
+- `src/`: every public type, one module per part of the contract: the command catalogue (`command.rs`), the error and warning registries (`errors.rs`), the envelope, view models, events, cards, the pack manifest, requests, plan proposals and their results, the resolver's types, and `schema.rs`, which renders the two schema views; `lib.rs` re-exports them.
 - `tests/`: `schema.rs`, the schema snapshot and round trips.

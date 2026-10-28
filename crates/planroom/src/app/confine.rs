@@ -17,6 +17,10 @@
 //! - Anything else outside the workspace's repos is `outside_workspace`: until `scan FILE` makes a
 //!   `file:` snapshot (M4), no read reaches a file outside them. A repo's git directory and the
 //!   state directory hold no repo content, so they count as outside too.
+//! - `intent propose --file F` reads a proposal a person or an agent wrote, which needn't sit in a
+//!   repo: F keeps the credential rule, and must otherwise lie under the workspace root, links
+//!   followed, outside the state directory and every git directory (`outside_workspace`). `-`
+//!   reads stdin and names no path.
 //! - Neither refusal has a hint: no command a person could run would read the path in M1.
 
 use std::ffi::OsStr;
@@ -130,6 +134,32 @@ pub fn scan(
     Ok(())
 }
 
+/// The proposal file `intent propose --file` names, placed from `cwd`, checked before it is read:
+/// a credential path needs `person`, and the path, as given and with links followed, lies under
+/// the workspace root, outside its state directory and outside every git directory. Returns the
+/// path resolved.
+pub fn proposal(path: &str, cwd: &Path, person: bool) -> Result<PathBuf, AppError> {
+    let named = Named::of(path, cwd);
+    if named.is_credential() && !person {
+        return Err(refused(path, "credential"));
+    }
+    // The root as found and with links followed: the given form is placed from the one, the
+    // resolved form from the other.
+    let roots: Vec<PathBuf> =
+        workspace::find_root(cwd).map(|r| vec![canonical_or(&r), fold(&r)]).unwrap_or_default();
+    let inside = |p: &Path| {
+        roots.iter().any(|root| {
+            let state = workspace::state_dir(root);
+            p.starts_with(root) && !p.starts_with(&state) && !p.starts_with(canonical_or(&state))
+        }) && !p.components().any(|c| c.as_os_str() == ".git")
+    };
+    match (&named.given, &named.resolved) {
+        (Some(given), Some(resolved)) if inside(given) && inside(resolved) => Ok(resolved.clone()),
+        // The reason a caller reads stays `outside_workspace`; the line names the root rule.
+        _ => Err(refused_as(path, "outside_workspace", "outside_root")),
+    }
+}
+
 /// Whether the caller is a person, as `open` resolves one: a token under the workspace's
 /// registered key, spent once, or a confirmation on the terminal.
 fn is_person(
@@ -168,7 +198,12 @@ fn is_person(
 
 /// `path_refused` for `path`, with no hint: no command a person runs reads it yet.
 fn refused(path: &str, reason: &str) -> AppError {
-    let why = text::get(&format!("confine.{reason}"), &[]);
+    refused_as(path, reason, reason)
+}
+
+/// `path_refused` for `path` with `reason`, its line's `{why}` from `confine.{why}`.
+fn refused_as(path: &str, reason: &str, why: &str) -> AppError {
+    let why = text::get(&format!("confine.{why}"), &[]);
     AppError::new(ErrorCode::PathRefused, &[("path", &path), ("why", &why)])
         .details(json!({"path": path, "reason": reason}))
 }

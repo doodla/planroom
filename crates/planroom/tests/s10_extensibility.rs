@@ -53,15 +53,22 @@ fn items(pages: &[Value]) -> BTreeMap<String, Value> {
 }
 
 /// What the loaded set declares: each kind, qualified, each lens and each question, with the
-/// built-in question this build serves.
+/// built-in questions this build serves: `kinds`, and `stage` while a pack declares stages.
 fn declared(loaded: &packs::Loaded) -> BTreeSet<String> {
     let mut ids: BTreeSet<String> = BTreeSet::from(["kinds".to_owned()]);
+    if has_stages(loaded) {
+        ids.insert("stage".to_owned());
+    }
     for pack in &loaded.packs {
         ids.extend(pack.file.kinds.iter().map(|k| packs::qualify(pack.id(), &k.id)));
         ids.extend(pack.file.lenses.iter().map(|l| l.id.clone()));
         ids.extend(pack.file.questions.iter().map(|q| q.id.clone()));
     }
     ids
+}
+
+fn has_stages(loaded: &packs::Loaded) -> bool {
+    loaded.packs.iter().any(|p| !p.file.stages.is_empty())
 }
 
 #[test]
@@ -83,9 +90,11 @@ fn ask_lists_what_is_loaded() {
         assert!(item["why"].as_str().unwrap().ends_with("from the code pack."), "{item}");
     }
     assert!(listed["path"]["why"].as_str().unwrap().starts_with("How A reaches B"), "{}", listed["path"]);
-    // The built-in question is marked; the ones whose packs or checks aren't loaded aren't listed.
+    // The built-in questions are marked, `stage` with the plan pack; the ones whose packs or checks
+    // aren't loaded aren't listed.
     assert!(listed["kinds"]["why"].as_str().unwrap().starts_with("Built in"));
-    for unserved in ["stage", "lint", "missing", "drift"] {
+    assert!(listed["stage"]["why"].as_str().unwrap().starts_with("Built in"));
+    for unserved in ["lint", "missing", "drift"] {
         assert!(!listed.contains_key(unserved), "{unserved} isn't loaded");
     }
     // A lens's handle shows the map through it, and a kind's its level.
@@ -220,11 +229,13 @@ fn a_listing_page_keeps_to_its_budget_however_long_the_ids() {
     let expected = declared(&loaded);
     let listed: BTreeSet<&str> = items.iter().map(|i| i.id.as_str()).collect();
     // A lens and a question may share an ID, so entries are counted, not IDs.
-    let entries: usize = 1 + loaded
-        .packs
-        .iter()
-        .map(|p| p.file.kinds.len() + p.file.lenses.len() + p.file.questions.len())
-        .sum::<usize>();
+    let entries: usize = 1
+        + usize::from(has_stages(&loaded))
+        + loaded
+            .packs
+            .iter()
+            .map(|p| p.file.kinds.len() + p.file.lenses.len() + p.file.questions.len())
+            .sum::<usize>();
     assert_eq!(items.len(), entries);
     assert_eq!(listed, expected.iter().map(String::as_str).collect());
     assert_eq!(left_out, 0);

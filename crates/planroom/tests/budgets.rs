@@ -386,6 +386,78 @@ fn an_unreadable_workspace_at_a_long_path_keeps_its_empty_state_to_its_budget() 
     }
 }
 
+/// An `intent list` page keeps to its budget however long the IDs of the blocks its items touch:
+/// an item whose touches alone pass the budget is listed with fewer of them, and every item is
+/// still reached by its cursor.
+#[test]
+fn an_intent_list_page_keeps_to_its_budget_however_long_its_touch_ids() {
+    let tmp = tempfile::tempdir().unwrap();
+    // As deep as the platform's path limit allows (4096 bytes on Linux, 1024 on macOS), with room
+    // left for the repo and git's files in it.
+    let limit = usize::try_from(libc::PATH_MAX).unwrap() - 300;
+    let root = tmp.path().canonicalize().unwrap().join("app");
+    let mut deep: Vec<String> = vec![];
+    for i in 0..14 {
+        let next = format!("{}{i}", "d".repeat(200));
+        if root.as_os_str().len() + deep.iter().map(|d| d.len() + 1).sum::<usize>() + next.len() + 1 > limit {
+            break;
+        }
+        deep.push(next);
+    }
+    let deep = deep.join("/");
+    let files: Vec<(String, Vec<u8>)> =
+        (0..4).map(|f| (format!("{deep}/f{f}.txt"), b"x\n".to_vec())).collect();
+    git_repo(&tmp.path().join("app"), &files);
+    let agent = [("PLANROOM_ACTOR", "agent:1a2b3c4d:chat")];
+    let scan = reply(tmp.path(), &["scan"], "", &[]);
+    assert_eq!(scan["ok"], true, "{scan}");
+    let env = reply(tmp.path(), &["intent", "new", "Long targets"], "", &agent);
+    assert_eq!(env["ok"], true, "{env}");
+    let base = env["meta"]["seq"].as_u64().unwrap().to_string();
+    let touches: Vec<String> = files.iter().map(|(path, _)| format!("app:file:{path}")).collect();
+    let items: Vec<Value> = (0..2)
+        .map(|i| {
+            json!({"key": format!("k{i}"), "type": "next_action", "name": format!("Item {i}"),
+                        "touches": touches})
+        })
+        .collect();
+    let proposal = json!({"items": items}).to_string();
+    let env = reply(tmp.path(), &["intent", "propose", "--file", "-", "--base", &base], &proposal, &agent);
+    assert_eq!(env["ok"], true, "{env}");
+
+    let budget = budget("intent list");
+    let mut listed = vec![];
+    let mut cursor: Option<String> = None;
+    for _ in 0..10 {
+        let mut args = vec!["intent", "list"];
+        if let Some(c) = &cursor {
+            args.extend(["--cursor", c.as_str()]);
+        }
+        let env = reply(tmp.path(), &args, "", &[]);
+        assert_eq!(env["ok"], true, "{env}");
+        let meta = &env["meta"];
+        assert!(meta["size"]["tokens_est"].as_u64().unwrap() <= budget, "{args:?}: {meta}");
+        // An item cut to fit shows fewer than its four touches, and the page counts it.
+        let items = env["result"]["items"].as_array().unwrap();
+        let cut = items.iter().filter(|i| i["touches"].as_array().unwrap().len() < touches.len()).count();
+        let warnings = meta["warnings"].as_array().map_or(&[][..], |w| w.as_slice());
+        let counted = warnings
+            .iter()
+            .filter(|w| w["code"] == "truncated")
+            .filter_map(|w| w["details"]["entries_cut"].as_u64())
+            .sum::<u64>();
+        assert_eq!(counted, cut as u64, "{args:?}: {meta}");
+        for item in items {
+            listed.push(item["id"].as_str().unwrap().to_owned());
+        }
+        cursor = meta["next"].as_str().map(str::to_owned);
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(listed, ["plan:long-targets:k0", "plan:long-targets:k1"]);
+}
+
 #[test]
 fn a_cursor_from_other_flags_is_invalid_argument() {
     let tmp = tempfile::tempdir().unwrap();
@@ -718,10 +790,18 @@ fn b64url(bytes: &[u8]) -> String {
     out
 }
 
-/// A person token over `command` with no arguments, made now.
-fn person_token(key: &SigningKey, command: &str) -> String {
+/// A person token over the leaf `argv` names and the arguments after its path, made now, bound to
+/// the `--base` they carry.
+fn person_token(key: &SigningKey, argv: &[&str]) -> String {
+    let spec = Leaf::SPECS
+        .iter()
+        .filter(|s| argv.starts_with(s.path))
+        .max_by_key(|s| s.path.len())
+        .unwrap_or_else(|| panic!("no leaf {argv:?}"));
+    let args: Vec<String> = argv[spec.path.len()..].iter().map(|a| (*a).to_owned()).collect();
+    let base = args.iter().position(|a| a == "--base").map_or(String::new(), |at| args[at + 1].clone());
     let at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let sig: Signature = key.sign(&person_token_message(command, &[], "", "", at));
+    let sig: Signature = key.sign(&person_token_message(&spec.name(), &args, "", &base, at));
     format!("{at}.{}", b64url(&sig.to_bytes()))
 }
 
@@ -778,6 +858,23 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
     run(&["ask", "impact", "orders"], "", &[]);
     run(&["ask", "path", "storefront", "worker"], "", &[]);
     run(&["ask", "why", "storefront", "orders"], "", &[]);
+    // The `intent` leaves at their widest: a project with a long name, 50 items with long names
+    // and props, as much as a proposal's 64 KiB holds, each touching blocks, waiting as an agent's
+    // ghosts, then listed, linted and asked about by stage; a person's version of a plan of its own.
+    let plan = "p".repeat(200);
+    run(&["intent", "new", &plan], "", &agent);
+    let items: Vec<Value> = (0..50)
+        .map(|i| {
+            json!({"key": format!("k{i:02}{}", "x".repeat(60)), "type": "next_action",
+                   "name": "n".repeat(200), "props": {"verb": "v".repeat(400), "context": "c".repeat(300)},
+                   "touches": ["worker/consumer.py", "platform:file:docker-compose.yml"]})
+        })
+        .collect();
+    let proposal = json!({"items": items}).to_string();
+    run(&["intent", "propose", "--file", "-", "--base", "5"], &proposal, &agent);
+    run(&["intent", "list"], "", &[]);
+    run(&["intent", "lint"], "", &[]);
+    run(&["ask", "stage", "next_actions"], "", &[]);
     run(&["schema"], "", &[]);
     run(&["schema", "--commands"], "", &[]);
     let leaves: Vec<String> = Leaf::SPECS.iter().map(|s| s.name()).collect();
@@ -833,6 +930,25 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
         ("WAYLAND_DISPLAY", ""),
     ];
     run(&["open"], "", &open);
+    // A person's plan, linted with every item flagged, and its version.
+    run(&["intent", "new", &"q".repeat(200)], "", &[(MINT, "")]);
+    let person_items: Vec<Value> = (0..50)
+        .map(|i| json!({"key": format!("m{i:02}{}", "y".repeat(60)), "type": "next_action", "name": "m".repeat(200)}))
+        .collect();
+    let person_plan = json!({"project": "q".repeat(200), "items": person_items}).to_string();
+    run(&["intent", "propose", "--file", "-", "--base", "5"], &person_plan, &[(MINT, "")]);
+    run(&["intent", "lint", "--project", &"q".repeat(200)], "", &[]);
+    run(
+        &[
+            "intent",
+            "version",
+            "--project",
+            "plan:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq:project",
+            &"v".repeat(40),
+        ],
+        "",
+        &[(MINT, "")],
+    );
 
     let mut covered = BTreeSet::new();
     for (args, stdin, env) in &runs {
@@ -840,7 +956,7 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
         let minted: Vec<(String, String)> = env
             .iter()
             .map(|(k, v)| match k.as_str() {
-                MINT => (k.clone(), person_token(&key, &args.join(" "))),
+                MINT => (k.clone(), person_token(&key, &args)),
                 _ => (k.clone(), v.clone()),
             })
             .collect();

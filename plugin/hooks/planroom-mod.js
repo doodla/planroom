@@ -212,6 +212,71 @@ var CATALOGUE = [
     "undo": "edit",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "intent new",
+    "idea": "intent",
+    "summary": "Start a plan: a new project named by its text.",
+    "actor": "any",
+    "class": "change",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": false,
+    "undo": "edit",
+    "tool": "room_change",
+    "room": true
+  },
+  {
+    "name": "intent propose",
+    "idea": "intent",
+    "summary": "Propose plan items from a file or stdin; an agent's wait as ghosts for a person.",
+    "actor": "any",
+    "class": "change",
+    "budget_tokens": 1500,
+    "needs_base": true,
+    "spends": false,
+    "undo": "edit",
+    "tool": "room_change",
+    "room": true
+  },
+  {
+    "name": "intent lint",
+    "idea": "intent",
+    "summary": "The plan's lint findings: what each stage still lacks.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": false,
+    "undo": "query",
+    "tool": "room_change",
+    "room": true
+  },
+  {
+    "name": "intent version",
+    "idea": "intent",
+    "summary": "Tag the plan as it stands with a version label; a person's alone.",
+    "actor": "person_only",
+    "class": "change",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": false,
+    "undo": "edit",
+    "tool": null,
+    "room": true
+  },
+  {
+    "name": "intent list",
+    "idea": "intent",
+    "summary": "Every project, and the items of the one named, each ghost with its review.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": false,
+    "undo": "query",
+    "tool": "room_change",
+    "room": true
   }
 ];
 var FALLBACK_PANES = {

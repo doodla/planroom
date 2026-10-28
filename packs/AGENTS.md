@@ -25,5 +25,6 @@ Each directory here is a built-in pack: `crates/planroom/build.rs` embeds every 
 - `code/languages/`: one file per language with a built-in grammar: its `[[languages]]` entry and its extractors.
 - `code/queries/`: the tree-sitter queries those extractors run.
 - `code/tests/**`: the code pack's conformance kit: each case's inputs and what it expects; the tree's layout is data.
+- `plan/`: the plan pack: the seven stages, their item types and methods, and the structural lint rules; no kinds of its own.
 
-The other built-in packs (`plan/`, `observability/`, `release/`, `artifacts/`, `machines/`) each get a directory here when their milestone builds them.
+The other built-in packs (`observability/`, `release/`, `artifacts/`, `machines/`) each get a directory here when their milestone builds them.

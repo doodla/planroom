@@ -438,7 +438,9 @@ pub struct RuleDecl {
     pub message: String,
 }
 
-/// The four lint rule types.
+/// The five lint rule types. `covers` finds a subject whose counted children don't cover its own
+/// `prop` values (the WBS 100% rule), and `disjoint` one two of whose counted children share a
+/// value of `prop` (MECE).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleType {
@@ -446,6 +448,7 @@ pub enum RuleType {
     RequiresEdge,
     MinChildren,
     Covers,
+    Disjoint,
 }
 
 impl RuleType {
@@ -462,7 +465,9 @@ impl RuleType {
                 PROP_TESTS,
             ],
             RuleType::MinChildren => &[param!("min", Nothing), param!("kinds", NodeKind), PROP_TESTS],
-            RuleType::Covers => &[param!("prop", Nothing), param!("kinds", NodeKind), PROP_TESTS],
+            RuleType::Covers | RuleType::Disjoint => {
+                &[param!("prop", Nothing), param!("kinds", NodeKind), PROP_TESTS]
+            }
         }
     }
 }

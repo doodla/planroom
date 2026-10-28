@@ -19,7 +19,7 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 
 ## Layout
 
-- `src/`: pure, domain-free logic on values, one module per job: resolution, roll-up, compare-and-set, find, lenses, next action, person-token keys, redaction by field with the generated `redact_fields.rs`, the display-sanitizing pass and the plan tree.
+- `src/`: pure, domain-free logic on values, one module per job: resolution, roll-up, compare-and-set, find, lenses, next action, person-token keys, redaction by field with the generated `redact_fields.rs`, the display-sanitizing pass, lint rules and the plan tree.
 - `src/fold/`: the fold of facts and events into the model: its pre-pass, renames, claims, cycles, lookups and state.
 - `src/query/`: the query shapes over the folded model, and the forest and lookups they share.
 - `benches/`: `fold.rs`, the fold benchmark, which `cargo xtask bench fold` runs and compares with `budgets.json`.

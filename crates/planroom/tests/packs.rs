@@ -1484,10 +1484,20 @@ fn the_parameter_tables_in_the_docs_match_the_contract() {
         let name = serde_name(shape);
         assert_eq!(doc.get(&name), Some(&spelled(shape.params())), "the {name} shape's row");
     }
-    let rules = [RuleType::RequiresProp, RuleType::RequiresEdge, RuleType::MinChildren, RuleType::Covers];
+    let rules = [
+        RuleType::RequiresProp,
+        RuleType::RequiresEdge,
+        RuleType::MinChildren,
+        RuleType::Covers,
+        RuleType::Disjoint,
+    ];
     for rule in rules {
         match rule {
-            RuleType::RequiresProp | RuleType::RequiresEdge | RuleType::MinChildren | RuleType::Covers => {}
+            RuleType::RequiresProp
+            | RuleType::RequiresEdge
+            | RuleType::MinChildren
+            | RuleType::Covers
+            | RuleType::Disjoint => {}
         }
     }
     let doc = doc_table(&text, "| Rule type | Parameters |");
@@ -1525,6 +1535,104 @@ fn the_parameter_tables_in_the_docs_match_the_contract() {
     }
     doc.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(doc, spelled(planroom_contract::PREDICATE_PARAMS), "the predicate's table");
+}
+
+/// The built-ins with `body` as the plan pack's manifest in place of the embedded one, then `extra`.
+fn with_plan(body: &str, extra: Vec<Source>) -> Result<packs::Loaded, planroom::app::error::AppError> {
+    let mut sources: Vec<Source> =
+        packs::embed::sources().into_iter().filter(|s| s.label != "packs/plan").collect();
+    sources.push(source(Origin::BuiltIn, "plan", &[], body));
+    sources.extend(extra);
+    packs::resolve(sources)
+}
+
+/// A stage that writes one `work` item, with `props` as its schema, and lints with `lint`.
+fn stage(id: &str, lint: &[&str], props: &str) -> String {
+    let lint: Vec<String> = lint.iter().map(|r| format!("\"{r}\"")).collect();
+    format!(
+        "[[stages]]\nid = \"{id}\"\nmethod = \"m\"\nprompt = \"one step\"\nlint = [{}]\n\n\
+         [[stages.items]]\nid = \"work\"\nprops = {props}\n\n",
+        lint.join(", ")
+    )
+}
+
+fn plan_rule(id: &str) -> String {
+    format!(
+        "[[rules]]\nid = \"{id}\"\nkind = \"requires_prop\"\nsubject = \"kernel.item\"\n\
+         params = {{ prop = \"scope\", \"props.type\" = \"work\" }}\nmessage = \"m\"\n\n"
+    )
+}
+
+const SCOPE: &str =
+    "{ type = \"object\", properties = { scope = { type = \"array\", items = { type = \"string\" } } } }";
+
+#[test]
+fn a_stage_naming_an_unknown_rule_is_pack_invalid() {
+    assert!(
+        with_plan(&format!("{}{}", stage("breakdown", &["scoped"], SCOPE), plan_rule("scoped")), vec![])
+            .is_ok()
+    );
+    let (code, message, details) = refused(with_plan(&stage("breakdown", &["scoped"], SCOPE), vec![]));
+    assert_eq!(code, "pack_invalid");
+    assert_eq!(details["reference"], "scoped", "{details}");
+    assert!(message.contains("isn't one of this pack's [[rules]]"), "{message}");
+}
+
+#[test]
+fn a_duplicate_stage_or_rule_id_is_pack_invalid() {
+    let body = format!("{}{}", stage("breakdown", &[], SCOPE), stage("breakdown", &[], SCOPE));
+    let (code, message, details) = refused(with_plan(&body, vec![]));
+    assert_eq!((code.as_str(), &details["reference"]), ("pack_invalid", &serde_json::json!("breakdown")));
+    assert!(message.contains("[[stages]] declares breakdown twice"), "{message}");
+    let body = format!("{}{}", plan_rule("scoped"), plan_rule("scoped"));
+    let (code, message, details) = refused(with_plan(&body, vec![]));
+    assert_eq!((code.as_str(), &details["reference"]), ("pack_invalid", &serde_json::json!("scoped")));
+    assert!(message.contains("[[rules]] declares scoped twice"), "{message}");
+}
+
+#[test]
+fn an_item_prop_declared_two_ways_is_pack_invalid() {
+    let text = "{ type = \"object\", properties = { scope = { type = \"string\" } } }";
+    let same = format!("{}{}", stage("breakdown", &[], SCOPE), stage("priorities", &[], SCOPE));
+    assert!(with_plan(&same, vec![]).is_ok(), "one prop declared the same way twice is one prop");
+    let body = format!("{}{}", stage("breakdown", &[], SCOPE), stage("priorities", &[], text));
+    let (code, message, details) = refused(with_plan(&body, vec![]));
+    assert_eq!((code.as_str(), &details["reference"]), ("pack_invalid", &serde_json::json!("scope")));
+    assert!(message.contains("declares its prop scope two ways"), "{message}");
+    // An item type's props are a prop schema the runner reads, as a kind's are.
+    let odd = "{ type = \"object\", properties = { scope = { type = \"string\", pattern = \"x\" } } }";
+    let (code, _, _) = refused(with_plan(&stage("breakdown", &[], odd), vec![]));
+    assert_eq!(code, "pack_invalid");
+}
+
+#[test]
+fn a_stage_rule_or_item_id_over_64_is_pack_invalid() {
+    let long = "s".repeat(65);
+    let at_most = "s".repeat(64);
+    assert!(
+        with_plan(&format!("{}{}", stage(&at_most, &[&at_most], SCOPE), plan_rule(&at_most)), vec![]).is_ok()
+    );
+    for body in [
+        stage(&long, &[], SCOPE),
+        plan_rule(&long),
+        stage("breakdown", &[], SCOPE).replace("id = \"work\"", &format!("id = \"{long}\"")),
+    ] {
+        let (code, message, details) = refused(with_plan(&body, vec![]));
+        assert_eq!(
+            (code.as_str(), &details["reference"]),
+            ("pack_invalid", &serde_json::json!(long)),
+            "{body}"
+        );
+        assert!(message.contains("longer than 64"), "{message}");
+    }
+}
+
+#[test]
+fn a_rule_id_two_packs_declare_is_claimed() {
+    let other = source(Origin::OutOfTree, "audits", &["code"], &plan_rule("scoped"));
+    let (code, message, details) = refused(with_plan(&plan_rule("scoped"), vec![other]));
+    assert_eq!((code.as_str(), &details["reference"]), ("pack_invalid", &serde_json::json!("scoped")));
+    assert!(message.contains("already claimed by the plan pack"), "{message}");
 }
 
 /// Every declared ID, a question's included, is at most 64 characters, so a reply can always show

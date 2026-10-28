@@ -222,18 +222,20 @@
         "crates/planroom/tests/s03_plan.rs::accepted_plan_is_version_2",
         "crates/planroom/tests/s03_plan.rs::version_diff_renders_in_the_shared_view",
         "crates/kernel/tests/lint.rs::next_action_needs_done_test",
+        "crates/kernel/tests/lint.rs::wbs_100_percent_rule",
+        "crates/kernel/tests/lint.rs::mece_overlap",
+        "crates/planroom/tests/intent.rs::intent_list_and_version_round_trip",
+        "crates/planroom/tests/intent.rs::propose_from_stdin_writes_ghosts_and_no_file",
+        "crates/planroom/tests/intent.rs::ask_stage_returns_the_method_checklist",
         "tests/e2e/src/plan.spec.ts",
         "crates/planroom/tests/budgets.rs::s3_cache_hit_rate_at_least_0_6_after_the_first_stage"
       ],
       "due": {
         "crates/planroom/tests/s03_plan.rs::stages_produce_ghosts_until_accepted": "M1",
-        "crates/planroom/tests/s03_plan.rs::agent_accept_is_person_required": "M1",
         "crates/planroom/tests/s03_plan.rs::next_actions_touch_the_three_targets": "M2",
-        "crates/planroom/tests/s03_plan.rs::lint_flags_a_missing_done_test": "M1",
         "crates/planroom/tests/s03_plan.rs::lint_flags_a_vague_action": "M2",
         "crates/planroom/tests/s03_plan.rs::accepted_plan_is_version_2": "M2",
         "crates/planroom/tests/s03_plan.rs::version_diff_renders_in_the_shared_view": "M2",
-        "crates/kernel/tests/lint.rs::next_action_needs_done_test": "M1",
         "tests/e2e/src/plan.spec.ts": "M2",
         "crates/planroom/tests/budgets.rs::s3_cache_hit_rate_at_least_0_6_after_the_first_stage": "M1"
       }

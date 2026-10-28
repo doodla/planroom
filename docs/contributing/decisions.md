@@ -119,6 +119,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 103 | Five languages' formats and queries: queries compiled only to extract, every built-in bounded, and hint keys masked | DR-9, DR-12, DR-46, DR-47, DR-83, DR-91, DR-100 | extended, amends DR-83 and DR-91 | the merge of M1's formats and queries for five languages |
 | 104 | Git history, an owner check before every git call, and another user's repo skipped with no command | DR-12, DR-16, DR-47, DR-74, DR-78, DR-79, DR-85, DR-86, DR-92 | extended, amends DR-16, DR-79, DR-86 and DR-92 | the merge of M1's git history adapter |
 | 105 | Pane sections with row keys and a 7-row page, the mod's lines from the string catalog, and one budget for `focus` | DR-54, DR-57, DR-65, DR-77, DR-82 | extended, amends DR-54 and DR-57 | the merge of M1's pane sections |
+| 106 | The plan pack's stages and lint, the deterministic `intent` leaves, and `ask stage` | DR-15, DR-23, DR-52, DR-66, DR-89, DR-101 | extended, amends DR-5, DR-23, DR-66, DR-92 and DR-94 | the merge of M1's plan pack |
 
 ## Where the design reviews disagreed
 
@@ -241,7 +242,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-5: Base required; field-level authored revisions
 
-- **Status:** accepted. Amended in review rounds 1, 2 and 3.
+- **Status:** accepted. Amended in review rounds 1, 2 and 3. Amended by DR-106.
 - **Starting point:** replaced "Optimistic concurrency on entity versions."
 - **Origin:** field-level compare-and-set from the simplicity-first design (§3.9); `base_required` from the concurrency-first design (§3.7); separating fact changes from user revisions from the extensibility-first design (§3.10).
 - **Context:** R10 says user-authored state is never last-writer-wins. The simplicity-first design's check `request.base ⊆ current` passes for an empty base, so a write with no base was last-writer-wins (a fatal flaw a design review found). Whole-entity versions make a rename and a regroup of the same node conflict for no reason, and a rescan that bumps an entity's version makes a person's pending edit stale.
@@ -260,6 +261,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 1:** compare-and-set compares writer instances, not actors (D1, correctness-2), and accepting is a new write (D3, correctness-4). Contracts gain `Event.client` and `WriteCommon.client`.
 - **Amended in review round 2:** an applied `undo` sets the authored revision of every field it changes back, so a write from an older base conflicts with it. An Artifact writer instance is one page load, `artifact:<uid>:<instance>`, so a viewer's two devices conflict like two tabs (E4, correctness-5, correctness-7) [DR-61].
 - **Amended in review round 3:** a person's field wins over any automatic write. An auto-enabled effect, a prefill or an `infer` output never sets a field whose current value comes from a person's edit, whatever its base, and its decision is recorded as `Superseded`, with no card (F1, correctness-1). A canvas edit that another tab flushes keeps its minting tab's client ID, so its compare-and-set is that tab's (F3, correctness-3) [DR-73].
+- **Amended by DR-106:** `intent new` and `intent version` take no base: a new project is refused when its ID is taken and a tag when its label is live; each stores its commit's own snapshot `seq` as the edit's base and, with no `--idem`, mints a fresh key.
 - **Sources (checked 2026-10-25):** candidate-simplicity §3.9; candidate-concurrency-agents §3.7; candidate-extensibility §3.10; the design reviews (the fatal flaw in the simplicity-first design; field-level compare-and-set; fact version separate from user version).
 
 ## DR-6: The mod reaches the engine through the CLI
@@ -551,7 +553,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-23: Plan stages with their methods and structural lint
 
-- **Status:** accepted. Amended in review round 1.
+- **Status:** accepted. Amended in review round 1. Amended by DR-106.
 - **Starting point:** extended "Structural lint runs in code; semantic lint goes to Jev."
 - **Origin:** the concurrency-first design (§6.1); a design review noted the simplicity-first design reduced R5's methods to a sentence.
 - **Context:** R5 names the methods per stage (Jobs-to-be-Done and laddering, SMART and non-goals, MECE and the WBS 100% rule, GTD and HTN, MoSCoW and an MVP line, pre-mortem, lint), and S3's lint depends on them.
@@ -559,6 +561,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Alternatives rejected:** a generic "stage with a prompt" (the simplicity-first design).
 - **Consequences:** contracts gain the `covers` rule type for the 100% rule; tests `s03_plan.rs`, `kernel/tests/lint.rs`.
 - **Amended in review round 1:** stages declare the `kernel.item` types they write, with prop schemas, instead of plan-pack kinds [DR-45]. Pack `[[rules]]` lose `forbid_edge`: boundary rules are intended-layer edits only, so one violation has one report path (extensibility-11). every stage shares one plan-pack prefix, the planning rules and the union `PlanProposal` schema, with a 1-hour TTL. The stage's method goes in the uncached tail, so a plan's later stages read the cache. The budget test asserts a hit-rate floor of 0.6 after the first stage (cost-6, principles-6).
+- **Amended by DR-106:** the rule types `covers` (the WBS 100% rule) and `disjoint` (MECE) count a subject's children of the rule's kinds that pass its prop tests; the four checks no rule type can express yet (a ladder under 2 rungs, no non-goal, no MVP line, a Must below the line) wait for M2.
 - **Sources (checked 2026-10-25):** KICKOFF R5; candidate-concurrency-agents §6.1; the design reviews.
 
 ## DR-24: Duties under leases instead of a jobs API
@@ -1454,7 +1457,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-66: An agent surface that reports errors, takes proposals inline and brings the diff back
 
-- **Status:** accepted (decided in review round 2). Amended in review round 3.
+- **Status:** accepted (decided in review round 2). Amended in review round 3. Amended by DR-106.
 - **Starting point:** none; implements principle 2's agent interfaces, principle 1's "interrupt a person only for decisions only they can make" and R8's "its result comes back as a diff for review".
 - **Origin:** review round 2: principles-1, principles-3 and principles-7; the minor findings principles-10, principles-11 and principles-12.
 - **Context:**
@@ -1481,6 +1484,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: S9's hand-off flow goes from report to the review card with no keystroke.
   - It amends DR-21, DR-22, DR-25, DR-27 and DR-54.
 - **Amended in review round 3:** `invalid_argument` carries the leaf's synopsis and its `schema --command LEAF` handle in `details` and `hint`, so a wrong tool argument costs one small read (principles-6) [DR-21]. Test `packages/mod/src/tools.test.ts::a_wrong_argument_returns_the_leaf_synopsis`.
+- **Amended by DR-106:** plan items are written through `intent propose`, whose `PlanProposal` fixes their fields; `edit set`, `text` and `propose` wait for a later milestone.
 - **Sources (checked 2026-10-26):** KICKOFF principles 1 and 2, R8, S9 and S14; [mod-spike] (A-4: a tool result is a string or content blocks); review round 2 principles-1, principles-3, principles-7, principles-10, principles-11 and principles-12.
 
 ## DR-67: Paired owner devices, and inbox rows only from the mod
@@ -2442,7 +2446,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-92: The truth comparator's floor, edit's first ops, the dirty count's git call, and test-only seams
 
-- **Status:** accepted (decided at the merges of M1's truth comparator, discovery, person authority and edit work, 2026-10-27). Amended by DR-104.
+- **Status:** accepted (decided at the merges of M1's truth comparator, discovery, person authority and edit work, 2026-10-27). Amended by DR-104 and DR-106.
 - **Starting point:** extended DR-71 (as DR-85 amended it), DR-73, DR-75, DR-86, DR-89 and DR-91.
 - **Origin:** the merges of the truth comparator, the dirty-repo count, person authority and the `edit` leaf, each read against the docs by an independent check or at merge.
 - **Context:**
@@ -2473,6 +2477,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `crates/testkit/tests/truth.rs`; `s01_first_look.rs::truth_recall_never_drops`; `edit.rs::a_base_past_the_head_is_refused`, `an_http_write_without_its_client_is_refused`; the git adapter's `counting_uncommitted_files_runs_no_filter_the_repo_or_a_submodule_names`; `server_auth.rs::an_expired_or_reused_code_is_refused`; `open.rs`.
   - It amends DR-71 (the dirty count's git call) and DR-91 (when `set`, `text` and `propose` arrive).
 - **Amended by DR-104:** `PLANROOM_TEST_EUID` joins the test-only seams: in a debug build it stands in for the effective user ID, release builds compile it out, and the mod sets it empty for every engine run.
+- **Amended by DR-106:** of edit's later ops, `set`, `text` and `propose` stay out of M1: plan items are written through `intent propose`.
 - **Sources (checked 2026-10-27):** `crates/testkit/src/truth.rs`; `crates/planroom/src/app/{edit, open, dirty}.rs`; `crates/planroom/src/server/auth.rs`; `crates/extract/src/git.rs`; [Testing strategy](architecture.md#testing-strategy); [Contracts](contracts.md).
 
 ## DR-93: The model adapter's crate edges, its transport's crypto provider, and an environment variable's own hint
@@ -2501,7 +2506,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-94: Declared IDs at most 64 characters, and the listing's own left-out count
 
-- **Status:** accepted (decided at the merge of M1's questions and `ask`, 2026-10-27).
+- **Status:** accepted (decided at the merge of M1's questions and `ask`, 2026-10-27). Amended by DR-106.
 - **Starting point:** extended DR-15, DR-46 and DR-86.
 - **Origin:** the merge of the questions work, read against the docs by an independent check.
 - **Context:**
@@ -2518,6 +2523,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: the pack manifest's ID comment; the `truncated` row's `entries_left_out`.
   - Tests: `packs.rs::a_declared_id_past_64_characters_is_refused`.
   - Known gap, for M2's linkers: `path` misses a route that enters a repo through its root file and leaves toward a block inside it, since roll-up lifts an edge into that file to the repo and steps an edge out of it down to the file.
+- **Amended by DR-106:** the 64-character bound covers stage, rule and item-type IDs too, and a plan item's key is `[a-z0-9][a-z0-9_-]{0,63}`, never `project`.
 - **Sources (checked 2026-10-27):** `crates/planroom/src/packs/validate.rs` (`syntax`, `bounded`); `crates/planroom/src/app/ask.rs`; [Contracts](contracts.md#pack-manifest).
 
 ## DR-95: The check gates' edges: what a budgets raise is, how the baseline and the release are found, and what the secret scan exempts
@@ -2814,3 +2820,31 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Known gaps: below about 48 columns two long choice labels side by side can overflow the pane; the guard's verdict reasons, the tool descriptions, `room-args.ts`'s usage line, `live.ts`'s line, three of `engine.ts`'s lines and `/room`'s "+N more" are still written in the mod; no row is selected until a row key selects one, though architecture.md says an action key acts on the first row until then (the key map's action keys land with it); `room_query` asks for the full `focus` until the band and tools pass `--detail summary`; the resolver's source build takes no lock, so a reload mid-build can offer Build again; the all-surfaces sweep of every fallback pane, the not-yet-a-workspace state and every error frame is the surface sweep's, at M1's end.
   - Tests: `packages/ui/src/rows.test.ts`; `packages/mod/plugin-tests/surfaces.test.tsx` (`no_decision_shows_next_on_every_surface`, `drift_and_who_top_rows_carry_row_keys`, `compact_keeps_the_top_diff_line`, `pane_shows_the_engines_summary_line`, `a_check_again_press_refreshes_the_pane_with_no_way_back`, `a_running_source_build_offers_no_second_build`); `crates/planroom/tests/budgets.rs::focus_keeps_to_one_budget`; `crates/planroom/tests/focus.rs::focus_detail_summary_drops_the_minimap_and_keeps_the_rest`; the goldens `focus-no-repos.json` and `map-container.json`.
 - **Sources (checked 2026-10-28):** `packages/mod/src/{layout, register, engine, fallback}.ts`; `packages/ui/src/{rows, text}.ts`; `crates/planroom/src/app/focus.rs`; `crates/xtask/src/generate.rs`; `crates/planroom/text/en.toml`; [The mod](architecture.md#the-mod); [Contracts](contracts.md).
+
+## DR-106: The plan pack's stages and lint, the deterministic `intent` leaves, and `ask stage`
+
+- **Status:** accepted (decided at the merge of M1's plan pack, 2026-10-28).
+- **Starting point:** extended DR-15, DR-23, DR-52, DR-66, DR-89 and DR-101; amends DR-5, DR-23, DR-66, DR-92 and DR-94.
+- **Origin:** the merge of M1's plan pack, lint, the deterministic `intent` leaves and `ask stage`, read against the docs by independent checks over two rounds.
+- **Context:**
+  - S3 plans a change in stages, each with a method and lint, and attaches its next actions to the map. M1 builds the deterministic part: the plan pack's data, structural lint, writing items, versions and listings, and the stage checklist the chat agent reads. `intent next`, where the engine asks Claude, comes from recordings next.
+  - DR-5 required a base on every write to authored state, but a new project and a version tag have nothing to compare a base against. DR-23 named rule types that can't express every stage's check. DR-66 and DR-92 left `edit set`, `text` and `propose` open for writing plan items.
+- **Decision:**
+  - **The plan pack.** `packs/plan/` declares seven stages, each with its method, the item types it writes with their fields, its checklist (`prompt`, one step per non-blank line) and its lint rule IDs, and nine rules of the types `requires_prop`, `requires_edge`, `min_children`, `covers` and `disjoint`. A stage, method or rule lives only in pack data; the kernel reads it.
+  - **Rule types (amends DR-23).** `covers` is the WBS 100% rule: a subject whose counted children don't cover its own `prop` values. `disjoint` is MECE: a subject two of whose counted children share a value of `prop`. A child counts when it is of the rule's `kinds` and passes its prop tests. The four checks no rule type can express yet (a ladder under 2 rungs, no non-goal, no MVP line, a Must below the line) wait for M2.
+  - **No base for a new project or a tag (amends DR-5).** `intent new` and `intent version` take no base: one puts a new project, refused when its ID is taken, and the other tags the head, refused when its label is live. Each stores its commit's own snapshot `seq` as the edit's base and, with no `--idem`, mints a fresh key, so a retry meets that refusal instead of replaying.
+  - **Items are written through `intent propose` (amends DR-66 and DR-92).** `PlanProposal` fixes an item's key, type, name, parent, props and touches; re-proposing a key sets only the fields that differ and adds new targets, and an absent parent keeps an existing item where it is. `edit set`, `text` and `propose` wait for a later milestone. A proposal that changes nothing is `invalid_argument` with `field` `items`, since a commit needs an event and an undo handle. A person's proposal into a project that waits as a ghost names `field` `project`; one onto a ghost parent names `items[i].parent`, and either carries the ghost and its exact `review` in `ghosts`. A parent change that closes a cycle names the proposal's item the cycle runs through.
+  - **IDs (amends DR-94).** A project is `plan:<slug>:project` and an item `plan:<slug>:<key>`, each key `[a-z0-9][a-z0-9_-]{0,63}` and never `project`. A slug is the text as lowercase words, at most 48 characters, used only when redaction leaves the text as it is, since an ID is never masked; otherwise it is `p-` and 8 hex characters of the text's sha256. DR-94's 64-character bound covers stage, rule and item-type IDs too.
+  - **The proposal file (beside DR-52 and DR-101).** `intent propose --file F` reads a plain file of at most 64 KiB from anywhere under the workspace root, links followed, but never its state directory or a git directory; `--file -` reads stdin, so a chat proposal writes no file.
+  - **Listings.** `intent list` with several projects and none named lists every project without items. A page cuts an entry too large for it alone (its touches, pending edits and review handles) and counts those entries in `entries_cut`, even on the last page. Version 1 is tagged automatically only once M2 accepts a batch; in M1 a person tags each version.
+  - **`ask stage S [PROJECT]`** returns the stage's checklist, the item types it writes with their fields, and for the named or only project its items of those types, the stage's lint findings and the blocks the plan touches.
+- **Alternatives rejected:**
+  - A base on `intent new` and `intent version`: there is no prior state of a new project or a tag to compare it against, and a retry would replay a second project or tag.
+  - `edit set` and `text` for plan items now: two ways to write an item's fields, one of which skips the proposal's checks.
+  - An ok reply for a proposal that changes nothing: it would carry no event and no undo handle.
+  - Listing a project's items when several projects exist and none is named: which project's is a guess.
+- **Consequences:**
+  - Contracts: `IntentNewReq`, `IntentVersionReq`, `IntentListReq`, `PlanProposal`, `ProposedItem`, `IntentListResult`, `PlanItem`, `LintResult`, `LintFinding`; `RuleType::Covers` and `Disjoint`; `StageDecl.prompt`; the empty states `no_intent`, `no_plan_items` and `no_findings`; `truncated`'s `entries_cut` for `intent list`; `path_refused`'s proposal-file reach.
+  - Known gaps: `ask stage` and `intent lint` read the built-in packs only, as other reads do until the pack set loads a workspace's; the four M2 stage checks; an automatic version 1.
+  - Tests: `crates/planroom/tests/s03_plan.rs`; `crates/planroom/tests/intent.rs`; `crates/planroom/tests/packs.rs`'s plan-pack validation tests; `budgets.rs::an_intent_list_page_keeps_to_its_budget_however_long_its_touch_ids`; the kernel's plan and lint unit tests.
+- **Sources (checked 2026-10-28):** `packs/plan/`; `crates/kernel/src/{plan, lint}.rs`; `crates/planroom/src/app/{intent, ask, confine, edit}.rs`; `crates/contract/src/plan.rs`; [Planning](architecture.md#planning-stages-ghosts-and-lint-r5); [Contracts](contracts.md).

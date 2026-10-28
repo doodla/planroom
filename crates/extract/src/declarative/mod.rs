@@ -83,7 +83,7 @@ use tree_sitter::{Parser, Query, QueryCursor, QueryCursorOptions, StreamingItera
 use crate::ids::{edge_id, hint_id, node_id};
 use crate::{RepoPath, RepoView, compile_regex, lines};
 use coerce::Prop;
-pub use coerce::{Fault, Form, fault};
+pub use coerce::{Fault, Form, breaks, fault};
 pub use comments::Marks;
 use template::{Env, Names, RefTemplate, Template, Val, Var};
 

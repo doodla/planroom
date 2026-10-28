@@ -837,6 +837,86 @@
             "command",
             "args"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "intent_new"
+            },
+            "args": {
+              "$ref": "#/$defs/IntentNewReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "intent_propose"
+            },
+            "args": {
+              "$ref": "#/$defs/ProposeReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "intent_lint"
+            },
+            "args": {
+              "$ref": "#/$defs/LintReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "intent_version"
+            },
+            "args": {
+              "$ref": "#/$defs/IntentVersionReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "intent_list"
+            },
+            "args": {
+              "$ref": "#/$defs/IntentListReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
         }
       ],
       "description": "One variant per catalogue leaf; the request travels as `args`."
@@ -881,7 +961,12 @@
             "doctor",
             "edit",
             "open",
-            "review"
+            "review",
+            "intent new",
+            "intent propose",
+            "intent lint",
+            "intent version",
+            "intent list"
           ]
         },
         {
@@ -3430,6 +3515,119 @@
       "additionalProperties": true,
       "description": "`planroom.inbox/v1`: one row a viewer's page writes to `inbox/{self}/events/{docId}`. Import\nvalidates it, and takes the author from the path, never from the body: a field the row doesn't\ndefine, such as a forged `actor`, is ignored."
     },
+    "IntentListReq": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The project whose items to list: its full ID, its slug or its exact name.",
+          "default": null
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The cursor `meta.next` gave, to read the page after it."
+        }
+      },
+      "description": "`planroom intent list [--project P] [--cursor C]`: every project, and the items of the named or\nonly one."
+    },
+    "IntentListResult": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "One engine-authored line, which can name the projects.",
+          "x-redact": true
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlanProject"
+          }
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlanItem"
+          },
+          "description": "The named or only project's items: live ones first, then ghosts, each by stage order, then\nID."
+        },
+        "empty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Empty"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "summary",
+        "projects",
+        "items"
+      ],
+      "description": "What `intent list` returns."
+    },
+    "IntentNewReq": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "What the plan is for, such as \"Add retries to the worker\"."
+        },
+        "base": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The `seq` of the view you acted on; required when the command writes user-authored state.",
+          "maximum": 9007199254740991
+        },
+        "idem": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The idempotency key; derived from the request when absent."
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The project the write belongs to."
+        },
+        "client": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending\nedits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an\nagent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.",
+          "default": null
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "description": "`planroom intent new TEXT`: a new project, named by `TEXT`."
+    },
     "IntentNextReq": {
       "type": "object",
       "properties": {
@@ -3479,6 +3677,55 @@
         }
       },
       "description": "`planroom intent next [--stage S]`: draft a plan stage's items as ghosts."
+    },
+    "IntentVersionReq": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "The tag, such as `v2`, which `diff --from` takes back."
+        },
+        "base": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The `seq` of the view you acted on; required when the command writes user-authored state.",
+          "maximum": 9007199254740991
+        },
+        "idem": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The idempotency key; derived from the request when absent."
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The project the write belongs to."
+        },
+        "client": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending\nedits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an\nagent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.",
+          "default": null
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "description": "`planroom intent version LABEL`: a person's tag on the project's plan at the current `seq`."
     },
     "ItemType": {
       "type": "object",
@@ -3890,6 +4137,65 @@
       ],
       "description": "`[[linkers]]`: a built-in linker and its options."
     },
+    "LintFinding": {
+      "type": "object",
+      "properties": {
+        "rule": {
+          "type": "string",
+          "description": "The rule's ID, as its pack declares it."
+        },
+        "stage": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The first stage whose lint runs the rule."
+        },
+        "subject": {
+          "$ref": "#/$defs/NodeId"
+        },
+        "name": {
+          "type": "string",
+          "x-redact": true
+        },
+        "message": {
+          "type": "string",
+          "description": "The rule's message: pack text."
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The values the rule found missing or shared, such as a scope tag no child covers.",
+          "x-redact": true
+        },
+        "related": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NodeId"
+          },
+          "description": "The other items involved, such as two children that overlap."
+        },
+        "handles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Handle"
+          },
+          "description": "`ask stage STAGE PROJECT`, the stage's checklist."
+        }
+      },
+      "required": [
+        "rule",
+        "subject",
+        "name",
+        "message",
+        "values",
+        "related",
+        "handles"
+      ],
+      "description": "One rule a subject breaks."
+    },
     "LintReq": {
       "type": "object",
       "properties": {
@@ -3903,6 +4209,47 @@
         }
       },
       "description": "`planroom intent lint [--project P]`: the plan's lint findings."
+    },
+    "LintResult": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "description": "One engine-authored line, which can name the items.",
+          "x-redact": true
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LintFinding"
+          }
+        },
+        "empty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Empty"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "summary",
+        "findings"
+      ],
+      "description": "What `intent lint` returns: the project's structural lint findings."
     },
     "LiveHead": {
       "type": "object",
@@ -5022,6 +5369,169 @@
       ],
       "description": "What `person init` returns: the registered key's fingerprint and when and from where it was\nregistered."
     },
+    "PlanItem": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/NodeId"
+        },
+        "name": {
+          "type": "string",
+          "x-redact": true
+        },
+        "item_type": {
+          "type": "string",
+          "description": "Its `type` prop, such as `next_action`."
+        },
+        "stage": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The first stage that writes its type."
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "`applied` for an item in the model, `ghost` for one only a pending ghost holds."
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "touches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NodeId"
+          },
+          "description": "What it touches: its `kernel.touches` edges' targets, pending ones included."
+        },
+        "pending": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventId"
+          },
+          "description": "Its pending ghost edits, in `seq` order."
+        },
+        "handles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Handle"
+          },
+          "description": "The review a person runs to accept each of its first pending ghosts."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "item_type",
+        "status",
+        "touches",
+        "pending",
+        "handles"
+      ],
+      "description": "One plan item."
+    },
+    "PlanProject": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/NodeId"
+        },
+        "name": {
+          "type": "string",
+          "x-redact": true
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "`applied`, or `ghost` for an agent's project no person has accepted."
+        },
+        "items": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Its items in the model."
+        },
+        "ghosts": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Its items and item edits waiting as ghosts."
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlanVersion"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "status",
+        "items",
+        "ghosts",
+        "versions"
+      ],
+      "description": "One project."
+    },
+    "PlanProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The project: its full ID, its slug alone or its exact name; the only project when absent.",
+          "default": null
+        },
+        "stage": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The stage the batch belongs to; when given, every item's type is one it writes.",
+          "default": null
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProposedItem"
+          }
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "description": "One batch of plan items, read once from stdin or `--file` by `intent propose` and turned into\nevents. It is a request body, never stored or read back, so it carries no `format` tag: the\ncommand catalogue's requests and results are its contract. It is also the one schema every\nplan stage proposes in."
+    },
+    "PlanVersion": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "A handle a caller passes back, such as `diff --from v1`, so it is never masked; `intent\nversion` refuses a label redaction would change."
+        },
+        "seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "label",
+        "seq"
+      ],
+      "description": "A version tag on a project's plan."
+    },
     "Policy": {
       "type": "object",
       "additionalProperties": false,
@@ -5246,6 +5756,51 @@
         "file"
       ],
       "description": "`planroom intent propose --file F|-`: plan items proposed as ghosts, one batch."
+    },
+    "ProposedItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "The item's key within its project: `[a-z0-9][a-z0-9_-]{0,63}`, never `project`."
+        },
+        "type": {
+          "type": "string",
+          "description": "The item type, such as `next_action`, which a loaded plan stage declares."
+        },
+        "name": {
+          "type": "string"
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A key in this batch, a key of the project's items, or a full item ID of the project. When\nabsent, a new item goes under the project and an existing one keeps its parent.",
+          "default": null
+        },
+        "props": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The props the item type's schema declares, by name.",
+          "default": {}
+        },
+        "touches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the item touches: each a node ID, an ID suffix or a name on the map.",
+          "default": []
+        }
+      },
+      "required": [
+        "key",
+        "type",
+        "name"
+      ],
+      "description": "One proposed item. A key the project's model holds sets the fields that differ; any other key\nis a new item."
     },
     "Provenance": {
       "oneOf": [
@@ -5950,9 +6505,10 @@
         "requires_prop",
         "requires_edge",
         "min_children",
-        "covers"
+        "covers",
+        "disjoint"
       ],
-      "description": "The four lint rule types."
+      "description": "The five lint rule types. `covers` finds a subject whose counted children don't cover its own\n`prop` values (the WBS 100% rule), and `disjoint` one two of whose counted children share a\nvalue of `prop` (MECE)."
     },
     "SampleUse": {
       "type": "object",

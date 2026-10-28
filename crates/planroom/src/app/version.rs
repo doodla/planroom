@@ -72,6 +72,11 @@ const RESULTS: &[(&str, &str)] = &[
     ("edit", "EditResult"),
     ("open", "OpenResult"),
     ("review", "ReviewResult"),
+    ("intent new", "EditResult"),
+    ("intent propose", "EditResult"),
+    ("intent lint", "LintResult"),
+    ("intent version", "EditResult"),
+    ("intent list", "IntentListResult"),
 ];
 
 /// `schema --command LEAF`: the leaf's request and result types with their `$defs` closure.

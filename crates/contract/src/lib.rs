@@ -16,6 +16,7 @@ pub mod model;
 pub mod models;
 mod open_set;
 pub mod pack;
+pub mod plan;
 pub mod remote;
 pub mod requests;
 pub mod resolver;
@@ -57,6 +58,10 @@ pub use pack::{
     KindDecl, LanguageDecl, LensDecl, LinkerDecl, ModelTier, PREDICATE_PARAMS, PackFile, PackRecord, Param,
     ParamNames, PromptDecl, PromptRole, QuestionDecl, RelationDecl, RuleDecl, RuleType, Shape, ShapeStep,
     StageDecl, SuggestionDecl,
+};
+pub use plan::{
+    IntentListReq, IntentListResult, IntentNewReq, IntentVersionReq, LintFinding, LintResult, PlanItem,
+    PlanProject, PlanProposal, PlanVersion, ProposedItem,
 };
 pub use remote::{
     Ack, AckStatus, Answer, DbBatch, DbOp, DbWrite, ImportCounts, ImportLine, ImportResult, ImportedRow,

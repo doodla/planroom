@@ -59,7 +59,14 @@ test("an unknown command or a broken quote is one line naming the fix", () => {
 test("typeahead offers the command words that continue the draft", () => {
   expect(completions("/room m", 7, leaves).map((s) => s.text)).toEqual(["map"]);
   const all = completions("/room ", 6, leaves).map((s) => s.text);
-  expect(all).toEqual(["help", ...leaves.map((l) => l.name)]);
+  // A leaf of two words, such as `intent new`, offers its first word once.
+  const firsts = [...new Set(leaves.map((l) => l.name.split(" ")[0]))];
+  expect(all).toEqual(["help", ...firsts]);
+  expect(completions("/room intent ", 13, leaves).map((s) => s.text)).toEqual(
+    leaves
+      .filter((l) => l.name.startsWith("intent "))
+      .map((l) => l.name.split(" ")[1]),
+  );
   expect(completions("/room map --le", 14, leaves)).toEqual([]);
   expect(completions("/roomy m", 8, leaves)).toEqual([]);
   expect(completions("hello /room m", 13, leaves)).toEqual([]);

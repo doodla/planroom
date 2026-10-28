@@ -3,7 +3,8 @@
 //!
 //! Alone, or as `ask kinds`, it lists what is loaded: every loaded pack's kinds, lenses and
 //! questions, each with its owning pack, a question with its arguments and one-line summary, and
-//! the built-in questions this build serves, marked. Nothing else: a built-in question this build
+//! the built-in questions this build serves, marked: `kinds`, and `stage` while the plan pack is
+//! loaded. Nothing else: a built-in question this build
 //! doesn't serve yet, or a pack that isn't loaded, isn't listed. The listing needs no workspace,
 //! and pages under the leaf's budget with `--cursor`.
 //!
@@ -14,6 +15,12 @@
 //! `budget_tokens`, at most 3,000, else the leaf's 1,500) whatever the repo holds: every name and
 //! path a line quotes is cut short, an item that still doesn't fit drops its optional handles,
 //! then goes, and a `truncated` warning counts what was left out.
+//!
+//! `ask stage S [PROJECT]` serves a plan stage: its method checklist, one item per line, the item
+//! types it writes with their fields, and, for the named or only project, its items of those
+//! types, the stage's lint findings and the blocks the plan touches. An unknown stage is
+//! `not_found` before any store is read; with no store or no project, the checklist and the types
+//! come with the `no_intent` empty state, so the checklist works before any scan.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -30,13 +37,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::app::error::AppError;
-use crate::app::{Paged, Reply, map, workspace};
+use crate::app::{Paged, Reply, intent, map, workspace};
 use crate::packs::{self, Loaded};
 use crate::{live, text};
 
-/// The built-in question this build serves: the listing itself (DR-15). `stage`, `lint`,
-/// `missing` and `drift` join it as their packs and checks land.
+/// The built-in questions this build serves: the listing itself, and a plan stage while the plan
+/// pack is loaded (DR-15). `lint`, `missing` and `drift` join them as their packs and checks land.
 const KINDS: &str = "kinds";
+const STAGE: &str = "stage";
+/// `stage`'s budget: the `intent` leaves' (architecture.md, the Intent row).
+const STAGE_BUDGET: u32 = 1_500;
 /// The most a pack question's budget may be (DR-21).
 const MAX_BUDGET: u32 = 3_000;
 /// What the envelope around the result takes, in tokens: its fields, `meta` and the summary line
@@ -90,6 +100,9 @@ pub fn run(req: &AskReq, cwd: &Path) -> Result<Paged<AskResult>, AppError> {
     if req.cursor.is_some() {
         return Err(AppError::invalid_argument("cursor", "ask.cursor_question"));
     }
+    if question == STAGE && !intent::stages(loaded).is_empty() {
+        return stage(loaded, &req.args, cwd);
+    }
     let Some((_, decl)) = find_question(loaded, question) else {
         return Err(unknown(loaded, question));
     };
@@ -137,7 +150,7 @@ pub fn run(req: &AskReq, cwd: &Path) -> Result<Paged<AskResult>, AppError> {
     }
     let lines = Lines::new(&model.nodes, vocabulary, why_question(loaded));
     let items: Vec<AskItem> = answer_items(&answer, &lines);
-    let (result, warnings) = fit(decl, items, &asked);
+    let (result, warnings) = fit(&decl.id, question_budget(decl), items, &asked, None);
     let mut text = result.summary.clone();
     for item in &result.items {
         text.push_str(&format!("\n  {} · {}", item.id, item.why));
@@ -187,6 +200,9 @@ fn unknown(loaded: &Loaded, question: &str) -> AppError {
     let mut ids: Vec<&str> =
         loaded.packs.iter().flat_map(|p| &p.file.questions).map(|q| q.id.as_str()).collect();
     ids.push(KINDS);
+    if !intent::stages(loaded).is_empty() {
+        ids.push(STAGE);
+    }
     let near: Vec<&str> =
         ids.iter().copied().filter(|id| id.contains(question) || question.contains(id)).collect();
     let closest = within(if near.is_empty() { ids } else { near });
@@ -397,12 +413,19 @@ fn at(evidence: &[Evidence]) -> String {
 /// counts every item and names the first few. When an item doesn't fit, its optional handles go
 /// first, keeping its first, then the item itself; a reply that left items out carries a
 /// `truncated` warning that counts them.
-fn fit(decl: &QuestionDecl, mut items: Vec<AskItem>, asked: &str) -> (AskResult, Vec<Warning>) {
-    let budget = question_budget(decl) as usize;
+fn fit(
+    question: &str,
+    budget: u32,
+    mut items: Vec<AskItem>,
+    asked: &str,
+    summary: Option<&str>,
+) -> (AskResult, Vec<Warning>) {
+    let budget = budget as usize;
     let total = items.len();
-    let tokens = |items: &[AskItem]| sent_tokens(&answer_result(decl, items.to_vec(), total, asked));
+    let result = |items: Vec<AskItem>| answer_result(question, items, total, asked, summary);
+    let tokens = |items: &[AskItem]| sent_tokens(&result(items.to_vec()));
     if tokens(&items) <= budget {
-        return (answer_result(decl, items, total, asked), vec![]);
+        return (result(items), vec![]);
     }
     // A cut reply carries a warning, so the items get the budget less its room. An item takes at
     // least [`MIN_ITEM_TOKENS`], which caps how many can fit; the longest prefix that fits is
@@ -422,7 +445,7 @@ fn fit(decl: &QuestionDecl, mut items: Vec<AskItem>, asked: &str) -> (AskResult,
         }
     }
     items.truncate(fits);
-    let result = answer_result(decl, items, total, asked);
+    let result = result(items);
     let kept = result.items.len();
     let warning = Warning {
         code: WarningCode::Truncated,
@@ -432,8 +455,18 @@ fn fit(decl: &QuestionDecl, mut items: Vec<AskItem>, asked: &str) -> (AskResult,
     (result, vec![warning])
 }
 
-fn answer_result(decl: &QuestionDecl, items: Vec<AskItem>, total: usize, asked: &str) -> AskResult {
-    let summary = if items.is_empty() {
+/// The result that carries `items`, `total` of them in all: its summary is `summary` when given,
+/// else one that counts them and names the first few.
+fn answer_result(
+    question: &str,
+    items: Vec<AskItem>,
+    total: usize,
+    asked: &str,
+    summary: Option<&str>,
+) -> AskResult {
+    let summary = if let Some(summary) = summary {
+        summary.to_owned()
+    } else if items.is_empty() {
         text::get("ask.none_fit", &[("asked", &asked), ("count", &total)])
     } else {
         let names: Vec<String> =
@@ -441,7 +474,7 @@ fn answer_result(decl: &QuestionDecl, items: Vec<AskItem>, total: usize, asked: 
         let key = if total == 1 { "ask.summary_one" } else { "ask.summary" };
         text::get(key, &[("asked", &asked), ("count", &total), ("names", &names.join(", "))])
     };
-    AskResult { question: decl.id.clone(), summary, items, empty: None }
+    AskResult { question: question.to_owned(), summary, items, empty: None }
 }
 
 /// The tokens a reply carrying `result` takes, measured as it is sent: the result redacted or
@@ -478,6 +511,142 @@ fn empty_reply(decl: &QuestionDecl, empty: Empty, seq: Seq) -> Reply<AskResult> 
     let result =
         AskResult { question: decl.id.clone(), summary: line.clone(), items: vec![], empty: Some(empty) };
     Reply { text: line, result, seq, warnings: vec![] }
+}
+
+/// `ask stage S [PROJECT]`: the stage's checklist and item types, then, for the named or only
+/// project, its items of those types with their status, the stage's lint findings and the blocks
+/// the plan touches, within `stage`'s budget.
+fn stage(loaded: &Loaded, args: &[String], cwd: &Path) -> Result<Paged<AskResult>, AppError> {
+    let stages = intent::stages(loaded);
+    let arity = || {
+        let what = text::get(
+            "ask.arity",
+            &[("question", &STAGE), ("usage", &"stage S [PROJECT]"), ("count", &args.len())],
+        );
+        AppError::new(ErrorCode::InvalidArgument, &[("what", &what)]).details(json!({"field": "args"}))
+    };
+    let Some(given) = args.first() else { return Err(arity()) };
+    let Some(stage) = stages.iter().find(|s| &s.id == given) else {
+        let ids: Vec<&str> = stages.iter().map(|s| s.id.as_str()).collect();
+        let what = text::get(
+            "ask.stage_unknown",
+            &[("stage", &text::short(given, NAME_CHARS)), ("stages", &ids.join(", "))],
+        );
+        return Err(AppError::new(ErrorCode::NotFound, &[("what", &what)]).details(json!({"closest": ids})));
+    };
+    if args.len() > 2 {
+        return Err(arity());
+    }
+    let mut items: Vec<AskItem> = stage
+        .prompt
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .enumerate()
+        .map(|(n, line)| AskItem {
+            id: format!("{}:{}", stage.id, n + 1),
+            name: text::short(line, ITEM_NAME_CHARS),
+            why: line.to_owned(),
+            handles: vec![],
+        })
+        .collect();
+    let types = intent::item_types(&stages);
+    for item in &stage.items {
+        let fields: Vec<String> = types
+            .get(&item.id)
+            .into_iter()
+            .flatten()
+            .map(|(name, schema)| match schema.get("type").and_then(serde_json::Value::as_str) {
+                Some(kind) => format!("{name} ({kind})"),
+                None => name.clone(),
+            })
+            .collect();
+        let why = if fields.is_empty() {
+            text::get("ask.stage_type_bare", &[("type", &item.id)])
+        } else {
+            text::get("ask.stage_type", &[("type", &item.id), ("fields", &fields.join(", "))])
+        };
+        items.push(AskItem { id: item.id.clone(), name: item.id.clone(), why, handles: vec![] });
+    }
+    let (mut count, mut waiting, mut findings) = (0, 0, 0);
+    let mut empty = Some(intent::no_intent());
+    let mut seq = 0;
+    let store = workspace::find_root(cwd)
+        .map(|root| Store::open_existing(&workspace::store_path(&root)))
+        .transpose()?
+        .flatten();
+    if let Some(store) = store {
+        let snapshot = store.snapshot()?;
+        seq = snapshot.seq();
+        let folded = live::folded(&snapshot, &loaded.vocabulary)?;
+        let projects = planroom_kernel::plan::projects(&folded);
+        if let Some(project) = intent::current(&projects, args.get(1).map(String::as_str))? {
+            empty = None;
+            let mut all = planroom_kernel::plan::items_of(&folded, &project.id);
+            planroom_kernel::plan::order(&mut all, &stages);
+            let written: Vec<&str> = stage.items.iter().map(|t| t.id.as_str()).collect();
+            for item in all.iter().filter(|i| written.contains(&i.item_type.as_str())) {
+                count += 1;
+                let status = if item.live {
+                    waiting += usize::from(!item.pending.is_empty());
+                    text::get("ask.stage_accepted", &[])
+                } else {
+                    waiting += 1;
+                    text::get("ask.stage_waiting", &[])
+                };
+                let shown = intent::plan_item(item, &stages, seq);
+                items.push(AskItem {
+                    id: item.id.0.clone(),
+                    name: shown.name,
+                    why: text::get("ask.stage_item", &[("type", &item.item_type), ("status", &status)]),
+                    handles: shown.handles.into_iter().take(1).collect(),
+                });
+            }
+            let found = intent::findings(loaded, &folded, &project.id, |r| stage.lint.contains(&r.id));
+            findings = found.len();
+            for finding in found {
+                items.push(AskItem {
+                    id: finding.subject.0,
+                    name: finding.name,
+                    why: finding.message,
+                    handles: vec![],
+                });
+            }
+            let lines = Lines::new(&folded.model.nodes, &loaded.vocabulary, None);
+            let mut attached: Vec<&NodeId> = all.iter().flat_map(|i| &i.touches).collect();
+            attached.sort();
+            attached.dedup();
+            for id in attached {
+                let Some(node) = lines.nodes.get(id.0.as_str()) else { continue };
+                items.push(AskItem {
+                    id: id.0.clone(),
+                    name: text::short(&node.name, ITEM_NAME_CHARS),
+                    why: text::get("ask.stage_attached", &[]),
+                    handles: lines.show(id).into_iter().collect(),
+                });
+            }
+        }
+    }
+    let summary = text::get(
+        "ask.stage_summary",
+        &[
+            ("stage", &stage.id),
+            ("method", &text::short(&stage.method, NAME_CHARS)),
+            ("items", &count),
+            ("waiting", &waiting),
+            ("findings", &findings),
+        ],
+    );
+    let (mut result, warnings) = fit(STAGE, STAGE_BUDGET, items, &summary, Some(&summary));
+    result.empty = empty;
+    let mut text = result.summary.clone();
+    for item in &result.items {
+        text.push_str(&format!("\n  {} · {}", item.id, item.why));
+    }
+    if let Some(line) = result.empty.as_ref().and_then(|e| e.line.as_ref()) {
+        text.push_str(&format!("\n{line}"));
+    }
+    Ok(Paged::whole(Reply { text, result, seq, warnings }))
 }
 
 /// Where a listing page ends: its last entry's section, its place in the listing and the start of
@@ -597,6 +766,17 @@ fn entries(loaded: &Loaded) -> Vec<Entry> {
             handles: vec![],
         },
     ));
+    if !intent::stages(loaded).is_empty() {
+        out.push(Entry::new(
+            2,
+            AskItem {
+                id: STAGE.into(),
+                name: "stage S [PROJECT]".into(),
+                why: text::get("ask.builtin_stage", &[]),
+                handles: vec![],
+            },
+        ));
+    }
     out.sort_by(|a, b| (a.section, &a.key).cmp(&(b.section, &b.key)));
     out
 }
@@ -778,7 +958,7 @@ mod tests {
     #[test]
     fn many_items_keep_to_the_budget_and_count_what_was_left_out() {
         let items: Vec<AskItem> = (0..20_000).map(|i| item(&format!("ws:box:b{i:05}"), "b", 2)).collect();
-        let (result, warnings) = fit(&decl(None), items, "What web touches");
+        let (result, warnings) = fit("asked", question_budget(&decl(None)), items, "What web touches", None);
         assert!(sent_tokens(&result) <= 1_500);
         assert!(!result.items.is_empty() && result.items.len() < 100);
         assert_eq!(warnings[0].code, WarningCode::Truncated);
@@ -791,7 +971,8 @@ mod tests {
         assert_eq!(question_budget(&decl(Some(9_000))), 3_000);
         assert_eq!(question_budget(&decl(None)), 1_500);
         let long = format!("ws:box:{}", "x".repeat(20_000));
-        let (result, warnings) = fit(&decl(Some(9_000)), vec![item(&long, "x", 1)], "What x touches");
+        let budget = question_budget(&decl(Some(9_000)));
+        let (result, warnings) = fit("asked", budget, vec![item(&long, "x", 1)], "What x touches", None);
         assert!(result.items.is_empty());
         assert!(result.summary.contains("none fits"), "{}", result.summary);
         assert_eq!(warnings[0].details["kept"], 0);
@@ -799,7 +980,8 @@ mod tests {
         // ID whole.
         let mut asked = decl(None);
         asked.id = "q".repeat(crate::packs::ID_MAX);
-        let (result, _) = fit(&asked, vec![item("ws:box:a", "a", 1)], "What a touches");
+        let (result, _) =
+            fit(&asked.id, question_budget(&asked), vec![item("ws:box:a", "a", 1)], "What a touches", None);
         assert!(sent_tokens(&result) <= 1_500 && result.items.len() == 1, "{}", sent_tokens(&result));
     }
 

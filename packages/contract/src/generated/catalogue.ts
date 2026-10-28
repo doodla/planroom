@@ -225,11 +225,76 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "undo": "edit",
     "tool": null,
     "room": false
+  },
+  {
+    "name": "intent new",
+    "idea": "intent",
+    "summary": "Start a plan: a new project named by its text.",
+    "actor": "any",
+    "class": "change",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": false,
+    "undo": "edit",
+    "tool": "room_change",
+    "room": true
+  },
+  {
+    "name": "intent propose",
+    "idea": "intent",
+    "summary": "Propose plan items from a file or stdin; an agent's wait as ghosts for a person.",
+    "actor": "any",
+    "class": "change",
+    "budget_tokens": 1500,
+    "needs_base": true,
+    "spends": false,
+    "undo": "edit",
+    "tool": "room_change",
+    "room": true
+  },
+  {
+    "name": "intent lint",
+    "idea": "intent",
+    "summary": "The plan's lint findings: what each stage still lacks.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": false,
+    "undo": "query",
+    "tool": "room_change",
+    "room": true
+  },
+  {
+    "name": "intent version",
+    "idea": "intent",
+    "summary": "Tag the plan as it stands with a version label; a person's alone.",
+    "actor": "person_only",
+    "class": "change",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": false,
+    "undo": "edit",
+    "tool": null,
+    "room": true
+  },
+  {
+    "name": "intent list",
+    "idea": "intent",
+    "summary": "Every project, and the items of the one named, each ghost with its review.",
+    "actor": "any",
+    "class": "read",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": false,
+    "undo": "query",
+    "tool": "room_change",
+    "room": true
   }
 ];
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
-export const CATALOGUE_HASH = "0f92b1865c10d10138a91a03dd2c649588da1be523398fd6c32460d0efd1e639";
+export const CATALOGUE_HASH = "d32b2672b7a1740a7e9b889f7a3aaa867d595a7478903440a076684aeb33b41e";
 
 /** One pane the mod draws before the engine answers `focus` (DR-57). */
 export interface FallbackPane {

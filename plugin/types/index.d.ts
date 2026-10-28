@@ -32,6 +32,11 @@ export type CommandName =
       | "edit"
       | "open"
       | "review"
+      | "intent new"
+      | "intent propose"
+      | "intent lint"
+      | "intent version"
+      | "intent list"
     )
   | string;
 /**
@@ -299,6 +304,26 @@ export type Command =
   | {
       command: "review";
       args: ReviewReq;
+    }
+  | {
+      command: "intent_new";
+      args: IntentNewReq;
+    }
+  | {
+      command: "intent_propose";
+      args: ProposeReq;
+    }
+  | {
+      command: "intent_lint";
+      args: LintReq;
+    }
+  | {
+      command: "intent_version";
+      args: IntentVersionReq;
+    }
+  | {
+      command: "intent_list";
+      args: IntentListReq;
     };
 /**
  * The five fixed levels, from the plan down to the code.
@@ -886,12 +911,14 @@ export type StreamFrame =
  */
 export type ModelTier = "cheap" | "capable";
 /**
- * The four lint rule types.
+ * The five lint rule types. `covers` finds a subject whose counted children don't cover its own
+ * `prop` values (the WBS 100% rule), and `disjoint` one two of whose counted children share a
+ * value of `prop` (MECE).
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "RuleType".
  */
-export type RuleType = "requires_prop" | "requires_edge" | "min_children" | "covers";
+export type RuleType = "requires_prop" | "requires_edge" | "min_children" | "covers" | "disjoint";
 /**
  * What a prompt's output does: an inferred fact, or a proposal that lands as ghosts.
  *
@@ -1224,6 +1251,11 @@ export interface Card {
         | "edit"
         | "open"
         | "review"
+        | "intent new"
+        | "intent propose"
+        | "intent lint"
+        | "intent version"
+        | "intent list"
       )
     | string;
 }
@@ -1529,6 +1561,125 @@ export interface ReviewReq {
    * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
    */
   client: string | null;
+}
+/**
+ * `planroom intent new TEXT`: a new project, named by `TEXT`.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "IntentNewReq".
+ */
+export interface IntentNewReq {
+  /**
+   * What the plan is for, such as "Add retries to the worker".
+   */
+  text: string;
+  /**
+   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   */
+  base: number | null;
+  /**
+   * The idempotency key; derived from the request when absent.
+   */
+  idem: string | null;
+  /**
+   * The project the write belongs to.
+   */
+  project: NodeId | null;
+  /**
+   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   */
+  client: string | null;
+}
+/**
+ * `planroom intent propose --file F|-`: plan items proposed as ghosts, one batch.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ProposeReq".
+ */
+export interface ProposeReq {
+  /**
+   * The proposal's path, or `-` for stdin, so a proposal writes no file.
+   */
+  file: string;
+  /**
+   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   */
+  base: number | null;
+  /**
+   * The idempotency key; derived from the request when absent.
+   */
+  idem: string | null;
+  /**
+   * The project the write belongs to.
+   */
+  project: NodeId | null;
+  /**
+   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   */
+  client: string | null;
+}
+/**
+ * `planroom intent lint [--project P]`: the plan's lint findings.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "LintReq".
+ */
+export interface LintReq {
+  /**
+   * The project to lint; the current one when absent.
+   */
+  project: string | null;
+}
+/**
+ * `planroom intent version LABEL`: a person's tag on the project's plan at the current `seq`.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "IntentVersionReq".
+ */
+export interface IntentVersionReq {
+  /**
+   * The tag, such as `v2`, which `diff --from` takes back.
+   */
+  label: string;
+  /**
+   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   */
+  base: number | null;
+  /**
+   * The idempotency key; derived from the request when absent.
+   */
+  idem: string | null;
+  /**
+   * The project the write belongs to.
+   */
+  project: NodeId | null;
+  /**
+   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   */
+  client: string | null;
+}
+/**
+ * `planroom intent list [--project P] [--cursor C]`: every project, and the items of the named or
+ * only one.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "IntentListReq".
+ */
+export interface IntentListReq {
+  /**
+   * The project whose items to list: its full ID, its slug or its exact name.
+   */
+  project: string | null;
+  /**
+   * The cursor `meta.next` gave, to read the page after it.
+   */
+  cursor?: Cursor | null;
 }
 /**
  * What `schema --commands` returns: every leaf, summary first.
@@ -2053,6 +2204,11 @@ export interface Envelope {
         | "edit"
         | "open"
         | "review"
+        | "intent new"
+        | "intent propose"
+        | "intent lint"
+        | "intent version"
+        | "intent list"
       )
     | string;
   /**
@@ -2660,6 +2816,11 @@ export interface InboxRow {
         | "edit"
         | "open"
         | "review"
+        | "intent new"
+        | "intent propose"
+        | "intent lint"
+        | "intent version"
+        | "intent list"
       )
     | string;
   /**
@@ -2682,6 +2843,97 @@ export interface InboxRow {
    */
   sig?: string | null;
   [k: string]: unknown;
+}
+/**
+ * What `intent list` returns.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "IntentListResult".
+ */
+export interface IntentListResult {
+  /**
+   * One engine-authored line, which can name the projects.
+   */
+  summary: string;
+  projects: PlanProject[];
+  /**
+   * The named or only project's items: live ones first, then ghosts, each by stage order, then
+   * ID.
+   */
+  items: PlanItem[];
+  empty: Empty | null;
+}
+/**
+ * One project.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PlanProject".
+ */
+export interface PlanProject {
+  id: NodeId;
+  name: string;
+  /**
+   * An event's state; set at commit and changed only by `review` and `undo` events.
+   */
+  status: "applied" | "ghost" | "conflict" | "open" | "closed";
+  /**
+   * Its items in the model.
+   */
+  items: number;
+  /**
+   * Its items and item edits waiting as ghosts.
+   */
+  ghosts: number;
+  versions: PlanVersion[];
+}
+/**
+ * A version tag on a project's plan.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PlanVersion".
+ */
+export interface PlanVersion {
+  /**
+   * A handle a caller passes back, such as `diff --from v1`, so it is never masked; `intent
+   * version` refuses a label redaction would change.
+   */
+  label: string;
+  seq: number;
+}
+/**
+ * One plan item.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PlanItem".
+ */
+export interface PlanItem {
+  id: NodeId;
+  name: string;
+  /**
+   * Its `type` prop, such as `next_action`.
+   */
+  item_type: string;
+  /**
+   * The first stage that writes its type.
+   */
+  stage: string | null;
+  /**
+   * An event's state; set at commit and changed only by `review` and `undo` events.
+   */
+  status: "applied" | "ghost" | "conflict" | "open" | "closed";
+  parent: NodeId | null;
+  /**
+   * What it touches: its `kernel.touches` edges' targets, pending ones included.
+   */
+  touches: NodeId[];
+  /**
+   * Its pending ghost edits, in `seq` order.
+   */
+  pending: EventId[];
+  /**
+   * The review a person runs to accept each of its first pending ghosts.
+   */
+  handles: Handle1[];
 }
 /**
  * `planroom intent next [--stage S]`: draft a plan stage's items as ghosts.
@@ -2917,16 +3169,53 @@ export interface LinkerDecl {
   };
 }
 /**
- * `planroom intent lint [--project P]`: the plan's lint findings.
+ * One rule a subject breaks.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "LintReq".
+ * via the `definition` "LintFinding".
  */
-export interface LintReq {
+export interface LintFinding {
   /**
-   * The project to lint; the current one when absent.
+   * The rule's ID, as its pack declares it.
    */
-  project: string | null;
+  rule: string;
+  /**
+   * The first stage whose lint runs the rule.
+   */
+  stage: string | null;
+  subject: NodeId;
+  name: string;
+  /**
+   * The rule's message: pack text.
+   */
+  message: string;
+  /**
+   * The values the rule found missing or shared, such as a scope tag no child covers.
+   */
+  values: string[];
+  /**
+   * The other items involved, such as two children that overlap.
+   */
+  related: NodeId[];
+  /**
+   * `ask stage STAGE PROJECT`, the stage's checklist.
+   */
+  handles: Handle1[];
+}
+/**
+ * What `intent lint` returns: the project's structural lint findings.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "LintResult".
+ */
+export interface LintResult {
+  project: NodeId | null;
+  /**
+   * One engine-authored line, which can name the items.
+   */
+  summary: string;
+  findings: LintFinding[];
+  empty: Empty | null;
 }
 /**
  * `planroom.live-head/v1`: the small `db` document `live/head` the session writes last in each
@@ -3428,34 +3717,57 @@ export interface PersonKey {
   rekeyed: boolean;
 }
 /**
- * `planroom intent propose --file F|-`: plan items proposed as ghosts, one batch.
+ * One batch of plan items, read once from stdin or `--file` by `intent propose` and turned into
+ * events. It is a request body, never stored or read back, so it carries no `format` tag: the
+ * command catalogue's requests and results are its contract. It is also the one schema every
+ * plan stage proposes in.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "ProposeReq".
+ * via the `definition` "PlanProposal".
  */
-export interface ProposeReq {
+export interface PlanProposal {
   /**
-   * The proposal's path, or `-` for stdin, so a proposal writes no file.
+   * The project: its full ID, its slug alone or its exact name; the only project when absent.
    */
-  file: string;
+  project: string | null;
   /**
-   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   * The stage the batch belongs to; when given, every item's type is one it writes.
    */
-  base: number | null;
+  stage: string | null;
+  items: ProposedItem[];
+}
+/**
+ * One proposed item. A key the project's model holds sets the fields that differ; any other key
+ * is a new item.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ProposedItem".
+ */
+export interface ProposedItem {
   /**
-   * The idempotency key; derived from the request when absent.
+   * The item's key within its project: `[a-z0-9][a-z0-9_-]{0,63}`, never `project`.
    */
-  idem: string | null;
+  key: string;
   /**
-   * The project the write belongs to.
+   * The item type, such as `next_action`, which a loaded plan stage declares.
    */
-  project: NodeId | null;
+  type: string;
+  name: string;
   /**
-   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
-   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
-   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   * A key in this batch, a key of the project's items, or a full item ID of the project. When
+   * absent, a new item goes under the project and an existing one keeps its parent.
    */
-  client: string | null;
+  parent: string | null;
+  /**
+   * The props the item type's schema declares, by name.
+   */
+  props: {
+    [k: string]: unknown;
+  };
+  /**
+   * What the item touches: each a node ID, an ID suffix or a name on the map.
+   */
+  touches: string[];
 }
 /**
  * The exact arguments of the Artifact publish the session makes.

@@ -13,8 +13,9 @@ use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
     AskReq, Class, Command, CommandName, DoctorReq, EditReq, Envelope, ErrorCode, FindReq, FocusReq, Handle,
-    ImportReq, MapReq, Meta, OpenReq, PersonInitReq, ReviewReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq,
-    ServeReq, ShareReq, Size, StreamFrame, VersionReq, Warning, WarningCode, WatchReq,
+    ImportReq, IntentListReq, IntentNewReq, IntentVersionReq, LintReq, MapReq, Meta, OpenReq, PersonInitReq,
+    ProposeReq, ReviewReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq, ShareReq, Size, StreamFrame,
+    VersionReq, Warning, WarningCode, WatchReq,
 };
 use planroom_kernel::display::{sanitize, sanitize_lines};
 use planroom_kernel::redact;
@@ -77,6 +78,23 @@ enum Cmd {
     Open(OpenReq),
     /// Accept or reject one ghost or conflict, or pick a card a write dealt.
     Review(ReviewReq),
+    /// Plans: start one, propose its items, lint it, tag a version, list them.
+    #[command(subcommand)]
+    Intent(IntentCmd),
+}
+
+#[derive(Subcommand)]
+enum IntentCmd {
+    /// Start a plan: a new project named by its text.
+    New(IntentNewReq),
+    /// Propose plan items from a file or stdin; an agent's wait as ghosts for a person.
+    Propose(ProposeReq),
+    /// The plan's lint findings: what each stage still lacks.
+    Lint(LintReq),
+    /// Tag the plan as it stands with a version label; a person's alone.
+    Version(IntentVersionReq),
+    /// Every project, and the items of the one named, each ghost with its review.
+    List(IntentListReq),
 }
 
 #[derive(Subcommand)]
@@ -109,6 +127,11 @@ pub fn parse_leaf(command: &str, args: &[String]) -> Result<Command, clap::Error
         Cmd::Edit(req) => Command::Edit(req),
         Cmd::Open(req) => Command::Open(req),
         Cmd::Review(req) => Command::Review(req),
+        Cmd::Intent(IntentCmd::New(req)) => Command::IntentNew(req),
+        Cmd::Intent(IntentCmd::Propose(req)) => Command::IntentPropose(req),
+        Cmd::Intent(IntentCmd::Lint(req)) => Command::IntentLint(req),
+        Cmd::Intent(IntentCmd::Version(req)) => Command::IntentVersion(req),
+        Cmd::Intent(IntentCmd::List(req)) => Command::IntentList(req),
     })
 }
 
@@ -204,6 +227,27 @@ pub fn main() -> ExitCode {
         Cmd::Review(req) => {
             let name = Command::Review(req.clone()).name();
             finish_written(cli.json, &name.0, app::review::run(&req, &cwd, &caller, &mut Tty), started)
+        }
+        Cmd::Intent(IntentCmd::New(req)) => {
+            let name = Command::IntentNew(req.clone()).name();
+            finish_written(cli.json, &name.0, app::intent::new(&req, &cwd, &caller, &mut Tty), started)
+        }
+        Cmd::Intent(IntentCmd::Propose(req)) => {
+            let name = Command::IntentPropose(req.clone()).name();
+            let written = app::intent::propose(&req, &cwd, &caller, &mut std::io::stdin().lock(), &mut Tty);
+            finish_written(cli.json, &name.0, written, started)
+        }
+        Cmd::Intent(IntentCmd::Lint(req)) => {
+            let name = Command::IntentLint(req.clone()).name();
+            finish(cli.json, &name.0, app::intent::lint(&req, &cwd), started)
+        }
+        Cmd::Intent(IntentCmd::Version(req)) => {
+            let name = Command::IntentVersion(req.clone()).name();
+            finish_written(cli.json, &name.0, app::intent::version(&req, &cwd, &caller, &mut Tty), started)
+        }
+        Cmd::Intent(IntentCmd::List(req)) => {
+            let name = Command::IntentList(req.clone()).name();
+            finish_paged(cli.json, &name.0, app::intent::list(&req, &cwd), started)
         }
     }
 }

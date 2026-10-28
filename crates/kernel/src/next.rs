@@ -48,8 +48,8 @@ fn node_satisfies(model: &Model, index: &Index<'_>, node: &Node, when: &Predicat
         "parent" => node.parent.as_ref().is_some_and(|p| test.as_str() == Some(p.0.as_str())),
         "status" => field(node.props.get("status"), test),
         "confidence" => false,
-        "with_edge" => has_edge(model, index, node, test),
-        "without_edge" => !has_edge(model, index, node, test),
+        "with_edge" => has_edge(model, index, node, test, |_| true),
+        "without_edge" => !has_edge(model, index, node, test, |_| true),
         key => match key.strip_prefix("props.") {
             Some(prop) => field(node.props.get(prop), test),
             None => false,
@@ -84,7 +84,7 @@ fn names(test: &Value, kind: &str) -> bool {
 
 /// A field test: a value it equals, or `{ lt = N }`, `{ gt = N }` or `{ in = [...] }`. A field the
 /// subject lacks satisfies no test.
-fn field(value: Option<&Value>, test: &Value) -> bool {
+pub(crate) fn field(value: Option<&Value>, test: &Value) -> bool {
     let Some(value) = value else { return false };
     if let Value::Object(op) = test
         && op.len() == 1
@@ -110,20 +110,29 @@ fn same(a: &Value, b: &Value) -> bool {
 }
 
 /// Whether `node` has an edge the table `test` describes: its `relation`, its `direction` (`in`
-/// to the node, `out` from it, either when absent) and, when given, its `layer`.
-fn has_edge(model: &Model, index: &Index<'_>, node: &Node, test: &Value) -> bool {
+/// to the node, `out` from it, either when absent) and, when given, its `layer`, whose far end
+/// `far` keeps: the node that end resolves to, or `None` for an end that resolves to none.
+pub(crate) fn has_edge(
+    model: &Model,
+    index: &Index<'_>,
+    node: &Node,
+    test: &Value,
+    far: impl Fn(Option<&Node>) -> bool,
+) -> bool {
     let Some(test) = test.as_object() else { return false };
     let relation = test.get("relation").and_then(Value::as_str);
     let direction = test.get("direction").and_then(Value::as_str);
     let layer = test.get("layer");
     let is_node = |end: &Ref| index.get(end).is_some_and(|n| n.id == node.id);
+    let from = |e: &Edge| is_node(&e.from) && far(index.get(&e.to));
+    let to = |e: &Edge| is_node(&e.to) && far(index.get(&e.from));
     model.edges.iter().any(|e| {
         relation.is_none_or(|r| r == e.kind.0)
             && layer.is_none_or(|l| serde_json::to_value(e.layer).is_ok_and(|v| &v == l))
             && match direction {
-                Some("in") => is_node(&e.to),
-                Some("out") => is_node(&e.from),
-                _ => is_node(&e.from) || is_node(&e.to),
+                Some("in") => to(e),
+                Some("out") => from(e),
+                _ => from(e) || to(e),
             }
     })
 }

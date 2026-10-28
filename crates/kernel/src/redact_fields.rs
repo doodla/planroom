@@ -106,8 +106,24 @@ pub const PATHS: &[(&str, &[&str])] = &[
     ("ImportedRow", &[
         "reason",
     ]),
+    ("IntentListResult", &[
+        "empty.line",
+        "items[].name",
+        "projects[].name",
+        "summary",
+    ]),
     ("LiftedEdge", &[
         "evidence_sample[].contains",
+    ]),
+    ("LintFinding", &[
+        "name",
+        "values",
+    ]),
+    ("LintResult", &[
+        "empty.line",
+        "findings[].name",
+        "findings[].values",
+        "summary",
     ]),
     ("LiveHead", &[
         "cards[].question",
@@ -162,6 +178,12 @@ pub const PATHS: &[(&str, &[&str])] = &[
         "model.focus.breadcrumb[].name",
         "model.minimap.blocks[].name",
         "model.who[].doing",
+    ]),
+    ("PlanItem", &[
+        "name",
+    ]),
+    ("PlanProject", &[
+        "name",
     ]),
     ("PresenceRow", &[
         "doing",

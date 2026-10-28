@@ -58,7 +58,7 @@ planroom/
 │   └── xtask/      xtask               the one task entry point (publish = false)
 ├── packs/                          data only, embedded in the binary at build time; AGENTS.md and CLAUDE.md at this level only
 │   ├── code/                       the base pack every other pack builds on
-│   ├── plan/                       (M1) plan kinds, stages and the hand-off loop's decisions
+│   ├── plan/                       the plan pack: stages, their item types and methods, structural lint; decision kinds in M2
 │   ├── observability/  release/    (M3) the observability and release packs
 │   └── artifacts/  machines/       (M4) the artifacts and machines packs
 ├── packages/

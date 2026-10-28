@@ -1,0 +1,185 @@
+# The plan pack: the seven stages a plan goes through, the item types each writes with their
+# props, each stage's method as a checklist, and the structural lint rules (DR-23, DR-45).
+#
+# It declares no kinds or relations of its own: a project is a `kernel.project`, every plan item
+# a `kernel.item` whose `type` prop names one of the item types below, and what an item touches a
+# `kernel.touches` edge. An item type's props are the union of every stage's declaration of it,
+# and one prop is never declared two ways. No `required`: lint, not the schema, says what's
+# missing. A stage's `prompt` is its method checklist, one step per line.
+
+format = "planroom.pack/v1"
+id = "plan"
+version = 1
+title = "Plan"
+requires = []
+
+[[stages]]
+id = "intent"
+method = "Jobs-to-be-Done, laddering"
+lint = ["intent_so_that"]
+prompt = """
+Name the job as when, want and so that: the situation, the change, the outcome it serves.
+Ladder up with why until the outcome is one the person cares about, then down with how.
+Keep each rung one short sentence, and stop where a rung repeats the one above it.
+Write one intent item per job; most plans have one.
+"""
+
+[[stages.items]]
+id = "intent"
+props = { type = "object", properties = { when = { type = "string" }, want = { type = "string" }, so_that = { type = "string" }, ladder = { type = "array", items = { type = "string" } } } }
+
+[[stages]]
+id = "outcome"
+method = "SMART, non-goals"
+lint = ["outcome_metric", "outcome_deadline"]
+prompt = """
+State each outcome as a metric with a target and a deadline.
+Check it is specific, measurable, achievable, relevant and time-bound.
+Name what the plan won't do as non-goals, one item each.
+"""
+
+[[stages.items]]
+id = "outcome"
+props = { type = "object", properties = { metric = { type = "string" }, target = { type = "string" }, deadline = { type = "string" } } }
+
+[[stages.items]]
+id = "non_goal"
+props = { type = "object", properties = {} }
+
+[[stages]]
+id = "breakdown"
+method = "MECE, the WBS 100% rule"
+lint = ["work_covers_parent_scope", "work_children_disjoint"]
+prompt = """
+Break the work into a tree of work items, each with its method and its scope tags.
+Give every child scope tags that together cover its parent's: the 100% rule.
+Keep siblings mutually exclusive: no scope tag in two children of one parent.
+Stop breaking down where a work item is small enough to act on.
+"""
+
+[[stages.items]]
+id = "work"
+props = { type = "object", properties = { method = { type = "string" }, scope = { type = "array", items = { type = "string" } } } }
+
+[[stages]]
+id = "next_actions"
+method = "GTD, HTN"
+lint = ["next_action_done_test", "next_action_target"]
+prompt = """
+Under each leaf work item, write the next physical actions, each starting with a verb.
+Give each a done test a person can check without asking you.
+Name what each touches by node ID from the map, found with find or map, never a guessed path.
+Give each the context it needs, such as the repo or the tool.
+"""
+
+[[stages.items]]
+id = "next_action"
+props = { type = "object", properties = { verb = { type = "string" }, done_test = { type = "string" }, context = { type = "string" } } }
+
+[[stages]]
+id = "priorities"
+method = "MoSCoW"
+lint = ["item_moscow"]
+prompt = """
+Rate every work item and next action must, should, could or wont.
+Keep the musts to what the outcome can't be met without.
+Re-propose each rated item with its moscow prop set.
+"""
+
+[[stages.items]]
+id = "work"
+props = { type = "object", properties = { moscow = { type = "string", enum = ["must", "should", "could", "wont"] } } }
+
+[[stages.items]]
+id = "next_action"
+props = { type = "object", properties = { moscow = { type = "string", enum = ["must", "should", "could", "wont"] } } }
+
+[[stages]]
+id = "premortem"
+method = "pre-mortem"
+lint = ["top_risk_mitigation"]
+prompt = """
+Imagine the plan has failed, and tell each way it failed as a short story.
+Rate each story's likelihood low, medium or high.
+Give every high one a mitigation, and add its work or next action to the plan.
+"""
+
+[[stages.items]]
+id = "risk"
+props = { type = "object", properties = { story = { type = "string" }, likelihood = { type = "string", enum = ["low", "medium", "high"] }, mitigation = { type = "string" } } }
+
+[[stages]]
+id = "lint"
+method = "lint"
+items = []
+lint = ["intent_so_that", "outcome_metric", "outcome_deadline", "work_covers_parent_scope", "work_children_disjoint", "next_action_done_test", "next_action_target", "item_moscow", "top_risk_mitigation"]
+prompt = """
+Run intent lint and read each finding with its stage.
+Go back to the stage a finding names, and re-propose the items it flags.
+Repeat until lint has no findings, or the person accepts what remains.
+"""
+
+# Structural lint: each rule's subjects are plan items of one type, picked by `props.type`.
+
+[[rules]]
+id = "intent_so_that"
+kind = "requires_prop"
+subject = "kernel.item"
+params = { prop = "so_that", "props.type" = "intent" }
+message = "An intent needs a so that: the outcome the job serves."
+
+[[rules]]
+id = "outcome_metric"
+kind = "requires_prop"
+subject = "kernel.item"
+params = { prop = "metric", "props.type" = "outcome" }
+message = "An outcome needs a metric to measure it by."
+
+[[rules]]
+id = "outcome_deadline"
+kind = "requires_prop"
+subject = "kernel.item"
+params = { prop = "deadline", "props.type" = "outcome" }
+message = "An outcome needs a deadline."
+
+[[rules]]
+id = "work_covers_parent_scope"
+kind = "covers"
+subject = "kernel.item"
+params = { prop = "scope", kinds = ["kernel.item"], "props.type" = "work" }
+message = "The child work items' scope tags don't cover all of their parent's."
+
+[[rules]]
+id = "work_children_disjoint"
+kind = "disjoint"
+subject = "kernel.item"
+params = { prop = "scope", kinds = ["kernel.item"], "props.type" = "work" }
+message = "Two child work items share a scope tag, so the breakdown overlaps."
+
+[[rules]]
+id = "next_action_done_test"
+kind = "requires_prop"
+subject = "kernel.item"
+params = { prop = "done_test", "props.type" = "next_action" }
+message = "A next action needs a done test a person can check."
+
+[[rules]]
+id = "next_action_target"
+kind = "requires_edge"
+subject = "kernel.item"
+params = { relation = "kernel.touches", direction = "out", "props.type" = "next_action" }
+message = "A next action needs a target on the map that it touches."
+
+[[rules]]
+id = "item_moscow"
+kind = "requires_prop"
+subject = "kernel.item"
+params = { prop = "moscow", "props.type" = { in = ["work", "next_action"] } }
+message = "Every work item and next action needs a MoSCoW rating."
+
+[[rules]]
+id = "top_risk_mitigation"
+kind = "requires_prop"
+subject = "kernel.item"
+params = { prop = "mitigation", "props.type" = "risk", "props.likelihood" = "high" }
+message = "A high-likelihood risk needs a mitigation."
