@@ -19,6 +19,7 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 
 ## Layout
 
-- `src/`: the git CLI adapter, the file walk, the built-in extractors (files, compose, YAML), the extractor registry, IDs, line evidence and its verification.
-- `src/declarative/`: the declarative runner: grammars, templates, nesting, comments and prose, value coercion, and the work it schedules.
-- `tests/`: `contract.rs`, every extractor over the fixture and a fuzz corpus.
+- `src/`: the git CLI adapter, the file walk, the built-in extractors (files, compose, manifest, openapi, YAML), the extractor registry, IDs, line evidence and its verification.
+- `src/declarative/`: the declarative runner: grammars, templates, nesting, comments and prose, value coercion, the work it schedules, and the charging every extractor's facts share.
+- `tests/`: `contract.rs`, every extractor over the fixture and a fuzz corpus; `formats.rs`, the manifest and OpenAPI built-ins.
+- `tests/code_pack/`: the code pack's language cases that `contract.rs` runs.

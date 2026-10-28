@@ -10,15 +10,25 @@ Planroom embeds it in the binary, so every workspace loads it first.
 |---|---|
 | `[[kinds]]` | `workspace`, `repo`, `service`, `datastore`, `queue`, `library`, `tooling`, `package`, `module`, `directory`, `file`, `api_spec`, `endpoint`, `person`, `commit`. Every Container-level kind uses the kernel's `container` ID prefix and has a tone, the block color surfaces draw it in: `service` for a service, `store` for a datastore or a queue, `library` for a library, `infra` for tooling. |
 | `[[relations]]` | `http`, `queue_publish`, `queue_consume`, `db`, `imports`, `depends_on_package`, `co_change`, `owned_by` |
-| `[[languages]]` | TypeScript, TSX, JavaScript, Python, Go, Rust, YAML and JSON, by file extension |
+| `[[languages]]` | TypeScript, TSX, JavaScript, Python, Go, Rust, YAML and JSON, by file extension. Each of the six with a grammar has its own file in `languages/`, with its extractors |
 | `[[image_roles]]` | `postgres*` and `mysql*` are a `datastore`; `redis*` and `rabbitmq*` are a `queue` |
 | `[[hints]]` | `url`, `env_read`, `env_set`, `depends_on`, `route_serve`, `route_call`, `queue_op`, `db_open`, `sql`, `def`, `call` |
-| `[[extractors]]` | the `files` and `compose` built-ins |
+| `[[extractors]]` | the `files`, `compose`, `manifest` and `openapi` built-ins; `urls` and `sql`, regexes over the code of the five languages; and in each language's file, a query for its imports, definitions and calls and one for the hints a deployment joins, from `queries/` |
 | `[[lenses]]` | `runtime` (the default), `flow`, `dependencies`, `history` |
 | `[[questions]]` | `path A B`, a shortest path over `flow`; `why A B`, every edge between the two with its evidence and confidence; `impact X`, what depends on X and what it depends on, over `runtime` and `dependencies`. `planroom ask` lists them with every loaded kind and lens |
 | `[[suggestions]]` | the pane's next action: open the containers when the map has any, else the components, else the files |
 
-A compose service whose image no image role matches is a `service`.
+A compose service whose image no image role matches is a `service`. A repo whose root manifest, `package.json`, `go.mod`, `pyproject.toml` or `Cargo.toml`, names its package is a `library` until a compose service runs it.
+
+## Languages and queries
+
+| Path | What it holds |
+|---|---|
+| `languages/<id>.toml` | one language with a built-in grammar: its `[[languages]]` entry and the extractors that read it |
+| `queries/<language>.scm` | the imports, definitions, string constants and calls of a language, which TypeScript and TSX read with JavaScript's |
+| `queries/<language>_runtime.scm` | the hints a deployment joins: environment reads, routes served and called, queue operations and database opens |
+
+A query never reads a comment or a docstring: a match that captures one is dropped, and a capture's text has them blanked. Each emit in a language's file names only captures its query sets.
 
 ## Extend it
 
@@ -48,7 +58,7 @@ Run the conformance kit from the repository root:
 planroom doctor --pack packs/code
 ```
 
-Build Planroom from this checkout first: the kit checks a directory under the code pack's ID only when its files are the ones the binary embeds, and refuses any other. It validates the pack, runs `files` and `compose` over each repo in `tests/inputs/`, and compares the facts with `tests/expected.jsonl`. It then runs them again and checks that the facts match byte for byte.
+Build Planroom from this checkout first: the kit checks a directory under the code pack's ID only when its files are the ones the binary embeds, and refuses any other. It validates the pack, runs every extractor over each repo in `tests/inputs/`, and compares the facts with `tests/expected.jsonl`. It then runs them again and checks that the facts match byte for byte.
 
 When you change what the pack emits on purpose, rewrite the expected facts:
 

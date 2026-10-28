@@ -116,6 +116,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 100 | The declarative runner's bounds: per file, one repo cut, and templates capped at load | DR-9, DR-46, DR-47, DR-86, DR-89 | extended, amends DR-47 and DR-86 | the merge of M1's declarative runner |
 | 101 | Workspace trust by record, a pinned person key, confined reads, and the credential paths a scan checks | DR-48, DR-52, DR-74, DR-78, DR-88, DR-89 | extended, amends DR-48 and DR-88 | the merge of M1's workspace trust and confined reads |
 | 102 | Every directory's purpose checked, generated paths marked from one table, and golden reads caught by literal | DR-38, DR-59, DR-79, DR-81, DR-83, DR-89 | extended, amends DR-81 | the merge of M1's layout and docs gates |
+| 103 | Five languages' formats and queries: queries compiled only to extract, every built-in bounded, and hint keys masked | DR-9, DR-12, DR-46, DR-47, DR-83, DR-91, DR-100 | extended, amends DR-83 and DR-91 | the merge of M1's formats and queries for five languages |
 
 ## Where the design reviews disagreed
 
@@ -2027,7 +2028,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-83: What the walking skeleton's gates, remote slice and platform checks settled
 
-- **Status:** accepted (decided at the merges of the gates and remote-slice work, the CI repairs and the WS7 and WS8 checks, 2026-10-26). Amended by DR-87, DR-89 and DR-91.
+- **Status:** accepted (decided at the merges of the gates and remote-slice work, the CI repairs and the WS7 and WS8 checks, 2026-10-26). Amended by DR-87, DR-89, DR-91 and DR-103.
 - **Starting point:** extended "Repo layout: a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` in TypeScript", Remote mode, and the release model.
 - **Origin:** the walking skeleton's gates and remote-slice work, CI's first runs on the merged tree, and the platform checks in `research/ws7-remote.md` and `research/ws8-install.md`.
 - **Context:**
@@ -2098,6 +2099,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended by DR-87:** import's result carries `counts`, the first 5 rows' outcomes, `root` and `batch_files`, one file per `ArtifactData batch` call, in place of the batches inline; each batch keeps at most 50 writes and 1 MiB, with `live/head` last.
 - **Amended by DR-89:** a `#[redact]` mark is `#[schemars(extend("x-redact" = true))]` on the field. `cargo xtask gen` writes the marked field paths into `crates/kernel/src/redact_fields.rs`, and `kernel::redact` masks exactly those paths.
 - **Amended by DR-91:** the mark also sits on node and block names, diff hunks, presence `doing`, a hand-off step's `note` and a card's `vars`; join keys (`Hint.key`, `Edge.via`, `Node.aliases`) stay unmarked.
+- **Amended by DR-103:** `Hint.key` carries the redaction mark: a `code.route_call` key is a URL's source text, which can hold a secret. Joins read the raw value; `Edge.via` and `Node.aliases` stay unmarked.
 - **Sources (checked 2026-10-26):** `research/ws7-remote.md`, `research/ws8-install.md`; the gates and remote-slice merge notes in `progress.md`; CI runs 36 to 46 on the working branch; RUSTSEC-2026-0386; `crates/planroom/src/app/{share,import}.rs`; `crates/xtask/src/{layout,tools,plugin}.rs`.
 
 ## DR-84: The umbrella skill is `planroom`, so the mod can own `/room`
@@ -2401,7 +2403,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-91: The contract M1 builds on: cards on the wire, the edit ops, and the redaction marks
 
-- **Status:** accepted (decided at M1's first change, 2026-10-26). Amended by DR-92.
+- **Status:** accepted (decided at M1's first change, 2026-10-26). Amended by DR-92 and DR-103.
 - **Starting point:** none; it settles details of [Contracts](contracts.md) and AGENTS.md's Logging convention.
 - **Origin:** M1's first change, read against the docs: the contract types M1 builds on (every documented error and warning code, the card event, the pack manifest, the vocabulary, M1's request shapes), the kernel's `resolve` and `fold` signatures, and the redaction marks DR-89 gave a form.
 - **Context:**
@@ -2427,6 +2429,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Conventions: AGENTS.md's Logging line, ratified with the layout lock.
   - Tests: `crates/contract/tests/schema.rs::every_redacted_field_is_listed`; `crates/contract/src/card.rs`'s round trips; `crates/contract/src/requests.rs::an_edit_parses_from_its_op_and_travels_with_it_flattened`.
   - It amends DR-89 (the card's wire name and `vars`) and DR-83 (the marked fields).
+- **Amended by DR-103:** `Hint.key` carries the redaction mark: a `code.route_call` key is a URL's source text, which can hold a secret. Joins read the raw value; `Edge.via` and `Node.aliases` stay unmarked.
 - **Sources (checked 2026-10-26):** `crates/contract/src/{card.rs, event.rs, requests.rs, model.rs, view.rs, schema.rs}`; `crates/kernel/src/redact.rs`; [Contracts](contracts.md) (CLI JSON envelope's redaction paragraph, Event model, the requests sketch); [CLI](architecture.md#one-command-catalogue) and [Design language](design-language.md#edit-by-hand) for the edit ops.
 - **Amended by DR-92:** `set`, `text` and `propose` arrive with the plan pack's intent leaves, which fix their fields, rather than with the `edit` leaf; `forbid` with no kind waits for a stored form of a rule over every kind.
 
@@ -2721,3 +2724,29 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Known gaps: a How to test it cell can still name a test function joined to its file by a separator other than `::`, and a golden path written root-relative with `./` or `//` segments passes the literal scan.
   - Tests: `crates/xtask/tests/gates.rs`'s `every_directory_has_a_purpose`, `a_changed_cargo_lock_fails_under_ci`, `a_golden_read_by_any_literal_path_fails`, `a_subtree_wildcard_names_only_a_data_tree` and `a_test_cell_naming_a_test_function_with_its_file_fails`; `crates/xtask/tests/docs.rs::generated_headers`; the boundaries self-test's golden-literal plant.
 - **Sources (checked 2026-10-28):** `crates/xtask/src/{areas, docs, boundaries, generate, modgen, layout}.rs`; `boundaries.toml`; [Repo layout](repo-layout.md#area-contracts) and its Generated directories table; AGENTS.md's Boundaries and Working in this repository sections.
+
+## DR-103: Five languages' formats and queries: queries compiled only to extract, every built-in bounded, and hint keys masked
+
+- **Status:** accepted (decided at the merge of M1's formats and queries for five languages, 2026-10-28).
+- **Starting point:** extended DR-9, DR-12, DR-46, DR-47 and DR-100; amends DR-83 and DR-91.
+- **Origin:** the merge of M1's formats and queries for five languages, read against the docs by independent checks over two rounds.
+- **Context:**
+  - The code pack now reads package manifests and OpenAPI specs with two built-ins, and TypeScript, JavaScript, Python, Go and Rust through declarative queries over the runner's five grammars.
+  - Compiling the code pack's twelve tree-sitter queries at every pack load cost every command about 0.3 s in a release build, read commands included, though only extraction runs them.
+  - A `code.route_call` hint's key is the URL argument's source text, which can hold a query string's secret, while DR-91 kept `Hint.key` unmarked as a join key.
+  - The new built-ins held a few hundred times their input in memory with no bound but the walk's, which DR-100 had closed for the runner alone.
+- **Decision:**
+  - **Queries compile only to extract.** A pack's regex extractors compile at load; its query extractors compile once per process, and only in a process that extracts (`scan`, `doctor --pack`, `pack add`). Read commands never compile them. A test compiles every built-in query, so a shipped pack can't carry a broken one; an out-of-tree pack's broken query is `pack_invalid` wherever a process extracts. contracts.md states it.
+  - **Every extractor is bounded as the runner is.** The manifest and OpenAPI built-ins charge each fact's measured heap against DR-100's per-file bound and per-repo cut, with the same partial reasons and `unparsed_files` reporting, through the runner's own charging code.
+  - **`Hint.key` is marked (amends DR-91 and DR-83).** It carries `x-redact`: joins read the raw value, and outputs mask what looks like a secret in it. `Edge.via` and `Node.aliases` stay unmarked.
+  - **An OpenAPI operation is its own hint:** its ID includes its method, so operations of one path item never collapse, whatever line they sit on. A route's method stays as the source spells it, and joins compare it without case.
+  - **A package name no ID can hold** (one with a newline or backslash) gives no package node; the file is reported as `partial_parse`. A leading UTF-8 byte order mark is read past.
+- **Alternatives rejected:**
+  - Compiling every query at load, which made every pane refresh pay for extraction.
+  - Raising DR-100's 256 MiB repo cut for the call-hint query, which over the Go and Rust standard libraries cuts about two fifths of the files: splitting calls into their own extractor gives imports and definitions their own budget, when M3's linkers need full call coverage.
+  - A new `PartialReason` for an unnameable package name: a contract addition for a case `partial_parse` already describes.
+- **Consequences:**
+  - Contracts: `Hint.key`'s mark in the generated redaction list; the OpenAPI hint ID; contracts.md's sentence on when a pack's extractors compile.
+  - Known gaps: in a repo whose compose service name differs from the repo's name, the manifest's root container and compose's service are two containers until M3's linkers join them; the compose built-in has no heap charge of its own, finds lines per evidence item in quadratic time, and puts a service name holding a newline or backslash into a node ID, and the runner's node emits take such a captured key too, which the cross-repo links change closes; two Rust `use` forms (`self as x` in a group, a comment inside a plain path) give wrong import keys; a dense `Cargo.toml` can be refused whole by the per-file budget.
+  - Tests: `crates/extract/tests/formats.rs`; `contract.rs::imports_and_calls_for_each_language`; `packs.rs::every_built_in_query_compiles`, `a_broken_query_loads_and_is_pack_invalid_wherever_a_process_extracts` and `read_commands_and_watch_frames_compile_no_query`; `privacy.rs::a_route_call_key_holding_a_secret_is_masked_where_hints_are_shown`.
+- **Sources (checked 2026-10-28):** `crates/extract/src/{manifest, openapi, declarative/charge}.rs`; `packs/code/{languages, queries}/`; `crates/planroom/src/packs/mod.rs`; [The extractor contract](architecture.md#the-extractor-contract); [Contracts](contracts.md).

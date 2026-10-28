@@ -2,6 +2,8 @@
 //! tolerant, bounded in sorted path order, code and never comments, emit props typed by the prop
 //! schema, and every fact's evidence verifies against the commit.
 
+mod code_pack;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
@@ -94,9 +96,14 @@ fn walked(view: &RepoView) -> walk::Walked {
 fn run(view: &RepoView, name: &str, files: &[RepoPath], opts: serde_json::Value) -> FactBatch {
     let kind = |kind: &str, id_prefix: &str, level: &str| json!({"kind": kind, "id_prefix": id_prefix, "level": level});
     let repo = kind("code.repo", "repo", "system");
+    let directory = kind("code.directory", "dir", "component");
     let kinds = match name {
-        "files" => json!({"repo": repo, "directory": kind("code.directory", "dir", "component"),
-                          "file": kind("code.file", "file", "code")}),
+        "files" => json!({"repo": repo, "directory": directory, "file": kind("code.file", "file", "code")}),
+        "manifest" => json!({"package": kind("code.package", "pkg", "component"),
+                             "library": kind("code.library", "container", "container"),
+                             "repo": repo, "directory": directory}),
+        "openapi" => json!({"spec": kind("code.api_spec", "spec", "component"), "repo": repo,
+                            "directory": directory}),
         _ => json!({"service": kind("code.service", "container", "container"),
                     "tooling": kind("code.tooling", "container", "container"), "repo": repo}),
     };
@@ -147,6 +154,81 @@ fn files_emit_the_repo_its_directories_and_its_files() {
     assert_eq!(node("deploy:dir:src").parent.as_ref().unwrap().0, "deploy:repo:deploy");
     assert_eq!(node("deploy:repo:deploy").props["languages"], json!(["typescript", "yaml"]));
     assert_eq!(batch.partial.len(), 1, "the non-UTF-8 file is partial");
+}
+
+/// The code pack's merged `[[languages]]` table, as the pack loader merges it: `pack.toml`'s
+/// own, then each `languages/*.toml` file's in path order; and the IDs each file declares.
+fn code_languages() -> (Vec<LanguageDecl>, BTreeMap<String, Vec<String>>) {
+    #[derive(serde::Deserialize)]
+    struct Table {
+        #[serde(default)]
+        languages: Vec<LanguageDecl>,
+    }
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packs/code");
+    // Every other table is left unread.
+    let read = |path: &Path| -> Vec<LanguageDecl> {
+        toml::from_str::<Table>(&fs::read_to_string(path).unwrap()).unwrap().languages
+    };
+    let mut merged = read(&dir.join("pack.toml"));
+    let mut by_file = BTreeMap::new();
+    let mut paths: Vec<_> = fs::read_dir(dir.join("languages"))
+        .map(|d| d.map(|e| e.unwrap().path()).collect())
+        .unwrap_or_default();
+    paths.sort();
+    for path in paths {
+        let declared = read(&path);
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        by_file.insert(name, declared.iter().map(|l| l.id.clone()).collect());
+        merged.extend(declared);
+    }
+    (merged, by_file)
+}
+
+#[test]
+fn files_language_from_the_languages_table() {
+    let (languages, by_file) = code_languages();
+    // Each of the six grammars' languages is one file, beside the extractors that read it.
+    for id in ["typescript", "tsx", "javascript", "python", "go", "rust"] {
+        assert_eq!(by_file.get(&format!("{id}.toml")), Some(&vec![id.to_owned()]), "{by_file:?}");
+    }
+    let files = [
+        ("src/a.ts", "typescript"),
+        ("src/b.mts", "typescript"),
+        ("src/c.cts", "typescript"),
+        ("src/d.tsx", "tsx"),
+        ("src/e.js", "javascript"),
+        ("src/f.mjs", "javascript"),
+        ("src/g.cjs", "javascript"),
+        ("src/h.jsx", "javascript"),
+        ("src/i.py", "python"),
+        ("src/j.go", "go"),
+        ("src/k.rs", "rust"),
+        ("deploy/l.yml", "yaml"),
+        ("deploy/m.yaml", "yaml"),
+        ("deploy/n.json", "json"),
+    ];
+    // A file whose extension no loaded pack declares has no language: Ruby comes from its pack.
+    let undeclared = ["tools/check.rb", "Makefile", "README.md"];
+    let texts: Vec<(&str, &str)> =
+        files.iter().map(|(p, _)| (*p, "x\n")).chain(undeclared.iter().map(|p| (*p, "x\n"))).collect();
+    let (view, paths) = memory(&texts);
+    let batch = run(&view, "files", &paths, json!({ "languages": languages }));
+    let language = |path: &str| {
+        let node = batch.nodes.iter().find(|n| n.id.0 == format!("web:file:{path}")).unwrap();
+        node.props.get("language").and_then(|l| l.as_str()).map(str::to_owned)
+    };
+    for (path, want) in files {
+        assert_eq!(language(path).as_deref(), Some(want), "{path}");
+    }
+    for path in undeclared {
+        assert_eq!(language(path), None, "{path}");
+    }
+    // The repo's languages are the union over its files.
+    let repo = batch.nodes.iter().find(|n| n.id.0 == "web:repo:web").unwrap();
+    assert_eq!(
+        repo.props["languages"],
+        json!(["go", "javascript", "json", "python", "rust", "tsx", "typescript", "yaml"])
+    );
 }
 
 #[test]
@@ -661,6 +743,33 @@ fn comments_never_create_relations() {
     }
 }
 
+/// Each manifest and spec the format built-ins read: its file name, a valid one, and how to nest
+/// it deep: an opening, the part 600 copies of which nest, and a closing.
+const FORMATS: &[(&str, &str, (&str, &str, &str))] = &[
+    (
+        "package.json",
+        "{\n  \"name\": \"@acme/web\",\n  \"dependencies\": { \"express\": \"4.21.0\" }\n}\n",
+        ("{\"name\": \"x\", \"d\": ", "[", ""),
+    ),
+    (
+        "go.mod",
+        "module example.com/api\n\nrequire github.com/x/y v1.0.0\n",
+        ("module m\nrequire (\n", "(", ")"),
+    ),
+    ("pyproject.toml", "[project]\nname = \"acme\"\ndependencies = [\"redis==5.0.8\"]\n", ("x = ", "[", "")),
+    ("Cargo.toml", "[package]\nname = \"acme\"\n\n[dependencies]\nserde = \"1\"\n", ("x = ", "[", "")),
+    (
+        "openapi.yaml",
+        "openapi: 3.0.3\npaths:\n  /orders:\n    get: {}\n",
+        ("openapi: 3.0.3\npaths: ", "[", ""),
+    ),
+    (
+        "openapi.json",
+        "{\"openapi\": \"3.0.3\", \"paths\": {\"/orders\": {\"get\": {}}}}\n",
+        ("{\"openapi\": \"3\", \"paths\": ", "[", ""),
+    ),
+];
+
 /// Valid code in each grammar's language.
 const SOURCES: &[(&str, &str, &str)] = &[
     ("typescript", "ts", "export function get(id: string) { return fetch('http://orders:8080/o/' + id); }\n"),
@@ -699,6 +808,27 @@ fn corpus(root: &Path) {
             fs::write(file, bytes).unwrap();
         }
     }
+    // Each manifest and spec format the same ways, each in a directory of its own so its name
+    // stays the one the built-in reads: valid, broken, empty, not UTF-8, nested deep, one long
+    // line, CRLF line ends, and anchors a long string many aliases copy.
+    for (name, valid, deep) in FORMATS {
+        let bomb = format!("x: &x \"{}\"\nall: [{}]\n", "y".repeat(100_000), "*x, ".repeat(50_000));
+        let variants: Vec<(&str, Vec<u8>)> = vec![
+            ("valid", valid.as_bytes().to_vec()),
+            ("broken", format!("{valid}\n}} ][ = : \"unclosed\n").into_bytes()),
+            ("empty", Vec::new()),
+            ("latin1", b"name = '\xe9t\xe9'\n".to_vec()),
+            ("deep", format!("{}{}{}\n", deep.0, deep.1.repeat(600), deep.2).into_bytes()),
+            ("long", format!("{valid}\n#{}\n", "a".repeat(100_000)).into_bytes()),
+            ("crlf", valid.replace('\n', "\r\n").into_bytes()),
+            ("bomb", bomb.into_bytes()),
+        ];
+        for (variant, bytes) in variants {
+            let file = root.join(format!("fmt/{variant}/{name}"));
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, bytes).unwrap();
+        }
+    }
     git(root, &["add", "-A"]);
     git(root, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "corpus"]);
 }
@@ -716,8 +846,14 @@ fn every_extractor_is_deterministic_tolerant_bounded() {
 
     // Every built-in, the regex runner, and a query over each grammar.
     let mut runs: Vec<(String, Run, Vec<RepoPath>)> = Vec::new();
-    for name in ["files", "compose"] {
-        let (v, files) = (view.clone(), if name == "compose" { compose_files(&all) } else { all.clone() });
+    for name in ["files", "compose", "manifest", "openapi"] {
+        let files = match name {
+            "compose" => compose_files(&all),
+            "manifest" => select(&all, planroom_extract::manifest::DEFAULT_FILES).unwrap(),
+            "openapi" => select(&all, planroom_extract::openapi::DEFAULT_FILES).unwrap(),
+            _ => all.clone(),
+        };
+        let v = view.clone();
         runs.push((name.into(), Box::new(move |f: &[RepoPath]| run(&v, name, f, json!({}))), files));
     }
     let mut programs = vec![compile(url_regex(&["**"]), None).unwrap()];
@@ -731,13 +867,17 @@ fn every_extractor_is_deterministic_tolerant_bounded() {
         let query = format!("((identifier) @name)\n{comments} @note\n");
         programs.push(compile(decl, Some(&query)).unwrap_or_else(|e| panic!("{language}: {e}")));
     }
+    // And every declarative extractor the code pack declares, its own queries and regexes.
+    let code = code_pack::load().programs();
+    let code_count = code.len();
+    programs.extend(code);
     for program in programs {
         let globs: Vec<&str> = program.files().iter().map(String::as_str).collect();
         let files = select(&all, &globs).unwrap();
         let (name, v) = (program.name().to_owned(), view.clone());
         runs.push((name, Box::new(move |f: &[RepoPath]| program.run(&v, f)), files));
     }
-    assert_eq!(runs.len(), 2 + 1 + SOURCES.len());
+    assert_eq!(runs.len(), 4 + 1 + SOURCES.len() + code_count);
 
     for (name, run, files) in &runs {
         // Deterministic: byte-identical twice, sorted by ID, each ID once.
@@ -783,6 +923,38 @@ fn every_extractor_is_deterministic_tolerant_bounded() {
                 "{name}: a broken file keeps its facts"
             );
             assert!(first.edges.is_empty(), "{name}: no comment creates an edge");
+        }
+        let partial: BTreeSet<&str> = first.partial.iter().map(|p| p.path.as_str()).collect();
+        if name.starts_with("code/") {
+            // The pack's own extractors refuse no ordinary file, and keep the facts of each file
+            // that parses.
+            let refused: Vec<&PartialFile> = first
+                .partial
+                .iter()
+                .filter(|p| {
+                    p.reason.is_some()
+                        && ["/valid.", "/crlf.", "/ünï.", "/broken."].iter().any(|v| p.path.contains(v))
+                })
+                .collect();
+            assert!(refused.is_empty(), "{name}: {refused:?}");
+            assert!(
+                !partial.iter().any(|p| p.contains("/src/valid.") || p.contains("/src/crlf.")),
+                "{name}: {partial:?}"
+            );
+        }
+        if name == "manifest" || name == "openapi" {
+            assert!(!first.nodes.is_empty(), "{name} found something");
+            for file in files {
+                let path = format!("{}/{}", view.name, file.0);
+                let variant = file.0.split('/').nth(1).unwrap_or_default();
+                // A go.mod has no nesting and no syntax to break: it gives what lines it can read.
+                let refused = match variant {
+                    "latin1" => true,
+                    "broken" | "deep" | "bomb" => !file.0.ends_with("go.mod"),
+                    _ => false,
+                };
+                assert_eq!(partial.contains(path.as_str()), refused, "{name}: {path}");
+            }
         }
         // Bounded: given fewer files, it reads only those.
         let half: Vec<RepoPath> = files.iter().step_by(2).cloned().collect();

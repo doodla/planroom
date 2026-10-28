@@ -1,5 +1,12 @@
 //! A YAML tree with 1-based line numbers, built from `saphyr-parser` events, with caps on nesting
-//! depth and on alias expansion so a hostile file can't exhaust memory.
+//! depth and on what anchors and aliases copy, so a hostile file can't exhaust memory. JSON is
+//! YAML too, so the same tree, with its lines, reads a JSON file.
+//!
+//! The tree holds each node the text writes once, so those are bounded by the text itself. An
+//! anchor keeps a copy of its node, and each alias copies it again: those copies are what could
+//! grow past any file's size, so the copies of all a text's documents are counted, in nodes and
+//! in the bytes of their scalars, and the text is refused before a copy would take either past
+//! its cap.
 
 use std::collections::HashMap;
 
@@ -7,8 +14,11 @@ use saphyr_parser::{Event, Parser};
 
 /// Nesting deeper than this is refused.
 pub const MAX_DEPTH: usize = 64;
-/// Nodes in a document, counting every alias expansion, beyond which it is refused.
+/// The nodes a document's anchors and aliases may copy, all told, beyond which it is refused.
 pub const MAX_NODES: usize = 100_000;
+/// The bytes of scalar text a document's anchors and aliases may copy, all told, beyond which it
+/// is refused: one alias of a long string copies all of it.
+pub const MAX_COPIED_BYTES: usize = 1 << 20;
 
 /// One YAML node and the line it starts on.
 #[derive(Debug, Clone, PartialEq)]
@@ -43,13 +53,32 @@ impl Yaml {
             _ => None,
         }
     }
+}
 
-    fn size(&self) -> usize {
-        match self {
-            Yaml::Scalar { .. } => 1,
-            Yaml::Seq { items, .. } => 1 + items.iter().map(Yaml::size).sum::<usize>(),
-            Yaml::Map { entries, .. } => 1 + entries.iter().map(|(k, v)| k.size() + v.size()).sum::<usize>(),
+/// What a document's anchors and aliases have copied so far.
+#[derive(Debug, Default)]
+struct Copied {
+    nodes: usize,
+    bytes: usize,
+}
+
+impl Copied {
+    /// Count one more copy of `node`, or say the document copies too much. The walk stops as
+    /// soon as either count passes its cap, so a refused copy costs no more than the cap.
+    fn charge(&mut self, node: &Yaml) -> bool {
+        let mut todo = vec![node];
+        while let Some(n) = todo.pop() {
+            self.nodes += 1;
+            match n {
+                Yaml::Scalar { value, .. } => self.bytes += value.len(),
+                Yaml::Seq { items, .. } => todo.extend(items),
+                Yaml::Map { entries, .. } => todo.extend(entries.iter().flat_map(|(k, v)| [k, v])),
+            }
+            if self.nodes > MAX_NODES || self.bytes > MAX_COPIED_BYTES {
+                return false;
+            }
         }
+        true
     }
 }
 
@@ -70,7 +99,10 @@ pub fn parse(text: &str) -> Result<Vec<Yaml>, YamlError> {
     let mut docs = Vec::new();
     let mut stack: Vec<Open> = Vec::new();
     let mut anchors: HashMap<usize, Yaml> = HashMap::new();
-    let mut nodes = 0usize;
+    // Counted over the whole text, every document's together: the documents are all kept, so a
+    // count per document would let each of many small documents copy up to the caps.
+    let mut copied = Copied::default();
+    let too_many = "too many nodes, aliases expanded";
     for item in Parser::new_from_str(text) {
         let (event, span) =
             item.map_err(|e| YamlError { line: e.marker().line() as u32, message: e.to_string() })?;
@@ -79,7 +111,6 @@ pub fn parse(text: &str) -> Result<Vec<Yaml>, YamlError> {
         let done = match event {
             Event::DocumentStart(_) => {
                 anchors.clear();
-                nodes = 0;
                 None
             }
             Event::SequenceStart(anchor, _) => {
@@ -102,9 +133,12 @@ pub fn parse(text: &str) -> Result<Vec<Yaml>, YamlError> {
                 Some((Yaml::Scalar { value: value.into_owned(), line }, anchor))
             }
             Event::Alias(id) => {
-                let node = anchors.get(&id).cloned().ok_or_else(|| err("an alias names no anchor"))?;
-                nodes += node.size();
-                Some((node, 0))
+                let node = anchors.get(&id).ok_or_else(|| err("an alias names no anchor"))?;
+                // Counted before it is copied, so a copy past the caps is never made.
+                if !copied.charge(node) {
+                    return Err(err(too_many));
+                }
+                Some((node.clone(), 0))
             }
             Event::StreamStart | Event::StreamEnd | Event::DocumentEnd | Event::Nothing => None,
         };
@@ -112,11 +146,10 @@ pub fn parse(text: &str) -> Result<Vec<Yaml>, YamlError> {
             return Err(err("nested too deeply"));
         }
         let Some((node, anchor)) = done else { continue };
-        nodes += 1;
-        if nodes > MAX_NODES {
-            return Err(err("too many nodes, aliases expanded"));
-        }
         if anchor > 0 {
+            if !copied.charge(&node) {
+                return Err(err(too_many));
+            }
             anchors.insert(anchor, node.clone());
         }
         match stack.last_mut() {
@@ -163,6 +196,51 @@ mod tests {
         }
         let e = parse(&text).unwrap_err();
         assert!(e.message.contains("too many nodes"), "{e:?}");
+    }
+
+    #[test]
+    fn an_alias_of_a_long_string_is_refused_before_it_copies() {
+        // Each alias of a 200 KB string would copy it: 100,000 of them hold 20 GB.
+        let mut text = format!("big: &big \"{}\"\nmany: [", "x".repeat(200_000));
+        text.push_str(&"*big, ".repeat(100_000));
+        text.push_str("]\n");
+        let e = parse(&text).unwrap_err();
+        assert!(e.message.contains("too many nodes"), "{e:?}");
+        // A few copies of it fit.
+        let few = format!("big: &big \"{}\"\nmany: [*big, *big]\n", "x".repeat(200_000));
+        let Some(Yaml::Seq { items, .. }) = parse(&few).unwrap()[0].get("many").cloned() else {
+            panic!("a list")
+        };
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn many_documents_share_one_copy_budget() {
+        // Each document alone copies 400 KB, within the cap; three of them together pass it.
+        let doc = format!("a: &a \"{}\"\nb: [*a, *a, *a]\n", "x".repeat(100_000));
+        assert!(parse(&doc).is_ok());
+        let e = parse(&[doc.as_str(); 3].join("---\n")).unwrap_err();
+        assert!(e.message.contains("too many nodes"), "{e:?}");
+    }
+
+    #[test]
+    fn a_document_large_without_aliases_is_read_whole() {
+        // More nodes than the copy cap, none of them copied.
+        let text = format!("[{}]", vec!["1"; MAX_NODES + 10].join(","));
+        let docs = parse(&text).unwrap();
+        let Yaml::Seq { items, .. } = &docs[0] else { panic!("a sequence") };
+        assert_eq!(items.len(), MAX_NODES + 10);
+    }
+
+    #[test]
+    fn json_reads_with_its_lines() {
+        let docs =
+            parse("{\n  \"name\": \"@acme/kit\",\n  \"deps\": {\"a\":\"1\", \"b\": \"\\u00e9\\/\"}\n}\n")
+                .unwrap();
+        assert_eq!(docs[0].get("name").map(|n| (n.as_str(), n.line())), Some((Some("@acme/kit"), 2)));
+        let deps = docs[0].get("deps").unwrap();
+        assert_eq!(deps.get("a").and_then(Yaml::as_str), Some("1"));
+        assert_eq!(deps.get("b").and_then(Yaml::as_str), Some("é/"));
     }
 
     #[test]

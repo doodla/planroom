@@ -74,6 +74,7 @@ pub const PATHS: &[(&str, &[&str])] = &[
         "edges[].props",
         "hints[].attrs",
         "hints[].evidence[].contains",
+        "hints[].key",
         "hints[].value",
         "nodes[].evidence[].contains",
         "nodes[].name",
@@ -96,6 +97,7 @@ pub const PATHS: &[(&str, &[&str])] = &[
     ("Hint", &[
         "attrs",
         "evidence[].contains",
+        "key",
         "value",
     ]),
     ("ImportResult", &[

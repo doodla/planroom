@@ -782,20 +782,30 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
     run(&["import", "-"], &format!("{}\n", others.join("\n")), &[]);
     let key = key();
     let public = b64url(&key.verifying_key().to_sec1_point(false).to_bytes());
-    run(&["person", "init"], &public, &[("PLANROOM_PERSON_TOKEN", &person_token(&key, "person init"))]);
+    // A person's token is minted for the press it signs, just before the run, as a pane mints it:
+    // one minted when the list is built goes stale while the runs before it take their time.
+    const MINT: &str = "PLANROOM_PERSON_TOKEN";
+    run(&["person", "init"], &public, &[(MINT, "")]);
     // A press of `open`, where no browser can be seen: its opener, were one looked for, can't start.
     let open = [
-        ("PLANROOM_PERSON_TOKEN", person_token(&key, "open")),
-        ("PLANROOM_TEST_OPENER", "/nonexistent/opener".to_owned()),
-        ("DISPLAY", String::new()),
-        ("WAYLAND_DISPLAY", String::new()),
+        (MINT, ""),
+        ("PLANROOM_TEST_OPENER", "/nonexistent/opener"),
+        ("DISPLAY", ""),
+        ("WAYLAND_DISPLAY", ""),
     ];
-    run(&["open"], "", &open.iter().map(|(k, v)| (*k, v.as_str())).collect::<Vec<_>>());
+    run(&["open"], "", &open);
 
     let mut covered = BTreeSet::new();
     for (args, stdin, env) in &runs {
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let minted: Vec<(String, String)> = env
+            .iter()
+            .map(|(k, v)| match k.as_str() {
+                MINT => (k.clone(), person_token(&key, &args.join(" "))),
+                _ => (k.clone(), v.clone()),
+            })
+            .collect();
+        let env: Vec<(&str, &str)> = minted.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         let reply = reply(&root, &args, stdin, &env);
         assert_eq!(reply["ok"], true, "{args:?}: {reply}");
         let name = reply["command"].as_str().unwrap().to_owned();

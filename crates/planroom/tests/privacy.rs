@@ -985,3 +985,42 @@ fn raw_never_reaches_share_or_model_requests() {
         ids.check_masked("a model request's tail", block);
     }
 }
+
+/// A `code.route_call` hint's key is the URL argument as the source writes it, so a URL that
+/// carries a credential puts it in the key. The store keeps the key raw, which a linker joins on;
+/// a model request's slice, the output that shows hints, masks it.
+#[test]
+fn a_route_call_key_holding_a_secret_is_masked_where_hints_are_shown() {
+    const CALL: &str = "export const pay = () => fetch(\"https://pay.example/v1/charges?api_key=sk_live_51PlantedFakeKey0000\");\n";
+    let dir = tempfile::tempdir().unwrap();
+    let root = fixture(dir.path()).root;
+    git_repo(&root.join("calls"), &[("src/pay.ts".into(), CALL.as_bytes().to_vec())]);
+    let scan = json(&root, &["scan", root.to_str().unwrap()], false);
+    assert_eq!(scan["ok"], true, "{scan}");
+    let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
+    let calls = store.active_set().unwrap().repos["calls"];
+    let hints: Vec<Hint> = store
+        .facts(&[calls])
+        .unwrap()
+        .iter()
+        .filter(|r| r.shape == Shape::Hint)
+        .map(|r| serde_json::from_str(&r.body).unwrap())
+        .filter(|h: &Hint| h.kind.0 == "code.route_call")
+        .collect();
+    let [call] = &hints[..] else { panic!("one route call: {hints:#?}") };
+    assert!(call.key.contains(CONTENT[0]), "the store keeps the key raw for the join: {}", call.key);
+    let batch = FactBatch {
+        format: "planroom.facts/v1".into(),
+        extractor: "code/typescript_runtime".into(),
+        tier: Tier::Syntactic,
+        nodes: vec![],
+        edges: vec![],
+        hints: vec![call.clone()],
+        partial: vec![],
+    };
+    let tail = planroom::app::models::request_tail(&batch, "Which services does this call?").unwrap();
+    assert!(!tail[0].contains(CONTENT[0]), "the key is masked: {}", tail[0]);
+    assert!(tail[0].contains(MASK), "{}", tail[0]);
+    // The rest of the key, the host a join reads, stays.
+    assert!(tail[0].contains("pay.example"), "{}", tail[0]);
+}

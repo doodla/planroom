@@ -2309,7 +2309,8 @@ export interface Node {
  */
 export interface Hint {
   /**
-   * 12 hex characters of `sha256(kind ‖ scope ‖ key ‖ evidence)`.
+   * 12 hex characters of `sha256(kind ‖ scope ‖ key ‖ evidence)`; an OpenAPI operation's
+   * method follows its key, so each operation of a path item is its own hint.
    */
   id: string;
   /**
@@ -2321,7 +2322,9 @@ export interface Hint {
    */
   scope: string;
   /**
-   * The join key: a host, an environment variable name, a path, a queue key.
+   * The join key: a host, an environment variable name, a path, a queue key, a table, a name.
+   * Repo text, such as a `code.route_call`'s URL argument as the source writes it: a join reads
+   * it raw, and every output masks it.
    */
   key: string;
   value: string | null;

@@ -7,6 +7,14 @@
 //! engine reads: the kernel's [`Vocabulary`], the merged `[[languages]]` and `[[image_roles]]`
 //! tables, every declared extractor and linker, and the set's hash.
 //!
+//! A pack's regex extractors compile at load. Its tree-sitter query extractors compile only when
+//! a process extracts: the first time [`Loaded::runs`] or [`Loaded::programs`] is asked, once
+//! per loaded set. `scan`, `doctor --pack` and adding a pack ask; a read command, such as `map`,
+//! `focus`, `find`, `ask`, `schema` or `version`, or `watch`'s frames, never does, so none of them
+//! pays for compiling the code pack's queries. A built-in pack's queries are compiled by a test,
+//! so no shipped pack carries a broken one; an out-of-tree pack's broken query is `pack_invalid`
+//! when `doctor --pack`, adding it or a scan compiles it.
+//!
 //! Packs load in a fixed order: the built-ins, `code` first and the rest by ID, then each
 //! out-of-tree pack in the order given. That order is the merged tables' order, so an overlapping
 //! image glob takes the first match, built-ins first.
@@ -18,7 +26,7 @@ mod validate;
 pub use validate::ID_MAX;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use planroom_contract::{
     ExtractorDecl, FactBatch, Flow, ImageRole, Kind, KindVocab, LanguageDecl, LensVocab, PackFile,
@@ -101,7 +109,7 @@ pub enum Runner {
     /// A built-in, by the name the pack gives with `builtin = NAME`, with its options: the kinds
     /// it emits resolved against the vocabulary and the engine's inputs filled in.
     Builtin { builtin: String, options: Value },
-    /// A declarative extractor, compiled when its pack loaded.
+    /// A declarative extractor, compiled the first time its loaded set ran ([`Loaded::programs`]).
     Declarative(Arc<Declarative>),
 }
 
@@ -128,6 +136,9 @@ impl Run {
     }
 }
 
+/// Compiled declarative extractors, by pack-qualified name.
+pub type Programs = BTreeMap<String, Arc<Declarative>>;
+
 /// The loaded pack set, in load order, and everything the engine reads from it.
 #[derive(Debug, Clone)]
 pub struct Loaded {
@@ -141,8 +152,12 @@ pub struct Loaded {
     pub extractors: Vec<Declared>,
     /// Every declared built-in linker, pack-qualified.
     pub linkers: Vec<String>,
-    /// Every declarative extractor, compiled against the merged set, by its pack-qualified name.
-    pub programs: BTreeMap<String, Arc<Declarative>>,
+    /// Every regex extractor, compiled against the merged set at load, by its pack-qualified name.
+    patterns: BTreeMap<String, Arc<Declarative>>,
+    /// Every declarative extractor, the query ones compiled against the merged set, by its
+    /// pack-qualified name: compiled once, the first time [`Loaded::programs`] is asked. A clone
+    /// shares them, so a process whose scans each clone its one loaded set compiles them once.
+    programs: Arc<OnceLock<Result<Programs, AppError>>>,
     /// The set's hash: every pack's record under this engine's version, so an engine whose
     /// built-ins change re-extracts every repo (DR-62).
     pub hash: String,
@@ -181,8 +196,9 @@ pub fn resolve(sources: Vec<Source>) -> Result<Loaded, AppError> {
     });
     validate::check(&packs)?;
     let mut loaded = merge(packs);
-    // Each declarative extractor compiles against the merged set, and runs as it compiled.
-    loaded.programs = validate::runnable(&loaded)?;
+    // Each regex extractor compiles against the merged set now, and each query extractor when a
+    // process first runs the set; each runs as it compiled.
+    loaded.patterns = validate::runnable(&loaded, false)?;
     Ok(loaded)
 }
 
@@ -197,12 +213,40 @@ impl Loaded {
         self.packs.iter().find(|p| p.id() == id)
     }
 
-    /// Every extractor as a scan of a workspace whose repos are `repos` runs it, in load order.
-    /// A declarative extractor runs as it compiled at load. For a built-in, `options.kinds` names
+    /// Every declarative extractor of the set, compiled against the whole set as the runner runs
+    /// it, by pack-qualified name: compiled the first time this is asked, and kept, so a process
+    /// compiles a set's queries once. A declaration that can't run, such as a query that doesn't
+    /// compile against its grammar, is `pack_invalid` at its own line, every time it is asked.
+    pub fn programs(&self) -> Result<&BTreeMap<String, Arc<Declarative>>, AppError> {
+        let compile = || {
+            let mut programs = validate::runnable(self, true)?;
+            programs.extend(self.patterns.iter().map(|(name, p)| (name.clone(), Arc::clone(p))));
+            Ok(programs)
+        };
+        self.programs.get_or_init(compile).as_ref().map_err(Clone::clone)
+    }
+
+    /// Whether this set's query extractors have compiled: whether some run asked for them.
+    pub fn compiled(&self) -> bool {
+        self.programs.get().is_some()
+    }
+
+    /// Every extractor as a scan of a workspace whose repos are `repos` runs it, in load order,
+    /// the declarative ones compiled ([`Self::programs`]). For a built-in, `options.kinds` names
     /// become the kinds' levels and prefixes from the vocabulary; `files` takes the merged
     /// `[[languages]]` table, and `compose` the merged `[[image_roles]]` table and the sorted repo
     /// names, since it joins a service to a repo by name.
-    pub fn runs(&self, repos: &BTreeSet<&str>) -> Vec<Run> {
+    pub fn runs(&self, repos: &BTreeSet<&str>) -> Result<Vec<Run>, AppError> {
+        Ok(self.runs_with(repos, Some(self.programs()?)))
+    }
+
+    /// [`Self::runs`] with the declarative extractors `programs`, or the built-ins alone without
+    /// them, which compiles nothing.
+    fn runs_with(
+        &self,
+        repos: &BTreeSet<&str>,
+        programs: Option<&BTreeMap<String, Arc<Declarative>>>,
+    ) -> Vec<Run> {
         let kinds: BTreeMap<&str, &KindVocab> =
             self.vocabulary.kinds.iter().map(|k| (k.kind.0.as_str(), k)).collect();
         let mut runs = Vec::new();
@@ -210,7 +254,8 @@ impl Loaded {
             let (builtin, files, options) = match &declared.decl {
                 ExtractorDecl::Builtin { builtin, files, options, .. } => (builtin, files, options),
                 ExtractorDecl::Regex { files, .. } | ExtractorDecl::Query { files, .. } => {
-                    let program = self.programs.get(&declared.name).expect("compiled when its pack loaded");
+                    let Some(programs) = programs else { continue };
+                    let program = programs.get(&declared.name).expect("compiled with its set");
                     runs.push(Run {
                         name: declared.name.clone(),
                         files: files.clone(),
@@ -256,9 +301,10 @@ impl Loaded {
     }
 
     /// The kind the `files` extractor gives a repo's node, with the level and ID prefix the
-    /// vocabulary gives it, as a scan resolves it: what a repo's node ID is made from.
+    /// vocabulary gives it, as a scan resolves it: what a repo's node ID is made from. It reads the
+    /// built-ins alone, so it compiles no declarative extractor.
     pub fn repo_kind(&self) -> Option<planroom_extract::KindRef> {
-        let runs = self.runs(&BTreeSet::new());
+        let runs = self.runs_with(&BTreeSet::new(), None);
         let (_, options) = runs.iter().filter_map(Run::builtin).find(|(b, _)| *b == "files")?;
         serde_json::from_value(options.get("kinds")?.get("repo")?.clone()).ok()
     }
@@ -322,5 +368,15 @@ fn merge(packs: Vec<Pack>) -> Loaded {
         concat!("engine@", env!("CARGO_PKG_VERSION")),
         &keys::canonical(&json!(records)),
     ]);
-    Loaded { packs, vocabulary, languages, image_roles, extractors, linkers, programs: BTreeMap::new(), hash }
+    Loaded {
+        packs,
+        vocabulary,
+        languages,
+        image_roles,
+        extractors,
+        linkers,
+        patterns: BTreeMap::new(),
+        programs: Arc::new(OnceLock::new()),
+        hash,
+    }
 }

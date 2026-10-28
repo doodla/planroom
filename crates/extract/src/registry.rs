@@ -59,6 +59,20 @@ pub const EXTRACTORS: &[Builtin] = &[
         consumes: &[],
         options: &[kinds(&[role("service"), role("tooling"), role("repo")])],
     },
+    Builtin {
+        name: crate::manifest::NAME,
+        builtin: "manifest",
+        role: Role::Extractor,
+        consumes: &[],
+        options: &[kinds(&[role("package"), role("library"), role("repo"), role("directory")])],
+    },
+    Builtin {
+        name: crate::openapi::NAME,
+        builtin: "openapi",
+        role: Role::Extractor,
+        consumes: &[],
+        options: &[kinds(&[role("spec"), role("repo"), role("directory")])],
+    },
 ];
 
 /// Every built-in linker. None is built yet; each lands with the hint kinds it joins.

@@ -89,6 +89,16 @@ impl Spans {
     pub fn into_ranges(self) -> Vec<Range<usize>> {
         self.0
     }
+
+    /// The spans, sorted and disjoint.
+    pub fn ranges(&self) -> &[Range<usize>] {
+        &self.0
+    }
+
+    /// Whether the file has no prose.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 #[cfg(test)]

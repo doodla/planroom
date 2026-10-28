@@ -36,6 +36,8 @@
     "component worker/worker/main.py",
     "component worker/worker/telemetry.py",
     "container grafana",
+    "container kit",
+    "container kit kind library",
     "container orders",
     "container orders kind service",
     "container orders-db",

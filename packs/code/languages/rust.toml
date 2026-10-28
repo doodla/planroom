@@ -1,0 +1,43 @@
+# Rust. Its doc comments are comments.
+#
+# The language a file's extension gives, the comment marks that blank its comments where no
+# parse names them, and the two extractors that read it (architecture.md, "Hints and
+# linkers"): one for its imports, definitions and calls, one for the hints a deployment joins.
+# Two queries, not one, so each match keeps only the captures its own query has. Each emit names
+# only captures its query sets; a definition's value is its parameter list, or a constant's
+# string, and a call's value its arguments, as the source writes them.
+
+[[languages]]
+id = "rust"
+extensions = ["rs"]
+line_comment = "//"
+block_comment = ["/*", "*/"]
+
+[[extractors]]
+id = "rust"
+files = ["**/*.rs"]
+language = "rust"
+query = "queries/rust.scm"
+emit = [
+  { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@import", via = "@import" },
+  { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@use.base::@use.item", via = "@use.base::@use.item" },
+  { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@use.outer::@use.mid", via = "@use.outer::@use.mid" },
+  { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@use.base::@use.inner::@use.leaf", via = "@use.base::@use.inner::@use.leaf" },
+  { hint = "code.def", scope = "@id:code.file:$file", key = "@def", value = "@def.params" },
+  { hint = "code.def", scope = "@id:code.file:$file", key = "@const", value = "@const.value" },
+  { hint = "code.call", scope = "@id:code.file:$file", key = "@call", value = "@call.args" },
+]
+
+[[extractors]]
+id = "rust_runtime"
+files = ["**/*.rs"]
+language = "rust"
+query = "queries/rust_runtime.scm"
+emit = [
+  { hint = "code.env_read", scope = "@id:code.file:$file", key = "@env", attrs = { name = "@env" } },
+  { hint = "code.route_serve", scope = "@id:code.file:$file", key = "@serve.path", attrs = { method = "@serve.method", path = "@serve.path" } },
+  { hint = "code.route_call", scope = "@id:code.file:$file", key = "@client.path", attrs = { method = "@client.method", path = "@client.path" } },
+  { hint = "code.queue_op", scope = "@id:code.file:$file", key = "@queue.publish", attrs = { op = "publish", key = "@queue.publish" } },
+  { hint = "code.queue_op", scope = "@id:code.file:$file", key = "@queue.consume", attrs = { op = "consume", key = "@queue.consume" } },
+  { hint = "code.db_open", scope = "@id:code.file:$file", key = "@db.driver", attrs = { driver = "@db.driver" } },
+]

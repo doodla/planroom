@@ -941,12 +941,19 @@ fn extractor(
     Ok(())
 }
 
-/// Every declarative extractor of the merged set, compiled as the runner will run it: against the
-/// whole vocabulary, the merged `[[languages]]` table and every loaded `[[hints]]` kind. So a pack
-/// that loads runs, and what only the runner reads, such as a hint's `attrs` keys, a template's
-/// variables, a query's grammar and its `.scm` text, fails the load with `pack_invalid` at its
-/// own line. The compiled extractors, by pack-qualified name, are what a scan runs.
-pub(super) fn runnable(loaded: &super::Loaded) -> Result<BTreeMap<String, Arc<Declarative>>, AppError> {
+/// The declarative extractors of the merged set, its tree-sitter query ones when `queries` and
+/// its regex ones otherwise, compiled as the runner will run them: against the whole vocabulary,
+/// the merged `[[languages]]` table and every loaded `[[hints]]` kind. So what only the runner
+/// reads, such as a hint's `attrs` keys, a template's variables, a query's grammar and its `.scm`
+/// text, is `pack_invalid` at its own line. The regex ones compile at load, so a pack whose regex
+/// extractors can't run doesn't load. The query ones compile once in a process that extracts,
+/// before it runs any ([`super::Loaded::programs`]): `scan`, `doctor --pack` and adding a pack,
+/// before any file is read. The compiled extractors, by pack-qualified name, are what a scan
+/// runs.
+pub(super) fn runnable(
+    loaded: &super::Loaded,
+    queries: bool,
+) -> Result<BTreeMap<String, Arc<Declarative>>, AppError> {
     let hints: BTreeMap<String, Vec<String>> = loaded
         .packs
         .iter()
@@ -957,6 +964,8 @@ pub(super) fn runnable(loaded: &super::Loaded) -> Result<BTreeMap<String, Arc<De
         for (i, decl) in pack.file.extractors.iter().enumerate() {
             let query = match decl {
                 ExtractorDecl::Builtin { .. } => continue,
+                ExtractorDecl::Regex { .. } if queries => continue,
+                ExtractorDecl::Query { .. } if !queries => continue,
                 ExtractorDecl::Regex { .. } => None,
                 ExtractorDecl::Query { query, .. } => {
                     pack.source.text(query).or_else(|| pack.source.text(&format!("queries/{query}")))

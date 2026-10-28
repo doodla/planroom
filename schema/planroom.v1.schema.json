@@ -2983,7 +2983,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "12 hex characters of `sha256(kind ‖ scope ‖ key ‖ evidence)`.",
+          "description": "12 hex characters of `sha256(kind ‖ scope ‖ key ‖ evidence)`; an OpenAPI operation's\nmethod follows its key, so each operation of a path item is its own hint.",
           "pattern": "^[0-9a-f]{12}$"
         },
         "kind": {
@@ -2992,11 +2992,12 @@
         },
         "scope": {
           "$ref": "#/$defs/NodeId",
-          "description": "The file, or the compose service."
+          "description": "The file, the compose service or the API spec."
         },
         "key": {
           "type": "string",
-          "description": "The join key: a host, an environment variable name, a path, a queue key."
+          "description": "The join key: a host, an environment variable name, a path, a queue key, a table, a name.\nRepo text, such as a `code.route_call`'s URL argument as the source writes it: a join reads\nit raw, and every output masks it.",
+          "x-redact": true
         },
         "value": {
           "type": [
@@ -4928,7 +4929,7 @@
         {
           "type": "string",
           "const": "work_limit",
-          "description": "Parsing or querying the file took more work than a grammar is given for a file of its\nsize, or its matches would hold more heap, in their facts and in what the extractor keeps\nof them while it reads the file, than a file of its size is given, so the extractor\nstopped and took no fact from it."
+          "description": "Parsing or querying the file took more work than a grammar is given for a file of its\nsize, or its facts, with what the extractor keeps of its matches while it reads the file,\nwould hold more heap than a file of its size is given, so the extractor stopped and took no\nfact from it."
         },
         {
           "type": "string",

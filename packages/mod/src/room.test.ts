@@ -215,7 +215,9 @@ test("/room draws a map's full result: one row a block, then the handles", () =>
   });
   const blocks = rows.filter((r) => r.key.startsWith("block-"));
   expect(blocks).toHaveLength(mapReply.result.nodes.length);
-  expect(blocks[0]).toMatchObject({ text: "□ kit · 11 code, 4 component" });
+  expect(blocks[0]).toMatchObject({
+    text: "□ kit · 11 code, 5 component, 1 container",
+  });
 });
 
 test("a pressed next action is shown until the pane's seq moves on", () => {

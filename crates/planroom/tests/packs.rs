@@ -1947,3 +1947,143 @@ fn a_fixed_prop_that_breaks_its_schema_is_pack_invalid_at_load() {
     load("props = { enabled = \"$2\", color = \"red\", pct = 100 }")
         .expect("values that meet the schema load");
 }
+
+/// An out-of-tree pack whose query extractor reads JavaScript: a call node for each function a
+/// file calls by name. Its query is `queries/calls.scm`, which [`calls_pack`] supplies.
+const CALLS: &str = r#"[[kinds]]
+id = "call"
+id_prefix = "call"
+level = "code"
+label = "Call"
+parents = ["code.file"]
+
+[[extractors]]
+id = "calls"
+files = ["**/*.js"]
+language = "javascript"
+query = "queries/calls.scm"
+emit = [{ node = "calls.call", key = "@name", parent = "@id:code.file:$file" }]
+"#;
+
+/// The `calls` pack with `query` as its `queries/calls.scm`.
+fn calls_pack(query: &str) -> Source {
+    let mut pack = source(Origin::OutOfTree, "calls", &["code"], CALLS);
+    pack.files.insert("queries/calls.scm".into(), query.as_bytes().to_vec());
+    pack
+}
+
+#[test]
+fn every_built_in_query_compiles() {
+    let loaded = packs::builtins().unwrap();
+    assert!(!loaded.compiled(), "loading compiles no query");
+    let programs = loaded.programs().expect("every built-in query compiles against its grammar");
+    let queries: Vec<&str> = loaded
+        .extractors
+        .iter()
+        .filter(|e| matches!(e.decl, planroom_contract::ExtractorDecl::Query { .. }))
+        .map(|e| e.name.as_str())
+        .collect();
+    assert!(queries.len() >= 12, "the code pack's queries: {queries:?}");
+    for name in queries {
+        assert!(programs.contains_key(name), "{name} compiled");
+    }
+    assert!(loaded.compiled());
+}
+
+/// A pack whose query doesn't compile loads, as every read command loads its packs without
+/// compiling a query; wherever a process extracts, a scan, `doctor --pack` or a run of the set,
+/// it is `pack_invalid` before any file is read, never a scan that silently gives nothing.
+#[test]
+fn a_broken_query_loads_and_is_pack_invalid_wherever_a_process_extracts() {
+    let broken = "(call_expression function: (identifier) @name\n";
+    let loaded = with_builtins(vec![calls_pack(broken)]).expect("loading compiles no query");
+    assert!(!loaded.compiled());
+    let says = |e: &planroom::app::error::AppError| {
+        assert_eq!(e.code.as_str(), "pack_invalid", "{e:?}");
+        assert_eq!(e.details["reference"], "queries/calls.scm", "{e:?}");
+        assert!(e.message.contains("calls/calls"), "{}", e.message);
+    };
+    // A run of the set, each time it is asked.
+    says(&loaded.runs(&BTreeSet::new()).unwrap_err());
+    says(&loaded.programs().unwrap_err());
+
+    // A scan, before it reads a repo.
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path().join("ws");
+    planroom_testkit::git_repo(&ws.join("web"), &[("app.js".into(), b"start();\n".to_vec())]);
+    let fresh = with_builtins(vec![calls_pack(broken)]).unwrap();
+    let scan = planroom::app::scan::prepare_with(&planroom_contract::ScanReq::default(), &ws, fresh);
+    says(&scan.err().expect("the scan is refused"));
+
+    // doctor --pack, with no inputs to run.
+    let dir = pack_dir(tmp.path(), "calls", &["code"], CALLS);
+    fs::create_dir_all(dir.join("queries")).unwrap();
+    fs::write(dir.join("queries/calls.scm"), broken).unwrap();
+    assert_invalid(&doctor(&dir), "queries/calls.scm", "calls/calls");
+
+    // A query that compiles runs, compiled the first time the set is run.
+    let good = "(call_expression function: (identifier) @name)\n";
+    let loaded = with_builtins(vec![calls_pack(good)]).unwrap();
+    assert!(!loaded.compiled());
+    let runs = loaded.runs(&BTreeSet::new()).unwrap();
+    assert!(runs.iter().any(|r| r.name == "calls/calls"));
+    assert!(loaded.compiled());
+    fs::write(dir.join("queries/calls.scm"), good).unwrap();
+    assert_eq!(doctor(&dir)["ok"], true);
+    let fresh = with_builtins(vec![calls_pack(good)]).unwrap();
+    let prepared =
+        planroom::app::scan::prepare_with(&planroom_contract::ScanReq::default(), &ws, fresh).unwrap();
+    planroom::app::scan::commit(prepared).unwrap();
+    let store = Store::open_existing(&ws.join(".planroom/store.db")).unwrap().expect("a store");
+    let calls = store.facts(&store.active_set().unwrap().snapshots()).unwrap();
+    assert!(calls.iter().any(|r| r.shape == Shape::Node && r.body.contains("\"web:call:start\"")));
+}
+
+/// The read commands and `watch`'s frames load the process's packs and compile no query: only a
+/// process that extracts pays for compiling them.
+#[test]
+fn read_commands_and_watch_frames_compile_no_query() {
+    use planroom_contract::Command as Leaf;
+    let tmp = tempfile::tempdir().unwrap();
+    let root = fixture(tmp.path()).root;
+    // Scanned by another process.
+    let out = Command::new(env!("CARGO_BIN_EXE_planroom"))
+        .args(["scan", "--json"])
+        .current_dir(&root)
+        .env("PLANROOM_DATA", root.join(".data"))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
+    planroom::app::fs_type::register();
+    let leaf = |command: &str, args: &[&str]| {
+        let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
+        planroom::cli::parse_leaf(command, &args).unwrap()
+    };
+    let Leaf::Map(map) = leaf("map", &["--detail", "graph", "--lens", "all"]) else { panic!("map") };
+    planroom::app::map::run(&map, &root).unwrap();
+    let Leaf::Focus(focus) = leaf("focus", &[]) else { panic!("focus") };
+    planroom::app::focus::run(&focus, &root).unwrap();
+    let Leaf::Find(find) = leaf("find", &["orders"]) else { panic!("find") };
+    planroom::app::find::run(&find, &root).unwrap();
+    let Leaf::Ask(ask) = leaf("ask", &["impact", "orders:repo:orders"]) else { panic!("ask") };
+    planroom::app::ask::run(&ask, &root).unwrap();
+    let Leaf::Schema(schema) = leaf("schema", &[]) else { panic!("schema") };
+    planroom::app::version::schema(&schema).unwrap();
+    planroom::app::version::version().unwrap();
+    let store = planroom::app::workspace::store_path(&root);
+    let tail = planroom_store::Tail::open(&store).unwrap().expect("a store");
+    let mut live = planroom::live::Live::new(tail, Some(0), None).unwrap();
+    let mut frames = 0;
+    live.drain(&mut |_| {
+        frames += 1;
+        true
+    })
+    .unwrap();
+    assert!(frames > 0, "the scan's frames");
+    let loaded = packs::loaded().unwrap();
+    assert!(!loaded.compiled(), "a read command compiled the queries");
+    // A scan in this process compiles them, once.
+    let Leaf::Scan(scan) = leaf("scan", &[]) else { panic!("scan") };
+    planroom::app::scan::run(&scan, &root).unwrap();
+    assert!(loaded.compiled());
+}

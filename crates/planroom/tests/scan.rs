@@ -96,6 +96,11 @@ fn a_scan_finds_the_truths_compose_containers_with_evidence_on_their_lines() {
     assert_eq!(env["meta"]["seq"], 5, "one scan event per repo: {env}");
     let facts = active_facts(&root);
     let nodes: Vec<&Value> = facts.iter().filter(|(s, _)| *s == Shape::Node).map(|(_, v)| v).collect();
+    // The compose file's own fact for a container: a repo's root manifest gives the container of
+    // the same ID, on the manifest's line.
+    let composed = |id: &str| {
+        nodes.iter().find(|n| n["id"] == id && n["provenance"]["extractor"] == "code/compose").copied()
+    };
     let truth = truth();
 
     // Every container the truth declares in the compose file, by its ID and name, with each of
@@ -109,7 +114,7 @@ fn a_scan_finds_the_truths_compose_containers_with_evidence_on_their_lines() {
         let name = container["name"].as_str().unwrap();
         let ns = container["repo"].as_str().unwrap_or("ws");
         let id = format!("{ns}:container:{name}");
-        let node = nodes.iter().find(|n| n["id"] == id).unwrap_or_else(|| panic!("no node {id}"));
+        let node = composed(&id).unwrap_or_else(|| panic!("no node {id}"));
         assert_eq!(node["name"], name);
         assert_eq!(node["level"], "container");
         for want in container["evidence"].as_array().unwrap().iter().filter(|e| e["path"] == compose) {
@@ -126,11 +131,11 @@ fn a_scan_finds_the_truths_compose_containers_with_evidence_on_their_lines() {
         ("platform", "code.tooling"),
     ] {
         let id = format!("{name}:container:{name}");
-        let node = nodes.iter().find(|n| n["id"] == id).unwrap();
+        let node = composed(&id).unwrap();
         assert_eq!(node["kind"], kind, "{id}");
         assert_eq!(node["parent"], format!("{name}:repo:{name}"), "{id} joins its repo");
     }
-    let orders = nodes.iter().find(|n| n["id"] == "orders:container:orders").unwrap();
+    let orders = composed("orders:container:orders").unwrap();
     assert_eq!(orders["aliases"], serde_json::json!(["host:orders", "service:orders"]));
     assert_eq!(orders["props"]["image"], "acme/orders:1.4.0");
 

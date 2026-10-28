@@ -1,0 +1,40 @@
+# Python. Its docstrings are prose, as its comments are.
+#
+# The language a file's extension gives, the comment marks that blank its comments where no
+# parse names them, and the two extractors that read it (architecture.md, "Hints and
+# linkers"): one for its imports, definitions and calls, one for the hints a deployment joins.
+# Two queries, not one, so each match keeps only the captures its own query has. Each emit names
+# only captures its query sets; a definition's value is its parameter list, or a constant's
+# string, and a call's value its arguments, as the source writes them.
+
+[[languages]]
+id = "python"
+extensions = ["py"]
+line_comment = "#"
+
+[[extractors]]
+id = "python"
+files = ["**/*.py"]
+language = "python"
+query = "queries/python.scm"
+emit = [
+  { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@import", via = "@import" },
+  { hint = "code.def", scope = "@id:code.file:$file", key = "@def", value = "@def.params" },
+  { hint = "code.def", scope = "@id:code.file:$file", key = "@const", value = "@const.value" },
+  { hint = "code.call", scope = "@id:code.file:$file", key = "@call", value = "@call.args" },
+]
+
+[[extractors]]
+id = "python_runtime"
+files = ["**/*.py"]
+language = "python"
+query = "queries/python_runtime.scm"
+emit = [
+  { hint = "code.env_read", scope = "@id:code.file:$file", key = "@env", attrs = { name = "@env", default = "@env.default" } },
+  { hint = "code.route_serve", scope = "@id:code.file:$file", key = "@serve.path", attrs = { method = "@serve.method", path = "@serve.path" } },
+  { hint = "code.route_call", scope = "@id:code.file:$file", key = "@fetch.path", attrs = { method = "@fetch.method", path = "@fetch.path" } },
+  { hint = "code.route_call", scope = "@id:code.file:$file", key = "@client.path", attrs = { method = "@client.method", path = "@client.path" } },
+  { hint = "code.queue_op", scope = "@id:code.file:$file", key = "@queue.publish", attrs = { op = "publish", key = "@queue.publish" } },
+  { hint = "code.queue_op", scope = "@id:code.file:$file", key = "@queue.consume", attrs = { op = "consume", key = "@queue.consume" } },
+  { hint = "code.db_open", scope = "@id:code.file:$file", key = "@db.driver", attrs = { driver = "@db.driver" } },
+]

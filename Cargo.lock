@@ -1444,6 +1444,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "toml",
  "tree-sitter",
  "tree-sitter-go",
  "tree-sitter-javascript",

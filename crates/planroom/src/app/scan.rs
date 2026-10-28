@@ -62,7 +62,9 @@ pub fn run(req: &ScanReq, cwd: &Path) -> Result<Paged<ScanResult>, AppError> {
 pub fn prepare(req: &ScanReq, cwd: &Path) -> Result<Prepared, AppError> {
     // A workspace's own packs come from its config, which loads only once the workspace is
     // trusted, so none loads yet.
-    prepare_with(req, cwd, packs::builtins()?)
+    // The packs this process loads once, which the map it returns reads too: the scan compiles
+    // their declarative extractors, queries and regexes, which a second load would only repeat.
+    prepare_with(req, cwd, packs::loaded()?.clone())
 }
 
 /// [`prepare`] with the pack set `packs`: a scan runs every extractor the set declares, built-in
@@ -94,7 +96,9 @@ pub fn prepare_with(req: &ScanReq, cwd: &Path, packs: Loaded) -> Result<Prepared
     let exclude = loaded.config.scan.exclude;
     let globs = walk::Exclude::new(&exclude)?;
     let names: BTreeSet<&str> = ws.repos.iter().map(|r| r.name.as_str()).collect();
-    let runs = packs.runs(&names);
+    // Compiles the declarative extractors, once per process: a pack's broken query is
+    // `pack_invalid` here, before any repo is read.
+    let runs = packs.runs(&names)?;
     let inputs = inputs_hash(&packs.hash, &runs, &exclude);
     let prefixes = id_prefixes(&runs);
     let mut repos = Vec::with_capacity(ws.repos.len());
@@ -313,7 +317,7 @@ fn inputs_hash(packs_hash: &str, runs: &[Run], exclude: &[String]) -> String {
 fn current_inputs(root: &Path, packs: &Loaded, exclude: &[String]) -> Option<String> {
     let ws = workspace::discover(root).ok()?;
     let names: BTreeSet<&str> = ws.repos.iter().map(|r| r.name.as_str()).collect();
-    Some(inputs_hash(&packs.hash, &packs.runs(&names), exclude))
+    Some(inputs_hash(&packs.hash, &packs.runs(&names).ok()?, exclude))
 }
 
 /// Whether `HEAD` in the repo at `path` still names `commit` (empty: still no commit).

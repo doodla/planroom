@@ -162,7 +162,7 @@ test.describe("at 1440x900", () => {
     const orders = page.locator(".block", { hasText: /^orders\s*repo/ });
     await expect(orders.locator(".block-kind")).toHaveText("repo");
     await expect(orders.locator(".block-counts")).toHaveText(
-      "1 container · 14 component · 23 code",
+      "1 container · 16 component · 23 code",
     );
     // The code pack's image roles give a compose service its kind: redis is a queue and orders-db
     // a datastore.

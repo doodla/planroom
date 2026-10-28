@@ -47,6 +47,9 @@ pub fn run(dir: &Path, update: bool) -> Result<Reply<PackReport>, AppError> {
         None => sources.push(source),
     }
     let loaded = packs::resolve(sources)?;
+    // Every declarative extractor compiles here, whether or not the pack has inputs to run, so a
+    // query that doesn't compile is `pack_invalid` from `doctor --pack` as from a scan.
+    loaded.programs()?;
     let pack = loaded.pack(&id).expect("the pack just loaded");
     let file = &pack.file;
     let qualified =
@@ -116,7 +119,7 @@ fn conformance(
     let inputs = read_inputs(&inputs_dir)?;
     let names: BTreeSet<&str> = inputs.iter().map(|i| i.name.as_str()).collect();
     let prefix = format!("{id}/");
-    let runs: Vec<Run> = loaded.runs(&names).into_iter().filter(|r| r.name.starts_with(&prefix)).collect();
+    let runs: Vec<Run> = loaded.runs(&names)?.into_iter().filter(|r| r.name.starts_with(&prefix)).collect();
     let first = extract(&inputs, &runs)?;
     let second = extract(&inputs, &runs)?;
     for ((repo, name, a), (_, _, b)) in first.iter().zip(&second) {

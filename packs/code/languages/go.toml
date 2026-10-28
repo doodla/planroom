@@ -1,0 +1,51 @@
+# Go.
+#
+# The language a file's extension gives, the comment marks that blank its comments where no
+# parse names them, and the two extractors that read it (architecture.md, "Hints and
+# linkers"): one for its imports, definitions and calls, one for the hints a deployment joins.
+# Two queries, not one, so each match keeps only the captures its own query has. Each emit names
+# only captures its query sets; a definition's value is its parameter list, or a constant's
+# string, and a call's value its arguments, as the source writes them.
+
+[[languages]]
+id = "go"
+extensions = ["go"]
+line_comment = "//"
+block_comment = ["/*", "*/"]
+
+[[extractors]]
+id = "go"
+files = ["**/*.go"]
+language = "go"
+query = "queries/go.scm"
+emit = [
+  { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@import", via = "@import" },
+  { hint = "code.def", scope = "@id:code.file:$file", key = "@def", value = "@def.params" },
+  { hint = "code.def", scope = "@id:code.file:$file", key = "@const", value = "@const.value" },
+  { hint = "code.call", scope = "@id:code.file:$file", key = "@call", value = "@call.args" },
+]
+
+[[extractors]]
+id = "go_runtime"
+files = ["**/*.go"]
+language = "go"
+query = "queries/go_runtime.scm"
+emit = [
+  { hint = "code.env_read", scope = "@id:code.file:$file", key = "@env", attrs = { name = "@env" } },
+  { hint = "code.route_serve", scope = "@id:code.file:$file", key = "@serve.path", attrs = { method = "@serve.method", path = "@serve.path" } },
+  { hint = "code.route_call", scope = "@id:code.file:$file", key = "@fetch.path", attrs = { method = "@fetch.method", path = "@fetch.path" } },
+  { hint = "code.route_call", scope = "@id:code.file:$file", key = "@client.path", attrs = { method = "@client.method", path = "@client.path" } },
+  { hint = "code.queue_op", scope = "@id:code.file:$file", key = "@queue.publish", attrs = { op = "publish", key = "@queue.publish" } },
+  { hint = "code.queue_op", scope = "@id:code.file:$file", key = "@queue.consume", attrs = { op = "consume", key = "@queue.consume" } },
+  { hint = "code.db_open", scope = "@id:code.file:$file", key = "@db.driver", attrs = { driver = "@db.driver" } },
+]
+
+# A route Go's ServeMux serves, "POST /orders" with its method or "/healthz" without, split into
+# its method and its path, which no query capture can do.
+[[extractors]]
+id = "go_routes"
+files = ["**/*.go"]
+regex = '\.Handle(?:Func)?\(\s*"(?:([A-Z]+) +)?(/[^"\s]*)"'
+emit = [
+  { hint = "code.route_serve", scope = "@id:code.file:$file", key = "$2", attrs = { method = "$1", path = "$2" } },
+]

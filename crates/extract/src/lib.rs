@@ -10,6 +10,8 @@ pub mod files;
 pub mod git;
 mod ids;
 mod lines;
+pub mod manifest;
+pub mod openapi;
 pub mod registry;
 pub mod verify;
 pub mod walk;
@@ -129,6 +131,8 @@ pub fn builtin(name: &str) -> Option<&'static dyn Extractor> {
     match name {
         "files" => Some(&files::Files),
         "compose" => Some(&compose::Compose),
+        "manifest" => Some(&manifest::Manifest),
+        "openapi" => Some(&openapi::OpenApi),
         _ => None,
     }
 }

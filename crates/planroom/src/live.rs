@@ -50,12 +50,17 @@ impl Live {
     /// Stream the events after `since`, or after the store's latest `seq`. `own` receives the
     /// `seq` of each commit this process makes, from `Store::set_commit_hook`.
     pub fn new(tail: Tail, since: Option<Seq>, own: Option<Receiver<Seq>>) -> Result<Live, StoreError> {
+        // The version first, then the check: a migration before the check fails it, and one after
+        // moves `data_version` past this, so the loop checks again within a poll.
+        let version = tail.data_version()?;
         tail.check_version()?;
+        // The packs load before the first frame, not at the first scan's, so no frame waits for
+        // the load. A frame reads the repo kind alone and compiles no declarative extractor.
+        let _ = repo_node("");
         let cursor = match since {
             Some(seq) => seq,
             None => tail.seq()?,
         };
-        let version = tail.data_version()?;
         Ok(Live { tail, cursor, version, own })
     }
 
@@ -190,7 +195,7 @@ pub fn frame(event: &Event) -> StreamFrame {
 /// no other pack can replace, so the live loop reads it once.
 fn repo_node(repo: &str) -> Option<String> {
     static REPO_KIND: OnceLock<Option<planroom_extract::KindRef>> = OnceLock::new();
-    let kind = REPO_KIND.get_or_init(|| crate::packs::builtins().ok()?.repo_kind());
+    let kind = REPO_KIND.get_or_init(|| crate::packs::loaded().ok()?.repo_kind());
     kind.as_ref().map(|k| planroom_extract::files::repo_id(repo, k).0)
 }
 

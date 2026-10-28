@@ -51,6 +51,13 @@ impl Index {
     }
 }
 
+/// `text` without the UTF-8 byte order mark it may start with, which some editors write and no
+/// JSON, YAML or TOML parser here reads. It sits on line 1 alone, so lines number the same either
+/// way.
+pub fn strip_bom(text: &str) -> &str {
+    text.strip_prefix('\u{feff}').unwrap_or(text)
+}
+
 /// A line as `Evidence::Line.contains` keeps it: at most 200 characters.
 pub fn cut(line: &str) -> String {
     line.chars().take(CONTAINS_MAX_CHARS).collect()

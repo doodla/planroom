@@ -228,9 +228,9 @@ fn map_focus_returns_the_blocks_under_one_node() {
     }
 
     // A name or an ID suffix names a node when only one has it.
-    let by_name = ok(&root, &["map", "--focus", "kit", "--level", "code"]);
-    assert_eq!(by_name["result"]["focus"], "kit:repo:kit");
-    let by_suffix = ok(&root, &["map", "--focus", "repo:kit", "--level", "code"]);
+    let by_name = ok(&root, &["map", "--focus", "checkout", "--level", "code"]);
+    assert_eq!(by_name["result"]["focus"], "storefront:dir:src/checkout");
+    let by_suffix = ok(&root, &["map", "--focus", "dir:src/checkout", "--level", "code"]);
     assert_eq!(by_suffix["result"], by_name["result"]);
 
     // A leaf has nothing under it: an empty state whose next action shows it among its peers.

@@ -186,41 +186,8 @@ to = ["code.person"]
 label = "owned by"
 
 # The languages a file's extension gives, and the comment marks the declarative runner blanks.
-
-[[languages]]
-id = "typescript"
-extensions = ["ts", "mts", "cts"]
-line_comment = "//"
-block_comment = ["/*", "*/"]
-
-[[languages]]
-id = "tsx"
-extensions = ["tsx"]
-line_comment = "//"
-block_comment = ["/*", "*/"]
-
-[[languages]]
-id = "javascript"
-extensions = ["js", "mjs", "cjs", "jsx"]
-line_comment = "//"
-block_comment = ["/*", "*/"]
-
-[[languages]]
-id = "python"
-extensions = ["py"]
-line_comment = "#"
-
-[[languages]]
-id = "go"
-extensions = ["go"]
-line_comment = "//"
-block_comment = ["/*", "*/"]
-
-[[languages]]
-id = "rust"
-extensions = ["rs"]
-line_comment = "//"
-block_comment = ["/*", "*/"]
+# Each language with a built-in grammar, TypeScript, TSX, JavaScript, Python, Go and Rust, has a
+# file of its own in languages/, beside the extractors that read it, and its query in queries/.
 
 [[languages]]
 id = "yaml"
@@ -291,13 +258,16 @@ attrs = ["driver"]
 id = "sql"
 attrs = ["verb", "table"]
 
+# A definition and a call carry no attributes: the key is the name, and the value a definition's
+# parameter list or a constant's string, and a call's arguments, as the source writes them. A map
+# of attributes would hold more than the hint itself, on every call of every file.
 [[hints]]
 id = "def"
-attrs = ["name", "params"]
+attrs = []
 
 [[hints]]
 id = "call"
-attrs = ["name", "args"]
+attrs = []
 
 # Built-in extractors. Each names the kinds it emits; the engine gives it their levels and prefixes.
 
@@ -312,6 +282,44 @@ id = "compose"
 builtin = "compose"
 files = ["**/docker-compose.yml", "**/docker-compose.yaml", "**/compose.yml", "**/compose.yaml"]
 options = { kinds = { service = "code.service", tooling = "code.tooling", repo = "code.repo" } }
+
+# Each manifest's package and dependencies; the root manifest's package is the repo's container,
+# a library until a deployment runs it as a service.
+[[extractors]]
+id = "manifest"
+builtin = "manifest"
+files = ["**/package.json", "**/go.mod", "**/pyproject.toml", "**/Cargo.toml"]
+options = { kinds = { package = "code.package", library = "code.library", repo = "code.repo", directory = "code.directory" } }
+
+# Each OpenAPI or Swagger spec, and the endpoints it serves on their lines.
+[[extractors]]
+id = "openapi"
+builtin = "openapi"
+files = ["**/openapi.yaml", "**/openapi.yml", "**/openapi.json", "**/swagger.yaml", "**/swagger.yml", "**/swagger.json"]
+options = { kinds = { spec = "code.api_spec", repo = "code.repo", directory = "code.directory" } }
+
+# URL and DSN literals in the code of the five languages: what a call or a database open reaches.
+# A part the URL leaves out, its port or its path, is left out of the hint.
+[[extractors]]
+id = "urls"
+files = ["**/*.ts", "**/*.mts", "**/*.cts", "**/*.tsx", "**/*.js", "**/*.mjs", "**/*.cjs", "**/*.jsx", "**/*.py", "**/*.go", "**/*.rs"]
+regex = '''(?i)\b(https?|wss?|postgres(?:ql)?|redis|rediss|amqps?|mysql|mongodb(?:\+srv)?|nats|grpc)://(?:[^\s/@'"`]*@)?([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::(\d+))?(/[^\s'"`]*)?'''
+emit = [
+  { hint = "code.url", scope = "@id:code.file:$file", key = "$2", attrs = { scheme = "$1", host = "$2", port = "$3", path = "$4" } },
+]
+
+# SQL in the code of the five languages, by its verb and the table it names: a write straight to
+# a database is a relation. Upper case only, as SQL in code is written.
+[[extractors]]
+id = "sql"
+files = ["**/*.ts", "**/*.mts", "**/*.cts", "**/*.tsx", "**/*.js", "**/*.mjs", "**/*.cjs", "**/*.jsx", "**/*.py", "**/*.go", "**/*.rs"]
+regex = '''\b(?:(SELECT)\b[^;'"`]{0,256}?\bFROM\s+([A-Za-z_][\w.]*)|(INSERT)\s+INTO\s+([A-Za-z_][\w.]*)|(UPDATE)\s+([A-Za-z_][\w.]*)\s+SET\b|(DELETE)\s+FROM\s+([A-Za-z_][\w.]*))'''
+emit = [
+  { hint = "code.sql", scope = "@id:code.file:$file", key = "$2", attrs = { verb = "$1", table = "$2" } },
+  { hint = "code.sql", scope = "@id:code.file:$file", key = "$4", attrs = { verb = "$3", table = "$4" } },
+  { hint = "code.sql", scope = "@id:code.file:$file", key = "$6", attrs = { verb = "$5", table = "$6" } },
+  { hint = "code.sql", scope = "@id:code.file:$file", key = "$8", attrs = { verb = "$7", table = "$8" } },
+]
 
 # Lenses: which relationships a map shows (DR-15).
 

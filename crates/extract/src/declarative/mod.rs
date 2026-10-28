@@ -5,7 +5,8 @@
 //! templates. [`Declarative::compile`] reads one declaration against the loaded vocabulary, the
 //! merged `[[languages]]` table and the declared hint kinds, and refuses what it couldn't run with
 //! an [`Invalid`], which the pack loader reports as `pack_invalid`. The loader compiles every
-//! declarative extractor this way, so a pack that loads runs.
+//! regex extractor this way at load, and every query extractor this way once in a process that
+//! extracts, before it reads a file, so a pack whose extractors compile runs.
 //!
 //! [`Declarative::run`] keeps the extractor contract:
 //!
@@ -50,11 +51,15 @@
 //!   language with a built-in grammar the parse names them: every comment node, and Python's
 //!   docstrings ([`prose`]), outside the error regions no fact comes from. In any other language
 //!   the `[[languages]]` comment marks drive a lexer that errs toward blanking ([`comments`]). A
-//!   file in no declared language has no comment marks, so a regex reads it whole. A tree-sitter match that captures a node in a comment or a
-//!   docstring is dropped. So a comment or a docstring never creates a node, an edge or a hint.
+//!   file in no declared language has no comment marks, so a regex reads it whole. A tree-sitter
+//!   match that captures a node in a comment or a docstring is dropped, and a capture's text, and
+//!   what a text predicate reads, is the file with its prose blanked, so a capture that holds a
+//!   comment, such as a call's arguments, carries none of its text. So a comment or a docstring
+//!   never creates a node, an edge or a hint, nor puts its text in one.
 //! - **Evidence.** Every fact cites the line its match starts on, as `Evidence::Line` with the
 //!   exact source line at the commit read.
 
+pub(crate) mod charge;
 mod coerce;
 mod comments;
 pub mod grammar;
@@ -686,7 +691,19 @@ impl Declarative {
         };
         let env = Env { repo: &at.repo.name, file: at.file, line, groups, captures };
         let size = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
-        let mut charge = self.copies(&env);
+        // Each emit's ID values, or `None` for an emit this match doesn't fire: one whose key,
+        // scope, ends or via name a group or a capture the match leaves unset, as a query's
+        // pattern leaves every capture of the others' unset. Such an emit makes no fact and
+        // copies nothing, so it is charged nothing.
+        let ids: Vec<Option<Vec<Val<'t>>>> = self
+            .identities
+            .iter()
+            .map(|identity| {
+                let id: Vec<Val<'t>> = identity.iter().map(|v| v.value(line, groups, captures)).collect();
+                (!id.iter().any(|v| matches!(v, Val::Text(None)))).then_some(id)
+            })
+            .collect();
+        let mut charge = self.copies(&env, &ids);
         let text = at.lines.line(at.text, line).unwrap_or_default();
         let cited =
             text.char_indices().nth(planroom_contract::CONTAINS_MAX_CHARS).map_or(text.len(), |(i, _)| i);
@@ -701,9 +718,9 @@ impl Declarative {
             matches.line_charge = 0;
             matches.hint_line = Some(line);
         }
-        for (i, (emit, identity)) in self.emits.iter().zip(&self.identities).enumerate() {
+        for (i, (emit, id)) in self.emits.iter().zip(ids).enumerate() {
             // Each variable's value once, however many times the templates name it.
-            let id: Vec<Val<'t>> = identity.iter().map(|v| v.value(line, groups, captures)).collect();
+            let Some(id) = id else { continue };
             // What a new fact holds beside its templates' text: its structure, its ID's further
             // copies, its kind, its provenance and its evidence, which a node's or an edge's set of
             // cited lines holds again.
@@ -789,8 +806,9 @@ impl Declarative {
     }
 
     /// At least the bytes one match's emits copy, whether or not the facts they make are new:
-    /// every template's text and each prop, attribute or alias entry it fills ([`ENTRY_COST`]).
-    fn copies(&self, env: &Env<'_>) -> u64 {
+    /// every template's text and each prop, attribute or alias entry it fills ([`ENTRY_COST`]),
+    /// of each emit the match fires, which `fired` gives in emit order.
+    fn copies<T>(&self, env: &Env<'_>, fired: &[Option<T>]) -> u64 {
         let texts = |props: &Props| -> usize {
             props
                 .iter()
@@ -803,7 +821,9 @@ impl Declarative {
         let copied: usize = self
             .emits
             .iter()
-            .map(|emit| match emit {
+            .zip(fired)
+            .filter(|(_, fired)| fired.is_some())
+            .map(|(emit, _)| match emit {
                 Emit::Node { key, name, parent, props, aliases, .. } => {
                     let key = key.size(env);
                     // The ID holds the key, and the name is the key when no template gives it.
@@ -849,6 +869,14 @@ impl Declarative {
         let regions = Errors::of(tree.root_node());
         // Read once per file, so each capture finds its span by a binary search.
         let prose = prose::spans(tree.root_node(), *python);
+        // What a capture's text and a text predicate read: the file with its prose blanked, at
+        // the same offsets, so a capture that holds a comment, such as a call's arguments with
+        // one among them, never carries the comment's text into a fact.
+        let source: std::borrow::Cow<'_, str> = if prose.is_empty() {
+            std::borrow::Cow::Borrowed(at.text)
+        } else {
+            std::borrow::Cow::Owned(comments::blank(at.text, prose.ranges()))
+        };
         let mut errors = regions.count;
         if work.depths(&tree) {
             return Err(PartialReason::WorkLimit);
@@ -858,7 +886,7 @@ impl Declarative {
         let mut progress = work.query_progress();
         let options = QueryCursorOptions::new().progress_callback(&mut progress);
         // Text predicates read the file only through what counts their reads as work.
-        let predicates = work.predicates(at.text.as_bytes());
+        let predicates = work.predicates(source.as_bytes());
         let mut found = cursor.matches_with_options(query, tree.root_node(), predicates, options);
         let count = query.capture_names().len();
         // Each kept match's line and captures, emitted once the query has run within its budget.
@@ -878,7 +906,7 @@ impl Declarative {
             for c in m.captures() {
                 let slot = &mut captures[c.index as usize];
                 if slot.is_none() {
-                    *slot = c.node.utf8_text(at.text.as_bytes()).ok();
+                    *slot = c.node.utf8_text(source.as_bytes()).ok();
                 }
             }
             let row = m.captures().iter().map(|c| c.node.start_position().row).min().unwrap_or(0);
@@ -996,7 +1024,26 @@ impl Declarative {
                         evidence,
                         provenance: provenance.clone(),
                     };
-                    out.hints.entry(id).or_insert(hint);
+                    // One hint, its kind, scope, key and line, that two matches give, each with
+                    // the attributes its variables set, as `process.env.X` and `process.env.X ??
+                    // 'd'` both read X: the first gives each attribute and the value, and a later
+                    // one fills in what the first left out. A match is charged what its emits
+                    // copy whether or not its facts are new ([`Declarative::copies`]), so a fill
+                    // holds no more than its match was charged.
+                    match out.hints.entry(id) {
+                        std::collections::btree_map::Entry::Vacant(v) => {
+                            v.insert(hint);
+                        }
+                        std::collections::btree_map::Entry::Occupied(o) => {
+                            let kept = o.into_mut();
+                            for (name, value) in hint.attrs {
+                                kept.attrs.entry(name).or_insert(value);
+                            }
+                            if kept.value.is_none() {
+                                kept.value = hint.value;
+                            }
+                        }
+                    }
                 }
             }
         }

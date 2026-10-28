@@ -56,5 +56,25 @@ tree-sitter-rust = "=0.24.2"
 [profile.dev]
 debug = "line-tables-only"
 
+# Tree-sitter and its grammars are C. Unoptimized, they take three times as long to compile the
+# code pack's queries, which every pack load does, and to parse, which every test pays.
+[profile.dev.package.tree-sitter]
+opt-level = 3
+
+[profile.dev.package.tree-sitter-typescript]
+opt-level = 3
+
+[profile.dev.package.tree-sitter-javascript]
+opt-level = 3
+
+[profile.dev.package.tree-sitter-python]
+opt-level = 3
+
+[profile.dev.package.tree-sitter-go]
+opt-level = 3
+
+[profile.dev.package.tree-sitter-rust]
+opt-level = 3
+
 [profile.test]
 debug = "line-tables-only"

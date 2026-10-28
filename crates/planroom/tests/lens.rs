@@ -87,11 +87,25 @@ fn lens_all_shows_every_loaded_kind() {
     assert!(stored.contains_key("container"), "{stored:?}");
 
     for level in ["system", "container", "component", "code"] {
-        let env = ok(&root, &["map", "--level", level, "--lens", "all", "--detail", "graph"]);
-        let view = &env["result"];
-        assert_eq!(view["lens"], "all", "{env}");
-        assert_eq!(view["level"], level);
-        let nodes = view["nodes"].as_array().unwrap();
+        // Every page of the level, following each `meta.next` (DR-86).
+        let mut nodes: Vec<Value> = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let mut args = vec!["map", "--level", level, "--lens", "all", "--detail", "graph"];
+            if let Some(cursor) = &cursor {
+                args.extend(["--cursor", cursor.as_str()]);
+            }
+            let env = ok(&root, &args);
+            let view = &env["result"];
+            assert_eq!(view["lens"], "all", "{env}");
+            assert_eq!(view["level"], level);
+            nodes.extend(view["nodes"].as_array().unwrap().iter().cloned());
+            match env["meta"]["next"].as_str() {
+                Some(next) if cursor.as_deref() != Some(next) => cursor = Some(next.to_owned()),
+                Some(next) => panic!("{level}: the cursor {next} moves on"),
+                None => break,
+            }
+        }
         let shown: BTreeSet<String> = nodes.iter().map(|n| n["kind"].as_str().unwrap().to_owned()).collect();
         // Every kind the scan holds at this level shows, and every one is a loaded pack's kind.
         for kind in stored.get(level).into_iter().flatten() {

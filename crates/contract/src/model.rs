@@ -211,14 +211,18 @@ pub struct Edge {
 /// A partial observation a linker joins with others, such as a URL literal or an environment read.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Hint {
-    /// 12 hex characters of `sha256(kind ‖ scope ‖ key ‖ evidence)`.
+    /// 12 hex characters of `sha256(kind ‖ scope ‖ key ‖ evidence)`; an OpenAPI operation's
+    /// method follows its key, so each operation of a path item is its own hint.
     #[schemars(pattern(r"^[0-9a-f]{12}$"))]
     pub id: String,
     /// Such as `code.url` or `code.env_read`.
     pub kind: Kind,
-    /// The file, or the compose service.
+    /// The file, the compose service or the API spec.
     pub scope: NodeId,
-    /// The join key: a host, an environment variable name, a path, a queue key.
+    /// The join key: a host, an environment variable name, a path, a queue key, a table, a name.
+    /// Repo text, such as a `code.route_call`'s URL argument as the source writes it: a join reads
+    /// it raw, and every output masks it.
+    #[schemars(extend("x-redact" = true))]
     pub key: String,
     #[schemars(extend("x-redact" = true))]
     pub value: Option<String>,
@@ -275,9 +279,9 @@ pub enum PartialReason {
     /// parsed and the extractor took no fact from it.
     NestingLimit,
     /// Parsing or querying the file took more work than a grammar is given for a file of its
-    /// size, or its matches would hold more heap, in their facts and in what the extractor keeps
-    /// of them while it reads the file, than a file of its size is given, so the extractor
-    /// stopped and took no fact from it.
+    /// size, or its facts, with what the extractor keeps of its matches while it reads the file,
+    /// would hold more heap than a file of its size is given, so the extractor stopped and took no
+    /// fact from it.
     WorkLimit,
     /// The file comes, in sorted path order, at or after the first file whose facts would take
     /// what the extractor holds for the whole repo past its bound, so the extractor took no fact

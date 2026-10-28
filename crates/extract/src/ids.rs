@@ -11,8 +11,19 @@ pub fn node_id(namespace: &str, prefix: &str, key: &str) -> NodeId {
 /// 12 hex characters of `sha256(kind ‖ scope ‖ key ‖ evidence)`, each part ended by a NUL so no
 /// two inputs run together.
 pub fn hint_id(kind: &Kind, scope: &NodeId, key: &str, evidence: &[Evidence]) -> String {
+    hint_id_of(kind, scope, &[key], evidence)
+}
+
+/// [`hint_id`] for an OpenAPI operation, whose method follows its key, so each operation of one
+/// path item is its own hint even when they share a line: `sha256(kind ‖ scope ‖ key ‖ method ‖
+/// evidence)`.
+pub fn operation_id(kind: &Kind, scope: &NodeId, key: &str, method: &str, evidence: &[Evidence]) -> String {
+    hint_id_of(kind, scope, &[key, method], evidence)
+}
+
+fn hint_id_of(kind: &Kind, scope: &NodeId, keys: &[&str], evidence: &[Evidence]) -> String {
     let mut hasher = Sha256::new();
-    for part in [kind.0.as_str(), scope.0.as_str(), key] {
+    for part in [kind.0.as_str(), scope.0.as_str()].iter().chain(keys) {
         hasher.update(part.as_bytes());
         hasher.update([0]);
     }
@@ -57,5 +68,16 @@ mod tests {
             hint_id(&kind, &scope, "ab", &ev),
             hint_id(&kind, &node_id("ws", "container", "redisa"), "b", &ev)
         );
+    }
+
+    #[test]
+    fn an_operations_id_holds_its_method() {
+        let kind = Kind("code.route_serve".into());
+        let scope = node_id("r", "spec", "openapi.yaml");
+        let ev = vec![Evidence::Ref { commit: "c".into(), ref_name: None }];
+        let get = operation_id(&kind, &scope, "/a", "GET", &ev);
+        assert_ne!(get, operation_id(&kind, &scope, "/a", "POST", &ev));
+        assert_ne!(get, hint_id(&kind, &scope, "/a", &ev));
+        assert_ne!(operation_id(&kind, &scope, "/a", "", &ev), hint_id(&kind, &scope, "/a", &ev));
     }
 }
