@@ -405,8 +405,9 @@ fn a_repo_git_cant_use_maps_nothing_of_a_repo_above_it() {
             assert_eq!(env["ok"], true, "{env}");
             assert_eq!(skips(&env), [("r".to_owned(), "git_failed".to_owned())], "{env}");
             // The fix names the repo's own git directory too, so it says why this repo fails
-            // instead of reporting the repo above it. (The path itself may come back masked.)
-            let r = ws.join("r").display().to_string();
+            // instead of reporting the repo above it. (The path itself may come back masked, and
+            // it is the resolved one, as macOS's `/private/var` for a temporary `/var`.)
+            let r = ws.join("r").canonicalize().unwrap().display().to_string();
             let fix = &warnings(&env, "repo_skipped")[0]["details"]["fix"];
             let command = format!("git -C {} --git-dir=.git status", shell_word(&r));
             let want = format!("Run {command} to see why, fix it, then scan again.");

@@ -2170,39 +2170,48 @@ mod tests {
         // git from 2.39 on resolves an alternate as `realpath` does, following a symlink before
         // the `..` after it; an older git resolves the `..` by name. The owner check counts both,
         // so a line that names one directory by name and another through the link can't slip
-        // another user's object store past it.
+        // another user's object store past it, whichever git runs.
         use std::os::unix::fs::MetadataExt;
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().canonicalize().unwrap();
-        let theirs = p.join("deep/theirs");
-        committed(&theirs, "t.txt");
-        let objects = theirs.join(".git/objects");
+        // By name, `lnk/../theirs` is `P/theirs`; through the link it is `P/deep/theirs`. Both
+        // hold a store, so the running git reads one of them, whatever its version.
+        let repos = [p.join("theirs"), p.join("deep/theirs")];
+        for repo in &repos {
+            committed(repo, "t.txt");
+        }
+        let stores = repos.clone().map(|repo| repo.join(".git/objects"));
         std::fs::create_dir_all(p.join("deep/sub")).unwrap();
         std::os::unix::fs::symlink(p.join("deep/sub"), p.join("lnk")).unwrap();
         let mine = p.join("ws/mine");
         committed(&mine, "m.txt");
         let alternates = mine.join(".git/objects/info/alternates");
         let me = std::fs::metadata(&mine).unwrap().uid();
-        // By name, `lnk/../theirs` is `P/theirs`, which is missing; through the link it is
-        // `P/deep/theirs`, which git reads.
         for line in [
             format!("{}\n", p.join("lnk/../theirs/.git/objects").display()),
             "../../../../lnk/../theirs/.git/objects\n".to_owned(),
         ] {
             std::fs::write(&alternates, &line).unwrap();
             let got = super::places(&mine, Some(me)).unwrap().objects;
-            assert!(got.contains(&objects), "{line}: {got:?}");
+            for store in &stores {
+                assert!(got.contains(store), "{line}: {} isn't in {got:?}", store.display());
+            }
+            // The control: the running git reads exactly one of the two.
             let count =
                 Command::new("git").args(["count-objects", "-v"]).current_dir(&mine).output().unwrap();
             let count = String::from_utf8_lossy(&count.stdout).into_owned();
-            assert!(count.contains(&format!("alternate: {}", objects.display())), "the control: {count}");
+            let read: Vec<&str> = count.lines().filter_map(|l| l.strip_prefix("alternate: ")).collect();
+            let known = |one: &str| stores.iter().any(|store| store.to_str() == Some(one));
+            assert!(matches!(read[..], [one] if known(one)), "the control: {count}");
             if me == 0 {
-                let out = Command::new("chown").args(["-R", "65534", theirs.to_str().unwrap()]).output();
-                assert!(out.unwrap().status.success());
-                let (place, uid) = super::foreign_owner(&mine, me).unwrap_or_else(|| panic!("{line}"));
-                assert_eq!((place, uid), (objects.clone(), 65534), "{line}");
-                let out = Command::new("chown").args(["-R", "0", theirs.to_str().unwrap()]).output();
-                assert!(out.unwrap().status.success());
+                for (repo, store) in repos.iter().zip(&stores) {
+                    let out = Command::new("chown").args(["-R", "65534", repo.to_str().unwrap()]).output();
+                    assert!(out.unwrap().status.success());
+                    let (place, uid) = super::foreign_owner(&mine, me).unwrap_or_else(|| panic!("{line}"));
+                    assert_eq!((place, uid), (store.clone(), 65534), "{line}");
+                    let out = Command::new("chown").args(["-R", "0", repo.to_str().unwrap()]).output();
+                    assert!(out.unwrap().status.success());
+                }
             }
         }
     }

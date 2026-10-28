@@ -354,9 +354,17 @@ fn an_empty_state_lists_a_few_repos_and_counts_the_rest() {
 #[test]
 fn an_unreadable_workspace_at_a_long_path_keeps_its_empty_state_to_its_budget() {
     let tmp = tempfile::tempdir().unwrap();
-    let mut ws = tmp.path().to_path_buf();
+    let mut ws = tmp.path().canonicalize().unwrap();
+    // As deep as the platform's path limit allows (4096 bytes on Linux, 1024 on macOS), with room
+    // left for the repos and git's files in them.
+    let limit = usize::try_from(libc::PATH_MAX).unwrap() - 300;
+    let part = "d".repeat(200);
     for i in 0..15 {
-        ws.push(format!("{}{i}", "d".repeat(200)));
+        let deeper = ws.join(format!("{part}{i}"));
+        if deeper.as_os_str().len() > limit {
+            break;
+        }
+        ws = deeper;
     }
     for name in ["a", "b"] {
         git_repo(&ws.join(name), &[("f.txt".to_owned(), b"x\n".to_vec())]);
@@ -369,6 +377,8 @@ fn an_unreadable_workspace_at_a_long_path_keeps_its_empty_state_to_its_budget() 
         let env = reply(&ws, &args, "", &[("PLANROOM_TEST_EUID", &other)]);
         let empty = &env["result"]["empty"];
         assert_eq!(empty["reason"], "repos_unreadable", "{env}");
+        let line = empty["line"].as_str().unwrap();
+        assert!(!line.contains(&part), "{args:?}: {line}");
         let budget = u64::from(leaf.spec().budget_tokens);
         assert!(env["meta"]["size"]["tokens_est"].as_u64().unwrap() <= budget, "{args:?}: {}", env["meta"]);
         let warnings = env["meta"]["warnings"].as_array().map_or(&[][..], |w| w.as_slice());
