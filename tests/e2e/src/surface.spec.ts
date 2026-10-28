@@ -11,7 +11,15 @@ import type { MapView } from "@planroom/contract";
 import type { Locator, Page } from "@playwright/test";
 
 import { startEngine, type Engine } from "./engine";
-import { CONCEPTS, DESKTOP, PHONE, expect, openMap, test } from "./fixtures";
+import {
+  CONCEPTS,
+  DESKTOP,
+  PHONE,
+  expect,
+  openMap,
+  settled,
+  test,
+} from "./fixtures";
 
 /** The engine's own map of the workspace, as the canvas asks for it. */
 function engineMap(engine: Engine): MapView {
@@ -248,7 +256,9 @@ test.describe("at 1440x900", () => {
     const sessions = () =>
       sent.filter((r) => r.path === "/api/v1/session").length;
     expect(sessions()).toBe(1);
-    // A reload within one serve stays signed in, with no new code.
+    // A reload within one serve stays signed in, with no new code. The first load's requests end
+    // first, so the reload aborts none whose Origin the check below reads.
+    await expect.poll(() => settled(sent)).toBe(true);
     await page.reload();
     await page.locator(".map[data-ready]").waitFor();
     expect(sessions()).toBe(1);
