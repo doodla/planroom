@@ -2,6 +2,7 @@
 //! the more specific tier's value. Edges of one ID merge the same way.
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 use planroom_contract::{Edge, EdgeId, Node, NodeId, Provenance, Tier};
 
@@ -66,12 +67,25 @@ pub fn merge(mut nodes: Vec<Node>) -> Vec<Merged> {
 /// their emitted order. A caller that keeps its facts merges each run of one ID with
 /// [`merge_borrowed`], so no fact is moved or copied but into its merged node.
 pub fn sorted_by_id(nodes: &[Node]) -> Vec<&Node> {
-    let mut sorted: Vec<&Node> = nodes.iter().collect();
-    // A stable sort keeps the facts of one ID in their emitted order, which breaks tier ties.
-    if !sorted.is_sorted_by(|a, b| a.id <= b.id) {
-        sorted.sort_by(|a, b| a.id.cmp(&b.id));
+    let sorted: Vec<&Node> = nodes.iter().collect();
+    if sorted.is_sorted_by(|a, b| a.id <= b.id) {
+        return sorted;
     }
-    sorted
+    // Each ID's first eight bytes, as a number that orders as they do, settle most comparisons
+    // without reading the IDs. A stable sort keeps the facts of one ID in their emitted order,
+    // which breaks tier ties.
+    let mut keyed: Vec<(u64, &Node)> = sorted.into_iter().map(|n| (order_prefix(&n.id.0), n)).collect();
+    keyed.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.id.cmp(&b.1.id)));
+    keyed.into_iter().map(|(_, n)| n).collect()
+}
+
+/// The first eight bytes of `s`, big-endian and padded with zeros: of two strings, the lesser
+/// never has the greater prefix, so equal prefixes alone need the strings compared.
+fn order_prefix(s: &str) -> u64 {
+    let mut word = [0u8; 8];
+    let n = s.len().min(8);
+    word[..n].copy_from_slice(&s.as_bytes()[..n]);
+    u64::from_be_bytes(word)
 }
 
 /// The node [`merge`] makes of the facts of one ID, given in their emitted order.
@@ -135,21 +149,25 @@ pub fn merge_edges(edges: Vec<Edge>) -> Vec<Edge> {
 /// [`merge_edges`] over edges it borrows, copying each edge once, into its merged edge.
 pub fn merge_edges_borrowed(edges: &[Edge]) -> Vec<Edge> {
     let mut slot: HashMap<&EdgeId, usize> = HashMap::with_capacity(edges.len());
-    let mut groups: Vec<Vec<&Edge>> = Vec::new();
+    // Each ID's first edge, and any others with it: most IDs have one, which needs no list.
+    let mut groups: Vec<(&Edge, Vec<&Edge>)> = Vec::with_capacity(edges.len());
     for edge in edges {
-        match slot.get(&edge.id) {
-            Some(&i) => groups[i].push(edge),
-            None => {
-                slot.insert(&edge.id, groups.len());
-                groups.push(vec![edge]);
+        match slot.entry(&edge.id) {
+            Entry::Occupied(at) => groups[*at.get()].1.push(edge),
+            Entry::Vacant(at) => {
+                at.insert(groups.len());
+                groups.push((edge, Vec::new()));
             }
         }
     }
     groups
         .into_iter()
-        .map(|group| match group.as_slice() {
-            [one] => (*one).clone(),
-            _ => merge_edge_group(group.into_iter().cloned().collect()),
+        .map(|(first, more)| {
+            if more.is_empty() {
+                first.clone()
+            } else {
+                merge_edge_group(std::iter::once(first).chain(more).cloned().collect())
+            }
         })
         .collect()
 }

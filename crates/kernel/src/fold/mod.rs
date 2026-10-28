@@ -21,6 +21,7 @@
 
 pub mod claims;
 pub mod cycle;
+mod lookup;
 mod prepass;
 mod renames;
 mod state;
@@ -30,7 +31,9 @@ use std::collections::BTreeSet;
 use planroom_contract::{Event, EventBody, EventId, NodeId, Seq, Target, Verdict, Vocabulary};
 
 use crate::model::{Facts, Model};
-use crate::resolve::{Resolved, resolve};
+#[cfg(test)]
+use crate::resolve::resolve;
+use crate::resolve::{Places, Resolved, resolve_placed};
 use prepass::Prepass;
 use state::{Core, ParentEntry};
 
@@ -67,24 +70,35 @@ pub struct Folded {
 
 /// The fold at `at`, with everything it derives. Events above `at` are left out, in any order.
 pub fn fold_full(facts: &Facts, events: &[Event], vocabulary: &Vocabulary, at: Seq) -> Folded {
-    fold_resolved(resolve(facts, vocabulary), events, at)
+    let (resolved, places) = resolve_placed(facts, vocabulary);
+    fold_placed(resolved, Some(places), events, at)
 }
 
 /// The fold at `at` over facts already resolved.
+#[cfg(test)]
 fn fold_resolved(resolved: Resolved, events: &[Event], at: Seq) -> Folded {
+    fold_placed(resolved, None, events, at)
+}
+
+/// The fold at `at` over facts already resolved, with where resolution placed each node when it
+/// did.
+fn fold_placed(resolved: Resolved, places: Option<Places>, events: &[Event], at: Seq) -> Folded {
     let mut up_to: Vec<&Event> = events.iter().filter(|e| e.seq <= at).collect();
     up_to.sort_by_key(|e| e.seq);
     // An edit whose node is gone follows the renames later scans recorded (DR-74).
-    let (followed_events, followed) = renames::follow(&up_to, &resolved.nodes);
-    let up_to: Vec<&Event> = followed_events.iter().map(|e| e.as_ref()).collect();
+    let (resolved_edits, followed) = renames::follow(&up_to, &resolved.nodes);
+    for (at, edit) in &resolved_edits {
+        up_to[*at] = edit;
+    }
     let undos = prepass::Undos::of(&up_to);
     let mut prepass = prepass::prepass(&up_to, &undos);
     prepass.followed = followed;
-    let mut core = Core::new(resolved);
+    let mut core = Core::placed(resolved, places);
+    core.reserve(up_to.len());
     for event in &up_to {
         core.apply(event, &prepass);
     }
-    prepass.undo_revs = prepass::undo_revisions(&up_to, &undos, &core.sets);
+    prepass.undo_revs = prepass::undo_revisions(&up_to, &undos, &core.index);
     core.at = at;
     finished(core, prepass)
 }
@@ -123,7 +137,7 @@ pub fn fold_one(
     vocabulary: &Vocabulary,
     event: &Event,
 ) {
-    if folded.core.index.contains_key(&event.id) {
+    if folded.core.indexed(&event.id).is_some() {
         return;
     }
     if refolds(event) || event.seq <= folded.core.at {
@@ -168,7 +182,7 @@ impl AfterUndo<'_> {
     /// The ghosts `cause` caused that no undo would reverse, reviewed or not, in `seq` order.
     pub fn ghosts_of(&self, cause: &EventId) -> Vec<EventId> {
         let caused = self.folded.core.caused.get(cause).into_iter().flatten();
-        caused.filter(|id| !self.undone.contains(*id)).cloned().collect()
+        caused.map(|id| EventId(id.to_string())).filter(|id| !self.undone.contains(id)).collect()
     }
 
     /// Whether the card event `card` would be open: no undo reverses it and no review that stands
@@ -209,8 +223,8 @@ impl Folded {
     pub(crate) fn revision_of(&self, key: &FieldKey) -> Option<Rev> {
         let set = self.core.last_set(key).map(|s| Rev {
             seq: s.seq,
-            event: s.event.clone(),
-            writer: s.writer.clone(),
+            event: EventId(s.event.to_string()),
+            writer: Writer::clone(&s.writer),
         });
         let undo = self.prepass.undo_revs.get(key).cloned();
         match (set, undo) {
@@ -261,14 +275,14 @@ impl Folded {
     /// The events of the command that wrote `event`: every event sharing its key stem, in `seq`
     /// order; empty when the fold never saw `event`.
     pub fn command_of(&self, event: &EventId) -> Vec<EventId> {
-        let Some(found) = self.core.index.get(event) else { return Vec::new() };
+        let Some(found) = self.core.indexed(event) else { return Vec::new() };
         let mut members: Vec<(Seq, EventId)> = self
             .core
             .stems
-            .get(state::idem_stem(&found.idem))
+            .get(&*found.stem)
             .into_iter()
-            .flatten()
-            .filter_map(|id| self.core.index.get(id).map(|e| (e.seq, id.clone())))
+            .flat_map(|members| members.iter())
+            .filter_map(|id| self.core.index.get(id).map(|e| (e.seq, EventId(id.to_owned()))))
             .collect();
         members.sort();
         members.into_iter().map(|(_, id)| id).collect()
@@ -285,7 +299,7 @@ impl Folded {
                 if !seen.insert(member.clone()) {
                     continue;
                 }
-                let Some(found) = self.core.index.get(&member) else { continue };
+                let Some(found) = self.core.indexed(&member) else { continue };
                 keys.extend(found.keys.iter().cloned());
                 if let Some(of) = &found.undo_of {
                     todo.push(of.clone());
@@ -302,7 +316,12 @@ impl Folded {
     /// node it would leave out of the model. In node order (DR-61).
     pub fn parents_after_undo(&self, event: &EventId) -> Vec<(NodeId, Option<Option<NodeId>>)> {
         let after = self.prepass.undone_after(&self.command_of(event));
-        let toggled: BTreeSet<&EventId> = self.prepass.undone.symmetric_difference(&after).collect();
+        let undone = &self.prepass.undone;
+        let toggled: BTreeSet<&EventId> = undone
+            .unordered()
+            .filter(|e| !after.contains(*e))
+            .chain(after.iter().filter(|e| !undone.contains(*e)))
+            .collect();
         let mut out = Vec::new();
         for (node, log) in &self.core.parent_log {
             if !log.iter().any(|(_, e, _)| toggled.contains(e)) {
@@ -331,8 +350,8 @@ impl Folded {
             .get(cause)
             .into_iter()
             .flatten()
-            .filter(|id| !self.prepass.undone.contains(*id))
-            .cloned()
+            .map(|id| EventId(id.to_string()))
+            .filter(|id| !self.prepass.undone.contains(id))
             .collect()
     }
 

@@ -1,6 +1,8 @@
 //! What the fold keeps while it applies events in `seq` order, and the model and lists it derives
 //! from them.
 
+use std::borrow::Cow;
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -11,10 +13,11 @@ use planroom_contract::{
 use serde_json::{Map, Value, json};
 
 use super::claims::ClaimRecord;
-use super::cycle::find_cycle;
+use super::cycle::find_cycle_by;
+use super::lookup::Lookup;
 use super::prepass::Prepass;
 use crate::model::Model;
-use crate::resolve::Resolved;
+use crate::resolve::{Places, Resolved};
 
 /// The field key a `put` or a `retract` sets: the whole target.
 pub const WHOLE: &str = "*";
@@ -107,6 +110,25 @@ pub fn overlaps(a: &FieldKey, b: &FieldKey) -> bool {
     a.0 == b.0 && (a.1 == b.1 || a.1 == WHOLE || b.1 == WHOLE)
 }
 
+/// Whether any of `edit`'s keys ([`edit_keys`]) [`overlaps`] `key`, read from the edit without
+/// building its keys.
+fn ghost_overlaps(edit: &Edit, key: &FieldKey) -> bool {
+    let same_target = match (&edit.target, &key.0) {
+        (Target::Node(a), TargetKey::Node(b)) => a == b,
+        (Target::Edge(a), TargetKey::Edge(b)) => a == b,
+        _ => false,
+    };
+    same_target
+        && match edit.op {
+            // A `set` has a key per field, any of which may be named as the whole target is.
+            Op::Set => {
+                !edit.fields.is_empty()
+                    && (key.1 == WHOLE || edit.fields.contains_key(WHOLE) || edit.fields.contains_key(&key.1))
+            }
+            Op::Put | Op::Retract => true,
+        }
+}
+
 /// An authored revision: the `seq` of the last applied event that set a field, and its writer
 /// instance (architecture.md, "Versions and revisions").
 #[derive(Debug, Clone, PartialEq)]
@@ -137,8 +159,10 @@ impl Setting {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Setter {
     pub seq: Seq,
-    pub event: EventId,
-    pub writer: Writer,
+    /// The event's ID, shared with the event index.
+    pub event: Arc<str>,
+    /// Shared by the settings of one writer's run of events, not copied into each.
+    pub writer: Arc<Writer>,
     pub op: Op,
     pub layer: Layer,
     /// The fact value the field was set over, from the edit's `over`.
@@ -254,10 +278,28 @@ pub struct Overlay {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Indexed {
     pub seq: Seq,
-    pub idem: String,
+    /// The command's key stem ([`idem_stem`]), shared with [`Core::stems`].
+    pub stem: Arc<str>,
     pub status: Status,
     pub keys: Vec<FieldKey>,
     pub undo_of: Option<EventId>,
+    /// For an applied edit, the fields it set as a [`Mask`] over `keys`: what the fold set for an
+    /// edit in effect, and for an undone one what it would set where it stands. An undo's
+    /// revisions read it (DR-61).
+    pub set: Option<Mask>,
+}
+
+/// The events of one command, by ID, in the order the fold met them.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Members {
+    first: Arc<str>,
+    more: Vec<Arc<str>>,
+}
+
+impl Members {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(&*self.first).chain(self.more.iter().map(|id| &**id))
+    }
 }
 
 /// The idempotency key a command's events share: `idem` without its `#N` suffix (DR-81).
@@ -268,93 +310,287 @@ pub(crate) fn idem_stem(idem: &str) -> &str {
     }
 }
 
-/// The nodes the fold holds: the resolved facts, shared and never written, under the nodes the
-/// edits changed, each copied from its fact on its first write. A fold copies only what its
-/// edits touch, and a copy of the fold shares the facts.
+/// The nodes the fold holds: the resolved facts, shared and never written, under what the edits
+/// changed. A node an edit puts is held whole; for a fact an edit renames, moves or gives a prop,
+/// only the fields the edits set are held, over the fact. The fold copies no fact for an edit,
+/// only once each into the model, and a copy of the fold shares the facts.
 #[derive(Debug, Clone)]
 pub(crate) struct Nodes {
-    /// The resolved facts, before any override, one per ID and sorted by ID: what drift and
-    /// fallbacks compare with.
-    facts: Arc<Vec<Node>>,
-    /// Each node an edit changed, put or removed, by ID: `None` for one removed.
-    changed: BTreeMap<NodeId, Option<Node>>,
+    /// The resolved facts, before any override: what drift and fallbacks compare with.
+    facts: Arc<FactNodes>,
+    /// What the edits made of each fact, by its place among the facts; empty until an edit
+    /// changes one.
+    changed: Vec<Option<Changed>>,
+    /// The nodes edits put that aren't facts, by ID.
+    others: BTreeMap<NodeId, Node>,
+}
+
+/// The fact nodes, one per ID and sorted by ID, and where each ID sits among them.
+struct FactNodes {
+    nodes: Vec<Node>,
+    places: Places,
+}
+
+impl FactNodes {
+    /// The place of the fact with ID `id`.
+    fn place(&self, id: &NodeId) -> Option<usize> {
+        self.places.find(&self.nodes, id)
+    }
+}
+
+impl PartialEq for FactNodes {
+    fn eq(&self, other: &FactNodes) -> bool {
+        self.nodes == other.nodes
+    }
+}
+
+impl std::fmt::Debug for FactNodes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.nodes.fmt(f)
+    }
+}
+
+/// What the edits so far made of one fact.
+#[derive(Debug, Clone, PartialEq)]
+enum Changed {
+    /// Removed.
+    Gone,
+    /// Put whole over it.
+    Put(Box<Node>),
+    /// The fact, with the fields edits set on it.
+    Edited(Box<Edited>),
+}
+
+/// The fields edits set on a fact node.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Edited {
+    name: Option<String>,
+    parent: Option<Option<NodeId>>,
+    /// Each prop an edit set, `None` for one it removed.
+    props: BTreeMap<String, Option<Value>>,
+}
+
+impl Edited {
+    /// `fact` with these fields set on it.
+    fn over(&self, fact: &Node) -> Node {
+        // Each field is copied from the fact or from the edits, never from both.
+        let mut node = Node {
+            id: fact.id.clone(),
+            kind: fact.kind.clone(),
+            level: fact.level,
+            parent: self.parent.as_ref().unwrap_or(&fact.parent).clone(),
+            name: self.name.as_ref().unwrap_or(&fact.name).clone(),
+            aliases: fact.aliases.clone(),
+            props: fact.props.clone(),
+            layer: fact.layer,
+            provenance: fact.provenance.clone(),
+            evidence: fact.evidence.clone(),
+        };
+        for (key, value) in &self.props {
+            match value {
+                Some(value) => {
+                    node.props.insert(key.clone(), value.clone());
+                }
+                None => {
+                    node.props.remove(key);
+                }
+            }
+        }
+        node
+    }
+}
+
+/// A node an edit writes, as the nodes hold it.
+pub(crate) enum NodeMut<'a> {
+    Put(&'a mut Node),
+    Edited(&'a mut Edited),
+}
+
+impl NodeMut<'_> {
+    fn set_name(self, name: String) {
+        match self {
+            NodeMut::Put(node) => node.name = name,
+            NodeMut::Edited(edited) => edited.name = Some(name),
+        }
+    }
+
+    fn set_parent(self, parent: Option<NodeId>) {
+        match self {
+            NodeMut::Put(node) => node.parent = parent,
+            NodeMut::Edited(edited) => edited.parent = Some(parent),
+        }
+    }
+
+    /// Set prop `key`, or remove it for `None`.
+    fn set_prop(self, key: &str, value: Option<Value>) {
+        match (self, value) {
+            (NodeMut::Put(node), Some(value)) => {
+                node.props.insert(key.to_owned(), value);
+            }
+            (NodeMut::Put(node), None) => {
+                node.props.remove(key);
+            }
+            (NodeMut::Edited(edited), value) => {
+                edited.props.insert(key.to_owned(), value);
+            }
+        }
+    }
 }
 
 impl Nodes {
-    /// The nodes `facts` give, before any edit. Resolution leaves them one per ID and sorted;
-    /// any others are sorted here, and of two with one ID the later stands.
-    fn new(mut facts: Vec<Node>) -> Nodes {
-        if !facts.is_sorted_by(|a, b| a.id < b.id) {
-            facts.reverse();
-            facts.sort_by(|a, b| a.id.cmp(&b.id));
-            facts.dedup_by(|later, earlier| later.id == earlier.id);
+    /// The nodes `facts` give, before any edit, with their `places` when resolution found them.
+    /// Resolution leaves them one per ID and sorted; any others are sorted here, and of two with
+    /// one ID the later stands.
+    fn new(mut facts: Vec<Node>, places: Option<Places>) -> Nodes {
+        let places = match places {
+            Some(places) if facts.is_sorted_by(|a, b| a.id < b.id) => places,
+            _ => {
+                if !facts.is_sorted_by(|a, b| a.id < b.id) {
+                    facts.reverse();
+                    facts.sort_by(|a, b| a.id.cmp(&b.id));
+                    facts.dedup_by(|later, earlier| later.id == earlier.id);
+                }
+                Places::of(&facts)
+            }
+        };
+        Nodes {
+            facts: Arc::new(FactNodes { nodes: facts, places }),
+            changed: Vec::new(),
+            others: BTreeMap::new(),
         }
-        Nodes { facts: Arc::new(facts), changed: BTreeMap::new() }
     }
 
     /// The fact node with this ID, before any edit.
     pub(crate) fn fact(&self, id: &NodeId) -> Option<&Node> {
-        self.facts.binary_search_by(|n| n.id.cmp(id)).ok().map(|i| &self.facts[i])
+        self.facts.place(id).map(|i| &self.facts.nodes[i])
     }
 
-    /// The node with this ID as the edits so far leave it.
-    pub(crate) fn get(&self, id: &NodeId) -> Option<&Node> {
-        match self.changed.get(id) {
-            Some(changed) => changed.as_ref(),
-            None => self.fact(id),
+    fn changed(&self, place: usize) -> Option<&Changed> {
+        self.changed.get(place).and_then(Option::as_ref)
+    }
+
+    /// The node with this ID as the edits so far leave it, as its ID where the nodes hold it and
+    /// its parent; `None` when there's no such node.
+    fn find(&self, id: &NodeId) -> Option<(&NodeId, Option<&NodeId>)> {
+        let Some(place) = self.facts.place(id) else {
+            return self.others.get(id).map(|n| (&n.id, n.parent.as_ref()));
+        };
+        let fact = &self.facts.nodes[place];
+        match self.changed(place) {
+            None => Some((&fact.id, fact.parent.as_ref())),
+            Some(Changed::Gone) => None,
+            Some(Changed::Put(node)) => Some((&node.id, node.parent.as_ref())),
+            Some(Changed::Edited(edited)) => {
+                let parent = match &edited.parent {
+                    Some(parent) => parent.as_ref(),
+                    None => fact.parent.as_ref(),
+                };
+                Some((&fact.id, parent))
+            }
         }
     }
 
     pub(crate) fn contains(&self, id: &NodeId) -> bool {
-        self.get(id).is_some()
+        self.find(id).is_some()
     }
 
-    /// The node to write, copied from its fact the first time an edit writes it.
-    fn get_mut(&mut self, id: &NodeId) -> Option<&mut Node> {
-        if !self.changed.contains_key(id) {
-            let fact = self.fact(id)?.clone();
-            self.changed.insert(id.clone(), Some(fact));
+    /// Node `id`'s ID where the nodes hold it, when there's such a node.
+    pub(crate) fn held(&self, id: &NodeId) -> Option<&NodeId> {
+        self.find(id).map(|(held, _)| held)
+    }
+
+    /// Node `id`'s parent: `None` when it sits at the top or there's no such node.
+    pub(crate) fn parent(&self, id: &NodeId) -> Option<&NodeId> {
+        self.find(id).and_then(|(_, parent)| parent)
+    }
+
+    /// What the edits made of the fact at `place`, to write.
+    fn change(&mut self, place: usize) -> &mut Option<Changed> {
+        if self.changed.is_empty() {
+            self.changed.resize(self.facts.nodes.len(), None);
         }
-        self.changed.get_mut(id).and_then(Option::as_mut)
+        &mut self.changed[place]
+    }
+
+    /// The node to write. The first write to a fact starts the fields kept over it.
+    fn get_mut(&mut self, id: &NodeId) -> Option<NodeMut<'_>> {
+        let Some(place) = self.facts.place(id) else { return self.others.get_mut(id).map(NodeMut::Put) };
+        let change = self.change(place);
+        match change.get_or_insert_with(|| Changed::Edited(Box::default())) {
+            Changed::Gone => None,
+            Changed::Put(node) => Some(NodeMut::Put(node)),
+            Changed::Edited(edited) => Some(NodeMut::Edited(edited)),
+        }
     }
 
     fn insert(&mut self, node: Node) {
-        self.changed.insert(node.id.clone(), Some(node));
-    }
-
-    fn remove(&mut self, id: &NodeId) {
-        if self.fact(id).is_some() {
-            self.changed.insert(id.clone(), None);
-        } else {
-            self.changed.remove(id);
+        match self.facts.place(&node.id) {
+            Some(place) => *self.change(place) = Some(Changed::Put(Box::new(node))),
+            None => {
+                self.others.insert(node.id.clone(), node);
+            }
         }
     }
 
-    /// Every node, in ID order.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &Node> {
-        let mut facts = self.facts.iter().peekable();
-        let mut changed = self.changed.iter().peekable();
-        std::iter::from_fn(move || {
-            loop {
-                let order = match (facts.peek(), changed.peek()) {
-                    (None, None) => return None,
-                    (Some(_), None) => std::cmp::Ordering::Less,
-                    (None, Some(_)) => std::cmp::Ordering::Greater,
-                    (Some(fact), Some((id, _))) => fact.id.cmp(id),
-                };
-                match order {
-                    std::cmp::Ordering::Less => return facts.next(),
-                    std::cmp::Ordering::Equal => {
-                        facts.next();
-                    }
-                    std::cmp::Ordering::Greater => {}
-                }
-                if let Some((_, Some(node))) = changed.next() {
-                    return Some(node);
-                }
+    fn remove(&mut self, id: &NodeId) {
+        match self.facts.place(id) {
+            Some(place) => *self.change(place) = Some(Changed::Gone),
+            None => {
+                self.others.remove(id);
             }
+        }
+    }
+
+    /// Every node, in ID order: a fact no edit changed and a node an edit put as held, any other
+    /// fact with the fields edits set on it.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = Cow<'_, Node>> {
+        self.merged().filter_map(|held| match held {
+            Held::Fact(fact, None) | Held::Other(fact) => Some(Cow::Borrowed(fact)),
+            Held::Fact(_, Some(Changed::Gone)) => None,
+            Held::Fact(_, Some(Changed::Put(node))) => Some(Cow::Borrowed(&**node)),
+            Held::Fact(fact, Some(Changed::Edited(edited))) => Some(Cow::Owned(edited.over(fact))),
         })
     }
+
+    /// How many nodes there are at most: the facts and the other nodes edits put.
+    fn len(&self) -> usize {
+        self.facts.nodes.len() + self.others.len()
+    }
+
+    /// Every node's ID, in ID order.
+    pub(crate) fn ids(&self) -> impl Iterator<Item = &NodeId> {
+        self.merged().filter_map(|held| match held {
+            Held::Fact(_, Some(Changed::Gone)) => None,
+            Held::Fact(_, Some(Changed::Put(node))) => Some(&node.id),
+            Held::Fact(fact, _) | Held::Other(fact) => Some(&fact.id),
+        })
+    }
+
+    /// The facts, each with what edits made of it, and the other nodes, in ID order.
+    fn merged(&self) -> impl Iterator<Item = Held<'_>> {
+        let mut facts = self.facts.nodes.iter().enumerate().peekable();
+        let mut others = self.others.values().peekable();
+        std::iter::from_fn(move || {
+            let fact_first = match (facts.peek(), others.peek()) {
+                (None, None) => return None,
+                (Some(_), None) => true,
+                (None, Some(_)) => false,
+                (Some((_, fact)), Some(other)) => fact.id < other.id,
+            };
+            Some(if fact_first {
+                let (place, fact) = facts.next()?;
+                Held::Fact(fact, self.changed(place))
+            } else {
+                Held::Other(others.next()?)
+            })
+        })
+    }
+}
+
+/// One node as [`Nodes::merged`] meets it.
+enum Held<'a> {
+    Fact(&'a Node, Option<&'a Changed>),
+    Other(&'a Node),
 }
 
 impl PartialEq for Nodes {
@@ -369,19 +605,19 @@ impl PartialEq for Nodes {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Core {
     pub at: Seq,
-    fact_edges: BTreeSet<EdgeId>,
     /// The nodes, the resolved facts among them.
     nodes: Nodes,
     /// The nodes whose current parent an edit set, with that edit.
     parent_from: BTreeMap<NodeId, (Seq, EventId)>,
     /// In fact order, then in the order edits put them; a retracted edge leaves a hole.
     edges: Vec<Option<Edge>>,
-    edge_slots: BTreeMap<EdgeId, Vec<usize>>,
+    /// Where each edge sits in `edges`, and which are facts.
+    edge_index: EdgeIndex,
     /// The edges resolution set aside, kept for the caller to report.
     unresolved: Vec<Edge>,
     hidden: BTreeSet<TargetKey>,
     positions: BTreeMap<(String, NodeId), Value>,
-    ghosts: BTreeMap<Seq, (Ghost, Vec<FieldKey>)>,
+    ghosts: BTreeMap<Seq, Ghost>,
     conflicts: Vec<StoredConflict>,
     versions: Vec<VersionTag>,
     claims: Vec<ClaimRecord>,
@@ -390,35 +626,200 @@ pub(crate) struct Core {
     pub setters: BTreeMap<FieldKey, Vec<Setter>>,
     /// Every applied edit's parent entry, per node, in `seq` order, undone or not.
     pub parent_log: BTreeMap<NodeId, Vec<(Seq, EventId, ParentEntry)>>,
-    pub index: BTreeMap<EventId, Indexed>,
-    pub stems: BTreeMap<String, Vec<EventId>>,
+    /// Each event the fold saw, by ID.
+    pub index: Lookup<Arc<str>, Indexed>,
+    /// The events of each command, by key stem, in `seq` order.
+    pub stems: Lookup<Arc<str>, Members>,
     /// The ghosts each event caused, by that event, in `seq` order, undone or not: the ghosts a
     /// card holds, such as the Apply card's inbox edits.
-    pub caused: BTreeMap<EventId, Vec<EventId>>,
+    pub caused: Lookup<EventId, Vec<Arc<str>>>,
     /// Every `card` event, in `seq` order, open or not.
     pub cards: Vec<EventId>,
-    /// The fields each applied edit set, by event: what the fold set for an edit in effect, and
-    /// for an undone one what it would set where it stands. An undo's revisions read it (DR-61).
-    pub sets: BTreeMap<EventId, BTreeSet<String>>,
     diffs: Vec<FoldDiff>,
     /// The moves Diffs already lists.
     listed_moves: BTreeSet<(NodeId, NodeId)>,
+    /// The writer of the last edit applied, which the next one by the same writer shares.
+    recent_writer: Recent,
+}
+
+/// Which of an edit's keys, in [`edit_keys`] order, the fold set: a `set`'s fields but those it
+/// skipped, the whole target for a `put` that builds and for a `retract`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Mask {
+    /// The first 64 keys, one bit each.
+    low: u64,
+    /// Any further keys, 64 to a word.
+    high: Vec<u64>,
+}
+
+impl Mask {
+    fn set(&mut self, i: usize) {
+        if i < 64 {
+            self.low |= 1 << i;
+        } else {
+            let word = i / 64 - 1;
+            if self.high.len() <= word {
+                self.high.resize(word + 1, 0);
+            }
+            self.high[word] |= 1 << (i % 64);
+        }
+    }
+
+    /// Whether the fold set key `i`.
+    pub(crate) fn has(&self, i: usize) -> bool {
+        if i < 64 {
+            self.low & (1 << i) != 0
+        } else {
+            self.high.get(i / 64 - 1).is_some_and(|w| w & (1 << (i % 64)) != 0)
+        }
+    }
+
+    /// The mask of a `put` or a `retract` that set its whole target, its only key.
+    fn whole() -> Mask {
+        Mask { low: 1, high: Vec::new() }
+    }
+}
+
+/// The writer of the last edit applied: a cache that lets a run of one writer's edits share one
+/// copy, never part of what the fold holds, so it counts for nothing in equality or `Debug`.
+#[derive(Clone, Default)]
+struct Recent(Option<Arc<Writer>>);
+
+impl Recent {
+    /// The writer of `event`, shared with the last edit's when it is the same writer.
+    fn writer(&mut self, event: &Event) -> Arc<Writer> {
+        match &self.0 {
+            Some(w) if w.actor == event.actor && w.client == event.client => w.clone(),
+            _ => {
+                let w = Arc::new(Writer::of(event));
+                self.0 = Some(w.clone());
+                w
+            }
+        }
+    }
+}
+
+impl PartialEq for Recent {
+    fn eq(&self, _: &Recent) -> bool {
+        true
+    }
+}
+
+impl std::fmt::Debug for Recent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Recent")
+    }
+}
+
+/// Where each edge ID sits among the fold's edges, and which IDs the facts hold. It is built from
+/// the edges as resolution left them, since only an edit to an edge changes them, the first time
+/// an applied edit needs an edge's place: a put, a set or a retract of an edge in effect, or a set
+/// of one that an undo reversed. A fold with no such edit never builds it.
+#[derive(Clone, Default)]
+struct EdgeIndex {
+    /// How many of the fold's edges are facts: the first ones.
+    facts: usize,
+    built: Option<BuiltEdges>,
+    /// How many passes over every edge the index made, building itself or standing in for itself
+    /// before it is built: what a test bounds the index's work by.
+    #[cfg(test)]
+    passes: Passes,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct Passes(std::sync::atomic::AtomicUsize);
+
+#[cfg(test)]
+impl Clone for Passes {
+    fn clone(&self) -> Passes {
+        Passes(self.0.load(std::sync::atomic::Ordering::Relaxed).into())
+    }
+}
+
+#[derive(Clone)]
+struct BuiltEdges {
+    slots: BTreeMap<EdgeId, Vec<usize>>,
+    facts: BTreeSet<EdgeId>,
+}
+
+impl EdgeIndex {
+    /// Count one pass over every edge.
+    fn pass(&self) {
+        #[cfg(test)]
+        self.passes.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn build(&mut self, edges: &[Option<Edge>]) -> &mut BuiltEdges {
+        if self.built.is_none() {
+            self.pass();
+        }
+        let facts = self.facts;
+        self.built.get_or_insert_with(|| {
+            let mut slots: BTreeMap<EdgeId, Vec<usize>> = BTreeMap::new();
+            for (i, edge) in edges.iter().enumerate() {
+                if let Some(edge) = edge {
+                    slots.entry(edge.id.clone()).or_default().push(i);
+                }
+            }
+            let facts = edges[..facts].iter().flatten().map(|e| e.id.clone()).collect();
+            BuiltEdges { slots, facts }
+        })
+    }
+
+    /// The slots of edge `id`, from the index once built, else from the edges themselves.
+    fn slots(&self, edges: &[Option<Edge>], id: &EdgeId) -> Vec<usize> {
+        match &self.built {
+            Some(built) => built.slots.get(id).cloned().unwrap_or_default(),
+            None => {
+                self.pass();
+                edges
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| e.as_ref().is_some_and(|e| e.id == *id))
+                    .map(|(i, _)| i)
+                    .collect()
+            }
+        }
+    }
+
+    fn is_fact(&self, edges: &[Option<Edge>], id: &EdgeId) -> bool {
+        match &self.built {
+            Some(built) => built.facts.contains(id),
+            None => {
+                self.pass();
+                edges[..self.facts].iter().flatten().any(|e| e.id == *id)
+            }
+        }
+    }
+}
+
+impl PartialEq for EdgeIndex {
+    /// Derived from the edges, which equality compares already.
+    fn eq(&self, other: &EdgeIndex) -> bool {
+        self.facts == other.facts
+    }
+}
+
+impl std::fmt::Debug for EdgeIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EdgeIndex").field("facts", &self.facts).finish_non_exhaustive()
+    }
 }
 
 impl Core {
     pub fn new(resolved: Resolved) -> Core {
-        let fact_edges = resolved.edges.iter().map(|e| e.id.clone()).collect();
-        let mut edge_slots: BTreeMap<EdgeId, Vec<usize>> = BTreeMap::new();
-        for (i, edge) in resolved.edges.iter().enumerate() {
-            edge_slots.entry(edge.id.clone()).or_default().push(i);
-        }
+        Core::placed(resolved, None)
+    }
+
+    /// [`Core::new`] with the places resolution found for its nodes.
+    pub fn placed(resolved: Resolved, places: Option<Places>) -> Core {
         Core {
             at: 0,
-            fact_edges,
-            nodes: Nodes::new(resolved.nodes),
+            nodes: Nodes::new(resolved.nodes, places),
             parent_from: BTreeMap::new(),
+            edge_index: EdgeIndex { facts: resolved.edges.len(), ..EdgeIndex::default() },
             edges: resolved.edges.into_iter().map(Some).collect(),
-            edge_slots,
             unresolved: resolved.unresolved,
             hidden: BTreeSet::new(),
             positions: BTreeMap::new(),
@@ -429,13 +830,13 @@ impl Core {
             open_cards: Vec::new(),
             setters: BTreeMap::new(),
             parent_log: BTreeMap::new(),
-            index: BTreeMap::new(),
-            stems: BTreeMap::new(),
-            caused: BTreeMap::new(),
+            index: Lookup::default(),
+            stems: Lookup::default(),
+            caused: Lookup::default(),
             cards: Vec::new(),
-            sets: BTreeMap::new(),
             diffs: Vec::new(),
             listed_moves: BTreeSet::new(),
+            recent_writer: Recent::default(),
         }
     }
 
@@ -443,13 +844,32 @@ impl Core {
     /// reviewed ghosts are skipped, and a card's body and an unknown kind are never read.
     pub fn apply(&mut self, event: &Event, prepass: &Prepass) {
         self.at = self.at.max(event.seq);
-        self.index_event(event);
+        let (keys, undo_of) = match &event.body {
+            EventBody::Edit(edit) => (edit_keys(edit), None),
+            EventBody::Undo { of } => (Vec::new(), Some(of.clone())),
+            _ => (Vec::new(), None),
+        };
+        let id: Arc<str> = Arc::from(event.id.0.as_str());
+        let set = self.apply_body(event, prepass, &id, &keys);
+        self.index_event(event, id, keys, undo_of, set);
+    }
+
+    /// Apply `event`'s body, and return the fields it set when it is an applied edit, as a
+    /// [`Mask`] over its `keys`.
+    fn apply_body(
+        &mut self,
+        event: &Event,
+        prepass: &Prepass,
+        id: &Arc<str>,
+        keys: &[FieldKey],
+    ) -> Option<Mask> {
         if let (EventBody::Edit(edit), Status::Applied) = (&event.body, event.status)
             && let Some((node, entry)) = ParentEntry::of(edit)
         {
             self.parent_log.entry(node).or_default().push((event.seq, event.id.clone(), entry));
         }
-        if !prepass.undone.contains(&event.id)
+        let undone = prepass.undone.contains(&event.id);
+        if !undone
             && event.status == Status::Applied
             && let Some(moves) = prepass.followed.get(&event.id)
         {
@@ -463,16 +883,15 @@ impl Core {
                 }
             }
         }
-        if prepass.undone.contains(&event.id) {
+        if undone {
             if let (EventBody::Edit(edit), Status::Applied) = (&event.body, event.status) {
-                let would = self.would_set(event, edit);
-                self.sets.insert(event.id.clone(), would);
+                return Some(self.would_set(event, edit));
             }
-            return;
+            return None;
         }
         match &event.body {
             EventBody::Edit(edit) => match event.status {
-                Status::Applied => self.apply_edit(event, edit),
+                Status::Applied => return Some(self.apply_edit(event, edit, id, keys)),
                 Status::Ghost if !prepass.reviews.contains_key(&event.id) => {
                     let ghost = Ghost {
                         event: event.id.clone(),
@@ -481,7 +900,7 @@ impl Core {
                         cause: event.cause.clone(),
                         edit: edit.clone(),
                     };
-                    self.ghosts.insert(event.seq, (ghost, edit_keys(edit)));
+                    self.ghosts.insert(event.seq, ghost);
                 }
                 Status::Conflict => self.conflicts.push(StoredConflict {
                     event: event.id.clone(),
@@ -518,35 +937,62 @@ impl Core {
             | EventBody::Handoff(_)
             | EventBody::Unknown(_) => {}
         }
+        None
     }
 
-    fn index_event(&mut self, event: &Event) {
-        let (keys, undo_of) = match &event.body {
-            EventBody::Edit(edit) => (edit_keys(edit), None),
-            EventBody::Undo { of } => (Vec::new(), Some(of.clone())),
-            _ => (Vec::new(), None),
-        };
-        self.index.insert(
-            event.id.clone(),
-            Indexed { seq: event.seq, idem: event.idem.clone(), status: event.status, keys, undo_of },
-        );
-        self.stems.entry(idem_stem(&event.idem).to_owned()).or_default().push(event.id.clone());
+    /// Index `event` under its ID, with what its body set when it set anything. Of two events
+    /// with one ID, the later is indexed, and keeps the earlier's mask when it set nothing. A
+    /// mask counts positions in one edit's keys, so on another edit it names other fields: the
+    /// fold computes what it did with field names only for histories the store can hold, whose
+    /// `events.id` is unique, never two events with one ID.
+    fn index_event(
+        &mut self,
+        event: &Event,
+        id: Arc<str>,
+        keys: Vec<FieldKey>,
+        undo_of: Option<EventId>,
+        set: Option<Mask>,
+    ) {
+        let stem: Arc<str> = Arc::from(idem_stem(&event.idem));
+        match self.stems.entry(stem.clone()) {
+            Entry::Occupied(mut members) => members.get_mut().more.push(id.clone()),
+            Entry::Vacant(vacant) => {
+                vacant.insert(Members { first: id.clone(), more: Vec::new() });
+            }
+        }
+        let indexed = Indexed { seq: event.seq, stem, status: event.status, keys, undo_of, set };
+        if let Some(earlier) = self.index.insert(id.clone(), indexed)
+            && earlier.set.is_some()
+            && let Some(later) = self.index.get_mut(&*id)
+            && later.set.is_none()
+        {
+            later.set = earlier.set;
+        }
         if let (EventBody::Edit(_), Status::Ghost, Some(Cause::Event(cause))) =
             (&event.body, event.status, &event.cause)
         {
-            self.caused.entry(cause.clone()).or_default().push(event.id.clone());
-        }
-        if let EventBody::Card(_) = event.body {
+            match self.caused.get_mut(cause) {
+                Some(ghosts) => ghosts.push(id),
+                None => {
+                    self.caused.insert(cause.clone(), vec![id]);
+                }
+            }
+        } else if let EventBody::Card(_) = event.body {
             self.cards.push(event.id.clone());
         }
     }
 
-    fn apply_edit(&mut self, event: &Event, edit: &Edit) {
-        let writer = Writer::of(event);
-        let keys = edit_keys(edit);
+    /// Size the event tables for `events` more events.
+    pub fn reserve(&mut self, events: usize) {
+        self.index.reserve(events);
+        self.stems.reserve(events);
+    }
+
+    fn apply_edit(&mut self, event: &Event, edit: &Edit, id: &Arc<str>, keys: &[FieldKey]) -> Mask {
+        let writer = self.recent_writer.writer(event);
         // The fields the fold set: a `set`'s fields but those it skipped, and the whole target for
         // a `put` that builds and for a `retract`.
-        let set: BTreeSet<String> = match (&edit.op, &edit.target) {
+        let set: Mask = match (&edit.op, &edit.target) {
             (Op::Put, Target::Node(id)) => self.put_node(event, edit, id),
             (Op::Put, Target::Edge(id)) => self.put_edge(event, edit, id),
             (Op::Set, Target::Node(id)) => self.set_node(event, edit, id),
@@ -555,45 +1001,55 @@ impl Core {
                 self.nodes.remove(id);
                 self.parent_from.remove(id);
                 self.diffs.push(FoldDiff::Retracted { event: event.id.clone(), target: edit.target.clone() });
-                whole()
+                Mask::whole()
             }
             (Op::Retract, Target::Edge(id)) => {
-                for slot in self.edge_slots.remove(id).unwrap_or_default() {
+                for slot in self.edge_index.build(&self.edges).slots.remove(id).unwrap_or_default() {
                     self.edges[slot] = None;
                 }
                 self.diffs.push(FoldDiff::Retracted { event: event.id.clone(), target: edit.target.clone() });
-                whole()
+                Mask::whole()
             }
         };
-        let applied: Vec<&FieldKey> = keys.iter().filter(|k| set.contains(&k.1)).collect();
-        if writer.is_person() {
+        if writer.is_person() && !self.ghosts.is_empty() {
+            let applied: Vec<&FieldKey> =
+                keys.iter().enumerate().filter(|(i, _)| set.has(*i)).map(|(_, k)| k).collect();
             let superseded: Vec<Seq> = self
                 .ghosts
                 .iter()
-                .filter(|(seq, (_, ghost_keys))| {
-                    **seq < event.seq && ghost_keys.iter().any(|g| applied.iter().any(|k| overlaps(g, k)))
+                .filter(|(seq, ghost)| {
+                    **seq < event.seq && applied.iter().any(|k| ghost_overlaps(&ghost.edit, k))
                 })
                 .map(|(seq, _)| *seq)
                 .collect();
             for seq in superseded {
-                let (ghost, _) = self.ghosts.remove(&seq).expect("a pending ghost");
+                let ghost = self.ghosts.remove(&seq).expect("a pending ghost");
                 self.diffs.push(FoldDiff::GhostSuperseded { ghost: ghost.event, by: event.id.clone() });
             }
         }
-        for key in keys {
-            let over = edit.over.get(&key.1).cloned();
-            let applied = set.contains(&key.1);
-            self.setters.entry(key).or_default().push(Setter {
+        for (i, key) in keys.iter().enumerate() {
+            let setter = Setter {
                 seq: event.seq,
-                event: event.id.clone(),
+                event: id.clone(),
                 writer: writer.clone(),
                 op: edit.op,
                 layer: edit.layer,
-                over,
-                applied,
-            });
+                over: edit.over.get(&key.1).cloned(),
+                applied: set.has(i),
+            };
+            match self.setters.get_mut(key) {
+                Some(setters) => setters.push(setter),
+                None => {
+                    self.setters.insert(key.clone(), vec![setter]);
+                }
+            }
         }
-        self.sets.insert(event.id.clone(), set);
+        set
+    }
+
+    /// The index entry of event `id`, if the fold saw it.
+    pub fn indexed(&self, id: &EventId) -> Option<&Indexed> {
+        self.index.get(id.0.as_str())
     }
 
     /// The parent a node's facts give it: `None` when it isn't a fact.
@@ -614,7 +1070,7 @@ impl Core {
     /// loses and is listed.
     fn parent_allowed(&mut self, event: &Event, node: &NodeId, parent: &NodeId) -> bool {
         let nodes = &self.nodes;
-        match find_cycle(node, parent, |n| nodes.get(n).and_then(|n| n.parent.clone())) {
+        match find_cycle_by(node, parent, |n| nodes.parent(n)) {
             None => true,
             Some(cycle) => {
                 self.diffs.push(FoldDiff::CycleBroken {
@@ -628,12 +1084,12 @@ impl Core {
         }
     }
 
-    fn put_node(&mut self, event: &Event, edit: &Edit, id: &NodeId) -> BTreeSet<String> {
+    fn put_node(&mut self, event: &Event, edit: &Edit, id: &NodeId) -> Mask {
         let Some(mut node) = build_node(id, edit, authored(event)) else {
             self.invalid(event, None);
-            return BTreeSet::new();
+            return Mask::default();
         };
-        let earlier = self.nodes.get(id).and_then(|n| n.parent.clone());
+        let earlier = self.nodes.parent(id).cloned();
         match node.parent.clone() {
             Some(parent) if !self.parent_allowed(event, id, &parent) => {
                 node.parent = earlier;
@@ -646,15 +1102,16 @@ impl Core {
             }
         }
         self.nodes.insert(node);
-        whole()
+        Mask::whole()
     }
 
-    fn put_edge(&mut self, event: &Event, edit: &Edit, id: &EdgeId) -> BTreeSet<String> {
+    fn put_edge(&mut self, event: &Event, edit: &Edit, id: &EdgeId) -> Mask {
         let Some(edge) = build_edge(id, edit, authored(event)) else {
             self.invalid(event, None);
-            return BTreeSet::new();
+            return Mask::default();
         };
-        match self.edge_slots.get_mut(id) {
+        let built = self.edge_index.build(&self.edges);
+        match built.slots.get_mut(id) {
             Some(slots) if !slots.is_empty() => {
                 // A put replaces every edge with its ID by one, in the first one's place.
                 for &slot in &slots[1..] {
@@ -665,20 +1122,21 @@ impl Core {
             }
             _ => {
                 self.edges.push(Some(edge));
-                self.edge_slots.insert(id.clone(), vec![self.edges.len() - 1]);
+                built.slots.insert(id.clone(), vec![self.edges.len() - 1]);
             }
         }
-        whole()
+        Mask::whole()
     }
 
     /// What a `set` of `field` to `value` on node `id` does in the state the fold has reached.
     /// Every field of a node that doesn't exist is skipped, a hide and a pin included, so it
     /// writes no revision and holds nothing (architecture.md, "Versions and revisions").
-    fn node_field(&self, id: &NodeId, field: &str, value: &Value) -> FieldOutcome {
+    /// `exists` is whether node `id` exists, which no field of one edit changes.
+    fn node_field(&self, exists: bool, id: &NodeId, field: &str, value: &Value) -> FieldOutcome {
         if field == HIDDEN && !value.is_boolean() {
             return FieldOutcome::Invalid;
         }
-        if !self.nodes.contains(id) {
+        if !exists {
             return FieldOutcome::Skipped;
         }
         if field.starts_with(POS_PREFIX) || field == HIDDEN || field.starts_with(PROPS_PREFIX) {
@@ -690,8 +1148,7 @@ impl Core {
                 Value::Null => FieldOutcome::Set,
                 Value::String(p) => {
                     let nodes = &self.nodes;
-                    match find_cycle(id, &NodeId(p.clone()), |n| nodes.get(n).and_then(|n| n.parent.clone()))
-                    {
+                    match find_cycle_by(id, &NodeId(p.clone()), |n| nodes.parent(n)) {
                         None => FieldOutcome::Set,
                         Some(cycle) => FieldOutcome::Cycle(cycle),
                     }
@@ -703,11 +1160,11 @@ impl Core {
         }
     }
 
-    fn set_node(&mut self, event: &Event, edit: &Edit, id: &NodeId) -> BTreeSet<String> {
-        let target = TargetKey::Node(id.clone());
-        let mut set = BTreeSet::new();
-        for (field, value) in &edit.fields {
-            match self.node_field(id, field, value) {
+    fn set_node(&mut self, event: &Event, edit: &Edit, id: &NodeId) -> Mask {
+        let exists = self.nodes.contains(id);
+        let mut set = Mask::default();
+        for (i, (field, value)) in edit.fields.iter().enumerate() {
+            match self.node_field(exists, id, field, value) {
                 FieldOutcome::Set => {}
                 FieldOutcome::Skipped => continue,
                 FieldOutcome::Invalid => {
@@ -733,25 +1190,25 @@ impl Core {
                     self.positions.insert(key, value.clone());
                 }
             } else if field == HIDDEN {
+                let target = TargetKey::Node(id.clone());
                 if value.as_bool() == Some(true) {
-                    self.hidden.insert(target.clone());
+                    self.hidden.insert(target);
                 } else {
                     self.hidden.remove(&target);
                 }
             } else if field == NAME {
-                self.nodes.get_mut(id).expect("a node").name = value.as_str().expect("a name").to_owned();
+                self.nodes.get_mut(id).expect("a node").set_name(value.as_str().expect("a name").to_owned());
             } else if field == PARENT {
-                self.nodes.get_mut(id).expect("a node").parent = value.as_str().map(|p| NodeId(p.to_owned()));
+                self.nodes
+                    .get_mut(id)
+                    .expect("a node")
+                    .set_parent(value.as_str().map(|p| NodeId(p.to_owned())));
                 self.parent_from.insert(id.clone(), (event.seq, event.id.clone()));
             } else if let Some(prop) = field.strip_prefix(PROPS_PREFIX) {
-                let props = &mut self.nodes.get_mut(id).expect("a node").props;
-                if value.is_null() {
-                    props.remove(prop);
-                } else {
-                    props.insert(prop.to_owned(), value.clone());
-                }
+                let value = (!value.is_null()).then(|| value.clone());
+                self.nodes.get_mut(id).expect("a node").set_prop(prop, value);
             }
-            set.insert(field.clone());
+            set.set(i);
         }
         set
     }
@@ -762,19 +1219,19 @@ impl Core {
         if field == HIDDEN {
             if value.is_boolean() { FieldOutcome::Set } else { FieldOutcome::Invalid }
         } else if field.starts_with(PROPS_PREFIX) {
-            let live =
-                self.edge_slots.get(id).is_some_and(|slots| slots.iter().any(|s| self.edges[*s].is_some()));
+            let live = self.edge_index.slots(&self.edges, id).iter().any(|s| self.edges[*s].is_some());
             if live { FieldOutcome::Set } else { FieldOutcome::Skipped }
         } else {
             FieldOutcome::Invalid
         }
     }
 
-    fn set_edge(&mut self, event: &Event, edit: &Edit, id: &EdgeId) -> BTreeSet<String> {
+    fn set_edge(&mut self, event: &Event, edit: &Edit, id: &EdgeId) -> Mask {
         let target = TargetKey::Edge(id.clone());
-        let slots = self.edge_slots.get(id).cloned().unwrap_or_default();
-        let mut set = BTreeSet::new();
-        for (field, value) in &edit.fields {
+        self.edge_index.build(&self.edges);
+        let slots = self.edge_index.slots(&self.edges, id);
+        let mut set = Mask::default();
+        for (i, (field, value)) in edit.fields.iter().enumerate() {
             match self.edge_field(id, field, value) {
                 FieldOutcome::Set => {}
                 FieldOutcome::Skipped | FieldOutcome::Cycle(_) => continue,
@@ -800,7 +1257,7 @@ impl Core {
                     }
                 }
             }
-            set.insert(field.clone());
+            set.set(i);
         }
         set
     }
@@ -810,36 +1267,40 @@ impl Core {
     /// An edit that only an edit undone with it made settable, such as a rename of a node that
     /// same command put, reads as setting nothing here; the undo's revision on the put's whole
     /// target still makes a write to that field from an older base conflict.
-    fn would_set(&self, event: &Event, edit: &Edit) -> BTreeSet<String> {
+    fn would_set(&mut self, event: &Event, edit: &Edit) -> Mask {
+        let mut set = Mask::default();
         match (&edit.op, &edit.target) {
             (Op::Put, Target::Node(id)) => {
                 if build_node(id, edit, authored(event)).is_some() {
-                    whole()
-                } else {
-                    BTreeSet::new()
+                    set = Mask::whole();
                 }
             }
             (Op::Put, Target::Edge(id)) => {
                 if build_edge(id, edit, authored(event)).is_some() {
-                    whole()
-                } else {
-                    BTreeSet::new()
+                    set = Mask::whole();
                 }
             }
-            (Op::Retract, _) => whole(),
-            (Op::Set, Target::Node(id)) => edit
-                .fields
-                .iter()
-                .filter(|(f, v)| self.node_field(id, f, v) == FieldOutcome::Set)
-                .map(|(f, _)| f.clone())
-                .collect(),
-            (Op::Set, Target::Edge(id)) => edit
-                .fields
-                .iter()
-                .filter(|(f, v)| self.edge_field(id, f, v) == FieldOutcome::Set)
-                .map(|(f, _)| f.clone())
-                .collect(),
+            (Op::Retract, _) => set = Mask::whole(),
+            (Op::Set, Target::Node(id)) => {
+                let exists = self.nodes.contains(id);
+                for (i, (f, v)) in edit.fields.iter().enumerate() {
+                    if self.node_field(exists, id, f, v) == FieldOutcome::Set {
+                        set.set(i);
+                    }
+                }
+            }
+            (Op::Set, Target::Edge(id)) => {
+                // An undone edit reads the index as an applied one does, so many of them pass
+                // over the edges once rather than once each.
+                self.edge_index.build(&self.edges);
+                for (i, (f, v)) in edit.fields.iter().enumerate() {
+                    if self.edge_field(id, f, v) == FieldOutcome::Set {
+                        set.set(i);
+                    }
+                }
+            }
         }
+        set
     }
 
     /// The fact value under a field, for scan drift: `None` when the field has no fact
@@ -864,14 +1325,14 @@ impl Core {
     fn target_exists(&self, target: &TargetKey) -> bool {
         match target {
             TargetKey::Node(id) => self.nodes.contains(id),
-            TargetKey::Edge(id) => self.edge_slots.get(id).is_some_and(|s| !s.is_empty()),
+            TargetKey::Edge(id) => !self.edge_index.slots(&self.edges, id).is_empty(),
         }
     }
 
     fn is_fact(&self, target: &TargetKey) -> bool {
         match target {
             TargetKey::Node(id) => self.nodes.fact(id).is_some(),
-            TargetKey::Edge(id) => self.fact_edges.contains(id),
+            TargetKey::Edge(id) => self.edge_index.is_fact(&self.edges, id),
         }
     }
 
@@ -882,10 +1343,11 @@ impl Core {
         let mut parent_from = self.parent_from.clone();
         let mut diffs = self.diffs.clone();
         for (id, (_, event)) in &self.parent_from {
-            let Some(parent) = self.nodes.get(id).and_then(|n| n.parent.clone()) else { continue };
-            if self.nodes.contains(&parent) {
+            let Some(parent) = self.nodes.parent(id) else { continue };
+            if self.nodes.contains(parent) {
                 continue;
             }
+            let parent = parent.clone();
             let fallback = self.nodes.fact(id).and_then(|n| n.parent.clone());
             parents.reset.insert(id.clone(), fallback.clone());
             parent_from.remove(id);
@@ -899,16 +1361,18 @@ impl Core {
                 continue;
             }
             if !self.target_exists(target) && !self.is_fact(target) {
-                let entry = vanished.entry(target.clone()).or_insert_with(|| last.event.clone());
-                if self.index.get(entry).is_none_or(|e| e.seq < last.seq) {
-                    *entry = last.event.clone();
+                let entry = vanished.entry(target.clone()).or_insert_with(|| EventId(last.event.to_string()));
+                if self.indexed(entry).is_none_or(|e| e.seq < last.seq) {
+                    *entry = EventId(last.event.to_string());
                 }
                 continue;
             }
-            let (Some(over), Some(fact)) = (&last.over, self.fact_value(target, field)) else { continue };
+            // A fact is read only for an override that recorded the value it was made over.
+            let Some(over) = &last.over else { continue };
+            let Some(fact) = self.fact_value(target, field) else { continue };
             if *over != fact {
                 diffs.push(FoldDiff::ScanChangedUnderEdit {
-                    event: last.event.clone(),
+                    event: EventId(last.event.to_string()),
                     target: target.target(),
                     field: field.clone(),
                     over: over.clone(),
@@ -920,28 +1384,30 @@ impl Core {
             diffs.push(FoldDiff::TargetVanished { event, target: target.target() });
         }
         // Each node is copied once, into the model, with the parent the end of the fold left it.
-        let nodes = self
-            .nodes
-            .iter()
-            .map(|n| {
-                let mut node = n.clone();
-                if let Some(parent) = parents.reset.get(&n.id) {
+        let mut nodes = Vec::with_capacity(self.nodes.len());
+        nodes.extend(self.nodes.iter().map(Cow::into_owned));
+        if !parents.reset.is_empty() {
+            for node in &mut nodes {
+                if let Some(parent) = parents.reset.get(&node.id) {
                     node.parent = parent.clone();
                 }
-                node
-            })
-            .collect();
+            }
+        }
         Finished {
             model: Model {
                 at: self.at,
                 nodes,
-                edges: self.edges.iter().flatten().cloned().collect(),
+                edges: {
+                    let mut edges = Vec::with_capacity(self.edges.len());
+                    edges.extend(self.edges.iter().flatten().cloned());
+                    edges
+                },
                 unresolved: self.unresolved.clone(),
             },
             overlay: Overlay {
                 hidden: self.hidden.clone(),
                 positions: self.positions.clone(),
-                ghosts: self.ghosts.values().map(|(g, _)| g.clone()).collect(),
+                ghosts: self.ghosts.values().cloned().collect(),
             },
             diffs,
             conflicts: self.conflicts.clone(),
@@ -976,13 +1442,23 @@ impl Parents<'_> {
     fn of(&self, id: &NodeId) -> Option<&NodeId> {
         match self.reset.get(id) {
             Some(parent) => parent.as_ref(),
-            None => self.nodes.get(id).and_then(|n| n.parent.as_ref()),
+            None => self.nodes.parent(id),
         }
     }
 
     /// The parent of node `id` when it is a node: the next step up the tree.
     fn up(&self, id: &NodeId) -> Option<&NodeId> {
-        self.of(id).and_then(|parent| self.nodes.get(parent)).map(|n| &n.id)
+        self.of(id).and_then(|parent| self.nodes.held(parent))
+    }
+
+    /// Node `id`, when it is one, as its ID where the nodes hold it and its parent: one lookup
+    /// for both, so a walk up the tree finds each node once.
+    fn node(&self, id: &NodeId) -> Option<(&NodeId, Option<&NodeId>)> {
+        let (held, parent) = self.nodes.find(id)?;
+        match self.reset.get(held) {
+            Some(reset) => Some((held, reset.as_ref())),
+            None => Some((held, parent)),
+        }
     }
 }
 
@@ -1018,19 +1494,19 @@ fn break_cycles(
 fn edited_on_cycle(parents: &Parents<'_>, parent_from: &BTreeMap<NodeId, (Seq, EventId)>) -> bool {
     let mut topped: BTreeSet<&NodeId> = BTreeSet::new();
     for start in parent_from.keys() {
-        let Some(start) = parents.nodes.get(start).map(|n| &n.id) else { continue };
+        let Some((start, mut above)) = parents.node(start) else { continue };
         let mut path: Vec<&NodeId> = vec![start];
         let mut seen: BTreeSet<&NodeId> = BTreeSet::new();
-        let mut at = start;
         loop {
-            match parents.up(at) {
-                Some(parent) if parent == start => return true,
+            // The next step up, as [`Parents::up`] gives it, with the parent above that.
+            match above.and_then(|parent| parents.node(parent)) {
+                Some((parent, _)) if parent == start => return true,
                 // A loop above that doesn't pass through `start`: the walk from one of its own
                 // edited nodes finds it.
-                Some(parent) if !seen.insert(parent) => break,
-                Some(parent) if !topped.contains(parent) => {
+                Some((parent, _)) if !seen.insert(parent) => break,
+                Some((parent, next)) if !topped.contains(parent) => {
                     path.push(parent);
-                    at = parent;
+                    above = next;
                 }
                 _ => {
                     topped.extend(path);
@@ -1059,7 +1535,7 @@ fn scan_edited_cycle(
     parent_from: &BTreeMap<NodeId, (Seq, EventId)>,
 ) -> Option<Vec<NodeId>> {
     let mut done: BTreeSet<&NodeId> = BTreeSet::new();
-    for start in parents.nodes.iter().map(|n| &n.id) {
+    for start in parents.nodes.ids() {
         let mut path: Vec<&NodeId> = Vec::new();
         let mut on_path: BTreeMap<&NodeId, usize> = BTreeMap::new();
         let mut at = start;
@@ -1084,11 +1560,6 @@ fn scan_edited_cycle(
         done.extend(path);
     }
     None
-}
-
-/// The fields set of a `put` or a `retract`: the whole target.
-fn whole() -> BTreeSet<String> {
-    BTreeSet::from([WHOLE.to_owned()])
 }
 
 fn authored(event: &Event) -> Provenance {
@@ -1159,12 +1630,15 @@ mod tests {
         }
     }
 
-    /// What one step does to the nodes: put a node, remove one, or rename one in place.
+    /// What one step does to the nodes: put a node, remove one, or rename, move or set a prop of
+    /// one in place.
     #[derive(Debug, Clone)]
     enum NodeOp {
         Put(u8, Option<u8>),
         Remove(u8),
         Rename(u8, u8),
+        Move(u8, Option<u8>),
+        Prop(u8, u8, Option<u8>),
     }
 
     fn node_op() -> impl Strategy<Value = NodeOp> {
@@ -1172,14 +1646,76 @@ mod tests {
             (0u8..12, prop::option::of(0u8..12)).prop_map(|(k, p)| NodeOp::Put(k, p)),
             (0u8..12).prop_map(NodeOp::Remove),
             (0u8..12, 0u8..9).prop_map(|(k, n)| NodeOp::Rename(k, n)),
+            (0u8..12, prop::option::of(0u8..12)).prop_map(|(k, p)| NodeOp::Move(k, p)),
+            (0u8..12, 0u8..3, prop::option::of(0u8..3)).prop_map(|(k, p, v)| NodeOp::Prop(k, p, v)),
         ]
+    }
+
+    /// An undone `set` of an edge's prop reads the edge index as an applied one does, so a history
+    /// of many such sets passes over the edges once, to build the index, and not once for each:
+    /// the fold's cost stays linear in the events and the edges.
+    #[test]
+    fn undone_edge_sets_pass_over_the_edges_once() {
+        use planroom_contract::{Actor, Client, Edge, EdgeId, Ref, Surface, Timestamp, Vocabulary};
+        const EDGES: usize = 2_000;
+        const SETS: usize = 200;
+        let edge = |i: usize| Edge {
+            id: EdgeId(format!("e:{i:012x}")),
+            kind: Kind("k.rel".into()),
+            from: Ref::Id(id((i % 100) as u8)),
+            to: Ref::Id(id(((i + 1) % 100) as u8)),
+            via: None,
+            via_ref: None,
+            props: Default::default(),
+            evidence: vec![],
+            confidence: 1.0,
+            layer: Layer::Actual,
+            provenance: Provenance::Extracted { extractor: "p/x".into(), tier: Tier::Universal },
+        };
+        let facts = crate::model::Facts {
+            nodes: (0..100).map(|k| node(k, None, "n")).collect(),
+            edges: (0..EDGES).map(edge).collect(),
+            ..Default::default()
+        };
+        let event = |seq: Seq, body: EventBody| Event {
+            seq,
+            id: EventId(format!("ev-{seq}")),
+            idem: format!("k{seq}"),
+            request_hash: "h".into(),
+            at: Timestamp("2026-10-26T12:00:00Z".into()),
+            actor: Actor::Person { id: "person:ann".into(), name: None },
+            client: Client { surface: Surface::Cli, id: "cli:1".into() },
+            project: None,
+            cause: None,
+            status: Status::Applied,
+            body,
+        };
+        let mut events = Vec::new();
+        for i in 0..SETS {
+            let seq = events.len() as Seq + 1;
+            let set = Edit {
+                op: Op::Set,
+                target: Target::Edge(EdgeId(format!("e:{:012x}", i * 7 % EDGES))),
+                layer: Layer::Actual,
+                fields: BTreeMap::from([("props.x".to_owned(), json!(i))]),
+                base: 0,
+                over: BTreeMap::new(),
+            };
+            events.push(event(seq, EventBody::Edit(set)));
+            events.push(event(seq + 1, EventBody::Undo { of: EventId(format!("ev-{seq}")) }));
+        }
+        let folded = super::super::fold_full(&facts, &events, &Vocabulary::default(), events.len() as Seq);
+        assert!(folded.is_undone(&EventId("ev-1".into())));
+        assert!(folded.model.edges.iter().all(|e| e.props.is_empty()), "every set is undone");
+        let passes = folded.core.edge_index.passes.0.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(passes <= 1, "{passes} passes over {EDGES} edges for {SETS} undone edge sets");
     }
 
     #[test]
     fn facts_in_any_order_keep_the_later_of_one_id_as_a_map_would() {
-        let nodes = Nodes::new(vec![node(3, None, "a"), node(1, None, "b"), node(3, Some(1), "c")]);
-        let held: Vec<(&str, &str)> = nodes.iter().map(|n| (n.id.0.as_str(), n.name.as_str())).collect();
-        assert_eq!(held, [("r:x:1", "b"), ("r:x:3", "c")]);
+        let nodes = Nodes::new(vec![node(3, None, "a"), node(1, None, "b"), node(3, Some(1), "c")], None);
+        let held: Vec<(String, String)> = nodes.iter().map(|n| (n.id.0.clone(), n.name.clone())).collect();
+        assert_eq!(held, [("r:x:1".into(), "b".into()), ("r:x:3".into(), "c".into())]);
     }
 
     proptest! {
@@ -1193,9 +1729,16 @@ mod tests {
             facts in prop::collection::btree_map(0u8..12, prop::option::of(0u8..12), 0..10),
             ops in prop::collection::vec(node_op(), 0..30),
         ) {
-            let mut fact_nodes: Vec<Node> = facts.iter().map(|(&k, &p)| node(k, p, "fact")).collect();
+            let mut fact_nodes: Vec<Node> = facts
+                .iter()
+                .map(|(&k, &p)| {
+                    let mut n = node(k, p, "fact");
+                    n.props.insert(format!("p{}", k % 3), serde_json::json!(k));
+                    n
+                })
+                .collect();
             fact_nodes.sort_by(|a, b| a.id.cmp(&b.id));
-            let mut nodes = Nodes::new(fact_nodes.clone());
+            let mut nodes = Nodes::new(fact_nodes.clone(), None);
             let before = nodes.clone();
             let mut want: BTreeMap<NodeId, Node> = fact_nodes.iter().map(|n| (n.id.clone(), n.clone())).collect();
             for op in ops {
@@ -1212,25 +1755,49 @@ mod tests {
                         let name = format!("n{n}");
                         prop_assert_eq!(nodes.get_mut(&id(k)).is_some(), want.contains_key(&id(k)));
                         if let Some(held) = nodes.get_mut(&id(k)) {
-                            held.name = name.clone();
+                            held.set_name(name.clone());
                         }
                         if let Some(held) = want.get_mut(&id(k)) {
                             held.name = name;
                         }
                     }
+                    NodeOp::Move(k, p) => {
+                        if let Some(held) = nodes.get_mut(&id(k)) {
+                            held.set_parent(p.map(id));
+                        }
+                        if let Some(held) = want.get_mut(&id(k)) {
+                            held.parent = p.map(id);
+                        }
+                    }
+                    NodeOp::Prop(k, p, v) => {
+                        let (key, value) = (format!("p{p}"), v.map(|v| serde_json::json!(v)));
+                        if let Some(held) = nodes.get_mut(&id(k)) {
+                            held.set_prop(&key, value.clone());
+                        }
+                        if let Some(held) = want.get_mut(&id(k)) {
+                            match value {
+                                Some(value) => held.props.insert(key, value),
+                                None => held.props.remove(&key),
+                            };
+                        }
+                    }
                 }
-                let held: Vec<&Node> = nodes.iter().collect();
-                let wanted: Vec<&Node> = want.values().collect();
+                let held: Vec<Node> = nodes.iter().map(Cow::into_owned).collect();
+                let wanted: Vec<Node> = want.values().cloned().collect();
                 prop_assert_eq!(held, wanted);
+                let ids: Vec<&NodeId> = nodes.ids().collect();
+                prop_assert_eq!(ids, want.keys().collect::<Vec<_>>());
                 for k in 0..12 {
-                    prop_assert_eq!(nodes.get(&id(k)), want.get(&id(k)));
-                    prop_assert_eq!(nodes.contains(&id(k)), want.contains_key(&id(k)));
+                    let wanted = want.get(&id(k));
+                    prop_assert_eq!(nodes.contains(&id(k)), wanted.is_some());
+                    prop_assert_eq!(nodes.held(&id(k)), wanted.map(|n| &n.id));
+                    prop_assert_eq!(nodes.parent(&id(k)), wanted.and_then(|n| n.parent.as_ref()));
                     prop_assert_eq!(nodes.fact(&id(k)), fact_nodes.iter().find(|n| n.id == id(k)));
                 }
             }
             prop_assert!(Arc::ptr_eq(&nodes.facts, &before.facts), "the facts are shared, never copied");
-            prop_assert_eq!(&*before.facts, &fact_nodes);
-            prop_assert_eq!(before.iter().cloned().collect::<Vec<_>>(), fact_nodes);
+            prop_assert_eq!(&before.facts.nodes, &fact_nodes);
+            prop_assert_eq!(before.iter().map(Cow::into_owned).collect::<Vec<_>>(), fact_nodes);
         }
 
         /// The walk up from the edited nodes finds a loop exactly when a walk up from every node
@@ -1241,7 +1808,7 @@ mod tests {
             edited in prop::collection::btree_set(0u8..16, 0..6),
             reset in prop::collection::btree_map(0u8..14, prop::option::of(0u8..16), 0..3),
         ) {
-            let nodes = Nodes::new(parents.iter().map(|(&k, &p)| node(k, p, "n")).collect());
+            let nodes = Nodes::new(parents.iter().map(|(&k, &p)| node(k, p, "n")).collect(), None);
             let reset = reset.into_iter().map(|(k, p)| (id(k), p.map(id))).collect();
             let parents = Parents { nodes: &nodes, reset };
             let parent_from: BTreeMap<NodeId, (Seq, EventId)> =

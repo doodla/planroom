@@ -11,6 +11,8 @@
 //! - Edges of one ID merge by tier, as nodes do.
 
 use std::collections::HashMap;
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, BuildHasherDefault, Hasher};
 
 use planroom_contract::{Edge, Kind, Level, Node, NodeId, Ref, Vocabulary};
 
@@ -32,52 +34,169 @@ pub struct Resolved {
 
 /// Resolve `facts` against `vocabulary`.
 pub fn resolve(facts: &Facts, vocabulary: &Vocabulary) -> Resolved {
+    resolve_placed(facts, vocabulary).0
+}
+
+/// [`resolve`], with where each resolved node sits by ID, which the fold keeps.
+pub(crate) fn resolve_placed(facts: &Facts, vocabulary: &Vocabulary) -> (Resolved, Places) {
     let levels: HashMap<&Kind, Level> = vocabulary.kinds.iter().rev().map(|k| (&k.kind, k.level)).collect();
     // Each fact is copied once, into its merged node or edge.
     let sorted = facts::sorted_by_id(&facts.nodes);
     let groups: Vec<&[&Node]> = sorted.chunk_by(|a, b| a.id == b.id).collect();
-    // One group per ID, sorted by ID, so a parent resolves by a binary search.
-    let held = |id: &NodeId| groups.binary_search_by(|g| g[0].id.cmp(id)).is_ok();
-    let nodes: Vec<Node> = groups
-        .iter()
-        .map(|group| {
-            let mut node = match group {
-                // A node one fact names has that fact's parent as its only candidate.
-                [one] => {
-                    let mut node = (*one).clone();
-                    if node.parent.as_ref().is_some_and(|p| *p == node.id || !held(p)) {
-                        node.parent = None;
+    // One group per ID, sorted by ID, so a parent resolves by a binary search. Siblings sit side
+    // by side in ID order, so the parent the last node looked up answers most nodes again.
+    let mut last: Option<&NodeId> = None;
+    let mut held = |id: &NodeId| -> bool {
+        match last {
+            Some(parent) if parent == id => true,
+            _ => {
+                match groups.binary_search_by(|g| g[0].id.cmp(id)) {
+                    Ok(i) => {
+                        // The ID as the facts hold it, so the cache borrows nothing else.
+                        last = Some(&groups[i][0].id);
+                        true
                     }
-                    node
+                    Err(_) => false,
                 }
-                _ => {
-                    let Merged { mut node, parents } = facts::merge_borrowed(group);
-                    node.parent = parents.into_iter().find(|p| *p != node.id && held(p));
-                    node
-                }
-            };
-            if let Some(&level) = levels.get(&node.kind) {
-                node.level = level;
             }
-            node
-        })
-        .collect();
-    let index = Index::new(&nodes);
+        }
+    };
+    let mut nodes: Vec<Node> = Vec::with_capacity(groups.len());
+    for group in &groups {
+        let mut node = match group {
+            // A node one fact names has that fact's parent as its only candidate.
+            [one] => {
+                let mut node = (*one).clone();
+                if one.parent.as_ref().is_some_and(|p| *p == one.id || !held(p)) {
+                    node.parent = None;
+                }
+                node
+            }
+            _ => {
+                let Merged { mut node, parents } = facts::merge_borrowed(group);
+                node.parent = parents.into_iter().find(|p| *p != node.id && held(p));
+                node
+            }
+        };
+        if let Some(&level) = levels.get(&node.kind) {
+            node.level = level;
+        }
+        nodes.push(node);
+    }
+    let places = Places::of(&nodes);
+    let aliases = by_alias(&nodes);
+    // An end by ID finds its node by its place, one by alias as [`Index::get`] does.
+    let index = |end: &Ref| -> Option<&Node> {
+        match end {
+            Ref::Id(id) => places.find(&nodes, id).map(|i| &nodes[i]),
+            Ref::Alias(alias) => aliases.get(alias.as_str()).copied().flatten(),
+        }
+    };
     let mut edges = Vec::new();
     let mut unresolved = Vec::new();
     for edge in facts::merge_edges_borrowed(&facts.edges) {
-        let (Some(from), Some(to)) = (index.get(&edge.from), index.get(&edge.to)) else {
+        let (Some(from), Some(to)) = (index(&edge.from), index(&edge.to)) else {
             unresolved.push(edge);
             continue;
         };
-        let (from, to) = (Ref::Id(from.id.clone()), Ref::Id(to.id.clone()));
-        let via_ref = edge.via_ref.as_ref().map(|r| match index.get(r) {
-            Some(node) => Ref::Id(node.id.clone()),
-            None => r.clone(),
+        // An end that names its node by ID already is kept as it is.
+        let end = |end: Ref, node: &Node| match end {
+            Ref::Id(id) if id == node.id => Ref::Id(id),
+            _ => Ref::Id(node.id.clone()),
+        };
+        let (from, to) = (end(edge.from, from), end(edge.to, to));
+        let via_ref = edge.via_ref.map(|r| match index(&r) {
+            Some(node) => end(r, node),
+            None => r,
         });
         edges.push(Edge { from, to, via_ref, ..edge });
     }
-    Resolved { nodes, edges, unresolved }
+    (Resolved { nodes, edges, unresolved }, places)
+}
+
+/// Where each node of a slice sorted by ID sits, by the hash of its ID. The hash is std's
+/// SipHash with keys drawn at random for each table, so no ID a repo chooses can make lookups
+/// collide; an ID whose hash another one's already took is found by a binary search instead.
+#[derive(Clone)]
+pub(crate) struct Places {
+    keys: RandomState,
+    by_hash: HashMap<u64, usize, BuildHasherDefault<Keyed>>,
+}
+
+impl Places {
+    /// The places of `nodes`, which are sorted by ID.
+    pub(crate) fn of(nodes: &[Node]) -> Places {
+        let keys = RandomState::new();
+        let mut by_hash = HashMap::with_capacity_and_hasher(nodes.len(), BuildHasherDefault::default());
+        for (i, node) in nodes.iter().enumerate() {
+            by_hash.entry(hash(&keys, &node.id)).or_insert(i);
+        }
+        Places { keys, by_hash }
+    }
+
+    /// The place in `nodes`, the slice these are the places of, of the node with ID `id`.
+    pub(crate) fn find(&self, nodes: &[Node], id: &NodeId) -> Option<usize> {
+        let at = *self.by_hash.get(&hash(&self.keys, id))?;
+        if nodes[at].id == *id {
+            Some(at)
+        } else {
+            // Another ID's hash is this one's: rare, and found all the same.
+            nodes.binary_search_by(|n| n.id.cmp(id)).ok()
+        }
+    }
+}
+
+/// The hasher of [`Places`]' table. Its keys are SipHash values under keys drawn at random, which
+/// no ID a repo chooses can steer, so it passes each one through rather than hash it again.
+#[derive(Default)]
+pub(crate) struct Keyed(u64);
+
+impl Hasher for Keyed {
+    fn write(&mut self, bytes: &[u8]) {
+        // The table's keys arrive through `write_u64`; this keeps any other input whole.
+        for &b in bytes {
+            self.0 = self.0.rotate_left(8) ^ u64::from(b);
+        }
+    }
+
+    fn write_u64(&mut self, hash: u64) {
+        self.0 = hash;
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+/// The hash of `id` under `keys`: its bytes, in one write.
+fn hash(keys: &RandomState, id: &NodeId) -> u64 {
+    let mut hasher = keys.build_hasher();
+    hasher.write(id.0.as_bytes());
+    hasher.finish()
+}
+
+impl std::fmt::Debug for Places {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Places").finish_non_exhaustive()
+    }
+}
+
+/// The nodes by alias: an alias two nodes hold is ambiguous and finds nothing.
+fn by_alias(nodes: &[Node]) -> HashMap<&str, Option<&Node>> {
+    let mut by_alias: HashMap<&str, Option<&Node>> = HashMap::new();
+    for node in nodes {
+        for alias in &node.aliases {
+            by_alias
+                .entry(alias.as_str())
+                .and_modify(|held| {
+                    if held.is_some_and(|h| h.id != node.id) {
+                        *held = None;
+                    }
+                })
+                .or_insert(Some(node));
+        }
+    }
+    by_alias
 }
 
 /// The nodes by ID and by alias. An alias two nodes hold is ambiguous and finds nothing.
@@ -90,20 +209,7 @@ pub struct Index<'a> {
 impl<'a> Index<'a> {
     pub fn new(nodes: &'a [Node]) -> Self {
         let by_id: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.0.as_str(), n)).collect();
-        let mut by_alias: HashMap<&str, Option<&Node>> = HashMap::new();
-        for node in nodes {
-            for alias in &node.aliases {
-                by_alias
-                    .entry(alias.as_str())
-                    .and_modify(|held| {
-                        if held.is_some_and(|h| h.id != node.id) {
-                            *held = None;
-                        }
-                    })
-                    .or_insert(Some(node));
-            }
-        }
-        Index { by_id, by_alias }
+        Index { by_id, by_alias: by_alias(nodes) }
     }
 
     /// The node with this ID.
@@ -228,6 +334,26 @@ mod tests {
         let index = Index::new(&nodes);
         let chain: Vec<&str> = index.chain(&nodes[0]).iter().map(|n| n.id.0.as_str()).collect();
         assert_eq!(chain, ["r:x:a", "r:x:b"]);
+    }
+
+    #[test]
+    fn a_node_whose_hash_another_took_is_found_all_the_same() {
+        let nodes: Vec<Node> = (0..40).map(|i| node(&format!("r:x:{i:02}"), Tier::Universal, "n")).collect();
+        let mut places = Places::of(&nodes);
+        for i in 0..nodes.len() {
+            assert_eq!(places.find(&nodes, &nodes[i].id), Some(i));
+        }
+        // Every hash taken by the first node, as if each ID shared its hash.
+        for place in places.by_hash.values_mut() {
+            *place = 0;
+        }
+        for i in 0..nodes.len() {
+            assert_eq!(places.find(&nodes, &nodes[i].id), Some(i));
+        }
+        assert_eq!(places.find(&nodes, &NodeId("r:x:none".into())), None);
+        // Two tables draw their own keys, so no one ID list collides in both.
+        let other = Places::of(&nodes);
+        assert_ne!(hash(&places.keys, &nodes[0].id), hash(&other.keys, &nodes[0].id));
     }
 
     use proptest::prelude::*;

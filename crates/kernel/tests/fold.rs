@@ -1095,3 +1095,35 @@ fn a_moved_directory_carries_its_regroup() {
         [&FoldDiff::Followed { event: into, from: id("r:d:src/cart"), to: id("r:d:src/basket") }]
     );
 }
+
+/// The model is what a fold returns, never what it reads: a caller that changes the model it was
+/// handed changes no fact value, no undo's parents, and nothing a later event folds over.
+#[test]
+fn a_caller_changing_the_model_changes_nothing_the_fold_reads() {
+    let facts = facts();
+    let vocabulary = Vocabulary::default();
+    let mut log = Log::default();
+    let moved = log.edit(&tab(1), set_node("r:x:item", "parent", json!("r:x:b")));
+    log.edit(&tab(1), set_node("r:x:a", "name", json!("A")));
+    log.edit(&tab(1), set_node("r:x:b", "name", json!("B")));
+    let (before, last) = log.events.split_at(2);
+    let kept = fold_full(&facts, before, &vocabulary, 2);
+    let mut changed = kept.clone();
+    changed.model.nodes.reverse();
+    changed.model.nodes.truncate(1);
+    for node in &mut changed.model.nodes {
+        node.name = "changed".into();
+        node.parent = None;
+    }
+    changed.model.edges.clear();
+    let item = Target::Node(id("r:x:item"));
+    for field in ["name", "parent"] {
+        assert_eq!(changed.fact_value(&item, field), kept.fact_value(&item, field), "{field}");
+    }
+    assert_eq!(changed.parents_after_undo(&moved), kept.parents_after_undo(&moved));
+    let mut want = kept.clone();
+    fold_one(&mut want, &facts, before, &vocabulary, &last[0]);
+    fold_one(&mut changed, &facts, before, &vocabulary, &last[0]);
+    assert_eq!(changed.model, want.model);
+    assert_eq!(changed.model, fold_full(&facts, &log.events, &vocabulary, 3).model);
+}

@@ -6,75 +6,101 @@
 //! target, the parent it sets and the parent it was made over. An edit whose node the facts hold
 //! is left as it is, and so is one no rename reaches, which the fold then lists as vanished.
 
-use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use planroom_contract::{Event, EventBody, EventId, Node, NodeId, Seq, Target};
 use serde_json::Value;
 
+use super::lookup::Lookup;
 use super::state::PARENT;
 
 /// Each edit the fold resolved through a rename, with every move it followed: old ID, new ID.
-pub(crate) type Followed = BTreeMap<EventId, Vec<(NodeId, NodeId)>>;
+pub(crate) type Followed = Lookup<EventId, Vec<(NodeId, NodeId)>>;
 
-/// The renames of each `scan` event in `events` that records any, in `seq` order.
-struct Moves<'a>(Vec<(Seq, BTreeMap<&'a NodeId, &'a NodeId>)>);
+/// The renames the `scan` events in `events` record, by the ID each moves from.
+struct Moves<'a> {
+    /// The `seq` of each scan that records a rename, in `seq` order.
+    scans: Vec<Seq>,
+    /// For each ID a rename moves, the scans that move it, by their place in `scans` and in that
+    /// order, each with the ID it moves to. Of two renames of one ID in one scan, the later.
+    from: HashMap<&'a str, Vec<(usize, &'a NodeId)>>,
+}
 
 impl<'a> Moves<'a> {
     fn of(events: &[&'a Event]) -> Moves<'a> {
-        let moves = events
-            .iter()
-            .filter_map(|e| match &e.body {
-                EventBody::Scan { renames, .. } if !renames.is_empty() => {
-                    Some((e.seq, renames.iter().map(|r| (&r.from, &r.to)).collect()))
-                }
-                _ => None,
-            })
-            .collect();
-        Moves(moves)
+        let mut scans = Vec::new();
+        let mut from: HashMap<&str, Vec<(usize, &NodeId)>> = HashMap::new();
+        for event in events {
+            let EventBody::Scan { renames, .. } = &event.body else { continue };
+            if renames.is_empty() {
+                continue;
+            }
+            let moved: BTreeMap<&NodeId, &NodeId> = renames.iter().map(|r| (&r.from, &r.to)).collect();
+            for (old, new) in moved {
+                from.entry(old.0.as_str()).or_default().push((scans.len(), new));
+            }
+            scans.push(event.seq);
+        }
+        Moves { scans, from }
     }
 
-    /// Where `id` is once every rename recorded after `seq` has applied: `None` when none moves it.
-    fn follow(&self, id: &NodeId, seq: Seq) -> Option<NodeId> {
-        let start = self.0.partition_point(|(s, _)| *s <= seq);
+    fn is_empty(&self) -> bool {
+        self.scans.is_empty()
+    }
+
+    /// Whether any rename moves `id`.
+    fn moves(&self, id: &str) -> bool {
+        self.from.contains_key(id)
+    }
+
+    /// Where `id` is once every rename recorded after `seq` has applied, scan by scan in `seq`
+    /// order: `None` when none moves it.
+    fn follow(&self, id: &str, seq: Seq) -> Option<NodeId> {
+        let mut next = self.scans.partition_point(|s| *s <= seq);
         let mut at = id;
-        for (_, renames) in &self.0[start..] {
-            if let Some(to) = renames.get(at) {
-                at = to;
-            }
+        // Each step jumps to the next scan that moves the node where it is, so a walk costs the
+        // moves it makes, not every scan after `seq`.
+        while let Some(scans) = self.from.get(at) {
+            let i = scans.partition_point(|(scan, _)| *scan < next);
+            let Some(&(scan, to)) = scans.get(i) else { break };
+            at = to.0.as_str();
+            next = scan + 1;
         }
-        (at != id).then(|| at.clone())
+        (at != id).then(|| NodeId(at.to_owned()))
     }
 }
 
-/// `events`, sorted by `seq`, with each edit that names a node `nodes` doesn't hold resolved
-/// through the renames recorded after it; and what each resolved edit followed. `nodes` is sorted
-/// by ID, as resolving leaves it, so a fold with no recorded rename pays for nothing here.
-pub(crate) fn follow<'a>(events: &[&'a Event], nodes: &[Node]) -> (Vec<Cow<'a, Event>>, Followed) {
+/// Each edit of `events`, sorted by `seq`, that names a node `nodes` doesn't hold, resolved
+/// through the renames recorded after it, by its place in `events`; and what each resolved edit
+/// followed. Every other event stands as it is. `nodes` is sorted by ID, as resolving leaves it,
+/// so a fold with no recorded rename pays for nothing here.
+pub(crate) fn follow(events: &[&Event], nodes: &[Node]) -> (Vec<(usize, Event)>, Followed) {
     let moves = Moves::of(events);
-    let mut followed = Followed::new();
-    if moves.0.is_empty() {
-        return (events.iter().map(|e| Cow::Borrowed(*e)).collect(), followed);
+    let mut followed = Followed::default();
+    if moves.is_empty() {
+        return (Vec::new(), followed);
     }
     let out = events
         .iter()
-        .map(|event| {
-            let EventBody::Edit(edit) = &event.body else { return Cow::Borrowed(*event) };
-            let resolve = |id: &NodeId| -> Option<NodeId> {
-                if held(nodes, id) { None } else { moves.follow(id, event.seq) }
+        .enumerate()
+        .filter_map(|(at, event)| {
+            let EventBody::Edit(edit) = &event.body else { return None };
+            let resolve = |id: &str| -> Option<NodeId> {
+                // Only an ID some rename moves can follow one, so most skip the search for it.
+                if !moves.moves(id) || held(nodes, id) { None } else { moves.follow(id, event.seq) }
             };
             let mut moved: Vec<(NodeId, NodeId)> = Vec::new();
             let target = match &edit.target {
-                Target::Node(id) => resolve(id).inspect(|to| moved.push((id.clone(), to.clone()))),
+                Target::Node(id) => resolve(&id.0).inspect(|to| moved.push((id.clone(), to.clone()))),
                 Target::Edge(_) => None,
             };
             let parent = parent_of(edit.fields.get(PARENT))
-                .and_then(|p| resolve(&p).inspect(|to| moved.push((p.clone(), to.clone()))));
+                .and_then(|p| resolve(p).inspect(|to| moved.push((NodeId(p.to_owned()), to.clone()))));
             // The parent the edit was made over follows too, so a moved parent isn't drift; it
             // isn't listed, since the edit didn't name it.
-            let over = parent_of(edit.over.get(PARENT)).and_then(|p| resolve(&p));
+            let over = parent_of(edit.over.get(PARENT)).and_then(resolve);
             if target.is_none() && parent.is_none() && over.is_none() {
-                return Cow::Borrowed(*event);
+                return None;
             }
             let mut event = (*event).clone();
             let EventBody::Edit(edit) = &mut event.body else { unreachable!("an edit") };
@@ -92,17 +118,17 @@ pub(crate) fn follow<'a>(events: &[&'a Event], nodes: &[Node]) -> (Vec<Cow<'a, E
                 moved.dedup();
                 followed.insert(event.id.clone(), moved);
             }
-            Cow::Owned(event)
+            Some((at, event))
         })
         .collect();
     (out, followed)
 }
 
 /// Whether `nodes`, sorted by ID, holds `id`.
-fn held(nodes: &[Node], id: &NodeId) -> bool {
-    nodes.binary_search_by(|n| n.id.cmp(id)).is_ok()
+fn held(nodes: &[Node], id: &str) -> bool {
+    nodes.binary_search_by(|n| n.id.0.as_str().cmp(id)).is_ok()
 }
 
-fn parent_of(value: Option<&Value>) -> Option<NodeId> {
-    value.and_then(Value::as_str).map(|p| NodeId(p.to_owned()))
+fn parent_of(value: Option<&Value>) -> Option<&str> {
+    value.and_then(Value::as_str)
 }
