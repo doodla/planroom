@@ -8,7 +8,10 @@ import { mock } from "claude-code/testing";
 import type { MockClock } from "claude-code/testing";
 import type { On, ProcessSpawnChunk, ProcessSpawnResult } from "claude-code";
 
+import type { PaneModel } from "@planroom/contract";
+
 import focusReply from "../../../tests/golden/cli/focus.json";
+import { overlay, type Overlay } from "./overlays";
 
 export const ROOT = "/plugins/planroom";
 export const RESOLVER = `${ROOT}/scripts/planroom`;
@@ -124,6 +127,8 @@ export interface Host {
   clock: MockClock;
   runs: Run[];
   children: Child[];
+  /** The toasts the mod showed, in order. */
+  toasts: string[];
   /** The shell's directory, as `$.session.cwd()` reports it: a test moves it the way a Bash `cd` does. */
   shell: { cwd: string };
   /** The session's environment, as `$.env.get` reads it now. */
@@ -169,10 +174,26 @@ export function readyEngine(argv: readonly string[]): Answer {
   };
 }
 
+/**
+ * An engine that resolves and answers focus with the golden PaneModel, each overlay laid over it
+ * in order, for pane sections the engine can't fill yet (DR-82); every other run as `readyEngine`.
+ */
+export function overlaid(
+  ...overlays: Overlay[]
+): (argv: readonly string[]) => Answer {
+  const golden = (focusReply as unknown as { result: PaneModel }).result;
+  const reply = { ...focusReply, result: overlay(golden, ...overlays) };
+  return (argv) =>
+    argv[0] === ENGINE && argv[1] === "focus"
+      ? { exitCode: 0, stdout: JSON.stringify(reply) }
+      : readyEngine(argv);
+}
+
 /** Stand in for the host beneath the mod. */
 export function host(
   on: On,
-  answer: (argv: readonly string[]) => Answer = readyEngine,
+  /** How each process run answers; a promise answers when it settles, as a slow run does. */
+  answer: (argv: readonly string[]) => Answer | Promise<Answer> = readyEngine,
   options: {
     store?: Record<string, unknown>;
     /** The script of the nth child `watch` starts; left out, each refuses with `NO_STORE`. */
@@ -207,17 +228,21 @@ export function host(
   }));
   on("ui.open", () => ({ value: { isPlaced: true } }));
   on("ui.status", () => ({ value: undefined }));
-  on("ui.toast", () => ({ value: undefined }));
+  const toasts: string[] = [];
+  on("ui.toast", (_$, e) => {
+    toasts.push(e.text);
+    return { value: undefined };
+  });
   on("session.id", () => ({ value: SESSION }));
   on("session.start", (_$, e) => ({ cwd: e.cwd }));
-  on("process.run", (_$, e) => {
+  on("process.run", async (_$, e) => {
     runs.push({
       argv: e.argv,
       env: e.init?.env ?? {},
       stdin: e.init?.stdin,
       at: clock.now(),
     });
-    const a = answer(e.argv);
+    const a = await answer(e.argv);
     return {
       value: {
         exitCode: a.exitCode,
@@ -253,7 +278,7 @@ export function host(
     children.push(child);
     return { value: yield* child.run(next.signal) };
   });
-  return { clock, runs, children, shell, env };
+  return { clock, runs, children, toasts, shell, env };
 }
 
 /** The focus runs so far, as the clock read when each started. */

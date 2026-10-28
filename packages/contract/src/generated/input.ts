@@ -828,6 +828,13 @@ export type PartialReason = "nesting_limit" | "work_limit" | "repo_limit";
  */
 export type Flow = "forward" | "backward";
 /**
+ * How much `focus` returns.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "FocusDetail".
+ */
+export type FocusDetail = "full" | "summary";
+/**
  * The states of a hand-off.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
@@ -1292,7 +1299,7 @@ export interface FindReq {
   text: string;
 }
 /**
- * `planroom focus [--session ID]`.
+ * `planroom focus [--session ID] [--detail full|summary]`.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
  * via the `definition` "FocusReq".
@@ -1302,6 +1309,10 @@ export interface FocusReq {
    * The Claude Code session whose focus to show.
    */
   session?: string | null;
+  /**
+   * How much `focus` returns.
+   */
+  detail?: "full" | "summary";
 }
 /**
  * `planroom scan [DIR]`.
@@ -1946,6 +1957,10 @@ export interface DriftLine {
   summary: string;
   rules_broken: number;
   machine_drift: number;
+  /**
+   * The top drift item's handle, which an action key acts on once its row is selected (DR-77).
+   */
+  top?: Handle1 | null;
 }
 /**
  * A relation between two nodes.
@@ -3395,7 +3410,8 @@ export interface PackReport {
   checks: PackCheck[];
 }
 /**
- * What `focus` returns: the pane, the band and the status line; at most 4 KB.
+ * What `focus` returns: the pane, the band and the status line, fit to `focus`'s catalogue budget
+ * on the CLI.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
  * via the `definition` "PaneModel".
@@ -3415,7 +3431,10 @@ export interface PaneModel {
   drift: DriftLine;
   who: PresenceRow[];
   next: Handle5;
-  minimap: MiniMap;
+  /**
+   * Omitted with `focus --detail summary` (DR-82).
+   */
+  minimap?: MiniMap | null;
   empty?: Empty | null;
 }
 /**

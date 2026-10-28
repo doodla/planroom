@@ -258,7 +258,7 @@ export const FALLBACK_PANES: Readonly<Record<"resolving" | "fetching" | "build_o
   "building": {
     "headline": "Building the engine from source…",
     "detail": "This takes about 4 minutes.",
-    "action": "Check again"
+    "action": null
   },
   "version_mismatch": {
     "headline": "This engine doesn't match the plugin.",
@@ -285,4 +285,59 @@ export const FALLBACK_PANES: Readonly<Record<"resolving" | "fetching" | "build_o
     "detail": null,
     "action": "Try again"
   }
+};
+
+/**
+ * The mod's own lines, from the `[mod]` table of `en.toml`: templates whose `{name}`s the mod
+ * fills with `fill` from `@planroom/ui`, then sanitizes.
+ */
+export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band_points_to_pane" | "band_rekey" | "band_shown" | "batch_count" | "block_row" | "blocks_at_level" | "blocks_at_level_one" | "blocks_title" | "build_failed" | "building_line" | "compact_focus_line" | "done_line" | "engine_no_error" | "engine_not_ready" | "failed_line" | "first_page_label" | "focus_line" | "focused_block_row" | "guard_too_many_paths" | "guard_unchecked" | "handler_failed" | "lens_line" | "more_decisions" | "next_page_label" | "next_title" | "no_blocks" | "no_blocks_at_level" | "no_diffs" | "no_project" | "nobody_here" | "page_line" | "progress_done" | "progress_handoffs" | "progress_handoffs_one" | "progress_no_stage" | "progress_not_scanned" | "progress_scanning" | "project_line" | "room_argument_hint" | "room_description" | "selected_row" | "title" | "toast" | "who_agent" | "who_doing" | "workspace", string>> = {
+  "back_label": "Back to the {level} level",
+  "band_fallback": "{headline} {action}",
+  "band_points_to_pane": "Next: {label} · /room to open it",
+  "band_rekey": "{headline} /room to open it",
+  "band_shown": "{label}: {line} · /room to open the pane",
+  "batch_count": "applies {count} items",
+  "block_row": "□ {name}",
+  "blocks_at_level": "{count} blocks at the {level} level",
+  "blocks_at_level_one": "{count} block at the {level} level",
+  "blocks_title": "Blocks · {level}",
+  "build_failed": "The source build failed: {said}",
+  "building_line": "Building the Planroom engine from source…",
+  "compact_focus_line": "▣ {crumbs} · {level} · {lens}",
+  "done_line": "{label}: done",
+  "engine_no_error": "The engine failed without an error.",
+  "engine_not_ready": "The Planroom engine isn't ready yet.",
+  "failed_line": "{label} failed",
+  "first_page_label": "First page",
+  "focus_line": "▣ {crumbs}",
+  "focused_block_row": "▣ {name}",
+  "guard_too_many_paths": "This call names more paths than the Planroom guard resolves, so it can't check where they all lead.",
+  "guard_unchecked": "The Planroom guard couldn't check this call.",
+  "handler_failed": "The Planroom mod's tool handler failed.",
+  "lens_line": "{level} · lens {lens}",
+  "more_decisions": "+{count} more",
+  "next_page_label": "Next page",
+  "next_title": "Next",
+  "no_blocks": "No blocks at this level yet",
+  "no_blocks_at_level": "No blocks at the {level} level",
+  "no_diffs": "No pending diffs",
+  "no_project": "no project",
+  "nobody_here": "Nobody else is here",
+  "page_line": "{first}–{last} of {total}",
+  "progress_done": "{done}/{total} done",
+  "progress_handoffs": "{count} hand-offs running",
+  "progress_handoffs_one": "{count} hand-off running",
+  "progress_no_stage": "no plan stage",
+  "progress_not_scanned": "not scanned",
+  "progress_scanning": "scanning",
+  "project_line": "{project} · seq {seq}",
+  "room_argument_hint": "[help | map | focus | scan …]",
+  "room_description": "Planroom: focus the pane, or run a map command (/room help lists them)",
+  "selected_row": "› {label}",
+  "title": "Planroom",
+  "toast": "{label}: {line}",
+  "who_agent": "{role} {session}",
+  "who_doing": "{name}: {doing}",
+  "workspace": "workspace"
 };

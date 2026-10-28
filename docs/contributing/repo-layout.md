@@ -238,7 +238,7 @@ A wholly generated directory has a `GENERATED.md` stub, which covers every file 
 |---|---|---|---|
 | `schema/` | `cargo xtask gen` (schemars) | yes | `cargo xtask gen` |
 | `schema/baseline/` | `cargo xtask gen --schema-baseline`, run only with a `schema_version` bump | yes [DR-59] | keep the side with the higher `schema_version` |
-| `packages/contract/src/generated/` | `cargo xtask gen` (json-schema-to-typescript, the catalogue, its hash, the fallback panes from `en.toml`, and `format.ts`, the `checkFormat` port of `contract::format` [DR-85]) | yes | `cargo xtask gen` |
+| `packages/contract/src/generated/` | `cargo xtask gen` (json-schema-to-typescript, the catalogue, its hash, the fallback panes and the mod's strings from `en.toml`, and `format.ts`, the `checkFormat` port of `contract::format` [DR-85]) | yes | `cargo xtask gen` |
 | `plugin/types/` | `cargo xtask gen`: `index.d.ts` | yes | `cargo xtask gen` |
 | `plugin/hooks/` | `cargo xtask gen`, or `gen --mod` for the bundle alone: `hooks.json` naming the bundle, and `planroom-mod.js` (esbuild, ESM, no splitting, `claude-code` external; deterministic). The host loads a hooks module only when `register` is exported on its own declaration, so `gen` rewrites esbuild's export list to `export function register` [DR-70, DR-79, DR-81] | yes, because a local-path marketplace loads the plugin from the repo | `cargo xtask gen` |
 | `plugin/.claude-plugin/plugin.json`, its `version` field | `cargo xtask gen` and `gen --mod` stamp it from the workspace version, `-dev.g<8 hex>` between releases [DR-83]; JSON carries no markers, so its drift check alone covers it | yes | `cargo xtask gen` |

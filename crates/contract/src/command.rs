@@ -622,12 +622,28 @@ pub struct MapReq {
     pub cursor: Option<Cursor>,
 }
 
-/// `planroom focus [--session ID]`.
+/// How much `focus` returns.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema, clap::ValueEnum,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum FocusDetail {
+    /// The whole pane, its mini-map included.
+    #[default]
+    Full,
+    /// The pane without its mini-map (for the tools).
+    Summary,
+}
+
+/// `planroom focus [--session ID] [--detail full|summary]`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct FocusReq {
     /// The Claude Code session whose focus to show.
     #[arg(long)]
     pub session: Option<String>,
+    #[arg(long, value_enum, default_value_t)]
+    #[serde(default)]
+    pub detail: FocusDetail,
 }
 
 /// `planroom scan [DIR]`.

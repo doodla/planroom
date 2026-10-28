@@ -1360,6 +1360,17 @@
           "type": "integer",
           "format": "uint32",
           "minimum": 0
+        },
+        "top": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Handle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The top drift item's handle, which an action key acts on once its row is selected (DR-77)."
         }
       },
       "required": [
@@ -2897,6 +2908,21 @@
       ],
       "description": "Where you are."
     },
+    "FocusDetail": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "full",
+          "description": "The whole pane, its mini-map included."
+        },
+        {
+          "type": "string",
+          "const": "summary",
+          "description": "The pane without its mini-map (for the tools)."
+        }
+      ],
+      "description": "How much `focus` returns."
+    },
     "FocusReq": {
       "type": "object",
       "properties": {
@@ -2906,12 +2932,17 @@
             "null"
           ],
           "description": "The Claude Code session whose focus to show."
+        },
+        "detail": {
+          "$ref": "#/$defs/FocusDetail",
+          "default": "full"
         }
       },
       "required": [
-        "session"
+        "session",
+        "detail"
       ],
-      "description": "`planroom focus [--session ID]`."
+      "description": "`planroom focus [--session ID] [--detail full|summary]`."
     },
     "Handle": {
       "type": "object",
@@ -4834,7 +4865,15 @@
           "description": "The band's next best action."
         },
         "minimap": {
-          "$ref": "#/$defs/MiniMap"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MiniMap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Omitted with `focus --detail summary` (DR-82)."
         },
         "empty": {
           "anyOf": [
@@ -4856,10 +4895,9 @@
         "drift",
         "who",
         "next",
-        "minimap",
         "empty"
       ],
-      "description": "What `focus` returns: the pane, the band and the status line; at most 4 KB."
+      "description": "What `focus` returns: the pane, the band and the status line, fit to `focus`'s catalogue budget\non the CLI."
     },
     "PaneState": {
       "type": "object",

@@ -876,3 +876,54 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
         Leaf::SPECS.iter().filter(|s| s.budget_tokens > 0).map(|s| s.name()).collect();
     assert_eq!(covered, budgeted, "every built leaf with a budget is run");
 }
+
+/// `focus` keeps to its catalogue budget as sent: redacted, every warning in, at either detail,
+/// and raw for the truth comparator too. The mini-map's blocks give way before any warning does
+/// (DR-82, DR-85). Sixty repos with 40-character names fill the mini-map past the budget, and half
+/// end `_TOKEN=v`, which the mask lengthens, so the fit must measure what is sent.
+#[test]
+fn focus_keeps_to_one_budget() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("ws");
+    for i in 0..60 {
+        let name = if i % 2 == 0 {
+            format!("repo{i:02}_{}_TOKEN=v", "a".repeat(25))
+        } else {
+            format!("repo{i:02}_{}", "b".repeat(33))
+        };
+        assert_eq!(name.len(), 40, "{name}");
+        git_repo(&root.join(&name), &[("README.md".into(), b"# repo\n".to_vec())]);
+    }
+    // A config the engine didn't write, before the first scan: the trust card opens, and focus
+    // carries its `workspace_untrusted` warning.
+    std::fs::create_dir_all(root.join(".planroom")).unwrap();
+    std::fs::write(root.join(".planroom/config.toml"), "[scan]\nexclude = []\n").unwrap();
+    planroom(&root, &["scan", "--json"]);
+
+    let budget = budget("focus");
+    let warned = |env: &Value, code: &str| {
+        env["meta"]["warnings"].as_array().into_iter().flatten().any(|w| w["code"] == code)
+    };
+    for raw in [false, true] {
+        let env = reply(&root, &["focus"], "", if raw { &[("PLANROOM_RAW", "1")] } else { &[] });
+        assert_eq!(env["ok"], true, "{env}");
+        let tokens = env["meta"]["size"]["tokens_est"].as_u64().unwrap();
+        assert!(tokens <= budget, "raw {raw}: {tokens} tokens over focus's {budget}");
+        assert!(!warned(&env, "truncated"), "raw {raw}: blocks give way before warnings: {env}");
+        assert!(warned(&env, "workspace_untrusted"), "raw {raw}: {env}");
+        let blocks = env["result"]["minimap"]["blocks"].as_array().unwrap();
+        assert!(!blocks.is_empty() && blocks.len() < 60, "raw {raw}: {} blocks", blocks.len());
+        // Every edge kept joins two kept blocks.
+        let ids: Vec<&Value> = blocks.iter().map(|b| &b["id"]).collect();
+        for edge in env["result"]["minimap"]["edges"].as_array().unwrap() {
+            assert!(ids.contains(&&edge["from"]) && ids.contains(&&edge["to"]), "{edge}");
+        }
+        let masked = blocks.iter().any(|b| b["name"].as_str().unwrap().contains("[redacted]"));
+        assert_eq!(masked, !raw, "raw {raw}: the mask lengthens only what it sends: {blocks:?}");
+    }
+    let summary = reply(&root, &["focus", "--detail", "summary"], "", &[]);
+    assert_eq!(summary["ok"], true, "{summary}");
+    assert!(summary["result"].get("minimap").is_none(), "{summary}");
+    assert!(summary["meta"]["size"]["tokens_est"].as_u64().unwrap() <= budget, "{summary}");
+    assert!(warned(&summary, "workspace_untrusted"), "{summary}");
+}

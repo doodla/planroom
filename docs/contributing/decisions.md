@@ -118,6 +118,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 102 | Every directory's purpose checked, generated paths marked from one table, and golden reads caught by literal | DR-38, DR-59, DR-79, DR-81, DR-83, DR-89 | extended, amends DR-81 | the merge of M1's layout and docs gates |
 | 103 | Five languages' formats and queries: queries compiled only to extract, every built-in bounded, and hint keys masked | DR-9, DR-12, DR-46, DR-47, DR-83, DR-91, DR-100 | extended, amends DR-83 and DR-91 | the merge of M1's formats and queries for five languages |
 | 104 | Git history, an owner check before every git call, and another user's repo skipped with no command | DR-12, DR-16, DR-47, DR-74, DR-78, DR-79, DR-85, DR-86, DR-92 | extended, amends DR-16, DR-79, DR-86 and DR-92 | the merge of M1's git history adapter |
+| 105 | Pane sections with row keys and a 7-row page, the mod's lines from the string catalog, and one budget for `focus` | DR-54, DR-57, DR-65, DR-77, DR-82 | extended, amends DR-54 and DR-57 | the merge of M1's pane sections |
 
 ## Where the design reviews disagreed
 
@@ -1102,7 +1103,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-54: Surfaces act through catalogue verbs, reversibly, in real keystrokes
 
-- **Status:** accepted (decided in review round 1, D15). Amended in review rounds 2 and 3.
+- **Status:** accepted (decided in review round 1, D15). Amended in review rounds 2 and 3. Amended by DR-105.
 - **Starting point:** none; implements R13, S9 and principle 1 ("Everything is reversible, which is what makes bold defaults safe").
 - **Origin:** review round 1: ux-2, ux-3 and ux-4; the minor findings ux-8 and ux-10.
 - **Context:**
@@ -1126,6 +1127,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: a stray digit can't merge, and the third diff is accepted with `7 y`.
 - **Amended in review round 2:** the band and `PaneModel.next` also never name a leaf that can spend (`CommandSpec.spends`), so a stray digit can't start a paid model call (principles-12). The review card that `collect` deals takes a second key to merge (principles-7) [DR-66]. With no open decision the pane draws `PaneModel.next` as its face-up card, so vscode and mobile, which have no band, still show the next action (ux-5). A band press from the empty prompt shows a toast of what it did, and for 10 s the band's primary is its undo (ux-6). Choices sit two to a row, and a fixed label holds 20 columns (ux-7). Below 34 body rows or 49 columns the pane draws a compact layout: a focus line, the card and the list (ux-8). Enter on a stage row under `i` runs that stage through its cost card, and an accepted stage makes `intent version` the next action (ux-11). Tests `surfaces.test.tsx::no_decision_shows_next_on_every_surface`, `rows_fit_compact_at_80x24_and_100x30`; `keys.test.tsx::a_band_press_from_the_prompt_offers_undo`. On the canvas, the action tray, lid drops, felt pins and chalk relations each run one catalogue `edit` leaf, so hand edits follow this record's rules too (ux-2) [DR-68].
 - **Amended in review round 3:** `l`, `p`, `i`, `h` and `t` deal pickers whose first ten entries are a key plus a digit. The stage picker is the stage run's cost card, so its pick is the confirming key, which replaces round 2's "Enter on a stage row under `i` runs that stage through its cost card". Merging is the unasked review card's Merge, then a second press. The row-key pool covers the drift and who lines' top items and 7 list rows, and the compact layout keeps the top diff line. S9 counts keys with no list open, per flow in `feature_list.json` (F9, ux-2, ux-3, principles-2) [DR-77].
+- **Amended by DR-105:** the surface tests named under `packages/mod/src/surfaces.test.tsx` live in `packages/mod/plugin-tests/surfaces.test.tsx`, where `claude plugin test` draws all four surfaces; the pure layout's tests stay in `packages/mod/src/layout.test.ts`.
 - **Sources (checked 2026-10-26):** [mod-spike] (bare digits, `ctrl+x tab`, the 49×34 dock, diff hunk headers); [mod-api §2] (at most 36 one-key actions per pane); KICKOFF S9, S15 and principle 1; review round 1 findings above and owner decision D15.
 
 ## DR-55: Hand-off revert and an enumerated irreversible list
@@ -1182,7 +1184,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-57: The pane before the engine and outside a workspace
 
-- **Status:** accepted (decided in review round 1, D15). Amended in review rounds 2 and 3.
+- **Status:** accepted (decided in review round 1, D15). Amended in review rounds 2 and 3. Amended by DR-105.
 - **Starting point:** none; implements principle 1 ("Never show a blank state") for S14's first run.
 - **Origin:** review round 1, principles-5; ux-6 (downgraded); the minor findings unasked-7 and operability-8.
 - **Context:** every pane row came from `focus`, which needs an engine. So the pane had nothing to draw while the engine downloaded or built, and the rule that the engine authors every string left the mod no text for it. `focus` in a directory with no repos was an error. `watch` started in every session, so a session in a parent of 70 repos would create a store or poll for nothing. Nothing said what works with mods off.
@@ -1201,6 +1203,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: the first screen always names one next step.
 - **Amended in review round 2:** a `person_key_mismatch` fallback pane shows the one terminal line that re-keys the workspace, and the mods-off text lists the presses that go missing and which person-only commands a terminal can still run (unasked-4, downgraded) [DR-60].
 - **Amended in review round 3:** before registering anything, the mod checks its host's version and the `$` members it calls; on a mismatch it shows one line and leaves the skills and the CLI (F19, unasked-5) [DR-76]. The `person_key_mismatch` pane's action is a pane Button that runs `person init --rekey` with a press, not a terminal line, and `open` takes only a press, so neither runs with mods off (F15) [DR-75].
+- **Amended by DR-105:** each fallback pane is a `FallbackPane { headline, detail, action }`, not a `PaneModel`, for `resolving`, `fetching`, `build_offered`, `building`, `version_mismatch`, `person_key_mismatch`, `unsupported_platform`, `failed` and `no_focus`; there is no `store_busy` pane and no `/reload-plugins` action, and `building` has no action, since one source build runs at a time. `no_blank_pane` lives in `packages/mod/plugin-tests/surfaces.test.tsx` and `packages/mod/src/layout.test.ts`; the all-surfaces audit is the surface sweep's, at M1's end.
 - **Sources (checked 2026-10-26):** KICKOFF principle 1, S14 and S15; [mod-api §7]; review round 1 principles-5, ux-6, unasked-7 and operability-8; owner decision D15.
 
 ## DR-58: One data root, a self-locating resolver, an embedded canvas and visible background work
@@ -2784,3 +2787,30 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Known gaps: a group-shared repo (`core.sharedRepository`) lets a member of its group plant a FIFO that stalls a scan; a copy of another user's repo can carry their special files; loose refs, loose objects, working-tree `.gitignore` and `.gitattributes`, and files config names aren't checked for special files, since only someone who can write there can plant one; a `git_failed` fix's `ls -l` path under `.git/modules/<name>/` or `.git/worktrees/<name>/` can come out partly masked when the name is short; `focus` and `map` show `no_repos` for a root whose submodule listing fails; the empty-state line says another user owns a working tree when only its git directory is theirs.
   - Tests: `crates/extract/tests/git.rs`; `crates/planroom/tests/git_hardening.rs`; the oldest-git job.
 - **Sources (checked 2026-10-28):** `crates/extract/src/git.rs`; `crates/planroom/src/app/{workspace, scan}.rs`; `crates/xtask/src/{report, workflows}.rs`; `.github/workflows/ci.yml`; [Adapters](architecture.md#adapters); [Contracts](contracts.md).
+
+## DR-105: Pane sections with row keys and a 7-row page, the mod's lines from the string catalog, and one budget for `focus`
+
+- **Status:** accepted (decided at the merge of M1's pane sections, 2026-10-28).
+- **Starting point:** extended DR-54, DR-57, DR-65, DR-77 and DR-82; amends DR-54 and DR-57.
+- **Origin:** the merge of M1's pane sections and fallback panes, read against the docs by an independent check.
+- **Context:**
+  - The pane drew its sections from a `PaneModel` but took its hotkeys from literal strings, wrote its own lines around the engine's, and fit `focus` to a byte size that a workspace's masked names and warnings could push past its token budget.
+  - DR-57 listed the fallback panes as `PaneModel`s with `store_busy` and a band action that names `/reload-plugins`; the mod has never had either, and it draws a smaller shape.
+  - The pane's own test file moved: the drawn surfaces are tested in `claude plugin test`, and only the pure layout stays in vitest.
+- **Decision:**
+  - **Sections and keys.** `packages/mod/src/layout.ts` lays out the pane and `register.tsx` draws it; every hotkey comes from `@planroom/ui` (`ROW_KEYS` through `keyRows`, `CARD_KEYS`, `BAND_KEYS`). The card's choices take `1` to `4`; the diff rows, the drift line's top item and the who line's top row take row keys in that order, starting at `5`. A row key only selects its row. The block list pages at 7 rows, with one plain page Button that wraps from the last page to the first; the key map gives paging a key.
+  - **The fallback panes (amends DR-57).** Each is a `FallbackPane { headline, detail, action }`, not a `PaneModel`, for `resolving`, `fetching`, `build_offered`, `building`, `version_mismatch`, `person_key_mismatch`, `unsupported_platform`, `failed` and `no_focus`. There is no `store_busy` pane (a busy store answers `focus` with its error, which `no_focus` shows with a retry) and no `/reload-plugins` action, which the mod can't run. `building` and `unsupported_platform` have no action: one source build runs at a time.
+  - **The mod's lines.** Every line the mod draws around the engine's own comes from `en.toml`'s `[mod]` table, which `cargo xtask gen` writes into `catalogue.ts` as `MOD_STRINGS`; `@planroom/ui`'s `fill()` fills each template before the mod sanitizes it.
+  - **One budget for `focus`.** `focus` keeps to its catalogue budget, 1,000 tokens on the CLI, redacted or raw, by dropping mini-map blocks from the end with their edges, never by a byte fit. Over HTTP the pane is whole, its mini-map at most 60 blocks. `focus --detail summary` drops the mini-map, which the tools ask for; both details keep the top 3 presence rows.
+  - **Overlays.** `packages/mod/plugin-tests/overlays.ts` holds the test-only overlays on the golden `focus.json`, one per milestone that makes its state real (drift's top item, diffs), as `tests/e2e/overlays/` does for the canvas.
+  - **Where new code goes (AGENTS.md).** A pane section or key goes in `packages/mod/src/layout.ts`, which `register.tsx` draws, and the key map snapshot.
+  - **Tests (amends DR-54 and DR-57).** The surface tests that DR-54 and DR-57 name under `packages/mod/src/surfaces.test.tsx` live in `packages/mod/plugin-tests/surfaces.test.tsx`; `packages/mod/src/layout.test.ts::no_blank_pane` lays out every fallback pane within the dock.
+- **Alternatives rejected:**
+  - A `store_busy` fallback pane: `focus` already reports a busy store, and a second pane for it is a second string source for one state.
+  - A Build press while a build runs: a second build would race the first over the same source tree.
+  - One choice per row in a pane under 48 columns: docks are at least 49 columns and inline panes are full width.
+- **Consequences:**
+  - Contracts: `FocusReq.detail` (`summary` or `full`, additive); `PaneModel.minimap` omitted at `summary`; `FALLBACK_PANES` and `MOD_STRINGS` in `catalogue.ts`.
+  - Known gaps: below about 48 columns two long choice labels side by side can overflow the pane; the guard's verdict reasons, the tool descriptions, `room-args.ts`'s usage line, `live.ts`'s line, three of `engine.ts`'s lines and `/room`'s "+N more" are still written in the mod; no row is selected until a row key selects one, though architecture.md says an action key acts on the first row until then (the key map's action keys land with it); `room_query` asks for the full `focus` until the band and tools pass `--detail summary`; the resolver's source build takes no lock, so a reload mid-build can offer Build again; the all-surfaces sweep of every fallback pane, the not-yet-a-workspace state and every error frame is the surface sweep's, at M1's end.
+  - Tests: `packages/ui/src/rows.test.ts`; `packages/mod/plugin-tests/surfaces.test.tsx` (`no_decision_shows_next_on_every_surface`, `drift_and_who_top_rows_carry_row_keys`, `compact_keeps_the_top_diff_line`, `pane_shows_the_engines_summary_line`, `a_check_again_press_refreshes_the_pane_with_no_way_back`, `a_running_source_build_offers_no_second_build`); `crates/planroom/tests/budgets.rs::focus_keeps_to_one_budget`; `crates/planroom/tests/focus.rs::focus_detail_summary_drops_the_minimap_and_keeps_the_rest`; the goldens `focus-no-repos.json` and `map-container.json`.
+- **Sources (checked 2026-10-28):** `packages/mod/src/{layout, register, engine, fallback}.ts`; `packages/ui/src/{rows, text}.ts`; `crates/planroom/src/app/focus.rs`; `crates/xtask/src/generate.rs`; `crates/planroom/text/en.toml`; [The mod](architecture.md#the-mod); [Contracts](contracts.md).

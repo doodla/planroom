@@ -17,6 +17,7 @@ export {
   CATALOGUE,
   CATALOGUE_HASH,
   FALLBACK_PANES,
+  MOD_STRINGS,
   type CatalogueLeaf,
   type FallbackPane,
 } from "./generated/catalogue";

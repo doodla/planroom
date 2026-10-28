@@ -6,8 +6,13 @@
  * repo- or engine-derived, so each passes the display-sanitizing pass before it's shown (DR-64).
  */
 
-import type { Envelope, Handle, MapView } from "@planroom/contract";
-import { sanitize, truncate } from "@planroom/ui";
+import {
+  MOD_STRINGS,
+  type Envelope,
+  type Handle,
+  type MapView,
+} from "@planroom/contract";
+import { fill, sanitize, truncate } from "@planroom/ui";
 
 import { leaf } from "./catalogue";
 import type { ToolResult } from "./engine";
@@ -79,7 +84,11 @@ export function lineFor(command: string, label: string, ran: Ran): string {
     const said = [e?.message, e?.hint ?? undefined].filter(
       (s): s is string => typeof s === "string" && s !== "",
     );
-    return oneLine(said.length > 0 ? said.join(" · ") : `${label} failed`);
+    return oneLine(
+      said.length > 0
+        ? said.join(" · ")
+        : fill(MOD_STRINGS.failed_line, { label }),
+    );
   }
   if (ran.summary !== null) return oneLine(ran.summary);
   const map = mapOf(result.result);
@@ -90,13 +99,20 @@ export function lineFor(command: string, label: string, ran: Ran): string {
       // The empty state's line says why, where its action's label alone ("Check again") doesn't.
       if (typeof said === "string" && said !== "") return oneLine(said);
       return oneLine(
-        isHandle(next) ? next.label : `No blocks at the ${map.level} level`,
+        isHandle(next)
+          ? next.label
+          : fill(MOD_STRINGS.no_blocks_at_level, { level: map.level }),
       );
     }
     const n = map.nodes.length;
-    return oneLine(`${n} block${n === 1 ? "" : "s"} at the ${map.level} level`);
+    return oneLine(
+      fill(
+        n === 1 ? MOD_STRINGS.blocks_at_level_one : MOD_STRINGS.blocks_at_level,
+        { count: n, level: map.level },
+      ),
+    );
   }
-  return oneLine(`${label || command}: done`);
+  return oneLine(fill(MOD_STRINGS.done_line, { label: label || command }));
 }
 
 /** The handles a reply offers to go on: its next actions, from `meta.next`, the pane, an empty state. */
@@ -234,6 +250,8 @@ export interface Shown {
   /** For a map: the level it showed and its blocks' names, sanitized. */
   level: string | null;
   blocks: string[];
+  /** For a map with no nodes: its empty state's line, sanitized, when it has one. */
+  empty?: string | null;
 }
 
 /** What a successful press of `handle` showed, for the pane to draw in place of the press. */
@@ -244,6 +262,7 @@ export function shownFrom(
 ): Shown | null {
   if (!ran.result.ok) return null;
   const map = mapOf(ran.result.result);
+  const empty: unknown = map?.empty?.line;
   return {
     command: handle.command,
     args: [...handle.args],
@@ -251,6 +270,7 @@ export function shownFrom(
     line: lineFor(handle.command, handle.label, ran),
     level: map === null ? null : sanitize(map.level),
     blocks: map === null ? [] : map.nodes.map((n) => oneLine(n.name)),
+    empty: typeof empty === "string" && empty !== "" ? oneLine(empty) : null,
   };
 }
 

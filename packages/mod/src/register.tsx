@@ -12,7 +12,8 @@ import type {
   RenderElement,
   Register,
 } from "claude-code";
-import { sanitize } from "@planroom/ui";
+import { MOD_STRINGS } from "@planroom/contract";
+import { fill, sanitize } from "@planroom/ui";
 
 import { engineAtom, paneAtom, turnSeqAtom } from "./atoms";
 import { leaf, roomLeaves } from "./catalogue";
@@ -44,6 +45,7 @@ import {
   fallbackRows,
   paneRows,
   type Action,
+  type PaneView,
   type Row,
 } from "./layout";
 import {
@@ -79,7 +81,7 @@ import type { ToolName } from "./catalogue";
 import { hasStore } from "./watch";
 
 const PANE = "planroom";
-const TITLE = "Planroom";
+const TITLE = MOD_STRINGS.title;
 
 type $ = EngineInterface;
 
@@ -91,6 +93,30 @@ let workspace = "";
  * place of the press until focus moves on; a reload forgets it, and the press comes back.
  */
 let shown: Shown | null = null;
+
+/**
+ * The list's page and the row a row key selected, which an action key then acts on (DR-54). Both
+ * belong to one pane: they reset when its `seq` or level moves on, and a reload forgets them.
+ */
+let view: PaneView = {};
+let viewOf = "";
+
+/** The view for the pane at `seq` and `level`, reset when either moved on since the last draw. */
+function viewFor(seq: number, level: string): PaneView {
+  const at = `${seq}\0${level}`;
+  if (at !== viewOf) {
+    viewOf = at;
+    view = {};
+  }
+  return view;
+}
+
+/**
+ * Set while the resolver's source build runs: one build at a time in this module's life. A second
+ * press of Build it does nothing, and a start-up waits for the build's own, so a `session.start`
+ * mid-build can't turn the building pane back into the offer.
+ */
+let building = false;
 
 /**
  * Each `/room` run's full result, by the text it returned, so its `CommandOutput` row can draw it
@@ -150,6 +176,8 @@ async function registerOnce($: $, rekey = false): Promise<void> {
  * or session.start again) replaces the loop, which restarts from the `lastSeq` `$.state` kept.
  */
 async function startEngine($: $): Promise<void> {
+  // The build's own start-up follows when it ends.
+  if (building) return;
   watchStop();
   // The person key is made on the first start and kept in $.store across sessions (DR-72).
   await personKey($);
@@ -239,6 +267,25 @@ async function personRun(
 async function act($: $, action: Action): Promise<void> {
   if (action.kind === "clear") {
     shown = null;
+    view = {};
+    $.ui.invalidate("ui.render");
+    return;
+  }
+  if (action.kind === "select") {
+    // A row key selects its row and runs nothing; an action key then acts on it (DR-54).
+    view = { ...view, selected: action.row };
+    $.ui.invalidate("ui.render");
+    return;
+  }
+  if (action.kind === "page") {
+    view = { ...view, page: action.index };
+    $.ui.invalidate("ui.render");
+    return;
+  }
+  if (action.kind === "run" && action.command === "focus") {
+    // Check again: a read the pane already runs, so no token, no toast and no way back to offer.
+    shown = null;
+    await refreshPane($);
     $.ui.invalidate("ui.render");
     return;
   }
@@ -248,27 +295,34 @@ async function act($: $, action: Action): Promise<void> {
   }
   if (action.kind === "fallback") {
     if (action.run === "build") {
+      // One build at a time: a press while one runs does nothing.
+      if (building) return;
       const engine = await read($, engineAtom);
       if (engine.resolver !== null) {
-        await setEngine($, {
-          ...engine,
-          status: "building",
-          line: "Building the Planroom engine from source…",
-        });
-        const built = await runProcess(
-          $,
-          [engine.resolver, "build"],
-          await clientEnv($),
-          600_000,
-        );
-        if (built.exitCode !== 0) {
-          const said = built.stderr.trim().split("\n").at(-1) ?? "";
+        building = true;
+        try {
           await setEngine($, {
             ...engine,
-            status: "failed",
-            line: `The source build failed: ${said}`,
+            status: "building",
+            line: MOD_STRINGS.building_line,
           });
-          return;
+          const built = await runProcess(
+            $,
+            [engine.resolver, "build"],
+            await clientEnv($),
+            600_000,
+          );
+          if (built.exitCode !== 0) {
+            const said = built.stderr.trim().split("\n").at(-1) ?? "";
+            await setEngine($, {
+              ...engine,
+              status: "failed",
+              line: fill(MOD_STRINGS.build_failed, { said }),
+            });
+            return;
+          }
+        } finally {
+          building = false;
         }
       }
     }
@@ -279,8 +333,13 @@ async function act($: $, action: Action): Promise<void> {
   const seq = (await read($, paneAtom)).model?.focus.seq;
   const ran = await personRun($, action.command, action.args);
   const line = lineFor(action.command, action.label, ran);
-  $.ui.toast(ran.result.ok ? `${sanitize(action.label)}: ${line}` : line);
+  $.ui.toast(
+    ran.result.ok
+      ? fill(MOD_STRINGS.toast, { label: sanitize(action.label), line })
+      : line,
+  );
   shown = seq === undefined ? null : shownFrom(action, ran, seq);
+  view = {};
   await refreshPane($);
   $.ui.invalidate("ui.render");
   await registerOnce($);
@@ -388,7 +447,7 @@ const HANDLER_FAILED = JSON.stringify({
   error: {
     code: "internal",
     retry: "never",
-    message: "The Planroom mod's tool handler failed.",
+    message: MOD_STRINGS.handler_failed,
   },
   meta: {},
 } satisfies ToolResult);
@@ -556,8 +615,7 @@ async function guardVerdict(
   if (named.length > RESOLVE_LIMIT) {
     return {
       decision: "ask",
-      reason:
-        "This call names more paths than the Planroom guard resolves, so it can't check where they all lead.",
+      reason: MOD_STRINGS.guard_too_many_paths,
     };
   }
   const real = new Map<string, string[]>();
@@ -582,9 +640,8 @@ export function register(on: Parameters<Register>[0]): void {
     // Immediate, so /room focuses the pane mid-turn, while the model is still working (A-22).
     await $.command.register({
       name: "room",
-      description:
-        "Planroom: focus the pane, or run a map command (/room help lists them)",
-      argumentHint: "[help | map | focus | scan …]",
+      description: MOD_STRINGS.room_description,
+      argumentHint: MOD_STRINGS.room_argument_hint,
       immediate: true,
     });
     // Awaited, so the tools are listed from turn one and the list never changes later (DR-20).
@@ -695,7 +752,7 @@ export function register(on: Parameters<Register>[0]): void {
       ? next(e)
       : {
           decision: "ask" as const,
-          reason: "The Planroom guard couldn't check this call.",
+          reason: MOD_STRINGS.guard_unchecked,
         },
   );
 
@@ -705,7 +762,13 @@ export function register(on: Parameters<Register>[0]): void {
     const columns = e.props.bodyColumns;
     const rows =
       engine.status === "ready" && pane.model !== null
-        ? paneRows(pane.model, columns, e.props.scroll.bodyRows, shown)
+        ? paneRows(
+            pane.model,
+            columns,
+            e.props.scroll.bodyRows,
+            shown,
+            viewFor(pane.model.focus.seq, pane.model.focus.level),
+          )
         : fallbackRows(fallbackFor(engine, pane.error), columns);
     return draw($, e, rows);
   });

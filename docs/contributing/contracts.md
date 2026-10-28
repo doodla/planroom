@@ -42,7 +42,7 @@ contract::Command (catalogue) ──xtask──▶ packages/contract/src/generat
                               ──xtask──▶ plugin/scripts/engine.env PLANROOM_CATALOGUE_HASH
                               ──clap───▶ docs/reference/cli.md
 contract::ErrorCode::ALL, WarningCode::ALL ──xtask──▶ docs/reference/errors.md (tables)
-crates/planroom/text/en.toml (the fallback panes) ──xtask──▶ catalogue.ts FALLBACK_PANES
+crates/planroom/text/en.toml (the fallback panes and the mod's strings) ──xtask──▶ catalogue.ts FALLBACK_PANES, MOD_STRINGS
 contract::format ──xtask──▶ packages/contract/src/generated/format.ts (checkFormat)
 contract::ErrorCode and contract::resolver ──xtask──▶ plugin/scripts/contract.sh (the resolver's codes, reasons, steps and templates)
 contract::PaneModel and the atom types (EngineState, PaneState, LastSeq, TurnSeq) ──xtask──▶ plugin/types/index.d.ts
@@ -667,24 +667,28 @@ The engine writes every `Timestamp` in one fixed form: RFC 3339 UTC with microse
 
 ```rust
 // crates/contract/src/view.rs
-pub struct PaneModel {                       // planroom focus; at most 4 KB
+pub struct PaneModel {                       // planroom focus; within focus's catalogue budget on the CLI
     pub focus: Focus,                        // breadcrumb, level, lens, project, seq
     pub decision: Option<DecisionCard>,      // the one open decision
     pub more_decisions: u32,
     pub progress: Progress,                  // stage, done/total, hand-offs running, scan state
     pub diffs: Vec<DiffLine>,                // top 3 one-liners, the first with up to 5 hunk lines
     pub drift: DriftLine,                    // the counts and the top item's handle, which takes a row key (DR-77)
-    pub who: Vec<PresenceRow>,               // the top 3 with --detail summary; the first takes a row key (DR-77)
+    pub who: Vec<PresenceRow>,               // the top 3 at either detail; the first takes a row key (DR-77)
     pub next: Handle,                        // the next best action: the band's primary, and the pane's face-up card when no decision is
                                              // open; never NotUndoable, never class Handoff, never spends (DR-54, DR-66)
     pub minimap: Option<MiniMap>,            // up to 60 blocks at the focus level, edges by lens; omitted with --detail summary (the tools)
     pub empty: Option<Empty>,                // also the not-yet-a-workspace state outside a store (DR-57)
 }
-// catalogue.ts FALLBACK_PANES: one PaneModel per state before an engine answers (fetching, build_offered, building,
-// failed, unsupported_platform, version_mismatch, store_busy, person_key_mismatch), generated from en.toml; each `next` is a
-// resolver action or a retry of the mod's own start-up steps, except person_key_mismatch's pane Button, person init --rekey
-// (DR-75). catalogue.ts also holds two lines from en.toml that no envelope carries: the failed host check's status line
-// (DR-76) and the temporary host's copy-out line (DR-75)
+// catalogue.ts FALLBACK_PANES: one FallbackPane { headline, detail, action } per state before an engine answers (resolving,
+// fetching, build_offered, building, version_mismatch, person_key_mismatch, unsupported_platform, failed, and no_focus for
+// a focus that failed), generated from en.toml's [fallback]; each action label runs a resolver step or a retry of the mod's
+// own start-up steps, except person_key_mismatch's pane Button, person init --rekey (DR-75); building and
+// unsupported_platform have none, since one source build runs at a time. Two lines from en.toml that no envelope carries
+// join catalogue.ts with the M1 changes that draw them: the failed host check's status line (DR-76) and the temporary
+// host's copy-out line (DR-75)
+// catalogue.ts MOD_STRINGS: every line the mod draws around the engine's own, from en.toml's [mod], each a template whose
+// {name}s @planroom/ui's fill() fills before the mod sanitizes the line
 
 // focus --picker lens|project|stage|handoff|remote: the card a picker key deals face up in the pane (DR-77)
 pub struct Picker {

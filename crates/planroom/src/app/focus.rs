@@ -10,8 +10,8 @@ use std::path::Path;
 
 use planroom_contract::EventBody;
 use planroom_contract::{
-    CommandName, Crumb, DriftLine, Focus, FocusReq, Handle, Level, MiniBlock, MiniMap, NodeId, PaneModel,
-    Progress, ScanState, Seq, Warning, WarningCode,
+    CommandName, Crumb, DriftLine, Focus, FocusDetail, FocusReq, Handle, Level, MiniBlock, MiniMap, NodeId,
+    PaneModel, Progress, ScanState, Seq, Warning, WarningCode,
 };
 use planroom_store::{Snapshot, Store};
 use serde_json::json;
@@ -21,18 +21,29 @@ use crate::app::error::AppError;
 use crate::app::{Paged, Reply, cards, map, workspace};
 use crate::{clock, live, text};
 
-/// Blocks the mini-map holds at most.
+/// Blocks the mini-map holds at most: the pane's cap. On the CLI the reply then keeps to `focus`'s
+/// catalogue budget, as sent, by dropping blocks with [`drop_block`]; over HTTP and in a share's
+/// snapshot the pane is whole.
 pub const MINIMAP_BLOCKS: usize = 60;
-/// The `PaneModel` stays within this many bytes of JSON.
-pub const BUDGET_BYTES: usize = 4_096;
 /// How long a presence row counts as present after its last write.
 const PRESENT_FOR_MICROS: u64 = 30_000_000;
 /// Presence rows the pane carries.
 const WHO_ROWS: usize = 3;
 
 /// The pane, and in a scanned workspace the repos with uncommitted work, which `meta.dirty_repos`
-/// lists and one line of the text names, with no rescan (DR-71, DR-85).
-pub fn run(_req: &FocusReq, cwd: &Path) -> Result<Paged<PaneModel>, AppError> {
+/// lists and one line of the text names, with no rescan (DR-71, DR-85). `--detail summary` builds
+/// the same pane and text, then leaves the mini-map out of the reply on every path (DR-82), so
+/// text mode still names the blocks.
+pub fn run(req: &FocusReq, cwd: &Path) -> Result<Paged<PaneModel>, AppError> {
+    let mut paged = whole_detail(cwd)?;
+    if req.detail == FocusDetail::Summary {
+        paged.reply.result.minimap = None;
+    }
+    Ok(paged)
+}
+
+/// [`run`] at full detail.
+fn whole_detail(cwd: &Path) -> Result<Paged<PaneModel>, AppError> {
     let Some(root) = workspace::find_root(cwd) else {
         return not_a_workspace(cwd).map(Paged::whole);
     };
@@ -132,7 +143,7 @@ fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneMo
         drift: no_drift(),
         who,
         next,
-        minimap: MiniMap { level: Level::System, blocks, edges },
+        minimap: Some(MiniMap { level: Level::System, blocks, edges }),
         empty: None,
     };
     // A top with no blocks is the map's own empty state, never "0 at the top".
@@ -140,7 +151,6 @@ fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneMo
         pane.next = empty.next.clone();
         pane.empty = Some(empty);
     }
-    fit(&mut pane);
     Ok(pane)
 }
 
@@ -165,13 +175,15 @@ fn next_in(snapshot: &Snapshot<'_>) -> Result<Handle, AppError> {
     })
 }
 
-/// Drop mini-map blocks, last first, until the pane fits its byte budget.
-fn fit(pane: &mut PaneModel) {
-    let size = |p: &PaneModel| serde_json::to_string(p).map_or(usize::MAX, |s| s.len());
-    while size(pane) > BUDGET_BYTES && pane.minimap.blocks.pop().is_some() {
-        let MiniMap { blocks, edges, .. } = &mut pane.minimap;
-        edges.retain(|e| blocks.iter().any(|b| b.id == e.from) && blocks.iter().any(|b| b.id == e.to));
+/// Drop the mini-map's last block and every edge whose end it was; false when there was none to
+/// drop, as with no mini-map. The CLI calls it until the reply it sends fits `focus`'s budget.
+pub fn drop_block(pane: &mut PaneModel) -> bool {
+    let Some(MiniMap { blocks, edges, .. }) = pane.minimap.as_mut() else { return false };
+    if blocks.pop().is_none() {
+        return false;
     }
+    edges.retain(|e| blocks.iter().any(|b| b.id == e.from) && blocks.iter().any(|b| b.id == e.to));
+    true
 }
 
 /// The breadcrumb's first step: the workspace itself, named by its directory.
@@ -181,7 +193,8 @@ fn workspace_crumb(root: &Path) -> Crumb {
 }
 
 fn no_drift() -> DriftLine {
-    DriftLine { summary: text::get("focus.no_drift", &[]), rules_broken: 0, machine_drift: 0 }
+    // No drift is computed yet, so there is no top item for a row key to select.
+    DriftLine { summary: text::get("focus.no_drift", &[]), rules_broken: 0, machine_drift: 0, top: None }
 }
 
 /// Not yet a workspace: no store, or a store with no scan. Its next action is the scan of the
@@ -203,7 +216,7 @@ fn not_a_workspace(dir: &Path) -> Result<Reply<PaneModel>, AppError> {
         drift: no_drift(),
         who: vec![],
         next: empty.next.clone(),
-        minimap: MiniMap { level: Level::System, blocks: vec![], edges: vec![] },
+        minimap: Some(MiniMap { level: Level::System, blocks: vec![], edges: vec![] }),
         empty: Some(empty),
     };
     Ok(Reply { text: text_of(&pane, None), result: pane, seq: 0, warnings: vec![] })
@@ -217,7 +230,7 @@ fn text_of(pane: &PaneModel, dirty: Option<String>) -> String {
     }
     let name = pane.focus.breadcrumb.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(" › ");
     let seq: Seq = pane.focus.seq;
-    let blocks: Vec<&str> = pane.minimap.blocks.iter().map(|b| b.name.as_str()).collect();
+    let blocks: Vec<&str> = pane.minimap.iter().flat_map(|m| &m.blocks).map(|b| b.name.as_str()).collect();
     [
         text::get(
             "focus.summary",
@@ -235,22 +248,38 @@ fn text_of(pane: &PaneModel, dirty: Option<String>) -> String {
 
 #[cfg(test)]
 mod tests {
+    use planroom_contract::MiniEdge;
+
     use super::*;
 
+    fn block(i: usize) -> MiniBlock {
+        MiniBlock { id: NodeId(format!("r{i}:repo:r{i}")), name: format!("block {i}"), focused: false }
+    }
+
+    fn edge(from: usize, to: usize) -> MiniEdge {
+        MiniEdge { from: block(from).id, to: block(to).id, count: 1 }
+    }
+
     #[test]
-    fn a_large_minimap_is_cut_to_the_budget() {
+    fn drop_block_pops_the_last_block_and_its_edges() {
         let mut pane = not_a_workspace(Path::new("/nonexistent/for/the/focus/test")).unwrap().result;
-        pane.focus.breadcrumb = vec![workspace_crumb(Path::new("/w/shop"))];
-        pane.minimap.blocks = (0..MINIMAP_BLOCKS)
-            .map(|i| MiniBlock {
-                id: NodeId(format!("r{i}:repo:{}", "x".repeat(60))),
-                name: format!("block {i} {}", "y".repeat(40)),
-                focused: false,
-            })
-            .collect();
-        fit(&mut pane);
-        assert!(serde_json::to_string(&pane).unwrap().len() <= BUDGET_BYTES);
-        assert!(!pane.minimap.blocks.is_empty() && pane.minimap.blocks.len() < MINIMAP_BLOCKS);
-        assert_eq!(pane.minimap.blocks[0].name, format!("block 0 {}", "y".repeat(40)));
+        pane.minimap = Some(MiniMap {
+            level: Level::System,
+            blocks: (0..3).map(block).collect(),
+            edges: vec![edge(0, 1), edge(1, 2), edge(2, 0)],
+        });
+        assert!(drop_block(&mut pane));
+        let map = pane.minimap.as_ref().unwrap();
+        assert_eq!(map.blocks, vec![block(0), block(1)]);
+        assert_eq!(map.edges, vec![edge(0, 1)]);
+        assert!(drop_block(&mut pane) && drop_block(&mut pane));
+        assert!(
+            pane.minimap.as_ref().unwrap().blocks.is_empty()
+                && pane.minimap.as_ref().unwrap().edges.is_empty()
+        );
+        // Nothing left to drop, or no mini-map at all: it says so, and the CLI stops.
+        assert!(!drop_block(&mut pane));
+        pane.minimap = None;
+        assert!(!drop_block(&mut pane));
     }
 }

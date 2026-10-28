@@ -768,7 +768,7 @@ mod tests {
         assert_eq!(pane.focus.breadcrumb[0].id.0, ID);
         assert_eq!(pane.diffs[0].hunk, [MASKED, "+ plain"]);
         assert_eq!(pane.who[0].doing.as_deref(), Some(MASKED));
-        assert_eq!(pane.minimap.blocks[0].name, MASKED);
+        assert_eq!(pane.minimap.as_ref().unwrap().blocks[0].name, MASKED);
         let mut rows = pane.who.clone();
         rows[0].doing = Some(SECRET.into());
         presence(&mut rows);

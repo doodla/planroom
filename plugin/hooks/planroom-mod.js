@@ -3,319 +3,6 @@
 // src/register.tsx
 import { read as read2, update as update2 } from "claude-code";
 
-// ../ui/src/display.ts
-var INVISIBLE = [
-  // Unicode 16's `Default_Ignorable_Code_Point`: bidi controls, zero-width
-  // characters, fillers, invisible operators and variation selectors.
-  [173, 173],
-  [847, 847],
-  [1564, 1564],
-  [4447, 4448],
-  [6068, 6069],
-  [6155, 6159],
-  [8203, 8207],
-  [8234, 8238],
-  [8288, 8303],
-  [12644, 12644],
-  [65024, 65039],
-  [65279, 65279],
-  [65440, 65440],
-  [65520, 65528],
-  [113824, 113827],
-  [119155, 119162],
-  // The tag characters, which can spell hidden text as a subdivision flag's do,
-  // then the variation selectors supplement and the rest of the block Unicode
-  // reserves as default-ignorable.
-  [917504, 917631],
-  [917632, 917759],
-  [917760, 917999],
-  [918e3, 921599],
-  // The other format characters (Unicode category Cf): prepended concatenation
-  // marks, the interlinear annotation characters and the Egyptian hieroglyph
-  // format controls.
-  [1536, 1541],
-  [1757, 1757],
-  [1807, 1807],
-  [2192, 2193],
-  [2274, 2274],
-  [65529, 65531],
-  [69821, 69821],
-  [69837, 69837],
-  [78896, 78911],
-  // The line and paragraph separators.
-  [8232, 8233]
-];
-function isControl(code) {
-  return code < 32 || code >= 127 && code <= 159;
-}
-function isInvisible(code) {
-  return INVISIBLE.some(([first, last]) => code >= first && code <= last);
-}
-function sanitize(text2) {
-  let out = "";
-  for (const ch of text2) {
-    const code = ch.codePointAt(0) ?? 0;
-    if (isControl(code)) {
-      out += `\\x${code.toString(16).padStart(2, "0")}`;
-    } else if (isInvisible(code)) {
-      out += `⟨U+${code.toString(16).toUpperCase().padStart(4, "0")}⟩`;
-    } else {
-      out += ch;
-    }
-  }
-  return out;
-}
-
-// ../ui/src/keys.ts
-var BAND_KEYS = {
-  primary: "1",
-  alternative: "2",
-  later: "3"
-};
-var ROW_KEYS = [
-  "5",
-  "6",
-  "7",
-  "8",
-  "9",
-  "0",
-  "b",
-  "j",
-  "k",
-  "q",
-  "r",
-  "v"
-];
-function rowKeys(count) {
-  return Array.from({ length: Math.max(0, count) }, (_, i) => ROW_KEYS[i]);
-}
-
-// ../ui/src/text.ts
-var ELLIPSIS = "…";
-function truncate(text2, columns) {
-  const points = Array.from(text2);
-  if (points.length <= columns) {
-    return text2;
-  }
-  if (columns <= 0) {
-    return "";
-  }
-  return points.slice(0, columns - 1).join("") + ELLIPSIS;
-}
-function width(text2) {
-  return Array.from(text2).length;
-}
-
-// src/atoms.ts
-import { atom } from "claude-code";
-
-// src/engine.ts
-var INITIAL_ENGINE = {
-  status: "resolving",
-  resolver: null,
-  path: null,
-  version: null,
-  catalogue_hash: null,
-  backend: null,
-  line: null,
-  fix: null
-};
-function parseReply(stdout) {
-  try {
-    const value = JSON.parse(stdout.trim());
-    if (typeof value === "object" && value !== null && typeof value.ok === "boolean") {
-      return value;
-    }
-  } catch {
-  }
-  return null;
-}
-function firstLine(text2) {
-  return text2.trim().split("\n")[0] ?? "";
-}
-function isWindowsRoot(root) {
-  return /^[A-Za-z]:[\\/]/.test(root) || root.includes("\\");
-}
-function unsupportedPlatform() {
-  return {
-    ...INITIAL_ENGINE,
-    status: "unsupported_platform",
-    line: "Planroom v0.1 runs on macOS, Linux and WSL 2. Open this repo from WSL."
-  };
-}
-function unknownReason(_reason, base, line, fix) {
-  return { ...base, status: "failed", line, fix };
-}
-function engineFromVersion(resolver, run2) {
-  const base = { ...INITIAL_ENGINE, resolver };
-  const reply = parseReply(run2.stdout);
-  if (reply === null) {
-    const said = firstLine(run2.stderr) || firstLine(run2.stdout) || `exit ${run2.exitCode}`;
-    return {
-      ...base,
-      status: "failed",
-      line: `The Planroom engine didn't answer version --json: ${said}`
-    };
-  }
-  if (reply.ok) {
-    const info = reply.result;
-    return {
-      ...base,
-      status: "ready",
-      version: info?.version ?? null,
-      catalogue_hash: info?.catalogue_hash ?? null
-    };
-  }
-  const error = reply.error ?? NO_ERROR;
-  const details = error.details;
-  const fix = details?.fix ?? error.hint ?? null;
-  if (error.code === "engine_fetching") {
-    return { ...base, status: "fetching", line: error.message };
-  }
-  if (error.code === "engine_unavailable") {
-    const reason = details?.reason;
-    if (reason === void 0) {
-      return { ...base, status: "failed", line: error.message, fix };
-    }
-    switch (reason) {
-      case "stale_build":
-        return {
-          ...base,
-          status: "version_mismatch",
-          line: `Rebuild the engine: ${fix ?? ""}`.trim(),
-          fix
-        };
-      case "no_release":
-      case "no_build":
-      case "download_failed":
-        return { ...base, status: "build_offered", line: error.message, fix };
-      case "no_toolchain":
-      case "override_missing":
-        return { ...base, status: "failed", line: error.message, fix };
-      default:
-        return unknownReason(reason, base, error.message, fix);
-    }
-  }
-  return { ...base, status: "failed", line: error.message, fix };
-}
-function pathFromStatus(run2) {
-  try {
-    const value = JSON.parse(
-      run2.stdout.trim()
-    );
-    return value?.ok === true && typeof value.path === "string" ? value.path : null;
-  } catch {
-    return null;
-  }
-}
-var NO_ERROR = {
-  code: "internal",
-  category: "internal",
-  retry: "never",
-  message: "The engine failed without an error.",
-  hint: null,
-  details: {}
-};
-function toolError(error) {
-  const sent = error;
-  const out = {
-    code: error.code,
-    retry: sent.retry ?? "never",
-    message: error.message
-  };
-  if (sent.category !== void 0) {
-    out.category = sent.category;
-  }
-  if (error.retry_after_ms !== void 0 && error.retry_after_ms !== null) {
-    out.retry_after_ms = error.retry_after_ms;
-  }
-  if (error.hint !== void 0 && error.hint !== null) {
-    out.hint = error.hint;
-  }
-  if (error.details !== void 0) {
-    out.details = error.details;
-  }
-  return out;
-}
-var AGENT_META = [
-  "seq",
-  "next",
-  "truncated",
-  "warnings",
-  "model_requests"
-];
-function isEmpty(value) {
-  return value === null || value === void 0 || value === false || Array.isArray(value) && value.length === 0;
-}
-function toolResult(run2) {
-  const reply = parseReply(run2.stdout);
-  if (reply === null) {
-    return {
-      ok: false,
-      error: {
-        code: "internal",
-        retry: "never",
-        message: firstLine(run2.stderr) || `The engine exited ${run2.exitCode} without a reply.`
-      },
-      meta: {}
-    };
-  }
-  const meta = {};
-  for (const key of AGENT_META) {
-    const value = reply.meta?.[key];
-    if (key === "seq" ? value !== void 0 : !isEmpty(value)) {
-      meta[key] = value;
-    }
-  }
-  const agentMeta = meta;
-  if (reply.ok) {
-    return { ok: true, untrusted: true, result: reply.result, meta: agentMeta };
-  }
-  return {
-    ok: false,
-    untrusted: true,
-    error: toolError(reply.error ?? NO_ERROR),
-    meta: agentMeta
-  };
-}
-function engineMissing(engine) {
-  return {
-    ok: false,
-    error: {
-      code: engine.status === "fetching" ? "engine_fetching" : "engine_unavailable",
-      retry: engine.status === "fetching" ? "later" : "never",
-      message: engine.line ?? "The Planroom engine isn't ready yet.",
-      hint: engine.fix
-    },
-    meta: {}
-  };
-}
-
-// src/atoms.ts
-var engineAtom = atom(
-  { plugin: "planroom", key: "engine" },
-  INITIAL_ENGINE,
-  { shape: "engine-1" }
-);
-var INITIAL_PANE = { model: null, error: null };
-var paneAtom = atom(
-  { plugin: "planroom", key: "pane" },
-  INITIAL_PANE,
-  { shape: "pane-1" }
-);
-var INITIAL_SEQ = { seq: null };
-var lastSeqAtom = atom(
-  { plugin: "planroom", key: "lastSeq" },
-  INITIAL_SEQ,
-  { shape: "seq-1" }
-);
-var INITIAL_TURN = { turnId: null, seq: null };
-var turnSeqAtom = atom(
-  { plugin: "planroom", key: "turnSeq" },
-  INITIAL_TURN,
-  { shape: "turn-1" }
-);
-
 // ../contract/src/generated/catalogue.ts
 var CATALOGUE = [
   {
@@ -546,7 +233,7 @@ var FALLBACK_PANES = {
   "building": {
     "headline": "Building the engine from source…",
     "detail": "This takes about 4 minutes.",
-    "action": "Check again"
+    "action": null
   },
   "version_mismatch": {
     "headline": "This engine doesn't match the plugin.",
@@ -574,6 +261,424 @@ var FALLBACK_PANES = {
     "action": "Try again"
   }
 };
+var MOD_STRINGS = {
+  "back_label": "Back to the {level} level",
+  "band_fallback": "{headline} {action}",
+  "band_points_to_pane": "Next: {label} · /room to open it",
+  "band_rekey": "{headline} /room to open it",
+  "band_shown": "{label}: {line} · /room to open the pane",
+  "batch_count": "applies {count} items",
+  "block_row": "□ {name}",
+  "blocks_at_level": "{count} blocks at the {level} level",
+  "blocks_at_level_one": "{count} block at the {level} level",
+  "blocks_title": "Blocks · {level}",
+  "build_failed": "The source build failed: {said}",
+  "building_line": "Building the Planroom engine from source…",
+  "compact_focus_line": "▣ {crumbs} · {level} · {lens}",
+  "done_line": "{label}: done",
+  "engine_no_error": "The engine failed without an error.",
+  "engine_not_ready": "The Planroom engine isn't ready yet.",
+  "failed_line": "{label} failed",
+  "first_page_label": "First page",
+  "focus_line": "▣ {crumbs}",
+  "focused_block_row": "▣ {name}",
+  "guard_too_many_paths": "This call names more paths than the Planroom guard resolves, so it can't check where they all lead.",
+  "guard_unchecked": "The Planroom guard couldn't check this call.",
+  "handler_failed": "The Planroom mod's tool handler failed.",
+  "lens_line": "{level} · lens {lens}",
+  "more_decisions": "+{count} more",
+  "next_page_label": "Next page",
+  "next_title": "Next",
+  "no_blocks": "No blocks at this level yet",
+  "no_blocks_at_level": "No blocks at the {level} level",
+  "no_diffs": "No pending diffs",
+  "no_project": "no project",
+  "nobody_here": "Nobody else is here",
+  "page_line": "{first}–{last} of {total}",
+  "progress_done": "{done}/{total} done",
+  "progress_handoffs": "{count} hand-offs running",
+  "progress_handoffs_one": "{count} hand-off running",
+  "progress_no_stage": "no plan stage",
+  "progress_not_scanned": "not scanned",
+  "progress_scanning": "scanning",
+  "project_line": "{project} · seq {seq}",
+  "room_argument_hint": "[help | map | focus | scan …]",
+  "room_description": "Planroom: focus the pane, or run a map command (/room help lists them)",
+  "selected_row": "› {label}",
+  "title": "Planroom",
+  "toast": "{label}: {line}",
+  "who_agent": "{role} {session}",
+  "who_doing": "{name}: {doing}",
+  "workspace": "workspace"
+};
+
+// ../ui/src/display.ts
+var INVISIBLE = [
+  // Unicode 16's `Default_Ignorable_Code_Point`: bidi controls, zero-width
+  // characters, fillers, invisible operators and variation selectors.
+  [173, 173],
+  [847, 847],
+  [1564, 1564],
+  [4447, 4448],
+  [6068, 6069],
+  [6155, 6159],
+  [8203, 8207],
+  [8234, 8238],
+  [8288, 8303],
+  [12644, 12644],
+  [65024, 65039],
+  [65279, 65279],
+  [65440, 65440],
+  [65520, 65528],
+  [113824, 113827],
+  [119155, 119162],
+  // The tag characters, which can spell hidden text as a subdivision flag's do,
+  // then the variation selectors supplement and the rest of the block Unicode
+  // reserves as default-ignorable.
+  [917504, 917631],
+  [917632, 917759],
+  [917760, 917999],
+  [918e3, 921599],
+  // The other format characters (Unicode category Cf): prepended concatenation
+  // marks, the interlinear annotation characters and the Egyptian hieroglyph
+  // format controls.
+  [1536, 1541],
+  [1757, 1757],
+  [1807, 1807],
+  [2192, 2193],
+  [2274, 2274],
+  [65529, 65531],
+  [69821, 69821],
+  [69837, 69837],
+  [78896, 78911],
+  // The line and paragraph separators.
+  [8232, 8233]
+];
+function isControl(code) {
+  return code < 32 || code >= 127 && code <= 159;
+}
+function isInvisible(code) {
+  return INVISIBLE.some(([first, last]) => code >= first && code <= last);
+}
+function sanitize(text2) {
+  let out = "";
+  for (const ch of text2) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (isControl(code)) {
+      out += `\\x${code.toString(16).padStart(2, "0")}`;
+    } else if (isInvisible(code)) {
+      out += `⟨U+${code.toString(16).toUpperCase().padStart(4, "0")}⟩`;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+// ../ui/src/keys.ts
+var BAND_KEYS = {
+  primary: "1",
+  alternative: "2",
+  later: "3"
+};
+var ROW_KEYS = [
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "0",
+  "b",
+  "j",
+  "k",
+  "q",
+  "r",
+  "v"
+];
+
+// ../ui/src/rows.ts
+var PAGE_ROWS = 7;
+var CARD_KEYS = ["1", "2", "3", "4"];
+var DIFF_ROWS = 3;
+function keyRows(sections) {
+  let next = 0;
+  const take = (count) => {
+    const keys = ROW_KEYS.slice(next, next + Math.max(0, count));
+    next += keys.length;
+    return keys;
+  };
+  const diffs = take(Math.min(sections.diffs, DIFF_ROWS));
+  const drift = sections.drift ? take(1)[0] : void 0;
+  const who = sections.who ? take(1)[0] : void 0;
+  const list = take(Math.min(sections.list, PAGE_ROWS));
+  return { diffs, drift, who, list };
+}
+function page(items, index, size = PAGE_ROWS) {
+  const rows = Math.max(1, Math.floor(size));
+  const total = items.length;
+  const pages = Math.max(1, Math.ceil(total / rows));
+  const at = Math.min(
+    pages - 1,
+    Math.max(0, Number.isFinite(index) ? Math.floor(index) : 0)
+  );
+  const start = at * rows;
+  const shown2 = items.slice(start, start + rows);
+  return {
+    rows: shown2,
+    index: at,
+    pages,
+    first: shown2.length === 0 ? 0 : start + 1,
+    last: start + shown2.length,
+    total
+  };
+}
+
+// ../ui/src/text.ts
+var ELLIPSIS = "…";
+function truncate(text2, columns) {
+  const points = Array.from(text2);
+  if (points.length <= columns) {
+    return text2;
+  }
+  if (columns <= 0) {
+    return "";
+  }
+  return points.slice(0, columns - 1).join("") + ELLIPSIS;
+}
+function fill(template, vars) {
+  let out = "";
+  let rest = template;
+  for (; ; ) {
+    const open = rest.indexOf("{");
+    if (open < 0) break;
+    out += rest.slice(0, open);
+    const after = rest.slice(open + 1);
+    const close = after.indexOf("}");
+    const name = close < 0 ? null : after.slice(0, close);
+    const value = name !== null && Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : void 0;
+    if (value === void 0) {
+      out += "{";
+      rest = after;
+    } else {
+      out += String(value);
+      rest = after.slice(close + 1);
+    }
+  }
+  return out + rest;
+}
+function width(text2) {
+  return Array.from(text2).length;
+}
+
+// src/atoms.ts
+import { atom } from "claude-code";
+
+// src/engine.ts
+var INITIAL_ENGINE = {
+  status: "resolving",
+  resolver: null,
+  path: null,
+  version: null,
+  catalogue_hash: null,
+  backend: null,
+  line: null,
+  fix: null
+};
+function parseReply(stdout) {
+  try {
+    const value = JSON.parse(stdout.trim());
+    if (typeof value === "object" && value !== null && typeof value.ok === "boolean") {
+      return value;
+    }
+  } catch {
+  }
+  return null;
+}
+function firstLine(text2) {
+  return text2.trim().split("\n")[0] ?? "";
+}
+function isWindowsRoot(root) {
+  return /^[A-Za-z]:[\\/]/.test(root) || root.includes("\\");
+}
+function unsupportedPlatform() {
+  return {
+    ...INITIAL_ENGINE,
+    status: "unsupported_platform",
+    line: FALLBACK_PANES.unsupported_platform.detail
+  };
+}
+function unknownReason(_reason, base, line, fix) {
+  return { ...base, status: "failed", line, fix };
+}
+function engineFromVersion(resolver, run2) {
+  const base = { ...INITIAL_ENGINE, resolver };
+  const reply = parseReply(run2.stdout);
+  if (reply === null) {
+    const said = firstLine(run2.stderr) || firstLine(run2.stdout) || `exit ${run2.exitCode}`;
+    return {
+      ...base,
+      status: "failed",
+      line: `The Planroom engine didn't answer version --json: ${said}`
+    };
+  }
+  if (reply.ok) {
+    const info = reply.result;
+    return {
+      ...base,
+      status: "ready",
+      version: info?.version ?? null,
+      catalogue_hash: info?.catalogue_hash ?? null
+    };
+  }
+  const error = reply.error ?? NO_ERROR;
+  const details = error.details;
+  const fix = details?.fix ?? error.hint ?? null;
+  if (error.code === "engine_fetching") {
+    return { ...base, status: "fetching", line: error.message };
+  }
+  if (error.code === "engine_unavailable") {
+    const reason = details?.reason;
+    if (reason === void 0) {
+      return { ...base, status: "failed", line: error.message, fix };
+    }
+    switch (reason) {
+      case "stale_build":
+        return {
+          ...base,
+          status: "version_mismatch",
+          line: `Rebuild the engine: ${fix ?? ""}`.trim(),
+          fix
+        };
+      case "no_release":
+      case "no_build":
+      case "download_failed":
+        return { ...base, status: "build_offered", line: error.message, fix };
+      case "no_toolchain":
+      case "override_missing":
+        return { ...base, status: "failed", line: error.message, fix };
+      default:
+        return unknownReason(reason, base, error.message, fix);
+    }
+  }
+  return { ...base, status: "failed", line: error.message, fix };
+}
+function pathFromStatus(run2) {
+  try {
+    const value = JSON.parse(
+      run2.stdout.trim()
+    );
+    return value?.ok === true && typeof value.path === "string" ? value.path : null;
+  } catch {
+    return null;
+  }
+}
+var NO_ERROR = {
+  code: "internal",
+  category: "internal",
+  retry: "never",
+  message: MOD_STRINGS.engine_no_error,
+  hint: null,
+  details: {}
+};
+function toolError(error) {
+  const sent = error;
+  const out = {
+    code: error.code,
+    retry: sent.retry ?? "never",
+    message: error.message
+  };
+  if (sent.category !== void 0) {
+    out.category = sent.category;
+  }
+  if (error.retry_after_ms !== void 0 && error.retry_after_ms !== null) {
+    out.retry_after_ms = error.retry_after_ms;
+  }
+  if (error.hint !== void 0 && error.hint !== null) {
+    out.hint = error.hint;
+  }
+  if (error.details !== void 0) {
+    out.details = error.details;
+  }
+  return out;
+}
+var AGENT_META = [
+  "seq",
+  "next",
+  "truncated",
+  "warnings",
+  "model_requests"
+];
+function isEmpty(value) {
+  return value === null || value === void 0 || value === false || Array.isArray(value) && value.length === 0;
+}
+function toolResult(run2) {
+  const reply = parseReply(run2.stdout);
+  if (reply === null) {
+    return {
+      ok: false,
+      error: {
+        code: "internal",
+        retry: "never",
+        message: firstLine(run2.stderr) || `The engine exited ${run2.exitCode} without a reply.`
+      },
+      meta: {}
+    };
+  }
+  const meta = {};
+  for (const key of AGENT_META) {
+    const value = reply.meta?.[key];
+    if (key === "seq" ? value !== void 0 : !isEmpty(value)) {
+      meta[key] = value;
+    }
+  }
+  const agentMeta = meta;
+  if (reply.ok) {
+    return { ok: true, untrusted: true, result: reply.result, meta: agentMeta };
+  }
+  return {
+    ok: false,
+    untrusted: true,
+    error: toolError(reply.error ?? NO_ERROR),
+    meta: agentMeta
+  };
+}
+function engineMissing(engine) {
+  return {
+    ok: false,
+    error: {
+      code: engine.status === "fetching" ? "engine_fetching" : "engine_unavailable",
+      retry: engine.status === "fetching" ? "later" : "never",
+      message: engine.line ?? MOD_STRINGS.engine_not_ready,
+      hint: engine.fix
+    },
+    meta: {}
+  };
+}
+
+// src/atoms.ts
+var engineAtom = atom(
+  { plugin: "planroom", key: "engine" },
+  INITIAL_ENGINE,
+  { shape: "engine-1" }
+);
+var INITIAL_PANE = { model: null, error: null };
+var paneAtom = atom(
+  { plugin: "planroom", key: "pane" },
+  INITIAL_PANE,
+  { shape: "pane-1" }
+);
+var INITIAL_SEQ = { seq: null };
+var lastSeqAtom = atom(
+  { plugin: "planroom", key: "lastSeq" },
+  INITIAL_SEQ,
+  { shape: "seq-1" }
+);
+var INITIAL_TURN = { turnId: null, seq: null };
+var turnSeqAtom = atom(
+  { plugin: "planroom", key: "turnSeq" },
+  INITIAL_TURN,
+  { shape: "turn-1" }
+);
 
 // src/catalogue.ts
 function leaf(name) {
@@ -3050,7 +3155,9 @@ function lineFor(command, label2, ran) {
     const said = [e?.message, e?.hint ?? void 0].filter(
       (s) => typeof s === "string" && s !== ""
     );
-    return oneLine(said.length > 0 ? said.join(" · ") : `${label2} failed`);
+    return oneLine(
+      said.length > 0 ? said.join(" · ") : fill(MOD_STRINGS.failed_line, { label: label2 })
+    );
   }
   if (ran.summary !== null) return oneLine(ran.summary);
   const map = mapOf(result.result);
@@ -3060,13 +3167,18 @@ function lineFor(command, label2, ran) {
     if (map.nodes.length === 0) {
       if (typeof said === "string" && said !== "") return oneLine(said);
       return oneLine(
-        isHandle(next) ? next.label : `No blocks at the ${map.level} level`
+        isHandle(next) ? next.label : fill(MOD_STRINGS.no_blocks_at_level, { level: map.level })
       );
     }
     const n = map.nodes.length;
-    return oneLine(`${n} block${n === 1 ? "" : "s"} at the ${map.level} level`);
+    return oneLine(
+      fill(
+        n === 1 ? MOD_STRINGS.blocks_at_level_one : MOD_STRINGS.blocks_at_level,
+        { count: n, level: map.level }
+      )
+    );
   }
-  return oneLine(`${label2 || command}: done`);
+  return oneLine(fill(MOD_STRINGS.done_line, { label: label2 || command }));
 }
 function handlesOf(result) {
   const r = result.ok ? result.result : null;
@@ -3164,13 +3276,15 @@ function roomRows(command, ran) {
 function shownFrom(handle, ran, seq) {
   if (!ran.result.ok) return null;
   const map = mapOf(ran.result.result);
+  const empty = map?.empty?.line;
   return {
     command: handle.command,
     args: [...handle.args],
     seq,
     line: lineFor(handle.command, handle.label, ran),
     level: map === null ? null : sanitize(map.level),
-    blocks: map === null ? [] : map.nodes.map((n) => oneLine(n.name))
+    blocks: map === null ? [] : map.nodes.map((n) => oneLine(n.name)),
+    empty: typeof empty === "string" && empty !== "" ? oneLine(empty) : null
   };
 }
 function shows(shown2, handle, seq) {
@@ -3180,6 +3294,9 @@ function shows(shown2, handle, seq) {
 // src/layout.ts
 var DOCK = { columns: 49, rows: 34 };
 var CHOICE_COLUMNS = 20;
+function say(key, vars = {}) {
+  return fill(MOD_STRINGS[key], vars);
+}
 function rowHeight(row) {
   return row.kind === "diff" ? row.lines : 1;
 }
@@ -3215,6 +3332,17 @@ function run(handle) {
     label: handle.label
   };
 }
+function selectButton(row, value, hotkey, columns, view2) {
+  const marked = view2.selected === row ? say("selected_row", { label: value }) : value;
+  const room = columns - (hotkey === void 0 ? 0 : hotkey.length + 2);
+  const button = {
+    key: row,
+    label: label(marked, room),
+    action: { kind: "select", row }
+  };
+  if (hotkey !== void 0) button.hotkey = hotkey;
+  return button;
+}
 function cutHunk(hunk, body) {
   const [header, ...lines] = hunk;
   const m = header === void 0 ? null : /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(header);
@@ -3227,19 +3355,24 @@ function cutHunk(hunk, body) {
   return [`@@ -${m[1]},${old} +${m[2]},${added} @@${m[3]}`, ...kept].join("\n");
 }
 function focusRows(model, columns, compact) {
-  const crumbs = model.focus.breadcrumb.map((c) => c.name).join(" › ") || "workspace";
+  const crumbs = model.focus.breadcrumb.map((c) => c.name).join(" › ") || say("workspace");
   const { level, lens, project, seq } = model.focus;
   if (compact) {
     return [
-      text("focus", `▣ ${crumbs} · ${level} · ${lens}`, columns, "accent")
+      text(
+        "focus",
+        say("compact_focus_line", { crumbs, level, lens }),
+        columns,
+        "accent"
+      )
     ];
   }
   return [
-    text("focus", `▣ ${crumbs}`, columns, "accent"),
-    text("focus-lens", `${level} · lens ${lens}`, columns, "dim"),
+    text("focus", say("focus_line", { crumbs }), columns, "accent"),
+    text("focus-lens", say("lens_line", { level, lens }), columns, "dim"),
     text(
       "focus-project",
-      `${project ?? "no project"} · seq ${seq}`,
+      say("project_line", { project: project ?? say("no_project"), seq }),
       columns,
       "dim"
     )
@@ -3264,10 +3397,10 @@ function cardRows(model, columns, shown2) {
             {
               key: "back",
               label: label(
-                `Back to the ${model.minimap.level} level`,
+                say("back_label", { level: model.focus.level }),
                 columns - 3
               ),
-              hotkey: "1",
+              hotkey: CARD_KEYS[0],
               primary: true,
               action: { kind: "clear" }
             }
@@ -3277,7 +3410,7 @@ function cardRows(model, columns, shown2) {
     }
     const line = model.empty?.line;
     return [
-      ...line === void 0 || line === null || line === "" ? [text("card-title", "Next", columns, "dim")] : wrapped("card-empty", line, columns, EMPTY_LINE_ROWS),
+      ...line === void 0 || line === null || line === "" ? [text("card-title", say("next_title"), columns, "dim")] : wrapped("card-empty", line, columns, EMPTY_LINE_ROWS),
       {
         kind: "buttons",
         key: "card-next",
@@ -3285,7 +3418,7 @@ function cardRows(model, columns, shown2) {
           {
             key: "next",
             label: label(next.label, columns - 3),
-            hotkey: "1",
+            hotkey: CARD_KEYS[0],
             primary: true,
             action: run(next)
           }
@@ -3297,10 +3430,10 @@ function cardRows(model, columns, shown2) {
     text("card-question", card.question, columns),
     text("card-why", card.why, columns, "dim")
   ];
-  const choices = card.choices.slice(0, 4).map((c, i) => ({
+  const choices = card.choices.slice(0, CARD_KEYS.length).map((c, i) => ({
     key: `choice-${c.id}`,
     label: label(c.label, CHOICE_COLUMNS),
-    hotkey: String(i + 1),
+    hotkey: CARD_KEYS[i],
     primary: c.preselected,
     action: {
       kind: "run",
@@ -3317,38 +3450,45 @@ function cardRows(model, columns, shown2) {
     });
   }
   const more = [];
-  if (card.batch !== null) more.push(`applies ${card.batch.count} items`);
-  if (model.more_decisions > 0) more.push(`+${model.more_decisions} more`);
+  if (card.batch !== null)
+    more.push(say("batch_count", { count: card.batch.count }));
+  if (model.more_decisions > 0)
+    more.push(say("more_decisions", { count: model.more_decisions }));
   if (more.length > 0)
     rows.push(text("card-more", more.join(" · "), columns, "dim"));
   return rows;
 }
 function progressRow(model, columns) {
   const p = model.progress;
-  const parts = [p.stage ?? "no plan stage", `${p.done}/${p.total} done`];
+  const parts = [
+    p.stage ?? say("progress_no_stage"),
+    say("progress_done", { done: p.done, total: p.total })
+  ];
   if (p.handoffs_running > 0)
     parts.push(
-      `${p.handoffs_running} hand-off${p.handoffs_running === 1 ? "" : "s"} running`
+      say(
+        p.handoffs_running === 1 ? "progress_handoffs_one" : "progress_handoffs",
+        { count: p.handoffs_running }
+      )
     );
   if (p.scan !== "done")
-    parts.push(p.scan === "running" ? "scanning" : "not scanned");
+    parts.push(
+      say(p.scan === "running" ? "progress_scanning" : "progress_not_scanned")
+    );
   return text("progress", parts.join(" · "), columns, "dim");
 }
-function diffRows(diffs, keys, columns, hunkLines) {
+function diffLine(d, i, hotkey, columns, view2) {
+  return {
+    kind: "buttons",
+    key: `diff-row-${i}`,
+    buttons: [selectButton(`diff-${i}`, d.summary, hotkey, columns, view2)]
+  };
+}
+function diffRows(diffs, keys, columns, hunkLines, view2) {
   if (diffs.length === 0) {
-    return [text("diffs-none", "No pending diffs", columns, "dim")];
+    return [text("diffs-none", say("no_diffs"), columns, "dim")];
   }
-  const rows = diffs.slice(0, 3).map((d, i) => {
-    const hotkey = keys[i];
-    const room = columns - (hotkey === void 0 ? 0 : hotkey.length + 2);
-    const button = {
-      key: `diff-${i}`,
-      label: label(d.summary, room),
-      action: run(d.open)
-    };
-    if (hotkey !== void 0) button.hotkey = hotkey;
-    return { kind: "buttons", key: `diff-row-${i}`, buttons: [button] };
-  });
+  const rows = diffs.slice(0, 3).map((d, i) => diffLine(d, i, keys[i], columns, view2));
   const source = diffs[0] === void 0 ? null : cutHunk(diffs[0].hunk, hunkLines);
   if (source !== null) {
     rows.splice(1, 0, {
@@ -3360,72 +3500,134 @@ function diffRows(diffs, keys, columns, hunkLines) {
   }
   return rows;
 }
-function whoRow(model, columns) {
-  const who = model.who.map((p) => {
-    const name = p.actor.kind === "person" ? p.actor.name ?? p.actor.id : p.actor.kind === "agent" ? `${p.actor.role} ${p.actor.session}` : p.actor.kind;
-    return p.doing === null ? name : `${name}: ${p.doing}`;
-  });
+function driftRow(model, hotkey, columns, view2) {
+  const { drift } = model;
+  if (drift.top !== void 0 && drift.top !== null) {
+    return {
+      kind: "buttons",
+      key: "drift",
+      buttons: [selectButton("drift-0", drift.summary, hotkey, columns, view2)]
+    };
+  }
   return text(
-    "who",
-    who.length === 0 ? "Nobody else is here" : who.join(" · "),
+    "drift",
+    drift.summary,
     columns,
-    "dim"
+    drift.rules_broken + drift.machine_drift > 0 ? "warn" : "dim"
   );
 }
-function blockRows(model, columns, room, shown2) {
-  const level = shown2?.level ?? model.minimap.level;
-  const blocks = shown2?.level != null ? shown2.blocks.map((name, i) => ({
+function whoRow(model, hotkey, columns, view2) {
+  const who = model.who.map((p) => {
+    const name = p.actor.kind === "person" ? p.actor.name ?? p.actor.id : p.actor.kind === "agent" ? say("who_agent", { role: p.actor.role, session: p.actor.session }) : p.actor.kind;
+    return p.doing === null ? name : say("who_doing", { name, doing: p.doing });
+  });
+  if (who.length === 0) {
+    return text("who", say("nobody_here"), columns, "dim");
+  }
+  return {
+    kind: "buttons",
+    key: "who",
+    buttons: [selectButton("who-0", who.join(" · "), hotkey, columns, view2)]
+  };
+}
+function blockRows(model, columns, room, shown2, view2) {
+  if (room <= 0) return [];
+  const map = shown2?.level != null ? shown2 : null;
+  const level = map?.level ?? model.minimap?.level ?? model.focus.level;
+  const blocks = map !== null ? map.blocks.map((name, i) => ({
     key: `shown-${i}`,
     name,
     focused: false
-  })) : model.minimap.blocks.map((b) => ({
+  })) : (model.minimap?.blocks ?? []).map((b) => ({
     key: b.id,
     name: b.name,
     focused: b.focused
   }));
-  const rows = [
-    text("blocks-title", `Blocks · ${level}`, columns, "dim")
-  ];
-  const fit = Math.max(0, Math.min(blocks.length, 9, room - 2));
-  for (const b of blocks.slice(0, fit)) {
-    rows.push(
-      text(`block-${b.key}`, `${b.focused ? "▣" : "□"} ${b.name}`, columns)
-    );
+  if (blocks.length === 0) {
+    if (map === null && model.empty !== null && model.empty !== void 0) {
+      return [];
+    }
+    const line = (map === null ? null : map.empty) ?? say("no_blocks");
+    const none = text("blocks-none", line, columns, "dim");
+    return room === 1 ? [none] : [
+      text("blocks-title", say("blocks_title", { level }), columns, "dim"),
+      none
+    ];
   }
-  if (blocks.length > fit)
-    rows.push(
-      text("blocks-more", `+${blocks.length - fit} more`, columns, "dim")
-    );
-  if (blocks.length === 0)
-    rows.push(
-      text("blocks-none", "No blocks at this level yet", columns, "dim")
-    );
+  const fits = (size2) => page(blocks, view2.page ?? 0, size2);
+  let size = Math.min(PAGE_ROWS, room - 2);
+  if (size >= 1 && fits(size).pages > 1) size = Math.min(PAGE_ROWS, room - 3);
+  const shownPage = fits(size < 1 ? PAGE_ROWS : size);
+  const pageLine = text(
+    "blocks-page",
+    say("page_line", {
+      first: shownPage.first,
+      last: shownPage.last,
+      total: shownPage.total
+    }),
+    columns,
+    "dim"
+  );
+  if (size < 1) return [pageLine];
+  const rows = [
+    text("blocks-title", say("blocks_title", { level }), columns, "dim"),
+    ...shownPage.rows.map(
+      (b) => text(
+        `block-${b.key}`,
+        say(b.focused ? "focused_block_row" : "block_row", { name: b.name }),
+        columns
+      )
+    ),
+    pageLine
+  ];
+  if (shownPage.pages > 1) {
+    const last = shownPage.index === shownPage.pages - 1;
+    rows.push({
+      kind: "buttons",
+      key: "blocks-paging",
+      buttons: [
+        {
+          key: "page",
+          label: label(
+            say(last ? "first_page_label" : "next_page_label"),
+            columns
+          ),
+          action: { kind: "page", index: last ? 0 : shownPage.index + 1 }
+        }
+      ]
+    });
+  }
   return rows;
 }
-function paneRows(model, columns, rows, shown2 = null) {
+function paneRows(model, columns, rows, shown2 = null, view2 = {}) {
   const compact = columns < DOCK.columns || rows < DOCK.rows;
   const result = shownNext(model, shown2);
   const out = [
     ...focusRows(model, columns, compact),
     ...cardRows(model, columns, result)
   ];
-  const keys = rowKeys(12);
-  if (!compact) {
+  const hasTop = model.drift.top !== void 0 && model.drift.top !== null;
+  if (compact) {
+    const keys = keyRows({ diffs: 1, drift: false, who: false, list: 0 });
+    const top = model.diffs[0];
+    if (top !== void 0)
+      out.push(diffLine(top, 0, keys.diffs[0], columns, view2));
+  } else {
+    const keys = keyRows({
+      diffs: model.diffs.length,
+      drift: hasTop,
+      who: model.who.length > 0,
+      // Block rows take no key until `map --focus` exists (DR-85).
+      list: 0
+    });
     const hunkLines = rows >= 46 ? 5 : 2;
     out.push(progressRow(model, columns));
-    out.push(...diffRows(model.diffs, keys.slice(0, 3), columns, hunkLines));
-    out.push(
-      text(
-        "drift",
-        model.drift.summary,
-        columns,
-        model.drift.rules_broken + model.drift.machine_drift > 0 ? "warn" : "dim"
-      )
-    );
-    out.push(whoRow(model, columns));
+    out.push(...diffRows(model.diffs, keys.diffs, columns, hunkLines, view2));
+    out.push(driftRow(model, keys.drift, columns, view2));
+    out.push(whoRow(model, keys.who, columns, view2));
   }
   const used = out.reduce((sum, r) => sum + rowHeight(r), 0);
-  out.push(...blockRows(model, columns, rows - used, result));
+  out.push(...blockRows(model, columns, rows - used, result, view2));
   return out;
 }
 function fallbackRows(f, columns) {
@@ -3443,7 +3645,7 @@ function fallbackRows(f, columns) {
         {
           key: "fallback-action",
           label: label(f.action.label, columns - 3),
-          hotkey: "1",
+          hotkey: CARD_KEYS[0],
           primary: true,
           action: { kind: "fallback", run: f.action.run }
         }
@@ -3461,12 +3663,15 @@ function bandRow(source, columns, shown2 = null) {
     if (f.action.run === "rekey") {
       return text(
         "band",
-        truncate(`${f.headline} /room to open it`, columns),
+        say("band_rekey", { headline: f.headline }),
         columns,
         "dim"
       );
     }
-    const primary = label(`${f.headline} ${f.action.label}`, columns - 3);
+    const primary = label(
+      say("band_fallback", { headline: f.headline, action: f.action.label }),
+      columns - 3
+    );
     return {
       kind: "buttons",
       key: "band",
@@ -3485,7 +3690,7 @@ function bandRow(source, columns, shown2 = null) {
   if (shownNext(source.model, shown2) !== null) {
     return text(
       "band",
-      `${next.label}: ${shown2?.line ?? ""} · /room to open the pane`,
+      say("band_shown", { label: next.label, line: shown2?.line ?? "" }),
       columns,
       "dim"
     );
@@ -3493,7 +3698,7 @@ function bandRow(source, columns, shown2 = null) {
   if (!bandMayRun(next.command)) {
     return text(
       "band",
-      truncate(`Next: ${next.label} · /room to open it`, columns),
+      say("band_points_to_pane", { label: next.label }),
       columns,
       "dim"
     );
@@ -3808,11 +4013,11 @@ function refetch($) {
 // ../../node_modules/.pnpm/@noble+hashes@2.4.0/node_modules/@noble/hashes/_u64.js
 var fromNumH = (n) => n / 2 ** 32 | 0;
 var fromNumL = (n) => n >>> 0;
-function setU64FromNum(view, byteOffset, n, isLE) {
+function setU64FromNum(view2, byteOffset, n, isLE) {
   const h2 = fromNumH(n);
   const l = fromNumL(n);
-  view.setUint32(byteOffset, isLE ? l : h2, isLE);
-  view.setUint32(byteOffset + 4, isLE ? h2 : l, isLE);
+  view2.setUint32(byteOffset, isLE ? l : h2, isLE);
+  view2.setUint32(byteOffset + 4, isLE ? h2 : l, isLE);
 }
 
 // ../../node_modules/.pnpm/@noble+hashes@2.4.0/node_modules/@noble/hashes/utils.js
@@ -4011,7 +4216,7 @@ var HashMD = class {
   update(data) {
     aexists(this);
     abytes(data);
-    const { view, buffer, blockLen } = this;
+    const { view: view2, buffer, blockLen } = this;
     const len = data.length;
     let processed = false;
     for (let pos = 0; pos < len; ) {
@@ -4027,7 +4232,7 @@ var HashMD = class {
       this.pos += take;
       pos += take;
       if (this.pos === blockLen) {
-        this.process(view, 0);
+        this.process(view2, 0);
         this.pos = 0;
         processed = true;
       }
@@ -4041,18 +4246,18 @@ var HashMD = class {
     aexists(this);
     aoutput(out, this);
     this.finished = true;
-    const { buffer, view, blockLen, isLE } = this;
+    const { buffer, view: view2, blockLen, isLE } = this;
     let { pos } = this;
     buffer[pos++] = 128;
     buffer.fill(0, pos);
     if (this.padOffset > blockLen - pos) {
-      this.process(view, 0);
+      this.process(view2, 0);
       buffer.fill(0);
     }
-    setU64FromNum(view, blockLen - 8, this.length * 8, isLE);
-    this.process(view, 0);
+    setU64FromNum(view2, blockLen - 8, this.length * 8, isLE);
+    this.process(view2, 0);
     this.roundClean();
-    const oview = out === buffer ? view : createView(out);
+    const oview = out === buffer ? view2 : createView(out);
     const len = this.outputLen;
     const outLen = len / 4;
     const state = this.get();
@@ -4204,9 +4409,9 @@ var SHA2_32B = class extends HashMD {
     (to ||= new this.constructor()).set(...this.get());
     return this._cloneIntoMeta(to);
   }
-  process(view, offset) {
+  process(view2, offset) {
     for (let i = 0; i < 16; i++, offset += 4)
-      SHA256_W[i] = view.getUint32(offset, false);
+      SHA256_W[i] = view2.getUint32(offset, false);
     for (let i = 16; i < 64; i++) {
       const W15 = SHA256_W[i - 15];
       const W2 = SHA256_W[i - 2];
@@ -6661,9 +6866,20 @@ function timeoutFor(argv) {
 
 // src/register.tsx
 var PANE = "planroom";
-var TITLE = "Planroom";
+var TITLE = MOD_STRINGS.title;
 var workspace = "";
 var shown = null;
+var view = {};
+var viewOf = "";
+function viewFor(seq, level) {
+  const at = `${seq}\0${level}`;
+  if (at !== viewOf) {
+    viewOf = at;
+    view = {};
+  }
+  return view;
+}
+var building = false;
 var drawn = /* @__PURE__ */ new Map();
 var DRAWN = 16;
 async function setEngine($, state) {
@@ -6694,6 +6910,7 @@ async function registerOnce($, rekey = false) {
   }
 }
 async function startEngine($) {
+  if (building) return;
   watchStop();
   await personKey($);
   const root = $.plugin.root;
@@ -6755,6 +6972,23 @@ async function personRun($, command, args) {
 async function act($, action) {
   if (action.kind === "clear") {
     shown = null;
+    view = {};
+    $.ui.invalidate("ui.render");
+    return;
+  }
+  if (action.kind === "select") {
+    view = { ...view, selected: action.row };
+    $.ui.invalidate("ui.render");
+    return;
+  }
+  if (action.kind === "page") {
+    view = { ...view, page: action.index };
+    $.ui.invalidate("ui.render");
+    return;
+  }
+  if (action.kind === "run" && action.command === "focus") {
+    shown = null;
+    await refreshPane($);
     $.ui.invalidate("ui.render");
     return;
   }
@@ -6764,27 +6998,33 @@ async function act($, action) {
   }
   if (action.kind === "fallback") {
     if (action.run === "build") {
+      if (building) return;
       const engine = await read2($, engineAtom);
       if (engine.resolver !== null) {
-        await setEngine($, {
-          ...engine,
-          status: "building",
-          line: "Building the Planroom engine from source…"
-        });
-        const built = await runProcess(
-          $,
-          [engine.resolver, "build"],
-          await clientEnv($),
-          6e5
-        );
-        if (built.exitCode !== 0) {
-          const said = built.stderr.trim().split("\n").at(-1) ?? "";
+        building = true;
+        try {
           await setEngine($, {
             ...engine,
-            status: "failed",
-            line: `The source build failed: ${said}`
+            status: "building",
+            line: MOD_STRINGS.building_line
           });
-          return;
+          const built = await runProcess(
+            $,
+            [engine.resolver, "build"],
+            await clientEnv($),
+            6e5
+          );
+          if (built.exitCode !== 0) {
+            const said = built.stderr.trim().split("\n").at(-1) ?? "";
+            await setEngine($, {
+              ...engine,
+              status: "failed",
+              line: fill(MOD_STRINGS.build_failed, { said })
+            });
+            return;
+          }
+        } finally {
+          building = false;
         }
       }
     }
@@ -6795,8 +7035,11 @@ async function act($, action) {
   const seq = (await read2($, paneAtom)).model?.focus.seq;
   const ran = await personRun($, action.command, action.args);
   const line = lineFor(action.command, action.label, ran);
-  $.ui.toast(ran.result.ok ? `${sanitize(action.label)}: ${line}` : line);
+  $.ui.toast(
+    ran.result.ok ? fill(MOD_STRINGS.toast, { label: sanitize(action.label), line }) : line
+  );
   shown = seq === void 0 ? null : shownFrom(action, ran, seq);
+  view = {};
   await refreshPane($);
   $.ui.invalidate("ui.render");
   await registerOnce($);
@@ -6847,7 +7090,7 @@ var HANDLER_FAILED = JSON.stringify({
   error: {
     code: "internal",
     retry: "never",
-    message: "The Planroom mod's tool handler failed."
+    message: MOD_STRINGS.handler_failed
   },
   meta: {}
 });
@@ -6947,7 +7190,7 @@ async function guardVerdict($, tool, input, readOnly) {
   if (named.length > RESOLVE_LIMIT) {
     return {
       decision: "ask",
-      reason: "This call names more paths than the Planroom guard resolves, so it can't check where they all lead."
+      reason: MOD_STRINGS.guard_too_many_paths
     };
   }
   const real = /* @__PURE__ */ new Map();
@@ -6966,8 +7209,8 @@ export function register(on) {
     pinDataRoot(placeEnv($).then(pinnedDataRoot));
     await $.command.register({
       name: "room",
-      description: "Planroom: focus the pane, or run a map command (/room help lists them)",
-      argumentHint: "[help | map | focus | scan …]",
+      description: MOD_STRINGS.room_description,
+      argumentHint: MOD_STRINGS.room_argument_hint,
       immediate: true
     });
     for (const spec of toolSpecs()) {
@@ -7057,14 +7300,20 @@ export function register(on) {
   }).catch(
     ($, e, next) => next.called ? next(e) : {
       decision: "ask",
-      reason: "The Planroom guard couldn't check this call."
+      reason: MOD_STRINGS.guard_unchecked
     }
   );
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
     const engine = await read2($, engineAtom);
     const pane2 = await read2($, paneAtom);
     const columns = e.props.bodyColumns;
-    const rows = engine.status === "ready" && pane2.model !== null ? paneRows(pane2.model, columns, e.props.scroll.bodyRows, shown) : fallbackRows(fallbackFor(engine, pane2.error), columns);
+    const rows = engine.status === "ready" && pane2.model !== null ? paneRows(
+      pane2.model,
+      columns,
+      e.props.scroll.bodyRows,
+      shown,
+      viewFor(pane2.model.focus.seq, pane2.model.focus.level)
+    ) : fallbackRows(fallbackFor(engine, pane2.error), columns);
     return draw($, e, rows);
   });
   on(

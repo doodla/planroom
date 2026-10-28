@@ -1,6 +1,10 @@
 //! Golden CLI outputs from real runs on the built fixture, which the mod's and the canvas's tests
-//! read (DR-6, DR-79): `tests/golden/cli/focus.json`, `tests/golden/cli/map-graph.json`,
+//! read (DR-6, DR-79): `tests/golden/cli/focus.json`, `tests/golden/cli/focus-no-repos.json`,
+//! `tests/golden/cli/map-container.json`, `tests/golden/cli/map-graph.json`,
 //! `tests/golden/cli/map-empty.json` and `tests/golden/cli/watch-frames.json`.
+//! `focus-no-repos.json` is `focus` in an empty directory, not yet a workspace, whose next action
+//! is `focus` again; `map-container.json` is the scanned fixture's container level, which the
+//! pane's next action opens.
 //!
 //! A plain run compares the engine's output with the committed files. `cargo xtask gen --golden`
 //! runs this test with `PLANROOM_GOLDEN=write`, which writes them instead. The one value a run
@@ -96,7 +100,16 @@ fn golden_outputs_equal_engine_output() {
     assert!(unscanned.nodes.is_empty() && unscanned.empty.is_some(), "an unscanned workspace maps empty");
     check("map-empty.json", normalized(rooted(empty, &root)));
 
+    // An empty directory is no workspace and holds no repo: the pane's empty state checks again.
+    let bare = tmp.path().join("bare");
+    std::fs::create_dir(&bare).unwrap();
+    let no_repos = run(&bare, &["focus", "--json"]);
+    assert_eq!(no_repos["result"]["next"]["command"], "focus", "{no_repos}");
+    check("focus-no-repos.json", normalized(rooted(no_repos, &bare)));
+
     run(&root, &["scan", "--json"]);
+
+    check("map-container.json", normalized(run(&root, &["map", "--level", "container", "--json"])));
 
     let focus = run(&root, &["focus", "--json"]);
     let _: PaneModel = serde_json::from_value(focus["result"].clone()).expect("focus returns a PaneModel");

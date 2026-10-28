@@ -107,7 +107,7 @@ This section is the conventions' only home; `docs/contributing/repo-layout.md` l
 | a decision kind                    | `[[decisions]]` in a pack with its `stakes` and `default`, plus `evals/`; a kernel role only with a decision record |
 | a command                          | a `Command` variant with its `CommandSpec`, its undo class, and one handler in `crates/planroom/src/app/`           |
 | a canvas view                      | `packages/canvas/src/views/`, reached from one of the five concepts                                                 |
-| a pane section or key              | `packages/mod/src/pane.tsx` and the key map snapshot; hotkeys come from `@planroom/ui`                              |
+| a pane section or key              | `packages/mod/src/layout.ts`, which register.tsx draws, and the key map snapshot; hotkeys come from `@planroom/ui`  |
 | a public type                      | `crates/contract/src/`, then `cargo xtask gen`                                                                      |
 | a user-facing string               | `crates/planroom/text/en.toml`, or a pack label                                                                     |
 | a test helper                      | `crates/testkit` (Rust) or `tests/e2e/shims/` (browser)                                                             |

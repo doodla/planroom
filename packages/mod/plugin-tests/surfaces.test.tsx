@@ -1,22 +1,39 @@
 /**
  * The mod's drawing under `claude plugin test`, on all four surfaces. `cargo xtask test` bundles
- * this file into target/mod-test/ with the golden CLI outputs inlined.
+ * this file into target/mod-test/ with the golden CLI outputs inlined. Pane sections the engine
+ * can't fill yet draw the milestone overlays from `overlays.ts`, laid over the golden `focus.json`.
  */
 
 import { expect, test } from "claude-code/testing";
+import type { PaneModel } from "@planroom/contract";
+import { sanitize, truncate } from "@planroom/ui";
 
+import focusReply from "../../../tests/golden/cli/focus.json";
+import noRepos from "../../../tests/golden/cli/focus-no-repos.json";
+import mapContainer from "../../../tests/golden/cli/map-container.json";
 import {
   BAND,
   BAND_SURFACES,
   DOCK,
+  ENGINE,
+  focusRuns,
   host,
+  isResolver,
+  overlaid,
   PANE,
   readyEngine,
   RESOLVER,
   START,
   SURFACES,
   type Answer,
+  type Host,
 } from "./host";
+import {
+  M1_PRESENCE,
+  M2_DECISION_AND_DIFFS,
+  M2_DRIFT,
+  type Overlay,
+} from "./overlays";
 
 const NO_RELEASE = JSON.stringify({
   schema_version: 1,
@@ -38,6 +55,8 @@ const NO_RELEASE = JSON.stringify({
   },
   meta: { seq: 0, took_ms: 0, size: { bytes: 400, tokens_est: 100 } },
 });
+
+const golden = (focusReply as unknown as { result: PaneModel }).result;
 
 async function texts(ui: {
   findAll: (q: { type: string }) => Promise<{ text: string }[]>;
@@ -128,29 +147,37 @@ test("the pane draws the golden focus PaneModel on every surface", async ($, on)
   }
 });
 
-/** The container level a press of "Open the containers" shows, with a name that tries OSC 52. */
+/** A name that tries OSC 52 and a right-to-left override. */
+const EVIL = `evil\u001b]52;c;aGVsbG8=\u0007${String.fromCodePoint(0x202e)}abc`;
+
+/**
+ * The container level a press of "Open the containers" shows: the engine's own golden
+ * `map --level container`, with one hostile node appended.
+ */
 const CONTAINERS = JSON.stringify({
-  schema_version: 1,
-  ok: true,
-  command: "map",
+  ...mapContainer,
   result: {
-    level: "container",
-    lens: "all",
-    focus: null,
+    ...mapContainer.result,
     nodes: [
-      { id: "orders:svc:api", name: "api", counts: { component: 3 } },
-      {
-        id: "w:svc:e",
-        name: `evil\u001b]52;c;aGVsbG8=\u0007${String.fromCodePoint(0x202e)}abc`,
-        counts: {},
-      },
+      ...mapContainer.result.nodes,
+      { id: "w:svc:e", name: EVIL, counts: {} },
     ],
-    edges: [],
-    hidden: 0,
-    empty: null,
   },
-  meta: { seq: 412 },
 });
+
+/** The engine's summary line for the container level, as the golden carries it. */
+const SUMMARY = mapContainer.summary;
+
+/** A map node as `/room`'s row draws it: `□ name · counts`, in room.ts's count format. */
+function nodeRow(node: {
+  name: string;
+  counts: Record<string, unknown>;
+}): string {
+  const counts = Object.entries(node.counts)
+    .filter(([, n]) => typeof n === "number")
+    .map(([level, n]) => `${String(n)} ${level}`);
+  return `□ ${node.name}${counts.length === 0 ? "" : ` · ${counts.join(", ")}`}`;
+}
 
 function containersEngine(argv: readonly string[]): Answer {
   return argv[1] === "map" && argv.includes("container")
@@ -168,12 +195,17 @@ test("ux-1: the next action shows its result in the pane, the band stops offerin
   await h.clock.settle();
   await ui.redraw();
   expect(h.runs.some((r) => r.argv.includes("--focus"))).toBe(false);
-  expect((await ui.find({ type: "Text", text: /blocks at/ }))?.text).toBe(
-    "2 blocks at the container level",
-  );
+  const result = truncate(sanitize(SUMMARY), DOCK.columns);
+  expect((await ui.find({ type: "Text", text: result }))?.text).toBe(result);
   expect(await ui.find({ key: "next" })).toBeUndefined();
   expect((await ui.find({ type: "Text", text: /^Blocks · / }))?.text).toBe(
     "Blocks · container",
+  );
+  // The hostile name is on the list's last page: turn to it.
+  await ui.press({ key: "page" });
+  await ui.redraw();
+  expect((await ui.find({ type: "Text", text: /^□ evil/ }))?.text).toContain(
+    "\\x1b]52",
   );
   // The repo-derived name shows its escapes, never the raw OSC 52 or RLO (security-5).
   for (const t of await texts(ui)) {
@@ -182,7 +214,7 @@ test("ux-1: the next action shows its result in the pane, the band stops offerin
   const band = await $.ui.mount({ ...BAND, surface: "terminal" });
   expect(await band.find({ key: "band-primary" })).toBeUndefined();
   expect((await band.find({ type: "Text" }))?.text).toContain(
-    "2 blocks at the container level",
+    SUMMARY.slice(0, 30),
   );
   await band.unmount();
 
@@ -206,7 +238,9 @@ test("ux-2: /room map returns its summary line and draws the full result in its 
     origin: { kind: "composer" },
     presentation: { isFullscreen: true, columns: 120 },
   });
-  expect(ran.text).toBe("2 blocks at the container level");
+  expect(ran.text).toBe(sanitize(SUMMARY));
+  const first = mapContainer.result.nodes[0];
+  expect(first).toBeDefined();
   for (const surface of SURFACES) {
     const row = await $.ui.mount({
       plugin: "planroom",
@@ -219,17 +253,251 @@ test("ux-2: /room map returns its summary line and draws the full result in its 
         isErrored: false,
       },
     });
-    expect((await row.find({ type: "Text", text: /blocks at/ }))?.text).toBe(
-      "2 blocks at the container level",
-    );
-    expect((await row.find({ type: "Text", text: /^□ api/ }))?.text).toBe(
-      "□ api · 3 component",
-    );
+    expect(
+      (await row.find({ type: "Text", text: sanitize(SUMMARY) }))?.text,
+    ).toBe(sanitize(SUMMARY));
+    if (first !== undefined) {
+      const drawnRow = sanitize(nodeRow(first));
+      const rows = await row.findAll({ type: "Text", text: drawnRow });
+      expect(rows.map((r) => r.text)).toContain(drawnRow);
+    }
     expect((await row.find({ type: "Text", text: /^□ evil/ }))?.text).toContain(
       "\\x1b]52",
     );
     await row.unmount();
   }
+});
+
+test("no_decision_shows_next_on_every_surface", async ($, on) => {
+  // The golden pane first, then the same engine with an open card laid over it.
+  let overlays: Overlay[] = [];
+  const h = host(on, (argv) => overlaid(...overlays)(argv));
+  await $.session.start(START);
+  await h.clock.settle();
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface });
+    const next = await ui.find({ key: "next" });
+    expect(next?.text).toContain(golden.next.label);
+    expect(next?.props["hotkey"]).toBe("1");
+    expect(
+      await ui.find({ type: "Button", text: /^Accept both$/ }),
+    ).toBeUndefined();
+    await ui.unmount();
+  }
+  for (const surface of BAND_SURFACES) {
+    const band = await $.ui.mount({ ...BAND, surface });
+    const primary = await band.find({ key: "band-primary" });
+    expect(primary?.text).toContain(golden.next.label);
+    expect(primary?.props["hotkey"]).toBe("1");
+    await band.unmount();
+  }
+
+  overlays = [M2_DECISION_AND_DIFFS];
+  await $.session.start(START);
+  await h.clock.settle();
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface });
+    const question = M2_DECISION_AND_DIFFS.patch.decision?.question ?? "";
+    expect((await ui.find({ type: "Text", text: question }))?.text).toBe(
+      question,
+    );
+    expect(await ui.find({ key: "next" })).toBeUndefined();
+    await ui.unmount();
+  }
+});
+
+test("drift_and_who_top_rows_carry_row_keys", async ($, on) => {
+  const h = host(on, overlaid(M2_DECISION_AND_DIFFS, M2_DRIFT, M1_PRESENCE));
+  await $.session.start(START);
+  await h.clock.settle();
+
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface });
+    const hotkey = async (key: string) =>
+      (await ui.find({ key }))?.props["hotkey"];
+    expect(await hotkey("diff-0")).toBe("5");
+    expect(await hotkey("diff-1")).toBe("6");
+    expect(await hotkey("drift-0")).toBe("7");
+    expect(await hotkey("who-0")).toBe("8");
+    const buttons = await ui.findAll({ type: "Button" });
+    const choices = buttons
+      .filter((b) => b.key?.startsWith("choice-") === true)
+      .map((b) => b.props["hotkey"]);
+    expect(choices).toEqual(["1", "2", "3", "4"]);
+    const keys = buttons
+      .map((b) => b.props["hotkey"])
+      .filter((k) => k !== undefined);
+    expect(new Set(keys).size).toBe(keys.length);
+    // Blocks run nothing until `map --focus` exists, so no block row takes a key (DR-85).
+    expect(buttons.some((b) => b.key?.startsWith("block-") === true)).toBe(
+      false,
+    );
+    await ui.unmount();
+  }
+
+  // A row key selects its row and runs nothing; the selected row is marked.
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  const before = h.runs.length;
+  const seven = (await ui.findAll({ type: "Button" })).find(
+    (b) => b.props["hotkey"] === "7",
+  );
+  expect(seven?.key).toBe("drift-0");
+  await ui.press({ key: seven?.key ?? "drift-0" });
+  await h.clock.settle();
+  await ui.redraw();
+  expect(h.runs).toHaveLength(before);
+  expect((await ui.find({ key: "drift-0" }))?.text.startsWith("› ")).toBe(true);
+  expect((await ui.find({ key: "diff-0" }))?.text.startsWith("› ")).toBe(false);
+  await ui.unmount();
+});
+
+test("compact_keeps_the_top_diff_line", async ($, on) => {
+  const h = host(on, overlaid(M2_DECISION_AND_DIFFS));
+  await $.session.start(START);
+  await h.clock.settle();
+
+  for (const [columns, rows] of [
+    [80, 8],
+    [100, 10],
+  ] as const) {
+    const ui = await $.ui.mount({
+      ...PANE,
+      surface: "terminal",
+      props: {
+        ...PANE.props,
+        bodyColumns: columns,
+        placement: "inline",
+        scroll: { offset: 0, bodyRows: rows },
+      },
+    });
+    expect(await ui.find({ key: "diff-row-0" })).toBeDefined();
+    expect((await ui.find({ key: "diff-0" }))?.props["hotkey"]).toBe("5");
+    expect(await ui.find({ key: "diff-row-1" })).toBeUndefined();
+    // The drift and who lines move behind their keys; the card stays.
+    expect(await ui.find({ type: "Text", text: /^No drift/ })).toBeUndefined();
+    expect(await ui.find({ key: "drift-0" })).toBeUndefined();
+    expect(await ui.find({ key: "who-0" })).toBeUndefined();
+    expect(
+      await ui.find({ type: "Text", text: /^Nobody else is here/ }),
+    ).toBeUndefined();
+    expect(
+      await ui.find({
+        type: "Text",
+        text: M2_DECISION_AND_DIFFS.patch.decision?.question ?? "",
+      }),
+    ).toBeDefined();
+    // Every row fits: the body holds them all, and none is wider than it.
+    const drawn = (await ui.drawn()) as { props: { children?: unknown } };
+    const children = drawn.props.children;
+    expect(Array.isArray(children) ? children.length : 1).toBeLessThanOrEqual(
+      rows,
+    );
+    for (const t of await texts(ui))
+      expect(t.length).toBeLessThanOrEqual(columns + 3);
+    await ui.unmount();
+  }
+});
+
+test("pane_shows_the_engines_summary_line", async ($, on) => {
+  const h = host(on, containersEngine);
+  await $.session.start(START);
+  await h.clock.settle();
+
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  await ui.press({ key: "next" });
+  await h.clock.settle();
+  await ui.redraw();
+  // The engine's own line, sanitized and cut to the dock: the mod composes none of it.
+  const result = truncate(sanitize(SUMMARY), DOCK.columns);
+  expect((await ui.find({ type: "Text", text: result }))?.text).toBe(result);
+  const band = await $.ui.mount({ ...BAND, surface: "terminal" });
+  expect((await band.find({ type: "Text" }))?.text).toContain(
+    sanitize(SUMMARY).slice(0, 30),
+  );
+  await band.unmount();
+  await ui.unmount();
+
+  const ran = await $.command.run({
+    command: "room",
+    args: "map --level container",
+    origin: { kind: "composer" },
+    presentation: { isFullscreen: true, columns: 120 },
+  });
+  expect(ran.text).toBe(sanitize(SUMMARY));
+});
+
+test("a_check_again_press_refreshes_the_pane_with_no_way_back", async ($, on) => {
+  const h = host(on, (argv) =>
+    argv[0] === ENGINE && argv[1] === "focus"
+      ? { exitCode: 0, stdout: JSON.stringify(noRepos) }
+      : readyEngine(argv),
+  );
+  await $.session.start(START);
+  await h.clock.settle();
+
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  const next = await ui.find({ key: "next" });
+  expect(next?.text).toBe(noRepos.result.next.label);
+  const focused = focusRuns(h).length;
+  await ui.press({ key: "next" });
+  await h.clock.settle();
+  await ui.redraw();
+  // One more focus, as the person's token never needs: no toast, and no Back to offer.
+  expect(focusRuns(h)).toHaveLength(focused + 1);
+  expect(
+    h.runs.filter((r) => r.argv[1] === "focus").at(-1)?.env,
+  ).not.toHaveProperty("PLANROOM_PERSON_TOKEN");
+  expect(h.toasts).toEqual([]);
+  expect(await ui.find({ key: "back" })).toBeUndefined();
+  expect((await ui.find({ key: "next" }))?.text).toBe(
+    noRepos.result.next.label,
+  );
+  await ui.unmount();
+});
+
+test("a_running_source_build_offers_no_second_build", async ($, on) => {
+  let built = false;
+  const engine = async (argv: readonly string[]): Promise<Answer> => {
+    if (isResolver(argv[0]) && argv[1] === "build") {
+      await h.clock.sleep(60_000);
+      built = true;
+      return { exitCode: 0, stdout: "" };
+    }
+    if (isResolver(argv[0]) && argv[1] === "version" && !built) {
+      return { exitCode: 7, stdout: NO_RELEASE };
+    }
+    return readyEngine(argv);
+  };
+  const h: Host = host(on, engine);
+  await $.session.start(START);
+  await h.clock.settle();
+
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  // Pressed, not awaited: the build runs on the mocked clock.
+  const pressed = ui.press({ key: "fallback-action" });
+  await h.clock.advance(1_000);
+  await $.session.start(START);
+  await h.clock.settle();
+  const mid = await $.ui.mount({ ...PANE, surface: "desktop" });
+  expect(
+    (await mid.find({ type: "Text", text: /^Building the engine/ }))?.text,
+  ).toBeDefined();
+  expect(await mid.find({ key: "fallback-action" })).toBeUndefined();
+  await mid.unmount();
+  const band = await $.ui.mount({ ...BAND, surface: "terminal" });
+  expect(await band.find({ key: "band-primary" })).toBeUndefined();
+  await band.unmount();
+  const builds = () =>
+    h.runs.filter((r) => isResolver(r.argv[0]) && r.argv[1] === "build");
+  expect(builds()).toHaveLength(1);
+
+  await h.clock.advance(60_000);
+  await pressed;
+  await h.clock.settle();
+  await ui.redraw();
+  expect(builds()).toHaveLength(1);
+  expect((await ui.find({ key: "next" }))?.text).toContain(golden.next.label);
+  await ui.unmount();
 });
 
 /** Whether a control or bidi character other than a line break is left raw in `text`. */

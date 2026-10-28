@@ -88,3 +88,53 @@ fn focus_shows_the_scanned_workspace_and_who_is_present() {
     assert!(bytes <= 4_096, "the pane is {bytes} bytes");
     assert!(env["meta"]["size"]["tokens_est"].as_u64().unwrap() <= 1_000);
 }
+
+/// `planroom ARGS` in text mode: what it prints on stdout.
+fn text(cwd: &Path, args: &[&str]) -> String {
+    let out = Command::new(env!("CARGO_BIN_EXE_planroom"))
+        .args(args)
+        .current_dir(cwd)
+        .env("PLANROOM_DATA", cwd.join(".data"))
+        .output()
+        .expect("the binary runs");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8(out.stdout).unwrap()
+}
+
+/// The envelope without what no two runs repeat: `meta.took_ms`, and `meta.size`, which measures
+/// the line.
+fn steady(mut env: Value) -> Value {
+    let meta = env["meta"].as_object_mut().unwrap();
+    meta.remove("took_ms");
+    meta.remove("size");
+    env
+}
+
+#[test]
+fn focus_detail_summary_drops_the_minimap_and_keeps_the_rest() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("shop");
+    fixture(&root);
+    planroom(&root, &["scan", "--json"]);
+
+    // The summary is the full reply less its mini-map.
+    let mut full = steady(planroom(&root, &["focus", "--json"]));
+    let summary = steady(planroom(&root, &["focus", "--detail", "summary", "--json"]));
+    assert!(full["result"]["minimap"]["blocks"].as_array().is_some_and(|b| !b.is_empty()), "{full}");
+    assert!(summary["result"].get("minimap").is_none(), "{summary}");
+    full["result"].as_object_mut().unwrap().remove("minimap");
+    assert_eq!(summary, full);
+    let named = planroom(&root, &["focus", "--detail", "full", "--json"]);
+    assert_eq!(named["result"]["minimap"]["level"], "system", "{named}");
+
+    // Not yet a workspace: no mini-map either.
+    let empty = tempfile::tempdir().unwrap();
+    let outside = planroom(empty.path(), &["focus", "--detail", "summary", "--json"]);
+    assert_eq!(outside["result"]["empty"]["reason"], "no_repos", "{outside}");
+    assert!(outside["result"].get("minimap").is_none(), "{outside}");
+
+    // Text mode still names the blocks, at either detail.
+    let lines = text(&root, &["focus", "--detail", "summary"]);
+    assert!(lines.lines().any(|l| l.contains("at the top:") && l.contains("orders")), "{lines}");
+    assert_eq!(lines, text(&root, &["focus"]));
+}

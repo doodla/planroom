@@ -3,6 +3,7 @@
  * Pure: the hooks in register.tsx run the processes and write the atoms.
  */
 
+import { FALLBACK_PANES, MOD_STRINGS } from "@planroom/contract";
 import type {
   Envelope,
   ErrorObject,
@@ -67,7 +68,7 @@ export function unsupportedPlatform(): EngineState {
   return {
     ...INITIAL_ENGINE,
     status: "unsupported_platform",
-    line: "Planroom v0.1 runs on macOS, Linux and WSL 2. Open this repo from WSL.",
+    line: FALLBACK_PANES.unsupported_platform.detail,
   };
 }
 
@@ -168,7 +169,7 @@ const NO_ERROR: ErrorObject = {
   code: "internal",
   category: "internal",
   retry: "never",
-  message: "The engine failed without an error.",
+  message: MOD_STRINGS.engine_no_error,
   hint: null,
   details: {},
 };
@@ -260,7 +261,7 @@ export function engineMissing(engine: EngineState): ToolResult {
       code:
         engine.status === "fetching" ? "engine_fetching" : "engine_unavailable",
       retry: engine.status === "fetching" ? "later" : "never",
-      message: engine.line ?? "The Planroom engine isn't ready yet.",
+      message: engine.line ?? MOD_STRINGS.engine_not_ready,
       hint: engine.fix,
     },
     meta: {},

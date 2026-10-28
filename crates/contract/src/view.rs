@@ -86,7 +86,8 @@ pub struct LiftedEdge {
     pub children: Vec<EdgeId>,
 }
 
-/// What `focus` returns: the pane, the band and the status line; at most 4 KB.
+/// What `focus` returns: the pane, the band and the status line, fit to `focus`'s catalogue budget
+/// on the CLI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PaneModel {
     pub focus: Focus,
@@ -100,7 +101,9 @@ pub struct PaneModel {
     pub who: Vec<PresenceRow>,
     /// The band's next best action.
     pub next: Handle,
-    pub minimap: MiniMap,
+    /// Omitted with `focus --detail summary` (DR-82).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimap: Option<MiniMap>,
     pub empty: Option<Empty>,
 }
 
@@ -207,6 +210,9 @@ pub struct DriftLine {
     pub summary: String,
     pub rules_broken: u32,
     pub machine_drift: u32,
+    /// The top drift item's handle, which an action key acts on once its row is selected (DR-77).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top: Option<Handle>,
 }
 
 /// Who is working on what.

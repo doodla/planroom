@@ -56,6 +56,8 @@ pub const GOLDEN_TESTS: &[(&str, &str, &[&str])] = &[(
     "golden",
     &[
         "tests/golden/cli/focus.json",
+        "tests/golden/cli/focus-no-repos.json",
+        "tests/golden/cli/map-container.json",
         "tests/golden/cli/map-graph.json",
         "tests/golden/cli/map-empty.json",
         "tests/golden/cli/watch-frames.json",
@@ -171,6 +173,7 @@ export function checkFormat(doc: unknown, name: DocumentName): FormatCheck {{
 /// `packages/contract/src/generated/catalogue.ts`: every catalogue leaf, for the mod's tools, `/room`
 /// and its typeahead.
 fn catalogue(root: &Path) -> Result<Group, String> {
+    let (mod_keys, mod_strings) = mod_strings(root)?;
     let leaves: Vec<_> = Command::SPECS.iter().map(leaf_json).collect();
     let body = serde_json::to_string_pretty(&leaves).map_err(|e| e.to_string())?;
     let contents = format!(
@@ -207,10 +210,17 @@ export interface FallbackPane {{
 
 /** The fallback panes' strings, from the engine's `crates/planroom/text/en.toml`. */
 export const FALLBACK_PANES: Readonly<Record<\"{states}\", FallbackPane>> = {panes};
+
+/**
+ * The mod's own lines, from the `[mod]` table of `en.toml`: templates whose `{{name}}`s the mod
+ * fills with `fill` from `@planroom/ui`, then sanitizes.
+ */
+export const MOD_STRINGS: Readonly<Record<\"{mod_keys}\", string>> = {mod_strings};
 ",
         hash = catalogue_hash()?,
         states = FALLBACK_STATES.join("\" | \""),
-        panes = fallback_panes(root)?
+        panes = fallback_panes(root)?,
+        mod_keys = mod_keys.join("\" | \""),
     );
     Ok(Group {
         name: "packages/contract/src/generated/catalogue.ts",
@@ -250,6 +260,21 @@ fn fallback_panes(root: &Path) -> Result<String, String> {
         );
     }
     serde_json::to_string_pretty(&panes).map_err(|e| e.to_string())
+}
+
+/// The `[mod]` table of `en.toml`: its keys, sorted, and the table as pretty JSON in that order.
+fn mod_strings(root: &Path) -> Result<(Vec<String>, String), String> {
+    let path = root.join("crates/planroom/text/en.toml");
+    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let catalog: toml::Table = text.parse().map_err(|e| format!("{}: {e}", path.display()))?;
+    let table = catalog.get("mod").and_then(|t| t.as_table()).ok_or("en.toml has no [mod] table")?;
+    let mut strings = serde_json::Map::new();
+    for (key, value) in table {
+        let value = value.as_str().ok_or(format!("en.toml's mod.{key} isn't a string"))?;
+        strings.insert(key.clone(), json!(value));
+    }
+    let keys = strings.keys().cloned().collect();
+    Ok((keys, serde_json::to_string_pretty(&strings).map_err(|e| e.to_string())?))
 }
 
 /// sha256 of the compact JSON of `Command::listing()`, as the engine's `version --json` reports it.

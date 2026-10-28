@@ -2,14 +2,32 @@
  * The pane's and the band's rows, as plain data: the PaneModel or a fallback laid out for a body of
  * `columns` by `rows` cells (architecture.md, "Pane"). register.tsx turns rows into elements.
  *
- * Every string a row draws comes from the repo, the engine or the resolver, so `text` and each
- * Button label pass the display-sanitizing pass before they're cut to fit (DR-64, security-5).
- * Every Button runs something the engine accepts today (ux-1): blocks are plain rows until
- * `map --focus` exists, and a next action the person ran shows its result in place of the press.
+ * Every string a row draws comes from the repo, the engine or the resolver: the engine's own lines
+ * from the PaneModel, and the mod's lines from `MOD_STRINGS`, which `cargo xtask gen` writes from
+ * the engine's `en.toml` (DR-21). So `text` and each Button label pass the display-sanitizing pass
+ * before they're cut to fit (DR-64, security-5). Every Button runs something the engine accepts
+ * today (DR-85): blocks are plain rows until `map --focus` exists, a row key selects its row and
+ * runs nothing (DR-54), and a next action the person ran shows its result in place of the press.
  */
 
-import type { DiffLine, Handle, PaneModel } from "@planroom/contract";
-import { BAND_KEYS, rowKeys, sanitize, truncate, width } from "@planroom/ui";
+import {
+  MOD_STRINGS,
+  type DiffLine,
+  type Handle,
+  type PaneModel,
+} from "@planroom/contract";
+import {
+  BAND_KEYS,
+  CARD_KEYS,
+  fill,
+  keyRows,
+  page,
+  PAGE_ROWS,
+  sanitize,
+  truncate,
+  width,
+  type RowKey,
+} from "@planroom/ui";
 
 import { bandMayRun } from "./catalogue";
 import type { Fallback } from "./fallback";
@@ -21,11 +39,19 @@ export const DOCK = { columns: 49, rows: 34 } as const;
 /** A fixed choice label holds at most this many columns (DR-54). */
 export const CHOICE_COLUMNS = 20;
 
-/** What pressing a Button does: a command, a fallback's step, or putting the next action back. */
+/** The rows a row key can select: the top three diff lines, the drift and who lines' top items. */
+export type Selectable = `diff-${0 | 1 | 2}` | "drift-0" | "who-0";
+
+/**
+ * What pressing a Button does: a command, a fallback's step, putting the next action back,
+ * selecting a row for an action key to act on, or turning the list's page.
+ */
 export type Action =
   | { kind: "run"; command: string; args: string[]; label: string }
   | { kind: "fallback"; run: "retry" | "build" | "rekey" }
-  | { kind: "clear" };
+  | { kind: "clear" }
+  | { kind: "select"; row: Selectable }
+  | { kind: "page"; index: number };
 
 export interface ButtonSpec {
   key: string;
@@ -45,8 +71,22 @@ export type Row =
   | { kind: "buttons"; key: string; buttons: ButtonSpec[] }
   | { kind: "diff"; key: string; source: string; lines: number };
 
+/** What the pane keeps between draws: the list's page and the row a row key selected. */
+export interface PaneView {
+  page?: number;
+  selected?: string | null;
+}
+
 /** Buttons sit apart by this many columns. */
 const GAP = 2;
+
+/** One of the mod's lines from `en.toml`, filled. */
+function say(
+  key: keyof typeof MOD_STRINGS,
+  vars: Readonly<Record<string, string | number>> = {},
+): string {
+  return fill(MOD_STRINGS[key], vars);
+}
 
 /** How many columns a plain Button takes: `1: label`, or the label alone. */
 export function buttonWidth(b: ButtonSpec): number {
@@ -132,6 +172,29 @@ function run(handle: Handle): Action {
 }
 
 /**
+ * One selectable row as a Button: its row key selects it and runs nothing (DR-54), and the row
+ * the person selected is marked. Its label is cut to what's left of `columns` beside the key.
+ */
+function selectButton(
+  row: Selectable,
+  value: string,
+  hotkey: RowKey | undefined,
+  columns: number,
+  view: PaneView,
+): ButtonSpec {
+  const marked =
+    view.selected === row ? say("selected_row", { label: value }) : value;
+  const room = columns - (hotkey === undefined ? 0 : hotkey.length + 2);
+  const button: ButtonSpec = {
+    key: row,
+    label: label(marked, room),
+    action: { kind: "select", row },
+  };
+  if (hotkey !== undefined) button.hotkey = hotkey;
+  return button;
+}
+
+/**
  * A unified-diff hunk cut to its header and `body` lines, its header recounted so the cut hunk
  * still parses (`Code format="diff"` draws an invalid one as plain code).
  */
@@ -152,19 +215,24 @@ export function cutHunk(hunk: readonly string[], body: number): string | null {
 
 function focusRows(model: PaneModel, columns: number, compact: boolean): Row[] {
   const crumbs =
-    model.focus.breadcrumb.map((c) => c.name).join(" › ") || "workspace";
+    model.focus.breadcrumb.map((c) => c.name).join(" › ") || say("workspace");
   const { level, lens, project, seq } = model.focus;
   if (compact) {
     return [
-      text("focus", `▣ ${crumbs} · ${level} · ${lens}`, columns, "accent"),
+      text(
+        "focus",
+        say("compact_focus_line", { crumbs, level, lens }),
+        columns,
+        "accent",
+      ),
     ];
   }
   return [
-    text("focus", `▣ ${crumbs}`, columns, "accent"),
-    text("focus-lens", `${level} · lens ${lens}`, columns, "dim"),
+    text("focus", say("focus_line", { crumbs }), columns, "accent"),
+    text("focus-lens", say("lens_line", { level, lens }), columns, "dim"),
     text(
       "focus-project",
-      `${project ?? "no project"} · seq ${seq}`,
+      say("project_line", { project: project ?? say("no_project"), seq }),
       columns,
       "dim",
     ),
@@ -199,10 +267,10 @@ function cardRows(
             {
               key: "back",
               label: label(
-                `Back to the ${model.minimap.level} level`,
+                say("back_label", { level: model.focus.level }),
                 columns - 3,
               ),
-              hotkey: "1",
+              hotkey: CARD_KEYS[0],
               primary: true,
               action: { kind: "clear" },
             },
@@ -215,7 +283,7 @@ function cardRows(
     const line = model.empty?.line;
     return [
       ...(line === undefined || line === null || line === ""
-        ? [text("card-title", "Next", columns, "dim")]
+        ? [text("card-title", say("next_title"), columns, "dim")]
         : wrapped("card-empty", line, columns, EMPTY_LINE_ROWS)),
       {
         kind: "buttons",
@@ -224,7 +292,7 @@ function cardRows(
           {
             key: "next",
             label: label(next.label, columns - 3),
-            hotkey: "1",
+            hotkey: CARD_KEYS[0],
             primary: true,
             action: run(next),
           },
@@ -236,18 +304,20 @@ function cardRows(
     text("card-question", card.question, columns),
     text("card-why", card.why, columns, "dim"),
   ];
-  const choices: ButtonSpec[] = card.choices.slice(0, 4).map((c, i) => ({
-    key: `choice-${c.id}`,
-    label: label(c.label, CHOICE_COLUMNS),
-    hotkey: String(i + 1),
-    primary: c.preselected,
-    action: {
-      kind: "run",
-      command: "decide",
-      args: [card.id, c.id],
-      label: c.label,
-    },
-  }));
+  const choices: ButtonSpec[] = card.choices
+    .slice(0, CARD_KEYS.length)
+    .map((c, i) => ({
+      key: `choice-${c.id}`,
+      label: label(c.label, CHOICE_COLUMNS),
+      hotkey: CARD_KEYS[i],
+      primary: c.preselected,
+      action: {
+        kind: "run",
+        command: "decide",
+        args: [card.id, c.id],
+        label: c.label,
+      },
+    }));
   for (let i = 0; i < choices.length; i += 2) {
     rows.push({
       kind: "buttons",
@@ -256,8 +326,10 @@ function cardRows(
     });
   }
   const more: string[] = [];
-  if (card.batch !== null) more.push(`applies ${card.batch.count} items`);
-  if (model.more_decisions > 0) more.push(`+${model.more_decisions} more`);
+  if (card.batch !== null)
+    more.push(say("batch_count", { count: card.batch.count }));
+  if (model.more_decisions > 0)
+    more.push(say("more_decisions", { count: model.more_decisions }));
   if (more.length > 0)
     rows.push(text("card-more", more.join(" · "), columns, "dim"));
   return rows;
@@ -265,36 +337,54 @@ function cardRows(
 
 function progressRow(model: PaneModel, columns: number): Row {
   const p = model.progress;
-  const parts = [p.stage ?? "no plan stage", `${p.done}/${p.total} done`];
+  const parts = [
+    p.stage ?? say("progress_no_stage"),
+    say("progress_done", { done: p.done, total: p.total }),
+  ];
   if (p.handoffs_running > 0)
     parts.push(
-      `${p.handoffs_running} hand-off${p.handoffs_running === 1 ? "" : "s"} running`,
+      say(
+        p.handoffs_running === 1
+          ? "progress_handoffs_one"
+          : "progress_handoffs",
+        { count: p.handoffs_running },
+      ),
     );
   if (p.scan !== "done")
-    parts.push(p.scan === "running" ? "scanning" : "not scanned");
+    parts.push(
+      say(p.scan === "running" ? "progress_scanning" : "progress_not_scanned"),
+    );
   return text("progress", parts.join(" · "), columns, "dim");
+}
+
+/** One diff line: its row key selects it, and an action key then acts on it. */
+function diffLine(
+  d: DiffLine,
+  i: 0 | 1 | 2,
+  hotkey: RowKey | undefined,
+  columns: number,
+  view: PaneView,
+): Row {
+  return {
+    kind: "buttons",
+    key: `diff-row-${i}`,
+    buttons: [selectButton(`diff-${i}`, d.summary, hotkey, columns, view)],
+  };
 }
 
 function diffRows(
   diffs: readonly DiffLine[],
-  keys: (string | undefined)[],
+  keys: readonly RowKey[],
   columns: number,
   hunkLines: number,
+  view: PaneView,
 ): Row[] {
   if (diffs.length === 0) {
-    return [text("diffs-none", "No pending diffs", columns, "dim")];
+    return [text("diffs-none", say("no_diffs"), columns, "dim")];
   }
-  const rows: Row[] = diffs.slice(0, 3).map((d, i) => {
-    const hotkey = keys[i];
-    const room = columns - (hotkey === undefined ? 0 : hotkey.length + 2);
-    const button: ButtonSpec = {
-      key: `diff-${i}`,
-      label: label(d.summary, room),
-      action: run(d.open),
-    };
-    if (hotkey !== undefined) button.hotkey = hotkey;
-    return { kind: "buttons", key: `diff-row-${i}`, buttons: [button] };
-  });
+  const rows: Row[] = diffs
+    .slice(0, 3)
+    .map((d, i) => diffLine(d, i as 0 | 1 | 2, keys[i], columns, view));
   const source =
     diffs[0] === undefined ? null : cutHunk(diffs[0].hunk, hunkLines);
   if (source !== null) {
@@ -308,76 +398,156 @@ function diffRows(
   return rows;
 }
 
-function whoRow(model: PaneModel, columns: number): Row {
+/** The drift line: a Button its row key selects when the engine names a top item, else text. */
+function driftRow(
+  model: PaneModel,
+  hotkey: RowKey | undefined,
+  columns: number,
+  view: PaneView,
+): Row {
+  const { drift } = model;
+  if (drift.top !== undefined && drift.top !== null) {
+    return {
+      kind: "buttons",
+      key: "drift",
+      buttons: [selectButton("drift-0", drift.summary, hotkey, columns, view)],
+    };
+  }
+  return text(
+    "drift",
+    drift.summary,
+    columns,
+    drift.rules_broken + drift.machine_drift > 0 ? "warn" : "dim",
+  );
+}
+
+/** The who line: everyone present, its top row's key selecting it when anyone is. */
+function whoRow(
+  model: PaneModel,
+  hotkey: RowKey | undefined,
+  columns: number,
+  view: PaneView,
+): Row {
   const who = model.who.map((p) => {
     const name =
       p.actor.kind === "person"
         ? (p.actor.name ?? p.actor.id)
         : p.actor.kind === "agent"
-          ? `${p.actor.role} ${p.actor.session}`
+          ? say("who_agent", { role: p.actor.role, session: p.actor.session })
           : p.actor.kind;
-    return p.doing === null ? name : `${name}: ${p.doing}`;
+    return p.doing === null ? name : say("who_doing", { name, doing: p.doing });
   });
-  return text(
-    "who",
-    who.length === 0 ? "Nobody else is here" : who.join(" · "),
-    columns,
-    "dim",
-  );
+  if (who.length === 0) {
+    return text("who", say("nobody_here"), columns, "dim");
+  }
+  return {
+    kind: "buttons",
+    key: "who",
+    buttons: [selectButton("who-0", who.join(" · "), hotkey, columns, view)],
+  };
 }
 
 /**
- * The list: the pane's blocks, or the blocks the next action showed, as plain rows. A block row
- * runs nothing until `map --focus` exists (M1), so it takes no row key (ux-1).
+ * The list: the pane's blocks, or the blocks the next action showed, as plain rows, a page of at
+ * most 7 with one paging line. A block row runs nothing until `map --focus` exists (DR-85), so it
+ * takes no row key. With room for one row the list draws only its paging line; past one page a
+ * plain Button turns it, wrapping from the last page to the first.
  */
 function blockRows(
   model: PaneModel,
   columns: number,
   room: number,
   shown: Shown | null,
+  view: PaneView,
 ): Row[] {
-  const level = shown?.level ?? model.minimap.level;
+  if (room <= 0) return [];
+  const map = shown?.level != null ? shown : null;
+  const level = map?.level ?? model.minimap?.level ?? model.focus.level;
   const blocks =
-    shown?.level != null
-      ? shown.blocks.map((name, i) => ({
+    map !== null
+      ? map.blocks.map((name, i) => ({
           key: `shown-${i}`,
           name,
           focused: false,
         }))
-      : model.minimap.blocks.map((b) => ({
+      : (model.minimap?.blocks ?? []).map((b) => ({
           key: b.id,
           name: b.name,
           focused: b.focused,
         }));
-  const rows: Row[] = [
-    text("blocks-title", `Blocks · ${level}`, columns, "dim"),
-  ];
-  const fit = Math.max(0, Math.min(blocks.length, 9, room - 2));
-  for (const b of blocks.slice(0, fit)) {
-    rows.push(
-      text(`block-${b.key}`, `${b.focused ? "▣" : "□"} ${b.name}`, columns),
-    );
+  if (blocks.length === 0) {
+    // A pane in an empty state says why on its card; a shown map with no nodes says its own line.
+    if (map === null && model.empty !== null && model.empty !== undefined) {
+      return [];
+    }
+    const line = (map === null ? null : map.empty) ?? say("no_blocks");
+    const none = text("blocks-none", line, columns, "dim");
+    return room === 1
+      ? [none]
+      : [
+          text("blocks-title", say("blocks_title", { level }), columns, "dim"),
+          none,
+        ];
   }
-  if (blocks.length > fit)
-    rows.push(
-      text("blocks-more", `+${blocks.length - fit} more`, columns, "dim"),
-    );
-  if (blocks.length === 0)
-    rows.push(
-      text("blocks-none", "No blocks at this level yet", columns, "dim"),
-    );
+  const fits = (size: number) => page(blocks, view.page ?? 0, size);
+  // The title and the paging line, plus the Button when there is more than one page.
+  let size = Math.min(PAGE_ROWS, room - 2);
+  if (size >= 1 && fits(size).pages > 1) size = Math.min(PAGE_ROWS, room - 3);
+  // With no room for a row, the paging line counts the list's own 7-row page behind its key.
+  const shownPage = fits(size < 1 ? PAGE_ROWS : size);
+  const pageLine = text(
+    "blocks-page",
+    say("page_line", {
+      first: shownPage.first,
+      last: shownPage.last,
+      total: shownPage.total,
+    }),
+    columns,
+    "dim",
+  );
+  if (size < 1) return [pageLine];
+  const rows: Row[] = [
+    text("blocks-title", say("blocks_title", { level }), columns, "dim"),
+    ...shownPage.rows.map((b) =>
+      text(
+        `block-${b.key}`,
+        say(b.focused ? "focused_block_row" : "block_row", { name: b.name }),
+        columns,
+      ),
+    ),
+    pageLine,
+  ];
+  if (shownPage.pages > 1) {
+    const last = shownPage.index === shownPage.pages - 1;
+    rows.push({
+      kind: "buttons",
+      key: "blocks-paging",
+      buttons: [
+        {
+          key: "page",
+          label: label(
+            say(last ? "first_page_label" : "next_page_label"),
+            columns,
+          ),
+          action: { kind: "page", index: last ? 0 : shownPage.index + 1 },
+        },
+      ],
+    });
+  }
   return rows;
 }
 
 /**
- * The pane for a PaneModel: the full layout from 49x34, else the compact one (DR-54). `shown` is
- * what the next action showed when the person ran it, drawn while the pane still offers it.
+ * The pane for a PaneModel: the full layout from 49x34, else the compact one (DR-54, DR-77).
+ * `shown` is what the next action showed when the person ran it, drawn while the pane still
+ * offers it; `view` is the list's page and the row a row key selected.
  */
 export function paneRows(
   model: PaneModel,
   columns: number,
   rows: number,
   shown: Shown | null = null,
+  view: PaneView = {},
 ): Row[] {
   const compact = columns < DOCK.columns || rows < DOCK.rows;
   const result = shownNext(model, shown);
@@ -385,25 +555,29 @@ export function paneRows(
     ...focusRows(model, columns, compact),
     ...cardRows(model, columns, result),
   ];
-  const keys = rowKeys(12);
-  if (!compact) {
+  const hasTop = model.drift.top !== undefined && model.drift.top !== null;
+  if (compact) {
+    // The top pending diff line keeps its row key; the rest move behind their keys.
+    const keys = keyRows({ diffs: 1, drift: false, who: false, list: 0 });
+    const top = model.diffs[0];
+    if (top !== undefined)
+      out.push(diffLine(top, 0, keys.diffs[0], columns, view));
+  } else {
+    const keys = keyRows({
+      diffs: model.diffs.length,
+      drift: hasTop,
+      who: model.who.length > 0,
+      // Block rows take no key until `map --focus` exists (DR-85).
+      list: 0,
+    });
     const hunkLines = rows >= 46 ? 5 : 2;
     out.push(progressRow(model, columns));
-    out.push(...diffRows(model.diffs, keys.slice(0, 3), columns, hunkLines));
-    out.push(
-      text(
-        "drift",
-        model.drift.summary,
-        columns,
-        model.drift.rules_broken + model.drift.machine_drift > 0
-          ? "warn"
-          : "dim",
-      ),
-    );
-    out.push(whoRow(model, columns));
+    out.push(...diffRows(model.diffs, keys.diffs, columns, hunkLines, view));
+    out.push(driftRow(model, keys.drift, columns, view));
+    out.push(whoRow(model, keys.who, columns, view));
   }
   const used = out.reduce((sum, r) => sum + rowHeight(r), 0);
-  out.push(...blockRows(model, columns, rows - used, result));
+  out.push(...blockRows(model, columns, rows - used, result, view));
   return out;
 }
 
@@ -423,7 +597,7 @@ export function fallbackRows(f: Fallback, columns: number): Row[] {
         {
           key: "fallback-action",
           label: label(f.action.label, columns - 3),
-          hotkey: "1",
+          hotkey: CARD_KEYS[0],
           primary: true,
           action: { kind: "fallback", run: f.action.run },
         },
@@ -451,12 +625,15 @@ export function bandRow(
       // Replacing the registered key is a pane press, never a stray digit at the prompt (DR-75).
       return text(
         "band",
-        truncate(`${f.headline} /room to open it`, columns),
+        say("band_rekey", { headline: f.headline }),
         columns,
         "dim",
       );
     }
-    const primary = label(`${f.headline} ${f.action.label}`, columns - 3);
+    const primary = label(
+      say("band_fallback", { headline: f.headline, action: f.action.label }),
+      columns - 3,
+    );
     return {
       kind: "buttons",
       key: "band",
@@ -476,7 +653,7 @@ export function bandRow(
     // Already run: the band says what it showed instead of offering the same press again.
     return text(
       "band",
-      `${next.label}: ${shown?.line ?? ""} · /room to open the pane`,
+      say("band_shown", { label: next.label, line: shown?.line ?? "" }),
       columns,
       "dim",
     );
@@ -484,7 +661,7 @@ export function bandRow(
   if (!bandMayRun(next.command)) {
     return text(
       "band",
-      truncate(`Next: ${next.label} · /room to open it`, columns),
+      say("band_points_to_pane", { label: next.label }),
       columns,
       "dim",
     );

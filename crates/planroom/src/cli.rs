@@ -160,7 +160,7 @@ pub fn main() -> ExitCode {
         }
         Cmd::Focus(req) => {
             let name = Command::Focus(req.clone()).name();
-            finish_paged(cli.json, &name.0, app::focus::run(&req, &cwd), started)
+            finish_fitted(cli.json, &name.0, app::focus::run(&req, &cwd), started, app::focus::drop_block)
         }
         Cmd::Watch(req) => watch(cli.json, &req, &cwd),
         Cmd::Schema(req) => {
@@ -260,6 +260,23 @@ pub(crate) fn finish_within<T: Serialize>(
     finish_meta(json, command, reply, started, budget, |meta| meta)
 }
 
+/// [`finish_paged`] for a reply that gives way to its leaf's budget, as `focus`'s mini-map does:
+/// in `--json` mode it renders the envelope exactly as it will be sent (redacted unless raw, with
+/// every warning, the summary and the dirty repos), and while that is over the budget it calls
+/// `shrink`, until the reply fits or `shrink` has nothing left to drop. Only then does
+/// [`envelope_within`] leave warnings out, so blocks give way before any warning does. `focus`
+/// renders at most 61 times over about 4 KB, which costs nothing worth measuring. Text mode is
+/// unchanged.
+pub(crate) fn finish_fitted<T: Serialize>(
+    json: bool,
+    command: &str,
+    reply: Result<Paged<T>, AppError>,
+    started: Instant,
+    shrink: impl FnMut(&mut T) -> bool,
+) -> ExitCode {
+    finish_shrunk(json, command, reply, started, budget_of(command), |meta| meta, shrink)
+}
+
 /// [`finish_paged`] within `budget` tokens, with `meta` set by `with` before the envelope is
 /// rendered.
 fn finish_meta<T: Serialize>(
@@ -269,6 +286,20 @@ fn finish_meta<T: Serialize>(
     started: Instant,
     budget: Option<u32>,
     with: impl FnOnce(Meta) -> Meta,
+) -> ExitCode {
+    finish_shrunk(json, command, reply, started, budget, with, |_| false)
+}
+
+/// [`finish_meta`], with `shrink` called on the result while its `--json` envelope, as sent, is
+/// over `budget` (see [`finish_fitted`]).
+fn finish_shrunk<T: Serialize>(
+    json: bool,
+    command: &str,
+    reply: Result<Paged<T>, AppError>,
+    started: Instant,
+    budget: Option<u32>,
+    with: impl FnOnce(Meta) -> Meta,
+    mut shrink: impl FnMut(&mut T) -> bool,
 ) -> ExitCode {
     let took_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
     let raw = json && raw_for(command);
@@ -288,6 +319,13 @@ fn finish_meta<T: Serialize>(
                     more_dirty_repos: dirty.more,
                     ..Meta::default()
                 });
+                if let Some(budget) = budget {
+                    let over = |result: &T| {
+                        let sent = render(command, Some(result), None, meta.clone(), summary.clone(), raw);
+                        sent.len().div_ceil(4) > budget as usize
+                    };
+                    while over(&reply.result) && shrink(&mut reply.result) {}
+                }
                 envelope_within(command, &reply.result, meta, summary, budget, raw)
             } else {
                 sanitize_lines(&redact::text(&text_of(&reply.text, &reply.warnings, &dirty)))

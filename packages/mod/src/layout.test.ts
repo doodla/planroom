@@ -2,6 +2,12 @@ import type { PaneModel } from "@planroom/contract";
 import { expect, test } from "vitest";
 
 import focusReply from "../../../tests/golden/cli/focus.json";
+import {
+  M1_PRESENCE,
+  M2_DECISION_AND_DIFFS,
+  M2_DRIFT,
+  overlay,
+} from "../plugin-tests/overlays";
 import { INITIAL_ENGINE } from "./engine";
 import { fallbackFor } from "./fallback";
 import {
@@ -20,59 +26,17 @@ import type { EngineState } from "./state-types";
 
 const golden = (focusReply as unknown as { result: PaneModel }).result;
 
+/** The golden pane's mini-map, which a full-detail `focus` always carries. */
+const goldenMap = golden.minimap ?? { level: "system", blocks: [], edges: [] };
+
 /**
- * The engine's pane after a fixture scan has no open decision, diffs or presence yet, so the
- * layout tests also lay a busy pane over it: a four-choice card, two diffs, drift and one agent.
+ * The engine's pane after a fixture scan has no open decision, diffs, drift or presence yet, so
+ * the layout tests also lay the surface tests' milestone overlays over it: a four-choice card with
+ * its batch, two diffs, drift with a top item and one agent.
  */
 const busy: PaneModel = {
-  ...golden,
-  decision: {
-    id: "card_01JB7Q",
-    question: "Apply Claude's 2 edits to the worker group?",
-    why: "They move consumer.py under the queue it reads.",
-    choices: [
-      { id: "accept", label: "Accept both", preselected: true },
-      { id: "first", label: "Only the first", preselected: false },
-      { id: "reject", label: "Reject", preselected: false },
-      { id: "later", label: "Later", preselected: false },
-    ],
-    stakes: "low",
-    batch: null,
-    person_only: true,
-  },
-  more_decisions: 1,
-  diffs: [
-    {
-      summary: "worker → platform: + calls orders-api",
-      open: { command: "diff", args: ["--item", "d1"], label: "Open" },
-      hunk: ["@@ -1,2 +1,3 @@", " worker", "+  calls orders-api"],
-    },
-    {
-      summary: "storefront: ~ checkout moved to cart",
-      open: { command: "diff", args: ["--item", "d2"], label: "Open" },
-      hunk: [],
-    },
-  ],
-  drift: {
-    summary: "≠ 2 intended rules broken · 1 machine drift",
-    rules_broken: 2,
-    machine_drift: 1,
-  },
-  who: [
-    {
-      actor: {
-        kind: "agent",
-        session: "1a2b3c4d",
-        role: "implementer",
-        key: null,
-      },
-      surface: "mod",
-      doing: "worker-status-via-api",
-      focus: null,
-      seen_at: "2026-10-26T09:00:00Z",
-    },
-  ],
-  minimap: { ...golden.minimap, blocks: golden.minimap.blocks.slice(0, 5) },
+  ...overlay(golden, M2_DECISION_AND_DIFFS, M2_DRIFT, M1_PRESENCE),
+  minimap: { ...goldenMap, blocks: goldenMap.blocks.slice(0, 5) },
 };
 
 function height(rows: Row[]): number {
@@ -108,7 +72,7 @@ test("rows_fit_at_49x34: every section fits the narrowest dock with a four-choic
     expect(buttons(rows).some((b) => b.label === c.label)).toBe(true);
   }
   // The list keeps its room: every block of the busy shows.
-  for (const block of busy.minimap.blocks) {
+  for (const block of busy.minimap?.blocks ?? []) {
     expect(texts(rows).some((t) => t.endsWith(block.name))).toBe(true);
   }
 });
@@ -129,10 +93,16 @@ test("rows_fit_compact_at_80x24_and_100x30: inline panes keep the focus line, th
 
 test("keys: the card's choices take 1 to 4, rows an action targets take the row-key pool", () => {
   const rows = paneRows(busy, DOCK.columns, DOCK.rows);
-  const hotkeys = buttons(rows).map((b) => b.hotkey);
+  // Only the list's page Button goes without a key here; the key map pages the list.
+  const keyless = buttons(rows).filter((b) => b.hotkey === undefined);
+  expect(keyless.map((b) => b.key).filter((k) => k !== "page")).toEqual([]);
+  const hotkeys = buttons(rows).flatMap((b) =>
+    b.hotkey === undefined ? [] : [b.hotkey],
+  );
   expect(hotkeys.slice(0, 4)).toEqual(["1", "2", "3", "4"]);
-  // The two diffs; blocks run nothing until `map --focus` exists, so they take no key (ux-1).
-  expect(hotkeys.slice(4)).toEqual(["5", "6"]);
+  // The two diffs, then the drift line's top item and the who line's top row; blocks run nothing
+  // until `map --focus` exists, so they take no key (ux-1).
+  expect(hotkeys.slice(4)).toEqual(["5", "6", "7", "8"]);
   expect(new Set(hotkeys).size).toBe(hotkeys.length);
 });
 
@@ -214,6 +184,8 @@ test("security-5: an OSC 52 or RLO in a repo name never reaches the pane or the 
     drift: { ...busy.drift, summary: evil },
     minimap: {
       ...busy.minimap,
+      level: "system",
+      edges: [],
       blocks: [{ id: "x:repo:x", name: evil, focused: false }],
     },
   };
@@ -261,7 +233,7 @@ test("an_empty_pane_shows_its_empty_states_line_above_its_short_action", () => {
     ...golden,
     decision: null,
     next: check,
-    minimap: { ...golden.minimap, blocks: [], edges: [] },
+    minimap: { ...goldenMap, blocks: [], edges: [] },
     empty: { reason: "repos_unborn", line, next: check },
   };
   for (const [columns, rows] of [
@@ -340,8 +312,9 @@ test("no_blank_pane: every fallback has a headline and at most one action, withi
     );
     expect(rows[0]?.kind).toBe("text");
     expect(widest(rows)).toBeLessThanOrEqual(DOCK.columns);
+    // One build at a time: the building pane offers nothing to press while the build runs.
     expect(buttons(rows).length).toBe(
-      status === "unsupported_platform" ? 0 : 1,
+      status === "unsupported_platform" || status === "building" ? 0 : 1,
     );
   }
   const build = fallbackRows(
