@@ -816,17 +816,22 @@ fn a_long_path_keeps_doctor_in_budget() {
     let secret = "sk_live_51PlantedDoctorKey0000";
     let named = format!("STRIPE_SECRET_KEY={secret}");
     let tmp = tempfile::tempdir().unwrap();
+    // The root is canonical, since macOS's temporary directory is a link.
+    let base = tmp.path().canonicalize().unwrap();
     // SQLite opens no file whose path is over 512 bytes, so the store's path is as long as it can
-    // be, well over the 160 characters doctor shows whole; the data root and the packs' sources
-    // are 3,000 bytes. The workspace's own name holds the secret too, so the tail doctor shows of
-    // its path holds it.
-    let root = long_dir(tmp.path(), &named, 440, &named);
+    // be, well over the 160 characters doctor shows whole. The data root and the packs' sources
+    // go 3,000 bytes deep, or as deep as the platform's path limit allows with room left for the
+    // files under them (4096 bytes on Linux, 1024 on macOS). The workspace's own name holds the
+    // secret too, so the tail doctor shows of its path holds it.
+    let deep = 3_000.min(usize::try_from(libc::PATH_MAX).unwrap() - 300 - base.as_os_str().len());
+    let root = long_dir(&base, &named, 440, &named);
     std::fs::create_dir_all(root.parent().unwrap()).unwrap();
     planroom_testkit::fixture(&root);
-    let data = long_dir(&tmp.path().join("data"), &named, 3_000, "data");
+    let data = long_dir(&base.join("data"), &named, deep, "data");
+    assert!(data.as_os_str().len() > 600, "{}", data.display());
     person_init(&root, &data);
 
-    let packs_dir = long_dir(tmp.path(), "packs", 3_000, "src");
+    let packs_dir = long_dir(&base, "packs", deep, "src");
     for i in 0..8 {
         let id = format!("extra{i}");
         let dir = packs_dir.join(&id);
