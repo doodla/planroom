@@ -384,10 +384,18 @@ describe("the artifact transport", () => {
 });
 
 test("a view key names the map's level and lens", () => {
-  expect(viewKey("map", { level: null })).toBe("map:system:all");
-  expect(viewKey("map", { level: null }, "runtime")).toBe("map:system:runtime");
-  expect(viewKey("map", { level: null, lens: "all" }, "runtime")).toBe(
+  expect(viewKey("map", { level: null }, "all", "system")).toBe(
     "map:system:all",
+  );
+  expect(viewKey("map", { level: null }, "runtime", "system")).toBe(
+    "map:system:runtime",
+  );
+  expect(
+    viewKey("map", { level: null, lens: "all" }, "runtime", "system"),
+  ).toBe("map:system:all");
+  // A map with no level is the snapshot's top map, whatever level the ladder's top is.
+  expect(viewKey("map", { level: null }, "all", "galaxy")).toBe(
+    "map:galaxy:all",
   );
   expect(viewKey("map", { level: "container", lens: "deploy" })).toBe(
     "map:container:deploy",

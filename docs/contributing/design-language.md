@@ -8,7 +8,7 @@ Planroom is a tabletop where your system is laid out as toy blocks. You look dow
 
 | Idea | On the table | Canvas | Mod (terminal) |
 |---|---|---|---|
-| Levels | Blocks nest like boxes: lift a block's lid to see the blocks inside. | Zoom dives into a block; the breadcrumb is a row of stacked lids. | Indented block glyphs (`▣`) with the level name in the focus header. |
+| Levels | Abstraction levels, from the plan's intent down to the finest level the loaded packs declare. Blocks nest like boxes: lift a block's lid to see the level below. | Zoom dives into a block; the breadcrumb is a row of stacked lids. | Indented block glyphs (`▣`) with the level name in the focus header. |
 | Lenses | Colored yarn strung between pegs, one color per relationship kind. | Edge color and style per lens; one lens on by default. | Colored arrows in the mini-map; the lens name in the focus header. |
 | Intent | Chalk outlines drawn on the felt where blocks should sit. Plans are index cards pinned beside the table. | Intended layer drawn as dashed chalk outlines; drift is a block outside its outline. | `intended` and `actual` columns in diffs; drift marked with `≠`. |
 | Diffs | Ghost blocks (translucent, proposed) and strips of tape (green added, red removed, amber changed). | Ghosts render translucent until accepted; tape marks on changed edges. | `Code format="diff"` previews; ghosts listed with a dim style. |
@@ -39,7 +39,7 @@ Colors are CSS variables in `packages/ui`, with a designed dark mode, not an inv
 | `--block-service-border`, `--block-library-border`, `--block-store-border`, `--block-infra-border` | `#bc2f14`, `#1f43a8`, `#835c08`, `#4f6953` | `#ffa48e`, `#aabdff`, `#f8dc96`, `#b4cfb8` | Block borders: a darker shade in light mode and a lighter one in dark mode, at least 4.5:1 on the felt [DR-77] |
 | `--pass`, `--fail`, `--wait` | `#1a6b43`, `#b3261e`, `#6b5c0c` | `#5fd39a`, `#ff8a80`, `#e6cf6a` | Semantic states and diff tape, separate from block colors |
 
-Block colors encode a Container-level kind's `tone`, which its pack declares as `service`, `library`, `store` or `infra`, one per block token above. A kind with no tone draws as `--card` with its label. Surfaces read the tone from the view model and never switch on a kind ID [DR-46]. Block colors are never the only signal: each block also carries its kind as a label or icon. Tape isn't told by color alone either: added tape carries `+`, removed tape `−` and changed tape `~`.
+Block colors encode a kind's `tone`, which its pack declares as `service`, `library`, `store` or `infra`, one per block token above. A kind with no tone draws as `--card` with its label. Surfaces read the tone from the view model and never switch on a kind ID [DR-46]. Block colors are never the only signal: each block also carries its kind as a label or icon. Tape isn't told by color alone either: added tape carries `+`, removed tape `−` and changed tape `~`.
 
 Lens yarn has no tokens yet. Until packs bring lenses in M1, every edge draws in `--muted`. M1 adds one yarn token per lens to this table, each held to the 3:1 mark bar below [DR-82].
 

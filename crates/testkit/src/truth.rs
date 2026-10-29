@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 
-use planroom_contract::{Evidence, Level, Vocabulary};
+use planroom_contract::{Evidence, LevelId, Vocabulary};
 use serde_json::Value;
 
 use crate::evidence_matches;
@@ -125,7 +125,7 @@ pub struct ObservedNode {
     pub id: String,
     pub kind: String,
     pub name: String,
-    pub level: Level,
+    pub level: LevelId,
     pub parent: Option<String>,
     /// The block's own evidence; empty while no read leaf shows it.
     pub evidence: Vec<Evidence>,
@@ -148,12 +148,16 @@ pub struct ScanRead {
     pub commit: String,
 }
 
-/// Everything the comparison reads: the map's blocks and relations, and the scan events.
+/// Everything the comparison reads: the map's blocks and relations, the scan events, and the
+/// ladder the map read them on.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Observed {
     pub nodes: Vec<ObservedNode>,
     pub edges: Vec<ObservedEdge>,
     pub scans: Vec<ScanRead>,
+    /// The levels the map shows blocks at, top first, as its first graph reply's `levels` lists
+    /// them: the chain, without the apart `intent`, which holds plans, not the system.
+    pub levels: Vec<LevelId>,
 }
 
 /// One check of a truth item, keyed so a recall floor can name it.
@@ -248,7 +252,7 @@ pub fn compare(truth: &Value, observed: &Observed, scope: &Scope) -> Report {
         containers(&mut report, &map, scope, container);
     }
     for component in list(truth, "components") {
-        components(&mut report, &map, scope, component);
+        components(&mut report, &map, scope, component, observed.levels.first());
     }
     for relation in list(truth, "relations") {
         relations(&mut report, &map, scope, relation);
@@ -273,10 +277,8 @@ fn containers(report: &mut Report, map: &Map, scope: &Scope, truth: &Value) {
     let name = text(truth, "name");
     let repo = truth["repo"].as_str();
     let key = format!("container {name}");
-    let node = map
-        .nodes
-        .values()
-        .find(|n| n.level == Level::Container && n.name == name && map.repo(n).as_deref() == repo);
+    let at = LevelId::from("container");
+    let node = map.nodes.values().find(|n| n.level == at && n.name == name && map.repo(n).as_deref() == repo);
     let mut item =
         Item { key: key.clone(), checks: vec![Check { key: key.clone(), matched: node.is_some() }] };
     let kind = text(truth, "kind");
@@ -300,10 +302,11 @@ fn containers(report: &mut Report, map: &Map, scope: &Scope, truth: &Value) {
     report.items.push(item);
 }
 
-fn components(report: &mut Report, map: &Map, scope: &Scope, truth: &Value) {
+/// A truth component: a block below the top of the map, `top`, at its path.
+fn components(report: &mut Report, map: &Map, scope: &Scope, truth: &Value, top: Option<&LevelId>) {
     let path = text(truth, "path");
     let key = format!("component {path}");
-    let node = map.nodes.values().find(|n| n.level != Level::System && map.path(n).as_deref() == Some(path));
+    let node = map.nodes.values().find(|n| Some(&n.level) != top && map.path(n).as_deref() == Some(path));
     let mut item =
         Item { key: key.clone(), checks: vec![Check { key: key.clone(), matched: node.is_some() }] };
     let container = text(truth, "container");
@@ -333,9 +336,8 @@ fn relations(report: &mut Report, map: &Map, scope: &Scope, truth: &Value) {
         }
         return;
     }
-    let named = |id: &str, name: &str| {
-        map.nodes.get(id).is_some_and(|n| n.level == Level::Container && n.name == name)
-    };
+    let at = LevelId::from("container");
+    let named = |id: &str, name: &str| map.nodes.get(id).is_some_and(|n| n.level == at && n.name == name);
     let edges: Vec<&ObservedEdge> = map
         .edges
         .iter()
@@ -429,7 +431,8 @@ impl<'a> Map<'a> {
 
     /// The nearest container-level block above the node.
     fn container(&self, node: &'a ObservedNode) -> Option<&'a ObservedNode> {
-        self.ancestry(node).into_iter().skip(1).find(|n| n.level == Level::Container)
+        let at = LevelId::from("container");
+        self.ancestry(node).into_iter().skip(1).find(|n| n.level == at)
     }
 }
 
@@ -496,15 +499,26 @@ impl Cli<'_> {
     }
 }
 
-/// The levels the map shows blocks at, top down; `intent` holds plans, not the system.
-pub const LEVELS: [&str; 4] = ["system", "container", "component", "code"];
+/// The levels a graph reply's `levels` lists below the apart `intent`: the chain, top first.
+pub fn chain(reply: &Value) -> Vec<LevelId> {
+    reply["result"]["levels"]
+        .as_array()
+        .expect("a graph reply carries the ladder")
+        .iter()
+        .filter(|l| l["apart"] != true)
+        .map(|l| serde_json::from_value(l["id"].clone()).expect("a level's ID"))
+        .collect()
+}
 
-/// The whole map at every level, `--lens all --detail graph`, through every page, with the scan
-/// events given: each block once, and each relation once per level it shows at.
+/// The whole map at every level of its ladder, `--lens all --detail graph`, through every page,
+/// with the scan events given: each block once, and each relation once per level it shows at. The
+/// ladder is the one the first graph reply carries.
 pub fn read(cli: Cli, scans: Vec<ScanRead>) -> Observed {
-    let mut observed = Observed { scans, ..Observed::default() };
+    let levels = chain(&cli.json(&["map", "--lens", "all", "--detail", "graph"]));
+    let mut observed = Observed { scans, levels: levels.clone(), ..Observed::default() };
     let mut ids = BTreeSet::new();
-    for level in LEVELS {
+    for level in &levels {
+        let level = level.as_str();
         for page in cli.pages(&["map", "--level", level, "--lens", "all", "--detail", "graph"]) {
             let result = &page["result"];
             for node in result["nodes"].as_array().expect("a map page has nodes") {
@@ -559,10 +573,25 @@ mod tests {
         };
         let observed = Observed {
             nodes: vec![
-                node("orders:repo:orders", "orders", Level::System, None),
-                node("orders:container:orders", "orders", Level::Container, Some("orders:repo:orders")),
-                node("orders:dir:internal", "internal", Level::Component, Some("orders:container:orders")),
-                node("orders:dir:internal/http", "http", Level::Component, Some("orders:dir:internal")),
+                node("orders:repo:orders", "orders", LevelId::from("system"), None),
+                node(
+                    "orders:container:orders",
+                    "orders",
+                    LevelId::from("container"),
+                    Some("orders:repo:orders"),
+                ),
+                node(
+                    "orders:dir:internal",
+                    "internal",
+                    LevelId::from("component"),
+                    Some("orders:container:orders"),
+                ),
+                node(
+                    "orders:dir:internal/http",
+                    "http",
+                    LevelId::from("component"),
+                    Some("orders:dir:internal"),
+                ),
             ],
             ..Observed::default()
         };

@@ -2,11 +2,12 @@
 //! `src/cart`, or a bare name such as `worker` (architecture.md, "IDs and aliases": suffix and
 //! name lookups). A suffix or a name resolves at the question's level first, then at each level
 //! above it, then at each level below; several matches at the first level that has any are
-//! ambiguous, never guessed.
+//! ambiguous, never guessed. Above and below are the ladder's order.
 
-use planroom_contract::{Level, Node};
+use planroom_contract::{LevelId, Node};
 
 use crate::find;
+use crate::ladder::Ladder;
 
 /// What one argument names.
 #[derive(Debug, Clone, PartialEq)]
@@ -21,10 +22,9 @@ pub enum Lookup<'a> {
 /// The most close matches a missing argument names.
 pub const CLOSEST: usize = 5;
 
-const LEVELS: [Level; 5] = [Level::Intent, Level::System, Level::Container, Level::Component, Level::Code];
-
-/// The node `target` names among `nodes`, preferring `level`.
-pub fn lookup<'a>(nodes: &'a [Node], target: &str, level: Level) -> Lookup<'a> {
+/// The node `target` names among `nodes`, preferring `level`, then the levels `ladder` puts
+/// nearest above it, then those below ([`Ladder::order_from`]).
+pub fn lookup<'a>(nodes: &'a [Node], target: &str, level: &LevelId, ladder: &Ladder<'_>) -> Lookup<'a> {
     let target = target.trim();
     if let Some(node) = nodes.iter().find(|n| n.id.0 == target) {
         return Lookup::Found(node);
@@ -34,32 +34,25 @@ pub fn lookup<'a>(nodes: &'a [Node], target: &str, level: Level) -> Lookup<'a> {
         .iter()
         .filter(|n| !target.is_empty() && (n.id.0.ends_with(&suffix) || n.name == target))
         .collect();
-    for at in order(level) {
-        let here: Vec<&Node> = matches.iter().copied().filter(|n| n.level == at).collect();
+    for at in ladder.order_from(level) {
+        let here: Vec<&Node> = matches.iter().copied().filter(|n| n.level == *at).collect();
         match here.len() {
             0 => continue,
             1 => return Lookup::Found(here[0]),
             _ => return Lookup::Ambiguous(here),
         }
     }
-    Lookup::Missing(find::find(nodes, target).into_iter().take(CLOSEST).map(|hit| hit.node).collect())
-}
-
-/// `level`, then each level above it, nearest first, then each below it.
-fn order(level: Level) -> impl Iterator<Item = Level> {
-    let at = LEVELS.iter().position(|l| *l == level).unwrap_or(0);
-    let above = LEVELS[..at].iter().rev();
-    let below = LEVELS[at + 1..].iter();
-    std::iter::once(level).chain(above.chain(below).copied())
+    Lookup::Missing(find::find(nodes, ladder, target).into_iter().take(CLOSEST).map(|hit| hit.node).collect())
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::ladder::testing::*;
     use planroom_contract::{Kind, Layer, NodeId, Provenance, Tier};
 
     use super::*;
 
-    fn node(id: &str, level: Level, name: &str) -> Node {
+    fn node(id: &str, level: LevelId, name: &str) -> Node {
         Node {
             id: NodeId(id.into()),
             kind: Kind("t.x".into()),
@@ -77,22 +70,24 @@ mod tests {
     #[test]
     fn a_name_resolves_at_the_level_first_then_above_then_below() {
         let nodes = vec![
-            node("a:box:web", Level::Container, "web"),
-            node("a:part:web", Level::Component, "web"),
-            node("a:sys:web", Level::System, "web"),
-            node("b:part:src/cart", Level::Component, "cart"),
+            node("a:box:web", region(), "web"),
+            node("a:part:web", site(), "web"),
+            node("a:sys:web", realm(), "web"),
+            node("b:part:src/cart", site(), "cart"),
         ];
-        let found = |t: &str, l: Level| match lookup(&nodes, t, l) {
+        let vocabulary = vocabulary();
+        let ladder = Ladder::of(&vocabulary);
+        let found = |t: &str, l: LevelId| match lookup(&nodes, t, &l, &ladder) {
             Lookup::Found(n) => n.id.0.clone(),
             other => panic!("{t}: {other:?}"),
         };
-        assert_eq!(found("web", Level::Container), "a:box:web");
-        assert_eq!(found("web", Level::Code), "a:part:web");
-        assert_eq!(found("web", Level::Intent), "a:sys:web");
-        assert_eq!(found("src/cart", Level::Container), "b:part:src/cart");
-        assert_eq!(found("a:part:web", Level::Container), "a:part:web");
-        assert!(matches!(lookup(&nodes, "nowhere", Level::Container), Lookup::Missing(_)));
-        let twice = vec![node("a:box:x", Level::Container, "x"), node("b:box:x", Level::Container, "x")];
-        assert!(matches!(lookup(&twice, "x", Level::Container), Lookup::Ambiguous(v) if v.len() == 2));
+        assert_eq!(found("web", region()), "a:box:web");
+        assert_eq!(found("web", room()), "a:part:web");
+        assert_eq!(found("web", intent()), "a:sys:web");
+        assert_eq!(found("src/cart", region()), "b:part:src/cart");
+        assert_eq!(found("a:part:web", region()), "a:part:web");
+        assert!(matches!(lookup(&nodes, "nowhere", &region(), &ladder), Lookup::Missing(_)));
+        let twice = vec![node("a:box:x", region(), "x"), node("b:box:x", region(), "x")];
+        assert!(matches!(lookup(&twice, "x", &region(), &ladder), Lookup::Ambiguous(v) if v.len() == 2));
     }
 }

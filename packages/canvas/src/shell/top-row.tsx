@@ -83,7 +83,7 @@ function Breadcrumb() {
   const top = useTopName();
 
   // From the map's level, not the pane's crumb, which names the workspace at every level (ux-4).
-  const crumbs = crumbsAt(level, top);
+  const crumbs = crumbsAt(map?.levels ?? [], level, top);
   const current = crumbs.at(-1);
   const ancestors = crumbs.slice(0, -1);
   const showInput = !phone || searching;
@@ -107,6 +107,7 @@ function Breadcrumb() {
       <div
         className="lid lid-current"
         aria-current="location"
+        title={current?.label}
         data-searching={searching || undefined}
       >
         {!(phone && searching) && (

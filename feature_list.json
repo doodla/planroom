@@ -2364,6 +2364,73 @@
         "crates/planroom/tests/handoff_clone.rs::an_out_of_scope_change_is_flagged": "M2"
       },
       "decision": "DR-64, DR-75, DR-78, DR-85, DR-86"
+    },
+    {
+      "id": "C18",
+      "title": "Levels are pack data",
+      "tier": "C",
+      "status": "failing",
+      "requirements": [
+        "R1",
+        "R11",
+        "R14"
+      ],
+      "ci_path": {
+        "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
+        "steps": [
+          "planroom ask lists intent, then system, container, component and code, each with map --level ID; map --level nope is invalid_argument whose details.levels are those five",
+          "an out-of-tree pack that puts zone below container, with a kind at it, is checked at load and sits on its set's ladder directly below container, and the fold over that set places each zone block under a container with a faithful zone count; reads load only the built-in set until they load the workspace's recorded pack set (DR-109's known gap), so through the CLI map --level zone is invalid_argument whose details.levels are the five built-in levels, and each zone block counts at code under its container",
+          "a pack that declares intent, a pack that puts a level below code, two packs that each put a level below container, one pack that puts two levels below container, and a pack that takes the ladder past 8 levels below intent are each pack_invalid at the line that declares it"
+        ],
+        "compare": [],
+        "stand_ins": [
+          "PLANROOM_REPLAY=strict: every Jev and Claude call is served from tests/replay/, a missing record fails with replay_missing",
+          "person steps run with a one-time PLANROOM_PERSON_TOKEN signed with the harness's person key, which the harness registers in the store (acting as a person); agent steps run with PLANROOM_ACTOR=agent:<id>:<role>, no terminal and no token"
+        ]
+      },
+      "evidence_path": {
+        "dir": null,
+        "steps": [
+          "none: CI only"
+        ]
+      },
+      "tests": [
+        "crates/kernel/tests/ladder.rs::the_ladder_puts_intent_apart_then_the_chain_top_to_finest",
+        "crates/kernel/tests/ladder.rs::below_opens_the_top_from_intent_and_stops_at_the_finest",
+        "crates/kernel/tests/ladder.rs::above_is_none_at_the_top_and_at_intent",
+        "crates/kernel/tests/ladder.rs::lookup_tries_the_level_then_above_then_below_on_any_ladder",
+        "crates/kernel/tests/ladder.rs::the_kernel_runs_on_an_invented_seven_level_ladder",
+        "crates/kernel/tests/ladder.rs::a_level_no_pack_declares_resolves_at_the_finest",
+        "crates/kernel/tests/ladder.rs::an_empty_ladder_keeps_every_level_as_it_came",
+        "crates/kernel/tests/rollup.rs::rollup_is_faithful_on_any_ladder",
+        "crates/kernel/src/fold/state.rs::a_put_with_any_level_string_keeps_its_node",
+        "crates/contract/tests/schema.rs::level_ids_read_and_write_the_old_names_byte_for_byte",
+        "crates/contract/tests/schema.rs::the_level_schema_is_an_open_set_holding_intent",
+        "crates/xtask/tests/schema_guard.rs::an_enum_opened_to_an_open_set_that_keeps_its_values_passes",
+        "crates/xtask/tests/schema_guard.rs::a_value_the_new_pattern_refuses_is_still_removed",
+        "crates/xtask/src/boundaries.rs::cfg_test_items_are_skipped_whole",
+        "crates/xtask/src/boundaries.rs::a_brace_in_a_string_or_char_never_ends_a_test_item",
+        "cargo xtask check boundaries --self-test",
+        "crates/planroom/tests/packs.rs::the_code_pack_declares_the_c4_ladder",
+        "crates/planroom/tests/packs.rs::a_pack_declaring_intent_is_pack_invalid",
+        "crates/planroom/tests/packs.rs::only_the_base_pack_declares_the_ladder",
+        "crates/planroom/tests/packs.rs::a_pack_inserts_a_level_below_one_it_can_see",
+        "crates/planroom/tests/packs.rs::two_inserted_levels_below_one_level_are_pack_invalid",
+        "crates/planroom/tests/packs.rs::a_level_below_the_base_packs_finest_is_pack_invalid",
+        "crates/planroom/tests/packs.rs::a_ladder_over_eight_levels_below_intent_is_pack_invalid",
+        "crates/planroom/tests/packs.rs::a_levels_words_hold_the_count_once",
+        "crates/planroom/tests/packs.rs::a_kind_lens_or_suggestion_at_a_level_its_pack_cannot_see_is_pack_invalid",
+        "crates/planroom/tests/packs.rs::container_prefix_kinds_share_one_level_and_every_kind_there_uses_it",
+        "crates/planroom/tests/map_read.rs::an_unknown_level_is_invalid_argument_naming_the_levels",
+        "crates/planroom/src/app/map/mod.rs::level_strings_take_labels_and_handles_keep_ids",
+        "crates/planroom/tests/map_graph.rs::graph_detail_carries_the_ladder_and_summary_does_not",
+        "crates/planroom/tests/s10_extensibility.rs::ask_alone_lists_the_levels_in_ladder_order",
+        "crates/planroom/tests/s10_extensibility.rs::a_packs_level_sits_on_the_ladder_and_the_fold_places_its_blocks",
+        "packages/ui/src/map.test.ts::block_counts_follow_the_ladder",
+        "packages/canvas/src/levels.test.ts::crumbs_come_from_the_ladder_with_the_apart_level_beside"
+      ],
+      "due": {},
+      "decision": "DR-42, DR-45, DR-46"
     }
   ]
 }

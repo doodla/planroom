@@ -75,7 +75,7 @@ use std::fmt;
 
 use planroom_contract::{
     EmitTemplate, ErrorCode, Evidence, ExtractorDecl, FACTS_FORMAT, FactBatch, Hint, Kind, LanguageDecl,
-    Layer, Level, Node, NodeId, PartialFile, PartialReason, Provenance, Tier, Vocabulary,
+    Layer, LevelId, Node, NodeId, PartialFile, PartialReason, Provenance, Tier, Vocabulary,
 };
 use serde_json::Value;
 use tree_sitter::{Parser, Query, QueryCursor, QueryCursorOptions, StreamingIterator};
@@ -377,7 +377,7 @@ type Props = Vec<(String, PropValue)>;
 enum Emit {
     Node {
         kind: Kind,
-        level: Level,
+        level: LevelId,
         prefix: String,
         key: Template,
         name: Option<Template>,
@@ -973,7 +973,7 @@ impl Declarative {
                     let node = Node {
                         id: id.clone(),
                         kind: kind.clone(),
-                        level: *level,
+                        level: level.clone(),
                         parent,
                         name,
                         aliases: aliases
@@ -1257,7 +1257,7 @@ fn compile_emit(
             }
             Ok(Emit::Node {
                 kind: vocab.kind.clone(),
-                level: vocab.level,
+                level: vocab.level.clone(),
                 prefix: vocab.id_prefix.clone(),
                 key: text(k, "key")?,
                 name: name.as_deref().map(|n| text(n, "name")).transpose()?,

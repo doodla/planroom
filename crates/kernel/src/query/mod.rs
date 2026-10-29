@@ -31,11 +31,12 @@ pub mod lookup;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use planroom_contract::{
-    EdgeId, Evidence, Flow, Kind, LensVocab, Level, NodeId, Provenance, Shape, ShapeStep, Vocabulary,
+    EdgeId, Evidence, Flow, Kind, LensVocab, LevelId, NodeId, Provenance, Shape, ShapeStep, Vocabulary,
 };
 use serde_json::Value;
 
 use crate::find;
+use crate::ladder::Ladder;
 use crate::model::Model;
 use forest::Forest;
 
@@ -179,13 +180,13 @@ struct Arc {
 }
 
 /// The level a question resolves its arguments at: the level of the first lens one of its steps
-/// names, else the default lens's (architecture.md, "IDs and aliases").
-pub fn level_of(steps: &[ShapeStep], vocabulary: &Vocabulary) -> Level {
+/// names, else the default lens's (architecture.md, "IDs and aliases"), else the ladder's top.
+pub fn level_of(steps: &[ShapeStep], vocabulary: &Vocabulary) -> LevelId {
     let named = steps.iter().find_map(|s| names(s.params.get("lens")?).into_iter().next().map(str::to_owned));
     named
         .and_then(|id| vocabulary.lenses.iter().find(|l| l.id == id))
         .or_else(|| vocabulary.lenses.iter().find(|l| l.default))
-        .map_or(Level::Container, |l| l.level)
+        .map_or_else(|| Ladder::of(vocabulary).top().clone(), |l| l.level.clone())
 }
 
 /// Run a question's `steps` over `model`, with its arguments bound to node IDs by name (`X` for
@@ -196,7 +197,8 @@ pub fn run(
     steps: &[ShapeStep],
     args: &BTreeMap<String, NodeId>,
 ) -> Result<Answer, QueryError> {
-    let mut forest = Forest::new(&model.nodes);
+    let ladder = Ladder::of(vocabulary);
+    let mut forest = Forest::new(&model.nodes, &ladder);
     let mut answer: Option<Answer> = None;
     for step in steps {
         let input: Vec<usize> = answer
@@ -204,7 +206,8 @@ pub fn run(
             .map(|a| a.nodes().iter().filter_map(|id| forest.id(&id.0)).collect())
             .unwrap_or_default();
         let had_input = answer.is_some();
-        let cx = Step { model, vocabulary, params: &step.params, args, input: &input, had_input };
+        let cx =
+            Step { model, vocabulary, ladder: &ladder, params: &step.params, args, input: &input, had_input };
         answer = Some(match step.shape {
             Shape::Node => cx.node(&forest),
             Shape::Find => cx.find(&forest),
@@ -221,6 +224,7 @@ pub fn run(
 struct Step<'a> {
     model: &'a Model,
     vocabulary: &'a Vocabulary,
+    ladder: &'a Ladder<'a>,
     params: &'a Value,
     args: &'a BTreeMap<String, NodeId>,
     input: &'a [usize],
@@ -260,7 +264,7 @@ impl Step<'_> {
 
     fn find(&self, forest: &Forest<'_>) -> Answer {
         let text = self.params.get("text").and_then(Value::as_str).unwrap_or_default();
-        let hits = find::find(&self.model.nodes, text);
+        let hits = find::find(&self.model.nodes, self.ladder, text);
         let mut ids: Vec<usize> = hits.iter().filter_map(|h| forest.id(&h.node.id.0)).collect();
         if self.had_input {
             let input: HashSet<usize> = self.input.iter().copied().collect();
@@ -318,9 +322,9 @@ impl Step<'_> {
         };
         // The start nodes by level, in order: one walk per level from all of them at once, so a
         // step that starts from many nodes still reads each lifted edge once per direction.
-        let mut levels: Vec<(Level, Vec<usize>)> = Vec::new();
+        let mut levels: Vec<(&LevelId, Vec<usize>)> = Vec::new();
         for &start in &starts {
-            let level = forest.node(start).level;
+            let level = &forest.node(start).level;
             match levels.iter_mut().find(|(l, _)| *l == level) {
                 Some((_, group)) => group.push(start),
                 None => levels.push((level, vec![start])),
@@ -329,6 +333,7 @@ impl Step<'_> {
         let mut items = Vec::new();
         let mut listed: HashSet<usize> = HashSet::new();
         for (level, group) in levels {
+            let level = self.ladder.rank(level);
             forest.prepare(level);
             let graph = graph(forest, &self.model.edges, &relations, level);
             let held = Under::of(forest, &group);
@@ -391,9 +396,16 @@ impl Step<'_> {
             return Ok(Answer::default());
         }
         let relations = self.relations()?;
+        // The lens's level, else the coarser end's by rank; both ends are non-empty, so the
+        // ladder's top is only a fallback.
         let level = match self.lenses()?.first() {
-            Some(lens) => lens.level,
-            None => from.iter().chain(&to).map(|i| forest.node(*i).level).min().unwrap_or(Level::Container),
+            Some(lens) => self.ladder.rank(&lens.level),
+            None => from
+                .iter()
+                .chain(&to)
+                .map(|i| forest.rank(*i))
+                .min()
+                .unwrap_or_else(|| self.ladder.rank(self.ladder.top())),
         };
         forest.prepare(level);
         let graph = graph(forest, &self.model.edges, &relations, level);
@@ -563,13 +575,8 @@ fn named(forest: &Forest<'_>, ids: Vec<usize>) -> Answer {
     }
 }
 
-/// The arcs of `edges` in `relations`, lifted to `level`, whose blocks [`Forest::prepare`] filled.
-fn graph(
-    forest: &Forest<'_>,
-    edges: &[planroom_contract::Edge],
-    relations: &Relations,
-    level: Level,
-) -> Graph {
+/// The arcs of `edges` in `relations`, lifted to the level of rank `level`, whose blocks [`Forest::prepare`] filled.
+fn graph(forest: &Forest<'_>, edges: &[planroom_contract::Edge], relations: &Relations, level: u8) -> Graph {
     let mut graph = Graph::default();
     for (i, edge) in edges.iter().enumerate() {
         let Some(flow) = relations.flow(&edge.kind) else { continue };
@@ -674,7 +681,7 @@ struct Ends {
 }
 
 impl Ends {
-    fn of(forest: &Forest<'_>, nodes: &[usize], level: Level) -> Ends {
+    fn of(forest: &Forest<'_>, nodes: &[usize], level: u8) -> Ends {
         let blocks = nodes.iter().map(|n| forest.block(*n, level)).collect();
         Ends { under: Under::of(forest, nodes), blocks }
     }

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::command::WriteCommon;
 use crate::envelope::{Cursor, Empty, Handle};
 use crate::event::{EventId, Status, Verdict};
-use crate::model::{Kind, Level, NodeId};
+use crate::model::{Kind, LevelId, NodeId};
 
 /// `planroom edit OP ...`: one hand edit. An agent's edit is a ghost until a person accepts it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, clap::Args)]
@@ -236,7 +236,7 @@ pub struct FindItem {
     pub id: NodeId,
     #[schemars(extend("x-redact" = true))]
     pub name: String,
-    pub level: Level,
+    pub level: LevelId,
     pub kind: Kind,
     /// Exact invocations that drill down from the match: the map at its level among the blocks
     /// beside it, then the blocks under it when it holds any.

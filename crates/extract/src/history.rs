@@ -256,7 +256,7 @@ fn facts(repo: &RepoView, opts: &Options, read: &Read) -> FactBatch {
         .map(|a| Node {
             id: person_id(&a.key),
             kind: Kind(kinds.person.kind.clone()),
-            level: kinds.person.level,
+            level: kinds.person.level.clone(),
             parent: Some(repo_id.clone()),
             name: a.name.clone(),
             aliases: vec![],

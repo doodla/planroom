@@ -13,15 +13,6 @@ import type {
 
 import { sanitize } from "./display";
 
-/** The levels from the plan down to the code, in the contract's order. */
-export const LEVELS: readonly Level[] = [
-  "intent",
-  "system",
-  "container",
-  "component",
-  "code",
-];
-
 /** One block on the map. */
 export interface BlockRow {
   readonly id: NodeId;
@@ -29,10 +20,14 @@ export interface BlockRow {
   /** The kind without its pack, as words: `code.queue_publish` reads `queue publish`. */
   readonly kindLabel: string;
   readonly tone: Tone | null;
+  /** The block's level ID. */
   readonly level: Level;
-  /** Descendants by level, top level first; a block that holds others shows a lid. */
+  /**
+   * Descendants by level, in the ladder's order (the view's `levels`), a level the ladder
+   * doesn't list last; a block that holds others shows a lid.
+   */
   readonly counts: readonly {
-    // A level name, as `MapNode.counts` keys it.
+    // A level ID, as `MapNode.counts` keys it.
     readonly level: string;
     readonly count: number;
   }[];
@@ -56,13 +51,13 @@ export function kindLabel(kind: string): string {
   return sanitize(short.replaceAll("_", " "));
 }
 
-function levelRank(level: string): number {
-  const i = LEVELS.indexOf(level as Level);
-  return i < 0 ? LEVELS.length : i;
-}
-
 /** The view's blocks, in the engine's order. */
 export function blocksOf(view: MapView): BlockRow[] {
+  const ladder = (view.levels ?? []).map((l) => l.id);
+  const levelRank = (level: string): number => {
+    const i = ladder.indexOf(level);
+    return i < 0 ? ladder.length : i;
+  };
   return view.nodes.map((node) => {
     const counts = Object.entries(node.counts)
       .filter(([, count]) => count > 0)

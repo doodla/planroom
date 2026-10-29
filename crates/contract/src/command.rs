@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::envelope::{CommandName, Cursor, Empty, Handle};
 use crate::errors::ErrorCode;
-use crate::model::{Level, NodeId, Seq};
+use crate::model::{LevelId, NodeId, Seq};
 use crate::plan::{IntentListReq, IntentNewReq, IntentVersionReq};
 use crate::requests::{AskReq, EditReq, FindReq, LintReq, ProposeReq, ReviewReq};
 use crate::view::MapView;
@@ -802,9 +802,9 @@ pub enum Detail {
 /// `planroom map [--level L] [--lens X] [--focus ID] [--detail summary|graph] [--cursor C]`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct MapReq {
-    /// The level to show; the top level when absent.
-    #[arg(long, value_enum)]
-    pub level: Option<Level>,
+    /// The level to show, an ID `ask` lists; the top level when absent.
+    #[arg(long, value_name = "LEVEL", value_parser = <LevelId as std::str::FromStr>::from_str)]
+    pub level: Option<LevelId>,
     /// The lens; `all` lifts every relation kind.
     #[arg(long)]
     pub lens: Option<String>,
@@ -1317,7 +1317,7 @@ mod tests {
 
     #[test]
     fn a_command_travels_as_its_name_and_args() {
-        let cmd = Command::Map(MapReq { level: Some(Level::Container), ..MapReq::default() });
+        let cmd = Command::Map(MapReq { level: Some(LevelId::from("container")), ..MapReq::default() });
         let json = serde_json::to_value(&cmd).unwrap();
         assert_eq!(
             json,
@@ -1331,7 +1331,7 @@ mod tests {
     #[test]
     fn requests_parse_from_cli_flags() {
         let map: MapReq = parse(&["--level", "container", "--detail", "graph"]);
-        assert_eq!(map.level, Some(Level::Container));
+        assert_eq!(map.level, Some(LevelId::from("container")));
         assert_eq!(map.detail, Detail::Graph);
         let scan: ScanReq = parse(&["ws", "--base", "12", "--project", "plan:checkout:retries"]);
         assert_eq!(scan.dir.as_deref(), Some("ws"));

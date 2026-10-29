@@ -10,9 +10,10 @@ use std::path::Path;
 
 use planroom_contract::EventBody;
 use planroom_contract::{
-    CommandName, Crumb, DriftLine, Focus, FocusDetail, FocusReq, Handle, Level, MiniBlock, MiniMap, NodeId,
-    PaneModel, Progress, ScanState, Seq, Warning, WarningCode,
+    CommandName, Crumb, DriftLine, Focus, FocusDetail, FocusReq, Handle, MiniBlock, MiniMap, NodeId,
+    PaneModel, Progress, ScanState, Seq, Vocabulary, Warning, WarningCode,
 };
+use planroom_kernel::ladder::Ladder;
 use planroom_store::{Snapshot, Store};
 use serde_json::json;
 
@@ -55,7 +56,7 @@ fn whole_detail(cwd: &Path) -> Result<Paged<PaneModel>, AppError> {
         return Ok(Paged::whole(reply));
     }
     let dirty = Dirty::of_root(&root);
-    reply.text = text_of(&reply.result, dirty.line());
+    reply.text = text_of(&reply.result, dirty.line(), crate::packs::vocabulary()?);
     Ok(Paged { dirty, ..Paged::whole(reply) })
 }
 
@@ -75,7 +76,7 @@ pub fn reply_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<R
     if let Some(open) = cards::open_trust(snapshot)? {
         warnings.push(cards::untrusted_warning(&open.event.id, &open.card));
     }
-    Ok(Reply { text: text_of(&pane, None), result: pane, seq, warnings })
+    Ok(Reply { text: text_of(&pane, None, crate::packs::vocabulary()?), result: pane, seq, warnings })
 }
 
 /// A `partial_scan` warning for each repo whose active snapshot's scan left files uncovered: the
@@ -111,7 +112,9 @@ fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneMo
     let seq = snapshot.seq();
     let view = map::top_in(snapshot, root, None)?;
     let next = next_in(snapshot)?;
-    let folded = live::folded(snapshot, crate::packs::vocabulary()?)?;
+    let vocabulary = crate::packs::vocabulary()?;
+    let top = Ladder::of(vocabulary).top().clone();
+    let folded = live::folded(snapshot, vocabulary)?;
     let (decision, more_decisions) = cards::face_up(snapshot, &folded)?;
     let since = clock::rfc3339(clock::unix_micros().saturating_sub(PRESENT_FOR_MICROS));
     let mut who = store.presence_since(&planroom_contract::Timestamp(since))?;
@@ -131,7 +134,7 @@ fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneMo
     let mut pane = PaneModel {
         focus: Focus {
             breadcrumb: vec![workspace_crumb(root)],
-            level: Level::System,
+            level: top.clone(),
             lens: view.lens.clone(),
             project: None,
             seq,
@@ -143,7 +146,7 @@ fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneMo
         drift: no_drift(),
         who,
         next,
-        minimap: Some(MiniMap { level: Level::System, blocks, edges }),
+        minimap: Some(MiniMap { level: top, blocks, edges }),
         empty: None,
     };
     // A top with no blocks is the map's own empty state, never "0 at the top".
@@ -201,11 +204,13 @@ fn no_drift() -> DriftLine {
 /// repos git can read, or, when it can read none, a check again: never a scan that can't map.
 fn not_a_workspace(dir: &Path) -> Result<Reply<PaneModel>, AppError> {
     let empty = map::scan_empty(dir, &workspace::scannable(dir));
+    let vocabulary = crate::packs::vocabulary()?;
+    let top = Ladder::of(vocabulary).top().clone();
     let pane = PaneModel {
         focus: Focus {
             breadcrumb: vec![],
-            level: Level::System,
-            lens: map::lens::default_id(crate::packs::vocabulary()?),
+            level: top.clone(),
+            lens: map::lens::default_id(vocabulary),
             project: None,
             seq: 0,
         },
@@ -216,15 +221,15 @@ fn not_a_workspace(dir: &Path) -> Result<Reply<PaneModel>, AppError> {
         drift: no_drift(),
         who: vec![],
         next: empty.next.clone(),
-        minimap: Some(MiniMap { level: Level::System, blocks: vec![], edges: vec![] }),
+        minimap: Some(MiniMap { level: top, blocks: vec![], edges: vec![] }),
         empty: Some(empty),
     };
-    Ok(Reply { text: text_of(&pane, None), result: pane, seq: 0, warnings: vec![] })
+    Ok(Reply { text: text_of(&pane, None, vocabulary), result: pane, seq: 0, warnings: vec![] })
 }
 
 /// The pane as text: where you are, the top's blocks, the repos with uncommitted work when there
-/// are any, the drift line and the next action.
-fn text_of(pane: &PaneModel, dirty: Option<String>) -> String {
+/// are any, the drift line and the next action. The pane shows the ladder's top, by its label.
+fn text_of(pane: &PaneModel, dirty: Option<String>, vocabulary: &Vocabulary) -> String {
     if let Some(empty) = &pane.empty {
         return empty.line.clone().unwrap_or_else(|| empty.next.label.clone());
     }
@@ -234,7 +239,12 @@ fn text_of(pane: &PaneModel, dirty: Option<String>) -> String {
     [
         text::get(
             "focus.summary",
-            &[("name", &name), ("level", &"system"), ("lens", &pane.focus.lens), ("seq", &seq)],
+            &[
+                ("name", &name),
+                ("level", &map::label_of(&Ladder::of(vocabulary), &pane.focus.level)),
+                ("lens", &pane.focus.lens),
+                ("seq", &seq),
+            ],
         ),
         text::get("focus.blocks", &[("count", &blocks.len()), ("names", &blocks.join(", "))]),
     ]
@@ -264,7 +274,7 @@ mod tests {
     fn drop_block_pops_the_last_block_and_its_edges() {
         let mut pane = not_a_workspace(Path::new("/nonexistent/for/the/focus/test")).unwrap().result;
         pane.minimap = Some(MiniMap {
-            level: Level::System,
+            level: "system".into(),
             blocks: (0..3).map(block).collect(),
             edges: vec![edge(0, 1), edge(1, 2), edge(2, 0)],
         });

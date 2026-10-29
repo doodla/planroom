@@ -46,7 +46,8 @@ use planroom_contract::{
 use planroom_kernel::cas::{self, Authority, Check, Proposed};
 use planroom_kernel::fold::Writer;
 use planroom_kernel::keys;
-use planroom_kernel::{redact, tree};
+use planroom_kernel::ladder::Ladder;
+use planroom_kernel::redact;
 use planroom_store::{NewEvent, Planned, Store};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -446,17 +447,22 @@ fn answer(root: &Path, command: &str, request: Value) -> Answer {
             .details(json!({"field": "command"}));
         return failed(handle, e);
     }
+    let bare = || Handle { command: CommandName("map".into()), args: vec![], label: "map".into() };
     let req: MapReq = match serde_json::from_value(request) {
         Ok(req) => req,
         Err(e) => {
-            let handle = Handle { command: CommandName("map".into()), args: vec![], label: "map".into() };
+            let handle = bare();
             let what = text::get("import.bad_request", &[("command", &"map"), ("why", &e)]);
             let e = AppError::new(ErrorCode::InvalidArgument, &[("what", &what)])
                 .details(json!({"field": "request"}));
             return failed(handle, e);
         }
     };
-    let handle = map_handle(&req);
+    let vocabulary = match crate::packs::vocabulary() {
+        Ok(vocabulary) => vocabulary,
+        Err(e) => return failed(bare(), e),
+    };
+    let handle = map_handle(&req, &Ladder::of(vocabulary));
     // The answer is the map's page, as the CLI gives it: within the leaf's budget, with the cursor
     // of the page after it, which a read request passes back as its `cursor`, and the reply's
     // warnings, such as `stale_page` for a cursor from a map that has moved on.
@@ -491,11 +497,12 @@ fn answer(root: &Path, command: &str, request: Value) -> Answer {
     }
 }
 
-/// The handle that asks for a map: `map` with the request's flags.
-fn map_handle(req: &MapReq) -> Handle {
+/// The handle that asks for a map: `map` with the request's flags, labelled with the level it
+/// shows, the ladder's top when it names none.
+fn map_handle(req: &MapReq, ladder: &Ladder<'_>) -> Handle {
     let mut args = Vec::new();
-    if let Some(level) = req.level {
-        args.extend(["--level".to_owned(), tree::level_name(level).to_owned()]);
+    if let Some(level) = &req.level {
+        args.extend(["--level".to_owned(), level.as_str().to_owned()]);
     }
     if let Some(lens) = &req.lens {
         args.extend(["--lens".to_owned(), lens.clone()]);
@@ -506,7 +513,7 @@ fn map_handle(req: &MapReq) -> Handle {
     if let Some(cursor) = &req.cursor {
         args.extend(["--cursor".to_owned(), cursor.0.clone()]);
     }
-    let level = tree::level_name(req.level.unwrap_or(planroom_contract::Level::System));
+    let level = map::label_of(ladder, req.level.as_ref().unwrap_or_else(|| ladder.top()));
     Handle {
         command: CommandName("map".into()),
         args,
@@ -701,6 +708,8 @@ fn unackable(path: &str, reason: String) -> Outcome {
 
 #[cfg(test)]
 mod tests {
+    use planroom_contract::Vocabulary;
+
     use super::*;
 
     #[test]
@@ -714,11 +723,10 @@ mod tests {
 
     #[test]
     fn a_map_handle_names_its_flags() {
-        let req = MapReq {
-            level: Some(planroom_contract::Level::Container),
-            detail: Detail::Graph,
-            ..MapReq::default()
-        };
-        assert_eq!(map_handle(&req).args, ["--level", "container", "--detail", "graph"]);
+        let req = MapReq { level: Some("container".into()), detail: Detail::Graph, ..MapReq::default() };
+        assert_eq!(
+            map_handle(&req, &Ladder::of(&Vocabulary::default())).args,
+            ["--level", "container", "--detail", "graph"]
+        );
     }
 }

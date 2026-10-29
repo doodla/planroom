@@ -48,8 +48,8 @@ Shared instructions for coding agents (and people) working on Planroom, a shared
 - `boundaries.toml` is the single source of the boundary rules for Rust, TypeScript and packs. `cargo xtask check boundaries` enforces the Rust side and `cargo xtask gen` writes `.dependency-cruiser.cjs` for the TypeScript side.
 - Library crates depend only on `planroom-contract`; only `planroom` composes them; `planroom-testkit` is a dev-dependency only.
 - Every shipped crate depends only on the third-party crates its `external_allow` in `boundaries.toml` lists. Of the shipped crates, only `planroom-models` and `planroom` (the server) may open a socket; the others' generated `clippy.toml` refuses `std::net`.
-- The kernel is domain-free: no I/O in any target, its tests included, and none in `planroom-contract`, its one workspace dependency; and no built-in pack kind or relation name in the string literals of either: none with its `<pack>.` prefix, and no bare one outside `kernel_vocabulary` in `boundaries.toml`. A test that reads pack files goes in `crates/planroom/tests/`.
-- `packages/ui`, `canvas` and `mod` name no built-in kind or lens ID; a surface styles a block from the view model's `tone`.
+- The kernel is domain-free: no I/O in any target, its tests included, and none in `planroom-contract`, its one workspace dependency; and no built-in pack kind or relation name in the string literals of either: none with its `<pack>.` prefix, and no bare one outside `kernel_vocabulary` in `boundaries.toml`, and, outside tests, no built-in pack's level ID but where `boundaries.toml`'s `level_words` lists it. A test that reads pack files goes in `crates/planroom/tests/`.
+- `packages/ui`, `canvas` and `mod` name no built-in kind, lens or level ID; a surface styles a block from the view model's `tone` and takes the levels from the view model.
 - Each TypeScript package imports only the third-party packages that `boundaries.toml` lists for it.
 - Only `packages/mod` imports `claude-code`, the mod API types, and only `boundaries.toml`'s `golden_readers` (the mod's tests and the e2e stand-in) read `tests/golden/*.json`, by an import or a string literal naming the path [DR-102].
 - Packs depend inward: a built-in pack requires `code` or nothing; an out-of-tree pack may require any built-in pack, never another out-of-tree pack.
@@ -104,6 +104,7 @@ This section is the conventions' only home; `docs/contributing/repo-layout.md` l
 | a cross-repo join                  | a linker in `crates/extract/src/link/`, plus a `[[linkers]]` declaration                                            |
 | a question                         | `[[questions]]` in a pack, as a pipeline of existing shapes                                                         |
 | a query shape                      | the kernel, with a decision record naming the two packs that need it                                                |
+| a level                            | `[[levels]]` in a pack, `below` a level the pack can see                                                            |
 | a decision kind                    | `[[decisions]]` in a pack with its `stakes` and `default`, plus `evals/`; a kernel role only with a decision record |
 | a command                          | a `Command` variant with its `CommandSpec`, its undo class, and one handler in `crates/planroom/src/app/`           |
 | a canvas view                      | `packages/canvas/src/views/`, reached from one of the five concepts                                                 |

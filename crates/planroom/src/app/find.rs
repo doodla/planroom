@@ -19,7 +19,8 @@ use planroom_contract::{
     Command, CommandName, Empty, EmptyReason, FindItem, FindReq, FindResult, Handle, Node, Seq, Warning,
     WarningCode,
 };
-use planroom_kernel::{find, tree};
+use planroom_kernel::find;
+use planroom_kernel::ladder::Ladder;
 use planroom_store::Store;
 use serde_json::json;
 
@@ -53,8 +54,9 @@ pub fn run(req: &FindReq, cwd: &Path) -> Result<Reply<FindResult>, AppError> {
     if snapshot.active_set()?.repos.is_empty() {
         return Ok(not_scanned(&root, seq));
     }
-    let model = live::model(&snapshot, crate::packs::vocabulary()?)?;
-    let hits = find::find(&model.nodes, &req.text);
+    let vocabulary = crate::packs::vocabulary()?;
+    let model = live::model(&snapshot, vocabulary)?;
+    let hits = find::find(&model.nodes, &Ladder::of(vocabulary), &req.text);
     if hits.is_empty() {
         return Ok(no_match(&req.text, seq));
     }
@@ -147,8 +149,7 @@ fn sent_tokens(result: &FindResult) -> usize {
 
 /// One match with its handles: where it sits on the map, then what lies under it.
 fn item(node: &Node, present: &HashSet<&str>, parents: &HashSet<&str>) -> FindItem {
-    let level = tree::level_name(node.level).to_owned();
-    let mut show = vec!["--level".to_owned(), level];
+    let mut show = vec!["--level".to_owned(), node.level.as_str().to_owned()];
     if let Some(parent) = node.parent.as_ref().filter(|p| present.contains(p.0.as_str())) {
         show.extend(["--focus".to_owned(), parent.0.clone()]);
     }
@@ -164,7 +165,7 @@ fn item(node: &Node, present: &HashSet<&str>, parents: &HashSet<&str>) -> FindIt
     FindItem {
         id: node.id.clone(),
         name: node.name.clone(),
-        level: node.level,
+        level: node.level.clone(),
         kind: node.kind.clone(),
         handles,
     }
@@ -198,7 +199,7 @@ fn empty_reply(empty: Empty, seq: Seq) -> Reply<FindResult> {
 
 #[cfg(test)]
 mod tests {
-    use planroom_contract::{Kind, Level, NodeId};
+    use planroom_contract::{Kind, NodeId};
 
     use super::*;
 
@@ -206,7 +207,7 @@ mod tests {
         FindItem {
             id: NodeId(id.into()),
             name: name.into(),
-            level: Level::Code,
+            level: "code".into(),
             kind: Kind("test.file".into()),
             handles: handles
                 .iter()

@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use planroom_contract::{
-    Edit, EventId, Kind, Layer, Level, Node, NodeId, Op, PlanProposal, Provenance, Ref, Seq, StageDecl,
+    Edit, EventId, Kind, Layer, LevelId, Node, NodeId, Op, PlanProposal, Provenance, Ref, Seq, StageDecl,
     Target,
 };
 use serde_json::{Value, json};
@@ -102,7 +102,7 @@ pub fn key_ok(key: &str) -> bool {
 pub fn project_put(id: &NodeId, name: &str, base: Seq) -> Edit {
     let fields = BTreeMap::from([
         ("kind".to_owned(), json!(PROJECT_KIND)),
-        ("level".to_owned(), json!(Level::Intent)),
+        ("level".to_owned(), json!(LevelId::INTENT)),
         ("name".to_owned(), json!(name)),
     ]);
     Edit {
@@ -327,7 +327,7 @@ pub fn edits_for(
                 }
                 let fields = BTreeMap::from([
                     ("kind".to_owned(), json!(ITEM_KIND)),
-                    ("level".to_owned(), json!(Level::Intent)),
+                    ("level".to_owned(), json!(LevelId::INTENT)),
                     ("name".to_owned(), json!(item.name)),
                     ("parent".to_owned(), json!(parent)),
                     ("props".to_owned(), Value::Object(props)),

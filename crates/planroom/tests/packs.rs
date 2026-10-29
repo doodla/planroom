@@ -133,6 +133,278 @@ fn every_pack_validates() {
 }
 
 #[test]
+fn the_code_pack_declares_the_c4_ladder() {
+    let loaded = with_builtins(vec![]).expect("the built-in packs load");
+    let levels: Vec<(&str, &str, &str, &str, bool, &str)> = loaded
+        .vocabulary
+        .levels
+        .iter()
+        .map(|l| (l.id.as_str(), l.label.as_str(), l.one.as_str(), l.many.as_str(), l.apart, l.pack.as_str()))
+        .collect();
+    assert_eq!(
+        levels,
+        vec![
+            ("intent", "intent", "{count} plan item", "{count} plan items", true, "kernel"),
+            ("system", "system", "{count} system", "{count} systems", false, "code"),
+            ("container", "container", "{count} container", "{count} containers", false, "code"),
+            ("component", "component", "{count} component", "{count} components", false, "code"),
+            ("code", "code", "{count} code block", "{count} code blocks", false, "code"),
+        ]
+    );
+}
+
+/// A `[[levels]]` table: from the manifest's line 7, its header, `id` (8), `label` (9), `one`
+/// (10), `many` (11), `below` (12) when given, and a blank line.
+fn level(id: &str, below: Option<&str>) -> String {
+    let below = below.map(|b| format!("below = \"{b}\"\n")).unwrap_or_default();
+    format!(
+        "[[levels]]\nid = \"{id}\"\nlabel = \"{id}\"\none = \"{{count}} {id}\"\nmany = \"{{count}} {id}s\"\n{below}\n"
+    )
+}
+
+/// The set is refused as `pack_invalid` at `line`, naming `reference` and saying `says`.
+fn assert_refused_at(
+    result: Result<packs::Loaded, planroom::app::error::AppError>,
+    reference: &str,
+    says: &str,
+    line: usize,
+) {
+    let (code, message, details) = refused(result);
+    assert_eq!(code, "pack_invalid", "{message}");
+    assert_eq!(details["reference"], reference, "{message}");
+    assert!(message.contains(says), "{message}");
+    assert_eq!(details["line"], line, "{message}");
+}
+
+/// The line of the code pack's manifest that holds `text`, from 1.
+fn code_line(text: &str) -> usize {
+    code_manifest().lines().position(|l| l.contains(text)).expect("the code pack holds the text") + 1
+}
+
+/// The ladder a set loads: each level's ID and the pack that declares it.
+fn ladder(loaded: &packs::Loaded) -> Vec<(&str, &str)> {
+    loaded.vocabulary.levels.iter().map(|l| (l.id.as_str(), l.pack.as_str())).collect()
+}
+
+#[test]
+fn a_pack_declaring_intent_is_pack_invalid() {
+    let says = "intent is the kernel's own level, the plan's, so no pack declares it";
+    let zones = source(Origin::OutOfTree, "zones", &["code"], &level("intent", Some("container")));
+    assert_refused_at(with_builtins(vec![zones]), "intent", says, 8);
+    // The base pack can't declare it either.
+    let at = code_line("id = \"system\"");
+    let edited = with_code_pack_edited("[[levels]]\nid = \"system\"", "[[levels]]\nid = \"intent\"");
+    assert_refused_at(edited, "intent", says, at);
+}
+
+#[test]
+fn only_the_base_pack_declares_the_ladder() {
+    // The base pack lists its ladder top first, with no `below`.
+    let many = "many = \"{count} containers\"\n";
+    let at = code_line(many.trim_end()) + 1;
+    let edited = with_code_pack_edited(many, &format!("{many}below = \"system\"\n"));
+    assert_refused_at(edited, "system", "container can't sit below system", at);
+    // Every other pack says where each of its levels goes.
+    let zones = source(Origin::OutOfTree, "zones", &["code"], &level("zone", None));
+    assert_refused_at(with_builtins(vec![zones]), "zone", "zone can't sit below intent", 8);
+    let builtin = source(Origin::BuiltIn, "zones", &["code"], &level("zone", None));
+    assert_refused_at(with_builtins(vec![builtin]), "zone", "zone can't sit below intent", 8);
+}
+
+#[test]
+fn a_pack_inserts_a_level_below_one_it_can_see() {
+    // A pack may chain a second level below its first, and another may put one below `system`,
+    // though the base ladder's own `container` sits there.
+    let zones = level("zone", Some("container")) + &level("room", Some("zone"));
+    let zones = source(Origin::OutOfTree, "zones", &["code"], &zones);
+    let regions = source(Origin::OutOfTree, "regions", &["code"], &level("region", Some("system")));
+    let loaded = with_builtins(vec![zones, regions]).expect("levels below ones each pack can see load");
+    assert_eq!(
+        ladder(&loaded),
+        [
+            ("intent", "kernel"),
+            ("system", "code"),
+            ("region", "regions"),
+            ("container", "code"),
+            ("zone", "zones"),
+            ("room", "zones"),
+            ("component", "code"),
+            ("code", "code"),
+        ]
+    );
+    // A level of a pack it requires is one it can see.
+    let observability =
+        || source(Origin::BuiltIn, "observability", &["code"], &level("zone", Some("container")));
+    let alerts =
+        source(Origin::OutOfTree, "alerts", &["code", "observability"], &level("pager", Some("zone")));
+    let loaded = with_builtins(vec![observability(), alerts]).expect("a required pack's level is visible");
+    let ids: Vec<&str> = ladder(&loaded).into_iter().map(|(id, _)| id).collect();
+    assert_eq!(ids, ["intent", "system", "container", "zone", "pager", "component", "code"]);
+    // A level of a pack it doesn't require is not.
+    let alerts = source(Origin::OutOfTree, "alerts", &["code"], &level("pager", Some("zone")));
+    assert_refused_at(with_builtins(vec![observability(), alerts]), "zone", "pager can't sit below zone", 12);
+    // Nor is its own level declared after the one that names it.
+    let ahead = level("pager", Some("zone")) + &level("zone", Some("container"));
+    let ahead = source(Origin::OutOfTree, "ahead", &["code"], &ahead);
+    assert_refused_at(with_builtins(vec![ahead]), "zone", "pager can't sit below zone", 12);
+}
+
+#[test]
+fn two_inserted_levels_below_one_level_are_pack_invalid() {
+    // Two packs.
+    let areas = source(Origin::OutOfTree, "areas", &["code"], &level("zone", Some("container")));
+    let rooms = source(Origin::OutOfTree, "rooms", &["code"], &level("room", Some("container")));
+    assert_refused_at(with_builtins(vec![areas, rooms]), "container", "room can't sit below container", 12);
+    // One pack.
+    let both = level("zone", Some("container")) + &level("room", Some("container"));
+    let both = source(Origin::OutOfTree, "both", &["code"], &both);
+    assert_refused_at(with_builtins(vec![both]), "container", "room can't sit below container", 19);
+}
+
+#[test]
+fn a_level_below_the_base_packs_finest_is_pack_invalid() {
+    let says = "never below code, the base pack's finest";
+    let deep = source(Origin::OutOfTree, "deep", &["code"], &level("line", Some("code")));
+    assert_refused_at(with_builtins(vec![deep]), "code", says, 12);
+    let high = source(Origin::OutOfTree, "high", &["code"], &level("realm", Some("intent")));
+    assert_refused_at(with_builtins(vec![high]), "intent", "realm can't sit below intent", 12);
+}
+
+#[test]
+fn a_ladder_over_eight_levels_below_intent_is_pack_invalid() {
+    // A chain of `n` levels below `system`, each below the one before.
+    let chain = |n: usize| -> String {
+        (0..n)
+            .map(|k| {
+                let below = if k == 0 { "system".to_owned() } else { format!("tier{}", k - 1) };
+                level(&format!("tier{k}"), Some(&below))
+            })
+            .collect()
+    };
+    let tiers = source(Origin::OutOfTree, "tiers", &["code"], &chain(4));
+    let loaded = with_builtins(vec![tiers]).expect("8 levels below intent load");
+    assert_eq!(loaded.vocabulary.levels.len(), 9);
+    let tiers = source(Origin::OutOfTree, "tiers", &["code"], &chain(5));
+    let says =
+        "the ladder would hold 9 levels below intent; it holds at most 8 levels below intent, 9 in all";
+    assert_refused_at(with_builtins(vec![tiers]), "tier4", says, 8 + 7 * 4);
+}
+
+#[test]
+fn a_levels_words_hold_the_count_once() {
+    let words = |label: &str, one: &str, many: &str| {
+        let body = format!(
+            "[[levels]]\nid = \"zone\"\nlabel = \"{label}\"\none = \"{one}\"\nmany = \"{many}\"\nbelow = \"container\"\n"
+        );
+        with_builtins(vec![source(Origin::OutOfTree, "zones", &["code"], &body)])
+    };
+    // A label of 32 characters, and words of 48 holding the count once, load.
+    let long_one = format!("{{count}} {}", "o".repeat(40));
+    words(&"l".repeat(32), &long_one, "{count} zones").expect("the longest words load");
+    let says =
+        "the level zone needs a label of 1 to 32 characters, and one and many of at most 48 characters";
+    assert_refused_at(words("", "{count} zone", "{count} zones"), "", says, 9);
+    let label = "l".repeat(33);
+    assert_refused_at(words(&label, "{count} zone", "{count} zones"), &label, says, 9);
+    assert_refused_at(words("zone", "a zone", "{count} zones"), "a zone", says, 10);
+    let twice = "{count} of {count}";
+    assert_refused_at(words("zone", "{count} zone", twice), twice, says, 11);
+    let over = format!("{{count}} {}", "o".repeat(41));
+    assert_refused_at(words("zone", &over, "{count} zones"), &over, says, 10);
+}
+
+#[test]
+fn a_kind_lens_or_suggestion_at_a_level_its_pack_cannot_see_is_pack_invalid() {
+    let observability =
+        || source(Origin::BuiltIn, "observability", &["code"], &level("zone", Some("container")));
+    // From the manifest's line 7: the header, `id`, `id_prefix`, `level` (10), `label`.
+    let kind = |level: &str| {
+        format!("[[kinds]]\nid = \"probe\"\nid_prefix = \"probe\"\nlevel = \"{level}\"\nlabel = \"Probe\"\n")
+    };
+    // A kind at a level of a pack it requires, or at its own, loads.
+    let probes = source(Origin::OutOfTree, "probes", &["code", "observability"], &kind("zone"));
+    with_builtins(vec![observability(), probes]).expect("a required pack's level");
+    let own = level("bay", Some("component")) + &kind("bay");
+    with_builtins(vec![source(Origin::OutOfTree, "bays", &["code"], &own)]).expect("its own level");
+    // A level of a pack it doesn't require, or of none.
+    let says =
+        "isn't a level this pack can see: intent, the base pack's, its own, or a level of a pack it requires";
+    let probes = source(Origin::OutOfTree, "probes", &["code"], &kind("zone"));
+    assert_refused_at(with_builtins(vec![observability(), probes]), "zone", says, 10);
+    let probes = source(Origin::OutOfTree, "probes", &["code"], &kind("galaxy"));
+    assert_refused_at(with_builtins(vec![probes]), "galaxy", "galaxy isn't a level", 10);
+    // A lens's level: from line 7, the header, `id`, `label`, `relations`, `level` (11).
+    let lens = |level: &str| {
+        format!(
+            "[[lenses]]\nid = \"far\"\nlabel = \"Far\"\nrelations = [\"code.http\"]\nlevel = \"{level}\"\n"
+        )
+    };
+    let far = source(Origin::OutOfTree, "far", &["code"], &lens("galaxy"));
+    assert_refused_at(with_builtins(vec![far]), "galaxy", says, 11);
+    let far = source(Origin::OutOfTree, "far", &["code", "observability"], &lens("zone"));
+    with_builtins(vec![observability(), far]).expect("a lens at a required pack's level");
+    // A suggestion's `map --level`: its action is on line 9.
+    let suggestion = |level: &str| {
+        format!(
+            "[[suggestions]]\ntext = \"Look\"\naction = {{ command = \"map\", args = [\"--level\", \"{level}\"] }}\npriority = 1\n"
+        )
+    };
+    let look = source(Origin::OutOfTree, "look", &["code"], &suggestion("galaxy"));
+    assert_refused_at(with_builtins(vec![look]), "galaxy", says, 9);
+    let look = source(Origin::OutOfTree, "look", &["code"], &suggestion("zone"));
+    assert_refused_at(with_builtins(vec![observability(), look]), "zone", says, 9);
+    let look = source(Origin::OutOfTree, "look", &["code", "observability"], &suggestion("zone"));
+    with_builtins(vec![observability(), look]).expect("a suggestion at a required pack's level");
+}
+
+#[test]
+fn container_prefix_kinds_share_one_level_and_every_kind_there_uses_it() {
+    // From the manifest's line 7: the header, `id`, `id_prefix` (9), `level`, `label`.
+    let kind = |id: &str, prefix: &str, level: &str| {
+        format!(
+            "[[kinds]]\nid = \"{id}\"\nid_prefix = \"{prefix}\"\nlevel = \"{level}\"\nlabel = \"{id}\"\n\n"
+        )
+    };
+    let pack = |body: &str| with_builtins(vec![source(Origin::OutOfTree, "boxes", &["code"], body)]);
+    let at_containers = "the level of the kinds that use container, the kernel's prefix for containers";
+    assert_refused_at(
+        pack(&kind("box", "box", "container")),
+        "box",
+        &format!("boxes.box sits at container, {at_containers}, so its id_prefix must be container"),
+        9,
+    );
+    assert_refused_at(
+        pack(&kind("crate", "container", "component")),
+        "container",
+        &format!("boxes.crate doesn't sit at container, {at_containers}, so it can't use container"),
+        9,
+    );
+    // An inserted level is another level: a kind there can't use the prefix.
+    let inserted = level("zone", Some("container")) + &kind("site", "container", "zone");
+    assert_refused_at(pack(&inserted), "container", "boxes.site doesn't sit at container", 16);
+    // An image role names a kind that uses the prefix.
+    let role = "[[image_roles]]\nimage = \"grafana*\"\nrole = \"dashboards\"\nkind = \"code.file\"\n";
+    assert_refused_at(
+        pack(role),
+        "code.file",
+        "the image role grafana* names code.file, which doesn't use container, the kernel's prefix for containers",
+        10,
+    );
+    // The containers' level is the level of the kinds that use the prefix, whichever that is.
+    let first = code_line("level = \"component\"");
+    let lines: Vec<String> = code_manifest().lines().map(str::to_owned).collect();
+    let prefix_at = (0..first).rev().find(|&i| lines[i].starts_with("id_prefix = ")).expect("its id_prefix");
+    let prefix = lines[prefix_at].trim_start_matches("id_prefix = ").trim_matches('"').to_owned();
+    let moved = with_code_pack_edited("level = \"container\"", "level = \"component\"");
+    assert_refused_at(
+        moved,
+        &prefix,
+        "sits at component, the level of the kinds that use container",
+        prefix_at + 1,
+    );
+}
+
+#[test]
 fn requires_is_inward_only() {
     // A built-in pack requires `code` or nothing: one that requires another built-in is refused.
     let observability = source(Origin::BuiltIn, "observability", &["code"], "");
@@ -214,7 +486,7 @@ fn id_prefixes_are_owned_by_one_pack() {
     // The code pack owns `file`; another pack can't take it.
     let dir = pack_dir(tmp.path(), "docs", &["code"], &kind("page", "file", "code"));
     assert_invalid(&doctor(&dir), "file", "already owned by the code pack");
-    // Every Container-level kind uses the kernel's `container`, and only those do.
+    // Every kind at the `container` level uses the kernel's `container`, and only those do.
     let dir = pack_dir(tmp.path(), "boxes", &["code"], &kind("box", "box", "container"));
     assert_invalid(&doctor(&dir), "box", "must be container");
     let dir = pack_dir(tmp.path(), "crates", &["code"], &kind("crate", "container", "component"));
@@ -918,7 +1190,7 @@ fn a_literal_id_whose_kind_short_no_kind_in_scope_declares_is_pack_invalid() {
         )
     };
     // A kind-short that is the id_prefix of a kind in scope loads: the code pack's, and the
-    // kernel's prefix every Container-level kind shares.
+    // kernel's prefix every kind at the `container` level shares.
     let env = doctor(&pack_dir(tmp.path(), "linked", &["code"], &edge("web:file:src/$1.ts")));
     assert_eq!(env["ok"], true, "{env}");
     let env = doctor(&pack_dir(tmp.path(), "hosted", &["code"], &edge("ws:container:$1")));
@@ -1287,8 +1559,8 @@ fn a_suggestion_action_parses_as_the_cli_parses_it() {
         "the action map --bogus doesn't parse as the CLI parses it: unexpected argument",
     );
     assert_eq!(line(&env), 9, "the action's line: {env}");
-    let env = doctor(&pack("leveled", &["code"], "\"--level\", \"galaxy\""));
-    assert_invalid(&env, "map", "the action map --level galaxy doesn't parse as the CLI parses it");
+    let env = doctor(&pack("leveled", &["code"], "\"--level\", \"Galaxy\""));
+    assert_invalid(&env, "map", "the action map --level Galaxy doesn't parse as the CLI parses it");
     // The lens and the node ID it names are in scope.
     let env = doctor(&pack("blind", &["code"], "\"--lens\", \"flows\""));
     assert_invalid(&env, "flows", "no loaded pack declares the lens flows");

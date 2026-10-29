@@ -8,9 +8,10 @@
 //! level through `--lens all` (DR-21: no screen is blank).
 
 use planroom_contract::{
-    CommandName, Empty, EmptyReason, ErrorCode, Handle, Kind, Level, MapView, Vocabulary,
+    CommandName, Empty, EmptyReason, ErrorCode, Handle, Kind, LevelId, MapView, Vocabulary,
 };
-use planroom_kernel::{lens, tree};
+use planroom_kernel::ladder::Ladder;
+use planroom_kernel::lens;
 use serde_json::json;
 
 use crate::app::error::AppError;
@@ -43,8 +44,8 @@ pub fn asked(vocabulary: &Vocabulary, asked: Option<&str>) -> Result<String, App
 
 /// The level `--lens X` alone takes: the lens's own, for a lens the request names. The default
 /// lens and `all` keep the top of the map.
-pub fn level_of(vocabulary: &Vocabulary, asked: Option<&str>) -> Option<Level> {
-    lens::named(vocabulary, asked?).map(|l| l.level)
+pub fn level_of(vocabulary: &Vocabulary, asked: Option<&str>) -> Option<LevelId> {
+    lens::named(vocabulary, asked?).map(|l| l.level.clone())
 }
 
 /// The kinds the lens `lens` is about, whose blocks come first in a map's cut order and display
@@ -61,16 +62,18 @@ pub fn filter(view: MapView, vocabulary: &Vocabulary, lens: &str) -> MapView {
     let had = !view.nodes.is_empty();
     let mut view = lens::apply(view, vocabulary, lens::named(vocabulary, lens));
     if had && view.nodes.is_empty() && view.empty.is_none() {
-        view.empty = Some(shows_nothing(lens, &view));
+        view.empty = Some(shows_nothing(lens, &view, &Ladder::of(vocabulary)));
     }
     view
 }
 
 /// The empty state of a lens that leaves no block in `view`: the line names the lens and the
-/// level, and the next action shows the same blocks through `--lens all`.
-fn shows_nothing(lens: &str, view: &MapView) -> Empty {
-    let level = tree::level_name(view.level);
-    let mut args = vec!["--level".to_owned(), level.to_owned(), "--lens".to_owned(), ALL.to_owned()];
+/// level by its label, and the next action, by the level's ID, shows the same blocks through
+/// `--lens all`.
+fn shows_nothing(lens: &str, view: &MapView, ladder: &Ladder<'_>) -> Empty {
+    let level = super::label_of(ladder, &view.level);
+    let mut args =
+        vec!["--level".to_owned(), view.level.as_str().to_owned(), "--lens".to_owned(), ALL.to_owned()];
     if let Some(focus) = &view.focus {
         args.extend(["--focus".to_owned(), focus.0.clone()]);
     }

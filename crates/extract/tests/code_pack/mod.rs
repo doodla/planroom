@@ -37,7 +37,7 @@ pub fn load() -> CodePack {
         .iter()
         .map(|k| KindVocab {
             kind: qualify(&k.id),
-            level: k.level,
+            level: k.level.clone(),
             id_prefix: k.id_prefix.clone(),
             label: k.label.clone(),
             props: k.props.clone(),
@@ -67,7 +67,7 @@ pub fn load() -> CodePack {
         languages.extend(more.languages);
         extractors.extend(more.extractors);
     }
-    let vocabulary = Vocabulary { kinds, relations, lenses: vec![], suggestions: vec![] };
+    let vocabulary = Vocabulary { kinds, relations, lenses: vec![], suggestions: vec![], levels: vec![] };
     CodePack { dir, vocabulary, languages, extractors, hints }
 }
 

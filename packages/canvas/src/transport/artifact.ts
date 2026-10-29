@@ -91,16 +91,18 @@ export function browserArtifactEnv(): ArtifactEnv {
 
 /**
  * The view key a request names, as `Snapshot.capabilities` lists views: `map:<level>:<lens>`. A
- * map request that names no lens shows the default lens, `defaultLens`: the pane's lens.
+ * map request that names no lens shows the default lens, `defaultLens`: the pane's lens; one that
+ * names no level shows the top-level map, whose level is `topLevel`: the snapshot's top map's.
  */
 export function viewKey(
   command: string,
   request: object,
   defaultLens = "all",
+  topLevel = "",
 ): string {
   if (command === "map") {
     const r = request as { level?: string | null; lens?: string | null };
-    return `map:${r.level ?? "system"}:${r.lens ?? defaultLens}`;
+    return `map:${r.level ?? topLevel}:${r.lens ?? defaultLens}`;
   }
   return command === "focus" ? "pane" : command;
 }
@@ -123,9 +125,17 @@ export function artifactTransport(env: ArtifactEnv): Transport {
   /** Read requests written and not yet answered, by view key. */
   const asked = new Map<string, string>();
   const listeners = new Set<(frame: StreamFrame) => void>();
-  /** A request's view key: a map with no lens is the snapshot's default lens, the pane's. */
+  /**
+   * A request's view key: a map with no lens is the snapshot's default lens, the pane's, and one
+   * with no level is the snapshot's top map, which the snapshot holds first.
+   */
   const keyOf = (command: string, request: object): string =>
-    viewKey(command, request, snapshot?.pane.focus.lens);
+    viewKey(
+      command,
+      request,
+      snapshot?.pane.focus.lens,
+      snapshot?.maps[0]?.level,
+    );
 
   /** Tell the store to refetch: an answer arrived, the head moved, or the store came up. */
   const changed = () => {

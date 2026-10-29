@@ -71,7 +71,7 @@ impl Extractor for Files {
         let node = |id: NodeId, kind: &KindRef, parent, name: &str, props, evidence| Node {
             id,
             kind: Kind(kind.kind.clone()),
-            level: kind.level,
+            level: kind.level.clone(),
             parent,
             name: name.into(),
             aliases: vec![],

@@ -25,9 +25,10 @@ mod read;
 use std::collections::HashMap;
 use std::path::Path;
 
-use planroom_contract::{Command, Detail, Level, MapNode, MapReq, MapView, Vocabulary};
-use planroom_kernel::tree;
+use planroom_contract::{Command, Detail, ErrorCode, LevelId, MapNode, MapReq, MapView, Vocabulary};
+use planroom_kernel::ladder::Ladder;
 use planroom_store::{Snapshot, Store};
+use serde_json::json;
 
 use crate::app::error::AppError;
 use crate::app::workspace;
@@ -67,14 +68,19 @@ fn budget_tokens() -> u32 {
 fn run_within(req: &MapReq, cwd: &Path, budget: Option<u32>) -> Result<Paged<MapView>, AppError> {
     let vocabulary = crate::packs::vocabulary()?;
     let lens_id = lens::asked(vocabulary, req.lens.as_deref())?;
+    asked_level(vocabulary, req.level.as_ref())?;
     let level = level_of(req, vocabulary);
-    let whole = Paged::whole;
+    // The empty state carries the ladder too, so a surface can name the levels before a scan.
+    let whole = |mut reply: Reply<MapView>| {
+        with_ladder(&mut reply.result, req.detail, vocabulary);
+        Paged::whole(reply)
+    };
     // Outside a workspace, the same empty state `focus` shows (DR-57).
     let Some(root) = workspace::find_root(cwd) else {
-        return read::not_scanned(cwd, lens_id, level, 0).map(whole);
+        return read::not_scanned(cwd, lens_id, level, 0, vocabulary).map(whole);
     };
     let Some(store) = Store::open_existing(&workspace::store_path(&root))? else {
-        return read::not_scanned(&root, lens_id, level, 0).map(whole);
+        return read::not_scanned(&root, lens_id, level, 0, vocabulary).map(whole);
     };
     reply_in(&store.snapshot()?, &root, req, budget)
 }
@@ -88,9 +94,10 @@ fn reply_in(
 ) -> Result<Paged<MapView>, AppError> {
     let vocabulary = crate::packs::vocabulary()?;
     let lens_id = lens::asked(vocabulary, req.lens.as_deref())?;
+    asked_level(vocabulary, req.level.as_ref())?;
     let level = level_of(req, vocabulary);
     let seq = snapshot.seq();
-    let (mut view, under) = read::view(snapshot, root, level, req.focus.as_deref(), vocabulary)?;
+    let (mut view, under) = read::view(snapshot, root, level.clone(), req.focus.as_deref(), vocabulary)?;
     view.lens = lens_id.clone();
     let mut view = lens::filter(view, vocabulary, &lens_id);
     if view.empty.is_none() {
@@ -101,11 +108,13 @@ fn reply_in(
             Detail::Summary => view.edges.iter_mut().for_each(|e| e.evidence_sample.clear()),
         }
     }
+    with_ladder(&mut view, req.detail, vocabulary);
     // The page is cut from the view as the reply carries it, so it is measured as it is sent. The
     // level the lens defaults to is the level the page, its cursor and its drill-down name.
-    let req = MapReq { level, ..req.clone() };
-    let page = page::cut(view, &req, seq, budget, lens::kinds(vocabulary, &lens_id))?;
-    let mut text = text_of(&page.view, page.total, level, under.as_deref());
+    let req = MapReq { level: level.clone(), ..req.clone() };
+    let ladder = Ladder::of(vocabulary);
+    let page = page::cut(view, &req, seq, budget, lens::kinds(vocabulary, &lens_id), &ladder)?;
+    let mut text = text_of(&page.view, page.total, level.as_ref(), under.as_deref(), &ladder);
     for warning in &page.warnings {
         text.push('\n');
         text.push_str(&warning.message);
@@ -114,18 +123,80 @@ fn reply_in(
     Ok(Paged { next: page.next, ..Paged::whole(reply) })
 }
 
+/// The level a request names, checked: one the ladder holds, or none. A level no loaded pack
+/// declares is `invalid_argument` naming the levels by ID in ladder order, as an unknown lens is
+/// ([`lens::asked`]), before anything is read.
+pub(crate) fn asked_level(vocabulary: &Vocabulary, asked: Option<&LevelId>) -> Result<(), AppError> {
+    let Some(level) = asked else { return Ok(()) };
+    if Ladder::of(vocabulary).holds(level) {
+        return Ok(());
+    }
+    let known: Vec<&str> = vocabulary.levels.iter().map(|l| l.id.as_str()).collect();
+    let what =
+        text::get("argument.unknown_level", &[("level", &level.as_str()), ("known", &known.join(", "))]);
+    Err(AppError::new(ErrorCode::InvalidArgument, &[("what", &what)])
+        .details(json!({"field": "level", "levels": known})))
+}
+
+/// A graph reply carries the vocabulary's levels, `intent` first and then the ladder top to
+/// finest, so a surface names and steps through levels without naming one itself; a summary
+/// carries none.
+pub(crate) fn with_ladder(view: &mut MapView, detail: Detail, vocabulary: &Vocabulary) {
+    if detail == Detail::Graph {
+        view.levels = vocabulary.levels.clone();
+    }
+}
+
+/// `count` blocks at `level` in the ladder's words, its `one` or its `many`; a level the ladder
+/// doesn't hold reads `{count} {level}`.
+pub(crate) fn count_words(ladder: &Ladder<'_>, level: &str, count: u64) -> String {
+    match ladder.levels().iter().find(|l| l.id.as_str() == level) {
+        Some(l) => {
+            let words = if count == 1 { &l.one } else { &l.many };
+            text::fill(words, &[("count", &count)])
+        }
+        None => format!("{count} {}", planroom_kernel::display::sanitize(level)),
+    }
+}
+
+/// A block's counts as a line lists them: in ladder order, each in the ladder's words, and the
+/// keys the ladder doesn't hold last.
+fn counts_line(ladder: &Ladder<'_>, counts: &std::collections::BTreeMap<String, u32>) -> Vec<String> {
+    let mut keys: Vec<(&String, &u32)> = counts.iter().collect();
+    // A level the ladder doesn't hold ranks below its finest; the sort keeps those in key order.
+    keys.sort_by_key(|(level, _)| ladder.rank(&LevelId::from(level.as_str())));
+    keys.into_iter().map(|(level, count)| count_words(ladder, level, u64::from(*count))).collect()
+}
+
+/// The noun a level reads as in an engine line: its `label` on the ladder, else its ID.
+pub(crate) fn label_of(ladder: &Ladder<'_>, level: &LevelId) -> String {
+    ladder
+        .levels()
+        .iter()
+        .find(|l| l.id == *level)
+        .map_or_else(|| level.as_str().to_owned(), |l| l.label.clone())
+}
+
 /// The level a request shows: the one it names, or with `--lens X` alone and no `--focus`, the
 /// lens's own (DR-15). With neither, the top of the map.
-fn level_of(req: &MapReq, vocabulary: &Vocabulary) -> Option<Level> {
+fn level_of(req: &MapReq, vocabulary: &Vocabulary) -> Option<LevelId> {
     req.level
+        .clone()
         .or_else(|| req.focus.is_none().then(|| lens::level_of(vocabulary, req.lens.as_deref())).flatten())
 }
 
 /// The text mode's first line, which the envelope also carries as `summary`: the empty state's
 /// line, or what the map shows (the top, one level, or the blocks under one node) with the count
-/// and the first block names with their counts. `level` is the level the request named, and
-/// `under` the name of the node it focused on.
-fn text_of(view: &MapView, total: usize, level: Option<Level>, under: Option<&str>) -> String {
+/// and the first block names with their counts in the ladder's words. `level` is the level the
+/// request named, and `under` the name of the node it focused on; the line names the shown level
+/// by its label.
+fn text_of(
+    view: &MapView,
+    total: usize,
+    level: Option<&LevelId>,
+    under: Option<&str>,
+    ladder: &Ladder<'_>,
+) -> String {
     if let Some(empty) = &view.empty {
         return empty.line.clone().unwrap_or_else(|| empty.next.label.clone());
     }
@@ -136,8 +207,7 @@ fn text_of(view: &MapView, total: usize, level: Option<Level>, under: Option<&st
         .zip(shown)
         .take(SUMMARY_NAMES)
         .map(|(n, name)| {
-            let counts: Vec<String> =
-                n.counts.iter().map(|(level, count)| format!("{count} {level}")).collect();
+            let counts = counts_line(ladder, &n.counts);
             if counts.is_empty() { name } else { format!("{name} ({})", counts.join(", ")) }
         })
         .collect();
@@ -147,7 +217,7 @@ fn text_of(view: &MapView, total: usize, level: Option<Level>, under: Option<&st
     } else {
         text::get("map.more", &[("names", &listed.join("; ")), ("more", &more)])
     };
-    let at = tree::level_name(view.level);
+    let at = label_of(ladder, &view.level);
     match (under, level) {
         (Some(name), _) => text::get(
             "map.summary_under",
@@ -179,4 +249,103 @@ fn names(nodes: &[MapNode]) -> Vec<String> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use planroom_contract::{Kind, LevelVocab, NodeId};
+
+    use super::*;
+
+    /// An invented ladder whose inserted level's label differs from its ID: `zone`, read as
+    /// "service area".
+    fn vocabulary() -> Vocabulary {
+        let level = |id: &str, label: &str, apart: bool, pack: &str| LevelVocab {
+            id: LevelId::from(id),
+            label: label.into(),
+            one: format!("{{count}} {label}"),
+            many: format!("{{count}} {label}s"),
+            apart,
+            pack: pack.into(),
+        };
+        Vocabulary {
+            levels: vec![
+                level("intent", "intent", true, "kernel"),
+                level("realm", "realm", false, "base"),
+                level("zone", "service area", false, "zones"),
+                level("room", "room", false, "base"),
+            ],
+            ..Vocabulary::default()
+        }
+    }
+
+    fn block(name: &str, level: &str, counts: &[(&str, u32)]) -> MapNode {
+        MapNode {
+            id: NodeId(format!("ns:{level}:{name}")),
+            kind: Kind("base.block".into()),
+            tone: None,
+            name: name.into(),
+            level: LevelId::from(level),
+            parent: None,
+            counts: counts.iter().map(|(k, n)| ((*k).to_owned(), *n)).collect::<BTreeMap<_, _>>(),
+            position: None,
+            ghost: false,
+            claimed_by: None,
+        }
+    }
+
+    fn view(level: &str, nodes: Vec<MapNode>) -> MapView {
+        let mut view = crate::app::empty_view(LevelId::from(level), "all".into());
+        view.nodes = nodes;
+        view
+    }
+
+    #[test]
+    fn level_strings_take_labels_and_handles_keep_ids() {
+        let vocabulary = vocabulary();
+        let ladder = Ladder::of(&vocabulary);
+
+        // A level's line names its label; the view keeps its ID.
+        let zones = view("zone", vec![block("north", "zone", &[("room", 1)])]);
+        let zone = LevelId::from("zone");
+        let line = text_of(&zones, 1, Some(&zone), None, &ladder);
+        assert_eq!(line, "1 at the service area level: north (1 room).");
+        assert_eq!(zones.level.as_str(), "zone");
+
+        // Counts are keyed by ID and read in the ladder's words, in ladder order, with a key the
+        // ladder doesn't hold last.
+        let realm = view("realm", vec![block("east", "realm", &[("room", 5), ("galaxy", 2), ("zone", 3)])]);
+        let line = text_of(&realm, 1, None, None, &ladder);
+        assert_eq!(line, "1 at the top: east (3 service areas, 5 rooms, 2 galaxy).");
+        assert_eq!(count_words(&ladder, "zone", 1), "1 service area");
+
+        // A handle names a level by ID in its args and by label in its label: a map cut at its
+        // budget at `room` drills to the next coarser level, the inserted `zone`.
+        let room = LevelId::from("room");
+        let mut rooms = view("room", vec![block("kitchen", "room", &[]), block("hall", "room", &[])]);
+        let cut = fit_beside(&mut rooms, 1, Some(&room), &[], &[], &ladder).expect("a cut past its budget");
+        let next: planroom_contract::Handle = serde_json::from_value(cut.details["next"].clone()).unwrap();
+        assert_eq!(next.command.0, "map");
+        assert_eq!(next.args, ["--level", "zone"]);
+        assert_eq!(next.label, "Show the service area level");
+
+        // An unknown level is refused naming the levels by ID, in ladder order.
+        let err = asked_level(&vocabulary, Some(&LevelId::from("foo"))).unwrap_err();
+        assert_eq!(err.code, planroom_contract::ErrorCode::InvalidArgument);
+        assert_eq!(err.details["field"], "level");
+        assert_eq!(err.details["levels"], serde_json::json!(["intent", "realm", "zone", "room"]));
+        assert!(asked_level(&vocabulary, Some(&zone)).is_ok());
+        assert!(asked_level(&vocabulary, Some(&LevelId::intent())).is_ok());
+        assert!(asked_level(&vocabulary, None).is_ok());
+
+        // Only a graph carries the ladder, IDs and labels both.
+        let mut graph = zones.clone();
+        with_ladder(&mut graph, Detail::Graph, &vocabulary);
+        assert_eq!(graph.levels, vocabulary.levels);
+        let mut summary = zones;
+        with_ladder(&mut summary, Detail::Summary, &vocabulary);
+        assert!(summary.levels.is_empty());
+    }
 }

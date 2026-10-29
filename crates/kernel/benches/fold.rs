@@ -13,8 +13,9 @@ use std::hint::black_box;
 use std::time::Instant;
 
 use planroom_contract::{
-    Actor, Client, Edge, EdgeId, Edit, Event, EventBody, EventId, Kind, Layer, Level, Node, NodeId, Op,
-    Provenance, Ref, Rename, ScanStats, Seq, Status, Surface, Target, Tier, Timestamp, Vocabulary,
+    Actor, Client, Edge, EdgeId, Edit, Event, EventBody, EventId, Kind, Layer, LevelId, LevelVocab, Node,
+    NodeId, Op, Provenance, Ref, Rename, ScanStats, Seq, Status, Surface, Target, Tier, Timestamp,
+    Vocabulary,
 };
 use planroom_kernel::fold::{FoldDiff, fold_full};
 use planroom_kernel::model::Facts;
@@ -29,12 +30,12 @@ const EDGES: usize = 4_000;
 /// Runs per case; the median is reported.
 const RUNS: usize = 11;
 
-fn node(id: String, level: Level, parent: Option<String>) -> Node {
+fn node(id: String, level: &str, parent: Option<String>) -> Node {
     let name = id.rsplit([':', '/']).next().unwrap_or_default().to_owned();
     Node {
         id: NodeId(id),
         kind: Kind("b.x".into()),
-        level,
+        level: LevelId::from(level),
         parent: parent.map(NodeId),
         name,
         aliases: vec![],
@@ -65,12 +66,12 @@ fn edited(i: usize) -> usize {
 /// One repo, its directories, and files to make up `FACTS` with the edges.
 fn facts() -> Facts {
     let files = FILES;
-    let mut nodes = vec![node("r:r:r".into(), Level::System, None)];
+    let mut nodes = vec![node("r:r:r".into(), "realm", None)];
     for d in 0..DIRS {
-        nodes.push(node(format!("r:d:d{d}"), Level::Component, Some("r:r:r".into())));
+        nodes.push(node(format!("r:d:d{d}"), "site", Some("r:r:r".into())));
     }
     for i in 0..files {
-        nodes.push(node(file(i), Level::Code, Some(format!("r:d:d{}", i % DIRS))));
+        nodes.push(node(file(i), "room", Some(format!("r:d:d{}", i % DIRS))));
     }
     let edges = (0..EDGES)
         .map(|i| Edge {
@@ -165,9 +166,25 @@ fn events(count: usize) -> Vec<Event> {
     out
 }
 
+/// An invented ladder, so resolution checks every node's level against one as a pack set's does:
+/// `intent`, then `realm`, `region`, `site` and `room`.
+fn vocabulary() -> Vocabulary {
+    let level = |id: &str, apart: bool| LevelVocab {
+        id: LevelId::from(id),
+        label: id.into(),
+        one: "{count} thing".into(),
+        many: "{count} things".into(),
+        apart,
+        pack: "bench".into(),
+    };
+    let mut levels = vec![level(LevelId::INTENT, true)];
+    levels.extend(["realm", "region", "site", "room"].map(|id| level(id, false)));
+    Vocabulary { levels, ..Vocabulary::default() }
+}
+
 /// The median of `RUNS` timed folds, in milliseconds.
 fn median_ms(facts: &Facts, events: &[Event]) -> f64 {
-    let vocabulary = Vocabulary::default();
+    let vocabulary = vocabulary();
     let at = events.len() as Seq;
     // One fold first, so the timed runs start warm.
     black_box(fold_full(facts, events, &vocabulary, at));
@@ -192,7 +209,7 @@ fn main() {
     let facts = facts();
     assert_eq!(facts.nodes.len() + facts.edges.len(), FACTS);
     // The timed folds follow renames, so following them is inside each budget.
-    let followed = fold_full(&facts, &events(5_000), &Vocabulary::default(), 5_000)
+    let followed = fold_full(&facts, &events(5_000), &vocabulary(), 5_000)
         .diffs
         .iter()
         .filter(|d| matches!(d, FoldDiff::Followed { .. }))

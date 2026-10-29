@@ -22,7 +22,7 @@ mod yaml;
 use std::fmt;
 use std::path::PathBuf;
 
-use planroom_contract::{FactBatch, Level};
+use planroom_contract::{FactBatch, LevelId};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -107,7 +107,7 @@ pub struct KindRef {
     pub kind: String,
     /// The ID's kind-short: `<namespace>:<id_prefix>:<key>`.
     pub id_prefix: String,
-    pub level: Level,
+    pub level: LevelId,
 }
 
 /// Whether `glob` is a `files` or image glob this build can match, with the reason it isn't.

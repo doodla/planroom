@@ -7,12 +7,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::envelope::{Empty, Handle};
 use crate::event::{Actor, Surface, Timestamp};
-use crate::model::{EdgeId, Evidence, Kind, Level, NodeId, Seq};
+use crate::model::{EdgeId, Evidence, Kind, LevelId, NodeId, Seq};
+use crate::vocab::LevelVocab;
 
 /// The map at one level through one lens.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct MapView {
-    pub level: Level,
+    pub level: LevelId,
     pub lens: String,
     pub focus: Option<NodeId>,
     pub nodes: Vec<MapNode>,
@@ -24,6 +25,10 @@ pub struct MapView {
     /// `PUT /api/v1/layout` takes back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<LayoutKey>,
+    /// With `--detail graph`: the vocabulary's levels, `intent` first and then the ladder top
+    /// to finest, so a surface names and steps through levels without naming one itself.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub levels: Vec<LevelVocab>,
 }
 
 /// Where a view's layout is cached: the view and the hash of its structure.
@@ -45,7 +50,7 @@ pub struct MapNode {
     pub tone: Option<Tone>,
     #[schemars(extend("x-redact" = true))]
     pub name: String,
-    pub level: Level,
+    pub level: LevelId,
     pub parent: Option<NodeId>,
     /// Descendants by level name, such as `{"component": 4}`.
     pub counts: BTreeMap<String, u32>,
@@ -56,7 +61,7 @@ pub struct MapNode {
     pub claimed_by: Option<Actor>,
 }
 
-/// A Container-level kind's block color: surfaces style a block from its tone, never from a kind
+/// A kind's block color: surfaces style a block from its tone, never from a kind
 /// ID (DR-46).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -112,7 +117,7 @@ pub struct PaneModel {
 pub struct Focus {
     /// From the top down to the focused node.
     pub breadcrumb: Vec<Crumb>,
-    pub level: Level,
+    pub level: LevelId,
     pub lens: String,
     pub project: Option<NodeId>,
     #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
@@ -229,7 +234,7 @@ pub struct PresenceRow {
 /// Up to 60 blocks at the focus level, edges by lens.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct MiniMap {
-    pub level: Level,
+    pub level: LevelId,
     pub blocks: Vec<MiniBlock>,
     pub edges: Vec<MiniEdge>,
 }

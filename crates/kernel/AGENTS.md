@@ -6,7 +6,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 
 - **Owns:** the fold, resolution, roll-up, the twelve query shapes and question pipelines, diff, impact, reconcile, policy bands, lint rule types, machine checks and step, budgets, next action, redaction by field, the display-sanitizing pass, the decision and hand-off loop tables, roles.
 - **May depend on:** `contract`, plus the allow-list in `boundaries.toml` (`serde`, `serde_json`, `petgraph`, `similar`, `nucleo-matcher`, `sha2`, `thiserror`, `indexmap`, `regex` for redaction).
-- **Must not:** I/O in any target, tests and benches included, async, `rusqlite`, `reqwest`, `tree-sitter`; any built-in pack kind or relation name as a string literal, with or without its pack prefix.
+- **Must not:** I/O in any target, tests and benches included, async, `rusqlite`, `reqwest`, `tree-sitter`; any built-in pack kind or relation name as a string literal, with or without its pack prefix, or, outside tests, a built-in pack's level ID.
 - **How to test it:** `cargo xtask test -p planroom-kernel` (unit and property tests on data passed in as values: `rollup.rs`, `cas.rs`, `undo.rs`, `query.rs`, `reconcile.rs` (M2)); `cargo xtask bench fold` (`benches/fold.rs`).
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
@@ -19,7 +19,7 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 
 ## Layout
 
-- `src/`: pure, domain-free logic on values, one module per job: resolution, roll-up, compare-and-set, find, lenses, next action, person-token keys, redaction by field with the generated `redact_fields.rs`, the display-sanitizing pass, lint rules and the plan tree.
+- `src/`: pure, domain-free logic on values, one module per job: resolution, the level ladder, roll-up, compare-and-set, find, lenses, next action, person-token keys, redaction by field with the generated `redact_fields.rs`, the display-sanitizing pass, lint rules and the plan tree.
 - `src/fold/`: the fold of facts and events into the model: its pre-pass, renames, claims, cycles, lookups and state.
 - `src/query/`: the query shapes over the folded model, and the forest and lookups they share.
 - `benches/`: `fold.rs`, the fold benchmark, which `cargo xtask bench fold` runs and compares with `budgets.json`.

@@ -11,8 +11,35 @@ version = 1
 title = "Code"
 requires = []
 
-# Kinds. Every Container-level kind takes the kernel's prefix `container`, so a container that an
-# image role reclassifies keeps its ID (DR-46).
+# Levels: this pack's ladder of abstraction levels, top first. Another pack may put a level directly
+# below one of them, never below code.
+
+[[levels]]
+id = "system"
+label = "system"
+one = "{count} system"
+many = "{count} systems"
+
+[[levels]]
+id = "container"
+label = "container"
+one = "{count} container"
+many = "{count} containers"
+
+[[levels]]
+id = "component"
+label = "component"
+one = "{count} component"
+many = "{count} components"
+
+[[levels]]
+id = "code"
+label = "code"
+one = "{count} code block"
+many = "{count} code blocks"
+
+# Kinds. The kinds that use the kernel's prefix `container` share one level, and every kind at that
+# level uses it, so a container that an image role reclassifies keeps its ID (DR-46).
 
 [[kinds]]
 id = "workspace"

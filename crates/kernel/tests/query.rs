@@ -8,14 +8,15 @@ use std::collections::{BTreeMap, HashSet};
 use std::time::{Duration, Instant};
 
 use planroom_contract::{
-    Edge, EdgeId, Evidence, Flow, Kind, Layer, LensVocab, Level, Node, NodeId, Provenance, Ref, ShapeStep,
-    Tier, Vocabulary,
+    Edge, EdgeId, Evidence, Flow, Kind, Layer, LensVocab, LevelId, LevelVocab, Node, NodeId, Provenance, Ref,
+    ShapeStep, Tier, Vocabulary,
 };
 use planroom_kernel::Model;
+use planroom_kernel::ladder::Ladder;
 use planroom_kernel::query::{self, Answer, Reason, Toward};
 use serde_json::json;
 
-fn node(id: &str, level: Level, parent: Option<&str>) -> Node {
+fn node(id: &str, level: LevelId, parent: Option<&str>) -> Node {
     Node {
         id: NodeId(id.into()),
         kind: Kind("t.thing".into()),
@@ -56,7 +57,7 @@ fn edge(n: u32, kind: &str, from: &str, to: &str) -> Edge {
     }
 }
 
-fn lens(id: &str, relations: &[&str], backward: &[&str], level: Level) -> LensVocab {
+fn lens(id: &str, relations: &[&str], backward: &[&str], level: LevelId) -> LensVocab {
     LensVocab {
         id: id.into(),
         label: id.into(),
@@ -73,12 +74,33 @@ fn lens(id: &str, relations: &[&str], backward: &[&str], level: Level) -> LensVo
 fn vocabulary() -> Vocabulary {
     Vocabulary {
         lenses: vec![
-            lens("all_wires", &["t.calls", "t.sends", "t.takes", "t.reads"], &["t.takes"], Level::Container),
-            lens("wires", &["t.calls", "t.sends", "t.takes"], &["t.takes"], Level::Container),
-            lens("uses", &["t.uses"], &[], Level::Component),
+            lens(
+                "all_wires",
+                &["t.calls", "t.sends", "t.takes", "t.reads"],
+                &["t.takes"],
+                LevelId::from("container"),
+            ),
+            lens("wires", &["t.calls", "t.sends", "t.takes"], &["t.takes"], LevelId::from("container")),
+            lens("uses", &["t.uses"], &[], LevelId::from("component")),
         ],
+        levels: levels(),
         ..Vocabulary::default()
     }
+}
+
+/// These tests' ladder: intent apart, then `LEVELS`' chain top to finest.
+fn levels() -> Vec<LevelVocab> {
+    LEVELS
+        .iter()
+        .map(|id| LevelVocab {
+            id: LevelId::from(*id),
+            label: (*id).into(),
+            one: "{count} node".into(),
+            many: "{count} nodes".into(),
+            apart: *id == LevelId::INTENT,
+            pack: "test".into(),
+        })
+        .collect()
 }
 
 /// Five boxes, each with a file that holds its edges: web calls api, api sends to bus, job takes
@@ -86,8 +108,8 @@ fn vocabulary() -> Vocabulary {
 fn boxes() -> Model {
     let mut nodes = Vec::new();
     for b in ["api", "bus", "job", "store", "web"] {
-        nodes.push(node(&format!("ws:box:{b}"), Level::Container, None));
-        nodes.push(node(&format!("{b}:file:main"), Level::Code, Some(&format!("ws:box:{b}"))));
+        nodes.push(node(&format!("ws:box:{b}"), LevelId::from("container"), None));
+        nodes.push(node(&format!("{b}:file:main"), LevelId::from("code"), Some(&format!("ws:box:{b}"))));
     }
     nodes.sort_by(|a, b| a.id.cmp(&b.id));
     let edges = vec![
@@ -163,15 +185,19 @@ fn path_follows_flow_lens_only() {
 /// file of its own.
 fn repos(edges: &[(&str, &str)]) -> Model {
     let mut nodes = vec![
-        node("r1:repo:r1", Level::System, None),
-        node("r2:repo:r2", Level::System, None),
-        node("r1:file:root", Level::Code, Some("r1:repo:r1")),
-        node("r2:file:root", Level::Code, Some("r2:repo:r2")),
-        node("r1:box:d", Level::Container, Some("r1:repo:r1")),
+        node("r1:repo:r1", LevelId::from("system"), None),
+        node("r2:repo:r2", LevelId::from("system"), None),
+        node("r1:file:root", LevelId::from("code"), Some("r1:repo:r1")),
+        node("r2:file:root", LevelId::from("code"), Some("r2:repo:r2")),
+        node("r1:box:d", LevelId::from("container"), Some("r1:repo:r1")),
     ];
     for (b, repo) in [("a", "r1"), ("b", "r1"), ("c", "r2")] {
-        nodes.push(node(&format!("{repo}:box:{b}"), Level::Container, Some(&format!("{repo}:repo:{repo}"))));
-        nodes.push(node(&format!("{b}:file:main"), Level::Code, Some(&format!("{repo}:box:{b}"))));
+        nodes.push(node(
+            &format!("{repo}:box:{b}"),
+            LevelId::from("container"),
+            Some(&format!("{repo}:repo:{repo}")),
+        ));
+        nodes.push(node(&format!("{b}:file:main"), LevelId::from("code"), Some(&format!("{repo}:box:{b}"))));
     }
     nodes.sort_by(|a, b| a.id.cmp(&b.id));
     let edges = edges.iter().enumerate().map(|(i, (f, t))| edge(i as u32 + 1, "t.calls", f, t)).collect();
@@ -205,7 +231,7 @@ fn a_path_runs_only_from_its_own_ends() {
     // r1 doesn't reach it. `why` agrees.
     let other = |edges: &[(&str, &str)]| {
         let mut model = repos(edges);
-        model.nodes.push(node("r1:file:other", Level::Code, Some("r1:repo:r1")));
+        model.nodes.push(node("r1:file:other", LevelId::from("code"), Some("r1:repo:r1")));
         model.nodes.sort_by(|a, b| a.id.cmp(&b.id));
         model
     };
@@ -257,7 +283,7 @@ fn why_returns_evidence_and_confidence() {
     // An inferred call from web to api through an endpoint whose own evidence counts for it.
     model.nodes.push(Node {
         evidence: vec![line("api/spec.yaml", 12)],
-        ..node("api:endpoint:post", Level::Code, Some("api:file:main"))
+        ..node("api:endpoint:post", LevelId::from("code"), Some("api:file:main"))
     });
     model.nodes.sort_by(|a, b| a.id.cmp(&b.id));
     let mut inferred = edge(8, "t.calls", "web:file:main", "api:file:main");
@@ -300,8 +326,8 @@ fn why_returns_evidence_and_confidence() {
 fn impact_lists_what_depends_on_a_node() {
     let mut model = boxes();
     // A box that calls web, two hops from the bus: listed only at depth 2.
-    model.nodes.push(node("ws:box:edge", Level::Container, None));
-    model.nodes.push(node("edge:file:main", Level::Code, Some("ws:box:edge")));
+    model.nodes.push(node("ws:box:edge", LevelId::from("container"), None));
+    model.nodes.push(node("edge:file:main", LevelId::from("code"), Some("ws:box:edge")));
     model.nodes.sort_by(|a, b| a.id.cmp(&b.id));
     model.edges.push(edge(10, "t.calls", "edge:file:main", "web:file:main"));
     let impact = |of: &str, depth: u64| {
@@ -345,8 +371,12 @@ fn a_query_stays_linear_in_the_size_of_the_model() {
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
         for i in 0..n {
-            nodes.push(node(&format!("ws:box:b{i:06}"), Level::Container, None));
-            nodes.push(node(&format!("b{i:06}:file:f"), Level::Code, Some(&format!("ws:box:b{i:06}"))));
+            nodes.push(node(&format!("ws:box:b{i:06}"), LevelId::from("container"), None));
+            nodes.push(node(
+                &format!("b{i:06}:file:f"),
+                LevelId::from("code"),
+                Some(&format!("ws:box:b{i:06}")),
+            ));
             if i > 0 {
                 edges.push(edge(
                     i as u32,
@@ -358,11 +388,11 @@ fn a_query_stays_linear_in_the_size_of_the_model() {
         }
         // A deep chain of files under one directory, each using a sibling directory: lifting each
         // edge climbs the chain to the child of the directory they share.
-        nodes.push(node("d:dir:r", Level::Component, None));
-        nodes.push(node("d:dir:s", Level::Component, Some("d:dir:r")));
+        nodes.push(node("d:dir:r", LevelId::from("component"), None));
+        nodes.push(node("d:dir:s", LevelId::from("component"), Some("d:dir:r")));
         for d in 0..n {
             let parent = if d == 0 { "d:dir:r".to_owned() } else { format!("d:file:{:06}", d - 1) };
-            nodes.push(node(&format!("d:file:{d:06}"), Level::Code, Some(&parent)));
+            nodes.push(node(&format!("d:file:{d:06}"), LevelId::from("code"), Some(&parent)));
             edges.push(edge((n + d) as u32, "t.uses", &format!("d:file:{d:06}"), "d:dir:s"));
         }
         nodes.sort_by(|a, b| a.id.cmp(&b.id));
@@ -400,7 +430,7 @@ fn a_query_stays_linear_in_the_size_of_the_model() {
     );
 }
 
-const LEVELS: [Level; 5] = [Level::Intent, Level::System, Level::Container, Level::Component, Level::Code];
+const LEVELS: [&str; 5] = ["intent", "system", "container", "component", "code"];
 
 proptest::proptest! {
     #![proptest_config(proptest::test_runner::Config { failure_persistence: None, cases: 200, ..Default::default() })]
@@ -419,7 +449,7 @@ proptest::proptest! {
             .enumerate()
             .map(|(i, (parent, l))| {
                 let parent = parent.filter(|p| *p < i).map(|p| format!("t:n:{p:03}"));
-                node(&format!("t:n:{i:03}"), LEVELS[*l], parent.as_deref())
+                node(&format!("t:n:{i:03}"), LevelId::from(LEVELS[*l]), parent.as_deref())
             })
             .collect();
         let edges: Vec<Edge> = pairs
@@ -428,9 +458,12 @@ proptest::proptest! {
             .map(|(k, (a, b))| edge(k as u32, "t.calls", &format!("t:n:{:03}", a % n), &format!("t:n:{:03}", b % n)))
             .collect();
         let model = Model { at: 1, nodes, edges, ..Model::default() };
-        let level = LEVELS[level];
-        let rolled = planroom_kernel::rollup::lift(&model, level, None);
-        let mut forest = planroom_kernel::query::forest::Forest::new(&model.nodes);
+        let level = LevelId::from(LEVELS[level]);
+        let vocabulary = vocabulary();
+        let ladder = Ladder::of(&vocabulary);
+        let rolled = planroom_kernel::rollup::lift(&model, &ladder, &level, None);
+        let mut forest = planroom_kernel::query::forest::Forest::new(&model.nodes, &ladder);
+        let level = ladder.rank(&level);
         forest.prepare(level);
         for edge in &model.edges {
             let (u, v) = forest.ends(edge).unwrap();

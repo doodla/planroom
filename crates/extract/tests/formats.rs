@@ -7,7 +7,7 @@ mod code_pack;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use planroom_contract::{Edge, Evidence, FactBatch, Hint, Level, Node, NodeId, PartialReason, Ref};
+use planroom_contract::{Edge, Evidence, FactBatch, Hint, LevelId, Node, NodeId, PartialReason, Ref};
 use planroom_extract::declarative::grammar;
 use planroom_extract::walk::Blobs;
 use planroom_extract::{RepoPath, RepoView, builtin, manifest, openapi, select, verify};
@@ -159,12 +159,12 @@ fn manifests_emit_packages_and_dependencies() {
     // The root manifest makes the repo's own container, a library until a deployment says it is a
     // service, on the line that names the package.
     let container = node(&batch, "shop:container:shop");
-    assert_eq!((container.kind.0.as_str(), container.level), ("code.library", Level::Container));
+    assert_eq!((container.kind.0.as_str(), container.level.as_str()), ("code.library", "container"));
     assert_eq!(container.parent, Some(NodeId("shop:repo:shop".into())));
     assert_eq!(container.props["role"], "library");
     assert_eq!(lines(&view, &container.evidence), [2]);
     assert_eq!(
-        batch.nodes.iter().filter(|n| n.level == Level::Container).count(),
+        batch.nodes.iter().filter(|n| n.level == LevelId::from("container")).count(),
         1,
         "a nested manifest makes no container"
     );
@@ -178,7 +178,7 @@ fn manifests_emit_packages_and_dependencies() {
     ];
     for (id, parent, line) in packages {
         let package = node(&batch, id);
-        assert_eq!((package.kind.0.as_str(), package.level), ("code.package", Level::Component), "{id}");
+        assert_eq!((package.kind.0.as_str(), package.level.as_str()), ("code.package", "component"), "{id}");
         assert_eq!(package.parent.as_ref().map(|p| p.0.as_str()), Some(parent), "{id}");
         let name = id.splitn(3, ':').nth(2).unwrap();
         assert_eq!(package.name, name);
@@ -314,7 +314,7 @@ fn openapi_emits_endpoints_on_their_lines() {
 
     // The spec itself, under the directory that holds it, on its version line.
     let spec = node(&batch, "orders:spec:api/openapi.yaml");
-    assert_eq!((spec.kind.0.as_str(), spec.level), ("code.api_spec", Level::Component));
+    assert_eq!((spec.kind.0.as_str(), spec.level.as_str()), ("code.api_spec", "component"));
     assert_eq!(spec.parent, Some(NodeId("orders:dir:api".into())));
     assert_eq!(spec.name, "openapi.yaml");
     assert_eq!(lines(&view, &spec.evidence), [1]);

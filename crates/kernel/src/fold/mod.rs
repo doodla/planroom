@@ -383,7 +383,8 @@ impl Folded {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use planroom_contract::{Kind, Layer, Level, Node, NodeId, Provenance, Tier};
+    use crate::ladder::testing::*;
+    use planroom_contract::{Kind, Layer, Node, NodeId, Provenance, Tier};
     use proptest::prelude::*;
     use proptest::test_runner::Config;
 
@@ -401,7 +402,7 @@ mod tests {
         Node {
             id: NodeId(format!("r:x:{key}")),
             kind: Kind("k.x".into()),
-            level: Level::Code,
+            level: room(),
             parent: None,
             name: format!("n{key}"),
             aliases: vec![],

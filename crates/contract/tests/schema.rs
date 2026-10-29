@@ -2,7 +2,7 @@
 
 use planroom_contract::schema::{self, DIALECT, GENERATED_HEADER, View};
 use planroom_contract::{
-    Command, CommandName, Envelope, ErrorCode, Level, MapView, Meta, ModelUse, SCHEMA_VERSION, Size,
+    Command, CommandName, Envelope, ErrorCode, LevelId, MapView, Meta, ModelUse, SCHEMA_VERSION, Size,
     WarningCode,
 };
 use std::collections::BTreeMap;
@@ -78,6 +78,30 @@ fn open_sets_accept_later_codes_of_the_documented_form_only() {
     assert!(!envelope.is_valid(&reply), "another schema_version must not validate");
 }
 
+#[test]
+fn level_ids_read_and_write_the_old_names_byte_for_byte() {
+    for name in ["intent", "system", "container", "component", "code"] {
+        let json = format!("\"{name}\"");
+        let level: LevelId = serde_json::from_str(&json).unwrap();
+        assert_eq!(level.as_str(), name);
+        assert_eq!(serde_json::to_string(&level).unwrap(), json, "{name} must write back unchanged");
+    }
+}
+
+#[test]
+fn the_level_schema_is_an_open_set_holding_intent() {
+    for view in [View::Output, View::Input] {
+        assert_eq!(open_set_values(view, "Level"), ["intent"], "{view:?}");
+        let root = schema::generate(view);
+        assert_eq!(root["$defs"]["Level"]["anyOf"][1]["pattern"], json!("^[a-z][a-z0-9_]*$"));
+        let levels = validator_for(view, "Level");
+        for ok in ["intent", "container", "zone"] {
+            assert!(levels.is_valid(&json!(ok)), "{view:?} {ok}");
+        }
+        assert!(!levels.is_valid(&json!("Zone")), "{view:?}");
+    }
+}
+
 fn sample_envelope() -> Envelope<MapView> {
     Envelope {
         schema_version: SCHEMA_VERSION,
@@ -85,7 +109,7 @@ fn sample_envelope() -> Envelope<MapView> {
         command: CommandName("map".into()),
         summary: Some("9 at the container level: cart (4 component); orders-db.".into()),
         result: Some(MapView {
-            level: Level::Container,
+            level: LevelId::from("container"),
             lens: "code".into(),
             focus: None,
             nodes: vec![],
@@ -93,6 +117,7 @@ fn sample_envelope() -> Envelope<MapView> {
             hidden: 0,
             empty: None,
             layout: None,
+            levels: vec![],
         }),
         error: None,
         meta: Meta {

@@ -21,12 +21,13 @@ use std::path::Path;
 
 use planroom_contract::{
     Actor, Client, CommandName, CommandSpec, Edge, Edit, EditOp, EditReq, EditResult, ErrorCode, Event,
-    EventBody, EventId, Handle, Kind, Layer, Level, Node, NodeId, Op, Seq, Status, Surface, Target, Verdict,
+    EventBody, EventId, Handle, Kind, Layer, Node, NodeId, Op, Seq, Status, Surface, Target, Verdict,
     Vocabulary,
 };
 use planroom_kernel::cas::{self, Authority, Check, Proposed};
 use planroom_kernel::fold::{Folded, HIDDEN, NAME, PARENT, POS_PREFIX, Writer, actor_key};
 use planroom_kernel::keys;
+use planroom_kernel::ladder::Ladder;
 use planroom_store::{NewEvent, Planned, Snapshot, Store};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -529,7 +530,13 @@ pub(crate) fn plan(
                 keys::slug(name).ok_or_else(|| AppError::invalid_argument("name", "edit.group_name"))?;
             let namespace = common_namespace(&members);
             let group = NodeId(format!("{namespace}:group:{slug}"));
-            let level = members.iter().map(|m| m.level).min().unwrap_or(Level::Component);
+            // The coarsest member's level on the ladder; `members` holds every ID the op names.
+            let ladder = Ladder::of(vocabulary);
+            let level = members
+                .iter()
+                .map(|m| &m.level)
+                .min_by_key(|l| ladder.rank(l))
+                .expect("a group names a member");
             let parent = members[0].parent.clone();
             let mut fields = BTreeMap::from([
                 ("kind".to_owned(), json!(GROUP_KIND)),

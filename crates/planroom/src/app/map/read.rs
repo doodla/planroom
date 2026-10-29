@@ -11,10 +11,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use planroom_contract::{
-    CommandName, Edge, Empty, EmptyReason, Handle, LayoutKey, Level, MapView, Node, NodeId, Position,
+    CommandName, Edge, Empty, EmptyReason, Handle, LayoutKey, LevelId, MapView, Node, NodeId, Position,
     Vocabulary,
 };
 use planroom_kernel::fold::TargetKey;
+use planroom_kernel::ladder::Ladder;
 use planroom_kernel::tree;
 use planroom_store::{Snapshot, Store};
 
@@ -26,13 +27,13 @@ use crate::{live, text};
 
 /// The map of the store's active snapshots at the top of the tree, or at `level`, read in one
 /// read transaction. A level with no blocks is an `Empty` whose next action works today.
-pub fn top(store: &Store, root: &Path, level: Option<Level>) -> Result<MapView, AppError> {
+pub fn top(store: &Store, root: &Path, level: Option<LevelId>) -> Result<MapView, AppError> {
     top_in(&store.snapshot()?, root, level)
 }
 
 /// [`top`] inside a read transaction the caller holds, so the rest of its reply, such as the
 /// pane's `seq`, comes from the same version of the store.
-pub fn top_in(snapshot: &Snapshot<'_>, root: &Path, level: Option<Level>) -> Result<MapView, AppError> {
+pub fn top_in(snapshot: &Snapshot<'_>, root: &Path, level: Option<LevelId>) -> Result<MapView, AppError> {
     let vocabulary = crate::packs::vocabulary()?;
     let mut view = view(snapshot, root, level, None, vocabulary)?.0;
     view.lens = lens::default_id(vocabulary);
@@ -40,21 +41,22 @@ pub fn top_in(snapshot: &Snapshot<'_>, root: &Path, level: Option<Level>) -> Res
     Ok(lens::filter(view, vocabulary, &lens))
 }
 
-/// The map in `snapshot`: the blocks at `level` (the top, the system level, when it is `None`),
+/// The map in `snapshot`: the blocks at `level` (the ladder's top when it is `None`),
 /// or, with `focus`, the blocks under that one node, at `level` or else at the level below the
 /// node's own [DR-85], with the node's name. A level with no blocks is an `Empty` whose next
 /// action works today.
 pub(super) fn view(
     snapshot: &Snapshot<'_>,
     root: &Path,
-    level: Option<Level>,
+    level: Option<LevelId>,
     focus: Option<&str>,
     vocabulary: &Vocabulary,
 ) -> Result<(MapView, Option<String>), AppError> {
     if snapshot.active_set()?.repos.is_empty() {
         let lens = lens::default_id(vocabulary);
-        return Ok((not_scanned(root, lens, level, snapshot.seq())?.result, None));
+        return Ok((not_scanned(root, lens, level, snapshot.seq(), vocabulary)?.result, None));
     }
+    let ladder = Ladder::of(vocabulary);
     let (model, overlay) = live::model_and_overlay(snapshot, vocabulary)?;
     let (nodes, edges) = (&model.nodes, &model.edges);
     let under = focus.map(|target| focus::resolve(nodes, target)).transpose()?;
@@ -64,18 +66,18 @@ pub(super) fn view(
     let visible: Vec<Node> = nodes.iter().filter(|n| !hidden_ids.contains(&n.id)).cloned().collect();
     let visible_edges: Vec<Edge> =
         edges.iter().filter(|e| !overlay.hidden.contains(&TargetKey::Edge(e.id.clone()))).cloned().collect();
-    // `map` and `map --level system` are one view, the top of the map: both say they show the
-    // system level, so both show the same blocks.
+    // `map` and `map --level` at the ladder's top are one view, the top of the map: both say they
+    // show the top level, so both show the same blocks.
     let shown = match (level, under) {
         (Some(level), _) => level,
-        (None, Some(node)) => focus::level_below(node.level),
-        (None, None) => Level::System,
+        (None, Some(node)) => ladder.below(&node.level).clone(),
+        (None, None) => ladder.top().clone(),
     };
-    let blocks = tree::blocks_at(&visible, shown, under.map(|n| &n.id));
+    let blocks = tree::blocks_at(&visible, &ladder, &shown, under.map(|n| &n.id));
     let hidden = if hidden_ids.is_empty() {
         0
     } else {
-        let all = tree::blocks_at(nodes, shown, under.map(|n| &n.id));
+        let all = tree::blocks_at(nodes, &ladder, &shown, under.map(|n| &n.id));
         all.iter().filter(|b| hidden_ids.contains(&b.id)).count() as u32
     };
     let edges = tree::lift_edges(&visible, &visible_edges, &blocks);
@@ -83,13 +85,13 @@ pub(super) fn view(
         None
     } else if let Some(node) = under {
         let parent = node.parent.as_ref().and_then(|p| nodes.iter().find(|n| &n.id == p));
-        Some(focus::nothing_under(node, shown, parent))
-    } else if tree::blocks_at(nodes, Level::System, None).is_empty() {
+        Some(focus::nothing_under(node, &shown, parent, &ladder))
+    } else if tree::blocks_at(nodes, &ladder, ladder.top(), None).is_empty() {
         // With nothing at the top there is nothing at any level, so every level shows the top's
         // own empty state, which says why.
         Some(top_empty(root))
     } else {
-        Some(level_empty(shown))
+        Some(level_empty(&shown, &ladder))
     };
     let view = MapView {
         level: shown,
@@ -100,6 +102,7 @@ pub(super) fn view(
         hidden,
         empty,
         layout: None,
+        levels: vec![],
     };
     Ok((view, under.map(|n| n.name.clone())))
 }
@@ -131,10 +134,11 @@ fn hidden_nodes(nodes: &[Node], hidden: &BTreeSet<TargetKey>) -> BTreeSet<NodeId
 /// The empty state of a scanned workspace's level with no blocks, below a top that has some: the
 /// intent level before any plan, or a level this workspace has nothing at. Its next action is the
 /// top of the map.
-fn level_empty(level: Level) -> Empty {
-    let (reason, line) = match level {
-        Level::Intent => ("no_intent", text::get("empty.no_intent", &[])),
-        level => ("empty_level", text::get("empty.empty_level", &[("level", &tree::level_name(level))])),
+fn level_empty(level: &LevelId, ladder: &Ladder<'_>) -> Empty {
+    let (reason, line) = if ladder.is_apart(level) {
+        ("no_intent", text::get("empty.no_intent", &[]))
+    } else {
+        ("empty_level", text::get("empty.empty_level", &[("level", &super::label_of(ladder, level))]))
     };
     let next = Handle {
         command: CommandName("map".into()),
@@ -191,7 +195,7 @@ pub(super) fn place(snapshot: &Snapshot<'_>, view: &mut MapView) -> Result<(), A
 /// The layout cache's key for a view: its level and lens, and the node it is focused on, so a
 /// view under one node keeps its own layout.
 fn view_key(view: &MapView) -> String {
-    let base = format!("map:{}:{}", tree::level_name(view.level), view.lens);
+    let base = format!("map:{}:{}", view.level.as_str(), view.lens);
     match &view.focus {
         Some(focus) => format!("{base}:{}", focus.0),
         None => base,
@@ -204,18 +208,23 @@ fn view_key(view: &MapView) -> String {
 pub(super) fn not_scanned(
     dir: &Path,
     lens: String,
-    level: Option<Level>,
+    level: Option<LevelId>,
     seq: planroom_contract::Seq,
+    vocabulary: &Vocabulary,
 ) -> Result<Reply<MapView>, AppError> {
-    let mut view = empty_view(level.unwrap_or(Level::System), lens);
+    let ladder = Ladder::of(vocabulary);
+    let shown = level.clone().unwrap_or_else(|| ladder.top().clone());
+    let mut view = empty_view(shown, lens);
     view.empty = Some(scan_empty(dir, &workspace::scannable(dir)));
-    Ok(Reply { text: super::text_of(&view, 0, level, None), result: view, seq, warnings: vec![] })
+    let text = super::text_of(&view, 0, level.as_ref(), None, &ladder);
+    Ok(Reply { text, result: view, seq, warnings: vec![] })
 }
 
 /// The top of the map of a workspace a scan wrote nothing for, since git could read none of its
 /// repos: the same empty state `map` returns there.
 pub(crate) fn not_scanned_view(root: &Path) -> Result<MapView, AppError> {
-    Ok(not_scanned(root, lens::default_id(crate::packs::vocabulary()?), None, 0)?.result)
+    let vocabulary = crate::packs::vocabulary()?;
+    Ok(not_scanned(root, lens::default_id(vocabulary), None, 0, vocabulary)?.result)
 }
 
 /// The repo names an empty state's line lists: the first [`LINE_NAMES`], each cut to

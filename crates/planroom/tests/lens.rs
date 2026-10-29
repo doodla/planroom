@@ -118,7 +118,7 @@ fn lens_all_shows_every_loaded_kind() {
             assert_eq!(node["tone"].as_str(), tone.as_deref(), "{level}: {node}");
         }
     }
-    // Every Container-level kind the scan holds has a tone.
+    // Every kind at the `container` level the scan holds has a tone.
     let containers = ok(&root, &["map", "--level", "container", "--lens", "all"]);
     for node in containers["result"]["nodes"].as_array().unwrap() {
         assert!(node["tone"].is_string(), "a container's block has a tone: {node}");

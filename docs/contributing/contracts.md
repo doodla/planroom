@@ -10,11 +10,11 @@ These rules apply to every contract below unless its row says otherwise [DR-37].
 - **One schema in two views.** `cargo xtask gen` runs schemars 1.2.3 (draft 2020-12, `preserve_order`) and writes `schema/planroom.v1.schema.json` (the serialize view: what Planroom emits) and `schema/planroom.v1.input.schema.json` (the deserialize view: what Planroom accepts). Every contract is a `$defs` entry in them. `$id` is the raw GitHub URL on `main`.
 - **One version.** `schema_version = 1` is the major version of the whole public contract: commands, flags, exit codes, the envelope, result types, the error object, events, files and the code tables. Additive changes keep it. A rename, a removal, a changed meaning, or a new required input field bumps it, and the schema file names with it.
 - **Format tags.** Every persisted or exchanged document carries `format: "planroom.<name>/v1"`, so a file read out of context says what it is. The `/v1` follows `schema_version`.
-- **Open sets.** Error codes, warning codes, node and relation kinds, event kinds, question IDs, hint kinds and command names are `anyOf: [{enum: [...]}, {pattern}]`, so an older reader still validates a newer value. Everything else is closed. An event body whose `kind` a reader doesn't know decodes as `EventBody::Unknown`, which keeps the raw body, `kind` included, and writes it back unchanged; the fold skips it (DR-85).
+- **Open sets.** Error codes, warning codes, node and relation kinds, level IDs, event kinds, question IDs, hint kinds and command names are `anyOf: [{enum: [...]}, {pattern}]`, so an older reader still validates a newer value. Everything else is closed. An event body whose `kind` a reader doesn't know decodes as `EventBody::Unknown`, which keeps the raw body, `kind` included, and writes it back unchanged; the fold skips it (DR-85).
 - **One format check.** `contract::format` is the check every Rust reader of a persisted document uses: it loads a `format` version from 1 up to the reader's own `schema_version` and refuses a newer one with `schema_mismatch`. `cargo xtask gen` writes its TypeScript port, `checkFormat` in `packages/contract/src/generated/format.ts`, from the same constants, and the Artifact transport reads every document through it (DR-85).
 - **Unknown fields survive.** A persisted document keeps the fields it doesn't know in a flattened `extra` (`contract::format::Extra`) and writes them back unchanged. The types that do so are in [Persisted documents](#persisted-documents). These rules only loosen what a reader accepts, so they came before any release with `schema_version` still 1 (DR-85).
 - **Integers** stay below 2^53 (`seq`, counts, line numbers, byte sizes). Hashes and IDs are strings. A schema lint in `xtask` fails on a `uint64` without an annotation [rust-stack G8].
-- **Breaking-change guard.** `cargo xtask check` compares the generated schema with the committed baseline in `schema/baseline/`, and, once a release exists, with the schema at the last `v*` tag. It fails on a removed property, a removed enum value or a new required input field without a `schema_version` bump. The baseline moves only with a `schema_version` bump, through `cargo xtask gen --schema-baseline`, and a tag it needs and can't find fails the check, never skips it. So the result depends on no branch tip and no fetch timing [DR-59].
+- **Breaking-change guard.** `cargo xtask check` compares the generated schema with the committed baseline in `schema/baseline/`, and, once a release exists, with the schema at the last `v*` tag. It fails on a removed property, a removed enum value or a new required input field without a `schema_version` bump. A value counts as kept when the new definition's `enum` holds it or its `pattern` matches it, in the definition or one of its `anyOf` or `oneOf` branches, so a closed enum opened into an open set that still accepts each old value passes, and a value the new pattern refuses is still removed. After a release, opening a closed set needs a bump. The baseline moves only with a `schema_version` bump, through `cargo xtask gen --schema-baseline`, and a tag it needs and can't find fails the check, never skips it. So the result depends on no branch tip and no fetch timing [DR-59].
 
 ### Persisted documents
 
@@ -181,7 +181,7 @@ No level or view is blank: an empty one carries an `Empty`, whose `next` runs to
 | `no_repos` | `focus` or `map` in a directory with no repos and no store; `map` returns it `ok`, not `workspace_not_found` | `focus`, "check again": no `scan` there could succeed (DR-85) |
 | `repos_unborn` | `focus` or `map` with nothing at the top, where no repo has a commit and at least one has none yet; the line names those repos, the first three, each cut to 40 characters, and counts the rest | `focus`, "check again" after a first commit: a `scan` there would map nothing (DR-87) |
 | `repos_unreadable` | `focus` or `map` with nothing at the top, where git can read none of the workspace's repos; the line names them as `repos_unborn`'s does. It names a repo git refuses apart from one another user owns, where Planroom never runs git ([`repo_skipped`](#warning-codes)), and both apart from a repo the person owns that reads objects from a directory another user owns: it says to run `git status` only in the first, for the second who can scan it, and for the third that the person can scan a copy that borrows none of those objects, never that its owner can, with no command. When no repo has a commit and at least one is unborn, `repos_unborn` wins and names only the unborn repos | `focus`, "check again" after `git status` in each repo git refuses: a `scan` there would map nothing (DR-86, DR-87) |
-| `no_intent` | `map --level intent` before any plan, while the top has blocks | `map`, "Show the top of the map" (DR-85, DR-87) |
+| `no_intent` | `map --level intent`, the kernel's level apart from the ladder, before any plan, while the top has blocks | `map`, "Show the top of the map" (DR-85, DR-87) |
 | `no_intent` | `intent lint`, `intent list` and `ask stage` with no project; the line gives `planroom intent new "TEXT"` as text, and `ask stage` still returns the stage's checklist and item types beside it | `schema --command "intent new"`, "Show how to start a plan" |
 | `no_plan_items` | `intent list` for a project with no items, live or waiting; the line names the next stage | `ask stage STAGE PROJECT`, "Show the next stage's checklist" |
 | `no_findings` | `intent lint` where no rule flags any of the project's accepted items | `intent list --project PROJECT`, "Show the plan" |
@@ -204,7 +204,7 @@ Redaction is by field [DR-64]. A field that holds repo-derived free text carries
 
 | Code | Category | Exit | Retry | Meaning | `details` |
 |---|---|---|---|---|---|
-| `invalid_argument` | usage | 2 | never | bad flags or request, a parent change that would make a cycle, a relative `PLANROOM_SPEND_LOG`, a `PLANROOM_LIVE_*` flag with no spend log, or a credential bound for a host off the allow-list (DR-48, DR-65). Under `--json` a bad flag or value is one envelope, never clap's text; one that names no leaf has `command: "planroom"` (DR-85) | `field`, the request field the error names; `synopsis`, the leaf's one-line synopsis, generated from clap; `schema`, the `schema --command LEAF` handle, or `schema --commands` with no leaf, which `hint` names as an exact command (DR-66, DR-85), except where `field` is an environment variable, whose `hint` stays the engine's exact command that sets it (DR-93); `cycle`, the node IDs, for a parent cycle; `lenses`, the lenses a request may name (`all` and each loaded pack's), for an unknown `--lens`; `ghosts`, the first 5 ghosts waiting on the Apply card, and `count`, how many wait, for a `review` of that card, whose `hint` stays the exact `planroom review` of its first ghost (DR-89); and `ghosts`, the one ghost, with `count` 1, for a person's `intent propose` or `intent version` onto a plan item or into a project that waits as a ghost, whose `hint` is the exact `planroom review --base SEQ EVENT accept` that accepts it. `card`, the open card of the same kind and subject, for an `edit undo` that would reopen a card beside it, whose `hint` is the exact `planroom review` of that card's first waiting ghost (DR-89). Every CLI `invalid_argument` carries `field`, `synopsis` and `schema`; one over HTTP doesn't until M2's budgets slice, and the resolver's carries only `field` |
+| `invalid_argument` | usage | 2 | never | bad flags or request, a parent change that would make a cycle, a relative `PLANROOM_SPEND_LOG`, a `PLANROOM_LIVE_*` flag with no spend log, or a credential bound for a host off the allow-list (DR-48, DR-65). Under `--json` a bad flag or value is one envelope, never clap's text; one that names no leaf has `command: "planroom"` (DR-85) | `field`, the request field the error names; `synopsis`, the leaf's one-line synopsis, generated from clap; `schema`, the `schema --command LEAF` handle, or `schema --commands` with no leaf, which `hint` names as an exact command (DR-66, DR-85), except where `field` is an environment variable, whose `hint` stays the engine's exact command that sets it (DR-93); `cycle`, the node IDs, for a parent cycle; `lenses`, the lenses a request may name (`all` and each loaded pack's), for an unknown `--lens`; `levels`, the levels a request may name, by ID in ladder order, for an unknown `--level`; `ghosts`, the first 5 ghosts waiting on the Apply card, and `count`, how many wait, for a `review` of that card, whose `hint` stays the exact `planroom review` of its first ghost (DR-89); and `ghosts`, the one ghost, with `count` 1, for a person's `intent propose` or `intent version` onto a plan item or into a project that waits as a ghost, whose `hint` is the exact `planroom review --base SEQ EVENT accept` that accepts it. `card`, the open card of the same kind and subject, for an `edit undo` that would reopen a card beside it, whose `hint` is the exact `planroom review` of that card's first waiting ghost (DR-89). Every CLI `invalid_argument` carries `field`, `synopsis` and `schema`; one over HTTP doesn't until M2's budgets slice, and the resolver's carries only `field` |
 | `ambiguous_ref` | usage | 2 | never | an ID suffix matched several records | `candidates`; for an `ask` argument, the `level` the candidates share |
 | `base_required` | usage | 2 | never | a write to user-authored state without `base` | `hint` names `meta.seq` |
 | `actor_required` | usage | 2 | never | a write with no `PLANROOM_ACTOR`, no person token and no terminal | `hint` shows `PLANROOM_ACTOR=agent:<id>:<role>` |
@@ -330,7 +330,7 @@ pub struct WriteCommon {                     // flattened into every write reque
 }
 
 // crates/contract/src/requests.rs: the M1 leaves' requests and results; a target is an ID, an ID suffix or a name
-pub struct MapReq { pub level: Option<Level>, pub lens: Option<String>, pub focus: Option<String>, pub detail: Detail,
+pub struct MapReq { pub level: Option<LevelId>, pub lens: Option<String>, pub focus: Option<String>, pub detail: Detail,
                     pub cursor: Option<Cursor> }             // in command.rs; cursor: meta.next of the page before
 pub struct EditReq { #[serde(flatten)] pub op: EditOp, #[serde(flatten)] pub common: WriteCommon }
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -389,7 +389,7 @@ pub struct AskItem { pub id: String /* a node, or with ask alone a kind, lens or
                      pub why: String, pub handles: Vec<Handle> }
 pub struct FindReq { pub text: String }
 pub struct FindResult { pub summary: String, pub items: Vec<FindItem>, pub empty: Option<Empty> }
-pub struct FindItem { pub id: NodeId, pub name: String, pub level: Level, pub kind: Kind,
+pub struct FindItem { pub id: NodeId, pub name: String, pub level: LevelId, pub kind: Kind,
                       pub handles: Vec<Handle> /* map --level L [--focus PARENT], the match among the blocks beside it;
                                                   then map --focus ID when it holds blocks */ }
 pub struct DoctorReq { pub pack: Option<String> /* --pack DIR */, pub update: bool /* rewrite tests/expected.jsonl */ }
@@ -534,7 +534,7 @@ pub type Seq = u64;                          // below 2^53
 pub struct Node {
     pub id: NodeId,
     pub kind: Kind,
-    pub level: Level,
+    pub level: LevelId,
     pub parent: Option<NodeId>,              // exactly one parent; None only at the top
     pub name: String,
     pub aliases: Vec<String>,                // "host:orders", "service:orders", "pkg:@acme/kit", "endpoint:orders:POST /orders"
@@ -591,7 +591,7 @@ pub struct Hint {
 }
 
 pub enum Ref { Id(NodeId), Alias(String) }
-pub enum Level { Intent, System, Container, Component, Code }
+pub struct LevelId(String)   // an open set: intent, or a level a pack declares; no order of its own; its schema name is Level
 pub enum Layer { Actual, Intended }
 pub enum Tier { Universal, Syntactic, Precise /* SCIP or LSIF; no v0.1 extractor (DR-11) */, Config, Pattern, Inference, Linked }
 pub enum Provenance {
@@ -774,13 +774,15 @@ pub struct DecisionCard {
 }
 
 pub struct MapView {
-    pub level: Level, pub lens: String, pub focus: Option<NodeId>,
+    pub level: LevelId, pub lens: String, pub focus: Option<NodeId>,
     pub nodes: Vec<MapNode>,                 // id, kind, tone (the kind's, so surfaces style from the view model, DR-46), name,
                                              // level, parent, counts, position, ghost, claimed_by; under a lens with kinds, its
                                              // kinds' nodes come first, then by the lifted edges each carries (DR-15)
     pub edges: Vec<LiftedEdge>,
     pub hidden: u32,
     pub empty: Option<Empty>,
+    pub levels: Vec<LevelVocab>,             // with --detail graph: intent, then the ladder top to finest, so a surface
+                                             // names and steps through levels without naming one itself
 }
 pub struct LiftedEdge { pub kind: Kind, pub from: NodeId, pub to: NodeId, pub count: u32,
                         pub evidence_sample: Vec<Evidence>, pub children: Vec<EdgeId> }
@@ -820,6 +822,7 @@ pub struct PackFile {
                                                          // extension is pack_invalid
     #[serde(default)] pub image_roles: Vec<ImageRole>,   // merged across packs; read by the compose extractor; a duplicate glob is
                                                          // pack_invalid, and overlapping globs take the first match in load order
+    #[serde(default)] pub levels: Vec<LevelDecl>,      // the base pack's ladder, top first; another pack's levels, each `below` one it can see
     #[serde(default)] pub kinds: Vec<KindDecl>,
     #[serde(default)] pub relations: Vec<RelationDecl>,
     #[serde(default)] pub hints: Vec<HintDecl>,        // a hint kind no loaded linker consumes is pack_invalid (DR-9)
@@ -839,9 +842,14 @@ pub struct LanguageDecl { pub id: String, pub extensions: Vec<String>, pub line_
                                                                       files, each one that doesn't parse pack_invalid; no runtime
                                                                       join reads a hint from a file of the language they match */ }
 pub struct ImageRole { pub image: String /* glob */, pub role: String, pub kind: String }
+pub struct LevelDecl { pub id: String /* a level ID, never intent */, pub label: String /* 1 to 32 characters */,
+                       pub one: String, pub many: String /* "{count} container", "{count} containers": at most 48 characters,
+                                                            {count} once */,
+                       pub below: Option<String> /* none in the base pack; in any other, a level it can see, with no
+                                                    other inserted level directly below it and never the base pack's finest */ }
 pub struct KindDecl { pub id: String, pub id_prefix: String /* the ID's kind-short; owned by one pack, except the kernel's
-                                                                  "container", which every Container-level kind uses */,
-                      pub level: Level, pub label: String, pub parents: Vec<String>,
+                                                                  "container", which every kind at the containers' level uses */,
+                      pub level: LevelId, pub label: String, pub parents: Vec<String>,
                       pub props: Value /* JSON Schema fragment: type, properties (a table) and description; each
                                           prop's schema is a table of only the keywords coercion enforces: type (a
                                           JSON type name, or a list of them), enum (a non-empty list of values of
@@ -849,7 +857,7 @@ pub struct KindDecl { pub id: String, pub id_prefix: String /* the ID's kind-sho
                                           type a capture fills) and description; any other keyword or form is
                                           pack_invalid at load, naming the kind, the prop and the keyword */,
                       pub icon: Option<String>,
-                      pub tone: Option<Tone> /* Service | Library | Store | Infra: a Container-level kind's block color;
+                      pub tone: Option<Tone> /* Service | Library | Store | Infra: a kind's block color;
                                                 surfaces style from MapNode.tone, never from a kind ID (DR-46) */,
                       pub empty_text: Option<String>, pub empty_action: Option<String> }
 pub struct RelationDecl { pub id: String, pub from: Vec<String>, pub to: Vec<String>, pub label: String,
@@ -875,7 +883,7 @@ pub struct LensDecl { pub id: String, pub label: String, pub relations: Vec<Stri
                       pub flow: BTreeMap<String, Flow> /* Forward | Backward */,
                       pub kinds: Vec<String> /* the node kinds the lens is about: its map shows their nodes first, edges
                                                 or none, and `map --lens` alone takes the lens's level (DR-15) */,
-                      pub level: Level,
+                      pub level: LevelId,
                       pub default: bool /* two defaults are pack_invalid unless one is the code pack's, which wins */,
                       /* id: never "all", which --lens all takes for every relation of every loaded pack */
                       pub empty_text: Option<String>, pub empty_action: Option<String> }
@@ -918,13 +926,16 @@ The loader turns the loaded packs into one `Vocabulary` (`crates/contract/src/vo
 
 ```rust
 pub struct Vocabulary { pub kinds: Vec<KindVocab>, pub relations: Vec<RelationVocab>, pub lenses: Vec<LensVocab>,
-                        pub suggestions: Vec<SuggestionDecl> }
-pub struct KindVocab { pub kind: Kind, pub level: Level, pub id_prefix: String, pub label: String, pub props: Value,
+                        pub suggestions: Vec<SuggestionDecl>,
+                        pub levels: Vec<LevelVocab> /* intent first, apart from the ladder, then the ladder top to finest */ }
+pub struct LevelVocab { pub id: LevelId, pub label: String, pub one: String, pub many: String,
+                        pub apart: bool /* intent alone */, pub pack: String /* "kernel" for intent */ }
+pub struct KindVocab { pub kind: Kind, pub level: LevelId, pub id_prefix: String, pub label: String, pub props: Value,
                        pub tone: Option<Tone> }
 pub struct RelationVocab { pub kind: Kind, pub label: String, pub from: Vec<Kind>, pub to: Vec<Kind>, pub props: Value,
                            pub inferred: bool }
 pub struct LensVocab { pub id: String, pub label: String, pub relations: Vec<Kind>, pub flow: BTreeMap<Kind, Flow>,
-                       pub kinds: Vec<Kind>, pub level: Level, pub default: bool }
+                       pub kinds: Vec<Kind>, pub level: LevelId, pub default: bool }
 ```
 
 ### Pack test layout
@@ -962,7 +973,7 @@ pub struct Reads {                           // role names in the run's options.
 }
 pub struct WorkspaceFacts {                  // crates/extract/src/link/mod.rs: one active set's facts, as Selection::facts selects them
     pub repos: BTreeSet<String>,             // the active set's repo names, its namespaces
-    pub nodes: Vec<Node>,                    // the member snapshots' System- and Container-level nodes, and the kinds an input role names
+    pub nodes: Vec<Node>,                    // the member snapshots' nodes of the top level's kinds and the container-prefix kinds, and the kinds an input role names
     pub edges: Vec<Edge>,                    // the member snapshots' edges of the relations an input role names
     pub hints: Vec<Hint>,                    // every hint of the member snapshots
     pub file_containers: BTreeMap<NodeId, NodeId>, // the one derived input: each member node a fact places directly under a member container; one placed under two is left out

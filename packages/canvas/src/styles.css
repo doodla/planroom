@@ -282,7 +282,8 @@ button.lid-ancestor:hover {
   justify-content: space-between;
 }
 
-/* Below the top the `⋯` lid shares the row, so the level's name keeps room for "component". */
+/* Below the top the `⋯` lid shares the row: the level's label, of any length, shrinks to an
+   ellipsis there, and the lid carries the whole label as its title. */
 .phone .lid-more ~ .lid-current {
   gap: 0;
   padding-left: 10px;
@@ -363,6 +364,20 @@ button.lid-ancestor:hover {
 
 .rail-step[aria-current] .rail-mark {
   background: currentColor;
+}
+
+/* A level's label is pack data of any length: it ellipsizes in the 112 px column, whole in the
+   step's title. */
+.rail-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The level apart from the chain, the plan's, sits apart from the ladder's steps. */
+.rail li[data-apart] {
+  margin-bottom: 12px;
 }
 
 /* Lenses and Intent: pickers that deal a sheet of entries. */

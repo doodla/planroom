@@ -2,34 +2,25 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use planroom_contract::{Edge, EdgeId, Evidence, Kind, Level, LiftedEdge, MapNode, Node, NodeId, Ref};
+use planroom_contract::{Edge, EdgeId, Evidence, Kind, LevelId, LiftedEdge, MapNode, Node, NodeId, Ref};
 
 use crate::keys;
+use crate::ladder::Ladder;
 use crate::resolve::Index;
 
-/// The level's name as the contract spells it, the key of `MapNode.counts`.
-pub fn level_name(level: Level) -> &'static str {
-    match level {
-        Level::Intent => "intent",
-        Level::System => "system",
-        Level::Container => "container",
-        Level::Component => "component",
-        Level::Code => "code",
-    }
-}
-
 /// The nodes at the top of the tree, those with no parent or a parent that doesn't resolve, each
-/// with its descendants counted by level. Sorted by level, then name, then ID.
-pub fn top_level(nodes: &[Node]) -> Vec<MapNode> {
+/// with its descendants counted by level. Sorted by the level's rank on `ladder`, then name, then
+/// ID.
+pub fn top_level(nodes: &[Node], ladder: &Ladder<'_>) -> Vec<MapNode> {
     let index: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.0.as_str(), n)).collect();
     let is_root = |n: &Node| n.parent.as_ref().is_none_or(|p| !index.contains_key(p.0.as_str()));
-    blocks(nodes, &index, is_root)
+    blocks(nodes, ladder, &index, is_root)
 }
 
 /// Every node at `level`, each with its descendants counted by level, sorted like `top_level`.
-pub fn at_level(nodes: &[Node], level: Level) -> Vec<MapNode> {
+pub fn at_level(nodes: &[Node], ladder: &Ladder<'_>, level: &LevelId) -> Vec<MapNode> {
     let index: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.0.as_str(), n)).collect();
-    blocks(nodes, &index, |n| n.level == level)
+    blocks(nodes, ladder, &index, |n| n.level == *level)
 }
 
 /// The blocks a map draws at `level`, inside the subtree under `under` when it names a node:
@@ -37,14 +28,21 @@ pub fn at_level(nodes: &[Node], level: Level) -> Vec<MapNode> {
 /// and the top of that subtree. So the system level holds the repos and, beside them, a container
 /// no repo holds, the same blocks as the top of the map; and the blocks under a repo at the
 /// component level include a directory no container holds. The intent level holds only intent
-/// nodes. Each block counts its descendants by level; sorted like [`top_level`].
-pub fn blocks_at(nodes: &[Node], level: Level, under: Option<&NodeId>) -> Vec<MapNode> {
+/// nodes. Each block counts its descendants by level; sorted like [`top_level`]. "Finer" is a
+/// higher rank on `ladder`.
+pub fn blocks_at(
+    nodes: &[Node],
+    ladder: &Ladder<'_>,
+    level: &LevelId,
+    under: Option<&NodeId>,
+) -> Vec<MapNode> {
     let index: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.0.as_str(), n)).collect();
+    let (apart, rank) = (ladder.is_apart(level), ladder.rank(level));
     let parent_of = |n: &Node| n.parent.as_ref().and_then(|p| index.get(p.0.as_str()).copied());
     let selected: std::collections::HashSet<&str> = nodes
         .iter()
         .filter(|n| {
-            if n.level == level {
+            if n.level == *level {
                 // At the level: anywhere in the subtree.
                 let mut at = *n;
                 for _ in 0..nodes.len() {
@@ -58,17 +56,18 @@ pub fn blocks_at(nodes: &[Node], level: Level, under: Option<&NodeId>) -> Vec<Ma
             }
             // Finer than the level: only the top of its own chain inside the subtree, since any
             // node above it there either holds it at the level or is finer and drawn instead.
-            level != Level::Intent && n.level > level && parent_of(n).map(|p| &p.id) == under
+            !apart && ladder.rank(&n.level) > rank && parent_of(n).map(|p| &p.id) == under
         })
         .map(|n| n.id.0.as_str())
         .collect();
-    blocks(nodes, &index, |n| selected.contains(n.id.0.as_str()))
+    blocks(nodes, ladder, &index, |n| selected.contains(n.id.0.as_str()))
 }
 
 /// The nodes `is_block` selects, each counting every descendant whose nearest selected ancestor
 /// it is. A parent cycle, which only bad facts can hold, counts nowhere.
 fn blocks<'a>(
     nodes: &'a [Node],
+    ladder: &Ladder<'_>,
     index: &HashMap<&str, &'a Node>,
     is_block: impl Fn(&Node) -> bool,
 ) -> Vec<MapNode> {
@@ -87,7 +86,7 @@ fn blocks<'a>(
             *counts
                 .entry(at.id.0.as_str())
                 .or_default()
-                .entry(level_name(node.level).to_owned())
+                .entry(node.level.as_str().to_owned())
                 .or_default() += 1;
         }
     }
@@ -99,7 +98,7 @@ fn blocks<'a>(
             kind: n.kind.clone(),
             tone: None,
             name: n.name.clone(),
-            level: n.level,
+            level: n.level.clone(),
             parent: n.parent.clone().filter(|p| index.contains_key(p.0.as_str())),
             counts: counts.remove(n.id.0.as_str()).unwrap_or_default(),
             position: None,
@@ -107,7 +106,8 @@ fn blocks<'a>(
             claimed_by: None,
         })
         .collect();
-    top.sort_by(|a, b| (a.level, &a.name, &a.id).cmp(&(b.level, &b.name, &b.id)));
+    let key = |n: &MapNode| ladder.rank(&n.level);
+    top.sort_by(|a, b| (key(a), &a.name, &a.id).cmp(&(key(b), &b.name, &b.id)));
     top
 }
 
@@ -179,9 +179,10 @@ pub fn structure_hash(blocks: &[MapNode], edges: &[LiftedEdge]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ladder::testing::*;
     use planroom_contract::{Layer, Provenance, Tier};
 
-    fn node(id: &str, level: Level, parent: Option<&str>) -> Node {
+    fn node(id: &str, level: LevelId, parent: Option<&str>) -> Node {
         Node {
             id: NodeId(id.into()),
             kind: Kind("k.x".into()),
@@ -199,24 +200,26 @@ mod tests {
     #[test]
     fn roots_count_their_descendants_by_level() {
         let nodes = vec![
-            node("r:repo:r", Level::System, None),
-            node("r:dir:src", Level::Component, Some("r:repo:r")),
-            node("r:file:src/a", Level::Code, Some("r:dir:src")),
-            node("r:container:r", Level::Container, Some("r:repo:r")),
-            node("ws:container:db", Level::Container, None),
-            node("x:container:lost", Level::Container, Some("x:repo:missing")),
+            node("r:repo:r", realm(), None),
+            node("r:dir:src", site(), Some("r:repo:r")),
+            node("r:file:src/a", room(), Some("r:dir:src")),
+            node("r:container:r", region(), Some("r:repo:r")),
+            node("ws:container:db", region(), None),
+            node("x:container:lost", region(), Some("x:repo:missing")),
         ];
-        let top = top_level(&nodes);
+        let vocabulary = vocabulary();
+        let ladder = Ladder::of(&vocabulary);
+        let top = top_level(&nodes, &ladder);
         let ids: Vec<&str> = top.iter().map(|n| n.id.0.as_str()).collect();
         assert_eq!(ids, ["r:repo:r", "ws:container:db", "x:container:lost"]);
         assert_eq!(
             top[0].counts,
-            BTreeMap::from([("code".into(), 1), ("component".into(), 1), ("container".into(), 1)])
+            BTreeMap::from([("region".into(), 1), ("room".into(), 1), ("site".into(), 1)])
         );
         assert!(top[1].counts.is_empty());
-        let dirs = at_level(&nodes, Level::Component);
+        let dirs = at_level(&nodes, &ladder, &site());
         assert_eq!(dirs.len(), 1);
-        assert_eq!(dirs[0].counts, BTreeMap::from([("code".into(), 1)]));
+        assert_eq!(dirs[0].counts, BTreeMap::from([("room".into(), 1)]));
     }
 
     fn edge(id: &str, from: Ref, to: Ref) -> Edge {
@@ -237,13 +240,13 @@ mod tests {
 
     #[test]
     fn edges_lift_to_their_nearest_blocks_and_merge() {
-        let mut aliased = node("b:file:main", Level::Code, Some("b:repo:b"));
+        let mut aliased = node("b:file:main", room(), Some("b:repo:b"));
         aliased.aliases = vec!["host:b".into()];
         let nodes = vec![
-            node("a:repo:a", Level::System, None),
-            node("a:file:x", Level::Code, Some("a:repo:a")),
-            node("a:file:y", Level::Code, Some("a:repo:a")),
-            node("b:repo:b", Level::System, None),
+            node("a:repo:a", realm(), None),
+            node("a:file:x", room(), Some("a:repo:a")),
+            node("a:file:y", room(), Some("a:repo:a")),
+            node("b:repo:b", realm(), None),
             aliased,
         ];
         let id = |s: &str| Ref::Id(NodeId(s.into()));
@@ -253,7 +256,9 @@ mod tests {
             edge("e:000000000003", id("a:file:x"), id("a:file:y")),
             edge("e:000000000004", id("a:file:x"), Ref::Alias("host:nowhere".into())),
         ];
-        let blocks = top_level(&nodes);
+        let vocabulary = vocabulary();
+        let ladder = Ladder::of(&vocabulary);
+        let blocks = top_level(&nodes, &ladder);
         let lifted = lift_edges(&nodes, &edges, &blocks);
         assert_eq!(lifted.len(), 1, "{lifted:?}");
         assert_eq!(
@@ -269,36 +274,40 @@ mod tests {
     #[test]
     fn a_level_keeps_the_finer_nodes_nothing_at_it_holds() {
         let nodes = vec![
-            node("r:repo:r", Level::System, None),
-            node("r:container:r", Level::Container, Some("r:repo:r")),
-            node("r:dir:app", Level::Component, Some("r:container:r")),
-            node("r:dir:docs", Level::Component, Some("r:repo:r")),
-            node("r:file:docs/a", Level::Code, Some("r:dir:docs")),
-            node("ws:container:db", Level::Container, None),
+            node("r:repo:r", realm(), None),
+            node("r:container:r", region(), Some("r:repo:r")),
+            node("r:dir:app", site(), Some("r:container:r")),
+            node("r:dir:docs", site(), Some("r:repo:r")),
+            node("r:file:docs/a", room(), Some("r:dir:docs")),
+            node("ws:container:db", region(), None),
         ];
+        let vocabulary = vocabulary();
+        let ladder = Ladder::of(&vocabulary);
         let ids = |blocks: Vec<MapNode>| -> Vec<String> { blocks.into_iter().map(|b| b.id.0).collect() };
-        // The system level is the top of the map: the repo, and the container no repo holds.
-        assert_eq!(ids(blocks_at(&nodes, Level::System, None)), ids(top_level(&nodes)));
-        assert_eq!(ids(blocks_at(&nodes, Level::System, None)), ["r:repo:r", "ws:container:db"]);
-        // Under the repo at the container level: its container, and the directory no container holds.
+        // The top level is the top of the map: the realm node, and the region node none holds.
+        assert_eq!(ids(blocks_at(&nodes, &ladder, &realm(), None)), ids(top_level(&nodes, &ladder)));
+        assert_eq!(ids(blocks_at(&nodes, &ladder, &realm(), None)), ["r:repo:r", "ws:container:db"]);
+        // Under the realm node at the region level: its region, and the site no region holds.
         let repo = NodeId("r:repo:r".into());
-        let under = blocks_at(&nodes, Level::Container, Some(&repo));
+        let under = blocks_at(&nodes, &ladder, &region(), Some(&repo));
         assert_eq!(ids(under.clone()), ["r:container:r", "r:dir:docs"]);
-        assert_eq!(under[1].counts, BTreeMap::from([("code".into(), 1)]));
-        assert_eq!(ids(blocks_at(&nodes, Level::Component, Some(&repo))), ["r:dir:app", "r:dir:docs"]);
+        assert_eq!(under[1].counts, BTreeMap::from([("room".into(), 1)]));
+        assert_eq!(ids(blocks_at(&nodes, &ladder, &site(), Some(&repo))), ["r:dir:app", "r:dir:docs"]);
         // Nothing under a leaf, and only intent nodes at the intent level.
-        assert!(blocks_at(&nodes, Level::Code, Some(&NodeId("r:file:docs/a".into()))).is_empty());
-        assert!(blocks_at(&nodes, Level::Intent, None).is_empty());
+        assert!(blocks_at(&nodes, &ladder, &room(), Some(&NodeId("r:file:docs/a".into()))).is_empty());
+        assert!(blocks_at(&nodes, &ladder, &intent(), None).is_empty());
     }
 
     #[test]
     fn a_parent_cycle_counts_nowhere() {
         let nodes = vec![
-            node("r:x:a", Level::Code, Some("r:x:b")),
-            node("r:x:b", Level::Code, Some("r:x:a")),
-            node("r:repo:r", Level::System, None),
+            node("r:x:a", room(), Some("r:x:b")),
+            node("r:x:b", room(), Some("r:x:a")),
+            node("r:repo:r", realm(), None),
         ];
-        let top = top_level(&nodes);
+        let vocabulary = vocabulary();
+        let ladder = Ladder::of(&vocabulary);
+        let top = top_level(&nodes, &ladder);
         assert_eq!(top.len(), 1);
         assert!(top[0].counts.is_empty());
     }

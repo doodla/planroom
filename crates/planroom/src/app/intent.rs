@@ -25,12 +25,13 @@ use std::path::{Path, PathBuf};
 
 use planroom_contract::{
     Actor, Command, CommandName, Cursor, EditResult, Empty, EmptyReason, ErrorCode, EventBody, EventId,
-    Handle, IntentListReq, IntentListResult, IntentNewReq, IntentVersionReq, Level, LintFinding, LintReq,
+    Handle, IntentListReq, IntentListResult, IntentNewReq, IntentVersionReq, LevelId, LintFinding, LintReq,
     LintResult, Node, NodeId, PlanItem, PlanProject, PlanProposal, PlanVersion, ProposeReq, RuleDecl, Seq,
     StageDecl, Status, Warning, WarningCode,
 };
 use planroom_kernel::cas::{self, Authority, Check, Proposed};
 use planroom_kernel::fold::{Folded, Writer};
+use planroom_kernel::ladder::Ladder;
 use planroom_kernel::plan::{self, Item, Project};
 use planroom_kernel::query::lookup::{self, Lookup};
 use planroom_store::{Snapshot, Store};
@@ -150,7 +151,7 @@ fn ambiguous(target: &str, ids: Vec<&NodeId>) -> AppError {
         ErrorCode::AmbiguousRef,
         &[("target", &q(target)), ("count", &ids.len()), ("ids", &shown.join(", "))],
     )
-    .details(json!({"candidates": candidates, "level": "intent"}))
+    .details(json!({"candidates": candidates, "level": LevelId::INTENT}))
 }
 
 /// `invalid_argument` for a person's write onto `id`, which waits as the ghost `event`: its hint
@@ -641,12 +642,15 @@ fn plan_proposal(
         };
         parents.insert(item.key.clone(), plan::item_id(slug, &key));
     }
-    // Touch targets are blocks of the map, never plan items.
-    let pool: Vec<Node> = folded.model.nodes.iter().filter(|n| n.level != Level::Intent).cloned().collect();
+    // Touch targets are blocks of the map, never plan items: nothing at a level apart from the
+    // ladder.
+    let vocabulary = crate::packs::vocabulary()?;
+    let ladder = Ladder::of(vocabulary);
+    let pool: Vec<Node> = folded.model.nodes.iter().filter(|n| !ladder.is_apart(&n.level)).cloned().collect();
     let mut touches: BTreeMap<String, Vec<NodeId>> = BTreeMap::new();
     for item in &proposal.items {
         for given in &item.touches {
-            let id = match lookup::lookup(&pool, given, Level::Code) {
+            let id = match lookup::lookup(&pool, given, ladder.finest(), &ladder) {
                 Lookup::Found(node) => node.id.clone(),
                 Lookup::Missing(closest) => {
                     let what = text::get("intent.touch_missing", &[("target", &q(given))]);

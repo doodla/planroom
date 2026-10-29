@@ -4071,7 +4071,7 @@
         },
         "id_prefix": {
           "type": "string",
-          "description": "The ID's kind-short. One pack owns it, except the kernel's `container`, which every\nContainer-level kind uses (DR-46)."
+          "description": "The ID's kind-short. One pack owns it, except the kernel's `container`, which every kind\nat the containers' level uses (DR-46)."
         },
         "level": {
           "$ref": "#/$defs/Level"
@@ -4106,7 +4106,7 @@
               "type": "null"
             }
           ],
-          "description": "A Container-level kind's block color; surfaces style from `MapNode.tone`, never from a kind\nID (DR-46).",
+          "description": "A kind's block color; surfaces style from `MapNode.tone`, never from a kind\nID (DR-46).",
           "default": null
         },
         "empty_text": {
@@ -4407,15 +4407,94 @@
       "description": "`[[lenses]]`: which relationships a view shows (DR-15)."
     },
     "Level": {
-      "type": "string",
-      "enum": [
-        "intent",
-        "system",
-        "container",
-        "component",
-        "code"
+      "description": "A level: the kernel's intent, or one a pack declares; an open set.",
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "intent"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        }
+      ]
+    },
+    "LevelDecl": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "A level ID (`LevelId::from_str`), never `intent`."
+        },
+        "label": {
+          "type": "string",
+          "description": "The noun \"the {level} level\" reads: 1 to 32 characters."
+        },
+        "one": {
+          "type": "string",
+          "description": "The count of one, such as \"{count} container\": at most 48 characters, `{count}` once."
+        },
+        "many": {
+          "type": "string",
+          "description": "The count of many, such as \"{count} containers\": the same rule."
+        },
+        "below": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The level this one sits directly below: refused in the base pack, required in any other.",
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "one",
+        "many",
+        "below"
       ],
-      "description": "The five fixed levels, from the plan down to the code."
+      "description": "`[[levels]]`: one abstraction level. The base pack lists its ladder top first; another pack\nputs each level directly below one it can see."
+    },
+    "LevelVocab": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Level"
+        },
+        "label": {
+          "type": "string",
+          "description": "The noun \"the {level} level\" reads, such as `container`."
+        },
+        "one": {
+          "type": "string",
+          "description": "The count of one, such as \"{count} container\"."
+        },
+        "many": {
+          "type": "string",
+          "description": "The count of many, such as \"{count} containers\"."
+        },
+        "apart": {
+          "type": "boolean",
+          "description": "Apart from the ladder: the kernel's `intent`, which no chain holds."
+        },
+        "pack": {
+          "type": "string",
+          "description": "The pack that declares the level: `kernel` for `intent`."
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "one",
+        "many",
+        "apart",
+        "pack"
+      ],
+      "description": "One level as the views read it."
     },
     "LiftedEdge": {
       "type": "object",
@@ -4748,7 +4827,7 @@
               "type": "null"
             }
           ],
-          "description": "The level to show; the top level when absent."
+          "description": "The level to show, an ID `ask` lists; the top level when absent."
         },
         "lens": {
           "type": [
@@ -4845,6 +4924,13 @@
             }
           ],
           "description": "With `--detail graph`: the key a layout of this view is cached under, which\n`PUT /api/v1/layout` takes back."
+        },
+        "levels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LevelVocab"
+          },
+          "description": "With `--detail graph`: the vocabulary's levels, `intent` first and then the ladder top\nto finest, so a surface names and steps through levels without naming one itself."
         }
       },
       "required": [
@@ -5352,6 +5438,14 @@
           "description": "Merged across packs; a duplicate glob is `pack_invalid`, and overlapping globs take the\nfirst match in load order.",
           "default": []
         },
+        "levels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LevelDecl"
+          },
+          "description": "The abstraction levels the pack declares: the base pack its ladder, another pack each level\nit inserts.",
+          "default": []
+        },
         "kinds": {
           "type": "array",
           "items": {
@@ -5448,6 +5542,7 @@
         "requires",
         "languages",
         "image_roles",
+        "levels",
         "kinds",
         "relations",
         "hints",
@@ -7929,7 +8024,7 @@
         "store",
         "infra"
       ],
-      "description": "A Container-level kind's block color: surfaces style a block from its tone, never from a kind\nID (DR-46)."
+      "description": "A kind's block color: surfaces style a block from its tone, never from a kind\nID (DR-46)."
     },
     "ToolError": {
       "type": "object",

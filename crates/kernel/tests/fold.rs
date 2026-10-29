@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use planroom_contract::{
     Actor, Card, CardKind, Cause, Choice, Client, CommandName, Edge, EdgeId, Edit, Event, EventBody, EventId,
-    Kind, Layer, Level, Node, NodeId, Op, Provenance, Ref, Rename, ScanStats, Seq, Stakes, Status, Surface,
+    Kind, Layer, LevelId, Node, NodeId, Op, Provenance, Ref, Rename, ScanStats, Seq, Stakes, Status, Surface,
     Target, Tier, Timestamp, Verdict, Vocabulary,
 };
 use planroom_kernel::cas::copy_for_review;
@@ -18,7 +18,7 @@ fn id(s: &str) -> NodeId {
     NodeId(s.into())
 }
 
-fn node(key: &str, level: Level, parent: Option<&str>) -> Node {
+fn node(key: &str, level: LevelId, parent: Option<&str>) -> Node {
     Node {
         id: id(key),
         kind: Kind("k.x".into()),
@@ -53,10 +53,10 @@ fn edge(n: u8, from: &str, to: &str) -> Edge {
 fn facts() -> Facts {
     Facts {
         nodes: vec![
-            node("r:x:repo", Level::System, None),
-            node("r:x:a", Level::Component, Some("r:x:repo")),
-            node("r:x:b", Level::Component, Some("r:x:repo")),
-            node("r:x:item", Level::Code, Some("r:x:a")),
+            node("r:x:repo", LevelId::from("system"), None),
+            node("r:x:a", LevelId::from("component"), Some("r:x:repo")),
+            node("r:x:b", LevelId::from("component"), Some("r:x:repo")),
+            node("r:x:item", LevelId::from("code"), Some("r:x:a")),
         ],
         edges: vec![edge(1, "r:x:item", "r:x:b")],
         ..Facts::default()
@@ -251,7 +251,7 @@ fn an_unresolved_parent_falls_back_to_the_fact_parent() {
     log.edit(&tab(1), set_node("r:x:item", "parent", json!("r:x:gone")));
     log.push(&system(), Status::Applied, scan(2));
     let mut rescanned = facts();
-    rescanned.nodes.push(node("r:x:gone", Level::Component, Some("r:x:repo")));
+    rescanned.nodes.push(node("r:x:gone", LevelId::from("component"), Some("r:x:repo")));
     let folded = log.fold(&rescanned);
     assert_eq!(parent_of(&folded, "r:x:item").as_deref(), Some("r:x:gone"));
     assert!(!folded.diffs.iter().any(|d| matches!(d, FoldDiff::ParentFallback { .. })));
@@ -870,7 +870,7 @@ fn merge_node(id: &str, tier: Tier, name: &str, parent: &str, evidence: planroom
     Node {
         id: NodeId(id.into()),
         kind: Kind("k.x".into()),
-        level: Level::Code,
+        level: LevelId::from("code"),
         parent: Some(NodeId(parent.into())),
         name: name.into(),
         aliases: vec![format!("alias:{name}")],
@@ -884,7 +884,7 @@ fn merge_node(id: &str, tier: Tier, name: &str, parent: &str, evidence: planroom
 fn merge_parent(id: &str) -> Node {
     let mut n = merge_node(id, Tier::Universal, id, "r:x:none", merge_line("p", 1));
     n.parent = None;
-    n.level = Level::Component;
+    n.level = LevelId::from("component");
     n
 }
 
@@ -967,13 +967,15 @@ fn scan_renaming(snapshot: u64, renames: &[(&str, &str)]) -> EventBody {
 
 /// A repo with a directory `src` and the given files and directories under it, each a fact.
 fn tree(paths: &[&str]) -> Facts {
-    let mut nodes =
-        vec![node("r:x:repo", Level::System, None), node("r:d:src", Level::Component, Some("r:x:repo"))];
+    let mut nodes = vec![
+        node("r:x:repo", LevelId::from("system"), None),
+        node("r:d:src", LevelId::from("component"), Some("r:x:repo")),
+    ];
     for path in paths {
         let (up, _) = path.rsplit_once('/').unwrap();
         let file = path.contains('.');
         let parent = format!("r:d:{up}");
-        let level = if file { Level::Code } else { Level::Component };
+        let level = if file { LevelId::from("code") } else { LevelId::from("component") };
         let key = format!("r:{}:{path}", if file { "f" } else { "d" });
         let mut n = node(&key, level, Some(&parent));
         n.name = path.rsplit('/').next().unwrap().into();

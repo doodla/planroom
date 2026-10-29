@@ -167,7 +167,7 @@ fn engine_lines_mask_repo_text_and_keep_engine_tokens() {
         summary.starts_with(&format!("4 under db_PASSWORD={MASK} at the container level: ")),
         "{summary}"
     );
-    assert!(summary.contains(&format!("{MASK} (1 code)")), "{summary}");
+    assert!(summary.contains(&format!("{MASK} (1 code block)")), "{summary}");
     assert_eq!(focus["result"]["focus"], repo_id.as_str(), "the focus is an ID");
     assert!(ids(&focus["result"]).contains(&dir_id.as_str()), "{focus}");
     let first_line = text(&root, &["map", "--lens", "all", "--focus", &repo_id], false);

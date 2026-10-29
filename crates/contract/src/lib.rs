@@ -52,15 +52,15 @@ pub use event::{
     HandoffStep, Op, Rename, ScanStats, Status, Surface, Target, Timestamp, Verdict,
 };
 pub use model::{
-    CONTAINS_MAX_CHARS, Edge, EdgeId, Evidence, FACTS_FORMAT, FactBatch, Hint, HintRef, Kind, Layer, Level,
+    CONTAINS_MAX_CHARS, Edge, EdgeId, Evidence, FACTS_FORMAT, FactBatch, Hint, HintRef, Kind, Layer, LevelId,
     Node, NodeId, PartialFile, PartialReason, Provenance, Ref, Seq, Tier,
 };
 pub use models::{Measured, REPLAY_FORMAT, RecordedRequest, RecordedResponse, ReplayRecord};
 pub use pack::{
     ActionDecl, ArgDecl, CacheTtl, EmitTemplate, ExtractorDecl, Flow, HintDecl, ImageRole, ItemType,
-    KindDecl, LanguageDecl, LensDecl, LinkerDecl, ModelTier, PREDICATE_PARAMS, PackFile, PackRecord, Param,
-    ParamNames, PromptDecl, PromptRole, QuestionDecl, RelationDecl, RuleDecl, RuleType, Shape, ShapeStep,
-    StageDecl, SuggestionDecl,
+    KindDecl, LanguageDecl, LensDecl, LevelDecl, LinkerDecl, ModelTier, PREDICATE_PARAMS, PackFile,
+    PackRecord, Param, ParamNames, PromptDecl, PromptRole, QuestionDecl, RelationDecl, RuleDecl, RuleType,
+    Shape, ShapeStep, StageDecl, SuggestionDecl,
 };
 pub use plan::{
     IntentListReq, IntentListResult, IntentNewReq, IntentVersionReq, LintFinding, LintResult, PlanItem,
@@ -82,4 +82,4 @@ pub use view::{
     LayoutKey, LiftedEdge, MapNode, MapView, MiniBlock, MiniEdge, MiniMap, PaneModel, PaneState, Position,
     PresenceRow, Progress, ScanState, Stakes, Tone, TurnSeq,
 };
-pub use vocab::{KindVocab, LensVocab, RelationVocab, Vocabulary};
+pub use vocab::{KindVocab, LensVocab, LevelVocab, RelationVocab, Vocabulary};

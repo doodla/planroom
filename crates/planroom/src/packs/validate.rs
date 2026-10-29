@@ -1,7 +1,7 @@
 //! Checking a pack set before anything reads it: each manifest's header, the inward-only rule by
-//! origin, every reference (a decision kind's, a question step's, a rule's, a suggestion's and a
-//! literal node ID's among them), the ID prefixes, the merged tables, the built-ins each pack
-//! names, each declarative extractor's regex, the default lens and the hint kinds no linker joins
+//! origin, the ladder of levels, every reference (a decision kind's, a question step's, a rule's,
+//! a suggestion's and a literal node ID's among them), the ID prefixes, the merged tables, the
+//! built-ins each pack names, each declarative extractor's regex, the default lens and the hint kinds no linker joins
 //! (DR-9, DR-46, DR-54, DR-62). The first problem fails the load with `pack_invalid`, naming the
 //! file, the line of the offending key or value, and the reference.
 //!
@@ -11,8 +11,12 @@
 //! ([`EffectOp::params`]) and a `when` predicate's through [`PREDICATE_PARAMS`]. A key the table
 //! doesn't declare is refused, at any depth, a value form no check reads is refused, and each
 //! name a reference parameter holds is checked against the pack's scope. A suggestion's action is
-//! parsed by the CLI's own clap tree, and every lens and node ID its arguments name is checked
-//! the same way.
+//! parsed by the CLI's own clap tree, and every lens, level and node ID its arguments name is
+//! checked the same way.
+//!
+//! A pack's `[[levels]]` are checked before its kinds, pack by pack in load order, so each kind,
+//! lens and suggestion names a level its pack can see: intent, the base pack's, its own, or a
+//! level of a pack it requires.
 //!
 //! A `$` placeholder stands in only where the docs allow one: a question's argument for a node
 //! ID in a step, `$pick` for a node ID in an effect, and an emit template's captures. A kind,
@@ -26,7 +30,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use planroom_contract::{
-    ActionDecl, ArgDecl, Class, Command, DecisionKind, EffectOp, EmitTemplate, ExtractorDecl, Level,
+    ActionDecl, ArgDecl, Class, Command, DecisionKind, EffectOp, EmitTemplate, ExtractorDecl, LevelId,
     PREDICATE_PARAMS, Param, ParamNames, Predicate, Question, RuleType, Shape, SubjectKind, Undo,
     WriteCommon,
 };
@@ -44,9 +48,9 @@ use crate::text;
 /// The kernel's own kinds and its one relation, which every pack may reference (DR-45).
 const KERNEL_KINDS: &[&str] = &["group", "external", "project", "item"];
 const KERNEL_RELATIONS: &[&str] = &["touches"];
-/// The kernel's ID prefix for every Container-level kind, so a reclassified container keeps its
-/// ID (DR-46).
-const CONTAINER_PREFIX: &str = "container";
+/// The kernel's ID prefix for every kind at the containers' level, so a reclassified container
+/// keeps its ID (DR-46).
+pub(crate) const CONTAINER_PREFIX: &str = "container";
 /// Prefixes the kernel's own IDs use, which no pack may claim.
 const KERNEL_PREFIXES: &[&str] = &["group"];
 /// Questions the engine serves itself, which no pack declares (DR-15).
@@ -60,6 +64,13 @@ const PLAN_NAMESPACE: &str = "plan";
 const PICK: &str = "$pick";
 /// `map --lens all` lifts every relation kind; it names no lens.
 const ALL_LENSES: &str = "all";
+/// The most levels the ladder holds below intent.
+const LEVELS_MAX: usize = 8;
+/// The most characters a level's label holds, and its `one` and `many` words.
+const LEVEL_LABEL_MAX: usize = 32;
+const LEVEL_WORDS_MAX: usize = 48;
+/// The placeholder a level's `one` and `many` words hold exactly once.
+const COUNT: &str = "{count}";
 
 type Vars<'a> = [(&'a str, &'a dyn std::fmt::Display)];
 
@@ -67,6 +78,12 @@ type Vars<'a> = [(&'a str, &'a dyn std::fmt::Display)];
 pub fn check(packs: &[Pack]) -> Result<(), AppError> {
     let ids = headers(packs)?;
     let names = Names::of(packs)?;
+    // The containers' level: the level of the first kind, in load order, that uses the prefix.
+    let containers = packs
+        .iter()
+        .flat_map(|p| p.file.kinds.iter())
+        .find(|k| k.id_prefix == CONTAINER_PREFIX)
+        .map(|k| k.level.clone());
     let root = KeyPath::root();
     let mut prefixes: BTreeMap<&str, &str> = KERNEL_PREFIXES.iter().map(|p| (*p, KERNEL)).collect();
     let mut extensions: BTreeMap<String, &str> = BTreeMap::new();
@@ -80,20 +97,25 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
     let mut defaults: Vec<(&str, &str, usize, bool)> = Vec::new();
     let linkers: BTreeSet<&str> =
         packs.iter().flat_map(|p| p.file.linkers.iter().map(|l| l.builtin.as_str())).collect();
+    let mut rungs = Rungs::default();
     for pack in packs {
-        let ctx = Ctx { pack, names: &names, scope: scope(pack) };
+        let mut ctx = Ctx { pack, names: &names, scope: scope(pack), levels: BTreeSet::new() };
         let src = &pack.source;
         let id = pack.id();
         requires(pack, &ids)?;
 
+        levels(&ctx, &mut rungs)?;
+        ctx.levels = rungs.visible(pack);
         for (i, kind) in pack.file.kinds.iter().enumerate() {
             let at = root.key("kinds").at(i);
+            ctx.level(kind.level.as_str(), &at.key("level"))?;
             let q = qualify(id, &kind.id);
-            let container = kind.level == Level::Container;
+            let container = containers.as_ref() == Some(&kind.level);
             let prefix_at = at.key("id_prefix");
             if container != (kind.id_prefix == CONTAINER_PREFIX) {
                 let why = if container { "prefix_container" } else { "prefix_reserved" };
-                return Err(ctx.bad(&prefix_at, &kind.id_prefix, why, &[("kind", &q)]));
+                let level = containers.as_ref().map(LevelId::as_str).unwrap_or_default();
+                return Err(ctx.bad(&prefix_at, &kind.id_prefix, why, &[("kind", &q), ("level", &level)]));
             }
             if !container {
                 syntax(src, &prefix_at, &kind.id_prefix)?;
@@ -145,7 +167,7 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
                 return Err(claimed(&ctx, &at.key("image"), &role.image, "image_roles", other));
             }
             let level = ctx.kind(&role.kind, &at.key("kind"))?;
-            if level != Some(Level::Container) {
+            if level.is_none() || level != containers {
                 let vars: &Vars<'_> = &[("image", &role.image), ("kind", &role.kind)];
                 return Err(ctx.bad(&at.key("kind"), &role.kind, "image_kind", vars));
             }
@@ -215,6 +237,7 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
             for (j, kind) in lens.kinds.iter().enumerate() {
                 ctx.kind(kind, &at.key("kinds").at(j))?;
             }
+            ctx.level(lens.level.as_str(), &at.key("level"))?;
             if lens.default {
                 defaults.push((id, &lens.id, i, is_base(pack)));
             }
@@ -300,6 +323,96 @@ pub(super) fn is_base(pack: &Pack) -> bool {
     pack.id() == BASE && pack.origin == Origin::BuiltIn
 }
 
+/// The ladder the packs checked so far declare, while each pack's `[[levels]]` is checked.
+#[derive(Default)]
+struct Rungs<'a> {
+    /// The levels below intent, top to finest.
+    chain: Vec<&'a str>,
+    /// The base pack's levels, top to finest.
+    base: Vec<&'a str>,
+    /// Each pack's own levels, in declaration order.
+    by_pack: BTreeMap<&'a str, Vec<&'a str>>,
+    /// Each level ID with the pack that declares it.
+    owners: BTreeMap<&'a str, &'a str>,
+    /// The levels another pack than the base already put a level directly below.
+    taken: BTreeSet<&'a str>,
+}
+
+impl Rungs<'_> {
+    /// The levels `pack` can see: intent, the base pack's, its own declared so far, and those of
+    /// the packs it requires.
+    fn visible(&self, pack: &Pack) -> BTreeSet<String> {
+        let mut seen: BTreeSet<String> =
+            std::iter::once(LevelId::INTENT).chain(self.base.iter().copied()).map(str::to_owned).collect();
+        for owner in pack.file.requires.iter().map(String::as_str).chain([pack.id()]) {
+            seen.extend(self.by_pack.get(owner).into_iter().flatten().map(|l| (*l).to_owned()));
+        }
+        seen
+    }
+}
+
+/// One pack's `[[levels]]`, each added to the ladder in declaration order: the base pack lists
+/// its ladder top first with no `below`; every other pack puts each level directly below one it
+/// can see, below which no other pack's level sits yet, never below the base pack's finest.
+fn levels<'a>(ctx: &Ctx<'a>, rungs: &mut Rungs<'a>) -> Result<(), AppError> {
+    let pack = ctx.pack;
+    let src = &pack.source;
+    let base = is_base(pack);
+    for (i, decl) in pack.file.levels.iter().enumerate() {
+        let at = KeyPath::root().key("levels").at(i);
+        let id_at = at.key("id");
+        let level = decl.id.as_str();
+        syntax(src, &id_at, level)?;
+        if level.parse::<LevelId>().is_err() {
+            return Err(ctx.bad(&id_at, level, "id_syntax", &[("id", &level)]));
+        }
+        if level == LevelId::INTENT {
+            return Err(ctx.bad(&id_at, level, "level_intent", &[]));
+        }
+        if let Some(other) = rungs.owners.insert(level, pack.id()) {
+            return Err(claimed(ctx, &id_at, level, "levels", other));
+        }
+        for (key, words, counted) in
+            [("label", &decl.label, false), ("one", &decl.one, true), ("many", &decl.many, true)]
+        {
+            let n = words.chars().count();
+            let fits = if counted { n <= LEVEL_WORDS_MAX } else { (1..=LEVEL_LABEL_MAX).contains(&n) };
+            if !fits || (counted && words.matches(COUNT).count() != 1) {
+                return Err(ctx.bad(&at.key(key), words, "level_words", &[("id", &level)]));
+            }
+        }
+        let finest = rungs.base.last().copied().unwrap_or(LevelId::INTENT);
+        let refuse = |at: &KeyPath, reference: &str, below: &str| {
+            let vars: &Vars<'_> = &[("id", &level), ("below", &below), ("finest", &finest)];
+            ctx.bad(at, reference, "level_below", vars)
+        };
+        match (decl.below.as_deref(), base) {
+            (None, true) => {
+                rungs.chain.push(level);
+                rungs.base.push(level);
+            }
+            (Some(below), true) => return Err(refuse(&at.key("below"), below, below)),
+            // A level with no `below` would open the ladder, directly below intent.
+            (None, false) => return Err(refuse(&id_at, level, LevelId::INTENT)),
+            (Some(below), false) => {
+                let seen = rungs.visible(pack).contains(below);
+                match rungs.chain.iter().position(|l| *l == below) {
+                    Some(k) if seen && below != finest && !rungs.taken.contains(below) => {
+                        rungs.chain.insert(k + 1, level);
+                        rungs.taken.insert(below);
+                    }
+                    _ => return Err(refuse(&at.key("below"), below, below)),
+                }
+            }
+        }
+        if rungs.chain.len() > LEVELS_MAX {
+            return Err(ctx.bad(&id_at, level, "levels_over", &[("count", &rungs.chain.len())]));
+        }
+        rungs.by_pack.entry(pack.id()).or_default().push(level);
+    }
+    Ok(())
+}
+
 /// Each manifest's format and ID, no ID twice, and no out-of-tree pack under a built-in pack's
 /// ID: every loaded pack's ID and its origin.
 fn headers(packs: &[Pack]) -> Result<BTreeMap<&str, Origin>, AppError> {
@@ -352,7 +465,7 @@ fn requires(pack: &Pack, ids: &BTreeMap<&str, Origin>) -> Result<(), AppError> {
 /// lens ID with the pack that first declares it, and each ID prefix but the kernel's with the
 /// packs whose kinds declare it.
 struct Names {
-    kinds: BTreeMap<String, Level>,
+    kinds: BTreeMap<String, LevelId>,
     relations: BTreeSet<String>,
     hints: BTreeSet<String>,
     lenses: BTreeMap<String, String>,
@@ -379,7 +492,7 @@ impl Names {
             for (i, kind) in pack.file.kinds.iter().enumerate() {
                 let at = root.key("kinds").at(i).key("id");
                 syntax(src, &at, &kind.id)?;
-                if names.kinds.insert(qualify(id, &kind.id), kind.level).is_some() {
+                if names.kinds.insert(qualify(id, &kind.id), kind.level.clone()).is_some() {
                     return Err(twice(at, "kinds", &kind.id));
                 }
                 if kind.id_prefix != CONTAINER_PREFIX {
@@ -473,6 +586,8 @@ struct Ctx<'a> {
     pack: &'a Pack,
     names: &'a Names,
     scope: BTreeSet<String>,
+    /// The levels this pack can see, once its own `[[levels]]` are checked.
+    levels: BTreeSet<String>,
 }
 
 impl Ctx<'_> {
@@ -497,15 +612,23 @@ impl Ctx<'_> {
     }
 
     /// A kind reference's level; the kernel's kinds have none of their own.
-    fn kind(&self, reference: &str, at: &KeyPath) -> Result<Option<Level>, AppError> {
+    fn kind(&self, reference: &str, at: &KeyPath) -> Result<Option<LevelId>, AppError> {
         let (ns, name) = self.visible(reference, at)?;
         if ns == KERNEL && KERNEL_KINDS.contains(&name) {
             return Ok(None);
         }
         match self.names.kinds.get(reference) {
-            Some(level) => Ok(Some(*level)),
+            Some(level) => Ok(Some(level.clone())),
             None => Err(self.bad(at, reference, "unknown_kind", &[("reference", &reference)])),
         }
+    }
+
+    /// A level this pack can see.
+    fn level(&self, reference: &str, at: &KeyPath) -> Result<(), AppError> {
+        if self.levels.contains(reference) {
+            return Ok(());
+        }
+        Err(self.bad(at, reference, "level_unknown", &[("reference", &reference)]))
     }
 
     fn relation(&self, reference: &str, at: &KeyPath) -> Result<(), AppError> {
@@ -619,6 +742,9 @@ impl Ctx<'_> {
         match &leaf {
             Command::Map(req) => {
                 lens(&req.lens)?;
+                if let Some(level) = &req.level {
+                    self.level(level.as_str(), &arg_at(level.as_str()))?;
+                }
                 // A target is an ID, an ID suffix or a name: only a whole ID names a kind-short.
                 if let Some(focus) = &req.focus
                     && (focus.starts_with('$') || focus.matches(':').count() >= 2)

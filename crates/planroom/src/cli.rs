@@ -749,7 +749,7 @@ fn with_usage(e: AppError, command: &str) -> AppError {
 }
 
 /// A leaf's one-line synopsis from its clap arguments, long flags only, such as
-/// `planroom map [--level intent|system|container|component|code] [--lens LENS] ... [--json]`.
+/// `planroom map [--level LEVEL] [--lens LENS] ... [--json]`.
 fn synopsis(cmd: &clap::Command, path: &str) -> String {
     let mut words =
         vec!["planroom".to_owned(), if path.is_empty() { "COMMAND".into() } else { path.to_owned() }];

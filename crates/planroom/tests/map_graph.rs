@@ -77,3 +77,56 @@ fn the_graph_carries_cached_positions_and_its_layout_key() {
         }
     }
 }
+
+#[test]
+fn graph_detail_carries_the_ladder_and_summary_does_not() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("shop");
+    fixture(&root);
+    let ladder = |reply: &Value| -> Vec<(String, String, bool, String)> {
+        reply["result"]["levels"]
+            .as_array()
+            .unwrap_or_else(|| panic!("the graph carries the ladder: {reply}"))
+            .iter()
+            .map(|l| {
+                assert!(l["one"].as_str().unwrap().contains("{count}"), "{l}");
+                assert!(l["many"].as_str().unwrap().contains("{count}"), "{l}");
+                (
+                    l["id"].as_str().unwrap().to_owned(),
+                    l["label"].as_str().unwrap().to_owned(),
+                    l["apart"].as_bool().unwrap(),
+                    l["pack"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect()
+    };
+    let want: Vec<(String, String, bool, String)> = [
+        ("intent", true, "kernel"),
+        ("system", false, "code"),
+        ("container", false, "code"),
+        ("component", false, "code"),
+        ("code", false, "code"),
+    ]
+    .into_iter()
+    .map(|(id, apart, pack)| (id.to_owned(), id.to_owned(), apart, pack.to_owned()))
+    .collect();
+    // Not scanned: the empty state's graph carries it too, so a surface can name the levels.
+    let empty = map(&root, &["--detail", "graph"]);
+    assert!(empty["result"]["empty"].is_object(), "{empty}");
+    assert_eq!(ladder(&empty), want);
+    assert!(map(&root, &[])["result"].get("levels").is_none(), "a summary carries no ladder");
+
+    let scanned = Command::new(env!("CARGO_BIN_EXE_planroom"))
+        .args(["scan", "--json"])
+        .current_dir(&root)
+        .env("PLANROOM_DATA", root.join(".data"))
+        .output()
+        .unwrap();
+    assert!(scanned.status.success());
+    for level in ["system", "container", "code"] {
+        let graph = map(&root, &["--detail", "graph", "--level", level]);
+        assert_eq!(ladder(&graph), want, "at the {level} level");
+        let summary = map(&root, &["--level", level]);
+        assert!(summary["result"].get("levels").is_none(), "a summary carries no ladder: {summary}");
+    }
+}

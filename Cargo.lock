@@ -2882,6 +2882,7 @@ dependencies = [
  "planroom-contract",
  "planroom-kernel",
  "planroom-models",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

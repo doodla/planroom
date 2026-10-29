@@ -244,7 +244,7 @@ fn read(
                 let container = Node {
                     id: id.clone(),
                     kind: Kind(kinds.library.kind.clone()),
-                    level: kinds.library.level,
+                    level: kinds.library.level.clone(),
                     parent: Some(repo_id(&repo.name, &kinds.repo)),
                     name: repo.name.clone(),
                     aliases: vec![],
@@ -263,7 +263,7 @@ fn read(
             let package = Node {
                 id: id.clone(),
                 kind: Kind(kinds.package.kind.clone()),
-                level: kinds.package.level,
+                level: kinds.package.level.clone(),
                 parent: Some(parent),
                 name: name.clone(),
                 aliases: vec![format!("pkg:{name}")],

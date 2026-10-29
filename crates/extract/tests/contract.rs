@@ -11,8 +11,8 @@ use std::path::Path;
 use std::process::Command;
 
 use planroom_contract::{
-    ErrorCode, Evidence, ExtractorDecl, FactBatch, LanguageDecl, Level, NodeId, PartialFile, PartialReason,
-    Ref, Vocabulary,
+    ErrorCode, Evidence, ExtractorDecl, FactBatch, LanguageDecl, NodeId, PartialFile, PartialReason, Ref,
+    Vocabulary,
 };
 use planroom_extract::declarative::{
     CAPTURE_FLOOR, CAPTURE_PER_BYTE, Declarative, Invalid, Spec, Step, TEMPLATE_MAX_VARS, Why,
@@ -153,7 +153,10 @@ fn files_emit_the_repo_its_directories_and_its_files() {
     );
     let node = |id: &str| batch.nodes.iter().find(|n| n.id.0 == id).unwrap();
     let main = node("deploy:file:src/app/main.ts");
-    assert_eq!((main.level, main.parent.as_ref().unwrap().0.as_str()), (Level::Code, "deploy:dir:src/app"));
+    assert_eq!(
+        (main.level.as_str(), main.parent.as_ref().unwrap().0.as_str()),
+        ("code", "deploy:dir:src/app")
+    );
     assert_eq!(main.props["language"], "typescript");
     assert!(
         matches!(&main.evidence[0], Evidence::Line { line: 1, contains: Some(c), .. } if c == "export const x = 1;")
@@ -675,7 +678,7 @@ fn emit_props_coerce_to_the_prop_schema() {
     assert!(edge("broken").props.is_empty());
     assert_eq!(batch.partial, [PartialFile { path: "web/flags.yaml".into(), errors: 3, reason: None }]);
     let node = batch.nodes.iter().find(|n| n.id.0 == "web:flag:gift_wrap").unwrap();
-    assert_eq!((node.kind.0.as_str(), node.level), ("flags.flag", Level::Code));
+    assert_eq!((node.kind.0.as_str(), node.level.as_str()), ("flags.flag", "code"));
     assert_eq!(node.parent, Some(NodeId("web:file:flags.yaml".into())));
     assert!(matches!(&node.evidence[..], [Evidence::Line { line: 2, .. }]), "{:?}", node.evidence);
 }

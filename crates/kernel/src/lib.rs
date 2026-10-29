@@ -6,6 +6,7 @@ pub mod facts;
 pub mod find;
 pub mod fold;
 pub mod keys;
+pub mod ladder;
 pub mod lens;
 pub mod lint;
 pub mod model;

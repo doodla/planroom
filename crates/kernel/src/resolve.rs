@@ -2,6 +2,10 @@
 //! and roll-ups"): one node per ID, merged by tier (DR-42), its level taken from the loaded packs'
 //! vocabulary, its parent attached, and every edge end resolved by ID or by a unique alias.
 //!
+//! - A node of a kind the vocabulary declares takes the kind's level. Then, when the vocabulary
+//!   declares a ladder, a node at a level the ladder doesn't hold sits at its finest level; with
+//!   no ladder, every level passes through as the facts give it.
+//!
 //! - A node's parent is the most specific fact's parent that resolves to a node. When it doesn't,
 //!   the node falls back to the parent the next fact names, in tier order; with none that
 //!   resolves, the node sits at the top.
@@ -14,9 +18,10 @@ use std::collections::HashMap;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, BuildHasherDefault, Hasher};
 
-use planroom_contract::{Edge, Kind, Level, Node, NodeId, Ref, Vocabulary};
+use planroom_contract::{Edge, Kind, LevelId, Node, NodeId, Ref, Vocabulary};
 
 use crate::facts::{self, Merged};
+use crate::ladder::Ladder;
 use crate::model::Facts;
 
 /// The facts, resolved.
@@ -39,7 +44,11 @@ pub fn resolve(facts: &Facts, vocabulary: &Vocabulary) -> Resolved {
 
 /// [`resolve`], with where each resolved node sits by ID, which the fold keeps.
 pub(crate) fn resolve_placed(facts: &Facts, vocabulary: &Vocabulary) -> (Resolved, Places) {
-    let levels: HashMap<&Kind, Level> = vocabulary.kinds.iter().rev().map(|k| (&k.kind, k.level)).collect();
+    let levels: HashMap<&Kind, &LevelId> =
+        vocabulary.kinds.iter().rev().map(|k| (&k.kind, &k.level)).collect();
+    let ladder = Ladder::of(vocabulary);
+    // The top is intent only when no chain is declared; then levels pass through as they came.
+    let declared = !ladder.top().is_intent();
     // Each fact is copied once, into its merged node or edge.
     let sorted = facts::sorted_by_id(&facts.nodes);
     let groups: Vec<&[&Node]> = sorted.chunk_by(|a, b| a.id == b.id).collect();
@@ -78,8 +87,14 @@ pub(crate) fn resolve_placed(facts: &Facts, vocabulary: &Vocabulary) -> (Resolve
                 node
             }
         };
-        if let Some(&level) = levels.get(&node.kind) {
-            node.level = level;
+        // Assigned only when it differs, so the common case allocates nothing.
+        if let Some(&level) = levels.get(&node.kind)
+            && node.level != *level
+        {
+            node.level = level.clone();
+        }
+        if declared && !ladder.holds(&node.level) {
+            node.level = ladder.finest().clone();
         }
         nodes.push(node);
     }
@@ -245,13 +260,14 @@ impl<'a> Index<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ladder::testing::*;
     use planroom_contract::{EdgeId, KindVocab, Layer, Provenance, Tier};
 
     fn node(id: &str, tier: Tier, name: &str) -> Node {
         Node {
             id: NodeId(id.into()),
             kind: Kind("k.x".into()),
-            level: Level::Code,
+            level: room(),
             parent: None,
             name: name.into(),
             aliases: vec![],
@@ -293,7 +309,7 @@ mod tests {
         let vocabulary = Vocabulary {
             kinds: vec![KindVocab {
                 kind: Kind("k.x".into()),
-                level: Level::Component,
+                level: site(),
                 id_prefix: "x".into(),
                 label: "X".into(),
                 props: serde_json::Value::Null,
@@ -301,8 +317,8 @@ mod tests {
             }],
             ..Vocabulary::default()
         };
-        assert_eq!(resolve(&facts, &vocabulary).nodes[0].level, Level::Component);
-        assert_eq!(resolve(&facts, &Vocabulary::default()).nodes[0].level, Level::Code);
+        assert_eq!(resolve(&facts, &vocabulary).nodes[0].level, site());
+        assert_eq!(resolve(&facts, &Vocabulary::default()).nodes[0].level, room());
     }
 
     #[test]

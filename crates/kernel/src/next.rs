@@ -139,9 +139,10 @@ pub(crate) fn has_edge(
 
 #[cfg(test)]
 mod tests {
+    use crate::ladder::testing::*;
     use std::collections::BTreeMap;
 
-    use planroom_contract::{ActionDecl, CommandName, EdgeId, Kind, Layer, Level, NodeId, Provenance, Tier};
+    use planroom_contract::{ActionDecl, CommandName, EdgeId, Kind, Layer, NodeId, Provenance, Tier};
     use serde_json::json;
 
     use super::*;
@@ -150,7 +151,7 @@ mod tests {
         Node {
             id: NodeId(id.into()),
             kind: Kind(kind.into()),
-            level: Level::Container,
+            level: region(),
             parent: Some(NodeId("w:x:top".into())),
             name: id.rsplit(':').next().unwrap().into(),
             aliases: vec![],

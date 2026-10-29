@@ -10,10 +10,16 @@ import { alreadyShown } from "../levels";
 import { STRINGS } from "../strings";
 import { useCanvas } from "../use-canvas";
 
-/** The name on the top lid: the workspace, as the pane's breadcrumb names it. */
+/**
+ * The name on the top lid: the workspace, as the pane's breadcrumb names it; before the pane
+ * names it, the ladder's top level, as the shown map names it.
+ */
 export function useTopName(): string {
   const name = useCanvas((s) => s.pane?.focus.breadcrumb[0]?.name);
-  return name === undefined ? STRINGS.top : sanitize(name);
+  const topLevel = useCanvas(
+    (s) => s.map?.levels?.find((l) => !l.apart)?.label,
+  );
+  return sanitize(name ?? topLevel ?? STRINGS.levels);
 }
 
 export interface NextPress {
@@ -25,6 +31,7 @@ export interface NextPress {
 export function useNextAction(): NextPress | null {
   const pane = useCanvas((s) => s.pane);
   const level = useCanvas((s) => s.level);
+  const levels = useCanvas((s) => s.map?.levels);
   const run = useCanvas((s) => s.run);
   const back = useCanvas((s) => s.back);
   const top = useTopName();
@@ -32,7 +39,7 @@ export function useNextAction(): NextPress | null {
     return null;
   }
   const next = pane.next;
-  if (alreadyShown(next, level)) {
+  if (alreadyShown(levels ?? [], next, level)) {
     return level === null
       ? null
       : { label: STRINGS.backTo(top), onPress: () => void back() };

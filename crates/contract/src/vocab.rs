@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::model::{Kind, Level};
+use crate::model::{Kind, LevelId};
 use crate::pack::{Flow, SuggestionDecl};
 use crate::view::Tone;
 
@@ -22,19 +22,38 @@ pub struct Vocabulary {
     pub relations: Vec<RelationVocab>,
     pub lenses: Vec<LensVocab>,
     pub suggestions: Vec<SuggestionDecl>,
+    /// The levels: `intent` first, apart from the ladder, then the ladder top to finest.
+    #[serde(default)]
+    pub levels: Vec<LevelVocab>,
+}
+
+/// One level as the views read it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct LevelVocab {
+    pub id: LevelId,
+    /// The noun "the {level} level" reads, such as `container`.
+    pub label: String,
+    /// The count of one, such as "{count} container".
+    pub one: String,
+    /// The count of many, such as "{count} containers".
+    pub many: String,
+    /// Apart from the ladder: the kernel's `intent`, which no chain holds.
+    pub apart: bool,
+    /// The pack that declares the level: `kernel` for `intent`.
+    pub pack: String,
 }
 
 /// One node kind.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct KindVocab {
     pub kind: Kind,
-    pub level: Level,
+    pub level: LevelId,
     /// The ID's kind-short: `<namespace>:<id_prefix>:<key>`.
     pub id_prefix: String,
     pub label: String,
     /// The JSON Schema fragment the kind's props validate against.
     pub props: Value,
-    /// A Container-level kind's block color.
+    /// A kind's block color.
     pub tone: Option<Tone>,
 }
 
@@ -61,7 +80,7 @@ pub struct LensVocab {
     /// The node kinds the lens is about; its map shows their nodes first (DR-15).
     pub kinds: Vec<Kind>,
     /// The level `map --lens` alone takes.
-    pub level: Level,
+    pub level: LevelId,
     /// The one default lens.
     pub default: bool,
 }

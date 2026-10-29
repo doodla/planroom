@@ -34,8 +34,7 @@ export function toolSpecs(): ToolSpecData[] {
       args: {
         type: "array",
         items: { type: "string" },
-        description:
-          'the command\'s CLI arguments, such as ["--level", "container"]',
+        description: 'the command\'s CLI arguments, such as ["--focus", "ID"]',
       },
       base: { type: "integer" },
       idem: { type: "string" },

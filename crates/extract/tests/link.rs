@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use planroom_contract::{Edge, Evidence, Hint, Kind, Layer, Level, Node, NodeId, Provenance, Ref, Tier};
+use planroom_contract::{Edge, Evidence, Hint, Kind, Layer, LevelId, Node, NodeId, Provenance, Ref, Tier};
 use planroom_extract::link::{Linked, WorkspaceFacts, builtin};
 use serde_json::{Value, json};
 
@@ -1189,7 +1189,7 @@ fn a_join_counts_overlapping_host_sets_once() {
     let node = |id: &str, aliases: &[&str]| Node {
         id: NodeId(id.into()),
         kind: Kind("code.service".into()),
-        level: Level::Container,
+        level: LevelId::from("container"),
         parent: None,
         name: id.rsplit(':').next().unwrap().into(),
         aliases: aliases.iter().map(|a| (*a).to_owned()).collect(),
@@ -1478,7 +1478,7 @@ fn a_repos_one_joined_service_is_its_container_over_its_manifests() {
     let library = Node {
         id: NodeId("orders:container:orders".into()),
         kind: Kind("code.library".into()),
-        level: Level::Container,
+        level: LevelId::from("container"),
         parent: Some(NodeId("orders:repo:orders".into())),
         name: "orders".into(),
         aliases: vec![],
@@ -1798,7 +1798,7 @@ fn package(repo: &str, name: &str, manifest: &str, line_no: u32) -> Node {
     Node {
         id: NodeId(format!("{repo}:pkg:{name}")),
         kind: Kind("code.package".into()),
-        level: Level::Component,
+        level: LevelId::from("component"),
         parent: Some(NodeId(format!("{repo}:container:{repo}"))),
         name: name.into(),
         aliases: vec![format!("pkg:{name}")],

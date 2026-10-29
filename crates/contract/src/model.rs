@@ -1,14 +1,17 @@
 //! The graph model: the four shapes every pack's facts use (`Node`, `Edge`, `Evidence`, `Hint`).
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
+use std::sync::Arc;
 
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::event::{Actor, EventId};
+use crate::open_set::{self, CODE_PATTERN};
 
 /// A store version: the global event order. Always below 2^53.
 pub type Seq = u64;
@@ -56,28 +59,95 @@ pub struct EdgeId(#[schemars(pattern(r"^e:[0-9a-f]{12}$"))] pub String);
 #[serde(transparent)]
 pub struct Kind(#[schemars(pattern(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$"))] pub String);
 
-/// The five fixed levels, from the plan down to the code.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    clap::ValueEnum,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum Level {
-    Intent,
-    System,
-    Container,
-    Component,
-    Code,
+/// A level: the kernel's `intent`, or one a pack's `[[levels]]` declares; an open set. Its order
+/// comes from the ladder (`kernel::ladder::Ladder`), never from this type, which has no `Ord`.
+///
+/// It is written and read as a plain string. It holds a shared `Arc<str>`, so the fold's many
+/// copies of a node's level cost no allocation.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LevelId(Arc<str>);
+
+impl LevelId {
+    /// The kernel's own level, apart from every ladder: what the plan intends.
+    pub const INTENT: &'static str = "intent";
+
+    /// The most characters a level ID holds (DR-94).
+    const MAX_CHARS: usize = 64;
+
+    pub fn intent() -> LevelId {
+        LevelId(Arc::from(Self::INTENT))
+    }
+
+    pub fn is_intent(&self) -> bool {
+        &*self.0 == Self::INTENT
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for LevelId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// A stored or written value, taken as it is; [`FromStr`] checks one a person types.
+impl From<&str> for LevelId {
+    fn from(id: &str) -> Self {
+        LevelId(Arc::from(id))
+    }
+}
+
+impl From<String> for LevelId {
+    fn from(id: String) -> Self {
+        LevelId(Arc::from(id))
+    }
+}
+
+impl FromStr for LevelId {
+    type Err = String;
+
+    /// Accepts a snake_case code (`^[a-z][a-z0-9_]*$`) of at most [`LevelId::MAX_CHARS`]
+    /// characters, such as `container`.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut chars = s.chars();
+        let ok = s.len() <= Self::MAX_CHARS
+            && chars.next().is_some_and(|c| c.is_ascii_lowercase())
+            && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+        if ok {
+            Ok(LevelId(Arc::from(s)))
+        } else {
+            Err(format!("`{s}` is not a level ID (lowercase letters, digits and `_`, at most 64 characters)"))
+        }
+    }
+}
+
+impl Serialize for LevelId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for LevelId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(LevelId::from)
+    }
+}
+
+impl JsonSchema for LevelId {
+    fn schema_name() -> Cow<'static, str> {
+        "Level".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        open_set::schema(
+            "A level: the kernel's intent, or one a pack declares; an open set.",
+            [LevelId::INTENT],
+            CODE_PATTERN,
+        )
+    }
 }
 
 /// Which layer a fact or edit belongs to.
@@ -171,7 +241,7 @@ pub const CONTAINS_MAX_CHARS: usize = 200;
 pub struct Node {
     pub id: NodeId,
     pub kind: Kind,
-    pub level: Level,
+    pub level: LevelId,
     /// `None` only at the top.
     pub parent: Option<NodeId>,
     #[schemars(extend("x-redact" = true))]

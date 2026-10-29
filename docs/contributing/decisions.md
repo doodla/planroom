@@ -243,7 +243,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-5: Base required; field-level authored revisions
 
-- **Status:** accepted. Amended in review rounds 1, 2 and 3. Amended by DR-106.
+- **Status:** accepted. Amended in review rounds 1, 2 and 3. Amended by DR-106 and DR-112.
 - **Starting point:** replaced "Optimistic concurrency on entity versions."
 - **Origin:** field-level compare-and-set from the simplicity-first design (§3.9); `base_required` from the concurrency-first design (§3.7); separating fact changes from user revisions from the extensibility-first design (§3.10).
 - **Context:** R10 says user-authored state is never last-writer-wins. The simplicity-first design's check `request.base ⊆ current` passes for an empty base, so a write with no base was last-writer-wins (a fatal flaw a design review found). Whole-entity versions make a rename and a regroup of the same node conflict for no reason, and a rescan that bumps an entity's version makes a person's pending edit stale.
@@ -263,6 +263,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 2:** an applied `undo` sets the authored revision of every field it changes back, so a write from an older base conflicts with it. An Artifact writer instance is one page load, `artifact:<uid>:<instance>`, so a viewer's two devices conflict like two tabs (E4, correctness-5, correctness-7) [DR-61].
 - **Amended in review round 3:** a person's field wins over any automatic write. An auto-enabled effect, a prefill or an `infer` output never sets a field whose current value comes from a person's edit, whatever its base, and its decision is recorded as `Superseded`, with no card (F1, correctness-1). A canvas edit that another tab flushes keeps its minting tab's client ID, so its compare-and-set is that tab's (F3, correctness-3) [DR-73].
 - **Amended by DR-106:** `intent new` and `intent version` take no base: a new project is refused when its ID is taken and a tag when its label is live; each stores its commit's own snapshot `seq` as the edit's base and, with no `--idem`, mints a fresh key.
+- **Amended by DR-112:** a person's accept of a `diagram` ghost writes the `review` event alone, with no copying `edit`, since a diagram sets no field (M3).
 - **Sources (checked 2026-10-25):** candidate-simplicity §3.9; candidate-concurrency-agents §3.7; candidate-extensibility §3.10; the design reviews (the fatal flaw in the simplicity-first design; field-level compare-and-set; fact version separate from user version).
 
 ## DR-6: The mod reaches the engine through the CLI
@@ -826,12 +827,13 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-42: Levels, IDs and fact merging
 
-- **Status:** accepted. Amended in review rounds 1 and 3.
+- **Status:** accepted. Amended in review rounds 1 and 3. Amended by DR-111.
 - **Starting point:** kept "Levels. C4 (System, Container, Component, Code) with Intent on top. One parent per node, and edges roll up with counts" and "Stable, namespaced IDs such as `<repo>:<kind>:<key>`"; kept "`layer` is actual or intended."
 - **Decision:** five fixed levels; one parent; roll-ups with counts, an evidence sample and child handles, with faithfulness as a tested invariant. IDs `<namespace>:<kind-short>:<key>`, where kind-short is the kind's declared `id_prefix`, owned by one pack [DR-46]; edge IDs from a hash of kind, ends and `via`. When two extractors emit the same node ID, evidence unions and scalar fields take the more specific tier's value.
 - **Consequences:** tests `kernel/tests/rollup.rs` (property), `kernel/tests/fold.rs::fact_merge_by_tier`.
 - **Amended in review round 1:** kind-short is defined as `KindDecl.id_prefix`; two packs may not declare one prefix (extensibility-8).
 - **Amended in review round 3:** roll-up lifts each end to its nearest ancestor at or above the level. When both ends meet one ancestor, the edge is that node's `internal`; only an end whose ancestor holds the other end steps down one child on its own path. So the lift rule and the internal count agree (correctness-6). Test `kernel/tests/rollup.rs::same_ancestor_edges_are_internal`. A repo's namespace is its directory name, suffixed for the later of two same-named repos, and the renames git reports carry a vanished target (F5; unasked-1, unasked-2) [DR-74].
+- **Amended by DR-111:** the levels are no longer a closed set of five. The kernel owns `intent`; the base pack declares the ladder `system`, `container`, `component`, `code`; another pack may put a level directly below one it can see, never below the base pack's finest, 9 levels in all. Every rule that named a level reads the ladder through `kernel::ladder::Ladder`, and every stored spelling stays.
 - **Sources (checked 2026-10-25):** candidate-simplicity §3.3, §3.4; `examples/TRUTH.json` about (component granularity).
 
 ## DR-43: How S13's 1 s bar is measured in CI
@@ -872,7 +874,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-45: Intent is kernel vocabulary
 
-- **Status:** accepted (decided in review round 1, D10). Amended in review rounds 2 and 3.
+- **Status:** accepted (decided in review round 1, D10). Amended in review rounds 2 and 3. Amended by DR-111.
 - **Starting point:** extended "A typed property graph of four primitives" with R14's Intent idea.
 - **Origin:** review round 1, extensibility-1, option a.
 - **Context:** the kernel's own algorithms needed plan-pack names. The reconciler read `touches`, the attach trigger read next actions, and projects were fixed to `plan:<project>`. The `tree` shape carried PR thread status, and the machine shapes read fixed prop names. The literal scan caught only `pack.` prefixes, so a coupled kernel could still pass it. R14 makes Intent one of the five core ideas, and R16 says the kernel depends on no domain.
@@ -893,11 +895,12 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: no visible change; plan items show their type as before.
 - **Amended in review round 2:** the domain-free scan also covers `crates/contract/src`, the kernel's one workspace dependency, so a constant there can't carry a pack name into the kernel. The self-test plants one, and the contract's area contract forbids such literals (E14, repo-3).
 - **Amended in review round 3:** the domain-free scan matches every built-in kind and relation name with its `<pack>.` prefix, and a bare name unless `boundaries.toml`'s `kernel_vocabulary` list holds it. That list names the words the kernel and the contract must spell, such as `person`, `repo`, `file`, `commit` and `state`, so Actor parsing passes while `"watches"` still fails, and the self-test plants both (extensibility-7). `packages/ui`, `canvas` and `mod` get the same scan, since they style from `MapNode.tone`, never a kind ID (extensibility-6) [DR-46].
+- **Amended by DR-111:** the literal scan also refuses a built-in pack's level ID in the kernel's and the contract's sources and in the TypeScript surfaces, outside tests and the uses `boundaries.toml`'s `level_words` lists, and the surface rule reads "no built-in kind, lens or level ID".
 - **Sources (checked 2026-10-26):** KICKOFF R11, R14, R16; review round 1 extensibility-1 and owner decision D10.
 
 ## DR-46: Pack data tables and typed emits
 
-- **Status:** accepted (decided in review round 1, D11, D13 and D21). Amended in review rounds 2 and 3.
+- **Status:** accepted (decided in review round 1, D11, D13 and D21). Amended in review rounds 2 and 3. Amended by DR-111.
 - **Starting point:** extended "Packs. Declarative files that add kinds, levels, roll-up rules, extractors, lenses, decision kinds and a default view."
 - **Origin:** review round 1: extensibility-2, extensibility-5 and correctness-8; the minor findings extensibility-8 and extensibility-10.
 - **Context:**
@@ -923,6 +926,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: a new language is one `[[languages]]` entry and its extractors.
 - **Amended in review round 2:** every Container-level kind uses the kernel's prefix `container`, so a pack that only adds an image role re-IDs no container (extensibility-4). Merged tables refuse a duplicate key, overlapping globs take the first match in load order, two default lenses are `pack_invalid` unless one is the code pack's, and `Tier` gains `Precise` for the SCIP reader DR-11 deferred (extensibility-6, in part). A reference in `from`, `to`, `parent` or `scope` takes the same forms, and a bare path such as `$file` is `pack_invalid`: templates write `@id:code.file:$file` (extensibility-8). Tests `packs.rs::a_pack_that_only_adds_an_image_role_keeps_every_container_id`, `duplicate_table_keys_are_pack_invalid`, `two_default_lenses_are_pack_invalid`; `extract/tests/contract.rs::a_bare_path_reference_is_pack_invalid`.
 - **Amended in review round 3:** `KindDecl.tone` (`service`, `library`, `store` or `infra`) picks a Container-level kind's block token, and `MapNode` carries it, so a surface styles an out-of-tree kind without naming a kind ID. A palette for lens yarn stays a known gap (extensibility-6, in part). Test `packages/ui/src/tokens.test.ts::every_tone_has_a_token`.
+- **Amended by DR-111:** the kinds that use the kernel's `container` prefix share one level and every kind at that level uses it, so no rule names a level; an image role names a kind that uses the prefix, and a tone is any kind's block color.
 - **Sources (checked 2026-10-26):** `examples/TRUTH.json` repos, containers, questions.unmonitored and scenarios.S10; review round 1 findings above and owner decisions D11, D13 and D21.
 
 ## DR-47: Deterministic scan bounds and a per-blob fact cache
@@ -1250,7 +1254,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-59: Repo gates that fire
 
-- **Status:** accepted (decided in review round 1, D14). Amended in review rounds 2 and 3. Amended by DR-89.
+- **Status:** accepted (decided in review round 1, D14). Amended in review rounds 2 and 3. Amended by DR-89 and DR-111.
 - **Starting point:** extended "Repo layout: a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` in TypeScript" and the one task entry point.
 - **Origin:** review round 1: repo-1, repo-2, repo-3, repo-4, repo-6 and repo-7; the minor findings operability-7, operability-10, operability-12, repo-8, repo-9, repo-10 and repo-11.
 - **Context:**
@@ -1285,6 +1289,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 2:** the per-commit walk covers only the commits a push or pull request adds, a state check runs every time, and the first lock comes with a new record. The gated surfaces add the area contracts table, the Boundaries section of `AGENTS.md` and each package's dependency names. Dependabot waits 14 days, the direct-pin age. `cargo xtask test` builds `target/mod-test/` and plain `gen` writes every committed output, replacing `gen --mod`, `PLANROOM_UPDATE_DOCS` and `PLANROOM_UPDATE_GOLDEN` (E14, repo-1, repo-2, repo-10, repo-11) [DR-70].
 - **Amended in review round 3:** every shipped crate has an allow-list, only `models` and `planroom` open sockets, `contract` carries the no-I/O lint, and a `skipped` check fails in CI unless declared (F18, repo-1, repo-2) [DR-79]. This replaces the forbid-list that kept a network client out of `store` and `extract`.
 - **Amended by DR-89:** `feature_list_is_complete` passes when every listed test resolves to a test that runs under a CI `cargo xtask` command with nothing live, or carries a `due` tag naming the milestone that builds it; a test that resolves carries no `due`. A raise is a larger value for a key `budgets.json` already holds. A new key isn't a raise and needs no record.
+- **Amended by DR-111:** the breaking-change guard counts an old enum value as kept when the new definition still accepts it, in an `enum`, in an `anyOf` or `oneOf` branch's `enum`, or by a `pattern`; after a release, opening a closed set needs a bump.
 - **Sources (checked 2026-10-26):** KICKOFF R16, S7, S15 and the repo-tooling constraint; [plugin-packaging §1] (`claude plugin test` needs a `modules` entry); [mod-api §1, §9]; [ts-stack §6.1]; [iris-release-bar §5, §7]; review round 1 findings above and owner decision D14.
 
 ## DR-60: Owner follow-ups after review round 1
@@ -2138,7 +2143,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-85: What the walking skeleton's review settled
 
-- **Status:** accepted (decided at the merge of the review's fixes, 2026-10-26). Amended by DR-86 and DR-87.
+- **Status:** accepted (decided at the merge of the review's fixes, 2026-10-26). Amended by DR-86, DR-87 and DR-111.
 - **Starting point:** extended "Extractors read the repo", "One contract source", "Surfaces read one contract" and the release model.
 - **Origin:** the walking skeleton's review, round 1. Eight reviewers, one per focus and each checked by a separate verifier, found 18 material findings ([the review's index](research/skeleton-review/README.md)). Four fix branches fixed them (the scan, contract, engine and surfaces fixes), and the resolver and `check` items were fixed directly. This record settles each doc conflict the fixes raised.
 - **Context:** The skeleton's slice worked end to end, live. Its review still found that a dirty first scan froze a wrong map, persisted documents dropped unknown fields, surfaces offered buttons that failed, the guard missed everyday shell forms, and some documented gates and checks had no milestone. Each fix met a place where the docs were silent or said something else.
@@ -2174,6 +2179,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - The guard also holds Bash to the Write tool's rule and refuses whole-tree reads of a secret's parents. Any word in the engine cache is denied, so listing it is no longer one of the everyday commands that pass. Its residual risks in `SECURITY.md` add programs that walk or write files themselves, a tree read rooted at or above the workspace root, a crafted tree copied above the data root, and quoted text that reads as a redirection.
   - `share`'s publish arguments name `root`, with `files` relative to it, and its result lists only the files it built from the workspace.
 - **Amended by DR-87:** `UnavailableReason` is also a schema root, so the mod reads it from the generated types and its switch over reasons is checked at build time.
+- **Amended by DR-111:** blocks nesting like boxes, and a lid lifting on a level zoom, are how the table draws an abstraction level; every user-facing word speaks of abstraction levels, and no surface names a level.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/` (round 1's findings and verdicts); the four fix branches' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
 
 ## DR-86: What the walking skeleton's review settled in round 2
@@ -2915,7 +2921,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-109: The pack set as workspace state, the changed-source card, and the Ruby pack
 
-- **Status:** accepted (decided at the merge of M1's pack set, 2026-10-29).
+- **Status:** accepted (decided at the merge of M1's pack set, 2026-10-29). Amended by DR-111.
 - **Starting point:** extends DR-62; amends DR-62, DR-89 and DR-101.
 - **Origin:** the merge of M1's pack set, read against the docs and the truth by independent checks over two rounds.
 - **Context:**
@@ -2936,6 +2942,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Decided at the merge: `find` matches words fuzzily against names and IDs, so a component's repo-qualified truth path is searched as two words (`orders cmd/orders`); scoring a whole path would change `find`'s documented matching. `schema --def Command` has about 190 bytes of margin after its trim: the leaf that passes it moves a type's referenced types behind one `schema --commands` handle, not a raised budget.
   - Known gaps: reads (`focus`, `ask`) use the built-ins; copies are never pruned; two `-dev` builds at different commits re-record and re-extract in turn; in an untrusted workspace with recorded packs, `packs_hash` names a set its snapshots weren't extracted with until a person trusts it; an open changed-source card outlives `pack remove` until it is picked; `doctor` doesn't read `PLANROOM_PACKS` yet; an error reply isn't held to its leaf's budget.
   - Tests: `crates/store/tests/pack_record.rs`; `crates/planroom/tests/packs.rs`'s pack-set cases; `trust.rs::{an_agent_cannot_add_a_pack, planroom_packs_loads_nothing_outside_doctor, an_out_of_tree_pack_loads_without_a_card}`; `s10_extensibility.rs::{ruby_absent_without_pack, healthcheck_edges_through_the_ruby_pack}`; `s01_first_look.rs::{search_finds_every_truth_entity, repo_languages_match_truth}`.
+- **Amended by DR-111:** the known read gap covers every read, `map` and `find` among them: until reads load the workspace's recorded pack set, `map --level` refuses an out-of-tree pack's level with `invalid_argument` naming the built-in levels, and that level's blocks count at the finest.
 - **Sources (checked 2026-10-29):** `crates/planroom/src/{packs, app/pack.rs}`; `crates/store/src/meta.rs`; `examples/packs/ruby/`; [What a pack is](architecture.md#what-a-pack-is); [Contracts](contracts.md).
 
 ## DR-110: Event backups written through on every person-authored commit, a temporary host's redacted ref, and the plain `doctor`
@@ -2960,3 +2967,197 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Known gaps: the restore that reads the backup and the restore card come in the next wave; `doctor --restore` too; `doctor` doesn't read `PLANROOM_PACKS` yet; old set-aside files are kept and never pruned in M1.
   - Tests: the unit tests in `crates/store/src/backup.rs`; `crates/planroom/tests/backup.rs`; the doctor tests that traceability.md's R10 row names; `kernel::redact`'s `value_with_open` cases.
 - **Sources (checked 2026-10-29):** `crates/store/src/backup.rs`; `crates/planroom/src/app/{backup.rs, doctor/}`; `crates/extract/src/git.rs`'s `write_backup_ref`; [Where the workspace lives](architecture.md#where-the-workspace-lives); [Contracts](contracts.md).
+
+## DR-111: Levels are abstraction levels that packs declare, under the kernel's intent
+
+- **Status:** accepted (decided on the owner's request of 2026-10-29; recorded at the merge of M1's levels change).
+- **Starting point:** kept KICKOFF's "Packs. Declarative files that add kinds, levels, roll-up rules, extractors, lenses, decision kinds and a default view" (KICKOFF.md:383). "Levels. C4 (System, Container, Component, Code) with Intent on top" (:384) stops being a closed set in the contract: C4 becomes the code pack's ladder under the kernel's `intent`, and every stored spelling stays. Amends DR-42 (five fixed levels), DR-45 (the domain-free scan), DR-46 (the container prefix, image roles and tones), DR-59 (the breaking-change guard), DR-85's wording of the lid and DR-109's known read gap.
+- **Origin:** the owner, 2026-10-29: "I consider the box metaphor to be abstraction levels essentially. I don't really want it hardcoded everywhere like that."
+- **Context:**
+  - `contract::Level` was a closed enum of five names deriving `Copy`, `Ord` and `clap::ValueEnum`, its declaration order the level order (`crates/contract/src/model.rs:59-81`). Its schema was a closed `enum`, and its TypeScript a closed union.
+  - The kernel, the app, the linkers, the truth comparator, `@planroom/ui`, the canvas and the docs spelled the names. `System` was the top of the map and the pane's focus; `Intent` the plan's level; `Container` the linkers' join and the fallback for a question's level and a path's; `Component` a hand-made group's fallback; `Code` the finest level and `intent`'s target level. Each level's neighbours were match arms (`app/map/focus.rs:53-59`, `app/map/page.rs:347-353`).
+  - KICKOFF lists levels among the things packs add, and nothing in it asks for exactly five. R1 asks for "several levels of abstraction, from intent at the top to code at the bottom", each a faithful roll-up of the one below.
+  - Every stored level is one of five snake_case strings: in fact bodies, edit events, opaque cursors, layout keys, snapshot capabilities, inbox rows and pack files.
+  - The breaking-change guard read only a definition's top-level `enum` (`crates/xtask/src/schema_guard.rs:108-113`), so any open level type read as five removed values.
+  - The literal scan checked kind and relation names only (`crates/xtask/src/boundaries.rs:365-440`), so nothing would stop a level name coming back into the kernel or a surface.
+- **Decision:**
+  - **A level is an abstraction level, and levels are data.** A level says how far down the map you've zoomed, not what kind a thing is.
+    - The kernel owns one level, `intent`, the plan's, which sits apart from the containment ladder (DR-45).
+    - The base pack, `packs::BASE` (`code`), built in and loaded first, lists the ladder top first in `[[levels]]`. Each level has an `id`, the `label` that "the {level} level" reads, and the count words `one` and `many`, each holding `{count}` once.
+    - The code pack's ladder is `system`, `container`, `component`, `code`, so every stored value keeps its spelling.
+  - **Other packs insert below.** A pack may put a level directly `below` a ladder level it can see: the base pack's, its own, or a required pack's.
+    - At most one inserted level sits directly below any one level, whichever pack inserts it. The base ladder's own steps don't count, and a pack may chain its second level below its first.
+    - Nothing goes above the base pack's top, and nothing below the base pack's finest. So the map's top and bottom stay the base pack's whatever else is loaded, and `intent`'s targets and R1's "code at the bottom" keep their meaning.
+    - The ladder holds at most 8 levels below intent, 9 in all.
+    - A kind's `level`, a lens's `level` and a suggestion's `map --level` must name a level their pack can see.
+  - **Nothing names a level but `intent` (amends DR-42).** `contract::LevelId` is a string with no order of its own. Every comparison goes through `kernel::ladder::Ladder`: each level's rank, the top, the finest level, and the next level up or down. The rules that named a level now read:
+    - the map with no level, and the pane's focus, show the top;
+    - a focus opens the level below; a cut's drill-down names the level above;
+    - a hand-made group takes its coarsest member's level;
+    - `intent`'s targets prefer the finest level;
+    - a question with no lens, and the scan summary's count, take the default lens's level, else the top;
+    - a node at a level no loaded pack declares resolves at the finest level;
+    - a `--level` no loaded pack declares is `invalid_argument`, naming the levels; a malformed one stays clap's usage error.
+  - **Containers by their prefix (amends DR-46).**
+    - The kinds that use the kernel's `container` prefix share one level, and every kind at that level uses the prefix. So a reclassified container keeps its ID, and the rule names no level.
+    - An image role names a kind that uses the prefix.
+    - The linkers take the containers to be those kinds' nodes, and read the top level's kinds beside them.
+    - A tone is any kind's block color.
+  - **The contract (amends DR-59).**
+    - `Level` keeps its schema name as an open set: the stable value `intent` plus the code pattern. `schema_version` stays 1: every stored value reads unchanged, and no release exists (DR-85's precedent).
+    - The guard counts an old enum value as kept when the new definition still accepts it: in an `enum`, in an `anyOf` or `oneOf` branch's `enum`, or by a `pattern`. A value the new pattern refuses is still removed. After a release, opening a closed set needs a bump.
+    - A `MapView` at graph detail carries the ladder in `levels`, the not-scanned reply included. The canvas reads it on both transports, since the Artifact's snapshot map is read at graph detail.
+    - `ask` alone lists the levels, in ladder order, before the kinds.
+  - **Guarded (amends DR-45).** AGENTS.md's surface rule reads "no built-in kind, lens or level ID". The literal scan also refuses a string literal equal to a built-in pack's level ID in the kernel's and the contract's sources, the generated `@planroom/contract`, `@planroom/ui`, the canvas and the mod, outside tests. It allows only the uses `boundaries.toml`'s `level_words` lists file by file: an error's `code` field, the actor kind `system`, the login link's `code` parameter and `/room`'s code row. An entry that matches nothing fails the check. The scans' comments in `boundaries.toml` now say exactly what each checks.
+  - **The drawing stays (amends DR-85's wording).** Blocks nest like boxes, and a lid lifts on a level zoom: that is how the table draws an abstraction level. Every user-facing word speaks of abstraction levels, no surface names a level, and intent sits beside the ladder rather than beside `system`.
+- **Alternatives rejected:**
+  - **A depth number per level:** two packs' numbers can clash by chance, and a pack's level above `system` would move every workspace's top map.
+  - **Raw tree depth,** the owner's words taken literally: components nest to any depth (`examples/TRUTH.json:7`), so each directory would be a level. "The container level shows every one of the 11 truth containers" and roll-up's "nearest ancestor at or above the level" would lose their meaning.
+  - **Declared roles in pack data (`top`, `unit`, `finest`):** a second role mechanism for one of the five ideas, which DR-45 rejected for Intent. The ladder's ends, the default lens and the container prefix cover every rule that named a level.
+  - **A level below the base pack's finest:** `intent`'s targets, the focus clamp and the resolve fallback would move onto another pack's level, and R1's bottom would no longer be code.
+  - **A check only on `LevelId::from(..)` and comparisons with `.level`:** a literal reaches a surface by many other routes, a closed list in the generated TypeScript among them.
+  - **A level picker on the pane's `z`:** "back up a level" would take two keys instead of one, and every level is already reachable.
+  - **Renaming the lid classes, selectors and tests:** they name the drawing, not a level.
+  - **`schema_version` 2:** no stored byte changes, and no release exists.
+  - **The ladder on `PaneModel` or the snapshot:** the canvas reads it from the map it draws.
+  - **A warning for a node at an undeclared level:** it happens only after a pack that inserted a level is removed, and the node still shows.
+- **Consequences:**
+  - **Contracts:**
+    - `LevelId` (schema name `Level`, an open set); `LevelDecl` and `PackFile.levels`; `LevelVocab` and `Vocabulary.levels`; `MapView.levels` at graph detail;
+    - `invalid_argument`'s `levels` and `argument.unknown_level`;
+    - the `[pack]` reasons `level_intent`, `level_below`, `levels_over`, `level_words` and `level_unknown`, with `prefix_container`, `prefix_reserved` and `image_kind` reworded;
+    - en.toml's `[levels]` table for intent's words; the scan summary's `{units}`; the map summary's counts in the ladder's words, in ladder order, such as "16 components";
+    - `ask`'s listing of levels; the usage error's synopsis reads `--level LEVEL`, and the TypeScript `Level` is `("intent") | string`.
+  - **Layout:** gated surfaces, ratified with `cargo xtask gen --layout-lock DR-111` in this merge commit:
+    - AGENTS.md's Boundaries (the kernel's and the surfaces' literal rules) and Conventions ("Where new code goes" gains "a level | `[[levels]]` in a pack, `below` a level the pack can see");
+    - `boundaries.toml` (the scans' comments, `level_words` in `[rust.kernel]` and `[ts.rules]`, and `contract` in `[ts.rules] domain_free`);
+    - the area contracts table (the kernel's and the contract's Must-not cells).
+  - **Budgets:** this merge raises no gated number. `budgets.json` gates no golden at this merge, and the band's `tool_results` arrive with its merge as new keys measured on this tip (DR-89). The fold benchmark shows no slowdown: measured together in one container, base then levels, `fold.20k`'s medians are 116 ms and 106 ms and `fold.50k`'s 812 ms and 684 ms.
+  - **Decided at the merge:** the top-level map's first graph page holds 6 of its 10 blocks, since each graph page now carries the ladder; the rest come on the next page, as `meta.next` says.
+  - **Known gaps:**
+    - reads (`map`, `find`, `focus`, `ask` and the rest) still load the built-in pack set alone, so an out-of-tree pack's level is checked at load and takes its place on its set's ladder, but `map --level` refuses it with `invalid_argument` naming the built-in levels, and its blocks count at the finest, until reads load the workspace's recorded pack set (DR-109's gap, widened here);
+    - a node at a level no loaded pack declares resolves at the finest level, with no warning;
+    - the mod's own lines fill `{level}` with the level's ID, which equals its label in the code pack; `/room`'s count rows keep the raw IDs, in key order;
+    - the mod's typeahead offers no `--level` values; `ask` alone lists them;
+    - no pack can replace the base ladder, or add a level above its top or below its finest;
+    - the TypeScript scan finds a kind only by its `<pack>.` prefix, so a bare lens ID isn't scanned;
+    - the app, extract, store and testkit aren't in the level scan: the missing `Ord` and the tests on an invented ladder guard them;
+    - the scan's test exemption reads only a bare `#[cfg(test)]`.
+  - **Tests:**
+    - `crates/kernel/tests/ladder.rs`; `crates/kernel/tests/rollup.rs::rollup_is_faithful_on_any_ladder`; `crates/kernel/src/fold/state.rs::a_put_with_any_level_string_keeps_its_node`;
+    - `crates/contract/tests/schema.rs::{level_ids_read_and_write_the_old_names_byte_for_byte, the_level_schema_is_an_open_set_holding_intent}`;
+    - `crates/xtask/tests/schema_guard.rs::{an_enum_opened_to_an_open_set_that_keeps_its_values_passes, a_value_the_new_pattern_refuses_is_still_removed}`; `crates/xtask/src/boundaries.rs::{cfg_test_items_are_skipped_whole, a_brace_in_a_string_or_char_never_ends_a_test_item}` and the boundary self-test's level plants;
+    - `crates/planroom/tests/packs.rs`'s ladder, insertion, cap, words, visibility and prefix checks, `a_level_below_the_base_packs_finest_is_pack_invalid` and `two_inserted_levels_below_one_level_are_pack_invalid` among them;
+    - `crates/planroom/tests/map_read.rs::{an_unknown_level_is_invalid_argument_naming_the_levels, level_strings_take_labels_and_handles_keep_ids}`; `map_graph.rs::graph_detail_carries_the_ladder_and_summary_does_not`; `usage.rs`'s clap-path cases on a malformed level; `s10_extensibility.rs::{ask_alone_lists_the_levels_in_ladder_order, a_packs_level_sits_on_the_ladder_and_the_fold_places_its_blocks}`;
+    - `packages/ui/src/map.test.ts::block_counts_follow_the_ladder`; `packages/canvas/src/levels.test.ts::crumbs_come_from_the_ladder_with_the_apart_level_beside`;
+    - `feature_list.json` C18, "Levels are pack data".
+  - **Users:** the same map, words and links as before. A pack can add a level, and the zoom rail, the breadcrumb and the phone's levels sheet follow the loaded ladder.
+  - **Milestones:** M1 gains the slice "Levels as pack data" (8 h), taking it from 122 h to 130 h.
+- **Sources (checked 2026-10-29):** KICKOFF.md:58, :383-384; `crates/contract/src/{model, pack, vocab, view, requests, command, errors, open_set, card}.rs`; `crates/kernel/src/{tree, rollup, resolve, find, plan}.rs`, `query/{mod, lookup, forest}.rs`, `fold/state.rs`; `crates/planroom/src/app/{map/*, focus, scan, edit, intent, ask, find, import, share}.rs`; `crates/planroom/src/packs/{mod, validate}.rs`; `crates/planroom/src/cli.rs`; `crates/planroom/tests/usage.rs`; `crates/extract/src/{lib, link/mod, link/runtime, declarative/mod}.rs`; `crates/testkit/src/truth.rs`; `crates/xtask/src/{boundaries, rustlex, schema_guard, bench}.rs`; `boundaries.toml`; `packs/code/pack.toml`; `packages/ui/src/map.ts`; `packages/canvas/src/{levels, strings}.ts`, `shell/zoom-rail.tsx`, `views/map-view.tsx`, `transport/artifact.ts`; `examples/TRUTH.json`; [Levels and roll-ups](architecture.md#levels-and-roll-ups); [Versioning rules](contracts.md#versioning-rules).
+
+## DR-112: Diagrams for people and agents: pictures the engine derives from its views, and diagrams agents draw that stay ghosts until a person accepts them
+
+- **Status:** accepted (decided on the owner's request of 2026-10-29, at the merge of M1's levels change). M3 and M4 build it; M1 builds none of it.
+- **Starting point:** extended KICKOFF's principle "Never make someone read what a summary, diagram or diff could show them instead" (KICKOFF.md:38), R4 (:64) and the canvas kit's "statechart view with a simulator" (:418). Kept DR-3 (a view is a value; auto-layouts are a cache), DR-4 (an agent's write is a ghost), DR-11 (one machine model), DR-22 (no `--format`) and DR-54 (a view is picked by its result type). Amends DR-5 for one case: accepting a diagram ghost writes the `review` event alone, with no copying `edit`. Builds on DR-111, the levels record.
+- **Origin:** the owner, 2026-10-29: "Additionally, if we could have a concept of cached, generated diagrams that help convey information to the user and the agent, that'd be nice. Can be agent generated I guess. Things like state machines and different systems in play would be nice."
+- **Context:**
+  - The engine already computes pictures, as typed views. A map at a level through a lens shows the systems in play; the `runtime` lens at its level is a container diagram built from evidence (architecture.md:870-877). M3 adds the path view and M4 the machine view. The canvas draws views with ELK and caches positions by view and structure (`crates/store/src/layouts.rs:8-33`).
+  - Some pictures the map can't derive: a flow an agent traced through code, a lifecycle's states before M4 extracts machines, a sequence across systems. An agent can draw these, but R5 says nothing the AI invents counts until a person accepts it.
+  - Agents read views as JSON rows; Mermaid is text they read and write well. Every surface of the mod host has a `Markdown` element; `Svg` needs a laid-out drawing and isn't on the terminal (`packages/mod/vendor/claude-code.d.ts:3919-3927`). `/room` rows are text or code (`packages/mod/src/room.ts:173-176`).
+  - Derived state is never stored (architecture.md:297). No surface package may load Mermaid: the canvas's third-party list names `elkjs` and no Mermaid library (`boundaries.toml:43`), and the Artifact page is the embedded canvas build (`crates/planroom/src/app/share.rs:4`, `:44`).
+  - `ask` returns `AskResult` (question, summary, items, empty; `crates/contract/src/requests.rs:194-201`); no contract type marks an answer as a path or a machine.
+  - `show ID` is documented (architecture.md:1397) but is in neither the catalogue nor the band's branch, so nothing may hang on it.
+  - An event body of a kind a reader doesn't know decodes as `EventBody::Unknown` (`crates/contract/src/event.rs:151`); `review` takes an `EventId` (`:111-112`); `edit undo EVENT` reverses the whole command whose first event that is (`crates/contract/src/requests.rs:85-86`, `:109`); the store keeps each event's `kind` and `target`, indexed by target (`crates/store/migrations/0001_init.sql:7-23`).
+  - DR-5 has accepting a ghost write a new `edit` that copies its fields, under compare-and-set, with the `review` event as the audit trail (decisions.md:244; architecture.md:1408).
+- **Decision:**
+  - **One shape, two sources.** A diagram is Mermaid in a safe subset (`flowchart`, `sequenceDiagram`, `stateDiagram-v2`), a legend from each alias to the node ID it cites, and a content hash. Both kinds reply as `DiagramView`. The engine derives one from a view it computes; an agent draws one the map can't derive.
+  - **Derived: a picture of a view, derived on read and stored nowhere.** It can't go stale, and it is never a second model of the graph (DR-11's reasoning). The source's type picks the form (DR-54): a map is a flowchart; a path a sequence (M3); a `MachineView` a state diagram (M4).
+    - `diagram map [--level L] [--lens X] [--focus ID] [--known HASH]` pictures that map: its blocks as nodes, each lifted edge labelled with its relation's pack label, and `×N` when N > 1. `diagram map --lens runtime` shows the systems in play.
+    - `diagram ask QUESTION [ARGS]... [--known HASH]` pictures the answer of a question whose pipeline's last step is a `path` (a sequence: participants in hop order, one message per hop) or, from M4, a `machine` (a state diagram: `[*]` to the initial state and from the terminal ones, one `A --> B: event` per transition, with guards, actions and the checks' marks as notes). The form comes from that step's shape in the vocabulary, and `AskResult` doesn't change. Any other question is `invalid_argument` with `argument.no_diagram_form`.
+    - Both are leaves of their own with flat flags and positionals, so their HTTP and inbox bodies are flat; there's no nested optional subcommand.
+    - The canvas, the pane's mini-map and the Artifact keep drawing the views themselves. A derived diagram is for agents and `/room`.
+  - **Drawn: an agent's diagram, stored, checked against the map, and a ghost until a person accepts it.**
+    - `diagram draw SUBJECT TOPIC --file F|-` takes a `DiagramDraft { title, mermaid, legend }`, inline through `room_change`'s `payload` (DR-66). SUBJECT is a block or a project, named as every command names one. TOPIC is a handle, `^[a-z0-9][a-z0-9-]{0,47}$`, such as `checkout-flow` or `order-states`.
+    - The engine parses the Mermaid in the safe subset and resolves every legend entry (a full ID, an ID suffix or a name, as commands resolve one; `not_found` or `ambiguous_ref` names the alias). It refuses a draft that cites no node. It passes the title and every label through `kernel::redact` and `display::sanitize`, cuts each label to 60 characters and the title to 80, and draws the diagram again in its own canonical form with generated aliases. The stored and served Mermaid is always the engine's, never the agent's bytes.
+    - It is stored as a `diagram` event, a tenth event kind: the subject in `events.target`, and in the body the topic, the form, the title, the parsed model, the cited IDs, the hash, and a fingerprint of the cited nodes' facts. The fingerprint covers each cited node's kind, level, parent and name, and its evidence's paths and line texts, line numbers left out, as the fold gives them. There's no table and no migration. Older readers keep the event as `Unknown`, and undo, the event backups, export and the stream carry it as they carry every event.
+    - **A ghost until a person accepts it (R5, DR-4).** An agent's or a model's draw commits with status `Ghost` and is drawn translucent. A person's draw applies. Decisions lists diagram ghosts in their cause's ghost batch, read from the events by kind and target (the `events_target` index), not from the fold.
+    - **Review and undo reach the event by its ID.** `review EVENT accept|reject` takes the `diagram` event's ID. A person's accept writes the review alone: a diagram sets no field, so DR-5's copying `edit` has nothing to copy (this record amends DR-5 for diagrams). `reject` hides it. `edit undo EVENT` reverses the draw, since the `diagram` event is its command's first event. An agent may reject or `edit undo` only its own (DR-4's mixed rule).
+    - **Stale when a cited node changes.** On read, the fingerprint is taken again over the current model. Any difference makes the diagram stale (`fresh: false`), and the reply names the changed cited IDs (at most 10, with a count of the rest). An acceptance stays, and a stale diagram is drawn with the amber `~` tape until an agent redraws it.
+    - **What shows.** Per subject and topic: the newest diagram a person drew or accepted, and the newest ghost after it as a proposal beside it. Older ones count in `alternatives`. A newer ghost never displaces what a person accepted.
+    - `diagram show TARGET [TOPIC] [--known HASH] [--detail summary|graph] [--cursor C]` reads them. TARGET is a subject (one row per topic: title, form, status, `fresh`, hash and handles) or a draw's event ID; with TOPIC, it returns that diagram whole.
+    - **The fold reads no diagram body.** A diagram changes no graph, so the fold's own event read leaves diagram bodies out. `diagram show`, `export`, the event backups and their ref, and the stream read them whole.
+  - **Kept by content; agents read either kind by hash.** Every `DiagramView` carries `hash`, the sha256 of its Mermaid and legend after `kernel::redact`, which the engine computes whether or not `PLANROOM_RAW` is set, so the hash never changes with it. With `--known HASH` equal to it, the reply is `unchanged: true` with no Mermaid, legend or model, and it still carries the title, the status, `fresh` and the hash. An agent pays for a picture only when it changed.
+  - **The safe subset,** parsed for drawn diagrams and the only form any diagram is written in:
+    - One statement per line, blank lines allowed. The headers: `flowchart LR|RL|TB|TD|BT`, `sequenceDiagram`, `stateDiagram-v2`.
+    - Flowchart: a node `A["label"]`, `A("label")`, `A[("label")]` or `A{"label"}`; a link `A --> B`, `A --- B`, `A -.-> B` or `A ==> B`, each with an optional `|"label"|`; `subgraph A["label"]` … `end`.
+    - Sequence: `participant A as label`, `actor A as label`; `A->>B: label`, `A-->>B: label`, `A->B: label`, `A-->B: label`; `Note over A: label`, `Note over A,B: label`, `Note left of A: label`, `Note right of A: label`; `loop label`, `alt label`, `else label`, `opt label`, `end`.
+    - State: `state "label" as A`; `[*] --> A`, `A --> B`, `A --> B: label`, `A --> [*]`; `note left of A: label`, `note right of A: label`.
+    - An alias in a draft is `^[A-Za-z_][A-Za-z0-9_]{0,31}$` and no Mermaid keyword, matched without case: `graph`, `flowchart`, `subgraph`, `end`, `direction`, `click`, `call`, `href`, `style`, `linkStyle`, `class`, `classDef`, `state`, `note`, `participant`, `actor`, `loop`, `alt`, `else`, `opt`, `par`, `and`, `rect`, `critical`, `break`, `autonumber`, `activate`, `deactivate`, `create`, `destroy`, `box`, `title`, `accTitle`, `accDescr`, `default`, `left`, `right`, `of`, `over`, `as`, `fork`, `join`, `choice`, `LR`, `RL`, `TB`, `TD`, `BT`.
+    - Refused anywhere, with the line's number in `invalid_argument`'s details: `%%` (comments and directives), `click`, `call`, `href`, `style`, `classDef`, `class`, `linkStyle`, `:::`, `@{`, a backtick, a chained link (`A --> B --> C`), `&`, and any other line.
+    - Caps: 16 KiB of Mermaid; 60 nodes; 120 links, messages or transitions.
+  - **Text that can't inject.**
+    - Written aliases are always generated (`n1`, `p1`, `s1`, …): never names, never node IDs (which hold `:` and `/`), and never repo text, so no unmarked field carries repo text. A state diagram writes each state as `state "Name" as sN`, its name in a marked label.
+    - Labels are redacted, sanitized and cut to 60 characters. A flowchart quotes them and writes every character outside `[A-Za-z0-9 _.,/@()+-]` as `#<decimal>;`. A sequence or state diagram writes every character outside `[\p{L}\p{N} _.,()=!+-]` as `_`.
+    - No `classDef`, `class`, `style`, `linkStyle`, `click`, directive or comment is ever written.
+    - `title`, `mermaid` and every label are marked `x-redact`; the legend's IDs, the aliases, the topics and the hashes aren't, and none of them holds repo text.
+  - **M4's machines pack reads the state form back.** Its Mermaid pattern reads `[*]` as the initial or terminal pseudo-state, `state "Name" as sN` as that state's name and `A --> B: event` as a transition, and it skips `note` lines. So a rendered machine committed to a repo doc reads back to itself.
+  - **Where people see diagrams (no sixth concept, R14).**
+    - **Canvas:** a block's diagrams sit in M3's focus view (Levels), a project's beside its shelf entry (Intent). One opens in a diagram view that the `DiagramView` result type picks (DR-54). The canvas's own ELK worker lays it out from the engine's parsed model (`DiagramView.model`, sent only at `--detail graph`, the canvas's read), and its positions go in the layouts cache under `diagram:<event ID>`. A cited node takes its kind's `tone`; a ghost draws translucent; a stale diagram carries the tape. No Mermaid library (`boundaries.toml:43`).
+    - **The pane:** `/room diagram …` draws its summary line and a `markdown` row holding a mermaid fence, a new `RoomRow` kind. A host that draws Mermaid shows a picture; any other shows the text. Its `text` is the summary line and handles, within `/room`'s 300 tokens. No new pane section or key.
+    - **The Artifact page** is the canvas build, so it draws the diagram itself with the canvas's diagram view, laid out by ELK from its snapshot. That is how this record reads "the Artifact page draws Mermaid itself": `boundaries.toml:43` allows no Mermaid library, so the page draws the parsed model, not Mermaid text. `Snapshot.diagrams` holds the accepted diagrams, models included, of the snapshot map's blocks and of each project, after the maps in the 1 MB order, with capability keys `diagram:<subject>`.
+    - **Agents** read both kinds through `room_query` (`diagram map`, `diagram ask`, `diagram show`) and draw through `room_change` (`diagram draw`). The `planroom` skill gains three lines: ask `diagram map` or `diagram ask` for a picture of a map or an answer; draw what the map can't show with `diagram draw`, citing block IDs, and expect a ghost until a person accepts it; pass `--known` with the hash you hold.
+  - **The leaves:**
+
+    | Leaf | Idea | Class | Undo | Tool | Budget |
+    |---|---|---|---|---|---|
+    | `diagram map` | Lenses | read | query | `room_query` | 1,500 |
+    | `diagram ask` | Lenses | read | query | `room_query` | 1,500 |
+    | `diagram show` | Levels | read | query | `room_query` | 1,500; its list form pages with `--cursor` |
+    | `diagram draw` | Levels | change (an agent's is a ghost) | `edit undo` | `room_change`, inline `payload` | 400 |
+
+    Each is actor `any`, `needs_base` false and `spends` false.
+  - **Budgets.**
+    - A diagram never pages. Past its budget, a derived one keeps the most-connected blocks (ties by ID), counts the rest in `omitted` and warns `truncated` with `map`'s drill-down. A draft whose `diagram show` reply would pass 1,500 tokens is refused at draw time, so every stored diagram fits its read.
+    - `budgets.json` gains `tool_results["diagram-map"]`, `["diagram-path"]`, `["diagram-show"]` and `["diagram-draw"]` from the M3 goldens: new keys, not raises (DR-89). `tools.test.ts::tool_results_within_budget` gates them, and `tool_schemas_equal_catalogue` holds the four new synopsis lines inside `surface.tools`' 900 tokens; a raise there needs its own record. `tests/plugin/surface_tokens.sh`, planned for M1's surface sweep, measures the same surface once it lands.
+    - If a derived diagram costs an agent more tokens than `map --detail summary` on the fixture, the skill doesn't point agents to it.
+  - **No Planroom model call draws a diagram in M3.** The agent in the person's session draws with its own tokens. A Claude-drafted diagram would be a decision kind behind M2's consent card, with its own record.
+- **Alternatives rejected:**
+  - **Derived pictures only, with agents' drawings kept as repo docs:** that answers "systems in play" and M4's machines, but not the owner's cached, agent-generated diagrams of what the map can't derive.
+  - **An agent's drawing as a description that applies at once:** R5 says nothing the AI invents counts until a person accepts it. A ghost needs no new authority class and no change to DR-4.
+  - **A structured JSON draft of nodes, edges and groups instead of Mermaid:** agents write Mermaid fluently, and one parser for the subset serves both the check and the read; the engine still stores the parsed model.
+  - **Grounding each drawn edge with `why`:** it would refuse useful drawings of flows the map doesn't hold yet. A drawing is the agent's claim, a ghost until accepted, and its cited nodes still make it stale.
+  - **A diagrams table, or saved selections as a `kernel.diagram` node:** a table needs its own live path, review target and backup story, and a node kind would be one every node read skips. An event kind brings ghosts, review, undo, backups, export and the stream as they are.
+  - **Pack-declared `[[diagrams]]` recipes:** lenses and levels already name every view a derived diagram pictures.
+  - **A Mermaid library in the canvas or on the Artifact page:** `boundaries.toml:43` allows none, and adding one is a gated change; the canvas lays out the parsed model with ELK.
+  - **State names as aliases in a derived state diagram:** they are repo text, and aliases sit in unmarked fields that redaction never masks.
+  - **Planroom's own Claude call to draw (`diagram draft`):** a paid step needs M2's consent card and daily cap.
+  - **Discovery through `show ID`:** that leaf isn't built; `diagram show SUBJECT` and the focus view list a block's diagrams.
+  - **A `--format mermaid` flag on `map`:** DR-22.
+  - **A diagram in `focus`:** the pane keeps to 1,000 tokens (DR-105).
+  - **A 2,000-token read for drawn diagrams:** above `map`'s 1,500; a draft that wouldn't fit is refused instead.
+  - **Generating architecture.md's diagrams or the concept pages' loops:** `own_loops_have_no_drift` would then check nothing.
+- **Consequences:**
+  - **Contracts (M3):**
+    - `Command::DiagramMap`, `DiagramAsk`, `DiagramDraw` and `DiagramShow`, with their requests;
+    - `DiagramView`, `DiagramForm` (`flowchart`, `sequence`, `state`), `DiagramModel` (nodes with alias, label, cited ID and tone; links, messages or transitions with label; subgraph groups), `DiagramDraft`, `DiagramRecord` as `EventBody::Diagram`, and `DiagramRow`;
+    - `Snapshot.diagrams`; `argument.no_diagram_form`; `invalid_argument`'s details gain `line`, the refused Mermaid line's number; en.toml's `[diagram]`; the marks above.
+    - All additive (a new event kind is an open-set value), so `schema_version` stays 1. Event kinds become ten; architecture.md's moving-parts budget and Events section change when M3 builds it, and DR-5's accept bullet gains the diagram exception.
+  - **Milestones:** M3's slices summed to exactly 30 h (architecture.md:1810-1816). M3 grows by 17 h, to 47 h: the derived leaves 5 h (‖), and the drawn diagrams 12 h (the contract 1 h, the parser and checks 2.5 h, the event and the fold's skip 1 h, the two leaves with review and undo 2.5 h, the canvas view 2.5 h, the pane's fence 0.5 h, the Artifact's snapshot 1 h, tests and docs 1 h). M4 grows by 1.5 h, to 36.5 h, in its machines-pack slice. The total goes from 382 h to 408.5 h with the levels record's M1 slice.
+  - **Known gaps:**
+    - no Mermaid parser is on an allow-list, so CI checks the subset and the escaping, not that Mermaid draws them;
+    - whether a host draws a mermaid fence is unverified;
+    - a drawn state diagram isn't paired with code machines for drift unless an agent commits it to a repo doc, which the machines pack reads;
+    - a drawn diagram's links are the agent's claim;
+    - diagram events are never pruned, though the same content replays;
+    - the Artifact shows accepted diagrams only;
+    - the derived diagram's token saving over `map --detail summary` is measured when the leaf lands.
+  - **Tests:**
+    - `crates/kernel/tests/diagram.rs` (M3): `a_map_diagram_keeps_the_maps_blocks_and_lifted_edges`, `an_edge_label_carries_its_lifted_count`, `aliases_are_generated_never_names`, `a_state_is_written_with_a_generated_alias_and_its_name_as_a_label`, `labels_cannot_break_out` (a property test planting `"]-->x`, `%%{init:{}}%%`, `click n1 call x()`, a backtick, a newline, `<svg onload=x>`, U+202E, NUL, and states named `end` and `state`), `the_hash_covers_the_redacted_bytes_not_seq`, `a_cut_keeps_the_most_connected_blocks`, `rendering_is_deterministic`, `a_path_diagram_keeps_the_hops_in_order`, `the_safe_subset_parses_and_renders_back_to_itself`, `a_line_outside_the_subset_is_refused_with_its_number`, `a_changed_cited_node_changes_the_fingerprint_and_a_line_shift_does_not`;
+    - `crates/planroom/tests/diagram.rs` (M3): `diagram_map_alone_pictures_the_top_of_the_map`, `a_diagram_holds_every_block_and_lifted_edge_of_its_map`, `a_known_hash_returns_unchanged`, `an_answer_with_no_diagram_form_is_invalid_argument`, `a_cut_diagram_warns_truncated_with_a_drill_down`, `diagram_output_is_redacted` (a planted secret, in a node name and in a state name, is masked and appears in no alias or legend entry; the hash equals the sha256 of the redacted fields, the same across two runs and under `PLANROOM_RAW=1`), `diagram_ask_path_draws_the_hops_in_order`, `an_agents_drawing_is_a_ghost_until_a_person_accepts_it` (the accept writes one `review` event and no `edit`), `an_agent_cannot_accept_a_drawing`, `an_agent_may_reject_or_undo_only_its_own_drawing`, `every_cited_id_must_resolve`, `a_drawing_goes_stale_when_a_cited_node_changes`, `a_newer_ghost_never_displaces_an_accepted_drawing`, `a_draft_whose_reply_passes_the_budget_is_refused`, `a_redraw_of_the_same_content_replays`, `the_fold_reads_no_diagram_body_and_an_export_and_a_backup_keep_it_whole`, `diagram_requests_round_trip_through_the_schema`;
+    - `packages/mod/src/room.test.ts::room_diagram_draws_a_mermaid_fence_and_keeps_text_within_budget` (M3);
+    - `tests/e2e/src/diagram.spec.ts` (M3): `a_blocks_diagram_opens_from_its_focus_view_laid_out_without_mermaid`, `a_ghost_diagram_draws_translucent_and_a_stale_one_taped`, `the_artifact_page_draws_an_accepted_diagram_from_its_snapshot`; `surface.spec.ts::exactly_five_concepts` visits the diagram view;
+    - `crates/planroom/tests/s06_machines.rs::{a_rendered_machine_reads_back_through_the_mermaid_pattern, a_machine_diagram_notes_unreachable_and_dead_end_states}` (M4);
+    - the goldens `diagram-map.json`, `diagram-path.json`, `diagram-show.json` and `diagram-draw.json`, through `cargo xtask gen --golden`;
+    - `feature_list.json` C19, "Diagrams for people and agents" (tier C; R2, R4, R5, R13), added by M3's change with these tests.
+  - **Users:** an agent can ask for a picture of any map, path or machine, and keep it by its hash. It can draw a flow, a sequence or a state machine the map can't show; a person sees it as a ghost on the block or project it is about, and can accept it; a cited block's change marks it stale.
+- **Sources (checked 2026-10-29):** KICKOFF.md:38, :64, :66-69 (R5), :418; `crates/contract/src/{view, command, requests, event}.rs`; `crates/store/src/layouts.rs`; `crates/store/migrations/0001_init.sql`; `crates/kernel/src/{redact, display}.rs`; `crates/kernel/src/query/mod.rs` (`Answer`); `crates/planroom/src/app/share.rs`; `boundaries.toml`; `packages/mod/vendor/claude-code.d.ts`; `packages/mod/src/room.ts`; DR-5 (decisions.md:244); [Layers, overrides and ghosts](architecture.md#layers-overrides-and-ghosts); [Events](architecture.md#events); [Lenses and questions](architecture.md#lenses-and-questions); [The v0.1 packs](architecture.md#the-v01-packs); [The canvas](architecture.md#the-canvas); [Milestones](architecture.md#milestones).

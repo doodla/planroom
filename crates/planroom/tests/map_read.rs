@@ -470,3 +470,30 @@ fn a_share_snapshot_reads_its_map_pane_and_seq_in_one_transaction() {
         );
     }
 }
+
+/// The ladder's level IDs as the built-in packs declare it: intent, then the code pack's.
+const LADDER: [&str; 5] = ["intent", "system", "container", "component", "code"];
+
+#[test]
+fn an_unknown_level_is_invalid_argument_naming_the_levels() {
+    let (_tmp, root) = scanned();
+    let check = |env: &Value| {
+        assert_eq!(env["ok"], false, "{env}");
+        assert_eq!(env["error"]["code"], "invalid_argument", "{env}");
+        let details = &env["error"]["details"];
+        assert_eq!(details["field"], "level", "{env}");
+        assert_eq!(details["levels"], json!(LADDER), "the levels in ladder order: {env}");
+        let message = env["error"]["message"].as_str().unwrap();
+        assert!(message.contains("foo") && message.contains(&LADDER.join(", ")), "{message}");
+    };
+    // Through the CLI, before any read: the same with or without a lens.
+    check(&json(&root, &["map", "--level", "foo"]));
+    check(&json(&root, &["map", "--level", "foo", "--lens", "all", "--detail", "graph"]));
+    // Through `POST /api/v1/map`, the same refusal as a usage error.
+    let serve = Serve::start(&root);
+    let (status, body) = serve.http("/api/v1/map", &json!({"level": "foo"}).to_string(), true);
+    assert_eq!(status, 400, "{body}");
+    check(&serde_json::from_str(&body).unwrap());
+    // A level the ladder holds still reads.
+    assert_eq!(serve.call("map", json!({"level": "component"}))["result"]["level"], "component");
+}

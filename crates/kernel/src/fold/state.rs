@@ -377,7 +377,7 @@ impl Edited {
         let mut node = Node {
             id: fact.id.clone(),
             kind: fact.kind.clone(),
-            level: fact.level,
+            level: fact.level.clone(),
             parent: self.parent.as_ref().unwrap_or(&fact.parent).clone(),
             name: self.name.as_ref().unwrap_or(&fact.name).clone(),
             aliases: fact.aliases.clone(),
@@ -1598,6 +1598,7 @@ pub(crate) fn build_edge(id: &EdgeId, edit: &Edit, provenance: Provenance) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ladder::testing::*;
 
     #[test]
     fn a_commands_events_share_the_stem_of_their_key() {
@@ -1607,7 +1608,31 @@ mod tests {
         assert_eq!(idem_stem("k#"), "k#");
     }
 
-    use planroom_contract::{Kind, Level, Tier};
+    /// A level is pack data, so a put keeps its node whatever level string it carries; the
+    /// ladder, not the fold, decides where the node sits.
+    #[test]
+    fn a_put_with_any_level_string_keeps_its_node() {
+        let edit = Edit {
+            op: Op::Put,
+            target: Target::Node(id(1)),
+            layer: Layer::Intended,
+            fields: [
+                ("kind".to_owned(), json!("k.x")),
+                ("level".to_owned(), json!("zone")),
+                ("name".to_owned(), json!("north")),
+            ]
+            .into_iter()
+            .collect(),
+            base: 0,
+            over: BTreeMap::new(),
+        };
+        let provenance = Provenance::Extracted { extractor: "p/x".into(), tier: Tier::Universal };
+        let node = build_node(&id(1), &edit, provenance).expect("a put at any level keeps its node");
+        assert_eq!(serde_json::to_value(&node.level).unwrap(), json!("zone"));
+        assert_eq!(node.name, "north");
+    }
+
+    use planroom_contract::{Kind, Tier};
     use proptest::prelude::*;
     use proptest::test_runner::Config;
 
@@ -1619,7 +1644,7 @@ mod tests {
         Node {
             id: id(key),
             kind: Kind("k.x".into()),
-            level: Level::Code,
+            level: room(),
             parent: parent.map(id),
             name: name.into(),
             aliases: vec![],

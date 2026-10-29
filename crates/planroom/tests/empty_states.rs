@@ -23,8 +23,9 @@ fn run(cwd: &Path, args: &[&str]) -> (Value, String) {
 
 /// The line a level with blocks prints, built from its blocks: how many there are at that level,
 /// then the first 12 by name (a name two blocks share is told apart as `repo/key`) with their
-/// counts of what lies inside them, and how many more there are.
-fn summary_of(view: &Value, level: &str, total: usize) -> String {
+/// counts of what lies inside them, in the words and the order of `ladder`, a graph reply's
+/// `levels`, and how many more there are.
+fn summary_of(view: &Value, level: &str, total: usize, ladder: &[Value]) -> String {
     let nodes = view["nodes"].as_array().unwrap();
     let mut seen: HashMap<&str, usize> = HashMap::new();
     for n in nodes {
@@ -41,12 +42,19 @@ fn summary_of(view: &Value, level: &str, total: usize) -> String {
             } else {
                 name.to_owned()
             };
-            let counts: Vec<String> = n["counts"]
+            let mut counts: Vec<(usize, String)> = n["counts"]
                 .as_object()
                 .unwrap()
                 .iter()
-                .map(|(level, count)| format!("{count} {level}"))
+                .map(|(level, count)| {
+                    let at = ladder.iter().position(|l| l["id"] == level.as_str()).expect("a held level");
+                    let words = if count == 1 { "one" } else { "many" };
+                    let count = count.to_string();
+                    (at, ladder[at][words].as_str().unwrap().replace("{count}", &count))
+                })
                 .collect();
+            counts.sort();
+            let counts: Vec<String> = counts.into_iter().map(|(_, words)| words).collect();
             if counts.is_empty() { name } else { format!("{name} ({})", counts.join(", ")) }
         })
         .collect();
@@ -55,7 +63,8 @@ fn summary_of(view: &Value, level: &str, total: usize) -> String {
     } else {
         listed.join("; ")
     };
-    format!("{total} at the {level} level: {names}.")
+    let label = ladder.iter().find(|l| l["id"] == level).map_or(level, |l| l["label"].as_str().unwrap());
+    format!("{total} at the {label} level: {names}.")
 }
 
 #[test]
@@ -63,6 +72,8 @@ fn every_map_level_has_blocks_or_an_empty_state_whose_next_action_works() {
     let tmp = tempfile::tempdir().unwrap();
     let root = fixture(&tmp.path().join("shop")).root;
     run(&root, &["scan", "--json"]);
+    let (graph, _) = run(&root, &["map", "--detail", "graph", "--json"]);
+    let ladder = graph["result"]["levels"].as_array().unwrap().clone();
     for level in ["intent", "system", "container", "component", "code"] {
         let (env, _) = run(&root, &["map", "--level", level, "--json"]);
         let view = &env["result"];
@@ -77,7 +88,7 @@ fn every_map_level_has_blocks_or_an_empty_state_whose_next_action_works() {
                 .as_array()
                 .and_then(|w| w.iter().find(|w| w["code"] == "truncated"))
                 .map_or(blocks, |w| w["details"]["total"].as_u64().unwrap() as usize);
-            assert_eq!(line, summary_of(view, level, total), "{level}");
+            assert_eq!(line, summary_of(view, level, total, &ladder), "{level}");
             continue;
         }
         let empty = &view["empty"];

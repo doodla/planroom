@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use planroom_contract::{
     Actor, Card, CardKind, Choice, Client, CommandName, Edge, EdgeId, Edit, Event, EventBody, EventId, Kind,
-    Layer, Level, Node, NodeId, Op, Provenance, Ref, Seq, Stakes, Status, Surface, Target, Tier, Timestamp,
+    Layer, LevelId, Node, NodeId, Op, Provenance, Ref, Seq, Stakes, Status, Surface, Target, Tier, Timestamp,
     Verdict, Vocabulary,
 };
 use planroom_kernel::fold::{ClaimRecord, Folded, Overlay, TargetKey, VersionTag, WHOLE, Writer, fold_full};
@@ -16,7 +16,7 @@ fn id(s: &str) -> NodeId {
     NodeId(s.into())
 }
 
-fn node(key: &str, level: Level, parent: Option<&str>) -> Node {
+fn node(key: &str, level: LevelId, parent: Option<&str>) -> Node {
     Node {
         id: id(key),
         kind: Kind("k.x".into()),
@@ -50,10 +50,10 @@ fn fact_edge() -> Edge {
 fn facts() -> Facts {
     Facts {
         nodes: vec![
-            node("r:x:repo", Level::System, None),
-            node("r:x:a", Level::Component, Some("r:x:repo")),
-            node("r:x:b", Level::Component, Some("r:x:repo")),
-            node("r:x:item", Level::Code, Some("r:x:a")),
+            node("r:x:repo", LevelId::from("system"), None),
+            node("r:x:a", LevelId::from("component"), Some("r:x:repo")),
+            node("r:x:b", LevelId::from("component"), Some("r:x:repo")),
+            node("r:x:item", LevelId::from("code"), Some("r:x:a")),
         ],
         edges: vec![fact_edge()],
         ..Facts::default()

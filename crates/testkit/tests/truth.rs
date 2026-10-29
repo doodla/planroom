@@ -3,17 +3,17 @@
 
 use std::collections::BTreeSet;
 
-use planroom_contract::{Evidence, Level};
+use planroom_contract::{Evidence, LevelId};
 use planroom_testkit::truth;
 use planroom_testkit::truth::{
     DEFERRED, Observed, ObservedEdge, ObservedNode, Report, ScanRead, Scope, compare,
 };
 use serde_json::{Value, json};
 
-fn node(id: &str, name: &str, level: Level, parent: Option<&str>) -> ObservedNode {
+fn node(id: &str, name: &str, level: LevelId, parent: Option<&str>) -> ObservedNode {
     ObservedNode {
         id: id.into(),
-        kind: if level == Level::System { "code.repo" } else { "code.service" }.into(),
+        kind: if level.as_str() == "system" { "code.repo" } else { "code.service" }.into(),
         name: name.into(),
         level,
         parent: parent.map(Into::into),
@@ -24,15 +24,15 @@ fn node(id: &str, name: &str, level: Level, parent: Option<&str>) -> ObservedNod
 /// Two repos, each with its service container.
 fn two_services() -> Vec<ObservedNode> {
     vec![
-        node("storefront:repo:storefront", "storefront", Level::System, None),
+        node("storefront:repo:storefront", "storefront", LevelId::from("system"), None),
         node(
             "storefront:container:storefront",
             "storefront",
-            Level::Container,
+            LevelId::from("container"),
             Some("storefront:repo:storefront"),
         ),
-        node("orders:repo:orders", "orders", Level::System, None),
-        node("orders:container:orders", "orders", Level::Container, Some("orders:repo:orders")),
+        node("orders:repo:orders", "orders", LevelId::from("system"), None),
+        node("orders:container:orders", "orders", LevelId::from("container"), Some("orders:repo:orders")),
     ]
 }
 
@@ -88,6 +88,7 @@ fn a_branch_evidence_item_matches_through_its_scan_event() {
                 line("storefront/src/api/orders.ts", 26, "  return fetch(url)", orders_commit),
             ])],
             scans: scans.clone(),
+            ..Observed::default()
         };
         compare(&truth, &observed, &code_scope())
     };
@@ -129,6 +130,7 @@ fn a_branch_evidence_item_matches_through_its_scan_event() {
             line("storefront/src/api/orders.ts", 26, "  return fetch(url)", "c-main"),
         ])],
         scans: scans.clone(),
+        ..Observed::default()
     };
     let report = compare(&truth, &observed, &code_scope());
     assert_eq!(
@@ -152,8 +154,12 @@ fn a_missing_evidence_item_fails_the_relation() {
     let orders = line("storefront/src/api/orders.ts", 26, "  return fetch(url)", "s1");
     let compose = line("platform/docker-compose.yml", 10, "      - ORDERS_URL=http://orders:8080", "p1");
 
-    let observed =
-        Observed { nodes: two_services(), edges: vec![http(vec![orders.clone()])], scans: scans.clone() };
+    let observed = Observed {
+        nodes: two_services(),
+        edges: vec![http(vec![orders.clone()])],
+        scans: scans.clone(),
+        ..Observed::default()
+    };
     let report = compare(&truth, &observed, &code_scope());
     let relation = report.item(RELATION).unwrap();
     assert!(!relation.passes(), "one evidence item short fails the relation");
@@ -172,11 +178,17 @@ fn a_missing_evidence_item_fails_the_relation() {
             nodes: two_services(),
             edges: vec![http(vec![orders.clone(), wrong])],
             scans: scans.clone(),
+            ..Observed::default()
         };
         assert!(!compare(&truth, &observed, &code_scope()).item(RELATION).unwrap().passes());
     }
 
-    let observed = Observed { nodes: two_services(), edges: vec![http(vec![orders, compose])], scans };
+    let observed = Observed {
+        nodes: two_services(),
+        edges: vec![http(vec![orders, compose])],
+        scans,
+        ..Observed::default()
+    };
     let report = compare(&truth, &observed, &code_scope());
     assert!(report.item(RELATION).unwrap().passes(), "{}", report.describe());
     assert!(report.failures().is_empty());

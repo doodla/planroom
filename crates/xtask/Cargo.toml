@@ -12,6 +12,7 @@ publish = false
 planroom-contract.workspace = true
 planroom-kernel.workspace = true
 planroom-models.workspace = true
+regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

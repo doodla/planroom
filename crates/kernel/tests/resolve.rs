@@ -1,10 +1,10 @@
 //! Resolution (architecture.md, "The fold", step 2; "Levels and roll-ups"): parents attach to a
 //! node that resolves, falling back to the parent another fact names. Inputs are values: no I/O.
 
-use planroom_contract::{Kind, Layer, Level, Node, NodeId, Provenance, Tier, Vocabulary};
+use planroom_contract::{Kind, Layer, LevelId, Node, NodeId, Provenance, Tier, Vocabulary};
 use planroom_kernel::{Facts, resolve};
 
-fn node(id: &str, tier: Tier, level: Level, parent: Option<&str>) -> Node {
+fn node(id: &str, tier: Tier, level: LevelId, parent: Option<&str>) -> Node {
     Node {
         id: NodeId(id.into()),
         kind: Kind("k.x".into()),
@@ -29,13 +29,23 @@ fn a_fact_parent_that_doesnt_resolve_gives_way_to_a_less_specific_facts_parent()
     // fact parent, its directory, is where it stays.
     let facts = Facts {
         nodes: vec![
-            node("platform:repo:platform", Tier::Universal, Level::System, None),
-            node("platform:dir:tools", Tier::Universal, Level::Component, Some("platform:repo:platform")),
-            node("platform:file:tools/hc.rb", Tier::Universal, Level::Code, Some("platform:dir:tools")),
+            node("platform:repo:platform", Tier::Universal, LevelId::from("system"), None),
+            node(
+                "platform:dir:tools",
+                Tier::Universal,
+                LevelId::from("component"),
+                Some("platform:repo:platform"),
+            ),
+            node(
+                "platform:file:tools/hc.rb",
+                Tier::Universal,
+                LevelId::from("code"),
+                Some("platform:dir:tools"),
+            ),
             node(
                 "platform:file:tools/hc.rb",
                 Tier::Pattern,
-                Level::Code,
+                LevelId::from("code"),
                 Some("platform:container:healthcheck"),
             ),
         ],
@@ -50,7 +60,7 @@ fn a_fact_parent_that_doesnt_resolve_gives_way_to_a_less_specific_facts_parent()
     with_container.nodes.push(node(
         "platform:container:healthcheck",
         Tier::Pattern,
-        Level::Container,
+        LevelId::from("container"),
         Some("platform:repo:platform"),
     ));
     let resolved = resolve(&with_container, &Vocabulary::default());
@@ -62,8 +72,8 @@ fn a_fact_parent_that_doesnt_resolve_gives_way_to_a_less_specific_facts_parent()
     // With no fact parent that resolves, and for a node that names itself, the node sits at the top.
     let lost = Facts {
         nodes: vec![
-            node("x:dir:lost", Tier::Universal, Level::Component, Some("x:repo:missing")),
-            node("x:dir:self", Tier::Universal, Level::Component, Some("x:dir:self")),
+            node("x:dir:lost", Tier::Universal, LevelId::from("component"), Some("x:repo:missing")),
+            node("x:dir:self", Tier::Universal, LevelId::from("component"), Some("x:dir:self")),
         ],
         ..Facts::default()
     };

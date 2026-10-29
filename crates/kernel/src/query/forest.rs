@@ -8,11 +8,15 @@
 //! steps), so finding the ancestor at a given depth never walks a deep chain one parent at a time.
 //! A parent cycle, which only bad facts or an older store can hold, is cut where the numbering
 //! first meets it, so every node has one root.
+//!
+//! Levels are compared by their rank on the ladder the forest is built with: each node's rank is
+//! read once, and a level's blocks are kept under its rank.
 
 use std::collections::HashMap;
 
-use planroom_contract::{Edge, Level, Node};
+use planroom_contract::{Edge, Node};
 
+use crate::ladder::Ladder;
 use crate::resolve::Index;
 
 /// The parent tree of a model's nodes, numbered for holding and climbing.
@@ -26,14 +30,17 @@ pub struct Forest<'a> {
     /// Depth-first entry number, and one past the last number in the node's subtree.
     enter: Vec<u32>,
     leave: Vec<u32>,
-    /// Each node's block at a level, by level, filled on first use.
-    blocks: HashMap<Level, Vec<usize>>,
+    /// Each node's level's rank on the ladder.
+    rank: Vec<u8>,
+    /// Each node's block at a level, by the level's rank, filled on first use.
+    blocks: HashMap<u8, Vec<usize>>,
     /// The nodes in depth-first order: every parent before its children.
     order: Vec<usize>,
 }
 
 impl<'a> Forest<'a> {
-    pub fn new(nodes: &'a [Node]) -> Forest<'a> {
+    /// The forest of `nodes`, whose levels `ladder` ranks.
+    pub fn new(nodes: &'a [Node], ladder: &Ladder<'_>) -> Forest<'a> {
         let by_id: HashMap<&str, usize> =
             nodes.iter().enumerate().map(|(i, n)| (n.id.0.as_str(), i)).collect();
         let n = nodes.len();
@@ -59,6 +66,7 @@ impl<'a> Forest<'a> {
             depth: vec![0; n],
             enter: vec![0; n],
             leave: vec![0; n],
+            rank: nodes.iter().map(|n| ladder.rank(&n.level)).collect(),
             blocks: HashMap::new(),
             order: Vec::with_capacity(n),
         };
@@ -120,6 +128,11 @@ impl<'a> Forest<'a> {
         &self.nodes[i]
     }
 
+    /// The rank of the node's level on the forest's ladder.
+    pub fn rank(&self, i: usize) -> u8 {
+        self.rank[i]
+    }
+
     /// Whether `a` is `b` or one of its ancestors.
     pub fn holds(&self, a: usize, b: usize) -> bool {
         self.enter[a] <= self.enter[b] && self.enter[b] < self.leave[a]
@@ -141,15 +154,15 @@ impl<'a> Forest<'a> {
         self.holds(a, b) || self.holds(b, a)
     }
 
-    /// Each node's block at `level`: its nearest ancestor at or above the level, itself included,
+    /// Each node's block at the level of rank `level`: its nearest ancestor at or above the level, itself included,
     /// or the top of its chain when none is (architecture.md, "Levels and roll-ups", step 1).
-    fn blocks_at(&mut self, level: Level) -> &[usize] {
-        let (nodes, order, parent) = (self.nodes, &self.order, &self.parent);
+    fn blocks_at(&mut self, level: u8) -> &[usize] {
+        let (rank, order, parent) = (&self.rank, &self.order, &self.parent);
         self.blocks.entry(level).or_insert_with(|| {
-            let mut block = vec![0; nodes.len()];
+            let mut block = vec![0; rank.len()];
             for &i in order {
                 block[i] = match parent[i] {
-                    Some(p) if nodes[i].level > level => block[p],
+                    Some(p) if rank[i] > level => block[p],
                     _ => i,
                 };
             }
@@ -158,13 +171,13 @@ impl<'a> Forest<'a> {
     }
 
     /// Fill the blocks of `level`, so [`Forest::lift`] reads them without a mutable borrow.
-    pub fn prepare(&mut self, level: Level) {
+    pub fn prepare(&mut self, level: u8) {
         self.blocks_at(level);
     }
 
     /// The node's block at `level`: the block an edge end there lifts to before roll-up's step 3.
     /// [`Forest::prepare`] fills the level's blocks first.
-    pub fn block(&self, i: usize, level: Level) -> usize {
+    pub fn block(&self, i: usize, level: u8) -> usize {
         self.blocks.get(&level).expect("the level's blocks are prepared")[i]
     }
 
@@ -173,7 +186,7 @@ impl<'a> Forest<'a> {
     /// lies inside one node; and an end whose block also holds the other end steps down to its
     /// child on the way to its own end, so no lifted edge joins a node to its own ancestor.
     /// [`Forest::prepare`] fills the level's blocks first.
-    pub fn lift(&self, u: usize, v: usize, level: Level) -> Option<(usize, usize)> {
+    pub fn lift(&self, u: usize, v: usize, level: u8) -> Option<(usize, usize)> {
         let block = self.blocks.get(&level).expect("the level's blocks are prepared");
         let (mut a, mut b) = (block[u], block[v]);
         if a == b || self.related(u, v) {
@@ -215,11 +228,12 @@ impl<'a> Forest<'a> {
 
 #[cfg(test)]
 mod tests {
-    use planroom_contract::{Kind, Layer, NodeId, Provenance, Tier};
+    use crate::ladder::testing::*;
+    use planroom_contract::{Kind, Layer, LevelId, NodeId, Provenance, Tier};
 
     use super::*;
 
-    fn node(id: &str, level: Level, parent: Option<&str>) -> Node {
+    fn node(id: &str, level: LevelId, parent: Option<&str>) -> Node {
         Node {
             id: NodeId(id.into()),
             kind: Kind("t.x".into()),
@@ -237,42 +251,44 @@ mod tests {
     #[test]
     fn holding_and_lifting_follow_the_parent_tree() {
         let nodes = vec![
-            node("r:repo:r", Level::System, None),
-            node("r:dir:a", Level::Component, Some("r:repo:r")),
-            node("r:file:a/x", Level::Code, Some("r:dir:a")),
-            node("r:dir:b", Level::Component, Some("r:repo:r")),
-            node("r:file:b/y", Level::Code, Some("r:dir:b")),
+            node("r:repo:r", realm(), None),
+            node("r:dir:a", site(), Some("r:repo:r")),
+            node("r:file:a/x", room(), Some("r:dir:a")),
+            node("r:dir:b", site(), Some("r:repo:r")),
+            node("r:file:b/y", room(), Some("r:dir:b")),
         ];
-        let mut f = Forest::new(&nodes);
-        f.prepare(Level::Container);
-        f.prepare(Level::Component);
+        let vocabulary = vocabulary();
+        let ladder = Ladder::of(&vocabulary);
+        let (region, site) = (ladder.rank(&region()), ladder.rank(&site()));
+        let mut f = Forest::new(&nodes, &ladder);
+        f.prepare(region);
+        f.prepare(site);
         let i = |id: &str| f.id(id).unwrap();
         assert!(f.holds(i("r:repo:r"), i("r:file:b/y")));
         assert!(!f.holds(i("r:dir:a"), i("r:file:b/y")));
         let (x, y) = (i("r:file:a/x"), i("r:file:b/y"));
-        // Both files' block at the container level is the repo, so the edge lies inside it.
-        assert_eq!(f.lift(x, y, Level::Container), None);
-        assert_eq!(f.lift(x, y, Level::Component), Some((i("r:dir:a"), i("r:dir:b"))));
+        // Both files' block at the region level is the realm node, so the edge lies inside it.
+        assert_eq!(f.lift(x, y, region), None);
+        assert_eq!(f.lift(x, y, site), Some((i("r:dir:a"), i("r:dir:b"))));
         // A file and the repo that holds it never make a lifted edge.
-        assert_eq!(f.lift(x, i("r:repo:r"), Level::Component), None);
+        assert_eq!(f.lift(x, i("r:repo:r"), site), None);
     }
 
     #[test]
     fn a_deep_chain_climbs_in_few_steps_and_a_cycle_still_ends() {
-        let mut nodes = vec![node("c:dir:0", Level::Component, None)];
+        let mut nodes = vec![node("c:dir:0", site(), None)];
         for d in 1..20_000 {
-            nodes.push(node(&format!("c:dir:{d}"), Level::Component, Some(&format!("c:dir:{}", d - 1))));
+            nodes.push(node(&format!("c:dir:{d}"), site(), Some(&format!("c:dir:{}", d - 1))));
         }
-        nodes.push(node("c:file:side", Level::Code, Some("c:dir:3")));
-        let f = Forest::new(&nodes);
+        nodes.push(node("c:file:side", room(), Some("c:dir:3")));
+        let vocabulary = vocabulary();
+        let ladder = Ladder::of(&vocabulary);
+        let f = Forest::new(&nodes, &ladder);
         let (deep, side) = (f.id("c:dir:19999").unwrap(), f.id("c:file:side").unwrap());
         assert_eq!(f.highest_apart(deep, side), f.id("c:dir:4").unwrap());
         // A two-node parent cycle: each names the other.
-        let cycle = vec![
-            node("c:dir:p", Level::Component, Some("c:dir:q")),
-            node("c:dir:q", Level::Component, Some("c:dir:p")),
-        ];
-        let f = Forest::new(&cycle);
+        let cycle = vec![node("c:dir:p", site(), Some("c:dir:q")), node("c:dir:q", site(), Some("c:dir:p"))];
+        let f = Forest::new(&cycle, &ladder);
         assert!(f.holds(0, 1) ^ f.holds(1, 0));
     }
 }

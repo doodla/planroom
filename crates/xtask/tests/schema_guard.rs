@@ -86,14 +86,14 @@ fn breaking_change_guard() {
     root.baseline(SCHEMA_VERSION, |_, s| {
         let d = defs(s);
         d["MapReq"]["properties"]["radius"] = json!({"type": "integer", "format": "uint32", "minimum": 0});
-        d["Level"]["enum"].as_array_mut().unwrap().push(json!("galaxy"));
+        d["Layer"]["enum"].as_array_mut().unwrap().push(json!("galaxy"));
         d.insert("Retired".into(), json!({"type": "string"}));
         d["ErrorCode"]["anyOf"][0]["enum"].as_array_mut().unwrap().push(json!("gone_code"));
     });
     let p = problems(&root.0, SCHEMA_VERSION);
     for want in [
         "$defs/MapReq: property `radius` was removed",
-        "$defs/Level: enum value \"galaxy\" was removed",
+        "$defs/Layer: enum value \"galaxy\" was removed",
         "$defs/Retired: the type was removed",
         "enum value \"gone_code\" was removed",
     ] {
@@ -129,7 +129,7 @@ fn breaking_change_guard() {
         let d = defs(s);
         d.remove("LastSeq");
         d["Meta"]["properties"].as_object_mut().unwrap().remove("replayed_from");
-        d["Level"]["enum"].as_array_mut().unwrap().retain(|v| v != "code");
+        d["Layer"]["enum"].as_array_mut().unwrap().retain(|v| v != "intended");
         d["ErrorCode"]["anyOf"][0]["enum"].as_array_mut().unwrap().retain(|v| v != "store_busy");
         d["EventBody"]["anyOf"].as_array_mut().unwrap().remove(0);
     });
@@ -220,6 +220,63 @@ fn breaking_change_guard() {
     fs::write(root.0.join("Cargo.toml"), "[workspace.package]\nversion = \"0.2.1-dev\"\n").unwrap();
     let p = problems(&root.0, SCHEMA_VERSION);
     assert!(p.iter().any(|l| l.contains("its tag v0.2.0 isn't here")), "{p:#?}");
+}
+
+/// The values the generated schema's open `Level` set opened from: the closed enum it was.
+const CLOSED_LEVELS: [&str; 5] = ["intent", "system", "container", "component", "code"];
+
+#[test]
+fn an_enum_opened_to_an_open_set_that_keeps_its_values_passes() {
+    // The baseline's `Level` is the closed enum it was; the schema's is the kernel's `intent`
+    // or any ID a pack declares, so every old value is still accepted.
+    let root = Root::new("opened");
+    root.baseline(SCHEMA_VERSION, |_, s| {
+        defs(s)["Level"] = json!({"type": "string", "enum": CLOSED_LEVELS});
+    });
+    assert_eq!(problems(&root.0, SCHEMA_VERSION), Vec::<String>::new());
+
+    // A value is kept by the new top-level enum, a `oneOf` branch's enum, or a pattern at the
+    // top or in a branch.
+    let old = json!({"$defs": {"L": {"type": "string", "enum": ["a", "b", "c1", "d_2"]}}});
+    for new in [
+        json!({"type": "string", "enum": ["a", "b", "c1", "d_2", "e"]}),
+        json!({"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}),
+        json!({"oneOf": [{"enum": ["a"]}, {"enum": ["b"]}, {"pattern": "^[cd]"}]}),
+        json!({"anyOf": [{"type": "string", "enum": ["a", "b"]}, {"type": "string", "pattern": "^(c|d)"}]}),
+    ] {
+        let new = json!({"$defs": {"L": new}});
+        for view in View::ALL {
+            assert_eq!(schema_guard::breaking_changes(&old, &new, view), Vec::<String>::new(), "{new}");
+        }
+    }
+}
+
+#[test]
+fn a_value_the_new_pattern_refuses_is_still_removed() {
+    // A baseline value the open set's pattern refuses is a removal, in both views.
+    let root = Root::new("refused");
+    root.baseline(SCHEMA_VERSION, |_, s| {
+        let mut closed: Vec<Value> = CLOSED_LEVELS.iter().map(|l| json!(l)).collect();
+        closed.push(json!("Galaxy-9"));
+        defs(s)["Level"] = json!({"type": "string", "enum": closed});
+    });
+    let p = problems(&root.0, SCHEMA_VERSION);
+    assert_eq!(
+        p.iter().filter(|l| l.contains("$defs/Level: enum value \"Galaxy-9\" was removed")).count(),
+        2,
+        "{p:#?}"
+    );
+    assert_eq!(p.len(), 2, "{p:#?}");
+
+    // Neither a branch's enum nor its pattern keeps it, and a pattern in a branch keeps only what
+    // it matches.
+    let old = json!({"$defs": {"L": {"type": "string", "enum": ["a", "Zed", "b"]}}});
+    let new =
+        json!({"$defs": {"L": {"anyOf": [{"enum": ["a"]}, {"type": "string", "pattern": "^[a-z]+$"}]}}});
+    assert_eq!(
+        schema_guard::breaking_changes(&old, &new, View::Output),
+        vec!["$defs/L: enum value \"Zed\" was removed".to_owned()]
+    );
 }
 
 #[test]

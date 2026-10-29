@@ -30,13 +30,14 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
 use planroom_contract::{
-    ExtractorDecl, FactBatch, Flow, ImageRole, Kind, KindVocab, LanguageDecl, LensVocab, LinkerDecl,
-    PackFile, PackRecord, RelationVocab, Vocabulary,
+    ExtractorDecl, FactBatch, Flow, ImageRole, Kind, KindVocab, LanguageDecl, LensVocab, LevelId, LevelVocab,
+    LinkerDecl, PackFile, PackRecord, RelationVocab, Vocabulary,
 };
 use planroom_extract::declarative::Declarative;
 use planroom_extract::link::{Linked, Member, Selection, WorkspaceFacts};
 use planroom_extract::{ExtractError, RepoPath, RepoView};
 use planroom_kernel::keys;
+use planroom_kernel::ladder::Ladder;
 use serde_json::{Value, json};
 
 use crate::app::error::AppError;
@@ -337,20 +338,18 @@ impl Loaded {
         runs
     }
 
-    /// What the loaded linkers read of an active set: every hint, the vocabulary's System- and
-    /// Container-level nodes, and the nodes and edges their runs' input roles name. The scan that
-    /// builds the link and anything that reruns it over stored facts select through this alone.
+    /// What the loaded linkers read of an active set: every hint, the nodes of the kinds at the
+    /// ladder's top level and of the kinds that use the container prefix, and the nodes and edges
+    /// their runs' input roles name. The scan that builds the link and anything that reruns it
+    /// over stored facts select through this alone.
     pub fn link_selection(&self) -> Selection {
-        let containers = self
-            .vocabulary
-            .kinds
-            .iter()
-            .filter(|k| {
-                matches!(k.level, planroom_contract::Level::System | planroom_contract::Level::Container)
-            })
-            .map(|k| k.kind.0.clone());
+        let kinds = &self.vocabulary.kinds;
+        let top = Ladder::of(&self.vocabulary).top().clone();
+        let tops = kinds.iter().filter(|k| k.level == top).map(|k| k.kind.0.clone());
+        let containers =
+            kinds.iter().filter(|k| k.id_prefix == validate::CONTAINER_PREFIX).map(|k| k.kind.0.clone());
         let runs = self.linker_runs();
-        Selection::new(containers, runs.iter().map(|r| (r.builtin.as_str(), &r.options)))
+        Selection::new(tops, containers, runs.iter().map(|r| (r.builtin.as_str(), &r.options)))
     }
 
     /// Every linker as a scan runs it, in load order: `options.kinds` names become the kinds'
@@ -456,6 +455,40 @@ pub fn qualify(pack: &str, name: &str) -> String {
     format!("{pack}.{name}")
 }
 
+/// The ladder the set declares: the kernel's `intent` first, apart, in en.toml's words, then the
+/// base pack's levels top to finest, with each other pack's level directly below its `below`, in
+/// load order and, within a pack, in declaration order. The set is checked, so each `below` names
+/// a level already placed, and no two levels sit directly below the same one.
+fn levels(packs: &[Pack]) -> Vec<LevelVocab> {
+    let intent = LevelVocab {
+        id: LevelId::intent(),
+        label: crate::text::get("levels.intent", &[]),
+        one: crate::text::get("levels.intent_one", &[]),
+        many: crate::text::get("levels.intent_many", &[]),
+        apart: true,
+        pack: KERNEL.to_owned(),
+    };
+    let mut ladder = vec![intent];
+    for pack in packs {
+        for l in &pack.file.levels {
+            let level = LevelVocab {
+                id: LevelId::from(l.id.as_str()),
+                label: l.label.clone(),
+                one: l.one.clone(),
+                many: l.many.clone(),
+                apart: false,
+                pack: pack.id().to_owned(),
+            };
+            let at = l.below.as_deref().and_then(|below| ladder.iter().position(|v| v.id.as_str() == below));
+            match at {
+                Some(k) => ladder.insert(k + 1, level),
+                None => ladder.push(level),
+            }
+        }
+    }
+    ladder
+}
+
 /// The checked set as the engine reads it.
 fn merge(packs: Vec<Pack>) -> Loaded {
     let mut vocabulary = Vocabulary::default();
@@ -465,12 +498,13 @@ fn merge(packs: Vec<Pack>) -> Loaded {
     let mut linkers = Vec::new();
     // Two defaults load only when one is the code pack's, which stays the default.
     let base_default = packs.iter().any(|p| validate::is_base(p) && p.file.lenses.iter().any(|l| l.default));
+    vocabulary.levels = levels(&packs);
     for pack in &packs {
         let id = pack.id();
         let file = &pack.file;
         vocabulary.kinds.extend(file.kinds.iter().map(|k| KindVocab {
             kind: Kind(qualify(id, &k.id)),
-            level: k.level,
+            level: k.level.clone(),
             id_prefix: k.id_prefix.clone(),
             label: k.label.clone(),
             props: k.props.clone(),
@@ -490,7 +524,7 @@ fn merge(packs: Vec<Pack>) -> Loaded {
             relations: l.relations.iter().cloned().map(Kind).collect(),
             flow: l.flow.iter().map(|(k, f)| (Kind(k.clone()), *f)).collect::<BTreeMap<Kind, Flow>>(),
             kinds: l.kinds.iter().cloned().map(Kind).collect(),
-            level: l.level,
+            level: l.level.clone(),
             default: l.default && (validate::is_base(pack) || !base_default),
         }));
         vocabulary.suggestions.extend(file.suggestions.iter().cloned());

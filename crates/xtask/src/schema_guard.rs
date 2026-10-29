@@ -95,6 +95,27 @@ pub fn breaking_changes(old: &Value, new: &Value, view: View) -> Vec<String> {
     out
 }
 
+/// Whether the definition `new` still accepts an old enum value: its top-level `enum` holds it
+/// or its `pattern` matches it, or an `anyOf` or `oneOf` branch's does. An enum opened into an open
+/// set keeps every value its pattern matches; a value the pattern refuses is still removed.
+fn accepts(new: &serde_json::Map<String, Value>, value: &Value) -> bool {
+    let held = |def: &serde_json::Map<String, Value>| {
+        def.get("enum").and_then(Value::as_array).is_some_and(|e| e.contains(value))
+            || match (def.get("pattern").and_then(Value::as_str), value.as_str()) {
+                // A pattern the regex crate can't compile keeps nothing, so the value counts as
+                // removed and the guard says so.
+                (Some(pattern), Some(text)) => regex::Regex::new(pattern).is_ok_and(|re| re.is_match(text)),
+                _ => false,
+            }
+    };
+    held(new)
+        || ["anyOf", "oneOf"].iter().any(|key| {
+            new.get(*key)
+                .and_then(Value::as_array)
+                .is_some_and(|branches| branches.iter().filter_map(Value::as_object).any(held))
+        })
+}
+
 fn compare(old: &Value, new: &Value, at: &str, view: View, out: &mut Vec<String>) {
     let (Some(old), Some(new)) = (old.as_object(), new.as_object()) else { return };
     let empty = serde_json::Map::new();
@@ -107,8 +128,7 @@ fn compare(old: &Value, new: &Value, at: &str, view: View, out: &mut Vec<String>
         }
     }
     if let Some(old_enum) = old.get("enum").and_then(Value::as_array) {
-        let new_enum = new.get("enum").and_then(Value::as_array).cloned().unwrap_or_default();
-        for value in old_enum.iter().filter(|v| !new_enum.contains(v)) {
+        for value in old_enum.iter().filter(|v| !accepts(new, v)) {
             out.push(format!("{at}: enum value {value} was removed"));
         }
     }

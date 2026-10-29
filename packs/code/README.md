@@ -8,7 +8,8 @@ Planroom embeds it in the binary, so every workspace loads it first.
 
 | Table | What the code pack puts there |
 |---|---|
-| `[[kinds]]` | `workspace`, `repo`, `service`, `datastore`, `queue`, `library`, `tooling`, `package`, `module`, `directory`, `file`, `api_spec`, `endpoint`, `person`, `commit`. Every Container-level kind uses the kernel's `container` ID prefix and has a tone, the block color surfaces draw it in: `service` for a service, `store` for a datastore or a queue, `library` for a library, `infra` for tooling. |
+| `[[levels]]` | the ladder of abstraction levels, top first: `system`, `container`, `component`, `code`; another pack may put a level below one of them, never below `code`. That level is checked when the pack loads, but reads show only these four until they load the workspace's pack set ([Levels and roll-ups](../../docs/contributing/architecture.md#levels-and-roll-ups)) |
+| `[[kinds]]` | `workspace`, `repo`, `service`, `datastore`, `queue`, `library`, `tooling`, `package`, `module`, `directory`, `file`, `api_spec`, `endpoint`, `person`, `commit`. The kinds at the `container` level use the kernel's `container` ID prefix and have a tone, the block color surfaces draw it in: `service` for a service, `store` for a datastore or a queue, `library` for a library, `infra` for tooling. |
 | `[[relations]]` | `http`, `queue_publish`, `queue_consume`, `db`, `imports`, `depends_on_package`, `co_change`, `owned_by` |
 | `[[languages]]` | TypeScript, TSX, JavaScript, Python, Go, Rust, YAML and JSON, by file extension. Each of the six with a grammar has its own file in `languages/`, with its extractors and the globs of its test files, `tests` (see [Test files](#test-files)) |
 | `[[image_roles]]` | `postgres*` and `mysql*` are a `datastore`; `redis*` and `rabbitmq*` are a `queue` |

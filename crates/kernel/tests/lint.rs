@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use planroom_contract::{
-    Actor, Client, Edit, Event, EventBody, EventId, Kind, Layer, Level, Node, NodeId, Op, Provenance,
+    Actor, Client, Edit, Event, EventBody, EventId, Kind, Layer, LevelId, Node, NodeId, Op, Provenance,
     RuleDecl, RuleType, Seq, Status, Surface, Target, Tier, Timestamp, Vocabulary,
 };
 use planroom_kernel::fold::fold;
@@ -35,7 +35,7 @@ fn item(key: &str, parent: &str, props: Value) -> Node {
     Node {
         id: id(&format!("plan:retries:{key}")),
         kind: Kind(ITEM_KIND.into()),
-        level: Level::Intent,
+        level: LevelId::from("intent"),
         parent: Some(id(parent)),
         name: key.into(),
         aliases: vec![],
@@ -109,7 +109,7 @@ fn next_action_needs_done_test() {
     let file = Node {
         id: id("worker:file:worker/consumer.py"),
         kind: Kind("k.file".into()),
-        level: Level::Code,
+        level: LevelId::from("code"),
         parent: None,
         name: "consumer.py".into(),
         aliases: vec![],

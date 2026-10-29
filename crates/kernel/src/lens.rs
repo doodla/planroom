@@ -24,7 +24,7 @@ pub fn default(vocabulary: &Vocabulary) -> Option<&LensVocab> {
     vocabulary.lenses.iter().find(|l| l.default)
 }
 
-/// The tone of `kind`, as its pack declares it: a Container-level kind's block color.
+/// The tone of `kind`, as its pack declares it: a kind's block color.
 pub fn tone(vocabulary: &Vocabulary, kind: &Kind) -> Option<Tone> {
     vocabulary.kinds.iter().find(|k| &k.kind == kind).and_then(|k| k.tone)
 }
@@ -92,13 +92,14 @@ fn shown(view: &MapView, lens: &LensVocab) -> HashSet<NodeId> {
 
 #[cfg(test)]
 mod tests {
+    use crate::ladder::testing::*;
     use std::collections::BTreeMap;
 
-    use planroom_contract::{KindVocab, Level, LiftedEdge, MapNode, NodeId};
+    use planroom_contract::{KindVocab, LevelId, LiftedEdge, MapNode, NodeId};
 
     use super::*;
 
-    fn kind(id: &str, level: Level, tone: Option<Tone>) -> KindVocab {
+    fn kind(id: &str, level: LevelId, tone: Option<Tone>) -> KindVocab {
         KindVocab {
             kind: Kind(id.into()),
             level,
@@ -116,7 +117,7 @@ mod tests {
             relations: relations.iter().map(|r| Kind((*r).into())).collect(),
             flow: BTreeMap::new(),
             kinds: kinds.iter().map(|k| Kind((*k).into())).collect(),
-            level: Level::Container,
+            level: region(),
             default,
         }
     }
@@ -124,9 +125,9 @@ mod tests {
     fn vocabulary() -> Vocabulary {
         Vocabulary {
             kinds: vec![
-                kind("p.app", Level::Container, Some(Tone::Service)),
-                kind("p.vault", Level::Container, Some(Tone::Store)),
-                kind("p.flag", Level::Container, None),
+                kind("p.app", region(), Some(Tone::Service)),
+                kind("p.vault", region(), Some(Tone::Store)),
+                kind("p.flag", region(), None),
             ],
             relations: vec![],
             lenses: vec![
@@ -134,6 +135,7 @@ mod tests {
                 lens("flags", &["p.reads"], &["p.flag"], false),
             ],
             suggestions: vec![],
+            levels: crate::ladder::testing::vocabulary().levels,
         }
     }
 
@@ -143,7 +145,7 @@ mod tests {
             kind: Kind(kind.into()),
             tone: None,
             name: id.into(),
-            level: Level::Container,
+            level: region(),
             parent: None,
             counts: BTreeMap::new(),
             position: None,
@@ -165,7 +167,7 @@ mod tests {
 
     fn view() -> MapView {
         MapView {
-            level: Level::Container,
+            level: region(),
             lens: String::new(),
             focus: None,
             nodes: vec![
@@ -177,6 +179,7 @@ mod tests {
             hidden: 0,
             empty: None,
             layout: None,
+            levels: vec![],
         }
     }
 
@@ -237,9 +240,9 @@ mod tests {
         // A repo holds the app, a folder in it holds the flag, and a second repo holds the vault
         // and a second app that only `p.call` reaches.
         let mut repo = block("a:repo:a", "p.repo");
-        repo.level = Level::System;
+        repo.level = realm();
         let mut other = block("b:repo:b", "p.repo");
-        other.level = Level::System;
+        other.level = realm();
         let mut folder = block("a:dir:flags", "p.folder");
         folder.parent = Some(repo.id.clone());
         nested.nodes[0].parent = Some(repo.id.clone());

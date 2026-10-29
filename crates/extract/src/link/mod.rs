@@ -2,7 +2,7 @@
 //! the facts of its link snapshot (DR-12).
 //!
 //! A linker reads [`WorkspaceFacts`], the active set's repo names with every hint of its member
-//! snapshots, their System- and Container-level nodes, the nodes and edges of the kinds and
+//! snapshots, their top-level and container nodes, the nodes and edges of the kinds and
 //! relations its input roles name ([`Linker::reads`]), and each file's container, and returns
 //! [`Linked`]: the facts it joined, sorted by ID, and the joins it couldn't make because two or
 //! more targets fit. It never reads a file, a store or the order the repos were scanned in, so one
@@ -20,9 +20,7 @@ pub mod runtime;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use planroom_contract::{
-    Edge, Evidence, FactBatch, Hint, LanguageDecl, Level, Node, NodeId, Provenance, Tier,
-};
+use planroom_contract::{Edge, Evidence, FactBatch, Hint, LanguageDecl, Node, NodeId, Provenance, Tier};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -46,7 +44,7 @@ pub trait Linker {
     fn name(&self) -> &'static str;
     fn link(&self, ws: &WorkspaceFacts, opts: &Value) -> Result<Linked, ExtractError>;
     /// The roles of its `options.kinds` and `options.relations` whose nodes and edges it reads
-    /// from the member snapshots, beyond the System- and Container-level nodes every linker gets.
+    /// from the member snapshots, beyond the top-level and container nodes every linker gets.
     /// A relation it emits is never one of them, so a pack that adds relations never widens what
     /// a linker reads.
     fn reads(&self) -> Reads {
@@ -67,15 +65,15 @@ pub struct Reads {
 pub struct WorkspaceFacts {
     /// The active set's repo names, which are its namespaces.
     pub repos: BTreeSet<String>,
-    /// The member snapshots' System- and Container-level nodes, and the nodes of the kinds the
+    /// The member snapshots' top-level and container nodes, and the nodes of the kinds the
     /// loaded linkers' input roles name.
     pub nodes: Vec<Node>,
     /// The member snapshots' edges of the relations the loaded linkers' input roles name.
     pub edges: Vec<Edge>,
     /// Every hint of the member snapshots.
     pub hints: Vec<Hint>,
-    /// Each member node that some fact gives a parent among the member snapshots' Container-level
-    /// nodes, to that container: a file a pack places in a container of its own, such as a
+    /// Each member node that some fact gives a parent among the member snapshots' container nodes,
+    /// to that container: a file a pack places in a container of its own, such as a
     /// script's. A node whose facts name two different containers is left out.
     pub file_containers: BTreeMap<NodeId, NodeId>,
 }
@@ -96,11 +94,12 @@ struct Placed {
     parent: Option<NodeId>,
 }
 
-/// What the loaded linkers read of an active set: every hint, the vocabulary's System- and
-/// Container-level kinds, and the node kinds and relations their input roles name in their runs'
+/// What the loaded linkers read of an active set: every hint, the vocabulary's top-level and
+/// container kinds, and the node kinds and relations their input roles name in their runs'
 /// options.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Selection {
+    tops: BTreeSet<String>,
     containers: BTreeSet<String>,
     kinds: BTreeSet<String>,
     relations: BTreeSet<String>,
@@ -108,14 +107,19 @@ pub struct Selection {
 
 impl Selection {
     /// The selection for `runs`, each a built-in's name and its options as the engine resolved
-    /// them (`kinds.ROLE.kind`, `relations.ROLE.kind`), beside `containers`, the vocabulary's
-    /// System- and Container-level kinds. A built-in this build doesn't have reads nothing.
+    /// them (`kinds.ROLE.kind`, `relations.ROLE.kind`), beside `tops`, the vocabulary's kinds at
+    /// the ladder's top level, and `containers`, the kinds that use the container prefix. A
+    /// built-in this build doesn't have reads nothing.
     pub fn new<'v>(
+        tops: impl IntoIterator<Item = String>,
         containers: impl IntoIterator<Item = String>,
         runs: impl IntoIterator<Item = (&'v str, &'v Value)>,
     ) -> Selection {
-        let mut selection =
-            Selection { containers: containers.into_iter().collect(), ..Selection::default() };
+        let mut selection = Selection {
+            tops: tops.into_iter().collect(),
+            containers: containers.into_iter().collect(),
+            ..Selection::default()
+        };
         for (name, options) in runs {
             let Some(linker) = builtin(name) else { continue };
             let reads = linker.reads();
@@ -128,16 +132,9 @@ impl Selection {
         selection
     }
 
-    /// Whether a node of `kind` at `level` is read.
-    pub fn wants_node(&self, kind: &str, level: Level) -> bool {
-        self.kinds.contains(kind)
-            || (matches!(level, Level::System | Level::Container) && self.containers.contains(kind))
-    }
-
-    /// Whether a stored node of `kind` is decoded whole: one [`Self::wants_node`] reads at some
-    /// level.
-    fn decodes(&self, kind: &str) -> bool {
-        self.kinds.contains(kind) || self.containers.contains(kind)
+    /// Whether a node of `kind` is read: a top-level or container kind, or one a role names.
+    pub fn wants_node(&self, kind: &str) -> bool {
+        self.kinds.contains(kind) || self.tops.contains(kind) || self.containers.contains(kind)
     }
 
     /// Whether an edge of `kind` is read.
@@ -162,17 +159,15 @@ impl Selection {
                     facts.edges.push(serde_json::from_str(body)?)
                 }
                 Member::Edge { .. } => {}
-                Member::Node { kind, body } if self.decodes(kind) => {
+                Member::Node { kind, body } if self.wants_node(kind) => {
                     let node: Node = serde_json::from_str(body)?;
-                    if node.level == Level::Container {
+                    if self.containers.contains(kind) {
                         containers.insert(node.id.clone());
                     }
                     if let Some(parent) = &node.parent {
                         parents.entry(node.id.clone()).or_default().insert(parent.clone());
                     }
-                    if self.wants_node(kind, node.level) {
-                        facts.nodes.push(node);
-                    }
+                    facts.nodes.push(node);
                 }
                 Member::Node { body, .. } => {
                     let placed: Placed = serde_json::from_str(body)?;
@@ -744,7 +739,7 @@ mod tests {
 
     use super::*;
 
-    /// The facts a link reads: every hint, the System- and Container-level nodes, and only the
+    /// The facts a link reads: every hint, the top-level and container nodes, and only the
     /// nodes and edges the linkers' input roles name, never a relation one emits; and each file a
     /// fact places in one container, but no file two facts place in different ones.
     #[test]
@@ -755,21 +750,24 @@ mod tests {
                                  "depends_on_package": {"kind": "code.depends_on_package"}}}),
             json!({"kinds": {"service": {"kind": "code.service"}}, "relations": {"http": {"kind": "code.http"}}}),
         ];
-        let containers = ["code.repo", "code.service", "code.tooling"].map(str::to_owned);
-        let selection = Selection::new(containers, [("imports", &runs[0]), ("runtime_wiring", &runs[1])]);
-        assert!(selection.wants_node("code.package", Level::Component));
-        assert!(selection.wants_node("code.tooling", Level::Container));
-        assert!(!selection.wants_node("code.file", Level::Code));
+        let tops = ["code.repo"].map(str::to_owned);
+        let containers = ["code.service", "code.tooling"].map(str::to_owned);
+        let selection =
+            Selection::new(tops, containers, [("imports", &runs[0]), ("runtime_wiring", &runs[1])]);
+        assert!(selection.wants_node("code.package"));
+        assert!(selection.wants_node("code.repo"));
+        assert!(selection.wants_node("code.tooling"));
+        assert!(!selection.wants_node("code.file"));
         assert!(selection.wants_edge("code.depends_on_package"));
         assert!(!selection.wants_edge("code.imports"), "an output relation is no input");
         assert!(!selection.wants_edge("code.http"));
 
         let provenance = Provenance::Extracted { extractor: "p/x".into(), tier: Tier::Pattern };
-        let node = |id: &str, kind: &str, level: Level, parent: &str| {
+        let node = |id: &str, kind: &str, level: &str, parent: &str| {
             let node = Node {
                 id: NodeId(id.into()),
                 kind: planroom_contract::Kind(kind.into()),
-                level,
+                level: level.into(),
                 parent: Some(NodeId(parent.into())),
                 name: "n".into(),
                 aliases: vec![],
@@ -797,13 +795,13 @@ mod tests {
             serde_json::to_string(&edge).unwrap()
         };
         let bodies = [
-            ("code.tooling", node("r:container:tool", "code.tooling", Level::Container, "r:repo:r")),
-            ("code.tooling", node("r:container:other", "code.tooling", Level::Container, "r:repo:r")),
-            ("code.package", node("r:pkg:a", "code.package", Level::Component, "r:container:tool")),
-            ("code.file", node("r:file:tools/check.rb", "code.file", Level::Code, "r:container:tool")),
-            ("code.file", node("r:file:src/a.ts", "code.file", Level::Code, "r:dir:src")),
-            ("code.file", node("r:file:two.rb", "code.file", Level::Code, "r:container:tool")),
-            ("code.file", node("r:file:two.rb", "code.file", Level::Code, "r:container:other")),
+            ("code.tooling", node("r:container:tool", "code.tooling", "container", "r:repo:r")),
+            ("code.tooling", node("r:container:other", "code.tooling", "container", "r:repo:r")),
+            ("code.package", node("r:pkg:a", "code.package", "component", "r:container:tool")),
+            ("code.file", node("r:file:tools/check.rb", "code.file", "code", "r:container:tool")),
+            ("code.file", node("r:file:src/a.ts", "code.file", "code", "r:dir:src")),
+            ("code.file", node("r:file:two.rb", "code.file", "code", "r:container:tool")),
+            ("code.file", node("r:file:two.rb", "code.file", "code", "r:container:other")),
         ];
         let edges = [
             ("code.depends_on_package", edge("code.depends_on_package")),

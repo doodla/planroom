@@ -339,12 +339,12 @@ export type Command =
       args: PackRemoveReq;
     };
 /**
- * The five fixed levels, from the plan down to the code.
+ * A level: the kernel's intent, or one a pack declares; an open set.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "Level".
  */
-export type Level = "intent" | "system" | "container" | "component" | "code";
+export type Level = "intent" | string;
 /**
  * A node ID, `<namespace>:<kind-short>:<key>`, such as `orders:pkg:internal/http`.
  *
@@ -890,7 +890,7 @@ export type FocusDetail = "full" | "summary";
 export type HandoffState =
   "proposed" | "started" | "reported" | "failed" | "reviewing" | "merged" | "reconciled" | "dropped";
 /**
- * A Container-level kind's block color: surfaces style a block from its tone, never from a kind
+ * A kind's block color: surfaces style a block from its tone, never from a kind
  * ID (DR-46).
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -1325,7 +1325,7 @@ export interface CodeReq {
  */
 export interface MapReq {
   /**
-   * The level to show; the top level when absent.
+   * The level to show, an ID `ask` lists; the top level when absent.
    */
   level: Level | null;
   /**
@@ -3325,8 +3325,8 @@ export interface ItemType {
 export interface KindDecl {
   id: string;
   /**
-   * The ID's kind-short. One pack owns it, except the kernel's `container`, which every
-   * Container-level kind uses (DR-46).
+   * The ID's kind-short. One pack owns it, except the kernel's `container`, which every kind
+   * at the containers' level uses (DR-46).
    */
   id_prefix: string;
   level: Level;
@@ -3340,7 +3340,7 @@ export interface KindDecl {
   };
   icon: string | null;
   /**
-   * A Container-level kind's block color; surfaces style from `MapNode.tone`, never from a kind
+   * A kind's block color; surfaces style from `MapNode.tone`, never from a kind
    * ID (DR-46).
    */
   tone: Tone | null;
@@ -3477,6 +3477,64 @@ export interface LensDecl {
   default: boolean;
   empty_text: string | null;
   empty_action: string | null;
+}
+/**
+ * `[[levels]]`: one abstraction level. The base pack lists its ladder top first; another pack
+ * puts each level directly below one it can see.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "LevelDecl".
+ */
+export interface LevelDecl {
+  /**
+   * A level ID (`LevelId::from_str`), never `intent`.
+   */
+  id: string;
+  /**
+   * The noun "the {level} level" reads: 1 to 32 characters.
+   */
+  label: string;
+  /**
+   * The count of one, such as "{count} container": at most 48 characters, `{count}` once.
+   */
+  one: string;
+  /**
+   * The count of many, such as "{count} containers": the same rule.
+   */
+  many: string;
+  /**
+   * The level this one sits directly below: refused in the base pack, required in any other.
+   */
+  below: string | null;
+}
+/**
+ * One level as the views read it.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "LevelVocab".
+ */
+export interface LevelVocab {
+  id: Level;
+  /**
+   * The noun "the {level} level" reads, such as `container`.
+   */
+  label: string;
+  /**
+   * The count of one, such as "{count} container".
+   */
+  one: string;
+  /**
+   * The count of many, such as "{count} containers".
+   */
+  many: string;
+  /**
+   * Apart from the ladder: the kernel's `intent`, which no chain holds.
+   */
+  apart: boolean;
+  /**
+   * The pack that declares the level: `kernel` for `intent`.
+   */
+  pack: string;
 }
 /**
  * Edges lifted to the nearest ancestors at the view's level; `count == children.len()`.
@@ -3644,6 +3702,11 @@ export interface MapView {
    * `PUT /api/v1/layout` takes back.
    */
   layout?: LayoutKey | null;
+  /**
+   * With `--detail graph`: the vocabulary's levels, `intent` first and then the ladder top
+   * to finest, so a surface names and steps through levels without naming one itself.
+   */
+  levels?: LevelVocab[];
 }
 /**
  * What the recording run measured; never part of the key.
@@ -3736,6 +3799,11 @@ export interface PackFile {
    * first match in load order.
    */
   image_roles: ImageRole[];
+  /**
+   * The abstraction levels the pack declares: the base pack its ladder, another pack each level
+   * it inserts.
+   */
+  levels: LevelDecl[];
   kinds: KindDecl[];
   relations: RelationDecl[];
   /**

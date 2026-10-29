@@ -255,7 +255,7 @@ export function createCanvasStore(
       async run(handle) {
         // A map handle, such as the pane's "Open the containers", is a level to show; one with
         // no level, such as an empty level's way back, is the top-level map.
-        const level = handleLevel(handle);
+        const level = handleLevel(get().map?.levels ?? [], handle);
         if (level !== undefined) {
           await (level === null ? get().back() : get().showLevel(level));
           return;

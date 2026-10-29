@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use planroom_contract::{
-    Actor, Client, Edit, Event, EventBody, EventId, Kind, Layer, Level, Node, NodeId, Op, Provenance, Rename,
-    ScanStats, Seq, Status, Surface, Target, Tier, Timestamp, Vocabulary,
+    Actor, Client, Edit, Event, EventBody, EventId, Kind, Layer, LevelId, Node, NodeId, Op, Provenance,
+    Rename, ScanStats, Seq, Status, Surface, Target, Tier, Timestamp, Vocabulary,
 };
 use planroom_kernel::cas::{
     Authority, Check, Proposed, check_edit, check_edits, check_undo, copy_for_review,
@@ -14,7 +14,7 @@ use planroom_kernel::fold::{Folded, Writer, fold_full};
 use planroom_kernel::model::Facts;
 use serde_json::{Value, json};
 
-fn node(id: &str, level: Level, parent: Option<&str>) -> Node {
+fn node(id: &str, level: LevelId, parent: Option<&str>) -> Node {
     Node {
         id: NodeId(id.into()),
         kind: Kind("k.x".into()),
@@ -33,10 +33,10 @@ fn node(id: &str, level: Level, parent: Option<&str>) -> Node {
 fn facts() -> Facts {
     Facts {
         nodes: vec![
-            node("r:x:repo", Level::System, None),
-            node("r:x:a", Level::Component, Some("r:x:repo")),
-            node("r:x:b", Level::Component, Some("r:x:repo")),
-            node("r:x:item", Level::Code, Some("r:x:a")),
+            node("r:x:repo", LevelId::from("system"), None),
+            node("r:x:a", LevelId::from("component"), Some("r:x:repo")),
+            node("r:x:b", LevelId::from("component"), Some("r:x:repo")),
+            node("r:x:item", LevelId::from("code"), Some("r:x:a")),
         ],
         ..Facts::default()
     }

@@ -193,7 +193,7 @@ fn read(
     let node = Node {
         id: id.clone(),
         kind: Kind(kinds.spec.kind.clone()),
-        level: kinds.spec.level,
+        level: kinds.spec.level.clone(),
         parent: Some(parent),
         name: file.0.rsplit('/').next().unwrap_or(&file.0).to_owned(),
         aliases: vec![],

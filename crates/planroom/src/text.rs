@@ -21,6 +21,16 @@ pub fn get(key: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
         .and_then(|s| s.get(name))
         .and_then(|v| v.as_str())
         .unwrap_or_else(|| panic!("text/en.toml has no {key}"));
+    filled(template, vars)
+}
+
+/// `template`, a string a pack supplies such as a level's `one` or `many`, filled as [`get`]
+/// fills a catalog string, and display-sanitized whole, since a pack's text is no engine's.
+pub fn fill(template: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
+    planroom_kernel::display::sanitize(&filled(template, vars))
+}
+
+fn filled(template: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     while let Some(open) = rest.find('{') {

@@ -4,20 +4,20 @@
 # record that approved it (repo-layout.md, Decision-record gate).
 
 ["AGENTS.md Boundaries"]
-sha256 = "8f0b57a932cdb73cd2998a97d77c2be985fd7a1fde7c6e261de04694baa2281d"
-record = "DR-102"
+sha256 = "66bce0d00567eb4a133d2d02ae2e0a322b08ae2317466df83d50e941142e8e19"
+record = "DR-111"
 
 ["AGENTS.md Conventions"]
-sha256 = "3e127b00b20f3cc91ec79e3af4d141a7035b17986abac7ec30274ccc6abff73e"
-record = "DR-105"
+sha256 = "78f131112d62353e2b777f67b8a4fbfde6704c33e40fc23cbcff1ecb7830feb6"
+record = "DR-111"
 
 ["area contracts table"]
-sha256 = "ba7f4c9b71054933994f7d8ed6a3ebf07a9dd95a04a5e084429e39b468c3eec0"
-record = "DR-107"
+sha256 = "5f349c9bcdaf920deaf46f4304ad71715876819854ddce75081d5283b5602106"
+record = "DR-111"
 
 ["boundaries.toml"]
-sha256 = "9353911f84172aa0cd997bce6983e6fd1f9267c67feabcfd0f500ade0ba3b474"
-record = "DR-102"
+sha256 = "6829c75a69ad4e073c2f5eadca79cc40441e43c19a504cdc1ec3f7e97fe54ce7"
+record = "DR-111"
 
 ["crate dependencies"]
 sha256 = "ba9f235626be545b2cb4de4730f86fbb48a028c771336ee0cfaa9faff31ef115"

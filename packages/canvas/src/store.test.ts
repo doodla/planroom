@@ -49,6 +49,17 @@ function map(over: Partial<MapView> = {}): MapView {
     hidden: 0,
     empty: null,
     layout: { view_key: "map:container:all", structure_hash: "5e1f" },
+    // The code pack's ladder, as every `--detail graph` reply carries it.
+    levels: ["intent", "system", "container", "component", "code"].map(
+      (id) => ({
+        id,
+        label: id,
+        one: `{count} ${id}`,
+        many: `{count} ${id}s`,
+        apart: id === "intent",
+        pack: id === "intent" ? "kernel" : "code",
+      }),
+    ),
     ...over,
   };
 }

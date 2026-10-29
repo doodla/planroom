@@ -23,11 +23,15 @@ xtask    = { may_depend = ["*"], ships = false }
 
 [rust.kernel]
 domain_free = ["kernel", "contract"]   # no string literal under these crates' src/ equals a built-in pack kind or relation
-                                       # name with "<pack>.", or a bare one outside kernel_vocabulary; contract is the
-                                       # kernel's one workspace dependency [DR-45]
+                                       # name with "<pack>.", or a bare one outside kernel_vocabulary, and, outside
+                                       # #[cfg(test)] items, none equals a built-in pack's level ID but where level_words
+                                       # lists it; contract is the kernel's one workspace dependency [DR-45, DR-46]
 kernel_vocabulary = ["person", "repo", "workspace", "commit", "file", "state", "step", "machine", "image", "tag"]
                                        # bare names the kernel and contract spell for their own meaning: actor kinds, ID
                                        # namespaces, version tags, and the machine shapes' states and steps
+level_words = [
+  { file = "crates/kernel/src/redact.rs", word = "code" },   # an error's or a warning's `code` field
+]
 no_path_escapes = true      # no #[path = "../"] or include! leaving a crate's directory (every crate)
 no_io_crates = ["kernel", "contract"]   # both get the list below; contract is the kernel's one workspace dependency [DR-79]
 no_io = { types = ["std::fs::*", "std::net::*", "std::process::*", "std::env::*"],   # cargo xtask gen expands each module to every
@@ -55,7 +59,17 @@ generated_read_only = "docs/contributing/repo-layout.md#generated-directories"
 golden_readers = ["packages/mod/plugin-tests/**", "packages/mod/src/**/*.test.ts", "tests/e2e/src/standin.ts"]
                             # only these read tests/golden/*.json: the mod's tests and the e2e stand-in, whether by an
                             # import or by a string literal naming the path [DR-81]
-domain_free = ["ui", "canvas", "mod"]   # no string literal equals a built-in kind or lens ID; surfaces style from MapNode.tone [DR-45, DR-46]
+domain_free = ["contract", "ui", "canvas", "mod"]
+                            # no string literal under these packages' src/ holds a built-in kind with its `<pack>.`
+                            # prefix, and, outside tests, none equals a built-in pack's level ID but where level_words
+                            # lists it; surfaces style from MapNode.tone [DR-45, DR-46]
+level_words = [
+  { file = "packages/contract/src/generated/input.ts", word = "system" },    # the actor kind Actor::System
+  { file = "packages/contract/src/generated/output.ts", word = "system" },   # the actor kind Actor::System
+  { file = "packages/canvas/src/transport/local.ts", word = "code" },        # the login link's `code` parameter
+  { file = "packages/mod/src/room.ts", word = "code" },                      # /room's code row
+  { file = "packages/mod/src/register.tsx", word = "code" },                 # /room's code row
+]
 test_tooling = { files = ["**/*.test.ts", "**/*.test.tsx", "packages/canvas/vite.config.js", "tests/e2e/playwright.config.ts"],
                  third_party = ["vitest", "vite", "@vitejs/plugin-react"] }
                             # the test runner and the build tool, imported only by tests and configs, which no bundle holds

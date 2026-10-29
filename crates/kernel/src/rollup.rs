@@ -17,8 +17,9 @@
 
 use std::collections::BTreeMap;
 
-use planroom_contract::{EdgeId, Evidence, Kind, LensVocab, Level, LiftedEdge, Node, NodeId};
+use planroom_contract::{EdgeId, Evidence, Kind, LensVocab, LevelId, LiftedEdge, Node, NodeId};
 
+use crate::ladder::Ladder;
 use crate::model::Model;
 use crate::resolve::Index;
 use crate::tree::EVIDENCE_SAMPLE;
@@ -45,8 +46,9 @@ impl Rollup {
 type Lifting = (Vec<EdgeId>, Vec<Evidence>);
 
 /// `model`'s edges lifted to `level`, those whose kind `lens` lifts, or every edge with no lens.
-pub fn lift(model: &Model, level: Level, lens: Option<&LensVocab>) -> Rollup {
+pub fn lift(model: &Model, ladder: &Ladder<'_>, level: &LevelId, lens: Option<&LensVocab>) -> Rollup {
     let index = Index::new(&model.nodes);
+    let rank = ladder.rank(level);
     let mut lifted: BTreeMap<(&Kind, &NodeId, &NodeId), Lifting> = BTreeMap::new();
     let mut internal: BTreeMap<NodeId, Vec<EdgeId>> = BTreeMap::new();
     let mut unresolved: Vec<EdgeId> = Vec::new();
@@ -58,7 +60,7 @@ pub fn lift(model: &Model, level: Level, lens: Option<&LensVocab>) -> Rollup {
             unresolved.push(edge.id.clone());
             continue;
         };
-        match ends(&index, from, to, level) {
+        match ends(&index, from, to, ladder, rank) {
             Ends::Internal(node) => internal.entry(node.id.clone()).or_default().push(edge.id.clone()),
             Ends::Lifted(a, b) => {
                 let (children, sample) = lifted.entry((&edge.kind, &a.id, &b.id)).or_default();
@@ -102,9 +104,9 @@ enum Ends<'a> {
 }
 
 /// The lifted ends of an edge from `from` to `to` at `level`, by the module's three steps.
-fn ends<'a>(index: &Index<'a>, from: &'a Node, to: &'a Node, level: Level) -> Ends<'a> {
+fn ends<'a>(index: &Index<'a>, from: &'a Node, to: &'a Node, ladder: &Ladder<'_>, rank: u8) -> Ends<'a> {
     let (up_a, up_b) = (index.chain(from), index.chain(to));
-    let (mut a, mut b) = (at_level(&up_a, level), at_level(&up_b, level));
+    let (mut a, mut b) = (at_level(&up_a, ladder, rank), at_level(&up_b, ladder, rank));
     loop {
         if up_a[a].id == up_b[b].id {
             return Ends::Internal(up_a[a]);
@@ -129,16 +131,17 @@ fn ends<'a>(index: &Index<'a>, from: &'a Node, to: &'a Node, level: Level) -> En
 
 /// The position in `chain` (a node and its ancestors, nearest first) of the nearest node at or
 /// above `level`, or of the chain's top when none is.
-fn at_level(chain: &[&Node], level: Level) -> usize {
-    chain.iter().position(|n| n.level <= level).unwrap_or(chain.len() - 1)
+fn at_level(chain: &[&Node], ladder: &Ladder<'_>, rank: u8) -> usize {
+    chain.iter().position(|n| ladder.rank(&n.level) <= rank).unwrap_or(chain.len() - 1)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ladder::testing::*;
     use planroom_contract::{Edge, Layer, Provenance, Ref, Tier};
 
-    fn node(id: &str, level: Level, parent: Option<&str>) -> Node {
+    fn node(id: &str, level: LevelId, parent: Option<&str>) -> Node {
         Node {
             id: NodeId(id.into()),
             kind: Kind("k.x".into()),
@@ -173,7 +176,7 @@ mod tests {
     fn a_lens_lifts_only_its_relations() {
         let model = Model {
             at: 0,
-            nodes: vec![node("r:x:a", Level::System, None), node("r:x:b", Level::System, None)],
+            nodes: vec![node("r:x:a", realm(), None), node("r:x:b", realm(), None)],
             edges: vec![
                 edge("e:000000000001", "k.y", "r:x:a", "r:x:b"),
                 edge("e:000000000002", "k.z", "r:x:a", "r:x:b"),
@@ -186,13 +189,15 @@ mod tests {
             relations: vec![Kind("k.y".into())],
             flow: Default::default(),
             kinds: vec![],
-            level: Level::System,
+            level: realm(),
             default: false,
         };
-        let rollup = lift(&model, Level::System, Some(&lens));
+        let vocabulary = vocabulary();
+        let ladder = Ladder::of(&vocabulary);
+        let rollup = lift(&model, &ladder, &realm(), Some(&lens));
         assert_eq!(rollup.edges.len(), 1);
         assert_eq!(rollup.edges[0].kind, Kind("k.y".into()));
-        assert_eq!(lift(&model, Level::System, None).edges.len(), 2);
+        assert_eq!(lift(&model, &ladder, &realm(), None).edges.len(), 2);
     }
 
     #[test]
@@ -200,9 +205,9 @@ mod tests {
         let model = Model {
             at: 0,
             nodes: vec![
-                node("r:x:a", Level::Code, Some("r:x:b")),
-                node("r:x:b", Level::Code, Some("r:x:a")),
-                node("r:x:c", Level::Code, None),
+                node("r:x:a", room(), Some("r:x:b")),
+                node("r:x:b", room(), Some("r:x:a")),
+                node("r:x:c", room(), None),
             ],
             edges: vec![
                 edge("e:000000000001", "k.y", "r:x:a", "r:x:c"),
@@ -210,8 +215,10 @@ mod tests {
             ],
             ..Model::default()
         };
-        for level in [Level::Intent, Level::System, Level::Container, Level::Component, Level::Code] {
-            let rollup = lift(&model, level, None);
+        let vocabulary = vocabulary();
+        let ladder = Ladder::of(&vocabulary);
+        for level in [intent(), realm(), region(), site(), room()] {
+            let rollup = lift(&model, &ladder, &level, None);
             let landed = rollup.edges.iter().map(|e| e.children.len()).sum::<usize>()
                 + rollup.internal.values().map(Vec::len).sum::<usize>();
             assert_eq!(landed, 2, "{level:?}: {rollup:?}");

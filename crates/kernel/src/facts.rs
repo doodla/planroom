@@ -196,7 +196,8 @@ fn merge_edge_group(mut group: Vec<Edge>) -> Edge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use planroom_contract::{Evidence, Kind, Layer, Level, NodeId};
+    use crate::ladder::testing::*;
+    use planroom_contract::{Evidence, Kind, Layer, NodeId};
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -204,7 +205,7 @@ mod tests {
         Node {
             id: NodeId(id.into()),
             kind: Kind("k.x".into()),
-            level: Level::Code,
+            level: room(),
             parent: None,
             name: name.into(),
             aliases: vec![format!("a:{name}")],

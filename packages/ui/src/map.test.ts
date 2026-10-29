@@ -26,9 +26,20 @@ function node(id: string, over: Partial<MapNode> = {}): MapNode {
   };
 }
 
+// The code pack's ladder, as a `--detail graph` reply carries it.
+const C4 = ["intent", "system", "container", "component", "code"].map((id) => ({
+  id,
+  label: id,
+  one: `{count} ${id}`,
+  many: `{count} ${id}s`,
+  apart: id === "intent",
+  pack: id === "intent" ? "kernel" : "code",
+}));
+
 function view(over: Partial<MapView> = {}): MapView {
   return {
     level: "container",
+    levels: C4,
     lens: "all",
     focus: null,
     nodes: [
@@ -131,4 +142,40 @@ test("search matches a block's name or kind, ignoring case", () => {
   );
   expect(matchBlocks(rows, "  ").size).toBe(2);
   expect(matchBlocks(rows, "nothing").size).toBe(0);
+});
+
+test("block_counts_follow_the_ladder", () => {
+  const rung = (id: string, apart = false) => ({
+    id,
+    label: id,
+    one: `{count} ${id}`,
+    many: `{count} ${id}s`,
+    apart,
+    pack: "toy",
+  });
+  const [block] = blocksOf(
+    view({
+      level: "planet",
+      levels: [
+        rung("intent", true),
+        rung("galaxy"),
+        rung("planet"),
+        rung("moon"),
+        rung("dust"),
+      ],
+      nodes: [
+        node("a:x:a", {
+          level: "planet",
+          counts: { dust: 9, zzz: 1, moon: 2, aaa: 4, galaxy: 0 },
+        }),
+      ],
+    }),
+  );
+  expect(block?.counts).toEqual([
+    { level: "moon", count: 2 },
+    { level: "dust", count: 9 },
+    { level: "aaa", count: 4 },
+    { level: "zzz", count: 1 },
+  ]);
+  expect(block?.level).toBe("planet");
 });

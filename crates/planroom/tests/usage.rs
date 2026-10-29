@@ -27,7 +27,7 @@ fn envelope(args: &[&str]) -> (Value, Output) {
 #[test]
 fn a_bad_flag_or_value_with_json_is_one_invalid_argument_envelope() {
     let cases: [(&[&str], &str, &str); 4] = [
-        (&["map", "--level", "foo", "--json"], "map", "level"),
+        (&["map", "--level", "Foo", "--json"], "map", "level"),
         (&["map", "--bogus", "--json"], "map", "bogus"),
         (&["watch", "--since", "abc", "--json"], "watch", "since"),
         (&["person", "init", "--json", "--nope"], "person init", "nope"),
@@ -50,13 +50,13 @@ fn a_bad_flag_or_value_with_json_is_one_invalid_argument_envelope() {
         assert!(hint.starts_with("planroom schema --command "), "{hint}");
         assert!(!error["message"].as_str().unwrap().contains('\n'));
     }
-    let (env, _) = envelope(&["map", "--level", "foo", "--json"]);
-    assert!(env["error"]["details"]["synopsis"].as_str().unwrap().contains("--level intent|system|"));
+    let (env, _) = envelope(&["map", "--level", "Foo", "--json"]);
+    assert!(env["error"]["details"]["synopsis"].as_str().unwrap().contains("--level LEVEL"));
 }
 
 #[test]
 fn the_schema_handle_of_a_usage_error_resolves() {
-    let (env, _) = envelope(&["map", "--level", "foo", "--json"]);
+    let (env, _) = envelope(&["map", "--level", "Foo", "--json"]);
     let handle = &env["error"]["details"]["schema"];
     let mut args: Vec<&str> = vec!["schema"];
     args.extend(handle["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()));

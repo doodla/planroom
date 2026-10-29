@@ -148,8 +148,7 @@ fn snapshot(store: &Store, root: &Path, req: &ShareReq) -> Result<Snapshot, AppE
         redact::presence(&mut rows);
         rows
     });
-    let capabilities =
-        vec![format!("map:{}:{}", planroom_kernel::tree::level_name(top.level), top.lens), "pane".into()];
+    let capabilities = vec![format!("map:{}:{}", top.level.as_str(), top.lens), "pane".into()];
     Ok(Snapshot {
         format: SNAPSHOT_FORMAT.into(),
         workspace_id,

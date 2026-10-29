@@ -2,8 +2,8 @@
 //! canvas's dive into a block read. The target is an ID, an ID's unique suffix or a unique name,
 //! as every request's target is (contracts.md, the M1 leaves' requests).
 
-use planroom_contract::{CommandName, Empty, EmptyReason, ErrorCode, Handle, Level, Node};
-use planroom_kernel::tree;
+use planroom_contract::{CommandName, Empty, EmptyReason, ErrorCode, Handle, LevelId, Node};
+use planroom_kernel::ladder::Ladder;
 use serde_json::json;
 
 use crate::app::error::AppError;
@@ -47,23 +47,16 @@ pub(super) fn resolve<'a>(nodes: &'a [Node], target: &str) -> Result<&'a Node, A
     }
 }
 
-/// The level a focus shows when the request names none: the one below the node's own, so a repo
-/// opens on its containers and a container on its components. Code is the finest level, and the
-/// intent level opens on the system below it.
-pub(super) fn level_below(level: Level) -> Level {
-    match level {
-        Level::Intent => Level::System,
-        Level::System => Level::Container,
-        Level::Container => Level::Component,
-        Level::Component | Level::Code => Level::Code,
-    }
-}
-
 /// The empty state of a focus with nothing under it at `level`: its next action shows the node
-/// itself, among the blocks beside it at its own level (under its parent, or at the top).
-pub(super) fn nothing_under(node: &Node, level: Level, parent: Option<&Node>) -> Empty {
-    let own = tree::level_name(node.level);
-    let mut args = vec!["--level".to_owned(), own.to_owned()];
+/// itself, among the blocks beside it at its own level (under its parent, or at the top). The
+/// handle names levels by ID, the line by label.
+pub(super) fn nothing_under(
+    node: &Node,
+    level: &LevelId,
+    parent: Option<&Node>,
+    ladder: &Ladder<'_>,
+) -> Empty {
+    let mut args = vec!["--level".to_owned(), node.level.as_str().to_owned()];
     if let Some(parent) = parent {
         args.extend(["--focus".to_owned(), parent.id.0.clone()]);
     }
@@ -71,7 +64,7 @@ pub(super) fn nothing_under(node: &Node, level: Level, parent: Option<&Node>) ->
         reason: EmptyReason("nothing_under".into()),
         line: Some(text::get(
             "empty.nothing_under",
-            &[("name", &node.name), ("level", &tree::level_name(level))],
+            &[("name", &node.name), ("level", &super::label_of(ladder, level))],
         )),
         next: Handle {
             command: CommandName("map".into()),

@@ -10,7 +10,7 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use planroom_contract::{EventBody, Level};
+use planroom_contract::{EventBody, LevelId};
 use planroom_store::Store;
 use planroom_testkit::truth::{self, Cli, Report, ScanRead, Scope};
 use planroom_testkit::{fixture, fixture_with_packs};
@@ -145,8 +145,8 @@ fn zoom_to_code_and_back_is_faithful() {
     for focus in ["storefront:container:storefront", "storefront:repo:storefront"] {
         let block =
             observed.nodes.iter().find(|n| n.id == focus).unwrap_or_else(|| panic!("{focus} is mapped"));
-        let (level, below): (&str, &[&str]) = match block.level {
-            Level::System => ("system", &["container", "component", "code"]),
+        let (level, below): (&str, &[&str]) = match &block.level {
+            l if *l == LevelId::from("system") => ("system", &["container", "component", "code"]),
             _ => ("container", &["component", "code"]),
         };
         let (shown, _) = joined(&cli.pages(&["map", "--level", level, "--detail", "graph"]));
@@ -168,7 +168,7 @@ fn zoom_to_code_and_back_is_faithful() {
                 .nodes
                 .iter()
                 .filter(|n| {
-                    serde_json::to_value(n.level).unwrap() == below && n.id != focus && under(&n.id, focus)
+                    serde_json::to_value(&n.level).unwrap() == below && n.id != focus && under(&n.id, focus)
                 })
                 .map(|n| n.id.as_str())
                 .collect();

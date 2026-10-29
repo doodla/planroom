@@ -4,7 +4,6 @@ export const name = "@planroom/ui";
 export { sanitize } from "./display";
 export { BAND_KEYS, ROW_KEYS, rowKeys, type RowKey } from "./keys";
 export {
-  LEVELS,
   blocksOf,
   edgesOf,
   kindLabel,

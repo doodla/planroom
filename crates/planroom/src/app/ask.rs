@@ -1,7 +1,8 @@
 //! `planroom ask [QUESTION [ARGS]]` (architecture.md, "Lenses and questions"; contracts.md,
 //! `AskReq` and `AskResult`; DR-15, DR-21).
 //!
-//! Alone, or as `ask kinds`, it lists what is loaded: every loaded pack's kinds, lenses and
+//! Alone, or as `ask kinds`, it lists what is loaded: the levels first, in ladder order, each with
+//! the pack that declares it and the map at it; then every loaded pack's kinds, lenses and
 //! questions, each with its owning pack, a question with its arguments and one-line summary, and
 //! the built-in questions this build serves, marked: `kinds`, and `stage` while the plan pack is
 //! loaded. Nothing else: a built-in question this build
@@ -29,9 +30,9 @@ use planroom_contract::{
     AskItem, AskReq, AskResult, Command, CommandName, Cursor, Empty, EmptyReason, ErrorCode, Evidence,
     Handle, Kind, Node, NodeId, Provenance, QuestionDecl, Seq, Shape, Vocabulary, Warning, WarningCode,
 };
+use planroom_kernel::ladder::Ladder;
 use planroom_kernel::query::lookup::Lookup;
 use planroom_kernel::query::{self, Answer, EdgeWhy, Hop, Item, Neighbor, QueryError, Reason, Toward};
-use planroom_kernel::tree;
 use planroom_store::Store;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -137,7 +138,7 @@ pub fn run(req: &AskReq, cwd: &Path) -> Result<Paged<AskResult>, AppError> {
     let level = query::level_of(&decl.steps, vocabulary);
     let mut args: BTreeMap<String, NodeId> = BTreeMap::new();
     for (arg, given) in decl.args.iter().zip(&req.args) {
-        let node = match query::lookup::lookup(&model.nodes, given, level) {
+        let node = match query::lookup::lookup(&model.nodes, given, &level, &Ladder::of(vocabulary)) {
             Lookup::Found(node) => node,
             Lookup::Missing(closest) => return Err(missing(given, &closest)),
             Lookup::Ambiguous(several) => return Err(ambiguous(given, &several)),
@@ -229,15 +230,15 @@ fn within<'n>(ids: impl IntoIterator<Item = &'n str>) -> Vec<&'n str> {
         .collect()
 }
 
-/// Several blocks, all at one level, match `given`.
+/// Several blocks, all at one level, match `given`: an ambiguous match holds two or more, and
+/// the details name their level by its ID.
 fn ambiguous(given: &str, several: &[&Node]) -> AppError {
-    let level = several.first().map_or(planroom_contract::Level::Container, |n| n.level);
+    let level = several.first().map(|n| n.level.as_str());
     let candidates = within(several.iter().take(query::lookup::CLOSEST).map(|n| n.id.0.as_str()));
     let shown: Vec<String> = candidates.iter().take(3).map(|id| text::short(id, ITEM_NAME_CHARS)).collect();
     let vars: &[(&str, &dyn std::fmt::Display)] =
         &[("target", &text::short(given, NAME_CHARS)), ("count", &several.len()), ("ids", &shown.join(", "))];
-    AppError::new(ErrorCode::AmbiguousRef, vars)
-        .details(json!({"candidates": candidates, "level": tree::level_name(level)}))
+    AppError::new(ErrorCode::AmbiguousRef, vars).details(json!({"candidates": candidates, "level": level}))
 }
 
 fn unanswerable(decl: &QuestionDecl, e: &QueryError) -> AppError {
@@ -284,7 +285,7 @@ impl<'a> Lines<'a> {
     /// The map at the node's level among the blocks beside it, as `find` shows a match.
     fn show(&self, id: &NodeId) -> Option<Handle> {
         let node = self.nodes.get(id.0.as_str())?;
-        let mut args = vec!["--level".to_owned(), tree::level_name(node.level).to_owned()];
+        let mut args = vec!["--level".to_owned(), node.level.as_str().to_owned()];
         if let Some(parent) = node.parent.as_ref().filter(|p| self.nodes.contains_key(p.0.as_str())) {
             args.extend(["--focus".to_owned(), parent.0.clone()]);
         }
@@ -676,8 +677,9 @@ impl Mark {
     }
 }
 
-/// One entry of the listing, in listing order: kinds, then lenses, then questions, each by ID.
-/// `key` is the item's ID, which the item shows whole, since a caller passes it back.
+/// One entry of the listing, in listing order: levels in ladder order, then kinds, lenses and
+/// questions, each by ID. `key` is what the entry sorts by within its section: a level's rank as
+/// two digits, else the item's ID, which the item shows whole, since a caller passes it back.
 struct Entry {
     section: u8,
     key: String,
@@ -690,20 +692,50 @@ impl Entry {
     }
 }
 
-/// Every loaded kind, lens and question, with the built-in questions this build serves.
+/// The listing's sections, in order.
+const LEVELS: u8 = 0;
+const KINDS_SECTION: u8 = 1;
+const LENSES: u8 = 2;
+const QUESTIONS: u8 = 3;
+
+/// Every loaded level, kind, lens and question, with the built-in questions this build serves.
+/// A line names a level by its label, and a handle by its ID.
 fn entries(loaded: &Loaded) -> Vec<Entry> {
     let mut out = Vec::new();
+    let ladder = Ladder::of(&loaded.vocabulary);
+    let chain = loaded.vocabulary.levels.iter().filter(|l| !ladder.is_apart(&l.id)).count();
+    for level in &loaded.vocabulary.levels {
+        let rank = ladder.rank(&level.id);
+        let why = if ladder.is_apart(&level.id) {
+            text::get("ask.level_apart", &[])
+        } else {
+            let pack = text::short(&level.pack, NAME_CHARS);
+            text::get("ask.level", &[("n", &rank), ("count", &chain), ("pack", &pack)])
+        };
+        let item = AskItem {
+            id: level.id.as_str().to_owned(),
+            name: text::short(&level.label, NAME_CHARS),
+            why,
+            handles: vec![Handle {
+                command: CommandName("map".into()),
+                args: vec!["--level".into(), level.id.as_str().into()],
+                label: text::label("ask.show_level", &[]),
+            }],
+        };
+        out.push(Entry { section: LEVELS, key: format!("{rank:02}"), item });
+    }
     for pack in &loaded.packs {
         let id = pack.id();
         let pack_name = text::short(id, NAME_CHARS);
         for kind in &pack.file.kinds {
-            let level = tree::level_name(kind.level);
+            let level = kind.level.as_str();
+            let label = text::short(&map::label_of(&ladder, &kind.level), NAME_CHARS);
             out.push(Entry::new(
-                0,
+                KINDS_SECTION,
                 AskItem {
                     id: packs::qualify(id, &kind.id),
                     name: text::short(&kind.label, NAME_CHARS),
-                    why: text::get("ask.kind", &[("level", &level), ("pack", &pack_name)]),
+                    why: text::get("ask.kind", &[("level", &label), ("pack", &pack_name)]),
                     handles: vec![Handle {
                         command: CommandName("map".into()),
                         args: vec!["--level".into(), level.into()],
@@ -713,18 +745,15 @@ fn entries(loaded: &Loaded) -> Vec<Entry> {
             ));
         }
         for lens in &pack.file.lenses {
+            let label = text::short(&map::label_of(&ladder, &lens.level), NAME_CHARS);
             out.push(Entry::new(
-                1,
+                LENSES,
                 AskItem {
                     id: lens.id.clone(),
                     name: text::short(&lens.label, NAME_CHARS),
                     why: text::get(
                         "ask.lens",
-                        &[
-                            ("count", &lens.relations.len()),
-                            ("level", &tree::level_name(lens.level)),
-                            ("pack", &pack_name),
-                        ],
+                        &[("count", &lens.relations.len()), ("level", &label), ("pack", &pack_name)],
                     ),
                     handles: vec![Handle {
                         command: CommandName("map".into()),
@@ -737,7 +766,7 @@ fn entries(loaded: &Loaded) -> Vec<Entry> {
         for question in &pack.file.questions {
             let ready = question.args.iter().all(|a| a.optional);
             out.push(Entry::new(
-                2,
+                QUESTIONS,
                 AskItem {
                     id: question.id.clone(),
                     name: text::short(&usage(question), NAME_CHARS),
@@ -758,7 +787,7 @@ fn entries(loaded: &Loaded) -> Vec<Entry> {
         }
     }
     out.push(Entry::new(
-        2,
+        QUESTIONS,
         AskItem {
             id: KINDS.into(),
             name: KINDS.into(),
@@ -768,7 +797,7 @@ fn entries(loaded: &Loaded) -> Vec<Entry> {
     ));
     if !intent::stages(loaded).is_empty() {
         out.push(Entry::new(
-            2,
+            QUESTIONS,
             AskItem {
                 id: STAGE.into(),
                 name: "stage S [PROJECT]".into(),
@@ -790,9 +819,10 @@ pub fn listing(loaded: &Loaded, cursor: Option<&Cursor>) -> Result<Paged<AskResu
     let summary = text::get(
         "ask.listing",
         &[
-            ("kinds", &count(0)),
-            ("lenses", &count(1)),
-            ("questions", &count(2)),
+            ("levels", &count(LEVELS)),
+            ("kinds", &count(KINDS_SECTION)),
+            ("lenses", &count(LENSES)),
+            ("questions", &count(QUESTIONS)),
             ("packs", &text::short(&packs.join(", "), SUMMARY_CHARS)),
         ],
     );

@@ -32,7 +32,7 @@ pub mod workspace;
 use std::sync::OnceLock;
 use std::sync::mpsc::Sender;
 
-use planroom_contract::{Cursor, EventId, Level, MapView, Seq, Warning};
+use planroom_contract::{Cursor, EventId, LevelId, MapView, Seq, Warning};
 
 /// Where this process's own commits are announced: `serve`'s live loop, which `data_version`
 /// can't wake for them as fast (DR-1). Unset in a one-shot CLI process.
@@ -89,6 +89,16 @@ pub fn new_event_id() -> EventId {
 }
 
 /// A map with no blocks.
-pub fn empty_view(level: Level, lens: String) -> MapView {
-    MapView { level, lens, focus: None, nodes: vec![], edges: vec![], hidden: 0, empty: None, layout: None }
+pub fn empty_view(level: LevelId, lens: String) -> MapView {
+    MapView {
+        level,
+        lens,
+        focus: None,
+        nodes: vec![],
+        edges: vec![],
+        hidden: 0,
+        empty: None,
+        layout: None,
+        levels: vec![],
+    }
 }

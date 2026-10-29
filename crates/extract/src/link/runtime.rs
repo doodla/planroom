@@ -18,7 +18,7 @@
 //! - **A hint's container.** A hint's container is the one a member fact places its file in, above
 //!   the universal tier (`WorkspaceFacts::file_containers`), such as a script a pack gives a
 //!   container of its own. Otherwise its repo is its scope's namespace, and its container is that
-//!   repo's one Container-level node, minted here or extracted. When exactly one compose service
+//!   repo's one container node, minted here or extracted. When exactly one compose service
 //!   joins the repo, its container is the repo's, and a container only the universal tier gives
 //!   (a root manifest's) yields to it. A join hint (`route_call`, `url`, `queue_op`, `db_open`)
 //!   in a repo with two or more containers otherwise is [`Unresolved`] and joins nothing; with
@@ -99,8 +99,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use planroom_contract::{
-    Edge, EdgeId, Evidence, FACTS_FORMAT, FactBatch, Hint, HintRef, Kind, Layer, Level, Node, NodeId,
-    Provenance, Ref, Tier,
+    Edge, EdgeId, Evidence, FACTS_FORMAT, FactBatch, Hint, HintRef, Kind, Layer, Node, NodeId, Provenance,
+    Ref, Tier,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -615,7 +615,7 @@ impl<'a> Run<'a> {
             let node = Node {
                 id: id.clone(),
                 kind: Kind(attr(hint, "kind").unwrap_or(&kinds.service.kind).to_owned()),
-                level: kinds.service.level,
+                level: kinds.service.level.clone(),
                 parent: joined.map(|r| node_id(r, &kinds.repo.id_prefix, r)),
                 name: name.to_owned(),
                 aliases: vec![format!("host:{name}"), format!("service:{name}")],
@@ -628,10 +628,13 @@ impl<'a> Run<'a> {
         }
     }
 
-    /// Every Container-level node, minted or extracted, with the kind the merge gives it: the most
-    /// specific fact's, and of two equally specific the least by name, whatever order they come in.
+    /// Every container, minted or extracted, with the kind the merge gives it: the most specific
+    /// fact's, and of two equally specific the least by name, whatever order they come in. A
+    /// container is a node at the service kind's level, which every container kind shares.
     fn index_containers(&mut self, nodes: &'a [Node]) {
-        let all = nodes.iter().filter(|n| n.level == Level::Container).chain(self.minted.values());
+        let opts = self.opts;
+        let level = &opts.kinds.service.level;
+        let all = nodes.iter().filter(|n| n.level == *level).chain(self.minted.values());
         let mut containers: BTreeMap<NodeId, Container> = BTreeMap::new();
         for node in all {
             let r = rank(&node.provenance);
@@ -1083,7 +1086,7 @@ impl<'a> Run<'a> {
                 let node = Node {
                     id: id.clone(),
                     kind: Kind(kind.kind.clone()),
-                    level: kind.level,
+                    level: kind.level.clone(),
                     parent: Some(container.clone()),
                     name: key,
                     aliases: vec![],
@@ -1708,7 +1711,7 @@ mod tests {
         Node {
             id: NodeId(id.into()),
             kind: Kind(kind.into()),
-            level: Level::Container,
+            level: "container".into(),
             parent: None,
             name: name.into(),
             aliases: vec![format!("host:{name}")],

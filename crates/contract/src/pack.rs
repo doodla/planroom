@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::decision::{DecisionKind, EffectOp, Predicate};
 use crate::envelope::CommandName;
-use crate::model::Level;
+use crate::model::LevelId;
 use crate::view::Tone;
 
 /// One pack's `pack.toml`.
@@ -35,6 +35,10 @@ pub struct PackFile {
     /// first match in load order.
     #[serde(default)]
     pub image_roles: Vec<ImageRole>,
+    /// The abstraction levels the pack declares: the base pack its ladder, another pack each level
+    /// it inserts.
+    #[serde(default)]
+    pub levels: Vec<LevelDecl>,
     #[serde(default)]
     pub kinds: Vec<KindDecl>,
     #[serde(default)]
@@ -93,15 +97,33 @@ pub struct ImageRole {
     pub kind: String,
 }
 
+/// `[[levels]]`: one abstraction level. The base pack lists its ladder top first; another pack
+/// puts each level directly below one it can see.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LevelDecl {
+    /// A level ID (`LevelId::from_str`), never `intent`.
+    pub id: String,
+    /// The noun "the {level} level" reads: 1 to 32 characters.
+    pub label: String,
+    /// The count of one, such as "{count} container": at most 48 characters, `{count}` once.
+    pub one: String,
+    /// The count of many, such as "{count} containers": the same rule.
+    pub many: String,
+    /// The level this one sits directly below: refused in the base pack, required in any other.
+    #[serde(default)]
+    pub below: Option<String>,
+}
+
 /// `[[kinds]]`: a node kind.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct KindDecl {
     pub id: String,
-    /// The ID's kind-short. One pack owns it, except the kernel's `container`, which every
-    /// Container-level kind uses (DR-46).
+    /// The ID's kind-short. One pack owns it, except the kernel's `container`, which every kind
+    /// at the containers' level uses (DR-46).
     pub id_prefix: String,
-    pub level: Level,
+    pub level: LevelId,
     pub label: String,
     #[serde(default)]
     pub parents: Vec<String>,
@@ -110,7 +132,7 @@ pub struct KindDecl {
     pub props: Value,
     #[serde(default)]
     pub icon: Option<String>,
-    /// A Container-level kind's block color; surfaces style from `MapNode.tone`, never from a kind
+    /// A kind's block color; surfaces style from `MapNode.tone`, never from a kind
     /// ID (DR-46).
     #[serde(default)]
     pub tone: Option<Tone>,
@@ -240,7 +262,7 @@ pub struct LensDecl {
     /// takes the lens's level.
     #[serde(default)]
     pub kinds: Vec<String>,
-    pub level: Level,
+    pub level: LevelId,
     /// Two defaults are `pack_invalid`, unless one is the code pack's, which wins.
     #[serde(default)]
     pub default: bool,

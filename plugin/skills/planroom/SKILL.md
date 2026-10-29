@@ -10,8 +10,8 @@ Planroom keeps a map of the system: repos, services, stores, the relations betwe
 
 ## The five ideas
 
-- **Levels:** the map nests (system, container, component, file). Zoom with `map --level` and `focus`.
-- **Lenses:** one relation kind at a time (`map --lens calls`). `ask` runs the questions a lens answers.
+- **Levels:** abstraction levels, from the plan's intent down to the finest the loaded packs declare; `ask` lists them, and `map --level ID` and `focus` move between them.
+- **Lenses:** which relations you see (`map --lens ID`); `ask` lists the lenses and the questions they answer.
 - **Intent:** what should be true: plans, ghosts (proposed items) and intended rules.
 - **Diffs:** actual against intended, and a hand-off's branch against the map.
 - **Decisions:** cards a person picks; you never pick for them.

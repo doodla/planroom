@@ -3,8 +3,8 @@
  * breadcrumb's lids from the top down, and whether a handle's level is already the one shown.
  */
 
-import type { Handle, Level } from "@planroom/contract";
-import { LEVELS } from "@planroom/ui";
+import type { Handle, Level, LevelVocab } from "@planroom/contract";
+import { sanitize } from "@planroom/ui";
 
 import { requestOf } from "./transport/request";
 
@@ -16,40 +16,55 @@ export interface LevelCrumb {
 }
 
 /**
- * The breadcrumb at `level` (`null` for the top): the workspace's lid on top, then each level
- * down to this one. Intent, the plan, sits beside the system rather than inside it, so its only
- * lid above is the top.
+ * The breadcrumb at `level` (`null` for the top) on `levels`, the shown map's ladder: the
+ * workspace's lid on top, then each chain level after the ladder's top down to this one, each
+ * named by its label. A level apart from the chain, such as the plan's, sits beside it rather
+ * than inside it, so its only lid above is the top.
  */
-export function crumbsAt(level: Level | null, top: string): LevelCrumb[] {
+export function crumbsAt(
+  levels: readonly LevelVocab[],
+  level: Level | null,
+  top: string,
+): LevelCrumb[] {
   const first: LevelCrumb = { level: null, label: top };
   if (level === null) {
     return [first];
   }
-  if (level === "intent") {
-    return [first, { level, label: level }];
+  const entry = levels.find((l) => l.id === level);
+  if (entry?.apart) {
+    return [first, { level, label: sanitize(entry.label) }];
   }
-  const from = LEVELS.indexOf("system") + 1;
-  const to = LEVELS.indexOf(level) + 1;
+  const chain = levels.filter((l) => !l.apart);
+  const to = chain.findIndex((l) => l.id === level) + 1;
   return [
     first,
-    ...LEVELS.slice(from, to).map((l) => ({ level: l, label: l })),
+    ...chain
+      .slice(1, to)
+      .map((l) => ({ level: l.id, label: sanitize(l.label) })),
   ];
 }
 
-/** The level a `map` handle asks for: its `--level`, or `null` for the top; not a map, undefined. */
-export function handleLevel(handle: Handle): Level | null | undefined {
+/**
+ * The level a `map` handle asks for: its `--level` when `levels` holds it, else `null` for the
+ * top; not a map, undefined.
+ */
+export function handleLevel(
+  levels: readonly LevelVocab[],
+  handle: Handle,
+): Level | null | undefined {
   if (handle.command !== "map") {
     return undefined;
   }
   const level = requestOf(handle).level;
-  return typeof level === "string" &&
-    (LEVELS as readonly string[]).includes(level)
-    ? (level as Level)
-    : null;
+  return levels.find((l) => l.id === level)?.id ?? null;
 }
 
 /** Whether `handle` would show the level already shown, so offering it again would do nothing. */
-export function alreadyShown(handle: Handle, level: Level | null): boolean {
-  const asked = handleLevel(handle);
+export function alreadyShown(
+  levels: readonly LevelVocab[],
+  handle: Handle,
+  level: Level | null,
+): boolean {
+  const asked = handleLevel(levels, handle);
   return asked !== undefined && asked === level;
 }

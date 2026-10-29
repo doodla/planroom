@@ -13,7 +13,7 @@ import {
   type Edge,
   type NodeChange,
 } from "@xyflow/react";
-import { LEVELS, blocksOf, edgesOf, matchBlocks, sanitize } from "@planroom/ui";
+import { blocksOf, edgesOf, matchBlocks, sanitize } from "@planroom/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import emptyMap from "../assets/empty-map.webp";
@@ -220,11 +220,14 @@ export function MapCanvas() {
 
 function LevelMap() {
   const level = useCanvas((s) => s.map?.level ?? null);
+  const levels = useCanvas((s) => s.map?.levels) ?? [];
   const [shown, setShown] = useState(level);
   const [moment, setMoment] = useState<Moment>(undefined);
   if (level !== shown) {
-    // The lid lifts going down a level and drops back going up (design-language.md, "Motion").
-    const rank = (l: typeof level) => (l === null ? -1 : LEVELS.indexOf(l));
+    // The lid lifts going down a level and drops back going up (design-language.md, "Motion"),
+    // down being later in the shown map's levels.
+    const rank = (l: typeof level) =>
+      l === null ? -1 : levels.findIndex((e) => e.id === l);
     setMoment(rank(level) > rank(shown) ? "dive" : "rise");
     setShown(level);
   }

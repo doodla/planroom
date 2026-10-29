@@ -21,6 +21,7 @@ use planroom_extract::git::{Git, GitError};
 use planroom_extract::link::{Selection, Unresolved, WorkspaceFacts};
 use planroom_extract::verify::Verifier;
 use planroom_extract::{ExtractError, RepoView, files, select, walk};
+use planroom_kernel::ladder::Ladder;
 use planroom_kernel::{facts, keys, redact};
 use planroom_store::{FactRow, Init, RepoOutcome, RepoScan, ScanKey, ScanRules, ScanWrite, Shape, Store};
 use serde_json::{Value, json};
@@ -171,9 +172,13 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
         started,
         namespaces,
     };
+    // The summary counts the blocks at the default lens's level, else at the ladder's top.
+    let vocabulary = crate::packs::vocabulary()?;
+    let ladder = Ladder::of(vocabulary);
+    let counted = vocabulary.lenses.iter().find(|l| l.default).map_or_else(|| ladder.top(), |l| &l.level);
     let Some(mut store) = store else {
         let view = map::not_scanned_view(&ws.root)?;
-        let summary = summary(&write, 0, 0);
+        let summary = summary(&write, &map::count_words(&ladder, counted.as_str(), 0), 0);
         return Ok(Reply { result: ScanResult { map: view, next: next() }, seq: 0, warnings, text: summary });
     };
     // A scan that read the config's list records the set it extracted with, inside its own
@@ -280,33 +285,35 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
         }
     }
     let recorded = done.repos.iter().filter(|(_, o)| matches!(o, RepoOutcome::Recorded { .. })).count();
-    // The reply's map, its container count and its seq come from one read transaction, as map's
-    // do (DR-73): another writer that commits after this scan shows in all of them or none, so
-    // the map never holds an event past the reply's `meta.seq`.
+    // The reply's map, its block count and its seq come from one read transaction, as map's do
+    // (DR-73): another writer that commits after this scan shows in all of them or none, so the
+    // map never holds an event past the reply's `meta.seq`.
     let snapshot = store.snapshot()?;
     let seq = snapshot.seq();
     let mut view = map::top_in(&snapshot, &ws.root, None)?;
-    let containers = map::top_in(&snapshot, &ws.root, Some(planroom_contract::Level::Container))?.nodes.len();
+    let counted_blocks = map::top_in(&snapshot, &ws.root, Some(counted.clone()))?.nodes.len();
+    let units = map::count_words(&ladder, counted.as_str(), counted_blocks as u64);
     drop(snapshot);
     // The top-level map an agent reads in scan's reply keeps to scan's budget, as map's does.
     let budget = Command::Scan(ScanReq::default()).spec().budget_tokens;
-    let about = map::lens::kinds(crate::packs::vocabulary()?, &view.lens).to_vec();
-    let cut = map::fit_beside(&mut view, budget, None, &warnings, &about);
+    let about = map::lens::kinds(vocabulary, &view.lens).to_vec();
+    let cut = map::fit_beside(&mut view, budget, None, &warnings, &about, &ladder);
     warnings.extend(cut);
-    let summary = summary(&write, containers, recorded);
+    let summary = summary(&write, &units, recorded);
     Ok(Reply { result: ScanResult { map: view, next: next() }, seq, warnings, text: summary })
 }
 
 /// The scan's one line: the repos it mapped, those with a commit, and how many moved; then the
 /// repos with no commit yet, which map after their first. A skipped repo isn't in `write`.
-fn summary(write: &ScanWrite, containers: usize, moved: usize) -> String {
+/// `units` is the count of blocks at the counted level, in that level's words.
+fn summary(write: &ScanWrite, units: &str, moved: usize) -> String {
     let (mapped, unborn): (Vec<&RepoScan>, Vec<&RepoScan>) =
         write.repos.iter().partition(|r| !r.commit.is_empty());
     let mut line = text::get(
         "scan.summary",
         &[
             ("repos", &mapped.len()),
-            ("containers", &containers),
+            ("units", &units),
             ("nodes", &mapped.iter().map(|r| r.stats.nodes).sum::<u32>()),
             ("hints", &mapped.iter().map(|r| r.stats.hints).sum::<u32>()),
             ("moved", &moved),

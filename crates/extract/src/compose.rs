@@ -247,7 +247,7 @@ fn read(
         let node = Node {
             id: node_id(repo, &kinds.service.id_prefix, repo),
             kind: Kind(kinds.tooling.kind.clone()),
-            level: kinds.tooling.level,
+            level: kinds.tooling.level.clone(),
             parent: Some(repo_id(repo, &kinds.repo)),
             name: repo.clone(),
             aliases: vec![],

@@ -26,10 +26,11 @@
 use std::collections::HashSet;
 
 use planroom_contract::{
-    CommandName, Cursor, Detail, Empty, EmptyReason, Handle, Kind, Level, LiftedEdge, MapNode, MapReq,
+    CommandName, Cursor, Detail, Empty, EmptyReason, Handle, Kind, LevelId, LiftedEdge, MapNode, MapReq,
     MapView, NodeId, Seq, Warning, WarningCode,
 };
-use planroom_kernel::{keys, tree};
+use planroom_kernel::keys;
+use planroom_kernel::ladder::Ladder;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -60,7 +61,7 @@ struct Mark {
     #[serde(rename = "g")]
     group: u8,
     #[serde(rename = "l")]
-    level: Level,
+    level: LevelId,
     #[serde(rename = "i")]
     id: NodeId,
 }
@@ -75,15 +76,16 @@ fn group(node: &MapNode, about: &[Kind]) -> u8 {
     u8::from(!about.contains(&node.kind))
 }
 
-/// Where `node` sits in cut order: its lens group, level and ID, all of which a cursor holds.
-fn key<'a>(node: &'a MapNode, about: &[Kind]) -> (u8, Level, &'a NodeId) {
-    (group(node, about), node.level, &node.id)
+/// Where `node` sits in cut order: its lens group, its level's rank on the ladder and its ID, all
+/// of which a cursor holds.
+fn key<'a>(node: &'a MapNode, about: &[Kind], ladder: &Ladder<'_>) -> (u8, u8, &'a NodeId) {
+    (group(node, about), ladder.rank(&node.level), &node.id)
 }
 
 /// `nodes`, which come in the map's own order, sorted into cut order.
-fn in_cut_order(nodes: Vec<MapNode>, about: &[Kind]) -> Ordered {
+fn in_cut_order(nodes: Vec<MapNode>, about: &[Kind], ladder: &Ladder<'_>) -> Ordered {
     let mut ordered: Ordered = nodes.into_iter().enumerate().collect();
-    ordered.sort_by(|(_, a), (_, b)| key(a, about).cmp(&key(b, about)));
+    ordered.sort_by(|(_, a), (_, b)| key(a, about, ladder).cmp(&key(b, about, ladder)));
     ordered
 }
 
@@ -104,19 +106,20 @@ fn page_of(
 
 /// The page of `view`, which the store read at `seq`, after `req`'s cursor, within
 /// `budget_tokens`; with no budget, everything after the cursor. `about` is the kinds the view's
-/// lens is about, whose blocks come first in cut order.
+/// lens is about, whose blocks come first in cut order, and `ladder` orders the levels.
 pub(crate) fn cut(
     view: MapView,
     req: &MapReq,
     seq: Seq,
     budget_tokens: Option<u32>,
     about: &[Kind],
+    ladder: &Ladder<'_>,
 ) -> Result<Page, AppError> {
     let total = view.nodes.len();
     let filters = filters_hash(req, &view.lens);
     let mut warnings = Vec::new();
     let mut view = view;
-    let ordered = in_cut_order(std::mem::take(&mut view.nodes), about);
+    let ordered = in_cut_order(std::mem::take(&mut view.nodes), about, ladder);
     let edges = std::mem::take(&mut view.edges);
 
     // Where this page starts in cut order: the blocks before it are the ones earlier pages gave.
@@ -130,7 +133,8 @@ pub(crate) fn cut(
             if mark.seq != seq {
                 warnings.push(stale_page());
             }
-            ordered.partition_point(|(_, n)| key(n, about) <= (mark.group, mark.level, &mark.id))
+            let at = (mark.group, ladder.rank(&mark.level), &mark.id);
+            ordered.partition_point(|(_, n)| key(n, about, ladder) <= at)
         }
     };
     let given: HashSet<NodeId> = ordered[..start].iter().map(|(_, n)| n.id.clone()).collect();
@@ -173,7 +177,7 @@ pub(crate) fn cut(
         return Ok(Page { view, next: None, total, warnings });
     }
     let next = mark_after(&rest[fits - 1].1, seq, &filters, about);
-    let drill = drill_down(req.level.unwrap_or(view.level), req.level.is_none());
+    let drill = drill_down(req.level.as_ref().unwrap_or(&view.level), req.level.is_none(), ladder);
     let message = text::get(
         "warning.paged",
         &[
@@ -196,8 +200,8 @@ pub(crate) fn cut(
 /// the same flags.
 fn past_end(req: &MapReq) -> Empty {
     let mut args = Vec::new();
-    if let Some(level) = req.level {
-        args.extend(["--level".to_owned(), tree::level_name(level).to_owned()]);
+    if let Some(level) = &req.level {
+        args.extend(["--level".to_owned(), level.as_str().to_owned()]);
     }
     if let Some(lens) = &req.lens {
         args.extend(["--lens".to_owned(), lens.clone()]);
@@ -233,7 +237,7 @@ fn landing(edges: &[LiftedEdge], given: &HashSet<NodeId>, shown: &[MapNode]) -> 
 
 /// A hash of what selects and shapes a map, so a cursor continues only the map it came from.
 fn filters_hash(req: &MapReq, lens: &str) -> String {
-    let level = req.level.map(tree::level_name).unwrap_or_default();
+    let level = req.level.as_ref().map(LevelId::as_str).unwrap_or_default();
     let focus = req.focus.as_deref().unwrap_or_default();
     let detail = match req.detail {
         Detail::Summary => "summary",
@@ -264,7 +268,7 @@ fn mark_json(last: &MapNode, seq: Seq, filters: &str, about: &[Kind]) -> Vec<u8>
         seq,
         filters: filters.into(),
         group: group(last, about),
-        level: last.level,
+        level: last.level.clone(),
         id: last.id.clone(),
     };
     serde_json::to_vec(&mark).expect("a mark serializes")
@@ -309,16 +313,17 @@ fn limit(budget_tokens: u32, beside: &[Warning]) -> usize {
 pub(crate) fn fit_beside(
     view: &mut MapView,
     budget_tokens: u32,
-    level: Option<Level>,
+    level: Option<&LevelId>,
     beside: &[Warning],
     about: &[Kind],
+    ladder: &Ladder<'_>,
 ) -> Option<Warning> {
     let limit = limit(budget_tokens, beside);
     let size = |v: &MapView| serde_json::to_string(v).map_or(usize::MAX, |s| s.len());
     if size(view) <= limit {
         return None;
     }
-    let ordered = in_cut_order(std::mem::take(&mut view.nodes), about);
+    let ordered = in_cut_order(std::mem::take(&mut view.nodes), about, ladder);
     let edges = std::mem::take(&mut view.edges);
     let total = ordered.len();
     let first = |count: usize| page_of(&ordered[..count], &HashSet::new(), &edges);
@@ -330,7 +335,7 @@ pub(crate) fn fit_beside(
         if size(view) <= limit { fits = mid } else { over = mid - 1 }
     }
     (view.nodes, view.edges) = first(fits);
-    let next = drill_down(level.unwrap_or(view.level), level.is_none());
+    let next = drill_down(level.unwrap_or(&view.level), level.is_none(), ladder);
     let message = text::get(
         "warning.truncated",
         &[("total", &total), ("kept", &fits), ("budget", &budget_tokens), ("label", &next.label)],
@@ -343,23 +348,14 @@ pub(crate) fn fit_beside(
 }
 
 /// Where to go from a map cut at its budget, with what `map` and `focus` serve today: the next
-/// coarser level, whose blocks hold these; from the top, the pane's summary.
-fn drill_down(level: Level, at_top: bool) -> Handle {
-    let coarser = match level {
-        Level::Code => Some(Level::Component),
-        Level::Component => Some(Level::Container),
-        Level::Container => Some(Level::System),
-        Level::System | Level::Intent => None,
-    };
-    match coarser.filter(|_| !at_top) {
-        Some(level) => {
-            let name = tree::level_name(level);
-            Handle {
-                command: CommandName("map".into()),
-                args: vec!["--level".into(), name.into()],
-                label: text::label("map.coarser", &[("level", &name)]),
-            }
-        }
+/// coarser level on the ladder, whose blocks hold these; from the top, the pane's summary.
+fn drill_down(level: &LevelId, at_top: bool, ladder: &Ladder<'_>) -> Handle {
+    match ladder.above(level).filter(|_| !at_top) {
+        Some(coarser) => Handle {
+            command: CommandName("map".into()),
+            args: vec!["--level".into(), coarser.as_str().into()],
+            label: text::label("map.coarser", &[("level", &super::label_of(ladder, coarser))]),
+        },
         None => {
             Handle { command: CommandName("focus".into()), args: vec![], label: text::label("map.pane", &[]) }
         }
@@ -370,7 +366,19 @@ fn drill_down(level: Level, at_top: bool) -> Handle {
 mod tests {
     use std::collections::HashMap;
 
+    use std::sync::LazyLock;
+
+    use planroom_contract::Vocabulary;
+
     use super::*;
+
+    /// No vocabulary: every block here sits at one level the ladder doesn't hold, so cut order is
+    /// the ID's.
+    static VOCABULARY: LazyLock<Vocabulary> = LazyLock::new(Vocabulary::default);
+
+    fn ladder() -> Ladder<'static> {
+        Ladder::of(&VOCABULARY)
+    }
 
     fn node(id: &str, name: &str) -> MapNode {
         MapNode {
@@ -378,7 +386,7 @@ mod tests {
             kind: planroom_contract::Kind("test.block".into()),
             tone: None,
             name: name.into(),
-            level: Level::Code,
+            level: LevelId::from("code"),
             parent: None,
             counts: Default::default(),
             position: None,
@@ -400,9 +408,11 @@ mod tests {
 
     /// A code-level map of `names`, sorted as `kernel::tree` sorts blocks, with `edges`.
     fn view(names: &[&str], edges: Vec<LiftedEdge>) -> MapView {
-        let mut view = crate::app::empty_view(Level::Code, "all".into());
+        let mut view = crate::app::empty_view(LevelId::from("code"), "all".into());
         view.nodes = names.iter().map(|n| node(&format!("a:file:{n}"), &format!("block {n}"))).collect();
-        view.nodes.sort_by(|a, b| (a.level, &a.name, &a.id).cmp(&(b.level, &b.name, &b.id)));
+        view.nodes.sort_by(|a, b| {
+            (ladder().rank(&a.level), &a.name, &a.id).cmp(&(ladder().rank(&b.level), &b.name, &b.id))
+        });
         view.edges = edges;
         view
     }
@@ -421,7 +431,7 @@ mod tests {
         let mut pages = Vec::new();
         loop {
             let (view, seq) = read();
-            let page = cut(view, &req, seq, Some(1_500), about).unwrap();
+            let page = cut(view, &req, seq, Some(1_500), about, &ladder()).unwrap();
             req.cursor = page.next.clone();
             pages.push(page);
             if req.cursor.is_none() {
@@ -468,7 +478,7 @@ mod tests {
         let before = numbered(120);
         let names: Vec<&str> = before.iter().map(String::as_str).collect();
         let old = view(&names, vec![]);
-        let first = cut(old.clone(), &MapReq::default(), 4, Some(1_500), &[]).unwrap();
+        let first = cut(old.clone(), &MapReq::default(), 4, Some(1_500), &[], &ladder()).unwrap();
         let last = first.view.nodes.last().unwrap().id.clone();
         // The map moves on: a block before the cursor and one after it go, a block lands on each
         // side of it, a block after it is renamed, and so is the cursor's own block.
@@ -481,7 +491,9 @@ mod tests {
                 n.name.push_str(" renamed");
             }
         }
-        new.nodes.sort_by(|a, b| (a.level, &a.name, &a.id).cmp(&(b.level, &b.name, &b.id)));
+        new.nodes.sort_by(|a, b| {
+            (ladder().rank(&a.level), &a.name, &a.id).cmp(&(ladder().rank(&b.level), &b.name, &b.id))
+        });
         let req = MapReq { cursor: first.next.clone(), ..MapReq::default() };
         let rest = follow(req, || (new.clone(), 9));
         assert!(rest[0].warnings.iter().any(|w| w.code == WarningCode::StalePage), "{:?}", rest[0].warnings);
@@ -503,25 +515,25 @@ mod tests {
     fn a_cursor_from_other_flags_is_invalid_argument() {
         let names = numbered(120);
         let whole = view(&names.iter().map(String::as_str).collect::<Vec<_>>(), vec![]);
-        let summary = MapReq { level: Some(Level::Code), ..MapReq::default() };
-        let next = cut(whole.clone(), &summary, 4, Some(1_500), &[]).unwrap().next;
+        let summary = MapReq { level: Some(LevelId::from("code")), ..MapReq::default() };
+        let next = cut(whole.clone(), &summary, 4, Some(1_500), &[], &ladder()).unwrap().next;
         assert!(next.is_some());
         for other in [
             MapReq { detail: Detail::Graph, ..summary.clone() },
-            MapReq { level: Some(Level::Component), ..summary.clone() },
+            MapReq { level: Some(LevelId::from("component")), ..summary.clone() },
             MapReq { level: None, ..summary.clone() },
             MapReq { focus: Some("a:file:001".into()), ..summary.clone() },
         ] {
             let req = MapReq { cursor: next.clone(), ..other };
-            let e = cut(whole.clone(), &req, 4, Some(1_500), &[]).err().expect("refused");
+            let e = cut(whole.clone(), &req, 4, Some(1_500), &[], &ladder()).err().expect("refused");
             assert_eq!(e.code, planroom_contract::ErrorCode::InvalidArgument);
             assert_eq!(e.details["field"], "cursor");
         }
         let mut lens = whole.clone();
         lens.lens = "runtime".into();
         let req = MapReq { cursor: next.clone(), ..summary.clone() };
-        assert!(cut(lens, &req, 4, Some(1_500), &[]).is_err(), "another lens");
-        assert!(cut(whole, &req, 4, Some(1_500), &[]).is_ok(), "the same flags continue");
+        assert!(cut(lens, &req, 4, Some(1_500), &[], &ladder()).is_err(), "another lens");
+        assert!(cut(whole, &req, 4, Some(1_500), &[], &ladder()).is_ok(), "the same flags continue");
     }
 
     #[test]
@@ -529,7 +541,7 @@ mod tests {
         let cursor = mark_after(&node("a:file:x", "x"), 7, "0123456789abcdef", &[]);
         let mark = decode(&cursor).unwrap();
         assert_eq!((mark.seq, mark.filters.as_str()), (7, "0123456789abcdef"));
-        assert_eq!((mark.level, mark.id), (Level::Code, NodeId("a:file:x".into())));
+        assert_eq!((mark.level, mark.id), (LevelId::from("code"), NodeId("a:file:x".into())));
         for bad in ["zz", "abc", "7b7d"] {
             let e = decode(&Cursor(bad.into())).err().expect("refused");
             assert_eq!(e.code, planroom_contract::ErrorCode::InvalidArgument, "{bad}");
@@ -538,9 +550,11 @@ mod tests {
 
     /// A code-level map of `(ID key, name)` rows, sorted as `kernel::tree` sorts blocks.
     fn named(rows: &[(String, String)]) -> MapView {
-        let mut view = crate::app::empty_view(Level::Code, "all".into());
+        let mut view = crate::app::empty_view(LevelId::from("code"), "all".into());
         view.nodes = rows.iter().map(|(key, name)| node(&format!("a:file:{key}"), name)).collect();
-        view.nodes.sort_by(|a, b| (a.level, &a.name, &a.id).cmp(&(b.level, &b.name, &b.id)));
+        view.nodes.sort_by(|a, b| {
+            (ladder().rank(&a.level), &a.name, &a.id).cmp(&(ladder().rank(&b.level), &b.name, &b.id))
+        });
         view
     }
 
@@ -552,15 +566,15 @@ mod tests {
 
     /// The key of the block the first page of `old` gives last in cut order, by level then ID.
     fn last_key(old: &MapView) -> String {
-        let first = cut(old.clone(), &MapReq::default(), 4, Some(1_500), &[]).unwrap();
-        let last = first.view.nodes.iter().map(|n| (n.level, &n.id)).max().unwrap().1;
+        let first = cut(old.clone(), &MapReq::default(), 4, Some(1_500), &[], &ladder()).unwrap();
+        let last = first.view.nodes.iter().map(|n| (ladder().rank(&n.level), &n.id)).max().unwrap().1;
         last.0.trim_start_matches("a:file:").to_owned()
     }
 
     /// Reads `old`'s first page, then the rest from `new` at a later seq, and checks that every
     /// row the two maps share by ID and level, renamed or not, is given exactly once.
     fn resumes_exactly(old: &MapView, new: &MapView) {
-        let first = cut(old.clone(), &MapReq::default(), 4, Some(1_500), &[]).unwrap();
+        let first = cut(old.clone(), &MapReq::default(), 4, Some(1_500), &[], &ladder()).unwrap();
         assert!(first.next.is_some(), "the map pages");
         let req = MapReq { cursor: first.next.clone(), ..MapReq::default() };
         let rest = follow(req, || (new.clone(), 9));
@@ -616,7 +630,7 @@ mod tests {
     fn a_cursor_carries_no_name() {
         let rows: Vec<(String, String)> =
             (0..120).map(|i| (format!("{i:03}"), format!("db_PASSWORD=hunter{i:03}"))).collect();
-        let first = cut(named(&rows), &MapReq::default(), 4, Some(1_500), &[]).unwrap();
+        let first = cut(named(&rows), &MapReq::default(), 4, Some(1_500), &[], &ladder()).unwrap();
         let cursor = first.next.unwrap();
         let bytes: Vec<u8> = (0..cursor.0.len())
             .step_by(2)
@@ -630,13 +644,14 @@ mod tests {
     fn a_cursor_past_every_block_gives_an_empty_state() {
         let names = numbered(120);
         let old = view(&names.iter().map(String::as_str).collect::<Vec<_>>(), vec![]);
-        let req = MapReq { level: Some(Level::Code), lens: Some("all".into()), ..MapReq::default() };
-        let first = cut(old.clone(), &req, 4, Some(1_500), &[]).unwrap();
+        let req =
+            MapReq { level: Some(LevelId::from("code")), lens: Some("all".into()), ..MapReq::default() };
+        let first = cut(old.clone(), &req, 4, Some(1_500), &[], &ladder()).unwrap();
         // The map moves on, and every block after the first page goes.
         let mut new = old.clone();
         new.nodes.truncate(first.view.nodes.len());
         let req = MapReq { cursor: first.next.clone(), ..req };
-        let page = cut(new, &req, 9, Some(1_500), &[]).unwrap();
+        let page = cut(new, &req, 9, Some(1_500), &[], &ladder()).unwrap();
         assert!(page.view.nodes.is_empty());
         assert!(page.next.is_none());
         assert!(page.warnings.iter().any(|w| w.code == WarningCode::StalePage), "{:?}", page.warnings);
@@ -662,10 +677,10 @@ mod tests {
         let rows: Vec<(String, String)> =
             (0..120).map(|i| (format!("{i:03}"), format!("db_PASSWORD=hunter{:03}", 119 - i))).collect();
         let req = MapReq::default();
-        let first = cut(named(&rows), &req, 4, Some(1_500), &[]).unwrap();
+        let first = cut(named(&rows), &req, 4, Some(1_500), &[], &ladder()).unwrap();
         let held = decoded(first.next.as_ref().expect("the map pages"));
         // The last block in the order pages are cut in, level then ID.
-        let last = first.view.nodes.iter().map(|n| (n.level, &n.id)).max().unwrap();
+        let last = first.view.nodes.iter().map(|n| (ladder().rank(&n.level), &n.id)).max().unwrap();
         assert_eq!(held, json!({"s": 4, "f": filters_hash(&req, "all"), "g": 1, "l": "code", "i": last.1.0}));
         let text = held.to_string();
         assert!(!text.contains("hunter") && !text.contains("PASSWORD"), "{text}");
@@ -729,7 +744,7 @@ mod tests {
         let mut req = MapReq::default();
         let mut pages: Vec<Page> = Vec::new();
         loop {
-            let page = cut(old.clone(), &req, 4, Some(1_500), about).unwrap();
+            let page = cut(old.clone(), &req, 4, Some(1_500), about, &ladder()).unwrap();
             let next = page.next.clone().expect("the map pages past its middle");
             pages.push(page);
             if pages.iter().map(|p| p.view.nodes.len()).sum::<usize>() >= old.nodes.len() / 2 {
@@ -760,10 +775,14 @@ mod tests {
             page.view.nodes.iter().for_each(|n| *blocks.entry(&n.id).or_default() += 1);
             page.view.edges.iter().for_each(|e| *edges.entry((&e.from, &e.to)).or_default() += 1);
         }
-        let before: HashSet<(Level, &NodeId, &Kind)> =
-            old.nodes.iter().map(|n| (n.level, &n.id, &n.kind)).collect();
-        let kept: HashSet<&NodeId> =
-            new.nodes.iter().filter(|n| before.contains(&(n.level, &n.id, &n.kind))).map(|n| &n.id).collect();
+        let before: HashSet<(&LevelId, &NodeId, &Kind)> =
+            old.nodes.iter().map(|n| (&n.level, &n.id, &n.kind)).collect();
+        let kept: HashSet<&NodeId> = new
+            .nodes
+            .iter()
+            .filter(|n| before.contains(&(&n.level, &n.id, &n.kind)))
+            .map(|n| &n.id)
+            .collect();
         for id in &kept {
             let times = blocks.get(id).copied().unwrap_or(0);
             assert_eq!(times, 1, "{case}: {} given {times} times", id.0);
@@ -894,10 +913,11 @@ mod tests {
                 relations: vec![Kind("test.uses".into())],
                 flow: Default::default(),
                 kinds: kinds.iter().map(|k| Kind((*k).into())).collect(),
-                level: Level::Code,
+                level: LevelId::from("code"),
                 default: false,
             }],
             suggestions: vec![],
+            levels: vec![],
         }
     }
 
@@ -912,7 +932,7 @@ mod tests {
         let seen = planroom_kernel::lens::apply(whole, &vocabulary, vocabulary.lenses.first());
         assert_eq!(seen.nodes[0].id.0, "a:file:399", "the lens lists its kind first");
         let about = [Kind(FLAG.into())];
-        let first = cut(seen.clone(), &MapReq::default(), 4, Some(1_500), &about).unwrap();
+        let first = cut(seen.clone(), &MapReq::default(), 4, Some(1_500), &about, &ladder()).unwrap();
         assert!(first.next.is_some(), "the map pages");
         assert_eq!(first.view.nodes[0].id.0, "a:file:399", "{:?}", first.view.nodes.first());
         // The pages joined still give every block once.

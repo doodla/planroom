@@ -4,11 +4,14 @@
 //! The text is matched as fuzzy words, each of which must match, so no character in it has a
 //! special meaning, and case never matters. A node scores the better of its name's and its ID's
 //! match. A node whose name or ID is the text itself ranks before every other, so `find worker`
-//! puts the blocks named `worker` first; ties keep the map's order, by level, then name, then ID.
+//! puts the blocks named `worker` first; ties keep the map's order, by the level's rank on the
+//! ladder, then name, then ID.
 
 use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 use planroom_contract::Node;
+
+use crate::ladder::Ladder;
 
 /// One match.
 #[derive(Debug, Clone, Copy)]
@@ -21,7 +24,7 @@ pub struct Hit<'a> {
 }
 
 /// Every node in `nodes` that `text` matches, best first. Blank text matches nothing.
-pub fn find<'a>(nodes: &'a [Node], text: &str) -> Vec<Hit<'a>> {
+pub fn find<'a>(nodes: &'a [Node], ladder: &Ladder<'_>, text: &str) -> Vec<Hit<'a>> {
     let text = text.trim();
     if text.is_empty() {
         return vec![];
@@ -40,7 +43,8 @@ pub fn find<'a>(nodes: &'a [Node], text: &str) -> Vec<Hit<'a>> {
         .collect();
     hits.sort_by(|a, b| {
         b.exact.cmp(&a.exact).then(b.score.cmp(&a.score)).then_with(|| {
-            (a.node.level, &a.node.name, &a.node.id).cmp(&(b.node.level, &b.node.name, &b.node.id))
+            let rank = |hit: &Hit<'_>| ladder.rank(&hit.node.level);
+            (rank(a), &a.node.name, &a.node.id).cmp(&(rank(b), &b.node.name, &b.node.id))
         })
     });
     hits
@@ -48,11 +52,12 @@ pub fn find<'a>(nodes: &'a [Node], text: &str) -> Vec<Hit<'a>> {
 
 #[cfg(test)]
 mod tests {
-    use planroom_contract::{Kind, Layer, Level, NodeId, Provenance, Tier};
+    use crate::ladder::testing::*;
+    use planroom_contract::{Kind, Layer, LevelId, NodeId, Provenance, Tier};
 
     use super::*;
 
-    fn node(id: &str, level: Level) -> Node {
+    fn node(id: &str, level: LevelId) -> Node {
         Node {
             id: NodeId(id.into()),
             kind: Kind("p.x".into()),
@@ -68,16 +73,17 @@ mod tests {
     }
 
     fn found(nodes: &[Node], text: &str) -> Vec<String> {
-        find(nodes, text).into_iter().map(|h| h.node.id.0.clone()).collect()
+        let vocabulary = vocabulary();
+        find(nodes, &Ladder::of(&vocabulary), text).into_iter().map(|h| h.node.id.0.clone()).collect()
     }
 
     #[test]
     fn an_exact_name_ranks_first_then_the_best_fuzzy_match() {
         let nodes = vec![
-            node("w:file:src/workers.py", Level::Code),
-            node("w:x:worker", Level::Container),
-            node("w:repo:worker", Level::System),
-            node("s:file:src/checkout/routes.ts", Level::Code),
+            node("w:file:src/workers.py", room()),
+            node("w:x:worker", region()),
+            node("w:repo:worker", realm()),
+            node("s:file:src/checkout/routes.ts", room()),
         ];
         let hits = found(&nodes, "worker");
         assert_eq!(hits[..2], ["w:repo:worker", "w:x:worker"]);

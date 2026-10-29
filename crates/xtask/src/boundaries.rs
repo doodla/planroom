@@ -64,6 +64,9 @@ fn yes() -> bool {
 pub struct KernelRules {
     pub domain_free: Vec<String>,
     pub kernel_vocabulary: Vec<String>,
+    /// The level IDs a file spells for another meaning, each with its reason in a comment.
+    #[serde(default)]
+    pub level_words: Vec<LevelWord>,
     pub no_path_escapes: bool,
     pub no_io_crates: Vec<String>,
     pub no_io: NoIo,
@@ -106,7 +109,20 @@ pub struct TsGlobalRules {
     pub generated_read_only: String,
     pub golden_readers: Vec<String>,
     pub domain_free: Vec<String>,
+    /// The level IDs a file spells for another meaning, each with its reason in a comment.
+    #[serde(default)]
+    pub level_words: Vec<LevelWord>,
     pub test_tooling: TestTooling,
+}
+
+/// A built-in pack's level ID that one file may hold as a string literal, because there the word
+/// means something else, such as an error's `code` field.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LevelWord {
+    /// The file, relative to the repository root.
+    pub file: String,
+    pub word: String,
 }
 
 /// The test runner and build tool, which only tests and configs import.
@@ -147,6 +163,7 @@ pub fn check(root: &Path) -> Result<Vec<String>, String> {
     violations.extend(check_sockets(root, &rules)?);
     violations.extend(check_rust_literals(root, &rules)?);
     violations.extend(check_ts_literals(root, &rules)?);
+    violations.extend(check_level_literals(root, &rules)?);
     violations.extend(check_packs(root, &rules)?);
     if rules.rust.kernel.no_path_escapes {
         violations.extend(check_path_escapes(root)?);
@@ -396,6 +413,208 @@ pub fn check_rust_literals(root: &Path, rules: &Boundaries) -> Result<Vec<String
     Ok(violations)
 }
 
+/// No string literal outside tests in the domain-free crates and packages equals a built-in pack's
+/// level ID, unless its table's `level_words` lists the file and the word: the engine and the
+/// surfaces read levels from the vocabulary, never by name. In Rust that is every `.rs` under
+/// `[rust.kernel] domain_free`'s `src/` but its `#[cfg(test)]` items and the modules they declare;
+/// in TypeScript every `.ts` and `.tsx` under `[ts.rules] domain_free`'s `src/` but `vendor/`,
+/// test files and the mod's plugin tests. A `level_words` entry whose file no longer holds its word
+/// outside tests fails too, so the list can't rot.
+pub fn check_level_literals(root: &Path, rules: &Boundaries) -> Result<Vec<String>, String> {
+    let levels = level_ids(root)?;
+    let mut violations = Vec::new();
+    let named = |file: &str, line: usize, scope: &str, level: &str| {
+        format!(
+            "{file}:{line}: {scope} is domain-free (domain_free), but this string literal names the level `{level}` ({} pack); read levels from the vocabulary, or, where the word means something else, list the file and word in level_words",
+            levels[level]
+        )
+    };
+
+    let words = &rules.rust.kernel.level_words;
+    let mut used = BTreeSet::new();
+    for krate in &rules.rust.kernel.domain_free {
+        let src = root.join("crates").join(krate).join("src");
+        if !src.is_dir() {
+            continue;
+        }
+        let files = util::rust_files(&src)?;
+        let mut texts = BTreeMap::new();
+        for file in &files {
+            texts.insert(
+                file.clone(),
+                fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?,
+            );
+        }
+        let test_files = test_module_files(&texts);
+        for (file, text) in &texts {
+            if test_files.contains(file) {
+                continue;
+            }
+            let lexed = rustlex::lex(text);
+            let items = cfg_test_items(&lexed.code);
+            let path = rel(root, file);
+            for lit in lexed.literals.iter().filter(|l| !in_test_item(&items, l.start)) {
+                if !levels.contains_key(&lit.value) {
+                    continue;
+                }
+                match words.iter().position(|w| w.file == path && w.word == lit.value) {
+                    Some(i) => {
+                        used.insert(i);
+                    }
+                    None => violations.push(named(&path, lit.line, krate, &lit.value)),
+                }
+            }
+        }
+    }
+    violations.extend(stale_words("[rust.kernel]", words, &used));
+
+    let words = &rules.ts.rules.level_words;
+    let mut used = BTreeSet::new();
+    for pkg in &rules.ts.rules.domain_free {
+        let Ok(src) = fs::canonicalize(root.join("packages").join(pkg).join("src")) else { continue };
+        let mut files = Vec::new();
+        util::walk(&src, &mut |p| {
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+            let ts = name.ends_with(".ts") || name.ends_with(".tsx");
+            let test = name.ends_with(".test.ts") || name.ends_with(".test.tsx");
+            let skipped =
+                p.components().any(|c| c.as_os_str() == "vendor" || c.as_os_str() == "plugin-tests");
+            if ts && !test && !skipped {
+                files.push(p.to_path_buf());
+            }
+        })?;
+        files.sort();
+        for file in files {
+            let text = fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+            let path = rel(root, &file);
+            for (line, value) in ts_string_literals(&text) {
+                if !levels.contains_key(&value) {
+                    continue;
+                }
+                match words.iter().position(|w| w.file == path && w.word == value) {
+                    Some(i) => {
+                        used.insert(i);
+                    }
+                    None => violations.push(named(&path, line, pkg, &value)),
+                }
+            }
+        }
+    }
+    violations.extend(stale_words("[ts.rules]", words, &used));
+    Ok(violations)
+}
+
+/// The `level_words` entries no literal used: their file no longer holds the word outside tests.
+fn stale_words(table: &str, words: &[LevelWord], used: &BTreeSet<usize>) -> Vec<String> {
+    words
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !used.contains(i))
+        .map(|(_, w)| {
+            format!(
+                "boundaries.toml: {table} level_words lists `{}` in {}, which holds no such literal outside tests; remove the entry",
+                w.word, w.file
+            )
+        })
+        .collect()
+}
+
+/// One item a bare `#[cfg(test)]` marks, as byte offsets into the source, and the module it
+/// declares when it is `mod x;`.
+struct TestItem {
+    start: usize,
+    end: usize,
+    module: Option<String>,
+}
+
+/// Every item a bare `#[cfg(test)]` marks in `code`, the lexed source with literals and comments
+/// blanked, so a brace in a string or a char never counts. An item runs from the attribute to the
+/// first `;` or `,` at depth 0, the `}` that closes the first `{` it opens, or a closing bracket
+/// that would take the depth below 0 (a test-only field that ends its struct).
+fn cfg_test_items(code: &str) -> Vec<TestItem> {
+    let attr = regex::Regex::new(r"#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]").expect("a valid pattern");
+    let module = regex::Regex::new(
+        r"^(?:\s*#\s*\[[^\]]*\])*\s*(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;$",
+    )
+    .expect("a valid pattern");
+    let bytes = code.as_bytes();
+    let mut items = Vec::new();
+    for found in attr.find_iter(code) {
+        let mut depth = 0i32;
+        let mut first_brace: Option<i32> = None;
+        let mut end = bytes.len();
+        for (i, &b) in bytes.iter().enumerate().skip(found.end()) {
+            match b {
+                b'{' => {
+                    first_brace.get_or_insert(depth);
+                    depth += 1;
+                }
+                b'(' | b'[' => depth += 1,
+                b'}' | b')' | b']' => {
+                    depth -= 1;
+                    if depth < 0 {
+                        end = i;
+                        break;
+                    }
+                    if b == b'}' && first_brace == Some(depth) {
+                        end = i + 1;
+                        break;
+                    }
+                }
+                b';' | b',' if depth == 0 => {
+                    end = i + 1;
+                    break;
+                }
+                _ => {}
+            }
+        }
+        let module = module.captures(&code[found.end()..end]).map(|c| c[1].to_owned());
+        items.push(TestItem { start: found.start(), end, module });
+    }
+    items
+}
+
+fn in_test_item(items: &[TestItem], at: usize) -> bool {
+    items.iter().any(|i| (i.start..i.end).contains(&at))
+}
+
+/// The files of `texts` that are test code whole: a module a `#[cfg(test)] mod x;` declares, at
+/// `x.rs` or `x/mod.rs` beside its declaring file, and every module such a file declares.
+fn test_module_files(texts: &BTreeMap<PathBuf, String>) -> BTreeSet<PathBuf> {
+    let declared =
+        regex::Regex::new(r"(?m)^\s*(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;")
+            .expect("a valid pattern");
+    // Where `file`'s child module `name` lives: beside a `lib.rs`, `main.rs` or `mod.rs`, else in
+    // the directory named after the file.
+    let child = |file: &Path, name: &str| -> Vec<PathBuf> {
+        let parent = file.parent().unwrap_or(Path::new(""));
+        let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+        let dir =
+            if matches!(stem, "lib" | "main" | "mod") { parent.to_path_buf() } else { parent.join(stem) };
+        vec![dir.join(format!("{name}.rs")), dir.join(name).join("mod.rs")]
+    };
+    let mut tests: BTreeSet<PathBuf> = BTreeSet::new();
+    for (file, text) in texts {
+        for item in cfg_test_items(&rustlex::lex(text).code) {
+            if let Some(name) = item.module {
+                tests.extend(child(file, &name).into_iter().filter(|p| texts.contains_key(p)));
+            }
+        }
+    }
+    let mut queue: Vec<PathBuf> = tests.iter().cloned().collect();
+    while let Some(file) = queue.pop() {
+        let code = rustlex::lex(&texts[&file]).code;
+        for c in declared.captures_iter(&code) {
+            for path in child(&file, &c[1]) {
+                if texts.contains_key(&path) && tests.insert(path.clone()) {
+                    queue.push(path);
+                }
+            }
+        }
+    }
+    tests
+}
+
 /// The rule a golden read outside `golden_readers` breaks, by the name the depcruise rule has.
 pub const GOLDEN_RULE: &str = "golden-only-in-mod-tests";
 /// The path every golden output sits under.
@@ -560,6 +779,8 @@ struct Manifest {
     kinds: Vec<Named>,
     #[serde(default)]
     relations: Vec<Named>,
+    #[serde(default)]
+    levels: Vec<Named>,
 }
 
 #[derive(Deserialize)]
@@ -592,6 +813,17 @@ fn bare_names(root: &Path) -> Result<BTreeMap<String, String>, String> {
         }
     }
     Ok(names)
+}
+
+/// Every built-in pack's level ID, with the pack that declares it.
+fn level_ids(root: &Path) -> Result<BTreeMap<String, String>, String> {
+    let mut ids = BTreeMap::new();
+    for (_, manifest) in manifests(root, "packs")? {
+        for level in &manifest.levels {
+            ids.entry(level.id.clone()).or_insert_with(|| manifest.id.clone());
+        }
+    }
+    Ok(ids)
 }
 
 /// The `[packs]` rules: a built-in pack's `requires` is one of the listed values, an out-of-tree
@@ -1275,6 +1507,75 @@ pub fn self_test(root: &Path) -> Result<SelfTest, String> {
         );
     }
 
+    // Level literals: a built-in pack's level ID outside tests, and a level_words entry that rots.
+    {
+        let _a = Restore::append(
+            &tmp.join("crates/kernel/src/lib.rs"),
+            "\npub const PLANTED: &str = \"container\";\n",
+        )?;
+        let found = check_level_literals(&tmp, &rules)?;
+        t.step("the level \"container\" in the kernel", &found, "names the level `container`");
+    }
+    {
+        let _a = Restore::create(
+            &tmp.join("packages/canvas/src/planted.ts"),
+            "export const LEVEL = \"component\";\n",
+        )?;
+        let found = check_level_literals(&tmp, &rules)?;
+        t.step("the level \"component\" in packages/canvas", &found, "packages/canvas/src/planted.ts");
+    }
+    {
+        let _a = Restore::create(
+            &tmp.join("packages/contract/src/generated/planted.ts"),
+            "export type L = \"system\" | \"code\";\n",
+        )?;
+        let found = check_level_literals(&tmp, &rules)?;
+        t.step(
+            "a closed level list in the generated contract",
+            &found,
+            "packages/contract/src/generated/planted.ts",
+        );
+    }
+    {
+        let _a = Restore::append(
+            &tmp.join("crates/kernel/src/lib.rs"),
+            "\n#[cfg(test)]\nmod planted {\n    pub const LEVEL: &str = \"code\";\n}\n",
+        )?;
+        let found = check_level_literals(&tmp, &rules)?;
+        t.absent(
+            "the level \"code\" in a #[cfg(test)] module of the kernel",
+            &found,
+            "crates/kernel/src/lib.rs",
+        );
+    }
+    {
+        let _a = Restore::create(
+            &tmp.join("packages/mod/src/planted.test.ts"),
+            "export const LEVEL = \"system\";\n",
+        )?;
+        let found = check_level_literals(&tmp, &rules)?;
+        t.absent("the level \"system\" in a mod test file", &found, "packages/mod/src/planted.test.ts");
+    }
+    {
+        let r = Restore::save(&tmp.join("boundaries.toml"))?;
+        let text = fs::read_to_string(&r.path).map_err(|e| e.to_string())?;
+        let planted = text.replacen(
+            "level_words = [\n",
+            "level_words = [\n  { file = \"crates/kernel/src/lib.rs\", word = \"container\" },\n",
+            1,
+        );
+        if planted == text {
+            return Err("boundaries.toml has no level_words list to plant into".into());
+        }
+        fs::write(&r.path, planted).map_err(|e| e.to_string())?;
+        let found = check_level_literals(&tmp, &load(&tmp)?)?;
+        t.step(
+            "a level_words entry whose file doesn't hold its word",
+            &found,
+            "level_words lists `container` in crates/kernel/src/lib.rs",
+        );
+    }
+
     // Clippy plants: the no-I/O lint in the kernel and contract, and std::net in store.
     let clippy = |krate: &str| -> Vec<String> {
         let (_, out) = cargo(&tmp, &target, &clippy_args(krate));
@@ -1666,6 +1967,66 @@ mod tests {
         let src = "// \"code.a\"\n/** `code.b` */\nconst x = \"code.c\"; const y = 'it\\'s'; const z = `t ${code.toString({a: 1})} and `;\n";
         let found: Vec<String> = ts_string_literals(src).into_iter().map(|(_, v)| v).collect();
         assert_eq!(found, ["code.c", "it\\'s", "t   and "]);
+    }
+
+    /// The literals the level scan reads in `src`: those outside its `#[cfg(test)]` items.
+    fn outside(src: &str) -> Vec<String> {
+        let lexed = rustlex::lex(src);
+        let items = cfg_test_items(&lexed.code);
+        lexed.literals.into_iter().filter(|l| !in_test_item(&items, l.start)).map(|l| l.value).collect()
+    }
+
+    #[test]
+    fn cfg_test_items_are_skipped_whole() {
+        let src = r#"
+pub const KEPT: &str = "a";
+#[cfg(test)]
+mod tests {
+    const IN_MOD: &str = "code";
+    fn nested() { let _ = ["system", "x"]; }
+}
+#[cfg(test)]
+fn helper() -> &'static str { if true { "container" } else { "component" } }
+pub struct S {
+    #[cfg(test)]
+    pub field: [&'static str; 2],
+    pub other: u8,
+}
+const AFTER_FIELD: &str = "b";
+#[cfg(test)]
+use std::collections::{BTreeMap as M, BTreeSet as T};
+const AFTER_USE: &str = "c";
+#[cfg(test)] #[allow(dead_code)] const ATTRS: (&str, &str) = ("code", "system");
+#[cfg(not(test))]
+const NOT_TEST: &str = "d";
+#[cfg(test)]
+mod beside;
+fn last() -> Vec<&'static str> { vec!["e"] }
+"#;
+        assert_eq!(outside(src), ["a", "b", "c", "d", "e"]);
+        let items = cfg_test_items(&rustlex::lex(src).code);
+        assert_eq!(items.iter().filter_map(|i| i.module.as_deref()).collect::<Vec<_>>(), ["beside"]);
+
+        // A test-only field that closes its struct ends at the struct's brace.
+        assert_eq!(outside("struct S { a: u8, #[cfg(test)] b: u8 }\nconst X: &str = \"y\";\n"), ["y"]);
+    }
+
+    #[test]
+    fn a_brace_in_a_string_or_char_never_ends_a_test_item() {
+        let src = r#"
+#[cfg(test)]
+mod tests {
+    const OPEN: &str = "}";
+    const BRACE: char = '}';
+    // } a comment's brace
+    /* } */
+    const INSIDE: &str = "code";
+    fn f() -> char { '{' }
+    const RAW: &str = r"}";
+}
+const OUT: &str = "after";
+"#;
+        assert_eq!(outside(src), ["after"]);
     }
 
     #[test]
