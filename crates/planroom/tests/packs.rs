@@ -2870,13 +2870,18 @@ fn a_pack_past_its_size_bound_is_invalid() {
 #[test]
 fn a_long_source_path_keeps_the_pack_reply_in_budget() {
     let (room, ws, key, _pack) = stems_workspace();
-    let mut deep = room.path("long");
-    while deep.as_os_str().len() < 3_000 {
-        deep.push("d".repeat(200));
+    // As deep as the platform's path limit allows (4096 bytes on Linux, 1024 on macOS), with room
+    // left for the pack's files. The root is canonical, since macOS's temporary directory is a link.
+    let limit = usize::try_from(libc::PATH_MAX).unwrap() - 300;
+    fs::create_dir_all(room.path("long")).unwrap();
+    let mut deep = room.path("long").canonicalize().unwrap();
+    let part = "d".repeat(200);
+    while deep.join(&part).as_os_str().len() <= limit {
+        deep.push(&part);
     }
     let pack = pack_dir(&deep, "stems", &["code"], "");
     fs::write(pack.join("pack.toml"), stems_manifest("name")).unwrap();
-    assert!(pack.as_os_str().len() >= 3_000);
+    assert!(pack.as_os_str().len() > limit - 201, "{}", pack.display());
     let budget =
         planroom_contract::Command::SPECS.iter().find(|s| s.name() == "pack add").unwrap().budget_tokens;
     let added = room.add(&ws, &key, &pack);
