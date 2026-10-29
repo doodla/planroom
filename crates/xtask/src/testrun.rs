@@ -30,6 +30,40 @@ pub fn alone(config: &str) -> Vec<(String, String)> {
     out
 }
 
+/// The tests in a test file's `text` that assert a wall-clock budget, by name: each `#[test]`
+/// function whose body asserts `X < ...` of an `X` it took from `.elapsed()`, or
+/// `... .elapsed() < ...` itself. A loop that waits until a deadline asserts no budget.
+pub fn budgeted(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for part in text.split("#[test]\n").skip(1) {
+        let Some(at) = part.find("fn ") else { continue };
+        let head = &part[..at];
+        if !head.lines().all(|l| l.trim().is_empty() || l.trim_start().starts_with("#[")) {
+            continue;
+        }
+        let indent = &head[head.rfind('\n').map_or(0, |n| n + 1)..];
+        let rest = &part[at + 3..];
+        let Some(open) = rest.find('(') else { continue };
+        let name = &rest[..open];
+        let body = rest.find(&format!("\n{indent}}}\n")).map_or(rest, |end| &rest[..end]);
+        let timers: Vec<&str> = body
+            .lines()
+            .filter_map(|l| {
+                let (var, value) = l.trim().strip_prefix("let ")?.split_once(" = ")?;
+                value.ends_with(".elapsed();").then_some(var.trim())
+            })
+            .collect();
+        let asserts = body.split("assert!(").skip(1).any(|a| {
+            let cond = a.trim_start().split([',', ';']).next().unwrap_or("");
+            cond.contains(".elapsed() <") || timers.iter().any(|t| cond.starts_with(&format!("{t} <")))
+        });
+        if asserts {
+            out.push(name.to_owned());
+        }
+    }
+    out
+}
+
 /// What nextest does when no test matches: with a filter, a match was asked for, so none fails;
 /// a whole crate or the workspace with no test passes.
 pub fn no_tests(filter: Option<&str>) -> &'static str {

@@ -22,7 +22,7 @@ files = ["**/*.go"]
 language = "go"
 query = "queries/go.scm"
 emit = [
-  { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@import", via = "@import" },
+  { hint = "code.import", scope = "@id:code.file:$file", key = "@import" },
   { hint = "code.def", scope = "@id:code.file:$file", key = "@def", value = "@def.params" },
   { hint = "code.const", scope = "@id:code.file:$file", key = "@const", value = "@const.value" },
   { hint = "code.call", scope = "@id:code.file:$file", key = "@call", value = "@call.args" },

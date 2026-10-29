@@ -11,10 +11,13 @@
 //! - **Test code.** No hint from a file the loaded languages' `tests` globs name is read
 //!   ([`TestFiles`]), nor one on a line a `code.test_scope` hint of its file holds, such as a Rust
 //!   item `#[cfg(test)]` or `#[test]` marks, nor one in a file a test module a file declares at
-//!   its top level is read from ([`TestScopes`]): test code never anchors a join, wires one, serves
-//!   an endpoint or is cited as a caller. Its definitions, imports and calls are still facts of
+//!   its top level is read from ([`TestScopes`](super::TestScopes)): test code never anchors a
+//!   join, wires one, serves an endpoint, binds a wrapper, gives a constant or is cited as a
+//!   caller. Its definitions, imports and calls are still facts of
 //!   its repo's snapshot, and a test scope is a hint the link reads and never shows.
-//! - **A hint's container.** A hint's repo is its scope's namespace, and its container is that
+//! - **A hint's container.** A hint's container is the one a member fact places its file in, above
+//!   the universal tier (`WorkspaceFacts::file_containers`), such as a script a pack gives a
+//!   container of its own. Otherwise its repo is its scope's namespace, and its container is that
 //!   repo's one Container-level node, minted here or extracted. When exactly one compose service
 //!   joins the repo, its container is the repo's, and a container only the universal tier gives
 //!   (a root manifest's) yields to it. A join hint (`route_call`, `url`, `queue_op`, `db_open`)
@@ -27,15 +30,26 @@
 //!   hints serve, an OpenAPI spec's included: its key `<METHOD> <path>`, under the container, with
 //!   the evidence of every hint that serves it. A route served for every method is `ANY`.
 //! - **`http`.** A `code.route_call` whose base is a literal URL, or a `code.url`, in container A,
-//!   whose host resolves to container B. A call whose base isn't a literal takes its host from an
-//!   `env_read` in its file of a name compose sets on A. Paths compare with each interpolated or
-//!   parameter segment as `{}`. `via` is the matched endpoint's served `METHOD path`, and
-//!   `via_ref` points at it; with no single match, `via` is the call's own method and normalized
-//!   path, and the edge has no `via_ref`.
+//!   whose host resolves to container B; [`bind`] reads a call's base, path and method. A call
+//!   whose base isn't a literal takes its host as a database open does, from the call's file: an
+//!   `env_read` there of a name compose sets on A; then one whose default compose doesn't
+//!   override, or a URL literal there; then any `env_read` in A's repo of a name compose sets on
+//!   A, counting only the targets that serve an endpoint the call matches. Paths compare with
+//!   each interpolated or parameter segment as `{}`. `via` is the matched endpoint's served
+//!   `METHOD path`, and `via_ref` points at it; with no single match, `via` is the call's own
+//!   method and normalized path, and the edge has no `via_ref`.
+//! - **Wrappers.** A call whose method or path (after its base) is a bare name of a parameter of
+//!   its function binds at each of that function's first [`BIND_SITES`] call sites in A that pass
+//!   a literal or a template, or leave it out with a literal default: one route call each, citing
+//!   the call site, then the wrapped call, and the call site's callers. A name no call site binds
+//!   never joins. Binding goes one hop.
 //! - **Queues.** A `code.queue_op` in A, with an `env_set` on A's service or a `code.url` in A
 //!   whose host is a container the relation accepts: `queue_publish` or `queue_consume` by its
-//!   `op`, `via` its key, resolved through a `code.const` of that name in its file, or else its
-//!   own text.
+//!   `op`, `via` its key, resolved through a `code.const` of that name in its file, or else in a
+//!   module of its repo that one of its file's first [`IMPORT_READS`] imports names (a dotted
+//!   one by at most [`MODULE_SEGMENTS`] segments), when they agree on one value, or else its own
+//!   text; a key that names a parameter of its function and
+//!   no constant resolves joins nothing.
 //! - **`db`.** A `code.db_open` in A. The first source whose host resolves to a container wins:
 //!   an `env_read` in its file of a name compose sets on A; then an `env_read` in its file whose
 //!   literal or constant default isn't overridden, or a URL literal in its file; then every
@@ -59,7 +73,8 @@
 //! by method, never by walking every endpoint the path holds. Each join hint cites at most
 //! [`WIRES`] wiring items for its target, the first by path and line, so an edge that several
 //! hints join cites at most that many for each. An edge takes the `code.sql` lines of a file, and
-//! its endpoint's evidence, once, however many of its hints share them. So what the link holds,
+//! its endpoint's evidence, once, however many of its hints share them. A line's many calls of
+//! one function are one caller, indexed once, so a join never walks them. So what the link holds,
 //! and the work it does, grow with the hints it reads, never with their product: a file's thousand
 //! calls and thousand environment reads make at most a thousand edges, each citing a few lines.
 //!
@@ -70,7 +85,15 @@
 //! Many containers that each combine a host they share with a host of their own cost a few
 //! lookups each. Joins that combine two or more large sets in different combinations, each with
 //! a host of its own, read every large set but the largest once per combination: that work grows
-//! with the number of combinations times the sizes of their smaller sets.
+//! with the number of combinations times the sizes of their smaller sets. A call whose host comes
+//! from its container's reads anywhere in its repo finds the targets that serve an endpoint it
+//! matches once per set of targets, path and method, however many containers share the set,
+//! reading the smaller of the set and the containers that serve its path; the wires that reach
+//! one target come from its container's wires by host, built once per container. A wrapped call
+//! reads at most [`BIND_SITES`] call sites, each call site's arguments split once, and an
+//! imported constant at most [`IMPORT_READS`] imports of its file, each one lookup per module key.
+//! A file's module keys, at most `2 * (MODULE_SEGMENTS + 1)` however deep it sits, are worked out
+//! once, however many constants it holds.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
@@ -82,10 +105,12 @@ use planroom_contract::{
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::bind::{self, BIND_SITES, Bound, Method, Target};
+use super::imports::IMPORT_HINT;
 use super::{
-    CANDIDATE_SAMPLE, Callers, Linked, Linker, RelationRef, TestFiles, TestScopes, Unresolved,
-    WorkspaceFacts, at, attr, extractor, image_repo, key, nameable, namespace, normalize_path, rank,
-    tier_rank, url_host, url_path,
+    CANDIDATE_SAMPLE, Callers, Linked, Linker, RelationRef, TestFiles, Unresolved, WorkspaceFacts, at, attr,
+    extractor, image_repo, key, last_segment, nameable, namespace, normalize_path, rank, relative, tier_rank,
+    url_host,
 };
 use crate::ids::{edge_id, node_id};
 use crate::{ExtractError, KindRef};
@@ -118,14 +143,21 @@ pub const CONSUMES: &[&str] = &[
     super::DEF_HINT,
     super::CALL_HINT,
     super::TEST_SCOPE_HINT,
+    IMPORT_HINT,
 ];
 
 /// The wiring items an edge cites at most for its target, the first by path and line.
 pub const WIRES: usize = 3;
+/// The call sites that bind one edge's route calls and add their lines, the first by path and
+/// line.
+pub const BOUND_ANCHORS: usize = 3;
+/// The imports of a file an imported constant is looked up through, the first by line.
+pub const IMPORT_READS: usize = 64;
+/// The trailing segments of a module's path that a dotted import names at most: a dotted import
+/// of more segments resolves no constant.
+pub const MODULE_SEGMENTS: usize = 32;
 /// The method key of a route served for every method.
 const ANY_METHOD: &str = "ANY";
-/// The methods a call's `method` may name.
-const METHODS: [&str; 9] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"];
 
 /// The kinds this linker emits, which the pack that declares it names in `options.kinds`.
 #[derive(Debug, Clone, Deserialize)]
@@ -216,6 +248,15 @@ impl AtPath {
             _ => None,
         }
     }
+
+    /// Whether some endpoint here serves a call of `method`: one of that method or served for
+    /// every method, or with no method named, any.
+    fn fits(&self, method: Option<&str>) -> bool {
+        match method {
+            Some(m) => [m, ANY_METHOD].iter().any(|k| self.by_method.get(*k).is_some_and(|v| !v.is_empty())),
+            None => self.count > 0,
+        }
+    }
 }
 
 /// The evidence slots of an edge, in the order the edge lists them.
@@ -244,6 +285,8 @@ struct Draft {
     /// Whether it cites its `via_ref` endpoint's evidence yet, taken once however many calls
     /// reach it.
     via_cited: bool,
+    /// How many binding call sites it cites, at most [`BOUND_ANCHORS`].
+    bound: usize,
 }
 
 impl Draft {
@@ -365,6 +408,16 @@ struct Variable<'a> {
     first: Vec<(&'a Hint, String)>,
 }
 
+/// The constants of one name at one module key: the first by path and line, and whether every
+/// one gives its value.
+struct ConstsAt<'a> {
+    first: &'a Hint,
+    agree: bool,
+}
+
+/// A container's wires by the host they name.
+type ByHost<'a> = HashMap<String, Vec<Wire<'a>>>;
+
 /// A source of wiring, for its memo: which join reads it.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Source {
@@ -417,6 +470,28 @@ struct Run<'a> {
     memo: HashMap<(Source, NodeId, &'a str, String), (bool, Resolution<'a>)>,
     /// What a literal host resolves to, by container, host and relation.
     hosts: HashMap<(NodeId, String, String), Resolution<'a>>,
+    /// The container a pack's facts place each file in, beside its repo's.
+    file_containers: &'a BTreeMap<NodeId, NodeId>,
+    /// The containers that serve some endpoint at each normalized path, in ID order.
+    served: HashMap<String, Vec<NodeId>>,
+    /// The containers of a set of targets that serve a call, by the set's address, normalized
+    /// path and method.
+    serving: HashMap<(usize, String, Option<String>), Rc<Targets>>,
+    /// The wires of a container's repo by host, by container and relation.
+    repo_wires: HashMap<(NodeId, String), Rc<ByHost<'a>>>,
+    /// Each call site's arguments, split once however many hints bind through it.
+    args: HashMap<&'a str, Rc<bind::Args>>,
+    /// Each file's first [`IMPORT_READS`] imports, by line.
+    imports_in_file: BTreeMap<&'a str, Vec<&'a Hint>>,
+    /// Each module key of a file that holds a constant, by repo and key, as a number: worked out
+    /// once per file, however many constants it holds. A key is `=` and the module's path without
+    /// its extension, or the directory of an `index`, `__init__` or `mod` file, or `~` and any of
+    /// their last [`MODULE_SEGMENTS`] runs of segments, which a dotted import's path ends with.
+    modules: HashMap<(&'a str, String), usize>,
+    /// Constants by their file's module: by module key's number and name.
+    module_consts: HashMap<(usize, &'a str), ConstsAt<'a>>,
+    /// What each file's imports resolve a constant name to, worked out once per file and name.
+    imported: HashMap<(&'a str, &'a str), Option<&'a Hint>>,
     drafts: BTreeMap<EdgeId, Draft>,
     unresolved: BTreeMap<String, Unresolved>,
 }
@@ -459,22 +534,8 @@ fn first_reads<'a, 'h>(reads: &'a [&'h Hint]) -> impl Iterator<Item = &'h Hint> 
 impl<'a> Run<'a> {
     fn new(ws: &'a WorkspaceFacts, opts: &'a Options, tests: &TestFiles) -> Run<'a> {
         // A test file's hints are test code's, and so are a test module's file's and those on a
-        // line a test scope of their file holds: none anchors or cites a join. Each file is
-        // matched once, however many hints it holds.
-        let mut test_file: HashMap<&str, bool> = HashMap::new();
-        let scopes = TestScopes::new(&ws.hints);
-        let mut hints: Vec<&Hint> = ws
-            .hints
-            .iter()
-            .filter(|h| {
-                !*test_file
-                    .entry(h.scope.0.as_str())
-                    .or_insert_with(|| tests.matches(key(&h.scope)) || scopes.hold_file(&h.scope))
-            })
-            .filter(|h| !scopes.hold(h))
-            .collect();
-        hints.sort_by(|a, b| a.id.cmp(&b.id));
-        hints.dedup_by(|a, b| a.id == b.id);
+        // line a test scope of their file holds: none anchors or cites a join.
+        let hints = super::runtime_code(&ws.hints, tests);
         let mut run = Run {
             opts,
             repos: &ws.repos,
@@ -500,6 +561,15 @@ impl<'a> Run<'a> {
             endpoints_at: BTreeMap::new(),
             memo: HashMap::new(),
             hosts: HashMap::new(),
+            file_containers: &ws.file_containers,
+            served: HashMap::new(),
+            serving: HashMap::new(),
+            repo_wires: HashMap::new(),
+            args: HashMap::new(),
+            imports_in_file: BTreeMap::new(),
+            modules: HashMap::new(),
+            module_consts: HashMap::new(),
+            imported: HashMap::new(),
             drafts: BTreeMap::new(),
             unresolved: BTreeMap::new(),
         };
@@ -609,8 +679,36 @@ impl<'a> Run<'a> {
 
     fn index_hints(&mut self) {
         let hints = self.hints.clone();
+        // Constants come by path and line, so a file's come together: its module keys are worked
+        // out when its first one comes.
+        let mut file: Option<(&str, Vec<usize>)> = None;
         for hint in of_kind(&hints, CONST_HINT) {
-            self.consts.entry((hint.scope.0.as_str(), hint.key.as_str())).or_insert(hint);
+            let scope = hint.scope.0.as_str();
+            self.consts.entry((scope, hint.key.as_str())).or_insert(hint);
+            if file.as_ref().is_none_or(|(s, _)| *s != scope) {
+                let repo = namespace(&hint.scope);
+                let mut ids = Vec::new();
+                for module in module_keys(key(&hint.scope)) {
+                    let next = self.modules.len();
+                    ids.push(*self.modules.entry((repo, module)).or_insert(next));
+                }
+                file = Some((scope, ids));
+            }
+            let (_, ids) = file.as_ref().expect("just set");
+            for &id in ids {
+                // The first is kept, and a later one of another value makes the key give none.
+                let at = self
+                    .module_consts
+                    .entry((id, hint.key.as_str()))
+                    .or_insert(ConstsAt { first: hint, agree: true });
+                at.agree &= at.first.value == hint.value;
+            }
+        }
+        for hint in of_kind(&hints, IMPORT_HINT) {
+            let file = self.imports_in_file.entry(hint.scope.0.as_str()).or_default();
+            if file.len() < IMPORT_READS {
+                file.push(hint);
+            }
         }
         for hint in of_kind(&hints, ENV_READ_HINT) {
             self.reads_in_file.entry(hint.scope.0.as_str()).or_default().push(hint);
@@ -633,17 +731,34 @@ impl<'a> Run<'a> {
         }
     }
 
-    /// The one container of the repo whose scope is `scope`, if it has exactly one.
+    /// The container the facts place the file `scope` in, when one does above the universal
+    /// tier: a container only a root manifest gives yields to the repo's joined service, as it
+    /// does for the repo's own files.
+    fn placed(&self, scope: &NodeId) -> Option<&NodeId> {
+        let universal = tier_rank(Tier::Universal);
+        self.file_containers
+            .get(scope)
+            .filter(|c| self.containers.get(*c).is_some_and(|k| k.rank > universal))
+    }
+
+    /// The one container the file `scope` sits in: the one the facts place it in, or else its
+    /// repo's, if it has exactly one.
     fn sole(&self, scope: &NodeId) -> Option<NodeId> {
+        if let Some(placed) = self.placed(scope) {
+            return Some(placed.clone());
+        }
         match self.holds.get(namespace(scope)) {
             Some(Holds::One(id)) => Some(id.clone()),
             _ => None,
         }
     }
 
-    /// The container a join hint sits in, or `None` when it joins nothing; a repo with two or
-    /// more containers leaves the join unresolved.
+    /// The container a join hint sits in, or `None` when it joins nothing; a hint in a repo with
+    /// two or more containers, none of which the facts place its file in, is left unresolved.
     fn anchor_container(&mut self, hint: &Hint, relation: &RelationRef) -> Option<NodeId> {
+        if let Some(placed) = self.placed(&hint.scope) {
+            return self.accepts(placed, &relation.from).then(|| placed.clone());
+        }
         match self.holds.get(namespace(&hint.scope)) {
             Some(Holds::One(a)) if self.accepts(a, &relation.from) => Some(a.clone()),
             Some(Holds::Many(sample, count)) => {
@@ -978,7 +1093,11 @@ impl<'a> Run<'a> {
                     evidence: vec![],
                 };
                 self.endpoints.insert(id.clone(), Endpoint { node, seen: HashSet::new() });
-                let at = self.endpoints_at.entry((container, normalize_path(path))).or_default();
+                let normalized = normalize_path(path);
+                let at = self.endpoints_at.entry((container.clone(), normalized.clone())).or_default();
+                if at.count == 0 {
+                    self.served.entry(normalized).or_default().push(container);
+                }
                 at.by_method.entry(method).or_default().push(id.clone());
                 at.count += 1;
             }
@@ -992,6 +1111,9 @@ impl<'a> Run<'a> {
                 hints.push(HintRef { id: hint.id.clone(), extractor: extractor(hint) });
             }
         }
+        for servers in self.served.values_mut() {
+            servers.sort_unstable();
+        }
     }
 
     /// The endpoint of `b` a call of `method` to `path` reaches, when exactly one does.
@@ -1000,48 +1122,319 @@ impl<'a> Run<'a> {
         self.endpoints.get(id)
     }
 
-    fn http(&mut self, hints: &[&'a Hint], callers: &Callers<'_>) {
+    fn http(&mut self, hints: &[&'a Hint], callers: &Callers<'a>) {
         let relation = self.opts.relations.http.clone();
         let mut anchors: Vec<&Hint> =
             hints.iter().copied().filter(|h| h.kind.0 == ROUTE_CALL_HINT || h.kind.0 == URL_HINT).collect();
         anchors.sort_by(|a, b| place(a).cmp(&place(b)));
+        // The calls wrappers' call sites make, joined after the rest by their call site's path and
+        // line, so the call sites an edge cites are its first by path and line.
+        let mut bound: Vec<(NodeId, RouteCall<'a>)> = Vec::new();
         for hint in anchors {
-            let Some(call) = Call::of(hint) else { continue };
+            if hint.kind.0 == URL_HINT {
+                let Some(host) = attr(hint, "host") else { continue };
+                let path = normalize_path(attr(hint, "path").unwrap_or("/"));
+                let method = attr(hint, "method").and_then(bind::verb);
+                let Some(a) = self.anchor_container(hint, &relation) else { continue };
+                let call = RouteCall { wrapped: hint, site: None, method, host: Some(host.to_owned()), path };
+                self.call(&relation, &a, call, callers);
+                continue;
+            }
+            let method = bind::method(attr(hint, "method"));
+            let Some(target) = bind::target(attr(hint, "path").unwrap_or(&hint.key), attr(hint, "base"))
+            else {
+                continue;
+            };
             let Some(a) = self.anchor_container(hint, &relation) else { continue };
-            let resolution = match &call.host {
-                Some(host) => self.host(&a, host, &relation),
-                None => self.memo(Source::CallReads, &a, hint.scope.0.as_str(), &relation).1,
-            };
-            let Some((b, wires)) = self.single(hint, resolution) else { continue };
-            let endpoint = self.endpoint(&b, call.method.as_deref(), &call.path);
-            let (via, via_ref) = match endpoint {
-                Some(e) => (e.node.name.clone(), Some(e.node.id.clone())),
-                None => {
-                    let via = match &call.method {
-                        Some(m) => format!("{m} {}", call.path),
-                        None => call.path.clone(),
-                    };
-                    (via, None)
+            match (method, target) {
+                (Method::Verb(m), Target::Path { host, path, .. }) => {
+                    let call = RouteCall { wrapped: hint, site: None, method: Some(m), host, path };
+                    self.call(&relation, &a, call, callers);
                 }
-            };
-            let id = self.draft(&relation.kind, &a, &b, Some(via), via_ref.clone());
-            let draft = self.drafts.get_mut(&id).expect("just made");
-            draft.add(ANCHOR, hint);
-            // The endpoint's evidence once an edge, however many calls reach it.
-            if let Some(e) = via_ref.and_then(|v| self.endpoints.get(&v)).filter(|_| !draft.via_cited) {
-                draft.via_cited = true;
-                for item in &e.node.evidence {
-                    draft.cite(VIA, item);
+                (Method::Unknown, _) => {}
+                (method, target) => {
+                    let calls = self.bound(hint, &a, &method, &target, callers);
+                    bound.extend(calls.into_iter().map(|call| (a.clone(), call)));
                 }
             }
-            draft.wires(&wires);
-            for e in callers.sites(&a, hint) {
-                draft.cite(CALLER, e);
+        }
+        bound.sort_by(|(_, x), (_, y)| {
+            (x.site.map(place), place(x.wrapped)).cmp(&(y.site.map(place), place(y.wrapped)))
+        });
+        for (a, call) in bound {
+            self.call(&relation, &a, call, callers);
+        }
+    }
+
+    /// The route calls a wrapper's call sites make of `wrapped`, whose method or path is a bare
+    /// name: each of the first [`BIND_SITES`] calls of its enclosing function in `a`, by path and
+    /// line, that passes a literal or a template for each name, or leaves one out whose default
+    /// is a literal. A name that is no parameter of the enclosing function, or an argument that is
+    /// itself a name, binds nothing: binding goes one hop.
+    fn bound(
+        &mut self,
+        wrapped: &'a Hint,
+        a: &NodeId,
+        method: &Method,
+        target: &Target,
+        callers: &Callers<'a>,
+    ) -> Vec<RouteCall<'a>> {
+        let Some((_, line)) = at(wrapped) else { return vec![] };
+        let Some(def) = callers.enclosing(wrapped.scope.0.as_str(), line) else { return vec![] };
+        let params = bind::params(def.value.as_deref().unwrap_or_default());
+        let named = |n: &str| params.iter().any(|p| p.name == n);
+        if matches!(method, Method::Name(m) if !named(m))
+            || matches!(target, Target::Name { name, .. } if !named(name))
+        {
+            return vec![];
+        }
+        let mut out = Vec::new();
+        for site in callers.calls_named(a, last_segment(&def.key)).take(BIND_SITES) {
+            let args = self.args_of(site);
+            let passed = |name: &str| match bind::bind(&params, &args, name) {
+                Bound::Arg(text) | Bound::Default(text) => Some(text.to_owned()),
+                Bound::Unknown => None,
+            };
+            let method = match method {
+                Method::Verb(m) => m.clone(),
+                Method::Name(n) => match passed(n).map(|t| bind::method(Some(&t))) {
+                    Some(Method::Verb(m)) => m,
+                    _ => continue,
+                },
+                Method::Unknown => continue,
+            };
+            let (host, path) = match target {
+                Target::Path { host, path, .. } => (host.clone(), path.clone()),
+                // After a base, the argument is the path: it starts with `/` or binds nothing.
+                Target::Name { host, name, based: true } => {
+                    let Some(path) = passed(name).and_then(|t| bind::canonical(&bind::pieces(&t))) else {
+                        continue;
+                    };
+                    (host.clone(), path)
+                }
+                Target::Name { name, based: false, .. } => {
+                    match passed(name).and_then(|t| bind::target(&t, None)) {
+                        Some(Target::Path { host, path, .. }) => (host, path),
+                        _ => continue,
+                    }
+                }
+            };
+            out.push(RouteCall { wrapped, site: Some(site), method: Some(method), host, path });
+        }
+        out
+    }
+
+    /// A call site's arguments, split once.
+    fn args_of(&mut self, site: &'a Hint) -> Rc<bind::Args> {
+        Rc::clone(
+            self.args
+                .entry(site.id.as_str())
+                .or_insert_with(|| Rc::new(bind::args(site.value.as_deref().unwrap_or_default()))),
+        )
+    }
+
+    /// Join one route call from container `a`: an `http` edge to the one container its host
+    /// reaches, with `via` the endpoint it matches there, or else its own method and path.
+    fn call(&mut self, relation: &RelationRef, a: &NodeId, call: RouteCall<'a>, callers: &Callers<'a>) {
+        let path = normalize_path(&call.path);
+        let method = call.method.as_deref();
+        // A join the call site makes is the call site's to report.
+        let report = call.site.unwrap_or(call.wrapped);
+        let resolution = match &call.host {
+            Some(host) => self.host(a, host, relation),
+            None => self.call_host(a, call.wrapped.scope.0.as_str(), method, &path, relation),
+        };
+        let Some((b, wires)) = self.single(report, resolution) else { return };
+        let endpoint = self.endpoint(&b, method, &path);
+        let (via, via_ref) = match endpoint {
+            Some(e) => (e.node.name.clone(), Some(e.node.id.clone())),
+            None => (method.map_or_else(|| path.clone(), |m| format!("{m} {path}")), None),
+        };
+        let id = self.draft(&relation.kind, a, &b, Some(via), via_ref.clone());
+        let draft = self.drafts.get_mut(&id).expect("just made");
+        match call.site {
+            // The call site, then the wrapped call; its callers are the call site's.
+            Some(site) => {
+                if draft.bound < BOUND_ANCHORS {
+                    draft.bound += 1;
+                    draft.add(ANCHOR, site);
+                    for e in callers.sites(a, site) {
+                        draft.cite(CALLER, e);
+                    }
+                }
+                draft.add(ANCHOR, call.wrapped);
+            }
+            None => {
+                draft.add(ANCHOR, call.wrapped);
+                for e in callers.sites(a, call.wrapped) {
+                    draft.cite(CALLER, e);
+                }
+            }
+        }
+        // The endpoint's evidence once an edge, however many calls reach it.
+        if let Some(e) = via_ref.and_then(|v| self.endpoints.get(&v)).filter(|_| !draft.via_cited) {
+            draft.via_cited = true;
+            for item in &e.node.evidence {
+                draft.cite(VIA, item);
+            }
+        }
+        draft.wires(&wires);
+    }
+
+    /// The host of a call from `a` in the file `scope` whose base isn't a literal, as a database
+    /// open finds its own, the first source whose wiring names a container: an environment read in
+    /// the file of a variable compose sets on `a`; an environment read in the file whose literal or
+    /// constant default compose doesn't override, or a URL literal in the file; then any read in
+    /// `a`'s repo of a variable compose sets on `a`, among the containers that serve an endpoint
+    /// the call matches, so a variable that reaches some other container never joins by
+    /// elimination.
+    fn call_host(
+        &mut self,
+        a: &NodeId,
+        scope: &'a str,
+        method: Option<&str>,
+        path: &str,
+        relation: &RelationRef,
+    ) -> Resolution<'a> {
+        for source in [Source::CallReads, Source::DbLiteral] {
+            let (reaches, resolution) = self.memo(source, a, scope, relation);
+            if reaches {
+                return resolution;
+            }
+        }
+        let (reaches, resolution) = self.memo(Source::DbAnywhere, a, "", relation);
+        if !reaches {
+            return Resolution::None;
+        }
+        match resolution {
+            Resolution::None => Resolution::None,
+            Resolution::One(b, wires) => {
+                if self.serves(&b, method, path) {
+                    Resolution::One(b, wires)
+                } else {
+                    Resolution::None
+                }
+            }
+            Resolution::Many(candidates) => {
+                let fit = self.serving(&candidates.targets, method, path);
+                let fit = Candidates { targets: fit, from: a.clone() };
+                match fit.count() {
+                    0 => Resolution::None,
+                    1 => {
+                        let b = fit.iter().next().cloned().expect("one target");
+                        let wires = self.reach_wires(a, &b, relation);
+                        Resolution::One(b, wires)
+                    }
+                    _ => Resolution::Many(fit),
+                }
             }
         }
     }
 
-    fn queues(&mut self, hints: &[&'a Hint], callers: &Callers<'_>) {
+    /// The containers of `targets` that serve an endpoint a call of `method` to `path` matches:
+    /// worked out once per set of targets, path and method, however many containers share the
+    /// set, reading the smaller of the set and the containers that serve the path.
+    fn serving(&mut self, targets: &Rc<Targets>, method: Option<&str>, path: &str) -> Rc<Targets> {
+        // Every set lives in this run's maps until it ends, so no two share an address.
+        let key = (Rc::as_ptr(targets).addr(), path.to_owned(), method.map(str::to_owned));
+        if let Some(found) = self.serving.get(&key) {
+            return Rc::clone(found);
+        }
+        let servers = self.served.get(path).map(Vec::as_slice).unwrap_or_default();
+        let fit: BTreeSet<NodeId> = if servers.len() <= targets.len() {
+            servers.iter().filter(|b| targets.contains(b) && self.serves(b, method, path)).cloned().collect()
+        } else {
+            targets.iter().filter(|b| self.serves(b, method, path)).cloned().collect()
+        };
+        let fit = Rc::new(Targets::of(fit));
+        self.serving.insert(key, Rc::clone(&fit));
+        fit
+    }
+
+    /// Whether `b` serves an endpoint a call of `method` to `path` matches.
+    fn serves(&self, b: &NodeId, method: Option<&str>, path: &str) -> bool {
+        self.endpoints_at.get(&(b.clone(), path.to_owned())).is_some_and(|at| at.fits(method))
+    }
+
+    /// The first [`WIRES`] wires by which the reads in `a`'s repo reach `b`, by path and line:
+    /// those of the hosts `b` carries, from the wires of `a`'s repo by host, worked out once per
+    /// container.
+    fn reach_wires(&mut self, a: &NodeId, b: &NodeId, relation: &RelationRef) -> Vec<Wire<'a>> {
+        let by_host = self.repo_wires(a, relation);
+        let hosts = self.containers.get(b).map(|c| &c.aliases).into_iter().flatten();
+        let mut wires: Vec<Wire<'a>> = hosts
+            .filter_map(|alias| alias.strip_prefix("host:"))
+            .filter_map(|host| by_host.get(host))
+            .flatten()
+            .cloned()
+            .collect();
+        wires.sort_by(|x, y| x.place().cmp(&y.place()));
+        wires.truncate(WIRES);
+        wires
+    }
+
+    /// The wires of `a`'s repo by the host they name: each read among its variable's first
+    /// [`WIRES`], with each of that variable's first [`WIRES`] sets on `a` that reach a target,
+    /// keeping each host's first [`WIRES`] by path and line. Worked out once per container and
+    /// relation.
+    fn repo_wires(&mut self, a: &NodeId, relation: &RelationRef) -> Rc<ByHost<'a>> {
+        let key = (a.clone(), relation.kind.clone());
+        if let Some(found) = self.repo_wires.get(&key) {
+            return Rc::clone(found);
+        }
+        let reads = self.reads_in_repo.get(namespace(a)).cloned().unwrap_or_default();
+        let mut by_host: ByHost<'a> = HashMap::new();
+        for read in first_reads(&reads) {
+            let v = self.variable(a, variable(read), relation);
+            for (set, host) in &v.first {
+                let wire =
+                    Wire { host: host.clone(), wiring: Some(*set), env_read: Some(read), constant: None };
+                by_host.entry(host.clone()).or_default().push(wire);
+            }
+        }
+        for wires in by_host.values_mut() {
+            wires.sort_by(|x, y| x.place().cmp(&y.place()));
+            wires.truncate(WIRES);
+        }
+        let found = Rc::new(by_host);
+        self.repo_wires.insert(key, Rc::clone(&found));
+        found
+    }
+
+    /// The constant a file's imports resolve the name `text` to: one named its last segment in a
+    /// module of the same repo that one of the file's first [`IMPORT_READS`] imports names, when
+    /// all such constants agree on one value. An import resolves by a relative path from the file,
+    /// or a dotted one the module's path ends with; one constant is read, never what it names, so
+    /// no import cycle is followed.
+    fn imported(&mut self, scope: &'a str, text: &'a str) -> Option<&'a Hint> {
+        let name = last_segment(text);
+        if !bind::ident(name) || !bind::name(text) {
+            return None;
+        }
+        if let Some(found) = self.imported.get(&(scope, name)) {
+            return *found;
+        }
+        let file = key_of_scope(scope);
+        let repo = scope.split(':').next().unwrap_or_default();
+        // Each module key is one lookup, whatever number of constants it holds.
+        let mut first: Option<&'a Hint> = None;
+        let mut agree = true;
+        for import in self.imports_in_file.get(scope).into_iter().flatten() {
+            for module in import_keys(import, file) {
+                let Some(&id) = self.modules.get(&(repo, module)) else { continue };
+                let Some(at) = self.module_consts.get(&(id, name)) else { continue };
+                agree &= at.agree && first.is_none_or(|f| f.value == at.first.value);
+                if first.is_none_or(|f| place(at.first) < place(f)) {
+                    first = Some(at.first);
+                }
+            }
+        }
+        let one = first.filter(|c| agree && c.value.as_deref().is_some_and(|v| !v.is_empty()));
+        self.imported.insert((scope, name), one);
+        one
+    }
+
+    fn queues(&mut self, hints: &[&'a Hint], callers: &Callers<'a>) {
         for hint in of_kind(hints, QUEUE_OP_HINT) {
             let relation = match attr(hint, "op") {
                 Some("publish") => self.opts.relations.queue_publish.clone(),
@@ -1049,7 +1442,18 @@ impl<'a> Run<'a> {
                 _ => continue,
             };
             let Some(a) = self.anchor_container(hint, &relation) else { continue };
-            let (key, constant) = self.resolve(hint.scope.0.as_str(), attr(hint, "key").unwrap_or(&hint.key));
+            let scope = hint.scope.0.as_str();
+            let raw = attr(hint, "key").unwrap_or(&hint.key);
+            let (mut key, mut constant) = self.resolve(scope, raw);
+            if constant.is_none() {
+                if let Some(c) = self.imported(scope, raw) {
+                    key = c.value.clone().unwrap_or_default();
+                    constant = Some(c);
+                } else if bind::ident(raw) && is_parameter(callers, hint, raw) {
+                    // A parameter no constant resolves: binding a queue key waits.
+                    continue;
+                }
+            }
             if key.is_empty() {
                 continue;
             }
@@ -1068,7 +1472,7 @@ impl<'a> Run<'a> {
         }
     }
 
-    fn dbs(&mut self, hints: &[&'a Hint], callers: &Callers<'_>) {
+    fn dbs(&mut self, hints: &[&'a Hint], callers: &Callers<'a>) {
         let relation = self.opts.relations.db.clone();
         for hint in of_kind(hints, DB_OPEN_HINT) {
             let Some(a) = self.anchor_container(hint, &relation) else { continue };
@@ -1122,6 +1526,7 @@ impl<'a> Run<'a> {
             seen: Default::default(),
             sql_files: HashSet::new(),
             via_cited: false,
+            bound: 0,
         });
         id
     }
@@ -1182,94 +1587,224 @@ fn linked(hints: &[&Hint]) -> Provenance {
     }
 }
 
-/// What a `route_call` or a `url` hint calls: the host its base names when that's a literal, its
-/// method and its normalized path.
-struct Call {
-    host: Option<String>,
+/// One route call to join: the hint that makes it, the call site that bound it, if any, and its
+/// method, literal host and canonical path.
+struct RouteCall<'a> {
+    wrapped: &'a Hint,
+    site: Option<&'a Hint>,
     method: Option<String>,
+    host: Option<String>,
     path: String,
 }
 
-impl Call {
-    fn of(hint: &Hint) -> Option<Call> {
-        if hint.kind.0 == URL_HINT {
-            let host = attr(hint, "host")?.to_owned();
-            let path = normalize_path(attr(hint, "path").unwrap_or("/"));
-            return Some(Call { host: Some(host), method: attr(hint, "method").and_then(method), path });
-        }
-        let text = unquote(attr(hint, "path").unwrap_or(&hint.key));
-        let method = attr(hint, "method").and_then(|m| method(unquote(m)));
-        let (host, path) = match attr(hint, "base").map(unquote) {
-            Some(base) => (url_host(base).map(str::to_owned), text.to_owned()),
-            None if url_host(text).is_some() => {
-                (url_host(text).map(str::to_owned), url_path(text).to_owned())
-            }
-            // A base that isn't a literal, `${base}/orders` or `{base}/orders`: the path follows it.
-            None if text.starts_with("${") || text.starts_with('{') => {
-                let close = text.find('}')?;
-                (None, text[close + 1..].to_owned())
-            }
-            None if text.starts_with('/') => (None, text.to_owned()),
-            // A parameter or an expression: a wrapper's call site binds it.
-            None => return None,
-        };
-        if !path.starts_with('/') {
-            return None;
-        }
-        Some(Call { host, method, path: normalize_path(&path) })
+/// Whether `name` is a parameter of the function that holds `hint`.
+fn is_parameter(callers: &Callers<'_>, hint: &Hint, name: &str) -> bool {
+    let Some((_, line)) = at(hint) else { return false };
+    callers.enclosing(hint.scope.0.as_str(), line).is_some_and(|def| {
+        bind::params(def.value.as_deref().unwrap_or_default()).iter().any(|p| p.name == name)
+    })
+}
+
+/// The repo-relative path a file's ID names.
+fn key_of_scope(scope: &str) -> &str {
+    scope.splitn(3, ':').nth(2).unwrap_or_default()
+}
+
+/// `path` without its last segment's extension.
+fn stem(path: &str) -> &str {
+    let name_at = path.rfind('/').map_or(0, |i| i + 1);
+    match path[name_at..].rfind('.') {
+        Some(dot) if dot > 0 => &path[..name_at + dot],
+        _ => path,
     }
 }
 
-/// `text` without the quotes, backticks or string prefix (`f"..."`) around it.
-fn unquote(text: &str) -> &str {
-    let text = text.trim();
-    let body = text.trim_start_matches(['f', 'r', 'b', 'F', 'R', 'B']);
-    for q in ['`', '"', '\''] {
-        if body.len() >= 2 && body.starts_with(q) && body.ends_with(q) {
-            return &body[1..body.len() - 1];
+/// The module keys a constant in the file at `path` is imported by: `=` and the module's path
+/// without its extension, and for an `index`, `__init__` or `mod` file its directory's; and `~`
+/// and each of their trailing runs of at most [`MODULE_SEGMENTS`] segments, which a dotted
+/// import's path ends with. So a file has at most `2 * (MODULE_SEGMENTS + 1)` keys, however deep
+/// it sits.
+fn module_keys(path: &str) -> Vec<String> {
+    let module = stem(path);
+    let mut modules = vec![module];
+    let (dir, name) = module.rsplit_once('/').unwrap_or(("", module));
+    if matches!(name, "index" | "__init__" | "mod") && !dir.is_empty() {
+        modules.push(dir);
+    }
+    let mut keys = Vec::new();
+    for module in modules {
+        keys.push(format!("={module}"));
+        let mut rest = module;
+        let mut segments = module.matches('/').count() + 1;
+        while segments > MODULE_SEGMENTS {
+            rest = rest.split_once('/').map_or(rest, |(_, tail)| tail);
+            segments -= 1;
+        }
+        loop {
+            keys.push(format!("~{rest}"));
+            match rest.split_once('/') {
+                Some((_, tail)) => rest = tail,
+                None => break,
+            }
         }
     }
-    text
+    keys
 }
 
-/// An HTTP method, in capitals, when `text` names one.
-fn method(text: &str) -> Option<String> {
-    let upper = text.trim().to_ascii_uppercase();
-    METHODS.contains(&upper.as_str()).then_some(upper)
+/// The module keys an import in the file at `file` names: a relative specifier resolved from the
+/// file's directory (`./keys.js`, Python's `.keys`), or a dotted one (`worker.keys`) as the end of
+/// a module's path. Any other names no module of its repo in M1.
+fn import_keys(import: &Hint, file: &str) -> Vec<String> {
+    let spec = import.key.as_str();
+    let dir = file.rsplit_once('/').map_or("", |(d, _)| d);
+    match attr(import, "separator").filter(|s| !s.is_empty()) {
+        Some(separator) => {
+            let dots = spec.chars().take_while(|c| *c == '.').count();
+            let rest = spec[dots..].replace(separator, "/");
+            if dots == 0 {
+                let first = rest.split('/').next().unwrap_or_default();
+                let deep = rest.matches('/').count() >= MODULE_SEGMENTS;
+                return if rest.is_empty() || deep || matches!(first, "crate" | "self" | "super") {
+                    vec![]
+                } else {
+                    vec![format!("~{rest}")]
+                };
+            }
+            let up = "../".repeat(dots - 1);
+            let joined =
+                if rest.is_empty() { up.trim_end_matches('/').to_owned() } else { format!("{up}{rest}") };
+            let target = if joined.is_empty() { Some(dir.to_owned()) } else { relative(dir, &joined) };
+            target.into_iter().filter(|t| !t.is_empty()).map(|t| format!("={t}")).collect()
+        }
+        None if spec.starts_with("./") || spec.starts_with("../") => {
+            relative(dir, spec).map(|t| vec![format!("={}", stem(&t))]).unwrap_or_default()
+        }
+        None => vec![],
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
+    fn hint(kind: &str, scope: &str, line: u32, key: &str, attrs: &[(&str, &str)]) -> Hint {
+        let path = format!("{}/{}", namespace(&NodeId(scope.into())), key_of_scope(scope));
+        Hint {
+            id: format!("{:0>12}", format!("{line}{}", key.len())),
+            kind: Kind(kind.into()),
+            scope: NodeId(scope.into()),
+            key: key.into(),
+            value: None,
+            attrs: attrs.iter().map(|(k, v)| ((*k).to_owned(), Value::from(*v))).collect(),
+            evidence: vec![Evidence::Line { path, line, contains: None, commit: None, branch: None }],
+            provenance: Provenance::Extracted { extractor: "p/x".into(), tier: Tier::Pattern },
+        }
+    }
+
+    fn container(id: &str, kind: &str, tier: Tier) -> Node {
+        let name = id.rsplit(':').next().unwrap();
+        Node {
+            id: NodeId(id.into()),
+            kind: Kind(kind.into()),
+            level: Level::Container,
+            parent: None,
+            name: name.into(),
+            aliases: vec![format!("host:{name}")],
+            props: BTreeMap::new(),
+            layer: Layer::Actual,
+            provenance: Provenance::Extracted { extractor: "p/x".into(), tier },
+            evidence: vec![],
+        }
+    }
+
+    /// A script a pack places in a container of its own, in a repo that holds two: its URL hints
+    /// join from that container, as the file's facts place it, and another file of the repo,
+    /// which no fact places, stays unresolved between the two.
     #[test]
-    fn a_calls_text_gives_its_host_method_and_path() {
-        let call = |path: &str, method: &str| {
-            let hint = Hint {
-                id: "000000000000".into(),
-                kind: Kind(ROUTE_CALL_HINT.into()),
-                scope: NodeId("r:file:a.ts".into()),
-                key: path.into(),
-                value: None,
-                attrs: [("path".to_owned(), Value::from(path)), ("method".to_owned(), Value::from(method))]
-                    .into(),
-                evidence: vec![],
-                provenance: Provenance::Extracted { extractor: "p/x".into(), tier: Tier::Syntactic },
-            };
-            Call::of(&hint).map(|c| (c.host, c.method, c.path))
+    fn a_url_hint_joins_from_the_container_its_file_sits_in() {
+        let kind = |kind: &str, prefix: &str, level: &str| json!({"kind": kind, "id_prefix": prefix, "level": level});
+        let from = json!(["code.service", "code.library", "code.tooling"]);
+        let opts = json!({
+            "kinds": {"service": kind("code.service", "container", "container"),
+                      "repo": kind("code.repo", "repo", "system"),
+                      "endpoint": kind("code.endpoint", "endpoint", "code")},
+            "relations": {"http": {"kind": "code.http", "from": from, "to": ["code.service"]},
+                          "queue_publish": {"kind": "code.queue_publish", "from": from, "to": ["code.queue"]},
+                          "queue_consume": {"kind": "code.queue_consume", "from": from, "to": ["code.queue"]},
+                          "db": {"kind": "code.db", "from": from, "to": ["code.datastore"]}},
+        });
+        let script = "platform:file:tools/healthcheck.rb";
+        let url = |line: u32, host: &str| {
+            let attrs = [("scheme", "http"), ("host", host), ("path", "/healthz"), ("method", "GET")];
+            hint(URL_HINT, script, line, host, &attrs)
+        };
+        let other = [("host", "orders"), ("path", "/x")];
+        let ws = WorkspaceFacts {
+            repos: ["platform", "orders", "storefront"].map(str::to_owned).into(),
+            nodes: vec![
+                container("platform:container:platform", "code.tooling", Tier::Config),
+                container("platform:container:healthcheck", "code.tooling", Tier::Pattern),
+                container("orders:container:orders", "code.service", Tier::Config),
+                container("storefront:container:storefront", "code.service", Tier::Config),
+            ],
+            edges: vec![],
+            hints: vec![
+                url(15, "orders"),
+                url(16, "storefront"),
+                hint(URL_HINT, "platform:file:tools/other.rb", 3, "orders", &other),
+            ],
+            file_containers: [(NodeId(script.into()), NodeId("platform:container:healthcheck".into()))]
+                .into(),
+        };
+        let linked = RuntimeWiring.link(&ws, &opts).unwrap();
+        let id = |r: &Ref| match r {
+            Ref::Id(id) => id.0.clone(),
+            Ref::Alias(a) => a.clone(),
+        };
+        let joined: BTreeSet<(String, String, Option<String>)> =
+            linked.batch.edges.iter().map(|e| (id(&e.from), id(&e.to), e.via.clone())).collect();
+        let want = |to: &str| {
+            ("platform:container:healthcheck".to_owned(), to.to_owned(), Some("GET /healthz".to_owned()))
         };
         assert_eq!(
-            call("`${this.baseUrl}/orders`", "'POST'"),
-            Some((None, Some("POST".into()), "/orders".into()))
+            joined,
+            BTreeSet::from([want("orders:container:orders"), want("storefront:container:storefront")])
         );
+        let [unresolved] = &linked.unresolved[..] else { panic!("{:?}", linked.unresolved) };
+        assert_eq!(unresolved.candidate_count, 2, "the file no fact places");
+    }
+
+    #[test]
+    fn imports_name_the_modules_of_their_repo() {
+        let import = |spec: &str, separator: Option<&str>| {
+            let attrs: Vec<(&str, &str)> = separator.map(|s| ("separator", s)).into_iter().collect();
+            hint(IMPORT_HINT, "w:file:pkg/app/main.py", 1, spec, &attrs)
+        };
+        let file = "pkg/app/main.py";
+        let none: Vec<String> = vec![];
+        assert_eq!(import_keys(&import(".keys", Some(".")), file), ["=pkg/app/keys"]);
+        assert_eq!(import_keys(&import("..shared.keys", Some(".")), file), ["=pkg/shared/keys"]);
+        assert_eq!(import_keys(&import(".", Some(".")), file), ["=pkg/app"]);
+        assert_eq!(import_keys(&import("worker.keys", Some(".")), file), ["~worker/keys"]);
+        assert_eq!(import_keys(&import("crate::keys", Some("::")), file), none);
+        assert_eq!(import_keys(&import("./keys.js", None), file), ["=pkg/app/keys"]);
+        assert_eq!(import_keys(&import("../../../out", None), file), none, "leaves the repo");
+        assert_eq!(import_keys(&import("express", None), file), none);
         assert_eq!(
-            call("'http://orders:8080/orders/{id}?x=1'", "get"),
-            Some((Some("orders".into()), Some("GET".into()), "/orders/{}".into()))
+            module_keys("worker/worker/keys.py"),
+            ["=worker/worker/keys", "~worker/worker/keys", "~worker/keys", "~keys"]
         );
-        assert_eq!(
-            call("f\"{base}/orders/{quote(id)}/events\"", "method"),
-            Some((None, None, "/orders/{}/events".into()))
-        );
-        assert_eq!(call("url", "get"), None, "a parameter waits for its call site");
+        assert!(module_keys("src/keys/index.ts").contains(&"=src/keys".to_owned()));
+        // However deep a module sits, a dotted import reads at most its last segments.
+        let deep = format!("{}keys.py", "a/".repeat(100));
+        let keys = module_keys(&deep);
+        assert_eq!(keys.len(), MODULE_SEGMENTS + 1);
+        assert_eq!(keys[1], format!("~{}keys", "a/".repeat(MODULE_SEGMENTS - 1)));
+        let dotted = format!("{}keys", "a.".repeat(MODULE_SEGMENTS));
+        assert_eq!(import_keys(&import(&dotted, Some(".")), file), none);
+        let dotted = format!("{}keys", "a.".repeat(MODULE_SEGMENTS - 1));
+        assert_eq!(import_keys(&import(&dotted, Some(".")), file).len(), 1);
     }
 }

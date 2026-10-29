@@ -277,20 +277,29 @@ id = "compose_service"
 attrs = ["image", "build", "kind", "role"]
 
 # A string constant, keyed by its name, with its string as the value: what resolves a queue key or
-# an environment read's default named in its file.
+# an environment read's default named in its file, and a queue key named in a file that imports
+# its module.
 [[hints]]
 id = "const"
 attrs = []
 
 # A span of test code inside a file, such as a Rust item `#[cfg(test)]` marks: its line is the
-# span's first and `end` its last. runtime_wiring reads no hint on a line one holds, as it reads
-# none from a test file, and never shows the span itself. A module's declaration at a file's top
-# level also names the `module`, and the `path` its `#[path]` attribute gives: runtime_wiring
-# reads no hint from the files Rust reads that module from. A module declared inline is `inline`,
-# and has no file of its own.
+# span's first and `end` its last. No linker reads a hint on a line one holds, as none reads one
+# from a test file, and none shows the span itself. A module's declaration at a file's top level
+# also names the `module`, and the `path` its `#[path]` attribute gives: no linker reads a hint
+# from the files Rust reads that module from. A module declared inline is `inline`, and has no
+# file of its own.
 [[hints]]
 id = "test_scope"
 attrs = ["end", "module", "path", "inline"]
+
+# An import, scoped to its file and keyed by the specifier as the source writes it: what the
+# imports linker joins to a workspace package, and what resolves a constant a queue key names from
+# another module of its repo. `separator` is the language's path separator, when the specifier's
+# first segment names a package: `.` in Python, `::` in Rust.
+[[hints]]
+id = "import"
+attrs = ["separator"]
 
 # Built-in extractors. Each names the kinds it emits; the engine gives it their levels and prefixes.
 
@@ -356,6 +365,13 @@ options = { kinds = { repo = "code.repo", file = "code.file", person = "code.per
 [[linkers]]
 builtin = "runtime_wiring"
 options = { kinds = { service = "code.service", repo = "code.repo", endpoint = "code.endpoint" }, relations = { http = "code.http", queue_publish = "code.queue_publish", queue_consume = "code.queue_consume", db = "code.db" } }
+
+# imports joins each import to the workspace package it names, and gives the manifest's
+# dependency on that package the import lines that use it. It reads the package nodes and the
+# manifests' dependencies, the roles `package` and `depends_on_package` name.
+[[linkers]]
+builtin = "imports"
+options = { kinds = { package = "code.package" }, relations = { imports = "code.imports", depends_on_package = "code.depends_on_package" } }
 
 # Lenses: which relationships a map shows (DR-15).
 

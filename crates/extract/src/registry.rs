@@ -98,16 +98,33 @@ pub const EXTRACTORS: &[Builtin] = &[
 ];
 
 /// Every built-in linker, each with the hint kinds it joins.
-pub const LINKERS: &[Builtin] = &[Builtin {
-    name: crate::link::runtime::NAME,
-    builtin: "runtime_wiring",
-    role: Role::Linker,
-    consumes: crate::link::runtime::CONSUMES,
-    options: &[
-        kinds(&[role("service"), role("repo"), role("endpoint")]),
-        relations(&[relation("http"), relation("queue_publish"), relation("queue_consume"), relation("db")]),
-    ],
-}];
+pub const LINKERS: &[Builtin] = &[
+    Builtin {
+        name: crate::link::runtime::NAME,
+        builtin: "runtime_wiring",
+        role: Role::Linker,
+        consumes: crate::link::runtime::CONSUMES,
+        options: &[
+            kinds(&[role("service"), role("repo"), role("endpoint")]),
+            relations(&[
+                relation("http"),
+                relation("queue_publish"),
+                relation("queue_consume"),
+                relation("db"),
+            ]),
+        ],
+    },
+    Builtin {
+        name: crate::link::imports::NAME,
+        builtin: "imports",
+        role: Role::Linker,
+        consumes: crate::link::imports::CONSUMES,
+        options: &[
+            kinds(&[role("package")]),
+            relations(&[relation("imports"), relation("depends_on_package")]),
+        ],
+    },
+];
 
 /// Every built-in, extractors first.
 pub fn all() -> impl Iterator<Item = &'static Builtin> {

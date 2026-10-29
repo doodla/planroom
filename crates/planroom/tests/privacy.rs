@@ -87,17 +87,22 @@ fn assert_masked(what: &str, line: &str) {
 /// an unborn repo named like a token, scanned. Returns the root and the scan's envelope.
 fn planted(dir: &Path) -> (std::path::PathBuf, Value) {
     let root = fixture(dir).root;
-    let compose = format!("services:\n  \"{DSN}\":\n    image: postgres:16\n");
-    git_repo(
-        &root.join(REPO),
-        &[(format!("{DIR}/{FILE}"), b"x\n".to_vec()), ("docker-compose.yml".into(), compose.into_bytes())],
-    );
+    plant_repo(&root);
     std::fs::create_dir(root.join(UNBORN)).unwrap();
     let init = Command::new("git").args(["init", "-q", "-b", "main"]).current_dir(root.join(UNBORN)).output();
     assert!(init.unwrap().status.success());
     let scan = json(&root, &["scan", root.to_str().unwrap()], false);
     assert_eq!(scan["ok"], true, "{scan}");
     (root, scan)
+}
+
+/// The repo whose name, directory, file and compose service hold secret shapes, under `root`.
+fn plant_repo(root: &Path) {
+    let compose = format!("services:\n  \"{DSN}\":\n    image: postgres:16\n");
+    git_repo(
+        &root.join(REPO),
+        &[(format!("{DIR}/{FILE}"), b"x\n".to_vec()), ("docker-compose.yml".into(), compose.into_bytes())],
+    );
 }
 
 fn ids(view: &Value) -> Vec<&str> {
@@ -126,15 +131,27 @@ fn engine_lines_mask_repo_text_and_keep_engine_tokens() {
     assert_eq!(unborn[0]["message"], format!("{MASK} has no commits yet; it maps after its first commit."));
     // The map it returns masks the names and keeps the IDs.
     let top = &scan["result"]["map"];
-    assert!(ids(top).contains(&repo_id.as_str()) && ids(top).contains(&dsn_id.as_str()), "{top}");
+    assert!(ids(top).contains(&repo_id.as_str()), "{top}");
     let name_of = |view: &Value, id: &str| {
         view["nodes"].as_array().unwrap().iter().find(|n| n["id"] == id).unwrap()["name"].clone()
     };
     assert_eq!(name_of(top, &repo_id), format!("db_PASSWORD={MASK}"));
-    assert_eq!(name_of(top, &dsn_id), format!("postgres://{MASK}@db"));
+    // The fixture's first page, whose lifted edges carry their evidence, leaves the DSN's
+    // container to a later one; a workspace of the planted repo alone keeps it on scan's own
+    // page, its name masked.
+    let alone = tempfile::tempdir().unwrap();
+    plant_repo(alone.path());
+    let lone = json(alone.path(), &["scan", alone.path().to_str().unwrap()], false);
+    assert_eq!(lone["ok"], true, "{lone}");
+    let page = &lone["result"]["map"];
+    assert!(ids(page).contains(&repo_id.as_str()) && ids(page).contains(&dsn_id.as_str()), "{page}");
+    assert_eq!(name_of(page, &repo_id), format!("db_PASSWORD={MASK}"));
+    assert_eq!(name_of(page, &dsn_id), format!("postgres://{MASK}@db"));
 
-    // map: the summary lists the masked names.
+    // map: the summary lists the masked names, and the blocks keep the IDs.
     let map = json(&root, &["map", "--lens", "all"], false);
+    assert!(ids(&map["result"]).contains(&dsn_id.as_str()), "{map}");
+    assert_eq!(name_of(&map["result"], &dsn_id), format!("postgres://{MASK}@db"));
     let summary = map["summary"].as_str().unwrap();
     assert_masked("map's summary", summary);
     assert!(summary.contains(&format!("db_PASSWORD={MASK} (")), "{summary}");

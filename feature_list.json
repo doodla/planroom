@@ -91,7 +91,12 @@
         "crates/planroom/tests/budgets.rs::map_pages_to_the_whole_map_at_every_detail",
         "crates/extract/tests/link.rs::runtime_wiring_joins_route_calls_to_endpoints",
         "crates/extract/tests/link.rs::evidence_follows_callers_two_hops",
-        "crates/planroom/tests/link_snapshot.rs::adding_a_repo_rekeys_only_the_link_snapshot"
+        "crates/planroom/tests/link_snapshot.rs::adding_a_repo_rekeys_only_the_link_snapshot",
+        "crates/extract/tests/link.rs::a_template_path_normalizes",
+        "crates/extract/tests/link.rs::imports_emit_depends_on_package",
+        "crates/extract/tests/link.rs::a_non_literal_base_takes_its_host_from_the_containers_env_reads",
+        "crates/extract/tests/link.rs::a_wrapper_binds_at_most_its_cap_of_call_sites",
+        "crates/extract/tests/link.rs::a_queue_key_resolves_through_an_imported_constant"
       ],
       "due": {
         "crates/planroom/tests/s01_first_look.rs::every_truth_container_component_and_relation_with_evidence": "M3",
@@ -359,7 +364,6 @@
         "tests/e2e/src/edit.spec.ts::chalk_makes_an_intended_relation_and_forbid": "M1",
         "tests/e2e/src/edit.spec.ts::the_phone_tray_moves_and_relates": "M1",
         "tests/e2e/src/edit.spec.ts::each_hand_edit_undoes": "M1",
-        "crates/extract/tests/link.rs::a_wrapper_call_binds_method_and_path": "M1",
         "crates/kernel/tests/reconcile.rs::a_squash_merged_handoff_is_done": "M2",
         "crates/kernel/tests/reconcile.rs::a_rebase_merged_handoff_is_done": "M2",
         "crates/kernel/tests/reconcile.rs::an_edited_pull_request_whose_rules_hold_is_done": "M2",

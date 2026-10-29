@@ -361,7 +361,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-12: Hints, built-in linkers, endpoints as via nodes, and full evidence recall
 
-- **Status:** accepted, verify in M1 (S1's M1 subset) and M3 (the full S1 comparator). Amended in review rounds 1, 2 and 3. Amended by DR-89.
+- **Status:** accepted, verify in M1 (S1's M1 subset) and M3 (the full S1 comparator). Amended in review rounds 1, 2 and 3. Amended by DR-89 and DR-108.
 - **Starting point:** extended "Extractors, in tiers" and "Relation {..., evidence[], confidence ...}".
 - **Origin:** the concurrency-first design's hints and two-phase scan (§4.2), the extensibility-first design's link phase (§4.6). Fixes the extensibility-first design's fatal flaw (S4 step 4 missed the planted regression) and closes the simplicity-first design's gap (no extractor for the audit DSN, found by a design review).
 - **Context:** the truth's relations carry evidence from several repos at once: a client call, a compose line, the callee's route handler, the spec path, and call sites [TRUTH relations]. After the S4 merges, the worker's database edge is evidenced only by a literal default DSN, because compose no longer wires it [TRUTH scenarios.S4.post_merges]. The impact radius needs callee evidence for an intended edge that doesn't exist yet [TRUTH scenarios.S4.impact_radius.rule]. Prose in comments and docstrings is not evidence.
@@ -387,6 +387,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 2:** a scan that changes any repo's active snapshot links inside its committing `IMMEDIATE` transaction, from the stored hints of the then-active per-repo snapshots. The link snapshot is keyed by the sha256 of its sorted member snapshot IDs and `packs_hash`, and its ID is on the `scan` event (`Scan.link`) and in the reconcile outcome, so `fold(at)` finds the one link of the active set (E3, correctness-3). Tests `duties.rs::concurrent_rescans_link_the_final_active_set`; `kernel/tests/fold.rs::the_link_snapshot_matches_the_active_set`.
 - **Amended in review round 3:** a `route_call` whose method or path is a parameter of its enclosing function is bound at each call site in the same container that passes a literal or a template: one route call per call site, with both lines as evidence. A template's interpolated segment normalizes to `{}` and matches any `{param}` segment of a served route. A route call whose base isn't a literal takes its host from a same-file `env_read` that compose sets, as a database open does. That gives S4's post-hand-off `worker -> orders` edge all five truth evidence items (F2, correctness-2). Test `extract/tests/link.rs::a_wrapper_call_binds_method_and_path`: line 44 yields `POST /orders/{id}/events` and line 39 `GET /orders/{id}`.
 - **Amended by DR-89:** full evidence recall is verified in two steps: M1's S1 comparator checks the subset DR-89 states, and M3's checks the whole truth.
+- **Amended by DR-108:** a wrapped `route_call` binds at most 64 call sites, the first by path and line, by position or keyword with literal defaults and a receiver skipped; an unbound method or path never joins; a route call's host may come from any compose-set read in its container, confirmed by a served endpoint.
 - **Sources (checked 2026-10-25):** `examples/TRUTH.json` (relations, scenarios.S4); candidate-concurrency-agents §4.2; candidate-extensibility §4.6; the design reviews (the fatal flaw in the extensibility-first design; `*.db_dsn`).
 
 ## DR-13: Ruby is an out-of-tree data pack the fixture workspace loads
@@ -2279,7 +2280,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-89: What M1 builds, compares and leaves to later milestones
 
-- **Status:** accepted (decided before M1's first change, 2026-10-26). Amended by DR-91 and DR-95.
+- **Status:** accepted (decided before M1's first change, 2026-10-26). Amended by DR-91, DR-95 and DR-108.
 - **Starting point:** none; it amends [Milestones](architecture.md#milestones) and serves S1, S3 and S15, and the feature list's gate (DR-59).
 - **Origin:** milestone planning: M1's scope, read against the tree after DR-88.
 - **Context:** M1's row in the Milestones table says it closes S1, S15 (most) and S3's deterministic part. Read against the code and `feature_list.json`, several things don't hold:
@@ -2391,6 +2392,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-3 (a ninth event kind, `card`), DR-12 (full evidence recall is verified in M3, with a stated subset in M1), DR-59 (what `feature_list_is_complete` checks, and what a raise is) and DR-83 (the form of the `#[redact]` marks), and extends DR-65 (in M1, `intent next` answers from replay).
 - **Amended by DR-91:** a card's own kind travels as `card_kind`, since `kind` tags the event body, and a card carries `vars`, the values its question and why lines name.
 - **Amended by DR-95:** a budgets raise is a larger ceiling, a smaller `_rate` floor, a removed key, a number set back to null or a number replaced by another shape; a new key, a first number and `recorded` are none.
+- **Amended by DR-108:** storefront's call to orders joins with its host taken from the `ORDERS_URL` read in `config.ts`, a compose-set read in storefront's container that a served endpoint confirms, not from the calls' own file.
 - **Sources (checked 2026-10-26):** `architecture.md` ([Milestones](architecture.md#milestones), trust in [Where the workspace lives](architecture.md#where-the-workspace-lives), [Ruby through the extractor contract](architecture.md#ruby-through-the-extractor-contract), `budgets.json` in [Token budgets](architecture.md#token-budgets-s7), [Spend guards](architecture.md#spend-guards), `intent next` in [Planning](architecture.md#planning-stages-ghosts-and-lint-r5), the server's exposure in [Security and privacy](architecture.md#security-and-privacy), the fold benchmark in [Performance budgets](architecture.md#performance-budgets), [Found by dogfooding](architecture.md#found-by-dogfooding)); `contracts.md` (open sets in [Versioning rules](contracts.md#versioning-rules), the Feature list row in [Every public contract](contracts.md#every-public-contract), `review` in [Command catalogue](contracts.md#command-catalogue), [Event model](contracts.md#event-model)); `feature_list.json` (S1, S3, C15); `examples/TRUTH.json` (`containers`, `relations`); `crates/contract/src/event.rs`; `crates/store/migrations/0001_init.sql`; `crates/planroom/tests/server_auth.rs`; `crates/planroom/src/server/auth.rs` (`CODE_LIFE`).
 
 ## DR-90: The guard lets everyday work through, and closes three more doors
@@ -2877,3 +2879,30 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Known gaps: storefront's call to orders, whose URL is read in another file, waits for wrapper binding; the healthcheck edges wait for the Ruby pack in the fixture's set; the deploy, scrape and telemetry linkers come with their packs; a queue key that is an identifier no same-file constant resolves keeps its raw text until imported constants resolve; `cfg(all(test, ...))` marks no scope; an item overlapping a parse error gives no scope; runtime code on a test item's first or last line is dropped; a removed repo's service stays joined until removed repos leave the active set; the link runs inside the scan's write transaction, which lengthens how long a scan holds the lock.
   - Tests: `crates/extract/tests/link.rs`; `crates/planroom/tests/{link_snapshot, duties}.rs`; `crates/extract/tests/formats.rs`'s Rust test-scope cases; the recall floor's new checks.
 - **Sources (checked 2026-10-28):** `crates/extract/src/link/`; `crates/extract/src/compose.rs`; `crates/store/src/commit/scan.rs`; `packs/code/`; [Hints and linkers](architecture.md#hints-and-linkers); [Contracts](contracts.md).
+
+## DR-108: Imports join workspace packages, and a wrapper's call sites bind its method and path
+
+- **Status:** accepted (decided at the merge of M1's imports linker, 2026-10-29).
+- **Starting point:** extends DR-12 and DR-107; amends DR-12's round-3 amendment and DR-89's "through a wrapper call".
+- **Origin:** the merge of M1's imports linker, read against the docs and the truth by independent checks over two rounds.
+- **Context:**
+  - Imports were Syntactic edges, so a TypeScript import of another repo's package mapped nothing the truth asks for.
+  - storefront calls orders through `OrdersClient`, whose base URL is the `ORDERS_URL` read in `config.ts`, another file than the calls. DR-107's link left that join as a known gap, so storefront → orders stayed unmapped.
+  - Queue keys that name an imported constant kept their raw text.
+- **Decision:**
+  - **Imports are hints a linker joins.** Each language's `[[languages]]` entry emits `code.import` hints. The `imports` linker matches each import spec to a workspace package through one index of package nodes keyed by name, at most one lookup per segment, and emits `depends_on_package` with the import as evidence. An import of a name two or more repos hold joins nothing and is counted in `unresolved_ref`. In M1 only imports of another workspace package join. A `depends_on_package` edge that carries import evidence reads as Linked, through DR-42's merge.
+  - **One selection.** The scan and `link_snapshot.rs`'s relink read the same `Selection` of facts: what each loaded linker's roles name, plus the file-to-container map (`file_containers`) that the Ruby pack's healthcheck joins need.
+  - **Wrapper binding** (amends DR-12 round 3). A `route_call` whose method or path is a parameter of its enclosing definition binds at each call site that passes a literal or a template, by position or keyword, with literal defaults, skipping a receiver (a first `self` or `cls`, Rust's `self`, TypeScript's `this`). A wrapped hint reads at most 64 call sites, the first by path and line. An unbound method or path never joins, replacing DR-107's method-less join. A queue key that names a parameter and resolves to no constant never joins.
+  - **A route call's host** may come from any compose-set read in its container, confirmed by a served endpoint. This amends DR-89's "storefront to orders through a wrapper call": the join takes its host from the `ORDERS_URL` read in `config.ts`, not from the calls' own file.
+  - **Imported constants** resolve queue keys, at most 32 dotted segments per import, each file's module keys worked out once. Test files still never anchor a join (DR-107).
+  - **Linear work.** Caller evidence keeps one site per (path, line), so a line with many calls of one function is one caller; an import of a name many repos hold reads the index's list in place. Each bound has a wall-clock test, and a gate fails any test that asserts a wall-clock budget unless nextest runs it alone.
+- **Alternatives rejected:**
+  - Joining an import by its spec alone: two repos with one package name would invent an edge.
+  - Joining an unbound wrapper call by its path alone: DR-107's method-less join mapped calls the system doesn't make.
+  - Binding every call site of a wrapper: the work grows with the product of call sites and hints.
+- **Consequences:**
+  - Contracts: the `code.import` hint kind; the `imports` linker and its options; the linker block's `Reads`, edges and `file_containers` (contracts.md). No new error, warning or contract type.
+  - The fixture: storefront → orders `http` reaches the map, so the golden map's first page now leaves otel-collector and prometheus out, and the tones overlay adds them whole.
+  - Known gaps: binding reads at most 64 call sites per wrapped hint; a dotted import of more than 32 segments resolves no constant; `fmt.Sprintf`, `format!` and bound queue keys make no join in M1; relative and same-package imports wait for M3's module and file joins; the lifted storefront → orders edge's 3-item sample comes from its `GET /orders/{id}` child, so `orders.ts:26` and the POST route's lines don't show through the map (DR-92's owed read).
+  - Tests: `crates/extract/tests/link.rs` (wrapper binding, imports, imported constants, and the linear-time cases, which run alone under nextest); `crates/xtask/tests/gates.rs::every_test_that_asserts_a_wall_clock_budget_runs_alone`; the units in `link/{mod, bind, runtime}.rs`; `privacy.rs`'s masked container on scan's own page; five S1 recall checks.
+- **Sources (checked 2026-10-29):** `crates/extract/src/link/`; `packs/code/`; [Hints and linkers](architecture.md#hints-and-linkers); [Contracts](contracts.md).

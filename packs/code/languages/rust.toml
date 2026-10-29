@@ -25,10 +25,10 @@ files = ["**/*.rs"]
 language = "rust"
 query = "queries/rust.scm"
 emit = [
-  { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@import", via = "@import" },
-  { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@use.base::@use.item", via = "@use.base::@use.item" },
-  { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@use.outer::@use.mid", via = "@use.outer::@use.mid" },
-  { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@use.base::@use.inner::@use.leaf", via = "@use.base::@use.inner::@use.leaf" },
+  { hint = "code.import", scope = "@id:code.file:$file", key = "@import", attrs = { separator = "::" } },
+  { hint = "code.import", scope = "@id:code.file:$file", key = "@use.base::@use.item", attrs = { separator = "::" } },
+  { hint = "code.import", scope = "@id:code.file:$file", key = "@use.outer::@use.mid", attrs = { separator = "::" } },
+  { hint = "code.import", scope = "@id:code.file:$file", key = "@use.base::@use.inner::@use.leaf", attrs = { separator = "::" } },
   { hint = "code.def", scope = "@id:code.file:$file", key = "@def", value = "@def.params" },
   { hint = "code.const", scope = "@id:code.file:$file", key = "@const", value = "@const.value" },
   { hint = "code.call", scope = "@id:code.file:$file", key = "@call", value = "@call.args" },

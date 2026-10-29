@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
-use planroom_contract::{EventBody, Level, Node, Provenance, Tier};
+use planroom_contract::{Edge, EventBody, Node, Provenance, Ref, Tier};
 use planroom_extract::link::WorkspaceFacts;
 use planroom_store::{Shape, Store};
 use planroom_testkit::{fixture, git_repo};
@@ -38,28 +38,21 @@ fn last_scans(store: &Store) -> BTreeMap<String, (String, u64)> {
 }
 
 /// The link the code pack's linkers make of the active set's member snapshots, as stored: what
-/// a linker reads, rerun over the store.
-fn relink(store: &Store) -> planroom_extract::link::Linked {
+/// the linkers read, selected as the scan selects it, every loaded linker rerun over the store.
+fn relink(store: &Store) -> Vec<planroom_extract::link::Linked> {
     let active = store.active_set().unwrap();
     let mut members: Vec<u64> = active.repos.values().copied().collect();
     members.sort_unstable();
-    let mut facts =
-        WorkspaceFacts { repos: active.repos.keys().cloned().collect(), ..WorkspaceFacts::default() };
-    for row in store.facts(&members).unwrap() {
-        match row.shape {
-            Shape::Hint => facts.hints.push(serde_json::from_str(&row.body).unwrap()),
-            Shape::Node => {
-                let node: Node = serde_json::from_str(&row.body).unwrap();
-                if matches!(node.level, Level::System | Level::Container) {
-                    facts.nodes.push(node);
-                }
-            }
-            Shape::Edge => {}
-        }
-    }
-    let runs = planroom::packs::builtins().unwrap().linker_runs();
-    let [run] = &runs[..] else { panic!("the code pack declares one linker: {runs:?}") };
-    run.link(&facts).unwrap()
+    let packs = planroom::packs::builtins().unwrap();
+    let rows = store.facts(&members).unwrap();
+    let facts: WorkspaceFacts = packs
+        .link_selection()
+        .facts(active.repos.keys().cloned(), rows.iter().map(planroom::packs::link_member))
+        .unwrap();
+    let runs = packs.linker_runs();
+    let builtins: Vec<&str> = runs.iter().map(|r| r.builtin.as_str()).collect();
+    assert_eq!(builtins, ["runtime_wiring", "imports"], "the code pack's linkers");
+    runs.iter().map(|run| run.link(&facts).unwrap()).collect()
 }
 
 #[test]
@@ -84,26 +77,41 @@ fn the_link_snapshot_matches_the_active_set() {
         assert_eq!((head.repo.as_str(), head.purpose.as_str()), (repo.as_str(), "head"));
     }
 
-    // Its facts: the linker rerun over the stored member facts, fact for fact.
+    // Its facts: every linker rerun over the stored member facts, fact for fact.
     let linked = relink(&store);
-    assert!(linked.unresolved.is_empty(), "{:?}", linked.unresolved);
-    let mut want: Vec<(String, String)> = linked
-        .batch
-        .nodes
+    for one in &linked {
+        assert!(one.unresolved.is_empty(), "{:?}", one.unresolved);
+    }
+    let nodes: Vec<&Node> = linked.iter().flat_map(|l| &l.batch.nodes).collect();
+    let edges: Vec<&Edge> = linked.iter().flat_map(|l| &l.batch.edges).collect();
+    let mut want: Vec<(String, String)> = nodes
         .iter()
         .map(|n| (n.id.0.clone(), serde_json::to_string(n).unwrap()))
-        .chain(linked.batch.edges.iter().map(|e| (e.id.0.clone(), serde_json::to_string(e).unwrap())))
+        .chain(edges.iter().map(|e| (e.id.0.clone(), serde_json::to_string(e).unwrap())))
         .collect();
     want.sort();
     let got: Vec<(String, String)> =
         store.facts(&[link]).unwrap().into_iter().map(|r| (r.id, r.body)).collect();
     assert_eq!(got, want);
-    assert!(linked.batch.edges.len() >= 4, "the db, queue_publish and queue_consume joins: {got:?}");
+    let kinds: std::collections::BTreeSet<&str> = edges.iter().map(|e| e.kind.0.as_str()).collect();
+    for kind in ["code.db", "code.queue_publish", "code.queue_consume", "code.http", "code.imports"] {
+        assert!(kinds.contains(kind), "{kind}: {kinds:?}");
+    }
+    // storefront's call to orders, whose base its constructor takes and whose host a variable
+    // read in another file of its container names.
+    assert!(
+        edges.iter().any(|e| {
+            e.kind.0 == "code.http"
+                && e.from == Ref::Id(planroom_contract::NodeId("storefront:container:storefront".into()))
+                && e.via.as_deref() == Some("POST /orders")
+        }),
+        "{edges:#?}"
+    );
 
     // No head snapshot holds a node the link mints at a tier that outranks it: a repo's root
     // manifest gives its container at the universal tier, which the link's kind and role win
-    // (DR-42).
-    let minted: BTreeMap<&str, &Node> = linked.batch.nodes.iter().map(|n| (n.id.0.as_str(), n)).collect();
+    // (DR-42). A shared edge ID is how a linked edge adds its evidence to an extracted one.
+    let minted: BTreeMap<&str, &Node> = nodes.iter().map(|n| (n.id.0.as_str(), *n)).collect();
     for row in store.facts(&members).unwrap() {
         if row.shape != Shape::Node || !minted.contains_key(row.id.as_str()) {
             continue;

@@ -14,11 +14,11 @@ use std::path::{Path, PathBuf};
 
 use planroom_contract::errors::WARNING_SAMPLE;
 use planroom_contract::{
-    Actor, Client, Command, CommandName, FACTS_FORMAT, FactBatch, Handle, Level, Rename, ScanReq, ScanResult,
+    Actor, Client, Command, CommandName, FACTS_FORMAT, FactBatch, Handle, Rename, ScanReq, ScanResult,
     ScanStats, Seq, Surface, Tier, Warning, WarningCode,
 };
 use planroom_extract::git::{Git, GitError};
-use planroom_extract::link::{Unresolved, WorkspaceFacts};
+use planroom_extract::link::{Selection, Unresolved, WorkspaceFacts};
 use planroom_extract::verify::Verifier;
 use planroom_extract::{ExtractError, RepoView, files, select, walk};
 use planroom_kernel::{facts, keys, redact};
@@ -166,10 +166,10 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     // the active set the commit finds, read inside its transaction (DR-12). A join a linker
     // left unresolved is reported once, by the scan that built the link.
     let linkers = packs.linker_runs();
-    let linked_kinds = linked_kinds(&packs);
+    let selection = packs.link_selection();
     let mut unresolved: Vec<Unresolved> = Vec::new();
     let mut link = |snapshot: &planroom_store::Snapshot<'_>, set: &BTreeMap<String, u64>| {
-        let facts = workspace_facts(snapshot, set, &linked_kinds)?;
+        let facts = workspace_facts(snapshot, set, &selection)?;
         let mut batches = Vec::with_capacity(linkers.len());
         for run in &linkers {
             let linked = run.link(&facts)?;
@@ -324,42 +324,17 @@ fn inputs_hash(packs_hash: &str, runs: &[Run], exclude: &[String]) -> String {
     keys::sha256_hex(&["planroom.extract-inputs/v1", packs_hash, &options.join("\n"), "exclude", &exclude])
 }
 
-/// The node kinds a linker reads: the System- and Container-level kinds of the vocabulary.
-fn linked_kinds(packs: &Loaded) -> BTreeSet<String> {
-    packs
-        .vocabulary
-        .kinds
-        .iter()
-        .filter(|k| matches!(k.level, Level::System | Level::Container))
-        .map(|k| k.kind.0.clone())
-        .collect()
-}
-
-/// What a linker reads of the active set `set`, repo name to snapshot: its repo names, its
-/// members' System- and Container-level nodes (of the `kinds` given) and every hint, read through
-/// `snapshot`, the commit's own transaction.
+/// What the linkers read of the active set `set`, repo name to snapshot, as `selection` selects
+/// it from the members' facts, read through `snapshot`, the commit's own transaction.
 fn workspace_facts(
     snapshot: &planroom_store::Snapshot<'_>,
     set: &BTreeMap<String, u64>,
-    kinds: &BTreeSet<String>,
+    selection: &Selection,
 ) -> Result<WorkspaceFacts, AppError> {
     let mut members: Vec<u64> = set.values().copied().collect();
     members.sort_unstable();
-    let mut facts = WorkspaceFacts { repos: set.keys().cloned().collect(), ..WorkspaceFacts::default() };
-    for row in snapshot.facts(&members)? {
-        match row.shape {
-            Shape::Hint => facts.hints.push(serde_json::from_str(&row.body).map_err(AppError::internal)?),
-            Shape::Node if kinds.contains(&row.kind) => {
-                let node: planroom_contract::Node =
-                    serde_json::from_str(&row.body).map_err(AppError::internal)?;
-                if matches!(node.level, Level::System | Level::Container) {
-                    facts.nodes.push(node);
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(facts)
+    let rows = snapshot.facts(&members)?;
+    selection.facts(set.keys().cloned(), rows.iter().map(packs::link_member)).map_err(AppError::internal)
 }
 
 /// The `unresolved_ref` warning for the joins the linkers left unresolved, if any: their count

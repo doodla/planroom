@@ -119,9 +119,9 @@ fn seq(root: &Path) -> u64 {
     env["meta"]["seq"].as_u64().unwrap()
 }
 
-/// Everything the edits below change, as `map` shows it: the canvas's graph of the containers
-/// with every relation, and the blocks under the storefront repo and its `src`. The `seq`s are
-/// left out, since every write moves them.
+/// Everything the edits below change, as `map` shows it, every page: the canvas's graph of the
+/// containers with every relation, and the blocks under the storefront repo and its `src`. The
+/// `seq`s and cursors are left out, since every write moves them.
 fn views(root: &Path) -> Vec<Value> {
     let maps: [&[&str]; 3] = [
         &["map", "--detail", "graph", "--level", "container", "--lens", "all"],
@@ -148,13 +148,26 @@ fn views(root: &Path) -> Vec<Value> {
             "all",
         ],
     ];
-    maps.iter()
-        .map(|args| {
-            let (code, env) = run(root, args, &[], "");
+    // Every page of each: a map pages to its token budget, so an edit can show on a later one.
+    let mut pages = Vec::new();
+    for args in maps {
+        let mut cursor: Option<String> = None;
+        for _ in 0..50 {
+            let mut args = args.to_vec();
+            if let Some(cursor) = &cursor {
+                args.extend(["--cursor", cursor.as_str()]);
+            }
+            let (code, env) = run(root, &args, &[], "");
             assert_eq!(code, 0, "{env}");
-            json!({"result": env["result"], "summary": env["summary"]})
-        })
-        .collect()
+            pages.push(json!({"result": env["result"], "summary": env["summary"]}));
+            cursor = env["meta"]["next"].as_str().map(str::to_owned);
+            if cursor.is_none() {
+                break;
+            }
+        }
+        assert!(cursor.is_none(), "{args:?} pages past 50");
+    }
+    pages
 }
 
 fn ok(code: i32, env: &Value) {

@@ -520,12 +520,65 @@ fn every_test_that_runs_alone_exists() {
     assert!(alone.len() >= 8, "{alone:?}");
     // A renamed test would drop out of the group silently, and run beside the rest again.
     for (binary, name) in alone {
-        let (krate, file) = binary.split_once("::").unwrap_or_else(|| panic!("{binary}"));
+        // A test file's binary is `crate::file`; a crate's own unit tests are the crate's binary,
+        // named by their module path, such as `git::tests::name` in `src/git.rs`.
+        let (krate, file, test) = match binary.split_once("::") {
+            Some((krate, file)) => (krate, format!("tests/{file}.rs"), format!("#[test]\nfn {name}(")),
+            None => {
+                let (module, test) = name.rsplit_once("::").unwrap_or_else(|| panic!("{name}"));
+                let module = module.strip_suffix("::tests").unwrap_or(module);
+                let file = format!("src/{}.rs", module.replace("::", "/"));
+                (binary.as_str(), file, format!("    #[test]\n    fn {test}("))
+            }
+        };
         let dir = krate.strip_prefix("planroom-").unwrap_or(krate);
-        let path = repo.join(format!("crates/{dir}/tests/{file}.rs"));
+        let path = repo.join(format!("crates/{dir}/{file}"));
         let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        assert!(text.contains(&format!("#[test]\nfn {name}(")), "{binary} has no test {name}");
+        assert!(text.contains(&test), "{binary} has no test {name}");
     }
+}
+
+#[test]
+fn every_test_that_asserts_a_wall_clock_budget_runs_alone() {
+    use xtask::testrun;
+    // What a budget looks like, and a deadline loop that is none.
+    let sample = "#[test]\nfn timed() {\n    let took = started.elapsed();\n    assert!(took < BUDGET, \"{took:?}\");\n}\n\
+        #[test]\n#[cfg(unix)]\nfn inline() {\n    assert!(started.elapsed() < Duration::from_secs(5));\n}\n\
+        #[test]\nfn waits() {\n    assert!(ready);\n    while started.elapsed() < limit {}\n    assert!(done);\n}\n\
+        mod m {\n    #[test]\n    fn nested() {\n        let t = s.elapsed();\n        assert!(t < B);\n    }\n}\n";
+    assert_eq!(testrun::budgeted(sample), ["timed", "inline", "nested"]);
+
+    // Every test in the workspace's test files that asserts one runs with no other test beside it.
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let config = fs::read_to_string(repo.join(testrun::NEXTEST_CONFIG)).unwrap();
+    let alone = testrun::alone(&config);
+    let mut missing = Vec::new();
+    let mut found = 0;
+    for dir in fs::read_dir(repo.join("crates")).unwrap() {
+        let dir = dir.unwrap().path();
+        let krate = dir.file_name().unwrap().to_str().unwrap().to_owned();
+        // xtask's own tests time nothing; their text holds samples like the one above.
+        if krate == "xtask" {
+            continue;
+        }
+        let krate = if krate == "planroom" { krate } else { format!("planroom-{krate}") };
+        let Ok(files) = fs::read_dir(dir.join("tests")) else { continue };
+        for file in files {
+            let path = file.unwrap().path();
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            let binary = format!("{krate}::{}", path.file_stem().unwrap().to_str().unwrap());
+            for name in testrun::budgeted(&fs::read_to_string(&path).unwrap()) {
+                found += 1;
+                if !alone.contains(&(binary.clone(), name.clone())) {
+                    missing.push(format!("{binary} {name}"));
+                }
+            }
+        }
+    }
+    assert!(found >= 8, "{found}");
+    assert!(missing.is_empty(), "add to {}: {missing:?}", testrun::NEXTEST_CONFIG);
 }
 
 /// `budgets.json` with `fold.20k`'s `ms` and the S3 cache-hit floor set, the rest as committed.

@@ -33,7 +33,7 @@ use planroom_contract::{
     PackFile, PackRecord, RelationVocab, Vocabulary,
 };
 use planroom_extract::declarative::Declarative;
-use planroom_extract::link::{Linked, WorkspaceFacts};
+use planroom_extract::link::{Linked, Member, Selection, WorkspaceFacts};
 use planroom_extract::{ExtractError, RepoPath, RepoView};
 use planroom_kernel::keys;
 use serde_json::{Value, json};
@@ -208,6 +208,15 @@ pub struct Loaded {
     pub hash: String,
 }
 
+/// A stored fact of a member snapshot, as [`Selection::facts`] reads it.
+pub fn link_member(row: &planroom_store::FactRow) -> Member<'_> {
+    match row.shape {
+        planroom_store::Shape::Node => Member::Node { kind: &row.kind, body: &row.body },
+        planroom_store::Shape::Edge => Member::Edge { kind: &row.kind, body: &row.body },
+        planroom_store::Shape::Hint => Member::Hint { body: &row.body },
+    }
+}
+
 /// The built-in packs alone: what every process loads before a workspace's own packs.
 pub fn builtins() -> Result<Loaded, AppError> {
     resolve(embed::sources())
@@ -323,11 +332,27 @@ impl Loaded {
         runs
     }
 
+    /// What the loaded linkers read of an active set: every hint, the vocabulary's System- and
+    /// Container-level nodes, and the nodes and edges their runs' input roles name. The scan that
+    /// builds the link and anything that reruns it over stored facts select through this alone.
+    pub fn link_selection(&self) -> Selection {
+        let containers = self
+            .vocabulary
+            .kinds
+            .iter()
+            .filter(|k| {
+                matches!(k.level, planroom_contract::Level::System | planroom_contract::Level::Container)
+            })
+            .map(|k| k.kind.0.clone());
+        let runs = self.linker_runs();
+        Selection::new(containers, runs.iter().map(|r| (r.builtin.as_str(), &r.options)))
+    }
+
     /// Every linker as a scan runs it, in load order: `options.kinds` names become the kinds'
     /// levels and prefixes, and `options.relations` names the relations with the kinds each end
     /// may be, from the vocabulary, so no linker spells a kind or a relation of its own.
-    /// `runtime_wiring` also takes the merged `[[languages]]` table, whose test globs name the
-    /// files its joins never read.
+    /// Every linker also takes the merged `[[languages]]` table, whose test globs name the files
+    /// its joins never read.
     pub fn linker_runs(&self) -> Vec<LinkRun> {
         let relations: BTreeMap<&str, &RelationVocab> =
             self.vocabulary.relations.iter().map(|r| (r.kind.0.as_str(), r)).collect();
@@ -348,10 +373,8 @@ impl Loaded {
                         .collect();
                     options.insert("relations".into(), Value::Object(resolved));
                 }
-                // The merged languages, whose test globs name the files no runtime join reads.
-                if declared.decl.builtin == "runtime_wiring" {
-                    options.insert("languages".into(), json!(self.languages));
-                }
+                // The merged languages, whose test globs name the files no join reads.
+                options.insert("languages".into(), json!(self.languages));
                 LinkRun {
                     name: declared.name.clone(),
                     builtin: declared.decl.builtin.clone(),

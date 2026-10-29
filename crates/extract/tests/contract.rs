@@ -270,6 +270,7 @@ fn compose_emits_containers_aliases_and_hints_on_their_lines() {
         repos: ["deploy", "api", "web"].iter().map(|r| (*r).to_owned()).collect(),
         nodes: batch.nodes.clone(),
         hints: batch.hints.clone(),
+        ..WorkspaceFacts::default()
     };
     let linked =
         planroom_extract::link::builtin("runtime_wiring").unwrap().link(&facts, &link_opts()).unwrap();

@@ -243,7 +243,7 @@ A code that only a person can clear has retry `never` and names the card or comm
 |---|---|
 | `claimed` | the target is claimed by someone else; `details {by, until}` |
 | `truncated` | the result hit its budget; the summary and first page are kept. For `map`, `details {kept, total, budget_tokens, next}`, where `next` is the drill-down handle in [Token budgets](architecture.md#token-budgets-s7) (DR-85). From the CLI's check of a whole reply against its leaf's budget, `details {budget_tokens, left_out, codes}`: `left_out` counts the warnings it left out after those it kept in order, and `codes` counts them by code. A page of `ask`'s listing that leaves out an entry too long for any page adds `entries_left_out`, the count of those entries. A page of `intent list` that cuts an entry's touches, pending edits and review handles to fit adds `entries_cut`, the count of those entries, and says so even on the last page. A result that passes the budget alone keeps only the leaf's own `truncated` warning and leaves out every other, so `left_out` counts them all. Only the message marks that case: it says the reply passes its budget (DR-86) |
-| `unresolved_ref` | an alias had zero or several candidates, or a linker join two or more; no edge was made. A linker never guesses: a join hint (`route_call`, `url`, `queue_op`, `db_open`) whose repo holds two or more containers, or whose host reaches two or more targets the relation accepts, joins nothing, and the scan that builds the link snapshot warns once, with `details {count, items}`: `count` counts the join hints left unresolved, and `items` is a sample, the first 10 by hint ID, each `{linker, hint, candidates, candidate_count}`, where `candidates` is the first 3 candidate node IDs by ID. Every item is an ID, so nothing in it is masked (DR-12) |
+| `unresolved_ref` | an alias had zero or several candidates, or a linker join two or more; no edge was made. A linker never guesses: a join hint (`route_call`, `url`, `queue_op`, `db_open`, or a wrapper's call site that binds a `route_call`, whose item names the call site's `code.call`) whose repo holds two or more containers, or whose host reaches two or more targets the relation accepts, and an `import` whose package name two repos hold, joins nothing, and the scan that builds the link snapshot warns once, with `details {count, items}`: `count` counts the join hints left unresolved, and `items` is a sample, the first 10 by hint ID, each `{linker, hint, candidates, candidate_count}`, where `candidates` is the first 3 candidate node IDs by ID. Every item is an ID, so nothing in it is masked (DR-12) |
 | `evidence_dropped` | an evidence item failed verification at ingest; `details {repo, count, items}`, where `items` is a sample of the dropped items |
 | `partial_parse` | files parsed with error nodes, so their facts are weak; `details {repo, count, paths}`, where `paths` is a sample: the first 10 in sorted order (DR-86) |
 | `unparsed_files` | files an extractor took no facts from because they pass a nesting or work bound, would hold more heap in facts and kept matches than their size allows, or come at or after the first file in sorted order whose facts would take the repo past its bound; `details {repo, count, bound, paths}`, one warning per `bound` (`nesting_limit`, `work_limit` or `repo_limit`), where `paths` is a sample: the first 10 in sorted order; `repo` and `paths` pass redaction |
@@ -911,7 +911,7 @@ The store's `meta.packs` records the loaded set in load order, one `PackRecord {
 
 A built-in extractor's `options.kinds` names the kinds it emits, such as `kinds = { repo = "code.repo", directory = "code.directory", file = "code.file" }` for `files`. The engine replaces each name with `{ kind, id_prefix, level }` from the vocabulary, so no built-in spells a kind, a level or an ID prefix of its own. It also fills in `files`'s merged `languages` and `compose`'s merged `image_roles`; no extractor is given the workspace's repos, since the join across repos is a linker's. So a pack sets `kinds`, and for `git` also `relations`, read through the tables `extract::registry::Builtin::options` declares for each built-in, with a kind for every role it emits and a relation for every relation role: `files` takes `repo`, `directory` and `file`, `compose` takes `service`, `tooling`, `repo` and `file`, `manifest` takes `package`, `library`, `repo` and `directory`, `openapi` takes `spec`, `repo` and `directory`, and `git` takes `repo`, `file` and `person` in `kinds` and `co_change` and `owned_by` in `relations` [DR-104]. Any other option key, and an unknown or missing role, is `pack_invalid`.
 
-A `[[linkers]]` entry's `options` are read the same way: `kinds` names a kind for each role, and `relations` a relation for each relation the linker emits, which the engine replaces with `{ kind, from, to }` from the vocabulary. `runtime_wiring` takes `kinds = { service, repo, endpoint }` and `relations = { http, queue_publish, queue_consume, db }`, and the engine fills in its merged `languages`, whose `tests` globs name the files it reads no hint from. A role's value that names no kind or relation in scope, an unknown or missing role, and a value that isn't a table are `pack_invalid`.
+A `[[linkers]]` entry's `options` are read the same way: `kinds` names a kind for each role, and `relations` a relation for each relation the linker emits, which the engine replaces with `{ kind, from, to }` from the vocabulary. `runtime_wiring` takes `kinds = { service, repo, endpoint }` and `relations = { http, queue_publish, queue_consume, db }`, and `imports` takes `kinds = { package }` and `relations = { imports, depends_on_package }`; the engine fills in every linker's merged `languages`, whose `tests` globs name the files it reads no hint from. A linker's `reads()` names which of its roles are inputs, whose nodes and edges it reads from the member snapshots: `imports` reads `package` and `depends_on_package`, and `runtime_wiring` none. A relation a linker emits is never an input. A role's value that names no kind or relation in scope, an unknown or missing role, and a value that isn't a table are `pack_invalid`.
 
 ## Extractor and linker contract
 
@@ -923,14 +923,21 @@ pub trait Extractor {
     fn name(&self) -> &'static str;
     fn run(&self, repo: &RepoView, files: &[RepoPath], opts: &Value) -> Result<FactBatch, ExtractError>;
 }
-pub trait Linker {                           // pure: the workspace's hints and nodes in, linked facts out
+pub trait Linker {                           // pure: hints, plus the nodes and edges its roles read, in; linked facts out
     fn name(&self) -> &'static str;
     fn link(&self, ws: &WorkspaceFacts, opts: &Value) -> Result<Linked, ExtractError>;
+    fn reads(&self) -> Reads { Reads::default() } // its input roles; a relation it emits is never one
 }
-pub struct WorkspaceFacts {                  // crates/extract/src/link/mod.rs: one active set's facts
+pub struct Reads {                           // role names in the run's options.kinds and options.relations
+    pub kinds: &'static [&'static str],
+    pub relations: &'static [&'static str],
+}
+pub struct WorkspaceFacts {                  // crates/extract/src/link/mod.rs: one active set's facts, as Selection::facts selects them
     pub repos: BTreeSet<String>,             // the active set's repo names, its namespaces
-    pub nodes: Vec<Node>,                    // the member snapshots' System- and Container-level nodes
+    pub nodes: Vec<Node>,                    // the member snapshots' System- and Container-level nodes, and the kinds an input role names
+    pub edges: Vec<Edge>,                    // the member snapshots' edges of the relations an input role names
     pub hints: Vec<Hint>,                    // every hint of the member snapshots
+    pub file_containers: BTreeMap<NodeId, NodeId>, // the one derived input: each member node a fact places directly under a member container; one placed under two is left out
 }
 pub struct Linked {
     pub batch: FactBatch,                    // tier Linked, sorted by ID; evidence copied from hints verified at ingest

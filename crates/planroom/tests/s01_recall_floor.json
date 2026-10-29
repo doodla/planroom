@@ -59,6 +59,8 @@
     "relation orders -> redis queue_publish evidence orders/internal/queue/publisher.go:14",
     "relation orders -> redis queue_publish evidence orders/internal/queue/publisher.go:49",
     "relation orders -> redis queue_publish evidence platform/docker-compose.yml:21",
+    "relation storefront -> orders http",
+    "relation storefront -> orders http evidence platform/docker-compose.yml:10",
     "relation worker -> orders-db db",
     "relation worker -> orders-db db evidence platform/docker-compose.yml:31",
     "relation worker -> orders-db db evidence worker/worker/db.py:22",

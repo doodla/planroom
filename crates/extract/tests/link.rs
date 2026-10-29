@@ -141,8 +141,11 @@ fn env_set(service: &str, name: &str, value: &str, line: u32) -> Hint {
 }
 
 fn link(repos: &[&str], hints: Vec<Hint>) -> Linked {
-    let facts =
-        WorkspaceFacts { repos: repos.iter().map(|r| (*r).to_owned()).collect(), nodes: vec![], hints };
+    let facts = WorkspaceFacts {
+        repos: repos.iter().map(|r| (*r).to_owned()).collect(),
+        hints,
+        ..WorkspaceFacts::default()
+    };
     let linked = builtin("runtime_wiring").unwrap().link(&facts, &opts()).unwrap();
     // A pure function: the same facts in another order link the same.
     let mut shuffled = facts.clone();
@@ -1249,8 +1252,12 @@ fn a_join_counts_overlapping_host_sets_once() {
     hints.extend(call("one.ts", &["API_URL"]));
     hints.extend(call("two.ts", &["Z_URL"]));
     hints.extend(call("both.ts", &["Z_URL", "API_URL"]));
-    let facts =
-        WorkspaceFacts { repos: ["web", "a", "b", "c", "platform"].map(str::to_owned).into(), nodes, hints };
+    let facts = WorkspaceFacts {
+        repos: ["web", "a", "b", "c", "platform"].map(str::to_owned).into(),
+        nodes,
+        hints,
+        ..WorkspaceFacts::default()
+    };
     let linked = builtin("runtime_wiring").unwrap().link(&facts, &opts()).unwrap();
     let mut shuffled = facts.clone();
     shuffled.hints.reverse();
@@ -1348,6 +1355,48 @@ fn many_reads_of_a_variable_set_many_times_link_in_linear_time() {
         assert_eq!(cited(edge), expected);
     }
     assert!(took < MANY_JOINS_BUDGET, "{N} took {took:?}");
+}
+
+/// Many calls of one function on one line, as a minified bundle holds them, beside many joins
+/// inside that function, link in time that grows with the hints: a line's calls are one caller
+/// line, found once, never walked again for each join the function holds.
+#[test]
+fn many_calls_of_a_function_on_one_line_link_in_linear_time() {
+    const N: u32 = 10_000;
+    let keys: Vec<String> = (0..N).map(|i| format!("o{i}.f")).collect();
+    let at = |kind, line, key, attrs| {
+        H { kind, repo: "worker", path: "dist/bundle.js", line, key, value: None, attrs }.hint()
+    };
+    let mut hints = vec![
+        service("worker", 4, &[("build", "worker"), ("kind", "code.service"), ("role", "service")]),
+        service("redis", 8, &[("image", "redis:7.4"), ("kind", "code.queue"), ("role", "queue")]),
+        env_set("worker", "REDIS_URL", "redis://redis:6379/0", 6),
+        at("code.def", 1, "f", &[]),
+        H {
+            kind: "code.env_read",
+            repo: "worker",
+            path: "dist/env.js",
+            line: 1,
+            key: "REDIS_URL",
+            value: None,
+            attrs: &[("name", "REDIS_URL")],
+        }
+        .hint(),
+    ];
+    for i in 0..N {
+        hints.push(at("code.call", 1, &keys[i as usize], &[]));
+        hints.push(at("code.queue_op", 2 + i, "jobs", &[("op", "publish"), ("key", "jobs")]));
+    }
+    let started = std::time::Instant::now();
+    let linked = link(&["worker", "platform"], hints);
+    let took = started.elapsed();
+    assert!(took < MANY_JOINS_BUDGET, "{N} took {took:?}");
+    let publish =
+        edge(&linked, "code.queue_publish", "worker:container:worker", "ws:container:redis", "jobs");
+    // Each publish, the compose line, then the one line that calls the function, once.
+    let cited = cited(publish);
+    assert_eq!(cited.len(), N as usize + 2, "{:?}", &cited[cited.len() - 4..]);
+    assert_eq!(cited[cited.len() - 2..], ["platform/docker-compose.yml:6", "worker/dist/bundle.js:1"]);
 }
 
 /// A join hint cites at most three wiring items for its target, the first by path and line,
@@ -1464,7 +1513,12 @@ fn a_repos_one_joined_service_is_its_container_over_its_manifests() {
         hints
     };
     let run = |nodes: Vec<Node>, hints| {
-        let facts = WorkspaceFacts { repos: ["orders", "platform"].map(str::to_owned).into(), nodes, hints };
+        let facts = WorkspaceFacts {
+            repos: ["orders", "platform"].map(str::to_owned).into(),
+            nodes,
+            hints,
+            ..WorkspaceFacts::default()
+        };
         let linked = builtin("runtime_wiring").unwrap().link(&facts, &opts()).unwrap();
         // Whatever order the facts come in.
         let mut shuffled = facts.clone();
@@ -1501,4 +1555,792 @@ fn a_repos_one_joined_service_is_its_container_over_its_manifests() {
     assert!(above.batch.edges.is_empty(), "{:?}", above.batch.edges);
     let [unresolved] = &above.unresolved[..] else { panic!("{:?}", above.unresolved) };
     assert_eq!(unresolved.candidate_count, 2);
+}
+
+/// What `worker/worker/orders_client.py` gives after the S4 hand-off, at its file lines.
+fn orders_client(line: u32, kind: &'static str, key: &'static str, value: Option<&'static str>) -> Hint {
+    let attrs: &[(&str, &str)] = match kind {
+        "code.env_read" => &[("name", "ORDERS_URL")],
+        "code.route_call" => &[("method", "method"), ("path", "self._base + path")],
+        _ => &[],
+    };
+    H { kind, repo: "worker", path: "worker/orders_client.py", line, key, value, attrs }.hint()
+}
+
+/// The routes orders serves: each `(method, path, line)` in `internal/http/handlers.go`.
+fn served(routes: &[(&'static str, &'static str, u32)]) -> Vec<Hint> {
+    routes
+        .iter()
+        .map(|(method, path, line)| {
+            let attrs = [("method", *method), ("path", *path)];
+            H {
+                kind: "code.route_serve",
+                repo: "orders",
+                path: "internal/http/handlers.go",
+                line: *line,
+                key: path,
+                value: None,
+                attrs: &attrs,
+            }
+            .hint()
+        })
+        .collect()
+}
+
+/// A wrapper's method and path are its parameters: each call site that passes a literal or a
+/// template for them makes one route call, citing the call site, then the wrapped call, then the
+/// target's wiring and endpoint. A call site that passes a variable, a parameter that no call site
+/// binds, and a method that names no parameter make nothing, and no `via` names a parameter.
+#[test]
+fn a_wrapper_call_binds_method_and_path() {
+    let mut hints = vec![
+        service(
+            "worker",
+            27,
+            &[("image", "acme/worker:0.9.0"), ("kind", "code.service"), ("role", "service")],
+        ),
+        service(
+            "orders",
+            15,
+            &[("image", "acme/orders:1.4.0"), ("kind", "code.service"), ("role", "service")],
+        ),
+        env_set("worker", "ORDERS_URL", "http://orders:8080", 31),
+        orders_client(
+            30,
+            "code.def",
+            "__init__",
+            Some("(self, base_url: str | None = None, timeout: float = DEFAULT_TIMEOUT_SECONDS)"),
+        ),
+        orders_client(31, "code.env_read", "ORDERS_URL", None),
+        orders_client(37, "code.def", "get_order", Some("(self, order_id: str)")),
+        orders_client(
+            39,
+            "code.call",
+            "self._request",
+            Some("(\"GET\", f\"/orders/{urllib.parse.quote(order_id)}\")"),
+        ),
+        orders_client(
+            41,
+            "code.def",
+            "apply_event",
+            Some("(self, order_id: str, event: str, **fields: str)"),
+        ),
+        orders_client(
+            44,
+            "code.call",
+            "self._request",
+            Some("(\"POST\", f\"/orders/{urllib.parse.quote(order_id)}/events\", body)"),
+        ),
+        orders_client(
+            46,
+            "code.def",
+            "_request",
+            Some("(self, method: str, path: str, body: dict[str, Any] | None = None)"),
+        ),
+        orders_client(52, "code.route_call", "self._base + path", None),
+        // A call site that passes variables: it binds nothing.
+        orders_client(60, "code.def", "replay", Some("(self, m, p)")),
+        orders_client(61, "code.call", "self._request", Some("(m, p)")),
+        orders_client(62, "code.call", "self._request", Some("(\"GET\", p)")),
+        // A method that is no parameter of its function: it never joins, with or without an
+        // endpoint at its path.
+        orders_client(70, "code.def", "raw", Some("(self)")),
+        H {
+            kind: "code.route_call",
+            repo: "worker",
+            path: "worker/orders_client.py",
+            line: 71,
+            key: "\"/orders\"",
+            value: None,
+            attrs: &[("method", "method"), ("path", "\"/orders\"")],
+        }
+        .hint(),
+        // A wrapper whose method its call site leaves out, with a literal default.
+        orders_client(80, "code.def", "fetch", Some("(self, path, method=\"GET\")")),
+        H {
+            kind: "code.route_call",
+            repo: "worker",
+            path: "worker/orders_client.py",
+            line: 82,
+            key: "self._base + path",
+            value: None,
+            attrs: &[("method", "method"), ("path", "self._base + path")],
+        }
+        .hint(),
+        orders_client(90, "code.call", "self.fetch", Some("(\"/orders\")")),
+        // A test's call of the wrapper binds nothing: test code is no call site.
+        H {
+            kind: "code.call",
+            repo: "worker",
+            path: "tests/test_orders_client.py",
+            line: 12,
+            key: "client._request",
+            value: Some("(\"PUT\", \"/orders/1\")"),
+            attrs: &[],
+        }
+        .hint(),
+    ];
+    hints.extend(served(&[
+        ("GET", "/orders/{id}", 38),
+        ("POST", "/orders/{id}/events", 40),
+        ("POST", "/orders", 37),
+    ]));
+    let linked = link(&["worker", "orders", "platform"], hints);
+    assert_eq!(linked.unresolved, []);
+
+    let post = edge(
+        &linked,
+        "code.http",
+        "worker:container:worker",
+        "orders:container:orders",
+        "POST /orders/{id}/events",
+    );
+    assert_eq!(post.via_ref, Some(Ref::Id(NodeId("orders:endpoint:POST /orders/{id}/events".into()))));
+    assert_eq!(
+        cited(post),
+        [
+            "worker/worker/orders_client.py:44",
+            "worker/worker/orders_client.py:52",
+            "platform/docker-compose.yml:31",
+            "orders/internal/http/handlers.go:40",
+            "worker/worker/orders_client.py:31"
+        ]
+    );
+    let get =
+        edge(&linked, "code.http", "worker:container:worker", "orders:container:orders", "GET /orders/{id}");
+    assert_eq!(&cited(get)[..2], ["worker/worker/orders_client.py:39", "worker/worker/orders_client.py:52"]);
+    // The omitted method takes its literal default; no endpoint serves GET /orders.
+    let fetched =
+        edge(&linked, "code.http", "worker:container:worker", "orders:container:orders", "GET /orders");
+    assert_eq!(
+        &cited(fetched)[..2],
+        ["worker/worker/orders_client.py:90", "worker/worker/orders_client.py:82"]
+    );
+    assert_eq!(linked.batch.edges.len(), 3, "{:#?}", linked.batch.edges);
+    for edge in &linked.batch.edges {
+        let via = edge.via.as_deref().unwrap_or_default();
+        assert!(!via.contains("method") && !via.contains("path") && !via.ends_with("/p"), "{via}");
+        let lines = cited(edge);
+        for unbound in [61, 62, 71] {
+            assert!(!lines.contains(&format!("worker/worker/orders_client.py:{unbound}")), "{lines:?}");
+        }
+    }
+}
+
+/// A route call's text reads as one canonical path and its base: a template's interpolation, a
+/// non-literal operand and a segment holding either are `{}`, a query is left out, and an
+/// f-string's doubled braces are text. Its method is a verb by its text, its callee's name or its
+/// constant's, and none is GET.
+#[test]
+fn a_template_path_normalizes() {
+    use planroom_extract::link::bind::{Method, Target, method, target};
+    use planroom_extract::link::normalize_path;
+    let path = |text: &str| match target(text, None) {
+        Some(Target::Path { base, path, .. }) => (base, path),
+        other => panic!("{text}: {other:?}"),
+    };
+    let some = |s: &str| Some(s.to_owned());
+    let table: [(&str, Option<String>, &str); 11] = [
+        ("`${this.baseUrl}/orders`", some("this.baseUrl"), "/orders"),
+        ("`${this.baseUrl}/orders/${encodeURIComponent(id)}`", some("this.baseUrl"), "/orders/{}"),
+        ("f\"/orders/{urllib.parse.quote(order_id)}\"", None, "/orders/{}"),
+        ("f\"/orders/{urllib.parse.quote(order_id)}/events\"", None, "/orders/{}/events"),
+        ("'/orders/' + id", None, "/orders/{}"),
+        ("`/orders?limit=${n}`", None, "/orders"),
+        ("`/a/${f({ b: { c: 1 } })}/d`", None, "/a/{}/d"),
+        ("f\"/a/{{x}}\"", None, "/a/{x}"),
+        ("`/orders/x-${id}.json`", None, "/orders/{}"),
+        ("'http://orders:8080/orders/?token=s3cret#top'", some("http://orders:8080"), "/orders"),
+        ("self._base + '/orders/' + order_id", some("self._base"), "/orders/{}"),
+    ];
+    for (text, base, want) in table {
+        assert_eq!(path(text), (base, want.to_owned()), "{text}");
+    }
+    assert_eq!(target("'orders'", None), None, "a path that doesn't start with `/` makes no route call");
+    assert_eq!(target("`${base}`", None), None);
+    // The served forms compare as the call's.
+    assert_eq!(normalize_path("/orders/:id"), "/orders/{}");
+    assert_eq!(normalize_path("/orders/{id}"), "/orders/{}");
+    assert_eq!(normalize_path("/files/{path...}/"), "/files/{}");
+    assert_eq!(normalize_path("{id}"), "{}");
+    let verbs = [("'post'", "POST"), ("Get", "GET"), ("PostForm", "POST"), ("http.MethodPost", "POST")];
+    for (text, verb) in verbs {
+        assert_eq!(method(Some(text)), Method::Verb(verb.into()), "{text}");
+    }
+    assert_eq!(method(None), Method::Verb("GET".into()));
+    assert_eq!(method(Some("method")), Method::Name("method".into()));
+    assert_eq!(method(Some("'FETCH'")), Method::Unknown);
+}
+
+/// The imports linker's options, as the engine fills them in from the code pack.
+fn import_opts() -> Value {
+    let mut opts = json!({
+        "kinds": {"package": {"kind": "code.package", "id_prefix": "pkg", "level": "component"}},
+        "relations": {
+            "imports": {"kind": "code.imports", "from": ["code.file"],
+                        "to": ["code.file", "code.module", "code.package", "kernel.external"]},
+            "depends_on_package": {"kind": "code.depends_on_package",
+                                   "from": ["code.repo", "code.package", "code.service", "code.library", "code.tooling"],
+                                   "to": ["code.package", "code.library", "kernel.external"]},
+        },
+    });
+    opts["languages"] = opts_languages();
+    opts
+}
+
+/// The languages `opts` names, with their test globs.
+fn opts_languages() -> Value {
+    opts()["languages"].clone()
+}
+
+/// A package node, as the manifest built-in gives it.
+fn package(repo: &str, name: &str, manifest: &str, line_no: u32) -> Node {
+    Node {
+        id: NodeId(format!("{repo}:pkg:{name}")),
+        kind: Kind("code.package".into()),
+        level: Level::Component,
+        parent: Some(NodeId(format!("{repo}:container:{repo}"))),
+        name: name.into(),
+        aliases: vec![format!("pkg:{name}")],
+        props: BTreeMap::new(),
+        layer: Layer::Actual,
+        provenance: Provenance::Extracted { extractor: "code/manifest".into(), tier: Tier::Universal },
+        evidence: vec![line(&format!("{repo}/{manifest}"), line_no)],
+    }
+}
+
+/// A manifest's dependency, as the manifest built-in gives it: to the alias `pkg:<name>`.
+fn dependency(id: &str, from: &str, name: &str, uses: &str, manifest: &str, line_no: u32) -> Edge {
+    Edge {
+        id: planroom_contract::EdgeId(id.into()),
+        kind: Kind("code.depends_on_package".into()),
+        from: Ref::Id(NodeId(from.into())),
+        to: Ref::Alias(format!("pkg:{name}")),
+        via: None,
+        via_ref: None,
+        props: [("uses".to_owned(), Value::from(uses))].into(),
+        evidence: vec![line(manifest, line_no)],
+        confidence: 1.0,
+        layer: Layer::Actual,
+        provenance: Provenance::Extracted { extractor: "code/manifest".into(), tier: Tier::Universal },
+    }
+}
+
+/// An import hint in `repo`'s file `path`, on its first line.
+fn import(
+    repo: &'static str,
+    path: &'static str,
+    spec: &'static str,
+    separator: Option<&'static str>,
+) -> Hint {
+    let attrs: &[(&str, &str)] = match separator {
+        Some(".") => &[("separator", ".")],
+        Some(_) => &[("separator", "::")],
+        None => &[],
+    };
+    H { kind: "code.import", repo, path, line: 1, key: spec, value: None, attrs }.hint()
+}
+
+/// Imports of another workspace package join it: a `code.imports` edge from each importing file,
+/// and the importing manifest's dependency on it given the first import lines across the repo.
+/// A relative import, an import of a package the workspace doesn't hold, an import of the file's
+/// own package and a test file's import join nothing; a package the manifest doesn't declare gets
+/// the import edge and no dependency; two repos holding a package of the name leave it unresolved.
+#[test]
+fn imports_emit_depends_on_package() {
+    let nodes = vec![
+        package("storefront", "storefront", "package.json", 2),
+        package("kit", "@acme/kit", "package.json", 2),
+        package("tools", "@acme/tools", "package.json", 2),
+        package("pykit", "acme-kit", "pyproject.toml", 2),
+        package("worker", "worker", "pyproject.toml", 2),
+        package("sock", "socket", "package.json", 2),
+        package("dupa", "@acme/dup", "package.json", 2),
+        package("dupb", "@acme/dup", "package.json", 2),
+    ];
+    let edges = vec![
+        dependency(
+            "e:000000000001",
+            "storefront:pkg:storefront",
+            "@acme/kit",
+            "1.1.0",
+            "storefront/package.json",
+            18,
+        ),
+        dependency(
+            "e:000000000002",
+            "storefront:pkg:storefront",
+            "express",
+            "4.21.1",
+            "storefront/package.json",
+            19,
+        ),
+        dependency("e:000000000003", "worker:pkg:worker", "acme-kit", ">=1.0", "worker/pyproject.toml", 7),
+    ];
+    let hints = vec![
+        import("storefront", "src/cart/cart.ts", "@acme/kit", None),
+        import("storefront", "src/catalog/catalog.ts", "@acme/kit", None),
+        import("storefront", "src/checkout/checkout.ts", "@acme/kit", None),
+        import("storefront", "src/checkout/routes.ts", "@acme/kit", None),
+        // A test file sorts first by path: it is never cited.
+        import("storefront", "src/cart/cart.test.ts", "@acme/kit", None),
+        import("storefront", "src/api/client.ts", "./orders.js", None),
+        import("storefront", "src/server.ts", "express", None),
+        import("storefront", "src/app/self.ts", "storefront", None),
+        import("storefront", "src/app/tools.ts", "@acme/tools/bin", None),
+        import("storefront", "src/app/socket.ts", "socket.io", None),
+        import("storefront", "src/app/dup.ts", "@acme/dup", None),
+        import("worker", "worker/money.py", "acme_kit.money", Some(".")),
+        import("worker", "worker/main.py", "worker.db", Some(".")),
+        // A Rust import inside `#[cfg(test)] mod tests { ... }` on lines 10 to 20 is test code.
+        H {
+            kind: "code.test_scope",
+            repo: "worker",
+            path: "src/lib.rs",
+            line: 10,
+            key: "test:20",
+            value: None,
+            attrs: &[("end", "20")],
+        }
+        .hint(),
+        H {
+            kind: "code.import",
+            repo: "worker",
+            path: "src/lib.rs",
+            line: 12,
+            key: "acme_kit::money",
+            value: None,
+            attrs: &[("separator", "::")],
+        }
+        .hint(),
+    ];
+    let facts = WorkspaceFacts {
+        repos: ["storefront", "kit", "tools", "pykit", "worker", "sock", "dupa", "dupb"]
+            .map(str::to_owned)
+            .into(),
+        nodes,
+        edges,
+        hints,
+        ..WorkspaceFacts::default()
+    };
+    let imports = builtin("imports").unwrap();
+    let linked = imports.link(&facts, &import_opts()).unwrap();
+    let mut shuffled = facts.clone();
+    shuffled.hints.reverse();
+    shuffled.nodes.reverse();
+    shuffled.edges.reverse();
+    assert_eq!(linked, imports.link(&shuffled, &import_opts()).unwrap(), "whatever order the facts come in");
+
+    // The manifest's dependency, under its own ID, with no `via`: the manifest's line, the
+    // package's, then the first three import lines by path.
+    let kit = linked.batch.edges.iter().find(|e| e.id.0 == "e:000000000001").expect("the dependency");
+    assert_eq!(kit.via, None);
+    assert_eq!(kit.to, Ref::Alias("pkg:@acme/kit".into()));
+    assert_eq!(kit.props.get("uses"), Some(&Value::from("1.1.0")));
+    assert_eq!(
+        cited(kit),
+        [
+            "storefront/package.json:18",
+            "kit/package.json:2",
+            "storefront/src/cart/cart.ts:1",
+            "storefront/src/catalog/catalog.ts:1",
+            "storefront/src/checkout/checkout.ts:1"
+        ]
+    );
+    let Provenance::Linked { linker, hints } = &kit.provenance else { panic!("{kit:?}") };
+    assert_eq!((linker.as_str(), hints.len()), ("code/imports", 3));
+    let python = linked.batch.edges.iter().find(|e| e.id.0 == "e:000000000003").expect("acme-kit");
+    assert_eq!(
+        cited(python),
+        ["worker/pyproject.toml:7", "pykit/pyproject.toml:2", "worker/worker/money.py:1"]
+    );
+
+    // Each importing file's edge to the package, by ID, with the package's name as its `via`.
+    let mut imported: Vec<(String, String, String)> = linked
+        .batch
+        .edges
+        .iter()
+        .filter(|e| e.kind.0 == "code.imports")
+        .map(|e| {
+            let (Ref::Id(from), Ref::Id(to)) = (&e.from, &e.to) else { panic!("{e:?}") };
+            (from.0.clone(), to.0.clone(), e.via.clone().unwrap())
+        })
+        .collect();
+    imported.sort();
+    let want = |file: &str, to: &str, via: &str| (file.to_owned(), to.to_owned(), via.to_owned());
+    assert_eq!(
+        imported,
+        [
+            want("storefront:file:src/app/tools.ts", "tools:pkg:@acme/tools", "@acme/tools"),
+            want("storefront:file:src/cart/cart.ts", "kit:pkg:@acme/kit", "@acme/kit"),
+            want("storefront:file:src/catalog/catalog.ts", "kit:pkg:@acme/kit", "@acme/kit"),
+            want("storefront:file:src/checkout/checkout.ts", "kit:pkg:@acme/kit", "@acme/kit"),
+            want("storefront:file:src/checkout/routes.ts", "kit:pkg:@acme/kit", "@acme/kit"),
+            want("worker:file:worker/money.py", "pykit:pkg:acme-kit", "acme-kit"),
+        ]
+    );
+    // Only the two dependencies a manifest declares, and no other.
+    let depends = linked.batch.edges.iter().filter(|e| e.kind.0 == "code.depends_on_package").count();
+    assert_eq!(depends, 2, "{:#?}", linked.batch.edges);
+    assert!(linked.batch.edges.iter().all(|e| !cited(e).iter().any(|c| c.contains("cart.test.ts"))));
+
+    let [unresolved] = &linked.unresolved[..] else { panic!("{:?}", linked.unresolved) };
+    assert_eq!(unresolved.linker, "code/imports");
+    assert_eq!(unresolved.candidate_count, 2);
+    let candidates: Vec<&str> = unresolved.candidates.iter().map(|c| c.0.as_str()).collect();
+    assert_eq!(candidates, ["dupa:pkg:@acme/dup", "dupb:pkg:@acme/dup"]);
+}
+
+/// storefront's shape: a call whose base is a constructor's parameter, in a file that reads no
+/// variable, takes its host from a read elsewhere in its container of a variable compose sets on
+/// it, among the containers that serve an endpoint the call matches. Another variable that reaches
+/// a container serving no such endpoint changes nothing; two that serve one leave it unresolved.
+#[test]
+fn a_non_literal_base_takes_its_host_from_the_containers_env_reads() {
+    let at = |path, line, kind, key, attrs| {
+        H { kind, repo: "storefront", path, line, key, value: None, attrs }.hint()
+    };
+    let mut hints = vec![
+        service(
+            "storefront",
+            5,
+            &[("image", "acme/storefront:2.3.0"), ("kind", "code.service"), ("role", "service")],
+        ),
+        service(
+            "orders",
+            15,
+            &[("image", "acme/orders:1.4.0"), ("kind", "code.service"), ("role", "service")],
+        ),
+        service(
+            "otel-collector",
+            49,
+            &[("image", "otel/opentelemetry-collector-contrib:0.111.0"), ("kind", "code.service")],
+        ),
+        env_set("storefront", "ORDERS_URL", "http://orders:8080", 10),
+        env_set("storefront", "OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4318", 11),
+        at("src/app/config.ts", 9, "code.def", "loadConfig", &[]),
+        at(
+            "src/app/config.ts",
+            12,
+            "code.env_read",
+            "ORDERS_URL",
+            &[("name", "ORDERS_URL"), ("default", "'http://localhost:8080'")],
+        ),
+        at(
+            "src/app/telemetry.ts",
+            5,
+            "code.env_read",
+            "OTEL_EXPORTER_OTLP_ENDPOINT",
+            &[("name", "OTEL_EXPORTER_OTLP_ENDPOINT")],
+        ),
+        at("src/api/orders.ts", 25, "code.def", "createOrder", &[]),
+        at(
+            "src/api/orders.ts",
+            26,
+            "code.route_call",
+            "`${this.baseUrl}/orders`",
+            &[("method", "'POST'"), ("path", "`${this.baseUrl}/orders`")],
+        ),
+        at("src/api/orders.ts", 35, "code.def", "getOrder", &[]),
+        at(
+            "src/api/orders.ts",
+            36,
+            "code.route_call",
+            "`${this.baseUrl}/orders/${encodeURIComponent(id)}`",
+            &[("method", "GET"), ("path", "`${this.baseUrl}/orders/${encodeURIComponent(id)}`")],
+        ),
+    ];
+    hints.extend(served(&[("POST", "/orders", 37), ("GET", "/orders/{id}", 38)]));
+    let linked = link(&["storefront", "orders", "platform"], hints.clone());
+    assert_eq!(linked.unresolved, []);
+    let post = edge(
+        &linked,
+        "code.http",
+        "storefront:container:storefront",
+        "orders:container:orders",
+        "POST /orders",
+    );
+    assert_eq!(
+        cited(post),
+        [
+            "storefront/src/api/orders.ts:26",
+            "platform/docker-compose.yml:10",
+            "orders/internal/http/handlers.go:37",
+            "storefront/src/app/config.ts:12"
+        ]
+    );
+    edge(
+        &linked,
+        "code.http",
+        "storefront:container:storefront",
+        "orders:container:orders",
+        "GET /orders/{id}",
+    );
+    assert_eq!(linked.batch.edges.len(), 2, "nothing to the collector: {:#?}", linked.batch.edges);
+
+    // A second container that serves POST /orders, which another variable reaches: two fit.
+    hints.push(service(
+        "orders-next",
+        20,
+        &[("image", "acme/orders-next:2.0.0"), ("kind", "code.service"), ("role", "service")],
+    ));
+    hints.push(env_set("storefront", "NEXT_URL", "http://orders-next:8080", 12));
+    hints.push(at("src/app/next.ts", 3, "code.env_read", "NEXT_URL", &[("name", "NEXT_URL")]));
+    hints.push(
+        H {
+            kind: "code.route_serve",
+            repo: "orders-next",
+            path: "server.go",
+            line: 9,
+            key: "/orders",
+            value: None,
+            attrs: &[("method", "POST"), ("path", "/orders")],
+        }
+        .hint(),
+    );
+    let linked = link(&["storefront", "orders", "orders-next", "platform"], hints);
+    let post = linked.unresolved.iter().find(|u| u.candidate_count == 2).expect("POST /orders, unresolved");
+    let candidates: Vec<&str> = post.candidates.iter().map(|c| c.0.as_str()).collect();
+    assert_eq!(candidates, ["orders-next:container:orders-next", "orders:container:orders"]);
+    // GET /orders/{id} still has one container that serves it.
+    edge(
+        &linked,
+        "code.http",
+        "storefront:container:storefront",
+        "orders:container:orders",
+        "GET /orders/{id}",
+    );
+    assert!(linked.batch.edges.iter().all(|e| e.via.as_deref() != Some("POST /orders")));
+}
+
+/// A wrapper binds through at most its first 64 call sites, by path and line: ten thousand calls
+/// of its name that pass no path make no route call, and of a hundred that bind, only the first
+/// 64 make edges.
+#[test]
+fn a_wrapper_binds_at_most_its_cap_of_call_sites() {
+    let compose = || {
+        vec![
+            service("web", 4, &[("build", "web"), ("kind", "code.service"), ("role", "service")]),
+            service("api", 6, &[("build", "api"), ("kind", "code.service"), ("role", "service")]),
+            env_set("web", "API_URL", "http://api:8080", 5),
+        ]
+    };
+    let at =
+        |path, line, kind, key, value, attrs| H { kind, repo: "web", path, line, key, value, attrs }.hint();
+    let wrapper = || {
+        vec![
+            at("client.py", 1, "code.def", "get", Some("(self, path)"), &[] as &[(&str, &str)]),
+            at("client.py", 2, "code.env_read", "API_URL", None, &[("name", "API_URL")]),
+            at(
+                "client.py",
+                3,
+                "code.route_call",
+                "self._base + path",
+                None,
+                &[("method", "get"), ("path", "self._base + path")],
+            ),
+        ]
+    };
+    let mut hints = compose();
+    hints.extend(wrapper());
+    let files: Vec<String> = (0..10_000).map(|i| format!("cache/c{i:05}.py")).collect();
+    for file in &files {
+        hints.push(at(file, 1, "code.call", "cache.get", Some("(\"key\")"), &[]));
+    }
+    let linked = link(&["web", "api", "platform"], hints);
+    assert!(linked.batch.edges.is_empty(), "{:?}", linked.batch.edges.len());
+
+    let mut hints = compose();
+    hints.extend(wrapper());
+    let files: Vec<String> = (0..100).map(|i| format!("f{i:03}.py")).collect();
+    let args: Vec<String> = (0..100).map(|i| format!("(\"/p{i:03}\")")).collect();
+    for (file, args) in files.iter().zip(&args) {
+        hints.push(at(file, 1, "code.call", "client.get", Some(args), &[]));
+    }
+    let linked = link(&["web", "api", "platform"], hints);
+    let mut vias: Vec<&str> = linked.batch.edges.iter().filter_map(|e| e.via.as_deref()).collect();
+    vias.sort_unstable();
+    let want: Vec<String> = (0..64).map(|i| format!("GET /p{i:03}")).collect();
+    assert_eq!(vias, want);
+}
+
+/// A queue key no constant in its file resolves takes its value from a constant of that name in a
+/// module its file imports, by a relative path or a dotted one: an import of a constant is no
+/// guess. A test that pushes under the constant it imports still links nothing; a key that names a
+/// parameter of its function joins nothing; and two imported modules that give the name different
+/// values resolve it to neither.
+#[test]
+fn a_queue_key_resolves_through_an_imported_constant() {
+    fn at(path: &str, line: u32, kind: &str, key: &str, value: Option<&str>, attrs: &[(&str, &str)]) -> Hint {
+        H { kind, repo: "worker", path, line, key, value, attrs }.hint()
+    }
+    let op = |path, line, op, key| at(path, line, "code.queue_op", key, None, &[("op", op), ("key", key)]);
+    let hints = vec![
+        service("worker", 28, &[("build", "worker"), ("kind", "code.service"), ("role", "service")]),
+        service("redis", 38, &[("image", "redis:7.4"), ("kind", "code.queue"), ("role", "queue")]),
+        env_set("worker", "REDIS_URL", "redis://redis:6379/0", 30),
+        at("worker/keys.py", 3, "code.const", "JOBS_KEY", Some("order-jobs"), &[]),
+        at("worker/consumer.py", 1, "code.import", ".keys", None, &[("separator", ".")]),
+        op("worker/consumer.py", 41, "consume", "JOBS_KEY"),
+        at("worker/publisher.py", 1, "code.import", "worker.keys", None, &[("separator", ".")]),
+        op("worker/publisher.py", 9, "publish", "JOBS_KEY"),
+        // The tests' pushes, under the constant they import.
+        at("tests/test_consumer.py", 3, "code.import", "worker.keys", None, &[("separator", ".")]),
+        op("tests/test_consumer.py", 13, "publish", "JOBS_KEY"),
+        // A key that is a parameter of its function.
+        at("worker/queue.py", 1, "code.def", "push", Some("(self, key, body)"), &[]),
+        op("worker/queue.py", 2, "publish", "key"),
+        // Two imported modules that disagree.
+        at("worker/a.py", 1, "code.const", "OTHER", Some("a-jobs"), &[]),
+        at("worker/b.py", 1, "code.const", "OTHER", Some("b-jobs"), &[]),
+        at("worker/both.py", 1, "code.import", ".a", None, &[("separator", ".")]),
+        at("worker/both.py", 2, "code.import", ".b", None, &[("separator", ".")]),
+        op("worker/both.py", 5, "publish", "OTHER"),
+    ];
+    let linked = link(&["worker", "platform"], hints);
+    let consume =
+        edge(&linked, "code.queue_consume", "worker:container:worker", "ws:container:redis", "order-jobs");
+    assert_eq!(
+        cited(consume),
+        ["worker/worker/consumer.py:41", "worker/worker/keys.py:3", "platform/docker-compose.yml:30"]
+    );
+    let publish =
+        edge(&linked, "code.queue_publish", "worker:container:worker", "ws:container:redis", "order-jobs");
+    assert_eq!(
+        cited(publish),
+        ["worker/worker/publisher.py:9", "worker/worker/keys.py:3", "platform/docker-compose.yml:30"]
+    );
+    // The disagreeing name keeps its own text; the parameter joins nothing.
+    edge(&linked, "code.queue_publish", "worker:container:worker", "ws:container:redis", "OTHER");
+    let vias: BTreeSet<&str> = linked.batch.edges.iter().filter_map(|e| e.via.as_deref()).collect();
+    assert_eq!(vias, BTreeSet::from(["order-jobs", "OTHER"]));
+    assert_eq!(linked.batch.edges.len(), 3, "{:#?}", linked.batch.edges);
+}
+
+/// Many containers whose calls take their host from a read elsewhere in their repo, against many
+/// containers that share the host and serve every path the calls name, link in time that grows
+/// with the hints: which targets serve a call is worked out once per set of targets, path and
+/// method, however many containers share the set, never once per container.
+#[test]
+fn many_containers_calling_through_their_repos_reads_link_in_linear_time() {
+    const N: usize = 1_000;
+    const PATHS: usize = 10;
+    let paths: Vec<String> = (0..PATHS).map(|j| format!("/x{j}")).collect();
+    let calls: Vec<String> = (0..PATHS).map(|j| format!("`${{base}}/x{j}`")).collect();
+    let mut hints = Vec::new();
+    let mut repos: Vec<String> = Vec::new();
+    for i in 0..N {
+        let (web, api) = (format!("web{i}"), format!("api{i}"));
+        let file = format!("c{i}.yml");
+        let at = |kind: &str, line: u32, key: &str, attrs: &[(&str, &str)]| {
+            H { kind, repo: "platform", path: &file, line, key, value: None, attrs }.hint()
+        };
+        hints.push(at(
+            "code.compose_service",
+            1,
+            "web",
+            &[("build", web.as_str()), ("kind", "code.service")],
+        ));
+        hints.push(at(
+            "code.compose_service",
+            5,
+            "api",
+            &[("build", api.as_str()), ("kind", "code.service")],
+        ));
+        let mut env = at("code.env_set", 3, "API_URL", &[("service", "web"), ("name", "API_URL")]);
+        env.value = Some("http://api:8080".into());
+        hints.push(env);
+        let code = |repo: &str, path: &str, kind: &str, line: u32, key: &str, attrs: &[(&str, &str)]| {
+            H { kind, repo, path, line, key, value: None, attrs }.hint()
+        };
+        hints.push(code(&web, "config.ts", "code.env_read", 1, "API_URL", &[("name", "API_URL")]));
+        for j in 0..PATHS {
+            let line = u32::try_from(j).unwrap() + 1;
+            let call = [("method", "'GET'"), ("path", calls[j].as_str())];
+            hints.push(code(&web, "client.ts", "code.route_call", line, &calls[j], &call));
+            let serve = [("method", "GET"), ("path", paths[j].as_str())];
+            hints.push(code(&api, "server.go", "code.route_serve", line, &paths[j], &serve));
+        }
+        repos.extend([web, api]);
+    }
+    let repos: Vec<&str> = repos.iter().map(String::as_str).chain(["platform"]).collect();
+    let started = std::time::Instant::now();
+    let linked = link(&repos, hints);
+    let took = started.elapsed();
+    // Each call could reach any of the N `api`s that serve its path: none is guessed.
+    assert!(linked.batch.edges.is_empty(), "{:?}", linked.batch.edges.len());
+    assert_eq!(linked.unresolved.len(), N * PATHS);
+    assert!(linked.unresolved.iter().all(|u| u.candidate_count == N));
+    assert!(took < MANY_JOINS_BUDGET, "{N} took {took:?}");
+}
+
+/// Many repos that each hold a package of one name, and import it from many files, beside many
+/// repos that import that name and hold none, link in time that grows with the hints: which
+/// packages a name gives is looked up once, never copied or walked for each import, so an import
+/// of a repo's own package and an import two or more repos could satisfy cost a few lookups each.
+#[test]
+fn many_imports_of_a_name_many_repos_hold_link_in_linear_time() {
+    const N: usize = 1_000;
+    const FILES: usize = 50;
+    let mut nodes = Vec::new();
+    let mut hints = Vec::new();
+    let mut repos: Vec<String> = Vec::new();
+    for i in 0..N {
+        let (holder, user) = (format!("lib{i}"), format!("app{i}"));
+        nodes.push(package(&holder, "util", "package.json", 2));
+        for (repo, j) in [(&holder, 0), (&user, 1)] {
+            for f in 0..FILES {
+                let path = format!("src/f{f}.ts");
+                let attrs: &[(&str, &str)] = &[];
+                let mut hint =
+                    H { kind: "code.import", repo, path: &path, line: 1, key: "util", value: None, attrs }
+                        .hint();
+                hint.id = format!("{:012x}", fnv(&format!("{repo}|{path}|{j}")));
+                hints.push(hint);
+            }
+        }
+        repos.extend([holder, user]);
+    }
+    let facts =
+        WorkspaceFacts { repos: repos.into_iter().collect(), nodes, hints, ..WorkspaceFacts::default() };
+    let started = std::time::Instant::now();
+    let linked = builtin("imports").unwrap().link(&facts, &import_opts()).unwrap();
+    let took = started.elapsed();
+    // An import of a repo's own package waits; each other import could reach any of the N.
+    assert!(linked.batch.edges.is_empty(), "{:?}", linked.batch.edges.len());
+    assert_eq!(linked.unresolved.len(), N * FILES);
+    assert!(linked.unresolved.iter().all(|u| u.candidate_count == N && u.candidates.len() == 3));
+    assert!(took < MANY_JOINS_BUDGET, "{N} took {took:?}");
+}
+
+/// Many constants in a module deep in its repo, which a file beside it imports, link in time
+/// that grows with the constants and the module's path, never with their product: the module's
+/// keys are worked out once for its file, and a dotted import's key reads at most its last
+/// segments.
+#[test]
+fn many_constants_in_a_deeply_nested_module_link_in_linear_time() {
+    const CONSTS: usize = 300;
+    let dir = "a/".repeat(1_500);
+    let keys = format!("{dir}keys.py");
+    let consumer = format!("{dir}consumer.py");
+    let names: Vec<String> = (0..CONSTS).map(|i| format!("KEY_{i}")).collect();
+    let values: Vec<String> = (0..CONSTS).map(|i| format!("jobs-{i}")).collect();
+    let at = |path: &str, line: u32, kind: &str, key: &str, value: Option<&str>, attrs: &[(&str, &str)]| {
+        H { kind, repo: "worker", path, line, key, value, attrs }.hint()
+    };
+    let mut hints = vec![
+        service("worker", 28, &[("build", "worker"), ("kind", "code.service"), ("role", "service")]),
+        service("redis", 38, &[("image", "redis:7.4"), ("kind", "code.queue"), ("role", "queue")]),
+        env_set("worker", "REDIS_URL", "redis://redis:6379/0", 30),
+        at(&consumer, 1, "code.import", ".keys", None, &[("separator", ".")]),
+        at(&consumer, 9, "code.queue_op", "KEY_7", None, &[("op", "consume"), ("key", "KEY_7")]),
+    ];
+    for (i, (name, value)) in names.iter().zip(&values).enumerate() {
+        hints.push(at(&keys, u32::try_from(i).unwrap() + 1, "code.const", name, Some(value), &[]));
+    }
+    let started = std::time::Instant::now();
+    let linked = link(&["worker", "platform"], hints);
+    let took = started.elapsed();
+    edge(&linked, "code.queue_consume", "worker:container:worker", "ws:container:redis", "jobs-7");
+    assert!(took < MANY_JOINS_BUDGET, "{CONSTS} took {took:?}");
 }

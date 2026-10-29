@@ -1,7 +1,7 @@
 {
   "overlay": "map-graph.json",
   "milestone": "M1",
-  "why": "The engine draws no tones and no lifted edges yet: kind tones come with the packs (DR-46) and relations with the linkers, both M1. Until then this test-only overlay paints the real fixture's blocks and joins them, so tone and edge rendering stay covered. The engine's page of the golden map, within its CLI budget, leaves redis out, so the overlay adds that block whole.",
+  "why": "The engine draws no tones and no lifted edges yet: kind tones come with the packs (DR-46) and relations with the linkers, both M1. Until then this test-only overlay paints the real fixture's blocks and joins them, so tone and edge rendering stay covered. The engine's page of the golden map, within its CLI budget, leaves redis, otel-collector and prometheus out, so the overlay adds those blocks whole.",
   "patch": {
     "nodes": {
       "kit:repo:kit": {
@@ -26,10 +26,28 @@
         "tone": "store"
       },
       "ws:container:otel-collector": {
-        "tone": "infra"
+        "id": "ws:container:otel-collector",
+        "kind": "code.service",
+        "tone": "infra",
+        "name": "otel-collector",
+        "level": "container",
+        "parent": null,
+        "counts": {},
+        "position": null,
+        "ghost": false,
+        "claimed_by": null
       },
       "ws:container:prometheus": {
-        "tone": "infra"
+        "id": "ws:container:prometheus",
+        "kind": "code.service",
+        "tone": "infra",
+        "name": "prometheus",
+        "level": "container",
+        "parent": null,
+        "counts": {},
+        "position": null,
+        "ghost": false,
+        "claimed_by": null
       },
       "ws:container:redis": {
         "id": "ws:container:redis",

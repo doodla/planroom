@@ -7,9 +7,11 @@
 slow-timeout = { period = "60s", terminate-after = 4 }
 
 # A test that asserts a wall-clock budget runs with no other test beside it, so a busy CI runner
-# can't stretch its timings. Its file's in-process lock serializes it under cargo test, which runs
-# a binary's tests as threads of one process; nextest runs each test in a process of its own, so
-# only this setting keeps the rest of the suite off the machine while it runs.
+# can't stretch its timings. A file's in-process lock, where it holds one, serializes it under cargo
+# test, which runs a binary's tests as threads of one process; nextest runs each test in a process
+# of its own, so only this setting keeps the rest of the suite off the machine while it runs.
+# gates.rs::every_test_that_asserts_a_wall_clock_budget_runs_alone fails on a budgeted test in a
+# crate's `tests/` files that this list leaves out; a budgeted unit test under `src/` is listed by hand.
 [[profile.default.overrides]]
 filter = """
 (binary_id(planroom::live) & (
@@ -21,11 +23,12 @@ filter = """
 | (binary_id(planroom::server_auth) & (
     test(=a_frame_arrives_within_1s_of_a_cli_commit_and_of_serves_own_write)
   | test(=serve_detach_returns_at_once_and_keeps_serving)))
-| (binary_id(planroom::scan) & test(=a_scan_finds_the_truths_compose_containers_with_evidence_on_their_lines))
+| (binary_id(planroom::scan) & test(=a_cold_scan_of_the_fixture_takes_under_5_s))
 | (binary_id(planroom-store::concurrency) & test(=three_writer_processes_commit_500_each_with_no_loss_and_no_busy))
 | (binary_id(planroom-store::migrations) & test(=an_older_watch_exits_after_a_migration))
 | (binary_id(planroom::s01_first_look) & test(=cold_scan_under_5_s))
 | (binary_id(planroom-kernel::query) & test(=a_query_stays_linear_in_the_size_of_the_model))
+| (binary_id(planroom-extract) & test(=git::tests::a_long_alternates_file_is_read_in_linear_time))
 | (binary_id(planroom-extract::contract) & (
     test(=a_regex_runs_in_linear_time_over_a_1_mib_file)
   | test(=a_query_over_deeply_nested_code_runs_in_linear_time)
@@ -38,8 +41,12 @@ filter = """
     test(=one_files_many_opens_and_calls_link_in_linear_time)
   | test(=calls_against_many_endpoints_at_one_path_link_in_linear_time)
   | test(=many_reads_of_a_variable_set_many_times_link_in_linear_time)
+  | test(=many_calls_of_a_function_on_one_line_link_in_linear_time)
   | test(=many_files_reading_a_variable_set_many_times_link_in_linear_time)
   | test(=many_containers_sharing_one_host_link_in_linear_time)
-  | test(=many_containers_combining_a_shared_host_with_their_own_link_in_linear_time)))
+  | test(=many_containers_combining_a_shared_host_with_their_own_link_in_linear_time)
+  | test(=many_containers_calling_through_their_repos_reads_link_in_linear_time)
+  | test(=many_imports_of_a_name_many_repos_hold_link_in_linear_time)
+  | test(=many_constants_in_a_deeply_nested_module_link_in_linear_time)))
 """
 threads-required = "num-test-threads"

@@ -10,8 +10,9 @@
 //!   the same name joined to it, the service's kind and role win and the evidence unions [DR-42].
 //! - **Dependencies.** Each dependency the manifest lists is a `code.depends_on_package` edge from
 //!   the package, or from the repo when the manifest names none, to the alias `pkg:<dependency>`,
-//!   with the version it asks for as `uses` and every line that asks for it. It has no `via` until
-//!   the `imports` linker joins it to the code that uses it.
+//!   with the version it asks for as `uses` and every line that asks for it. It has no `via`. In
+//!   M1 the `imports` linker gives it the first import lines that use the dependency, under its
+//!   own ID, and still no `via`; M3 adds the `via`.
 //!
 //! Every fact cites the manifest line that says it. A manifest that isn't UTF-8 or doesn't parse
 //! is partial and gives nothing; a comment names nothing; a byte order mark before the text is

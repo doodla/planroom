@@ -838,17 +838,23 @@ fn imports_and_calls_for_each_language() {
             hints.extend(one.hints);
         }
 
-        // Each import an edge from the file to the module it names, on its line.
-        let got: BTreeSet<(String, u32)> = edges
+        // Each import a `code.import` hint scoped to the file, keyed by the specifier as written,
+        // on its line, with the language's separator where its first segment names a package: a
+        // linker joins it, so no import is an edge of the file's own.
+        assert!(edges.iter().all(|e| e.kind.0 != "code.imports"), "{language}: {edges:?}");
+        let separator = match *language {
+            "python" => Some("."),
+            "rust" => Some("::"),
+            _ => None,
+        };
+        let got: BTreeSet<(String, u32)> = hints
             .iter()
-            .filter(|e| e.kind.0 == "code.imports")
-            .map(|e| {
-                assert_eq!(e.from, Ref::Id(NodeId(file.clone())), "{language}");
-                let Ref::Alias(to) = &e.to else { panic!("{language}: an alias: {e:?}") };
-                let module = to.strip_prefix("module:").unwrap_or_else(|| panic!("{language}: {to}"));
-                assert_eq!(e.via.as_deref(), Some(module), "{language}");
-                let [evidence] = &e.evidence[..] else { panic!("{language}: one line: {e:?}") };
-                (module.to_owned(), line_of(&view, evidence))
+            .filter(|h| h.kind.0 == "code.import")
+            .map(|h| {
+                assert_eq!(h.scope.0, file, "{language}");
+                assert_eq!(h.attrs.get("separator").and_then(|s| s.as_str()), separator, "{language}: {h:?}");
+                let [evidence] = &h.evidence[..] else { panic!("{language}: one line: {h:?}") };
+                (h.key.clone(), line_of(&view, evidence))
             })
             .collect();
         let want: BTreeSet<(String, u32)> = imports.iter().map(|(m, l)| ((*m).to_owned(), *l)).collect();

@@ -1,22 +1,28 @@
 //! Built-in linkers: pure functions that join the hints of a workspace's active snapshots into
 //! the facts of its link snapshot (DR-12).
 //!
-//! A linker reads [`WorkspaceFacts`], the active set's repo names with its member snapshots'
-//! System- and Container-level nodes and every hint, and returns [`Linked`]: the facts it joined,
-//! sorted by ID, and the joins it couldn't make because two or more targets fit. It never reads a
-//! file, a store or the order the repos were scanned in, so one active set links to one set of
-//! facts. The scan that changes the active set stores them under the link snapshot's ID, inside
-//! its own transaction.
+//! A linker reads [`WorkspaceFacts`], the active set's repo names with every hint of its member
+//! snapshots, their System- and Container-level nodes, the nodes and edges of the kinds and
+//! relations its input roles name ([`Linker::reads`]), and each file's container, and returns
+//! [`Linked`]: the facts it joined, sorted by ID, and the joins it couldn't make because two or
+//! more targets fit. It never reads a file, a store or the order the repos were scanned in, so one
+//! active set links to one set of facts. [`Selection`] decides what the facts hold, for the scan
+//! and for anything that reruns a link over stored facts alike. The scan that changes the active
+//! set stores them under the link snapshot's ID, inside its own transaction.
 //!
 //! This module also holds what every linker shares: the index of definitions and calls that
-//! evidence follows to callers ([`Callers`]), a URL's host, an image's repo and a route's
-//! normalized path.
+//! evidence follows to callers and that a wrapper's call sites bind through ([`Callers`]), a URL's
+//! host, an image's repo and a route's normalized path. [`bind`] is the one reader of call text.
 
+pub mod bind;
+pub mod imports;
 pub mod runtime;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use planroom_contract::{Evidence, FactBatch, Hint, LanguageDecl, Node, NodeId, Provenance, Tier};
+use planroom_contract::{
+    Edge, Evidence, FactBatch, Hint, LanguageDecl, Level, Node, NodeId, Provenance, Tier,
+};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -33,22 +39,157 @@ pub const HOPS: usize = 2;
 /// How many candidate IDs an [`Unresolved`] keeps, the first by ID.
 pub const CANDIDATE_SAMPLE: usize = 3;
 
-/// A built-in linker: the workspace's hints and nodes in, linked facts out.
+/// A built-in linker: the workspace's hints, plus the nodes and edges its roles read, in; linked
+/// facts out.
 pub trait Linker {
     /// Pack-qualified, such as `code/runtime_wiring`.
     fn name(&self) -> &'static str;
     fn link(&self, ws: &WorkspaceFacts, opts: &Value) -> Result<Linked, ExtractError>;
+    /// The roles of its `options.kinds` and `options.relations` whose nodes and edges it reads
+    /// from the member snapshots, beyond the System- and Container-level nodes every linker gets.
+    /// A relation it emits is never one of them, so a pack that adds relations never widens what
+    /// a linker reads.
+    fn reads(&self) -> Reads {
+        Reads::default()
+    }
 }
 
-/// What a linker reads: one active set's facts.
+/// The input roles of a linker ([`Linker::reads`]): each a role name in its run's
+/// `options.kinds` or `options.relations`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Reads {
+    pub kinds: &'static [&'static str],
+    pub relations: &'static [&'static str],
+}
+
+/// What a linker reads: one active set's facts, as [`Selection::facts`] selects them.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct WorkspaceFacts {
     /// The active set's repo names, which are its namespaces.
     pub repos: BTreeSet<String>,
-    /// The member snapshots' System- and Container-level nodes.
+    /// The member snapshots' System- and Container-level nodes, and the nodes of the kinds the
+    /// loaded linkers' input roles name.
     pub nodes: Vec<Node>,
+    /// The member snapshots' edges of the relations the loaded linkers' input roles name.
+    pub edges: Vec<Edge>,
     /// Every hint of the member snapshots.
     pub hints: Vec<Hint>,
+    /// Each member node that some fact gives a parent among the member snapshots' Container-level
+    /// nodes, to that container: a file a pack places in a container of its own, such as a
+    /// script's. A node whose facts name two different containers is left out.
+    pub file_containers: BTreeMap<NodeId, NodeId>,
+}
+
+/// One stored fact of a member snapshot, as [`Selection::facts`] reads it: a node's or an edge's
+/// kind, and its JSON.
+#[derive(Debug, Clone, Copy)]
+pub enum Member<'r> {
+    Node { kind: &'r str, body: &'r str },
+    Edge { kind: &'r str, body: &'r str },
+    Hint { body: &'r str },
+}
+
+/// A node's ID and parent: all [`Selection::facts`] decodes of a node no linker reads.
+#[derive(Deserialize)]
+struct Placed {
+    id: NodeId,
+    parent: Option<NodeId>,
+}
+
+/// What the loaded linkers read of an active set: every hint, the vocabulary's System- and
+/// Container-level kinds, and the node kinds and relations their input roles name in their runs'
+/// options.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Selection {
+    containers: BTreeSet<String>,
+    kinds: BTreeSet<String>,
+    relations: BTreeSet<String>,
+}
+
+impl Selection {
+    /// The selection for `runs`, each a built-in's name and its options as the engine resolved
+    /// them (`kinds.ROLE.kind`, `relations.ROLE.kind`), beside `containers`, the vocabulary's
+    /// System- and Container-level kinds. A built-in this build doesn't have reads nothing.
+    pub fn new<'v>(
+        containers: impl IntoIterator<Item = String>,
+        runs: impl IntoIterator<Item = (&'v str, &'v Value)>,
+    ) -> Selection {
+        let mut selection =
+            Selection { containers: containers.into_iter().collect(), ..Selection::default() };
+        for (name, options) in runs {
+            let Some(linker) = builtin(name) else { continue };
+            let reads = linker.reads();
+            let named = |table: &str, role: &str| {
+                options.get(table)?.get(role)?.get("kind")?.as_str().map(str::to_owned)
+            };
+            selection.kinds.extend(reads.kinds.iter().filter_map(|r| named("kinds", r)));
+            selection.relations.extend(reads.relations.iter().filter_map(|r| named("relations", r)));
+        }
+        selection
+    }
+
+    /// Whether a node of `kind` at `level` is read.
+    pub fn wants_node(&self, kind: &str, level: Level) -> bool {
+        self.kinds.contains(kind)
+            || (matches!(level, Level::System | Level::Container) && self.containers.contains(kind))
+    }
+
+    /// Whether a stored node of `kind` is decoded whole: one [`Self::wants_node`] reads at some
+    /// level.
+    fn decodes(&self, kind: &str) -> bool {
+        self.kinds.contains(kind) || self.containers.contains(kind)
+    }
+
+    /// Whether an edge of `kind` is read.
+    pub fn wants_edge(&self, kind: &str) -> bool {
+        self.relations.contains(kind)
+    }
+
+    /// The facts `members` give the active set of `repos`: each node and edge decoded only as far
+    /// as the selection reads it, and every node's parent read for `file_containers`.
+    pub fn facts<'r>(
+        &self,
+        repos: impl IntoIterator<Item = String>,
+        members: impl IntoIterator<Item = Member<'r>>,
+    ) -> Result<WorkspaceFacts, serde_json::Error> {
+        let mut facts = WorkspaceFacts { repos: repos.into_iter().collect(), ..WorkspaceFacts::default() };
+        let mut parents: BTreeMap<NodeId, BTreeSet<NodeId>> = BTreeMap::new();
+        let mut containers: BTreeSet<NodeId> = BTreeSet::new();
+        for member in members {
+            match member {
+                Member::Hint { body } => facts.hints.push(serde_json::from_str(body)?),
+                Member::Edge { kind, body } if self.wants_edge(kind) => {
+                    facts.edges.push(serde_json::from_str(body)?)
+                }
+                Member::Edge { .. } => {}
+                Member::Node { kind, body } if self.decodes(kind) => {
+                    let node: Node = serde_json::from_str(body)?;
+                    if node.level == Level::Container {
+                        containers.insert(node.id.clone());
+                    }
+                    if let Some(parent) = &node.parent {
+                        parents.entry(node.id.clone()).or_default().insert(parent.clone());
+                    }
+                    if self.wants_node(kind, node.level) {
+                        facts.nodes.push(node);
+                    }
+                }
+                Member::Node { body, .. } => {
+                    let placed: Placed = serde_json::from_str(body)?;
+                    if let Some(parent) = placed.parent {
+                        parents.entry(placed.id).or_default().insert(parent);
+                    }
+                }
+            }
+        }
+        for (node, parents) in parents {
+            let mut inside = parents.into_iter().filter(|p| containers.contains(p));
+            if let (Some(one), None) = (inside.next(), inside.next()) {
+                facts.file_containers.insert(node, one);
+            }
+        }
+        Ok(facts)
+    }
 }
 
 /// A join a linker didn't make because two or more targets fit: it never guesses.
@@ -105,6 +246,7 @@ pub struct RelationRef {
 pub fn builtin(name: &str) -> Option<&'static dyn Linker> {
     match name {
         "runtime_wiring" => Some(&runtime::RuntimeWiring),
+        "imports" => Some(&imports::Imports),
         _ => None,
     }
 }
@@ -307,6 +449,26 @@ impl<'a> TestScopes<'a> {
     }
 }
 
+/// The hints of `hints` that are runtime code, each once, sorted by ID: none from a test file the
+/// loaded languages' `tests` globs name, nor from a file a test module is read from, nor on a line
+/// a test scope of its file holds. Each file is matched once, however many hints it holds.
+pub fn runtime_code<'a>(hints: &'a [Hint], tests: &TestFiles) -> Vec<&'a Hint> {
+    let mut test_file: HashMap<&str, bool> = HashMap::new();
+    let scopes = TestScopes::new(hints);
+    let mut out: Vec<&Hint> = hints
+        .iter()
+        .filter(|h| {
+            !*test_file
+                .entry(h.scope.0.as_str())
+                .or_insert_with(|| tests.matches(key(&h.scope)) || scopes.hold_file(&h.scope))
+        })
+        .filter(|h| !scopes.hold(h))
+        .collect();
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    out.dedup_by(|a, b| a.id == b.id);
+    out
+}
+
 /// What a node ID's text names after its namespace and its kind's prefix.
 fn key_of(id: &str) -> &str {
     id.splitn(3, ':').nth(2).unwrap_or_default()
@@ -314,7 +476,7 @@ fn key_of(id: &str) -> &str {
 
 /// `path` relative to the repo directory `dir`, each `.` and `..` resolved: `None` when it is
 /// absolute, names a directory or leaves the repo.
-fn relative(dir: &str, path: &str) -> Option<String> {
+pub(crate) fn relative(dir: &str, path: &str) -> Option<String> {
     if path.starts_with('/') || path.ends_with('/') || path.contains('\\') {
         return None;
     }
@@ -404,7 +566,8 @@ pub fn url_path(text: &str) -> &str {
 }
 
 /// A route's path as joins compare it: each interpolated or parameter segment (`${id}`, `{id}`,
-/// `{quote(id)}`, `:id`) becomes `{}`, and a query string or fragment is left out.
+/// `{quote(id)}`, `{id...}`, `:id`) becomes `{}`, a query string or fragment is left out, and a
+/// trailing `/` is dropped but at the root.
 pub fn normalize_path(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
     let mut chars = path.chars().peekable();
@@ -435,10 +598,15 @@ pub fn normalize_path(path: &str) -> String {
         }
         out.push(c);
     }
-    out.split('/')
+    let mut out = out
+        .split('/')
         .map(|s| if s.len() > 1 && s.starts_with(':') { "{}" } else { s })
         .collect::<Vec<_>>()
-        .join("/")
+        .join("/");
+    if out.len() > 1 && out.ends_with('/') {
+        out.pop();
+    }
+    out
 }
 
 /// The name a call or a definition is known by: its last segment after `.`, `::` or `->`.
@@ -452,18 +620,19 @@ pub fn last_segment(name: &str) -> &str {
     last
 }
 
-/// One call site: the file its hint is scoped to, its line, and its evidence.
+/// One call site: the file its hint is scoped to, its line, its evidence and its hint.
 #[derive(Debug, Clone, Copy)]
 struct Site<'a> {
     scope: &'a str,
     path: &'a str,
     line: u32,
     evidence: &'a Evidence,
+    hint: &'a Hint,
 }
 
-/// Definitions and calls, indexed so evidence follows a hint to its callers without comparing
-/// every pair of hints: each file's definitions by line, and each container's calls by the name
-/// they call.
+/// Definitions and calls, indexed so evidence follows a hint to its callers, and a wrapper's call
+/// sites bind its arguments, without comparing every pair of hints: each file's definitions by
+/// line, and each container's calls by the name they call.
 ///
 /// A hint's enclosing function is the nearest `code.def` at or above its line in the same file,
 /// since an extractor gives each capture only its start line. Its callers are the `code.call`
@@ -471,8 +640,12 @@ struct Site<'a> {
 /// goes [`HOPS`] hops and keeps at most [`CALL_SITES`] call sites across both: the first hop's
 /// first, each hop in (path, line) order.
 pub struct Callers<'a> {
-    defs: BTreeMap<&'a str, Vec<(u32, &'a str)>>,
+    defs: BTreeMap<&'a str, Vec<(u32, &'a Hint)>>,
+    /// Each container's calls by name, in (path, line, ID) order: every call, for binding.
     calls: BTreeMap<(NodeId, &'a str), Vec<Site<'a>>>,
+    /// The same calls, each line once (its first by ID), for evidence: a line's many calls are
+    /// one caller, and a search never walks them again for each hint it cites them for.
+    lines: BTreeMap<(NodeId, &'a str), Vec<Site<'a>>>,
 }
 
 impl<'a> Callers<'a> {
@@ -482,35 +655,50 @@ impl<'a> Callers<'a> {
         hints: impl IntoIterator<Item = &'a Hint>,
         container: impl Fn(&NodeId) -> Option<NodeId>,
     ) -> Callers<'a> {
-        let mut defs: BTreeMap<&str, Vec<(u32, &str)>> = BTreeMap::new();
+        let mut defs: BTreeMap<&str, Vec<(u32, &Hint)>> = BTreeMap::new();
         let mut calls: BTreeMap<(NodeId, &str), Vec<Site<'_>>> = BTreeMap::new();
         for hint in hints {
             let Some((path, line)) = at(hint) else { continue };
             if hint.kind.0 == DEF_HINT {
-                defs.entry(hint.scope.0.as_str()).or_default().push((line, last_segment(&hint.key)));
+                defs.entry(hint.scope.0.as_str()).or_default().push((line, hint));
             } else if hint.kind.0 == CALL_HINT
                 && let Some(container) = container(&hint.scope)
             {
                 let evidence = hint.evidence.first().expect("a hint with a line has evidence");
-                let site = Site { scope: hint.scope.0.as_str(), path, line, evidence };
+                let site = Site { scope: hint.scope.0.as_str(), path, line, evidence, hint };
                 calls.entry((container, last_segment(&hint.key))).or_default().push(site);
             }
         }
         for list in defs.values_mut() {
-            list.sort_unstable();
+            list.sort_by(|a, b| {
+                (a.0, last_segment(&a.1.key), &a.1.id).cmp(&(b.0, last_segment(&b.1.key), &b.1.id))
+            });
         }
         for list in calls.values_mut() {
-            list.sort_by(|a, b| (a.path, a.line).cmp(&(b.path, b.line)));
-            list.dedup_by(|a, b| (a.path, a.line) == (b.path, b.line));
+            list.sort_by(|a, b| (a.path, a.line, &a.hint.id).cmp(&(b.path, b.line, &b.hint.id)));
+            list.dedup_by(|a, b| a.hint.id == b.hint.id);
         }
-        Callers { defs, calls }
+        let lines = calls
+            .iter()
+            .map(|(key, list)| {
+                let mut lines = list.clone();
+                lines.dedup_by(|a, b| (a.path, a.line) == (b.path, b.line));
+                (key.clone(), lines)
+            })
+            .collect();
+        Callers { defs, calls, lines }
     }
 
-    /// The name of the function that holds line `line` of the file `scope`.
-    fn enclosing(&self, scope: &str, line: u32) -> Option<&'a str> {
+    /// The definition that holds line `line` of the file `scope`: the nearest at or above it.
+    pub fn enclosing(&self, scope: &str, line: u32) -> Option<&'a Hint> {
         let defs = self.defs.get(scope)?;
         let i = defs.partition_point(|(l, _)| *l <= line);
         i.checked_sub(1).map(|i| defs[i].1)
+    }
+
+    /// The calls in `container` whose name's last segment is `name`, in (path, line) order.
+    pub fn calls_named(&self, container: &NodeId, name: &'a str) -> impl Iterator<Item = &'a Hint> + '_ {
+        self.calls.get(&(container.clone(), name)).into_iter().flatten().map(|s| s.hint)
     }
 
     /// The call sites of the function holding `hint`, in `container`, two hops at most and
@@ -528,9 +716,11 @@ impl<'a> Callers<'a> {
             }
             let mut hop: Vec<Site<'a>> = Vec::new();
             for (scope, line) in &frontier {
-                let Some(name) = self.enclosing(scope, *line) else { continue };
-                let Some(list) = self.calls.get(&(container.clone(), name)) else { continue };
-                // At most `room` new sites from each list: the rest could never be kept.
+                let Some(def) = self.enclosing(scope, *line) else { continue };
+                let name = last_segment(&def.key);
+                let Some(list) = self.lines.get(&(container.clone(), name)) else { continue };
+                // At most `room` new sites from each list, past at most the own line and the
+                // sites already taken: the rest could never be kept.
                 let new = list
                     .iter()
                     .filter(|s| (s.path, s.line) != own)
@@ -550,7 +740,88 @@ impl<'a> Callers<'a> {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
+
+    /// The facts a link reads: every hint, the System- and Container-level nodes, and only the
+    /// nodes and edges the linkers' input roles name, never a relation one emits; and each file a
+    /// fact places in one container, but no file two facts place in different ones.
+    #[test]
+    fn the_selection_reads_what_each_linkers_roles_name() {
+        let runs = [
+            json!({"kinds": {"package": {"kind": "code.package"}},
+                   "relations": {"imports": {"kind": "code.imports"},
+                                 "depends_on_package": {"kind": "code.depends_on_package"}}}),
+            json!({"kinds": {"service": {"kind": "code.service"}}, "relations": {"http": {"kind": "code.http"}}}),
+        ];
+        let containers = ["code.repo", "code.service", "code.tooling"].map(str::to_owned);
+        let selection = Selection::new(containers, [("imports", &runs[0]), ("runtime_wiring", &runs[1])]);
+        assert!(selection.wants_node("code.package", Level::Component));
+        assert!(selection.wants_node("code.tooling", Level::Container));
+        assert!(!selection.wants_node("code.file", Level::Code));
+        assert!(selection.wants_edge("code.depends_on_package"));
+        assert!(!selection.wants_edge("code.imports"), "an output relation is no input");
+        assert!(!selection.wants_edge("code.http"));
+
+        let provenance = Provenance::Extracted { extractor: "p/x".into(), tier: Tier::Pattern };
+        let node = |id: &str, kind: &str, level: Level, parent: &str| {
+            let node = Node {
+                id: NodeId(id.into()),
+                kind: planroom_contract::Kind(kind.into()),
+                level,
+                parent: Some(NodeId(parent.into())),
+                name: "n".into(),
+                aliases: vec![],
+                props: BTreeMap::new(),
+                layer: planroom_contract::Layer::Actual,
+                provenance: provenance.clone(),
+                evidence: vec![],
+            };
+            serde_json::to_string(&node).unwrap()
+        };
+        let edge = |kind: &str| {
+            let edge = Edge {
+                id: planroom_contract::EdgeId("e:000000000000".into()),
+                kind: planroom_contract::Kind(kind.into()),
+                from: planroom_contract::Ref::Id(NodeId("r:pkg:a".into())),
+                to: planroom_contract::Ref::Alias("pkg:b".into()),
+                via: None,
+                via_ref: None,
+                props: BTreeMap::new(),
+                evidence: vec![],
+                confidence: 1.0,
+                layer: planroom_contract::Layer::Actual,
+                provenance: provenance.clone(),
+            };
+            serde_json::to_string(&edge).unwrap()
+        };
+        let bodies = [
+            ("code.tooling", node("r:container:tool", "code.tooling", Level::Container, "r:repo:r")),
+            ("code.tooling", node("r:container:other", "code.tooling", Level::Container, "r:repo:r")),
+            ("code.package", node("r:pkg:a", "code.package", Level::Component, "r:container:tool")),
+            ("code.file", node("r:file:tools/check.rb", "code.file", Level::Code, "r:container:tool")),
+            ("code.file", node("r:file:src/a.ts", "code.file", Level::Code, "r:dir:src")),
+            ("code.file", node("r:file:two.rb", "code.file", Level::Code, "r:container:tool")),
+            ("code.file", node("r:file:two.rb", "code.file", Level::Code, "r:container:other")),
+        ];
+        let edges = [
+            ("code.depends_on_package", edge("code.depends_on_package")),
+            ("code.imports", edge("code.imports")),
+        ];
+        let members = bodies
+            .iter()
+            .map(|(kind, body)| Member::Node { kind, body })
+            .chain(edges.iter().map(|(kind, body)| Member::Edge { kind, body }));
+        let facts = selection.facts(["r".to_owned()], members).unwrap();
+        let ids: Vec<&str> = facts.nodes.iter().map(|n| n.id.0.as_str()).collect();
+        assert_eq!(ids, ["r:container:tool", "r:container:other", "r:pkg:a"]);
+        let kinds: Vec<&str> = facts.edges.iter().map(|e| e.kind.0.as_str()).collect();
+        assert_eq!(kinds, ["code.depends_on_package"]);
+        let placed: Vec<(&str, &str)> =
+            facts.file_containers.iter().map(|(f, c)| (f.0.as_str(), c.0.as_str())).collect();
+        assert_eq!(placed, [("r:file:tools/check.rb", "r:container:tool"), ("r:pkg:a", "r:container:tool")]);
+    }
 
     #[test]
     fn a_url_gives_its_host_past_userinfo_and_port() {

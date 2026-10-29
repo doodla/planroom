@@ -25,7 +25,7 @@ files = ["**/*.js", "**/*.mjs", "**/*.cjs", "**/*.jsx"]
 language = "javascript"
 query = "queries/javascript.scm"
 emit = [
-  { edge = "code.imports", from = "@id:code.file:$file", to = "@alias:module:@import", via = "@import" },
+  { hint = "code.import", scope = "@id:code.file:$file", key = "@import" },
   { hint = "code.def", scope = "@id:code.file:$file", key = "@def", value = "@def.params" },
   { hint = "code.def", scope = "@id:code.file:$file", key = "@arrow", value = "(@arrow.param)" },
   { hint = "code.const", scope = "@id:code.file:$file", key = "@const", value = "@const.value" },
