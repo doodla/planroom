@@ -3,3 +3,15 @@
 {"at": "2026-10-26T00:00:00Z", "generation_id": null, "provider": "claude-code-session", "model": "haiku", "cost_usd": 0.012, "scenario": "phase1", "note": "A-1 headless spike with a spike plugin; session usage, counted here to keep the cap conservative"}
 {"at": "2026-10-26T10:30:00Z", "generation_id": null, "provider": "claude-code-session", "model": "haiku", "cost_usd": 0.018386, "scenario": "ws8", "note": "8 headless first-turn runs for docs/evidence/s15/first-turn.json; session usage, counted to keep the cap conservative"}
 {"at": "2026-10-26T10:45:00Z", "generation_id": null, "provider": "claude-code-session", "model": "haiku, sonnet", "cost_usd": 0.258043, "scenario": "ws8", "note": "A-18 sandbox spikes (one sonnet run, about $0.23) and A-16 checks; session usage, counted to keep the cap conservative"}
+{"at":"2026-10-29T14:36:12Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.intent","phase":"reserved"}
+{"at":"2026-10-29T14:36:18Z","generation_id":"gen_01M641E52VFQGSV5EB4S0AM0W6","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.064352,"scenario":"plan.stage.intent","phase":"settled"}
+{"at":"2026-10-29T14:36:20Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.outcome","phase":"reserved"}
+{"at":"2026-10-29T14:36:26Z","generation_id":"gen_01M641EC0HTKY4KGT0SBDRW7E6","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.091397,"scenario":"plan.stage.outcome","phase":"settled"}
+{"at":"2026-10-29T14:36:33Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.breakdown","phase":"reserved"}
+{"at":"2026-10-29T14:36:38Z","generation_id":"gen_01M641ERT47223M5XKRFN29BMC","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.091367,"scenario":"plan.stage.breakdown","phase":"settled"}
+{"at":"2026-10-29T14:36:43Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.next_actions","phase":"reserved"}
+{"at":"2026-10-29T14:36:46Z","generation_id":"gen_01M641F2S2QV8823D5KQQ1MB10","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.091681,"scenario":"plan.stage.next_actions","phase":"settled"}
+{"at":"2026-10-29T14:36:49Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.priorities","phase":"reserved"}
+{"at":"2026-10-29T14:36:52Z","generation_id":"gen_01M641F7ZTVP6E0TMGGXMYXP1F","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.089085,"scenario":"plan.stage.priorities","phase":"settled"}
+{"at":"2026-10-29T14:36:59Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.premortem","phase":"reserved"}
+{"at":"2026-10-29T14:37:09Z","generation_id":"gen_01M641FJ01C698S1FE9YFDVFK0","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.084415,"scenario":"plan.stage.premortem","phase":"settled"}
