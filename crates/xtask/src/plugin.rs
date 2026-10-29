@@ -137,7 +137,7 @@ pub fn layout_problems(root: &Path) -> Result<Vec<String>, String> {
     if let Ok(entries) = fs::read_dir(plugin.join("skills")) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if MOD_COMMANDS.contains(&name.as_str()) {
+            if crate::modgen::MOD_COMMANDS.contains(&name.as_str()) {
                 problems.push(format!(
                     "plugin/skills/{name}: a skill can't share its name with the mod's /{name} command; the host refuses the command and skips the mod's start"
                 ));
@@ -169,11 +169,6 @@ pub const MANIFEST: &str = "plugin/.claude-plugin/plugin.json";
 
 /// The plugin's skills, each `user-invocable: false`.
 const SKILLS: [&str; 3] = ["planroom", "room-plan", "room-handoff"];
-
-/// The slash commands the mod registers (`packages/mod/src/register.tsx`). The host refuses a mod
-/// command named like one of its own plugin's skills, and the refusal skips the mod's whole
-/// `session.start`, which the mocked harness never shows (DR-84).
-const MOD_COMMANDS: [&str; 1] = ["room"];
 
 /// sha256 over every file under `plugin/` but the manifest, in sorted path order: each file's path
 /// from `plugin/`, a NUL, its length in decimal, a NUL, then its bytes.

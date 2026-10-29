@@ -23,7 +23,8 @@ use crate::{
 use crate::{DoctorReport, DoctorResult};
 use crate::{DraftReply, StageSlice};
 use crate::{
-    EngineState, LastSeq, PaneState, ReplayRecord, ResolverStatus, ToolResult, TurnSeq, UnavailableReason,
+    EngineState, LastSeq, OutboxEntry, PaneState, ReplayRecord, ResolverStatus, ToolResult, TurnSeq,
+    UnavailableReason,
 };
 use crate::{IntentListReq, IntentListResult, IntentNewReq, IntentVersionReq, LintResult, PlanProposal};
 use crate::{PackAddReq, PackRemoveReq, PackSetResult};
@@ -131,6 +132,7 @@ pub fn generate(view: View) -> Value {
         PaneState,
         LastSeq,
         TurnSeq,
+        OutboxEntry,
         EditReq,
         EditResult,
         ReviewReq,

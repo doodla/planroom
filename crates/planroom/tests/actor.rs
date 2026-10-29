@@ -285,6 +285,7 @@ fn leaf(path: &'static [&'static str], actor: ActorRule, class: Class, needs_bas
         undo: Undo::Edit,
         tool: None,
         room: false,
+        args: |cmd| cmd,
     }
 }
 

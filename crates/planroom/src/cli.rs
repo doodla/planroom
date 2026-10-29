@@ -726,15 +726,8 @@ fn with_usage(e: AppError, command: &str) -> AppError {
     if e.code != ErrorCode::InvalidArgument || e.details.get("synopsis").is_some() {
         return e;
     }
-    let leaf = Command::SPECS.iter().any(|s| s.name() == command);
-    let mut cmd = Cli::command();
-    if leaf {
-        for word in command.split(' ') {
-            if let Some(sub) = cmd.find_subcommand(word).cloned() {
-                cmd = sub;
-            }
-        }
-    }
+    let spec = Command::SPECS.iter().find(|s| s.name() == command);
+    let leaf = spec.is_some();
     let schema = if leaf {
         Handle {
             command: CommandName("schema".into()),
@@ -755,7 +748,9 @@ fn with_usage(e: AppError, command: &str) -> AppError {
         Value::Object(map) => map,
         _ => serde_json::Map::new(),
     };
-    details.insert("synopsis".into(), json!(synopsis(&cmd, if leaf { command } else { "" })));
+    // A leaf's synopsis is the catalogue's, the line `schema --commands` and the tools list.
+    let synopsis = spec.map_or_else(|| synopsis(&Cli::command()), |s| s.synopsis());
+    details.insert("synopsis".into(), json!(synopsis));
     details.insert("schema".into(), serde_json::to_value(&schema).unwrap_or(Value::Null));
     // An environment variable's error keeps the engine's own fix, which sets it: the schema
     // handle describes arguments, not the environment (DR-93).
@@ -770,34 +765,11 @@ fn with_usage(e: AppError, command: &str) -> AppError {
     if (from_env || card_step || handed_off) && e.hint.is_some() { e } else { e.with_hint(hint) }
 }
 
-/// A leaf's one-line synopsis from its clap arguments, long flags only, such as
-/// `planroom map [--level LEVEL] [--lens LENS] ... [--json]`.
-fn synopsis(cmd: &clap::Command, path: &str) -> String {
-    let mut words =
-        vec!["planroom".to_owned(), if path.is_empty() { "COMMAND".into() } else { path.to_owned() }];
-    for arg in cmd.get_arguments() {
-        let id = arg.get_id().as_str();
-        if matches!(id, "help" | "version" | "json") || arg.is_hide_set() {
-            continue;
-        }
-        let value = || {
-            let values: Vec<String> =
-                arg.get_possible_values().iter().map(|v| v.get_name().to_owned()).collect();
-            if values.is_empty() {
-                arg.get_value_names()
-                    .and_then(|names| names.first())
-                    .map_or_else(|| id.to_uppercase(), |n| n.as_str().to_owned())
-            } else {
-                values.join("|")
-            }
-        };
-        let word = match arg.get_long() {
-            Some(long) if arg.get_action().takes_values() => format!("--{long} {}", value()),
-            Some(long) => format!("--{long}"),
-            None => value(),
-        };
-        words.push(if arg.is_required_set() { word } else { format!("[{word}]") });
-    }
+/// The synopsis of a usage error that names no leaf, from the root's own arguments:
+/// `planroom COMMAND [--workspace DIR] [--json]`. A leaf's is `CommandSpec::synopsis`.
+fn synopsis(cmd: &clap::Command) -> String {
+    let mut words = vec!["planroom".to_owned(), "COMMAND".to_owned()];
+    words.extend(planroom_contract::command::usage_words(cmd));
     words.push("[--json]".into());
     words.join(" ")
 }

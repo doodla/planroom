@@ -11,7 +11,9 @@
  */
 
 import {
+  CATALOGUE,
   MOD_STRINGS,
+  type CatalogueLeaf,
   type DiffLine,
   type Handle,
   type PaneModel,
@@ -26,6 +28,7 @@ import {
   sanitize,
   truncate,
   width,
+  type ActionKey,
   type RowKey,
 } from "@planroom/ui";
 
@@ -47,7 +50,14 @@ export type Selectable = `diff-${0 | 1 | 2}` | "drift-0" | "who-0";
  * selecting a row for an action key to act on, or turning the list's page.
  */
 export type Action =
-  | { kind: "run"; command: string; args: string[]; label: string }
+  | {
+      kind: "run";
+      command: string;
+      args: string[];
+      label: string;
+      /** The press takes back the last one: its reply offers no undo of its own. */
+      undo?: boolean;
+    }
   | { kind: "fallback"; run: "retry" | "build" | "rekey" }
   | { kind: "clear" }
   | { kind: "select"; row: Selectable }
@@ -162,7 +172,7 @@ function label(value: string, columns: number): string {
   return truncate(sanitize(value), columns);
 }
 
-function run(handle: Handle): Action {
+function run(handle: Handle): Extract<Action, { kind: "run" }> {
   return {
     kind: "run",
     command: handle.command,
@@ -451,7 +461,7 @@ function whoRow(
  * The list: the pane's blocks, or the blocks the next action showed, as plain rows, a page of at
  * most 7 with one paging line. A block row runs nothing until `map --focus` exists (DR-85), so it
  * takes no row key. With room for one row the list draws only its paging line; past one page a
- * plain Button turns it, wrapping from the last page to the first.
+ * Button turns it, wrapping from the last page to the first, on the next free row key (DR-77).
  */
 function blockRows(
   model: PaneModel,
@@ -459,6 +469,7 @@ function blockRows(
   room: number,
   shown: Shown | null,
   view: PaneView,
+  pageKey: RowKey | undefined,
 ): Row[] {
   if (room <= 0) return [];
   const map = shown?.level != null ? shown : null;
@@ -519,20 +530,16 @@ function blockRows(
   ];
   if (shownPage.pages > 1) {
     const last = shownPage.index === shownPage.pages - 1;
-    rows.push({
-      kind: "buttons",
-      key: "blocks-paging",
-      buttons: [
-        {
-          key: "page",
-          label: label(
-            say(last ? "first_page_label" : "next_page_label"),
-            columns,
-          ),
-          action: { kind: "page", index: last ? 0 : shownPage.index + 1 },
-        },
-      ],
-    });
+    const turn: ButtonSpec = {
+      key: "page",
+      label: label(
+        say(last ? "first_page_label" : "next_page_label"),
+        columns - (pageKey === undefined ? 0 : pageKey.length + 2),
+      ),
+      action: { kind: "page", index: last ? 0 : shownPage.index + 1 },
+    };
+    if (pageKey !== undefined) turn.hotkey = pageKey;
+    rows.push({ kind: "buttons", key: "blocks-paging", buttons: [turn] });
   }
   return rows;
 }
@@ -540,7 +547,8 @@ function blockRows(
 /**
  * The pane for a PaneModel: the full layout from 49x34, else the compact one (DR-54, DR-77).
  * `shown` is what the next action showed when the person ran it, drawn while the pane still
- * offers it; `view` is the list's page and the row a row key selected.
+ * offers it; `view` is the list's page and the row a row key selected; `undo` is the press the
+ * pane's `u` takes back, while there is one.
  */
 export function paneRows(
   model: PaneModel,
@@ -548,6 +556,7 @@ export function paneRows(
   rows: number,
   shown: Shown | null = null,
   view: PaneView = {},
+  undo: Handle | null = null,
 ): Row[] {
   const compact = columns < DOCK.columns || rows < DOCK.rows;
   const result = shownNext(model, shown);
@@ -556,29 +565,81 @@ export function paneRows(
     ...cardRows(model, columns, result),
   ];
   const hasTop = model.drift.top !== undefined && model.drift.top !== null;
+  // An action key acts on the selected row: the first keyed row until a row key selects another.
+  const first: Selectable | null =
+    model.diffs.length > 0
+      ? "diff-0"
+      : compact
+        ? null
+        : hasTop
+          ? "drift-0"
+          : model.who.length > 0
+            ? "who-0"
+            : null;
+  const at: PaneView = { ...view, selected: view.selected ?? first };
+  let pageKey: RowKey | undefined;
   if (compact) {
     // The top pending diff line keeps its row key; the rest move behind their keys.
-    const keys = keyRows({ diffs: 1, drift: false, who: false, list: 0 });
     const top = model.diffs[0];
+    const keys = keyRows(
+      { diffs: top === undefined ? 0 : 1, drift: false, who: false, list: 0 },
+      true,
+    );
+    pageKey = keys.page;
     if (top !== undefined)
-      out.push(diffLine(top, 0, keys.diffs[0], columns, view));
+      out.push(diffLine(top, 0, keys.diffs[0], columns, at));
   } else {
-    const keys = keyRows({
-      diffs: model.diffs.length,
-      drift: hasTop,
-      who: model.who.length > 0,
-      // Block rows take no key until `map --focus` exists (DR-85).
-      list: 0,
-    });
+    const keys = keyRows(
+      {
+        diffs: model.diffs.length,
+        drift: hasTop,
+        who: model.who.length > 0,
+        // Block rows take no key until `map --focus` exists (DR-85).
+        list: 0,
+      },
+      true,
+    );
+    pageKey = keys.page;
     const hunkLines = rows >= 46 ? 5 : 2;
     out.push(progressRow(model, columns));
-    out.push(...diffRows(model.diffs, keys.diffs, columns, hunkLines, view));
-    out.push(driftRow(model, keys.drift, columns, view));
-    out.push(whoRow(model, keys.who, columns, view));
+    out.push(...diffRows(model.diffs, keys.diffs, columns, hunkLines, at));
+    out.push(driftRow(model, keys.drift, columns, at));
+    out.push(whoRow(model, keys.who, columns, at));
   }
-  const used = out.reduce((sum, r) => sum + rowHeight(r), 0);
-  out.push(...blockRows(model, columns, rows - used, result, view));
+  const actions = actionRow(columns, undo);
+  const used = out.reduce((sum, r) => sum + rowHeight(r), 0) + 1;
+  out.push(...blockRows(model, columns, rows - used, result, at, pageKey));
+  out.push(actions);
   return out;
+}
+
+/** The action key that opens the canvas, and the one that takes back the last press. */
+const CANVAS_KEY: ActionKey = "e";
+const UNDO_KEY: ActionKey = "u";
+
+/**
+ * The list's action row: `e` opens the canvas as the person's press, and `u` undoes the last press
+ * while the pane offers that (DR-54, DR-85). Every other action key waits for its leaf or data.
+ */
+function actionRow(columns: number, undo: Handle | null): Row {
+  const buttons: ButtonSpec[] = [];
+  if (undo !== null) {
+    buttons.push({
+      key: "undo",
+      label: label(undo.label, Math.max(1, Math.floor(columns / 2) - 3)),
+      hotkey: UNDO_KEY,
+      action: { ...run(undo), undo: true },
+    });
+  }
+  const taken = buttons.reduce((sum, b) => sum + buttonWidth(b) + GAP, 0);
+  const canvas = say("canvas_label");
+  buttons.push({
+    key: "canvas",
+    label: label(canvas, Math.max(1, columns - taken - 3)),
+    hotkey: CANVAS_KEY,
+    action: { kind: "run", command: "open", args: [], label: canvas },
+  });
+  return { kind: "buttons", key: "actions", buttons };
 }
 
 /** The pane for a fallback state: its headline, its detail and its one action. */
@@ -615,6 +676,8 @@ export function bandRow(
   source: { model: PaneModel } | { fallback: Fallback },
   columns: number,
   shown: Shown | null = null,
+  undo: Handle | null = null,
+  leaves: readonly CatalogueLeaf[] = CATALOGUE,
 ): Row {
   if ("fallback" in source) {
     const f = source.fallback;
@@ -648,6 +711,22 @@ export function bandRow(
       ],
     };
   }
+  if (undo !== null && bandMayRun(undo.command, leaves)) {
+    // For 10 s after a press that can be undone, the band's primary takes it back (DR-54).
+    return {
+      kind: "buttons",
+      key: "band",
+      buttons: [
+        {
+          key: "band-primary",
+          label: label(undo.label, columns - 3),
+          hotkey: BAND_KEYS.primary,
+          primary: true,
+          action: { ...run(undo), undo: true },
+        },
+      ],
+    };
+  }
   const next = source.model.empty?.next ?? source.model.next;
   if (shownNext(source.model, shown) !== null) {
     // Already run: the band says what it showed instead of offering the same press again.
@@ -658,7 +737,7 @@ export function bandRow(
       "dim",
     );
   }
-  if (!bandMayRun(next.command)) {
+  if (!bandMayRun(next.command, leaves)) {
     return text(
       "band",
       say("band_points_to_pane", { label: next.label }),

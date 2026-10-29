@@ -6,7 +6,7 @@
 import { atom } from "claude-code";
 
 import { INITIAL_ENGINE } from "./engine";
-import type { LastSeq, PaneState, TurnSeq } from "./state-types";
+import type { LastSeq, Outbox, PaneState, TurnSeq } from "./state-types";
 
 export const engineAtom = atom(
   { plugin: "planroom", key: "engine" } as const,
@@ -36,4 +36,13 @@ export const turnSeqAtom = atom(
   { plugin: "planroom", key: "turnSeq" } as const,
   INITIAL_TURN,
   { shape: "turn-1" },
+);
+
+const INITIAL_OUTBOX: Outbox = [];
+
+/** The writes sent and not yet answered, resent after a reload (DR-8). */
+export const outboxAtom = atom(
+  { plugin: "planroom", key: "outbox" } as const,
+  INITIAL_OUTBOX,
+  { shape: "outbox-1" },
 );

@@ -31,6 +31,50 @@ test("row_keys_take_diffs_then_drift_then_who_then_seven_list_rows", () => {
   });
 });
 
+test("the_page_button_takes_the_next_free_row_key: and the list keeps one row fewer when the pool runs out", () => {
+  // No page asked for: no key for one.
+  expect(keyRows({ diffs: 1, drift: false, who: false, list: 3 }).page).toBe(
+    undefined,
+  );
+  // The next free key after the list's keyed rows.
+  expect(
+    keyRows({ diffs: 1, drift: false, who: false, list: 3 }, true),
+  ).toEqual({
+    diffs: ["5"],
+    drift: undefined,
+    who: undefined,
+    list: ["6", "7", "8"],
+    page: "9",
+  });
+  // Block rows that take no key leave the first free key to the page.
+  expect(
+    keyRows({ diffs: 3, drift: true, who: true, list: 0 }, true).page,
+  ).toBe("0");
+  // A spent pool: seven list rows would take the last key, so the page holds six and every shown
+  // row keeps its key.
+  const spent = keyRows({ diffs: 3, drift: true, who: true, list: 20 }, true);
+  expect(spent.list).toEqual(["0", "b", "j", "k", "q", "r"]);
+  expect(spent.page).toBe("v");
+  const keys = [
+    ...spent.diffs,
+    spent.drift,
+    spent.who,
+    ...spent.list,
+    spent.page,
+  ];
+  expect(keys).toEqual([...ROW_KEYS]);
+  // The same sections without a page keep all seven rows, as before.
+  expect(keyRows({ diffs: 3, drift: true, who: true, list: 20 }).list).toEqual([
+    "0",
+    "b",
+    "j",
+    "k",
+    "q",
+    "r",
+    "v",
+  ]);
+});
+
 test("the card's keys are 1 to 4 and never a row key", () => {
   expect(CARD_KEYS).toEqual(["1", "2", "3", "4"]);
   expect(CARD_KEYS[0]).toBe(BAND_KEYS.primary);

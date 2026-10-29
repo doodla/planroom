@@ -54,6 +54,63 @@ fn a_bad_flag_or_value_with_json_is_one_invalid_argument_envelope() {
     assert!(env["error"]["details"]["synopsis"].as_str().unwrap().contains("--level LEVEL"));
 }
 
+/// Every leaf's usage error carries the synopsis `schema --commands` lists for it, one line from
+/// the leaf's clap arguments, so the CLI's usage, the listing and the tools' descriptions agree.
+#[test]
+fn a_leafs_synopsis_is_the_one_schema_commands_lists() {
+    // Every page of the listing, following `meta.next`.
+    let mut items: Vec<Value> = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let mut args = vec!["schema", "--commands", "--json"];
+        if let Some(c) = &cursor {
+            args.extend(["--cursor", c.as_str()]);
+        }
+        let (listing, out) = envelope(&args);
+        assert!(out.status.success(), "{listing}");
+        items.extend(listing["result"]["items"].as_array().unwrap().iter().cloned());
+        cursor = listing["meta"]["next"].as_str().map(str::to_owned);
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(items.len(), planroom_contract::Command::SPECS.len());
+    for item in &items {
+        let leaf = item["name"].as_str().unwrap();
+        let listed = item["synopsis"].as_str().unwrap_or_else(|| panic!("{leaf} lists no synopsis"));
+        assert!(listed.starts_with(&format!("planroom {leaf}")) && listed.ends_with(" [--json]"), "{listed}");
+        let mut args: Vec<&str> = leaf.split(' ').collect();
+        args.extend(["--no-such-flag", "--json"]);
+        let (env, out) = envelope(&args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {env}");
+        assert_eq!(env["error"]["details"]["synopsis"], listed, "{leaf}");
+    }
+    // A leaf whose request has subcommands names them after its path.
+    let edit = items.iter().find(|i| i["name"] == "edit").unwrap();
+    assert!(
+        edit["synopsis"]
+            .as_str()
+            .unwrap()
+            .starts_with("planroom edit move|group|rename|hide|pin|relate|unrelate|forbid|undo "),
+        "{edit}"
+    );
+}
+
+/// A leaf's own flags run after its subcommand, where its synopsis writes them, as well as
+/// before it: neither order is a usage error.
+#[test]
+fn a_leafs_own_flags_run_after_its_subcommand() {
+    for args in [
+        &["edit", "rename", "a", "b", "--base", "3", "--project", "plan:x:y", "--json"][..],
+        &["edit", "--base", "3", "--project", "plan:x:y", "rename", "a", "b", "--json"][..],
+        &["edit", "undo", "e1", "--idem", "k", "--json"][..],
+    ] {
+        let (env, _) = envelope(args);
+        assert_eq!(env["ok"], false, "{args:?}: {env}");
+        assert_ne!(env["error"]["code"], "invalid_argument", "{args:?}: {env}");
+    }
+}
+
 #[test]
 fn the_schema_handle_of_a_usage_error_resolves() {
     let (env, _) = envelope(&["map", "--level", "Foo", "--json"]);

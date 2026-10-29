@@ -11,6 +11,7 @@ import {
   tokenMessage,
   verifyToken,
 } from "./actor";
+import { agentEnv } from "./tools";
 
 const enc = (s: string): Uint8Array => new TextEncoder().encode(s);
 
@@ -119,4 +120,18 @@ test("a CLI line splits into the token's fields", () => {
     idem: "",
     base: "",
   });
+});
+
+test("tool_handlers_send_agent: every tool runs as the chat agent of its session, never a person", () => {
+  const session = "5e55i0n1-0000-4000-8000-000000000000";
+  for (const turn of [null, "turn_9"]) {
+    const env = agentEnv(session, turn);
+    expect(env["PLANROOM_ACTOR"]).toBe("agent:5e55i0n1:chat");
+    expect(env["PLANROOM_CLIENT"]).toBe(`mod:${session}`);
+    expect(env["PLANROOM_CAUSE"]).toBe(
+      turn === null ? undefined : `turn:${turn}`,
+    );
+    expect(env).not.toHaveProperty("PLANROOM_PERSON_TOKEN");
+    expect(env).not.toHaveProperty("PLANROOM_RAW");
+  }
 });

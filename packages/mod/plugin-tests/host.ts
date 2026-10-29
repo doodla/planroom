@@ -6,11 +6,17 @@
 
 import { mock } from "claude-code/testing";
 import type { MockClock } from "claude-code/testing";
-import type { On, ProcessSpawnChunk, ProcessSpawnResult } from "claude-code";
+import type {
+  EngineInterface,
+  On,
+  ProcessSpawnChunk,
+  ProcessSpawnResult,
+} from "claude-code";
 
-import type { PaneModel } from "@planroom/contract";
+import { LEAF_OWN_FLAGS, type PaneModel } from "@planroom/contract";
 
 import focusReply from "../../../tests/golden/cli/focus.json";
+import { leafOfArgv } from "../src/catalogue";
 import { overlay, type Overlay } from "./overlays";
 
 export const ROOT = "/plugins/planroom";
@@ -127,12 +133,54 @@ export interface Host {
   clock: MockClock;
   runs: Run[];
   children: Child[];
+  /** The slash commands the mod registered, in order. */
+  commands: string[];
   /** The toasts the mod showed, in order. */
   toasts: string[];
   /** The shell's directory, as `$.session.cwd()` reports it: a test moves it the way a Bash `cd` does. */
   shell: { cwd: string };
   /** The session's environment, as `$.env.get` reads it now. */
   env: Record<string, string>;
+}
+
+/**
+ * The flag the engine's parser refuses in a command line after the binary: a `--base` or `--idem`
+ * on a leaf whose own flags don't include it. A leaf's own flags are global to its subcommands,
+ * so the CLI reads them before or after one (`edit --base SEQ undo EVENT` and `edit undo EVENT
+ * --base SEQ` alike). Null for a line it reads. Every engine run here passes this first, as the
+ * real parser would, since a mocked answer would otherwise take any argv.
+ */
+export function unreadFlag(argv: readonly string[]): string | null {
+  const l = leafOfArgv(argv);
+  if (l === undefined) return null;
+  const own = LEAF_OWN_FLAGS[l.name] ?? [];
+  for (const word of argv.slice(l.name.split(" ").length)) {
+    const flag = word.split("=")[0] ?? word;
+    if ((flag === "--base" || flag === "--idem") && !own.includes(flag))
+      return flag;
+  }
+  return null;
+}
+
+/** The engine's `invalid_argument` reply to a flag its parser refuses, exit 2. */
+function refusedFlag(command: string, flag: string): Answer {
+  return {
+    exitCode: 2,
+    stdout: JSON.stringify({
+      schema_version: 1,
+      ok: false,
+      command,
+      error: {
+        code: "invalid_argument",
+        category: "usage",
+        retry: "never",
+        message: `unexpected argument '${flag}' found`,
+        hint: `planroom schema --command ${command}`,
+        details: { field: flag },
+      },
+      meta: {},
+    }),
+  };
 }
 
 /** An engine that resolves and answers focus with the golden PaneModel. */
@@ -206,6 +254,8 @@ export function host(
     env?: Record<string, string>;
     /** Files `fs.read` reads, by absolute path; any other read is refused, as a missing file's is. */
     files?: Record<string, string>;
+    /** What the session start beneath the mod does, as another plugin's start would. */
+    start?: ($: EngineInterface) => Promise<void>;
   } = {},
 ): Host {
   const clock = mock.clock(on, { now: 1_800_000_000_000 });
@@ -222,7 +272,16 @@ export function host(
   const children: Child[] = [];
   const shell = { cwd: START.cwd as string };
   on("session.cwd", () => ({ value: shell.cwd }));
-  on("command.register", (_$, e) => ({ value: { command: e.name } }));
+  const commands: string[] = [];
+  // The host refuses a mod command named like one of its own plugin's skills, and the refusal
+  // skips the mod's whole session.start (DR-84), so the stand-in refuses it too.
+  on("command.register", (_$, e) => {
+    if (__PLANROOM_SKILLS__.includes(e.name)) {
+      return { deny: `a skill of this plugin is already named ${e.name}` };
+    }
+    commands.push(e.name);
+    return { value: { command: e.name } };
+  });
   on("tool.register", (_$, e) => ({
     value: { tool: `mcp__planroom__${e.name}` },
   }));
@@ -234,7 +293,10 @@ export function host(
     return { value: undefined };
   });
   on("session.id", () => ({ value: SESSION }));
-  on("session.start", (_$, e) => ({ cwd: e.cwd }));
+  on("session.start", async ($, e) => {
+    await options.start?.($);
+    return { cwd: e.cwd };
+  });
   on("process.run", async (_$, e) => {
     runs.push({
       argv: e.argv,
@@ -242,7 +304,12 @@ export function host(
       stdin: e.init?.stdin,
       at: clock.now(),
     });
-    const a = await answer(e.argv);
+    const line = e.argv[0] === ENGINE ? e.argv.slice(1) : [];
+    const unread = unreadFlag(line);
+    const a =
+      unread === null
+        ? await answer(e.argv)
+        : refusedFlag(leafOfArgv(line)?.name ?? "", unread);
     return {
       value: {
         exitCode: a.exitCode,
@@ -278,7 +345,7 @@ export function host(
     children.push(child);
     return { value: yield* child.run(next.signal) };
   });
-  return { clock, runs, children, toasts, shell, env };
+  return { clock, runs, children, commands, toasts, shell, env };
 }
 
 /** The focus runs so far, as the clock read when each started. */

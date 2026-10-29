@@ -2,7 +2,17 @@
 export const name = "@planroom/ui";
 
 export { sanitize } from "./display";
-export { BAND_KEYS, ROW_KEYS, rowKeys, type RowKey } from "./keys";
+export {
+  ACTION_KEYS,
+  BAND_KEYS,
+  KEY_MAP,
+  ROW_KEYS,
+  rowKeys,
+  type ActionKey,
+  type KeyBinding,
+  type KeySection,
+  type RowKey,
+} from "./keys";
 export {
   blocksOf,
   edgesOf,

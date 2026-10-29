@@ -378,10 +378,14 @@ var MOD_STRINGS = {
   "blocks_title": "Blocks · {level}",
   "build_failed": "The source build failed: {said}",
   "building_line": "Building the Planroom engine from source…",
+  "canvas_label": "Open the canvas",
   "compact_focus_line": "▣ {crumbs} · {level} · {lens}",
   "done_line": "{label}: done",
+  "engine_exited": "The engine exited {code} without a reply.",
   "engine_no_error": "The engine failed without an error.",
+  "engine_no_version": "The Planroom engine didn't answer version --json: {said}",
   "engine_not_ready": "The Planroom engine isn't ready yet.",
+  "engine_rebuild": "Rebuild the engine: {fix}",
   "failed_line": "{label} failed",
   "first_page_label": "First page",
   "focus_line": "▣ {crumbs}",
@@ -391,6 +395,7 @@ var MOD_STRINGS = {
   "handler_failed": "The Planroom mod's tool handler failed.",
   "lens_line": "{level} · lens {lens}",
   "more_decisions": "+{count} more",
+  "more_rows": "+{count} more",
   "next_page_label": "Next page",
   "next_title": "Next",
   "no_blocks": "No blocks at this level yet",
@@ -398,6 +403,7 @@ var MOD_STRINGS = {
   "no_diffs": "No pending diffs",
   "no_project": "no project",
   "nobody_here": "Nobody else is here",
+  "outbox_dropped": "A Planroom write from before the reload wasn't sent again; check the pane before you repeat it.",
   "page_line": "{first}–{last} of {total}",
   "progress_done": "{done}/{total} done",
   "progress_handoffs": "{count} hand-offs running",
@@ -406,15 +412,582 @@ var MOD_STRINGS = {
   "progress_not_scanned": "not scanned",
   "progress_scanning": "scanning",
   "project_line": "{project} · seq {seq}",
+  "prompt_section": "Planroom is this workspace's shared, living map of the software system, which people and agents plan on together. Five ideas: levels (the map's abstraction levels, from the plan's intent down; ask lists them), lenses (which relations you see; ask lists them), intent (projects and their plan items), diffs (what changed against what was meant) and decisions (one card at a time, which a person picks).\nUse mcp__planroom__room_query to read: focus, map, find and ask. Use mcp__planroom__room_change to change: scan, edit, and intent's new, propose, lint and list. Your edits and proposals are ghosts until a person accepts them. Pass base from the meta.seq you read, so a write over a newer one fails instead of overwriting it. A wrong argument returns that command's synopsis.",
   "room_argument_hint": "[help | map | focus | scan …]",
   "room_description": "Planroom: focus the pane, or run a map command (/room help lists them)",
+  "room_help_bare": "focus the Planroom pane",
+  "room_help_help": "list these commands",
+  "room_more_warnings": "! {count} more warnings: /room shows them",
+  "room_no_command": '/room has no command "{word}". /room help lists them.',
+  "room_open_quote": "A {quote} quote isn't closed.",
+  "room_warning": "! {message}",
   "selected_row": "› {label}",
+  "share_context": "Publish this as an Artifact with the publish arguments, then make the db writes in order: {json}",
   "title": "Planroom",
   "toast": "{label}: {line}",
+  "toast_undo": "{label}: {line} · 1 undoes it",
+  "toast_undo_pane": "{label}: {line} · u undoes it",
+  "toast_warned": "{label}: {line} · {count} warnings",
+  "toast_warned_one": "{label}: {line} · 1 warning",
+  "tool_args_not_strings": "args must be an array of strings.",
+  "tool_commands_label": "List every command",
+  "tool_no_client": "Planroom's tools name this session as the writer, so --client isn't one of their arguments.",
+  "tool_no_command": "{tool} has no command {command}.",
+  "tool_no_workspace": "Planroom's tools work in this session's workspace only, so --workspace isn't one of their arguments.",
+  "tool_schema_label": "The {leaf} command's arguments and result",
   "who_agent": "{role} {session}",
   "who_doing": "{name}: {doing}",
   "workspace": "workspace"
 };
+var LEAF_OWN_FLAGS = {
+  "map": [
+    "--level",
+    "--lens",
+    "--focus",
+    "--detail",
+    "--cursor"
+  ],
+  "find": [],
+  "ask": [
+    "--cursor"
+  ],
+  "focus": [
+    "--session",
+    "--detail"
+  ],
+  "scan": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "watch": [
+    "--since",
+    "--session"
+  ],
+  "schema": [
+    "--commands",
+    "--command",
+    "--def",
+    "--cursor"
+  ],
+  "version": [],
+  "person init": [
+    "--rekey",
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "serve": [
+    "--detach",
+    "--port"
+  ],
+  "share": [
+    "--out",
+    "--include-snippets",
+    "--include-presence"
+  ],
+  "import": [],
+  "doctor": [
+    "--pack",
+    "--update"
+  ],
+  "edit": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "open": [],
+  "review": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "intent new": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "intent next": [
+    "--stage",
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "intent propose": [
+    "--file",
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "intent lint": [
+    "--project"
+  ],
+  "intent version": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "intent list": [
+    "--project",
+    "--cursor"
+  ],
+  "pack add": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "pack remove": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ]
+};
+var TOOL_SPECS = [
+  {
+    "name": "room_query",
+    "description": "Read Planroom's map of this system. Pass base from the meta.seq you read.\nmap [--level LEVEL] [--lens LENS] [--focus FOCUS] [--detail summary|graph] [--cursor CURSOR]\nfind TEXT\nask [QUESTION] [ARGS] [--cursor CURSOR]\nfocus [--session SESSION] [--detail full|summary]",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "enum": [
+            "map",
+            "find",
+            "ask",
+            "focus"
+          ]
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": `the command's CLI arguments, such as ["--focus", "ID"]`
+        },
+        "base": {
+          "type": "integer"
+        },
+        "idem": {
+          "type": "string"
+        }
+      }
+    },
+    "isDeferred": false
+  },
+  {
+    "name": "room_change",
+    "description": "Change Planroom's map: your writes are ghosts a person accepts. Pass base from the meta.seq you read.\nscan [DIR] [--project PROJECT]\nedit move|group|rename|hide|pin|relate|unrelate|forbid|undo [--project PROJECT]\nintent new TEXT [--project PROJECT]\nintent next [--stage S] [--project PROJECT]\nintent propose --file F [--project PROJECT]\nintent lint [--project PROJECT]\nintent list [--project PROJECT] [--cursor CURSOR]",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "enum": [
+            "scan",
+            "edit",
+            "intent new",
+            "intent next",
+            "intent propose",
+            "intent lint",
+            "intent list"
+          ]
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": `the command's CLI arguments, such as ["--focus", "ID"]`
+        },
+        "base": {
+          "type": "integer"
+        },
+        "idem": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object",
+          "description": "passed on stdin to a command run with --file -"
+        }
+      }
+    },
+    "isDeferred": false
+  },
+  {
+    "name": "room_handoff",
+    "description": "Report and collect Planroom hand-offs, or publish the map.\nshare [--out DIR] [--include-snippets] [--include-presence]",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "enum": [
+            "share"
+          ]
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": `the command's CLI arguments, such as ["--focus", "ID"]`
+        },
+        "base": {
+          "type": "integer"
+        },
+        "idem": {
+          "type": "string"
+        }
+      }
+    },
+    "isDeferred": true
+  }
+];
+var ROOM_COMMANDS = [
+  {
+    "name": "map",
+    "summary": "The map at a level through a lens.",
+    "synopsis": "/room map [--level LEVEL] [--lens LENS] [--focus FOCUS] [--detail summary|graph] [--cursor CURSOR]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--level",
+        "valueName": "LEVEL",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--lens",
+        "valueName": "LENS",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--focus",
+        "valueName": "FOCUS",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--detail",
+        "valueName": "DETAIL",
+        "values": [
+          "summary",
+          "graph"
+        ]
+      },
+      {
+        "sub": null,
+        "flag": "--cursor",
+        "valueName": "CURSOR",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "find",
+    "summary": "Search the map's blocks by name or ID, best match first.",
+    "synopsis": "/room find TEXT",
+    "subs": [],
+    "flags": []
+  },
+  {
+    "name": "ask",
+    "summary": "A question the loaded packs answer; alone, every loaded kind, lens and question.",
+    "synopsis": "/room ask [QUESTION] [ARGS] [--cursor CURSOR]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--cursor",
+        "valueName": "CURSOR",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "focus",
+    "summary": "Where you are, the one open decision and the next action.",
+    "synopsis": "/room focus [--session SESSION] [--detail full|summary]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--session",
+        "valueName": "SESSION",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--detail",
+        "valueName": "DETAIL",
+        "values": [
+          "full",
+          "summary"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "scan",
+    "summary": "Discover, extract and link the workspace's repos.",
+    "synopsis": "/room scan [DIR] [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "share",
+    "summary": "Write the canvas, its snapshot and the first live head for an Artifact publish.",
+    "synopsis": "/room share [--out DIR] [--include-snippets] [--include-presence]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--out",
+        "valueName": "DIR",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--include-snippets",
+        "valueName": null,
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--include-presence",
+        "valueName": null,
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "edit",
+    "summary": "One hand edit: move, group, rename, hide, pin, relate, unrelate or forbid, or undo a command.",
+    "synopsis": "/room edit move|group|rename|hide|pin|relate|unrelate|forbid|undo [--project PROJECT]",
+    "subs": [
+      "move",
+      "group",
+      "rename",
+      "hide",
+      "pin",
+      "relate",
+      "unrelate",
+      "forbid",
+      "undo"
+    ],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      },
+      {
+        "sub": "pin",
+        "flag": "--view",
+        "valueName": "VIEW",
+        "values": []
+      },
+      {
+        "sub": "pin",
+        "flag": "--x",
+        "valueName": "X",
+        "values": []
+      },
+      {
+        "sub": "pin",
+        "flag": "--y",
+        "valueName": "Y",
+        "values": []
+      },
+      {
+        "sub": "relate",
+        "flag": "--kind",
+        "valueName": "KIND",
+        "values": []
+      },
+      {
+        "sub": "unrelate",
+        "flag": "--kind",
+        "valueName": "KIND",
+        "values": []
+      },
+      {
+        "sub": "forbid",
+        "flag": "--kind",
+        "valueName": "KIND",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "open",
+    "summary": "Open the canvas in your browser, signed in with a one-time code it never prints.",
+    "synopsis": "/room open",
+    "subs": [],
+    "flags": []
+  },
+  {
+    "name": "intent new",
+    "summary": "Start a plan: a new project named by its text.",
+    "synopsis": "/room intent new TEXT [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "intent next",
+    "summary": "Draft a plan stage's items with Claude; they wait as ghosts for a person.",
+    "synopsis": "/room intent next [--stage S] [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--stage",
+        "valueName": "S",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "intent propose",
+    "summary": "Propose plan items from a file or stdin; an agent's wait as ghosts for a person.",
+    "synopsis": "/room intent propose --file F [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--file",
+        "valueName": "F",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "intent lint",
+    "summary": "The plan's lint findings: what each stage still lacks.",
+    "synopsis": "/room intent lint [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "intent version",
+    "summary": "Tag the plan as it stands with a version label; a person's alone.",
+    "synopsis": "/room intent version LABEL [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "intent list",
+    "summary": "Every project, and the items of the one named, each ghost with its review.",
+    "synopsis": "/room intent list [--project PROJECT] [--cursor CURSOR]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--cursor",
+        "valueName": "CURSOR",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "pack add",
+    "summary": "Add an out-of-tree pack: validate it, copy it into the state directory and record it; a person's alone.",
+    "synopsis": "/room pack add DIR [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "pack remove",
+    "summary": "Remove an out-of-tree pack from the workspace's pack set; a person's alone.",
+    "synopsis": "/room pack remove ID [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  }
+];
+var MOD_COMMANDS = ["room"];
 
 // ../ui/src/display.ts
 var INVISIBLE = [
@@ -485,6 +1058,7 @@ var BAND_KEYS = {
   alternative: "2",
   later: "3"
 };
+var CARD_KEYS = ["1", "2", "3", "4"];
 var ROW_KEYS = [
   "5",
   "6",
@@ -499,23 +1073,90 @@ var ROW_KEYS = [
   "r",
   "v"
 ];
+var ACTION_KEYS = [
+  "z",
+  "x",
+  "l",
+  "p",
+  "a",
+  "o",
+  "i",
+  "h",
+  "g",
+  "d",
+  "y",
+  "n",
+  "f",
+  "w",
+  "m",
+  "s",
+  "u",
+  "e",
+  "c",
+  "t"
+];
+var ACTIONS = {
+  z: ["up a level", "focus"],
+  x: ["down into the selected row", "focus"],
+  l: ["the lens picker", "focus"],
+  p: ["the project picker", "focus"],
+  a: ["accept the batch", "card"],
+  o: ["open detail", "card"],
+  i: ["the stage picker", "progress"],
+  h: ["the hand-off picker", "progress"],
+  g: ["merge the selected hand-off", "progress"],
+  d: ["every pending diff in the list", "diffs"],
+  y: ["accept the selected row", "diffs"],
+  n: ["reject the selected row", "diffs"],
+  f: ["every drift item in the list", "drift"],
+  w: ["every presence and claim row in the list", "who"],
+  m: ["toggle the mini-map", "minimap"],
+  s: ["search", "list"],
+  u: ["undo", "list"],
+  e: ["open the canvas", "list"],
+  c: ["curate", "list"],
+  t: ["the remote picker", "list"]
+};
+var KEY_MAP = [
+  ...CARD_KEYS.map((key, i) => ({
+    key,
+    action: key === BAND_KEYS.primary ? "choose 1; the band's next action" : key === BAND_KEYS.alternative ? "choose 2; the band's alternative" : key === BAND_KEYS.later ? "choose 3; the band's later" : `choose ${String(i + 1)}`,
+    section: "card"
+  })),
+  ...ROW_KEYS.map((key) => ({
+    key,
+    action: "select its row",
+    section: "rows"
+  })),
+  ...ACTION_KEYS.map((key) => ({
+    key,
+    action: ACTIONS[key][0],
+    section: ACTIONS[key][1]
+  }))
+];
 
 // ../ui/src/rows.ts
 var PAGE_ROWS = 7;
-var CARD_KEYS = ["1", "2", "3", "4"];
 var DIFF_ROWS = 3;
-function keyRows(sections) {
+function keyRows(sections, page2 = false) {
   let next = 0;
   const take = (count) => {
-    const keys = ROW_KEYS.slice(next, next + Math.max(0, count));
-    next += keys.length;
-    return keys;
+    const keys2 = ROW_KEYS.slice(next, next + Math.max(0, count));
+    next += keys2.length;
+    return keys2;
   };
   const diffs = take(Math.min(sections.diffs, DIFF_ROWS));
   const drift = sections.drift ? take(1)[0] : void 0;
   const who = sections.who ? take(1)[0] : void 0;
-  const list = take(Math.min(sections.list, PAGE_ROWS));
-  return { diffs, drift, who, list };
+  const free = ROW_KEYS.length - next;
+  const rows = Math.min(sections.list, PAGE_ROWS, page2 ? free - 1 : free);
+  const list = take(rows);
+  const keys = { diffs, drift, who, list };
+  if (page2) {
+    const key = take(1)[0];
+    if (key !== void 0) keys.page = key;
+  }
+  return keys;
 }
 function page(items, index, size = PAGE_ROWS) {
   const rows = Math.max(1, Math.floor(size));
@@ -622,7 +1263,7 @@ function engineFromVersion(resolver, run2) {
     return {
       ...base,
       status: "failed",
-      line: `The Planroom engine didn't answer version --json: ${said}`
+      line: fill(MOD_STRINGS.engine_no_version, { said })
     };
   }
   if (reply.ok) {
@@ -650,7 +1291,7 @@ function engineFromVersion(resolver, run2) {
         return {
           ...base,
           status: "version_mismatch",
-          line: `Rebuild the engine: ${fix ?? ""}`.trim(),
+          line: fill(MOD_STRINGS.engine_rebuild, { fix: fix ?? "" }).trim(),
           fix
         };
       case "no_release":
@@ -723,7 +1364,7 @@ function toolResult(run2) {
       error: {
         code: "internal",
         retry: "never",
-        message: firstLine(run2.stderr) || `The engine exited ${run2.exitCode} without a reply.`
+        message: firstLine(run2.stderr) || fill(MOD_STRINGS.engine_exited, { code: run2.exitCode })
       },
       meta: {}
     };
@@ -783,20 +1424,36 @@ var turnSeqAtom = atom(
   INITIAL_TURN,
   { shape: "turn-1" }
 );
+var INITIAL_OUTBOX = [];
+var outboxAtom = atom(
+  { plugin: "planroom", key: "outbox" },
+  INITIAL_OUTBOX,
+  { shape: "outbox-1" }
+);
 
 // src/catalogue.ts
 function leaf(name) {
   return CATALOGUE.find((l) => l.name === name);
 }
+function leafOfArgv(argv) {
+  let best;
+  for (const l of CATALOGUE) {
+    const path = l.name.split(" ");
+    if (path.every((p, i) => argv[i] === p) && (best === void 0 || path.length > best.name.split(" ").length)) {
+      best = l;
+    }
+  }
+  return best;
+}
 function leavesFor(tool) {
   return CATALOGUE.filter((l) => l.tool === tool);
 }
-function roomLeaves() {
-  return CATALOGUE.filter((l) => l.room);
+function roomCommands() {
+  return ROOM_COMMANDS;
 }
-function bandMayRun(command) {
-  const l = leaf(command);
-  return l !== void 0 && l.undo !== "not_undoable" && l.class !== "handoff";
+function bandMayRun(command, leaves = CATALOGUE) {
+  const l = leaves.find((c) => c.name === command);
+  return l !== void 0 && l.undo !== "not_undoable" && l.class !== "handoff" && !l.spends;
 }
 
 // src/fallback.ts
@@ -1852,7 +2509,7 @@ function findSelection(expr) {
     const a = expr[i] ?? "";
     const value = expr[i + 1] ?? "";
     const group = groups.at(-1) ?? { tests: [], prune: false, acts: false };
-    const add = (test) => {
+    const add2 = (test) => {
       group.tests.push({ test, negated: negate });
       negate = false;
       i++;
@@ -1862,11 +2519,11 @@ function findSelection(expr) {
       groups.push({ tests: [], prune: false, acts: false });
       negate = false;
     } else if (a === "-name" || a === "-iname") {
-      add((p) => fnmatch(value, basename(p), a === "-iname"));
+      add2((p) => fnmatch(value, basename(p), a === "-iname"));
     } else if (["-path", "-ipath", "-wholename", "-iwholename"].includes(a)) {
-      add((p) => fnmatch(value, p, a.startsWith("-i")));
+      add2((p) => fnmatch(value, p, a.startsWith("-i")));
     } else if (a === "-regex" || a === "-iregex") {
-      add((p) => {
+      add2((p) => {
         if (value.includes(ANY_JOINED) || value === "*") return true;
         try {
           return new RegExp(`^(?:${value})$`, a === "-iregex" ? "i" : "").test(
@@ -1877,7 +2534,7 @@ function findSelection(expr) {
         }
       });
     } else if (a === "-type") {
-      add((_, dir) => value === "f" ? !dir : value === "d" ? dir : true);
+      add2((_, dir) => value === "f" ? !dir : value === "d" ? dir : true);
     } else if (a === "-empty") {
       group.tests.push({
         test: (_, dir, empty) => !dir && empty,
@@ -1886,7 +2543,7 @@ function findSelection(expr) {
       negate = false;
     } else if (a === "-size") {
       if (/^(-?0|-1)[bcwkMG]?$/.test(value)) {
-        add((_, dir, empty) => dir || empty);
+        add2((_, dir, empty) => dir || empty);
       } else i++;
     } else if (a === "-maxdepth" || a === "-mindepth") {
       const n = Number(value);
@@ -2750,18 +3407,18 @@ function namedPaths(tool, input, places2) {
 var EMPTY_STATE = ["store.db-wal", "store.db-journal"];
 function protectedSamples(root, places2) {
   const out = [];
-  const add = (path, dir, empty = false) => {
+  const add2 = (path, dir, empty = false) => {
     if (path !== root && within(path, root)) out.push({ path, dir, empty });
   };
   const store = (folder, names) => {
-    add(folder, true);
-    for (const n of names) add(`${folder}/${n}`, false);
-    for (const n of EMPTY_STATE) add(`${folder}/${n}`, false, true);
+    add2(folder, true);
+    for (const n of names) add2(`${folder}/${n}`, false);
+    for (const n of EMPTY_STATE) add2(`${folder}/${n}`, false, true);
   };
   const state = (w) => {
-    add(`${w}/.git`, true);
+    add2(`${w}/.git`, true);
     for (const git of ["worktrees", "worktrees/wt", "modules", "modules/lib"]) {
-      add(`${w}/.git/${git}`, true);
+      add2(`${w}/.git/${git}`, true);
     }
     for (const folder of [
       `${w}/.planroom`,
@@ -2785,28 +3442,28 @@ function protectedSamples(root, places2) {
     }
   }
   for (const { gitDir, state: state2 } of namedGitDirs(places2)) {
-    add(gitDir, true);
+    add2(gitDir, true);
     store(state2, [...STATE_SECRETS, "config.toml"]);
   }
   if (within(places2.home, root)) state(`${root.replace(/\/+$/, "")}/project`);
   const data = places2.dataRoot;
-  add(data, true);
+  add2(data, true);
   for (const n of ["stores", "backups", "open", "engine", "logs"]) {
-    add(`${data}/${n}`, true);
+    add2(`${data}/${n}`, true);
   }
   store(`${data}/stores/0`, ["store.db"]);
   for (const n of ["ledger.db", "workspaces.json", "engine/0/planroom"]) {
-    add(`${data}/${n}`, false);
+    add2(`${data}/${n}`, false);
   }
-  add(`${data}/workspaces.json.lock`, false, true);
-  add(modStoreDir(places2), true);
-  add(`${modStoreDir(places2)}/planroom_planroom-0.json`, false);
-  add(places2.userConfig, false);
+  add2(`${data}/workspaces.json.lock`, false, true);
+  add2(modStoreDir(places2), true);
+  add2(`${modStoreDir(places2)}/planroom_planroom-0.json`, false);
+  add2(places2.userConfig, false);
   for (const p of pluginFolders(places2)) {
-    add(p, true);
-    add(`${p}/hooks/planroom-mod.js`, false);
+    add2(p, true);
+    add2(`${p}/hooks/planroom-mod.js`, false);
   }
-  for (const f of hostPluginLists(places2)) add(f, false);
+  for (const f of hostPluginLists(places2)) add2(f, false);
   return out;
 }
 function exampleName(segment) {
@@ -3233,7 +3890,176 @@ function bashLineDenied(line, resolved, places2) {
   effects.trees.map((t) => first([t.word], (s) => treeDenied(s, t.hidden, places2))).find((r) => r !== null) ?? null;
 }
 
+// src/room-args.ts
+function tokenize(text2) {
+  const words = [];
+  let word = "";
+  let inWord = false;
+  let quote = null;
+  for (let i = 0; i < text2.length; i++) {
+    const c = text2.charAt(i);
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      else word += c;
+    } else if (quote === '"') {
+      if (c === '"') quote = null;
+      else if (c === "\\" && (text2[i + 1] === '"' || text2[i + 1] === "\\"))
+        word += text2.charAt(++i);
+      else word += c;
+    } else if (c === "'" || c === '"') {
+      quote = c;
+      inWord = true;
+    } else if (c === "\\" && i + 1 < text2.length) {
+      word += text2.charAt(++i);
+      inWord = true;
+    } else if (/\s/.test(c)) {
+      if (inWord) words.push(word);
+      word = "";
+      inWord = false;
+    } else {
+      word += c;
+      inWord = true;
+    }
+  }
+  if (quote !== null) {
+    return { error: fill(MOD_STRINGS.room_open_quote, { quote }) };
+  }
+  if (inWord) words.push(word);
+  return words;
+}
+function parseRoom(args, commands) {
+  const words = tokenize(args);
+  if (!Array.isArray(words)) {
+    return { kind: "error", message: words.error };
+  }
+  if (words.length === 0) {
+    return { kind: "focus" };
+  }
+  if (words.length === 1 && words[0] === "help") {
+    return { kind: "help" };
+  }
+  let best;
+  let bestLength = 0;
+  for (const c of commands) {
+    const path = c.name.split(" ");
+    if (path.length > bestLength && path.every((p, i) => words[i] === p)) {
+      best = c;
+      bestLength = path.length;
+    }
+  }
+  if (best === void 0) {
+    return {
+      kind: "error",
+      message: fill(MOD_STRINGS.room_no_command, { word: words[0] ?? "" })
+    };
+  }
+  return { kind: "run", leaf: best, args: words.slice(bestLength) };
+}
+function helpText(commands) {
+  const rows = [
+    ["/room", MOD_STRINGS.room_help_bare],
+    ["/room help", MOD_STRINGS.room_help_help],
+    ...commands.map((c) => {
+      const name = `/room ${c.name}`;
+      const rest = c.synopsis.startsWith(name) ? c.synopsis.slice(name.length).trim() : c.synopsis;
+      return [name, rest];
+    })
+  ];
+  const width2 = Math.max(...rows.map(([name]) => name.length));
+  return rows.map(([name, text2]) => `${name.padEnd(width2)}  ${text2}`.trimEnd()).join("\n");
+}
+function wordRows(done, partial, commands) {
+  const rows = /* @__PURE__ */ new Map();
+  const candidates = done.length === 0 ? [{ name: "help", summary: MOD_STRINGS.room_help_help }, ...commands] : commands;
+  for (const c of candidates) {
+    const path = c.name.split(" ");
+    if (path.length <= done.length || !done.every((w, i) => path[i] === w)) {
+      continue;
+    }
+    const next = path[done.length] ?? "";
+    if (next.startsWith(partial) && !rows.has(next)) {
+      const whole = path.length === done.length + 1;
+      rows.set(next, {
+        text: next,
+        label: `/room ${[...done, next].join(" ")}`,
+        description: whole ? c.summary : ""
+      });
+    }
+  }
+  return [...rows.values()];
+}
+function completions(draft, cursor, commands) {
+  const before = draft.slice(0, cursor);
+  const match = /^\/room\s+(.*)$/s.exec(before);
+  if (match === null) {
+    return [];
+  }
+  const typed = match[1] ?? "";
+  const words = typed.split(/\s+/);
+  const partial = words.pop() ?? "";
+  const done = words.filter((w) => w !== "");
+  let command;
+  let length = 0;
+  for (const c of commands) {
+    const path = c.name.split(" ");
+    if (path.length > length && path.length <= done.length && path.every((p, i) => done[i] === p)) {
+      command = c;
+      length = path.length;
+    }
+  }
+  if (command === void 0) {
+    return wordRows(done, partial, commands);
+  }
+  const rest = done.slice(length);
+  const sub = rest.find((w) => command.subs.includes(w));
+  const label2 = (word) => `/room ${[...done, word].join(" ")}`;
+  const last = rest.at(-1);
+  const valued = command.flags.find(
+    (f) => f.flag === last && f.valueName !== null && (f.sub === null || f.sub === sub)
+  );
+  if (valued !== void 0) {
+    return valued.values.filter((v) => v.startsWith(partial)).map((v) => ({ text: v, label: label2(v), description: "" }));
+  }
+  if (sub === void 0 && command.subs.length > 0 && !partial.startsWith("-")) {
+    return command.subs.filter((s) => s.startsWith(partial)).map((s) => ({ text: s, label: label2(s), description: "" }));
+  }
+  const rows = /* @__PURE__ */ new Map();
+  for (const f of command.flags) {
+    const open = (f.sub === null || f.sub === sub) && f.flag.startsWith(partial) && !rest.some((w) => w === f.flag || w.startsWith(`${f.flag}=`));
+    if (open && !rows.has(f.flag)) {
+      rows.set(f.flag, {
+        text: f.flag,
+        label: label2(f.flag),
+        description: f.valueName ?? ""
+      });
+    }
+  }
+  return [...rows.values()];
+}
+
 // src/room.ts
+var ROOM_COMMAND = {
+  name: MOD_COMMANDS[0],
+  description: MOD_STRINGS.room_description,
+  argumentHint: MOD_STRINGS.room_argument_hint,
+  immediate: true
+};
+function roomPlan(args, commands) {
+  const request = parseRoom(args, commands);
+  switch (request.kind) {
+    case "focus":
+      return { open: true };
+    case "help":
+      return { open: false, text: helpText(commands) };
+    case "error":
+      return { open: false, text: sanitize(request.message) };
+    case "run":
+      return {
+        open: false,
+        run: { command: request.leaf.name, args: request.args }
+      };
+  }
+}
 function replySummary(reply) {
   const summary = reply?.summary;
   return typeof summary === "string" && summary.trim() !== "" ? summary : null;
@@ -3251,6 +4077,11 @@ function mapOf(result) {
 function isHandle(value) {
   const h2 = value;
   return h2 !== null && typeof h2 === "object" && typeof h2.command === "string" && typeof h2.label === "string" && Array.isArray(h2.args) && h2.args.every((a) => typeof a === "string");
+}
+function undoOf(ran) {
+  if (!ran.result.ok) return null;
+  const undo = ran.result.result?.undo;
+  return isHandle(undo) ? undo : null;
 }
 function lineFor(command, label2, ran) {
   const { result } = ran;
@@ -3274,7 +4105,8 @@ function lineFor(command, label2, ran) {
         isHandle(next) ? next.label : fill(MOD_STRINGS.no_blocks_at_level, { level: map.level })
       );
     }
-    const n = map.nodes.length;
+    const total = warningsOf(result).filter((w) => w.code === "truncated").map((w) => w.details?.total).find((t) => typeof t === "number");
+    const n = total ?? map.nodes.length;
     return oneLine(
       fill(
         n === 1 ? MOD_STRINGS.blocks_at_level_one : MOD_STRINGS.blocks_at_level,
@@ -3284,13 +4116,42 @@ function lineFor(command, label2, ran) {
   }
   return oneLine(fill(MOD_STRINGS.done_line, { label: label2 || command }));
 }
-function handlesOf(result) {
+function warningsOf(result) {
+  const sent = result.meta.warnings;
+  return Array.isArray(sent) ? sent.filter((w) => {
+    const x = w;
+    return x !== null && typeof x === "object" && typeof x.code === "string" && typeof x.message === "string";
+  }) : [];
+}
+function withoutCursor(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] ?? "";
+    if (a === "--cursor") {
+      i++;
+    } else if (!a.startsWith("--cursor=")) {
+      out.push(a);
+    }
+  }
+  return out;
+}
+function handlesOf(command, result, args = []) {
   const r = result.ok ? result.result : null;
-  const meta = result.meta["next"];
+  const cursor = result.meta.next;
+  const page2 = typeof cursor === "string" && cursor !== "" ? [
+    {
+      command,
+      args: [...withoutCursor(args), "--cursor", cursor],
+      label: MOD_STRINGS.next_page_label
+    }
+  ] : [];
   const found = [
-    ...Array.isArray(meta) ? meta : [meta],
+    r?.next,
     r?.empty?.next,
-    r?.next
+    ...warningsOf(result).map(
+      (w) => w.details?.next
+    ),
+    ...page2
   ].filter(isHandle);
   const seen = /* @__PURE__ */ new Set();
   return found.filter((h2) => {
@@ -3312,14 +4173,46 @@ var ROOM_TEXT_TOKENS = 300;
 var ROOM_TEXT_CHARS = ROOM_TEXT_TOKENS * 4;
 var SUMMARY_CHARS = 600;
 var HANDLES = 3;
+var WARNINGS = 2;
+var WARNING_CHARS = 200;
+function warningLine(w) {
+  return truncate(
+    oneLine(fill(MOD_STRINGS.room_warning, { message: w.message })),
+    WARNING_CHARS
+  );
+}
 function roomText(command, ran) {
   const lines = [truncate(lineFor(command, command, ran), SUMMARY_CHARS)];
-  for (const h2 of handlesOf(ran.result).slice(0, HANDLES)) {
+  const fits = (line) => lines.join("\n").length + 1 + line.length <= ROOM_TEXT_CHARS;
+  const warnings = warningsOf(ran.result);
+  let said = 0;
+  for (const w of warnings.slice(0, WARNINGS)) {
+    const line = warningLine(w);
+    if (!fits(line)) break;
+    lines.push(line);
+    said++;
+  }
+  for (const h2 of handlesOf(command, ran.result, ran.args).slice(0, HANDLES)) {
     const line = `→ ${handleLine(h2)}`;
-    if (lines.join("\n").length + 1 + line.length > ROOM_TEXT_CHARS) break;
+    if (!fits(line)) break;
     lines.push(line);
   }
+  if (said < warnings.length) {
+    const more = oneLine(
+      fill(MOD_STRINGS.room_more_warnings, { count: warnings.length - said })
+    );
+    if (fits(more)) lines.push(more);
+  }
   return truncate(lines.join("\n"), ROOM_TEXT_CHARS);
+}
+function shareContext(command, ran) {
+  if (command !== "share" || !ran.result.ok) return void 0;
+  const r = ran.result.result;
+  if (r === null || typeof r !== "object" || r.publish === void 0) {
+    return void 0;
+  }
+  const json = JSON.stringify({ publish: r.publish, db: r.db ?? [] });
+  return [sanitize(fill(MOD_STRINGS.share_context, { json }))];
 }
 var ROOM_BLOCKS = 200;
 var ROOM_JSON_CHARS = 2e4;
@@ -3337,6 +4230,14 @@ function roomRows(command, ran) {
       tone: ran.result.ok ? "bold" : "warn"
     }
   ];
+  warningsOf(ran.result).forEach((w, i) => {
+    rows.push({
+      kind: "text",
+      key: `warning-${i}`,
+      text: oneLine(fill(MOD_STRINGS.room_warning, { message: w.message })),
+      tone: w.code === "truncated" ? "dim" : "warn"
+    });
+  });
   if (ran.result.ok) {
     const map = mapOf(ran.result.result);
     if (map !== null) {
@@ -3351,7 +4252,9 @@ function roomRows(command, ran) {
         rows.push({
           kind: "text",
           key: "blocks-more",
-          text: `+${map.nodes.length - ROOM_BLOCKS} more`,
+          text: fill(MOD_STRINGS.more_rows, {
+            count: map.nodes.length - ROOM_BLOCKS
+          }),
           tone: "dim"
         });
       }
@@ -3367,7 +4270,7 @@ function roomRows(command, ran) {
       });
     }
   }
-  handlesOf(ran.result).forEach((h2, i) => {
+  handlesOf(command, ran.result, ran.args).forEach((h2, i) => {
     rows.push({
       kind: "text",
       key: `handle-${i}`,
@@ -3398,8 +4301,12 @@ function shows(shown2, handle, seq) {
 // src/layout.ts
 var DOCK = { columns: 49, rows: 34 };
 var CHOICE_COLUMNS = 20;
+var GAP = 2;
 function say(key, vars = {}) {
   return fill(MOD_STRINGS[key], vars);
+}
+function buttonWidth(b) {
+  return width(b.label) + (b.hotkey === void 0 ? 0 : b.hotkey.length + 2);
 }
 function rowHeight(row) {
   return row.kind === "diff" ? row.lines : 1;
@@ -3634,7 +4541,7 @@ function whoRow(model, hotkey, columns, view2) {
     buttons: [selectButton("who-0", who.join(" · "), hotkey, columns, view2)]
   };
 }
-function blockRows(model, columns, room, shown2, view2) {
+function blockRows(model, columns, room, shown2, view2, pageKey) {
   if (room <= 0) return [];
   const map = shown2?.level != null ? shown2 : null;
   const level = map?.level ?? model.minimap?.level ?? model.focus.level;
@@ -3686,24 +4593,20 @@ function blockRows(model, columns, room, shown2, view2) {
   ];
   if (shownPage.pages > 1) {
     const last = shownPage.index === shownPage.pages - 1;
-    rows.push({
-      kind: "buttons",
-      key: "blocks-paging",
-      buttons: [
-        {
-          key: "page",
-          label: label(
-            say(last ? "first_page_label" : "next_page_label"),
-            columns
-          ),
-          action: { kind: "page", index: last ? 0 : shownPage.index + 1 }
-        }
-      ]
-    });
+    const turn = {
+      key: "page",
+      label: label(
+        say(last ? "first_page_label" : "next_page_label"),
+        columns - (pageKey === void 0 ? 0 : pageKey.length + 2)
+      ),
+      action: { kind: "page", index: last ? 0 : shownPage.index + 1 }
+    };
+    if (pageKey !== void 0) turn.hotkey = pageKey;
+    rows.push({ kind: "buttons", key: "blocks-paging", buttons: [turn] });
   }
   return rows;
 }
-function paneRows(model, columns, rows, shown2 = null, view2 = {}) {
+function paneRows(model, columns, rows, shown2 = null, view2 = {}, undo = null) {
   const compact = columns < DOCK.columns || rows < DOCK.rows;
   const result = shownNext(model, shown2);
   const out = [
@@ -3711,28 +4614,63 @@ function paneRows(model, columns, rows, shown2 = null, view2 = {}) {
     ...cardRows(model, columns, result)
   ];
   const hasTop = model.drift.top !== void 0 && model.drift.top !== null;
+  const first = model.diffs.length > 0 ? "diff-0" : compact ? null : hasTop ? "drift-0" : model.who.length > 0 ? "who-0" : null;
+  const at = { ...view2, selected: view2.selected ?? first };
+  let pageKey;
   if (compact) {
-    const keys = keyRows({ diffs: 1, drift: false, who: false, list: 0 });
     const top = model.diffs[0];
+    const keys = keyRows(
+      { diffs: top === void 0 ? 0 : 1, drift: false, who: false, list: 0 },
+      true
+    );
+    pageKey = keys.page;
     if (top !== void 0)
-      out.push(diffLine(top, 0, keys.diffs[0], columns, view2));
+      out.push(diffLine(top, 0, keys.diffs[0], columns, at));
   } else {
-    const keys = keyRows({
-      diffs: model.diffs.length,
-      drift: hasTop,
-      who: model.who.length > 0,
-      // Block rows take no key until `map --focus` exists (DR-85).
-      list: 0
-    });
+    const keys = keyRows(
+      {
+        diffs: model.diffs.length,
+        drift: hasTop,
+        who: model.who.length > 0,
+        // Block rows take no key until `map --focus` exists (DR-85).
+        list: 0
+      },
+      true
+    );
+    pageKey = keys.page;
     const hunkLines = rows >= 46 ? 5 : 2;
     out.push(progressRow(model, columns));
-    out.push(...diffRows(model.diffs, keys.diffs, columns, hunkLines, view2));
-    out.push(driftRow(model, keys.drift, columns, view2));
-    out.push(whoRow(model, keys.who, columns, view2));
+    out.push(...diffRows(model.diffs, keys.diffs, columns, hunkLines, at));
+    out.push(driftRow(model, keys.drift, columns, at));
+    out.push(whoRow(model, keys.who, columns, at));
   }
-  const used = out.reduce((sum, r) => sum + rowHeight(r), 0);
-  out.push(...blockRows(model, columns, rows - used, result, view2));
+  const actions = actionRow(columns, undo);
+  const used = out.reduce((sum, r) => sum + rowHeight(r), 0) + 1;
+  out.push(...blockRows(model, columns, rows - used, result, at, pageKey));
+  out.push(actions);
   return out;
+}
+var CANVAS_KEY = "e";
+var UNDO_KEY = "u";
+function actionRow(columns, undo) {
+  const buttons = [];
+  if (undo !== null) {
+    buttons.push({
+      key: "undo",
+      label: label(undo.label, Math.max(1, Math.floor(columns / 2) - 3)),
+      hotkey: UNDO_KEY,
+      action: { ...run(undo), undo: true }
+    });
+  }
+  const taken = buttons.reduce((sum, b) => sum + buttonWidth(b) + GAP, 0);
+  const canvas = say("canvas_label");
+  buttons.push({
+    key: "canvas",
+    label: label(canvas, Math.max(1, columns - taken - 3)),
+    hotkey: CANVAS_KEY,
+    action: { kind: "run", command: "open", args: [], label: canvas }
+  });
+  return { kind: "buttons", key: "actions", buttons };
 }
 function fallbackRows(f, columns) {
   const rows = [
@@ -3758,7 +4696,7 @@ function fallbackRows(f, columns) {
   }
   return rows;
 }
-function bandRow(source, columns, shown2 = null) {
+function bandRow(source, columns, shown2 = null, undo = null, leaves = CATALOGUE) {
   if ("fallback" in source) {
     const f = source.fallback;
     if (f.action === null) {
@@ -3790,6 +4728,21 @@ function bandRow(source, columns, shown2 = null) {
       ]
     };
   }
+  if (undo !== null && bandMayRun(undo.command, leaves)) {
+    return {
+      kind: "buttons",
+      key: "band",
+      buttons: [
+        {
+          key: "band-primary",
+          label: label(undo.label, columns - 3),
+          hotkey: BAND_KEYS.primary,
+          primary: true,
+          action: { ...run(undo), undo: true }
+        }
+      ]
+    };
+  }
   const next = source.model.empty?.next ?? source.model.next;
   if (shownNext(source.model, shown2) !== null) {
     return text(
@@ -3799,7 +4752,7 @@ function bandRow(source, columns, shown2 = null) {
       "dim"
     );
   }
-  if (!bandMayRun(next.command)) {
+  if (!bandMayRun(next.command, leaves)) {
     return text(
       "band",
       say("band_points_to_pane", { label: next.label }),
@@ -4035,7 +4988,7 @@ async function watchLoop($, gen) {
     child = stream;
     const reader = new LineReader();
     let streamed = false;
-    let refusal = null;
+    let refusal2 = null;
     try {
       for (; ; ) {
         const piece = await stream.next();
@@ -4044,19 +4997,19 @@ async function watchLoop($, gen) {
         if (piece.value.stream !== "stdout") continue;
         const got2 = await readLines($, gen, reader.push(piece.value.text));
         streamed ||= got2.frames > 0;
-        refusal = got2.refusal ?? refusal;
+        refusal2 = got2.refusal ?? refusal2;
       }
       const got = await readLines($, gen, reader.flush());
       streamed ||= got.frames > 0;
-      refusal = got.refusal ?? refusal;
+      refusal2 = got.refusal ?? refusal2;
     } catch {
     }
     if (gen !== generation) return;
     child = null;
-    const code = refusal?.error?.code;
-    if (refusal !== null && code !== void 0 && stopsTheLoop(code)) {
+    const code = refusal2?.error?.code;
+    if (refusal2 !== null && code !== void 0 && stopsTheLoop(code)) {
       if (code !== "workspace_not_found") {
-        const said = refusal.error?.hint ?? refusal.error?.message;
+        const said = refusal2.error?.hint ?? refusal2.error?.message;
         $.ui.status(said === void 0 ? void 0 : sanitize(said));
       }
       return;
@@ -4067,11 +5020,11 @@ async function watchLoop($, gen) {
 }
 async function readLines($, gen, lines) {
   const frames = [];
-  let refusal = null;
+  let refusal2 = null;
   for (const line of lines) {
     const parsed = parseLine(line);
     if (parsed.kind === "frame") frames.push(parsed.frame);
-    if (parsed.kind === "reply" && !parsed.reply.ok) refusal = parsed.reply;
+    if (parsed.kind === "reply" && !parsed.reply.ok) refusal2 = parsed.reply;
   }
   if (frames.some((f) => frameSeq(f) !== null)) {
     await update($, lastSeqAtom, (held) => ({
@@ -4082,7 +5035,7 @@ async function readLines($, gen, lines) {
     const now = await $.clock.now();
     applyStep($, onFrame(debounce, now), now);
   }
-  return { frames: frames.length, refusal };
+  return { frames: frames.length, refusal: refusal2 };
 }
 function applyStep($, step, now) {
   debounce = step.state;
@@ -4112,6 +5065,175 @@ function refetch($) {
       refetch($);
     }
   });
+}
+
+// src/tools.ts
+function toolSpecs() {
+  return TOOL_SPECS;
+}
+function hasFlag(args, flag) {
+  return args.some((a) => a === flag || a.startsWith(`${flag}=`));
+}
+function takes(leafName, flag) {
+  return (LEAF_OWN_FLAGS[leafName] ?? []).includes(flag);
+}
+function supplied(leafName, args, base, idem) {
+  const out = [];
+  if (base !== void 0 && takes(leafName, "--base") && !hasFlag(args, "--base"))
+    out.push("--base", String(base));
+  if (idem !== void 0 && idem !== "" && takes(leafName, "--idem") && !hasFlag(args, "--idem"))
+    out.push("--idem", idem);
+  return out;
+}
+function synopsisLine(tool, name) {
+  const spec = TOOL_SPECS.find((s) => s.name === tool);
+  return spec?.description.split("\n").slice(1).find((line) => line === name || line.startsWith(`${name} `));
+}
+function refusal(tool, l, field, message) {
+  const schema = l === void 0 ? {
+    command: "schema",
+    args: ["--commands"],
+    label: MOD_STRINGS.tool_commands_label
+  } : {
+    command: "schema",
+    args: ["--command", l.name],
+    label: fill(MOD_STRINGS.tool_schema_label, { leaf: l.name })
+  };
+  const synopsis = l === void 0 ? leavesFor(tool).map((c) => c.name).join(" | ") : synopsisLine(tool, l.name) ?? l.name;
+  const words = schema.args.map((a) => a.includes(" ") ? `"${a}"` : a);
+  return {
+    ok: false,
+    error: {
+      code: "invalid_argument",
+      category: "usage",
+      retry: "never",
+      message,
+      hint: `planroom schema ${words.join(" ")}`,
+      details: { field, synopsis, schema }
+    },
+    meta: {}
+  };
+}
+function toolArgv(tool, input, defaults = {}) {
+  const leaf2 = leavesFor(tool).find((l) => l.name === input.command);
+  if (leaf2 === void 0) {
+    return {
+      refused: refusal(
+        tool,
+        void 0,
+        "command",
+        fill(MOD_STRINGS.tool_no_command, {
+          tool,
+          command: JSON.stringify(input.command) ?? "undefined"
+        })
+      )
+    };
+  }
+  const given = input.args ?? [];
+  if (!Array.isArray(given) || !given.every((a) => typeof a === "string")) {
+    return {
+      refused: refusal(tool, leaf2, "args", MOD_STRINGS.tool_args_not_strings)
+    };
+  }
+  const args = given;
+  if (hasFlag(args, "--workspace")) {
+    return {
+      refused: refusal(tool, leaf2, "workspace", MOD_STRINGS.tool_no_workspace)
+    };
+  }
+  if (hasFlag(args, "--client")) {
+    return {
+      refused: refusal(tool, leaf2, "client", MOD_STRINGS.tool_no_client)
+    };
+  }
+  const base = typeof input.base === "number" ? input.base : leaf2.needs_base ? defaults.base : void 0;
+  const idem = typeof input.idem === "string" ? input.idem : defaults.idem;
+  const argv = [
+    ...leaf2.name.split(" "),
+    ...supplied(leaf2.name, args, base, idem),
+    ...args
+  ];
+  if (leaf2.name === "focus" && !hasFlag(args, "--detail")) {
+    argv.push("--detail", "summary");
+  }
+  if (tool === "room_change" && input.payload !== void 0) {
+    if (!hasFlag(args, "--file")) argv.push("--file", "-");
+    argv.push("--json");
+    return { argv, stdin: JSON.stringify(input.payload) };
+  }
+  argv.push("--json");
+  return { argv };
+}
+function agentEnv(sessionId, turnId) {
+  const env = {
+    PLANROOM_ACTOR: `agent:${sessionId.slice(0, 8)}:chat`,
+    PLANROOM_CLIENT: `mod:${sessionId}`
+  };
+  if (turnId !== null) env["PLANROOM_CAUSE"] = `turn:${turnId}`;
+  return env;
+}
+function changeNeedsNoPrompt(command) {
+  if (typeof command !== "string") return false;
+  const verb = command.split(" ")[0];
+  return verb === "edit" || verb === "intent" || verb === "claim" || verb === "curate";
+}
+function timeoutFor(argv) {
+  return argv[0] === "scan" ? 6e5 : 3e4;
+}
+
+// src/outbox.ts
+function idemOf(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i] ?? "";
+    if (a === "--idem") return argv[i + 1] ?? null;
+    if (a.startsWith("--idem=")) return a.slice("--idem=".length);
+  }
+  return null;
+}
+function entryFor(argv, env, stdin, session) {
+  const idem = idemOf(argv);
+  if (idem === null) return null;
+  const entry = {
+    idem,
+    argv: [...argv],
+    env_names: Object.keys(env).sort(),
+    session
+  };
+  if (stdin !== void 0) entry.stdin = stdin;
+  const cause = env["PLANROOM_CAUSE"];
+  if (cause !== void 0) entry.cause = cause;
+  return entry;
+}
+function add(outbox, entry) {
+  return [...outbox.filter((e) => e.idem !== entry.idem), entry];
+}
+function clear(outbox, idem) {
+  return outbox.filter((e) => e.idem !== idem);
+}
+function stale(entry, sessionId) {
+  return entry.session !== sessionId;
+}
+function byPerson(entry) {
+  return entry.env_names.includes("PLANROOM_PERSON_TOKEN");
+}
+function resend(entry, sessionId) {
+  const env = {};
+  if (entry.env_names.includes("PLANROOM_ACTOR")) {
+    Object.assign(env, agentEnv(sessionId, null));
+  }
+  if (entry.env_names.includes("PLANROOM_CLIENT")) {
+    env["PLANROOM_CLIENT"] = `mod:${sessionId}`;
+  }
+  if (entry.cause !== void 0 && entry.cause !== null) {
+    env["PLANROOM_CAUSE"] = entry.cause;
+  }
+  const out = {
+    argv: [...entry.argv],
+    env
+  };
+  if (entry.stdin !== void 0 && entry.stdin !== null)
+    out.stdin = entry.stdin;
+  return out;
 }
 
 // ../../node_modules/.pnpm/@noble+hashes@2.4.0/node_modules/@noble/hashes/_u64.js
@@ -6777,195 +7899,17 @@ async function registerKey($, bin, workspace2, rekey = false) {
   return { kind: "not_now" };
 }
 
-// src/room-args.ts
-function tokenize(text2) {
-  const words = [];
-  let word = "";
-  let inWord = false;
-  let quote = null;
-  for (let i = 0; i < text2.length; i++) {
-    const c = text2.charAt(i);
-    if (quote === "'") {
-      if (c === "'") quote = null;
-      else word += c;
-    } else if (quote === '"') {
-      if (c === '"') quote = null;
-      else if (c === "\\" && (text2[i + 1] === '"' || text2[i + 1] === "\\"))
-        word += text2.charAt(++i);
-      else word += c;
-    } else if (c === "'" || c === '"') {
-      quote = c;
-      inWord = true;
-    } else if (c === "\\" && i + 1 < text2.length) {
-      word += text2.charAt(++i);
-      inWord = true;
-    } else if (/\s/.test(c)) {
-      if (inWord) words.push(word);
-      word = "";
-      inWord = false;
-    } else {
-      word += c;
-      inWord = true;
-    }
-  }
-  if (quote !== null) {
-    return { error: `A ${quote} quote isn't closed.` };
-  }
-  if (inWord) words.push(word);
-  return words;
+// src/prompt.ts
+var SECTION_ID = "planroom:map";
+function promptSection() {
+  return {
+    id: SECTION_ID,
+    text: MOD_STRINGS.prompt_section,
+    scope: "session"
+  };
 }
-function parseRoom(args, leaves) {
-  const words = tokenize(args);
-  if (!Array.isArray(words)) {
-    return { kind: "error", message: words.error };
-  }
-  if (words.length === 0) {
-    return { kind: "focus" };
-  }
-  if (words.length === 1 && words[0] === "help") {
-    return { kind: "help" };
-  }
-  let best;
-  let bestLength = 0;
-  for (const l of leaves) {
-    const path = l.name.split(" ");
-    if (path.length > bestLength && path.every((p, i) => words[i] === p)) {
-      best = l;
-      bestLength = path.length;
-    }
-  }
-  if (best === void 0) {
-    return {
-      kind: "error",
-      message: `/room has no command "${words[0]}". /room help lists them.`
-    };
-  }
-  return { kind: "run", leaf: best, args: words.slice(bestLength) };
-}
-function helpText(leaves) {
-  const lines = [
-    "/room            focus the Planroom pane",
-    "/room help       list these commands",
-    ...leaves.map((l) => `/room ${l.name.padEnd(10)} ${l.summary}`)
-  ];
-  return lines.join("\n");
-}
-function completions(draft, cursor, leaves) {
-  const before = draft.slice(0, cursor);
-  const match = /^\/room\s+(.*)$/s.exec(before);
-  if (match === null) {
-    return [];
-  }
-  const typed = match[1] ?? "";
-  const words = typed.split(/\s+/);
-  const partial = words.pop() ?? "";
-  const done = words.filter((w) => w !== "");
-  const rows = /* @__PURE__ */ new Map();
-  const candidates = done.length === 0 ? [{ name: "help", summary: "List the /room commands." }, ...leaves] : leaves;
-  for (const l of candidates) {
-    const path = l.name.split(" ");
-    if (path.length <= done.length || !done.every((w, i) => path[i] === w)) {
-      continue;
-    }
-    const next = path[done.length] ?? "";
-    if (next.startsWith(partial) && !rows.has(next)) {
-      const whole = path.length === done.length + 1;
-      rows.set(next, {
-        text: next,
-        label: `/room ${[...done, next].join(" ")}`,
-        description: whole ? l.summary : ""
-      });
-    }
-  }
-  return [...rows.values()];
-}
-
-// src/tools.ts
-var INTROS = {
-  room_query: "Read Planroom's map of this system. Pass base from the meta.seq you read.",
-  room_change: "Change Planroom's map: your writes are ghosts a person accepts. Pass base from the meta.seq you read.",
-  room_handoff: "Report and collect Planroom hand-offs, or publish the map."
-};
-function toolSpecs() {
-  const tools = ["room_query", "room_change", "room_handoff"];
-  return tools.flatMap((name) => {
-    const leaves = leavesFor(name);
-    if (leaves.length === 0) {
-      return [];
-    }
-    const properties = {
-      command: { enum: leaves.map((l) => l.name) },
-      args: {
-        type: "array",
-        items: { type: "string" },
-        description: `the command's CLI arguments, such as ["--focus", "ID"]`
-      },
-      base: { type: "integer" },
-      idem: { type: "string" }
-    };
-    if (name === "room_change") {
-      properties["payload"] = {
-        type: "object",
-        description: "passed on stdin to a command run with --file -"
-      };
-    }
-    const synopsis = leaves.map((l) => `${l.name}: ${l.summary}`).join("\n");
-    return [
-      {
-        name,
-        description: `${INTROS[name]}
-${synopsis}`,
-        inputSchema: {
-          type: "object",
-          required: ["command"],
-          additionalProperties: false,
-          properties
-        },
-        isDeferred: name === "room_handoff"
-      }
-    ];
-  });
-}
-function toolArgv(tool, input, defaults = {}) {
-  const leaf2 = leavesFor(tool).find((l) => l.name === input.command);
-  if (leaf2 === void 0) {
-    return {
-      refused: `${tool} has no command ${JSON.stringify(input.command)}.`
-    };
-  }
-  const args = input.args ?? [];
-  if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) {
-    return { refused: "args must be an array of strings." };
-  }
-  if (args.some((a) => a === "--workspace" || a.startsWith("--workspace="))) {
-    return {
-      refused: "Planroom's tools work in this session's workspace only, so --workspace isn't one of their arguments."
-    };
-  }
-  const argv = [...leaf2.name.split(" "), ...args];
-  if (leaf2.class !== "read") {
-    const base = typeof input.base === "number" ? input.base : leaf2.needs_base ? defaults.base : void 0;
-    if (base !== void 0 && !args.includes("--base"))
-      argv.push("--base", String(base));
-    const idem = typeof input.idem === "string" ? input.idem : defaults.idem;
-    if (idem !== void 0 && idem !== "" && !args.includes("--idem"))
-      argv.push("--idem", idem);
-  }
-  if (tool === "room_change" && input.payload !== void 0) {
-    if (!args.includes("--file")) argv.push("--file", "-");
-    argv.push("--json");
-    return { argv, stdin: JSON.stringify(input.payload) };
-  }
-  argv.push("--json");
-  return { argv };
-}
-function changeNeedsNoPrompt(command) {
-  if (typeof command !== "string") return false;
-  const verb = command.split(" ")[0];
-  return verb === "edit" || verb === "intent" || verb === "claim" || verb === "curate";
-}
-function timeoutFor(argv) {
-  return argv[0] === "scan" ? 6e5 : 3e4;
+function composeSections(sections) {
+  return [...sections.filter((s) => s.id !== SECTION_ID), promptSection()];
 }
 
 // src/register.tsx
@@ -6984,6 +7928,8 @@ function viewFor(seq, level) {
   return view;
 }
 var building = false;
+var UNDO_MS = 1e4;
+var offer = null;
 var drawn = /* @__PURE__ */ new Map();
 var DRAWN = 16;
 async function setEngine($, state) {
@@ -7038,42 +7984,107 @@ async function startEngine($) {
     };
   }
   await setEngine($, state);
+  const bin = binary(state);
+  if (state.status === "ready" && bin !== null) {
+    await resendOutbox($, bin);
+  }
   if (state.status === "ready") {
     await refreshPane($);
     await registerOnce($);
   }
 }
 var starting = Promise.resolve();
-async function runCommand($, argv, env, stdin) {
+var running2 = /* @__PURE__ */ new Set();
+async function runCommand($, line, env, stdin) {
   await starting;
   const engine = await read2($, engineAtom);
   const bin = binary(engine);
   if (bin === null) {
     return { result: engineMissing(engine), summary: null };
   }
-  const run2 = await runProcess($, [bin, ...argv], env, timeoutFor(argv), stdin);
-  return {
-    result: toolResult(run2),
-    summary: replySummary(parseReply(run2.stdout))
-  };
+  const spec = leafOfArgv(line);
+  let argv = [...line];
+  let entry = null;
+  if (spec !== void 0 && takes(spec.name, "--idem")) {
+    const words = spec.name.split(" ").length;
+    const rest = line.slice(words);
+    argv = [
+      ...line.slice(0, words),
+      ...supplied(spec.name, rest, void 0, crypto.randomUUID()),
+      ...rest
+    ];
+    entry = entryFor(argv, env, stdin, await $.session.id());
+  }
+  if (entry !== null) {
+    const held = entry;
+    running2.add(held.idem);
+    await update2($, outboxAtom, (outbox) => add(outbox, held));
+  }
+  try {
+    const run2 = await runProcess(
+      $,
+      [bin, ...argv],
+      env,
+      timeoutFor(argv),
+      stdin
+    );
+    return {
+      result: toolResult(run2),
+      summary: replySummary(parseReply(run2.stdout))
+    };
+  } finally {
+    if (entry !== null) {
+      const idem = entry.idem;
+      await update2($, outboxAtom, (outbox) => clear(outbox, idem));
+      running2.delete(idem);
+    }
+  }
+}
+async function resendOutbox($, bin) {
+  const session = await $.session.id();
+  let dropped = false;
+  for (const entry of await read2($, outboxAtom)) {
+    if (running2.has(entry.idem)) continue;
+    running2.add(entry.idem);
+    if (!stale(entry, session)) {
+      const again = resend(entry, session);
+      let env = { ...await engineEnv(), ...again.env };
+      if (byPerson(entry)) {
+        const words = leafOfArgv(again.argv)?.name.split(" ").length ?? 1;
+        env = { ...await personEnv($, again.argv, words), ...again.env };
+      }
+      const run2 = await runProcess(
+        $,
+        [bin, ...again.argv],
+        env,
+        timeoutFor(again.argv),
+        again.stdin
+      );
+      if (toolResult(run2).error?.code === "idempotency_mismatch")
+        dropped = true;
+    } else {
+      dropped = true;
+    }
+    await update2($, outboxAtom, (outbox) => clear(outbox, entry.idem));
+    running2.delete(entry.idem);
+  }
+  if (dropped) $.ui.status(MOD_STRINGS.outbox_dropped);
 }
 async function personRun($, command, args) {
   const path = command.split(" ");
   const spec = leaf(command);
-  const argv = [...path, ...args];
-  if (spec !== void 0 && spec.class !== "read" && !args.includes("--idem")) {
-    argv.push("--idem", crypto.randomUUID());
-  }
-  if (spec?.needs_base === true && !args.includes("--base")) {
-    const pane2 = await read2($, paneAtom);
-    if (pane2.model !== null) argv.push("--base", String(pane2.model.focus.seq));
-  }
-  argv.push("--json");
+  const base = spec?.needs_base === true ? (await read2($, paneAtom)).model?.focus.seq : void 0;
+  const argv = [
+    ...path,
+    ...supplied(command, args, base, crypto.randomUUID()),
+    ...args,
+    "--json"
+  ];
   const ran = await runCommand($, argv, await personEnv($, argv, path.length));
   if (ran.result.error?.code === "person_required") checked.delete(workspace);
   return ran;
 }
-async function act($, action) {
+async function act($, action, from = "pane") {
   if (action.kind === "clear") {
     shown = null;
     view = {};
@@ -7119,11 +8130,11 @@ async function act($, action) {
             6e5
           );
           if (built.exitCode !== 0) {
-            const said = built.stderr.trim().split("\n").at(-1) ?? "";
+            const said2 = built.stderr.trim().split("\n").at(-1) ?? "";
             await setEngine($, {
               ...engine,
               status: "failed",
-              line: fill(MOD_STRINGS.build_failed, { said })
+              line: fill(MOD_STRINGS.build_failed, { said: said2 })
             });
             return;
           }
@@ -7139,8 +8150,19 @@ async function act($, action) {
   const seq = (await read2($, paneAtom)).model?.focus.seq;
   const ran = await personRun($, action.command, action.args);
   const line = lineFor(action.command, action.label, ran);
+  if (action.undo === true) offer = null;
+  const back = action.undo === true || !ran.result.ok ? null : undoOf(ran);
+  if (back !== null) {
+    offer = { handle: back, until: await $.clock.now() + UNDO_MS };
+    $.clock.after(UNDO_MS, () => $.ui.invalidate("ui.render"));
+  }
+  const said = { label: sanitize(action.label), line };
+  const warnings = warningsOf(ran.result).length;
   $.ui.toast(
-    ran.result.ok ? fill(MOD_STRINGS.toast, { label: sanitize(action.label), line }) : line
+    !ran.result.ok ? line : back !== null ? fill(
+      from === "band" ? MOD_STRINGS.toast_undo : MOD_STRINGS.toast_undo_pane,
+      said
+    ) : warnings > 1 ? fill(MOD_STRINGS.toast_warned, { ...said, count: warnings }) : warnings === 1 ? fill(MOD_STRINGS.toast_warned_one, said) : fill(MOD_STRINGS.toast, said)
   );
   shown = seq === void 0 ? null : shownFrom(action, ran, seq);
   view = {};
@@ -7148,7 +8170,7 @@ async function act($, action) {
   $.ui.invalidate("ui.render");
   await registerOnce($);
 }
-function draw($, e, rows) {
+function draw($, e, rows, from = "pane") {
   const { Box, Text, Button, Code } = $.ui.resolve(e);
   return /* @__PURE__ */ h(Box, { flexDirection: "column" }, rows.map((row) => {
     switch (row.kind) {
@@ -7156,7 +8178,7 @@ function draw($, e, rows) {
         return row.tone === "dim" ? /* @__PURE__ */ h(Text, { key: row.key, dimColor: true, wrap: "truncate-end" }, row.text) : row.tone === "warn" ? /* @__PURE__ */ h(Text, { key: row.key, color: "warning", wrap: "truncate-end" }, row.text) : row.tone === "accent" ? /* @__PURE__ */ h(Text, { key: row.key, weight: "bold", wrap: "truncate-end" }, row.text) : /* @__PURE__ */ h(Text, { key: row.key, wrap: "truncate-end" }, row.text);
       case "buttons":
         return /* @__PURE__ */ h(Box, { key: row.key, flexDirection: "row", gap: 2 }, row.buttons.map((b) => {
-          const press = () => act($, b.action);
+          const press = () => act($, b.action, from);
           return b.hotkey === void 0 ? /* @__PURE__ */ h(Button, { key: b.key, label: b.label, plain: true, onPress: press }) : b.primary === true ? /* @__PURE__ */ h(
             Button,
             {
@@ -7206,24 +8228,12 @@ async function handleTool($, tool, input) {
     base: turn.seq ?? pane2.model?.focus.seq
   });
   if ("refused" in built) {
-    const refused = {
-      ok: false,
-      error: {
-        code: "invalid_argument",
-        retry: "never",
-        message: built.refused
-      },
-      meta: {}
-    };
-    return { result: JSON.stringify(refused) };
+    return { result: JSON.stringify(built.refused) };
   }
-  const session = await $.session.id();
   const env = {
     ...await engineEnv(),
-    PLANROOM_ACTOR: `agent:${session.slice(0, 8)}:chat`,
-    PLANROOM_CLIENT: `mod:${session}`
+    ...agentEnv(await $.session.id(), turn.turnId)
   };
-  if (turn.turnId !== null) env["PLANROOM_CAUSE"] = `turn:${turn.turnId}`;
   const { result } = await runCommand($, built.argv, env, built.stdin);
   const seq = result.meta["seq"];
   if (typeof seq === "number") {
@@ -7311,12 +8321,7 @@ export function register(on) {
     startEnv = null;
     gitFiles = /* @__PURE__ */ new Map();
     pinDataRoot(placeEnv($).then(pinnedDataRoot));
-    await $.command.register({
-      name: "room",
-      description: MOD_STRINGS.room_description,
-      argumentHint: MOD_STRINGS.room_argument_hint,
-      immediate: true
-    });
+    await $.command.register(ROOM_COMMAND);
     for (const spec of toolSpecs()) {
       await $.tool.register(spec);
     }
@@ -7331,34 +8336,39 @@ export function register(on) {
     return next(e);
   });
   on("command.run", { command: "room" }, async ($, e) => {
-    const request = parseRoom(e.args, roomLeaves());
-    switch (request.kind) {
-      case "focus":
-        await $.ui.open({ id: PANE, title: TITLE, focus: true });
-        return {};
-      case "help":
-        return { text: helpText(roomLeaves()) };
-      case "error":
-        return { text: sanitize(request.message) };
-      case "run": {
-        const typed = e.origin.kind === "composer" || e.origin.kind === "bridge";
-        const ran = typed ? await personRun($, request.leaf.name, request.args) : await runCommand(
-          $,
-          [...request.leaf.name.split(" "), ...request.args, "--json"],
-          await clientEnv($)
-        );
-        await refreshPane($);
-        await registerOnce($);
-        const text2 = roomText(request.leaf.name, ran);
-        drawn.delete(text2);
-        drawn.set(text2, { command: request.leaf.name, ran });
-        for (const old of drawn.keys()) {
-          if (drawn.size <= DRAWN) break;
-          drawn.delete(old);
-        }
-        return { text: text2 };
-      }
+    const plan = roomPlan(e.args, roomCommands());
+    if (plan.open) {
+      await $.ui.open({ id: PANE, title: TITLE, focus: true });
+      return {};
     }
+    if (plan.run === void 0) {
+      return plan.text === void 0 ? {} : { text: plan.text };
+    }
+    const { command, args } = plan.run;
+    const typed = e.origin.kind === "composer" || e.origin.kind === "bridge";
+    const ran = {
+      ...typed ? await personRun($, command, args) : await runCommand(
+        $,
+        [...command.split(" "), ...args, "--json"],
+        await clientEnv($)
+      ),
+      args
+    };
+    await refreshPane($);
+    await registerOnce($);
+    const text2 = roomText(command, ran);
+    drawn.delete(text2);
+    drawn.set(text2, { command, ran });
+    for (const old of drawn.keys()) {
+      if (drawn.size <= DRAWN) break;
+      drawn.delete(old);
+    }
+    const context = shareContext(command, ran);
+    return context === void 0 ? { text: text2 } : { text: text2, context };
+  });
+  on("prompt.compose", async ($, e, next) => {
+    const composed = await next(e);
+    return { sections: composeSections(composed.sections) };
   });
   on("turn.start", async ($, e, next) => {
     if (e.agentId === void 0) {
@@ -7367,7 +8377,7 @@ export function register(on) {
     return next(e);
   });
   on("prompt.autocomplete", async ($, e, next) => {
-    const mine = completions(e.text, e.cursor, roomLeaves());
+    const mine = completions(e.text, e.cursor, roomCommands());
     const below = await next(e);
     return mine.length === 0 ? below : { suggestions: [...below.suggestions, ...mine] };
   });
@@ -7416,7 +8426,8 @@ export function register(on) {
       columns,
       e.props.scroll.bodyRows,
       shown,
-      viewFor(pane2.model.focus.seq, pane2.model.focus.level)
+      viewFor(pane2.model.focus.seq, pane2.model.focus.level),
+      offer?.handle ?? null
     ) : fallbackRows(fallbackFor(engine, pane2.error), columns);
     return draw($, e, rows);
   });
@@ -7435,6 +8446,13 @@ export function register(on) {
     const engine = await read2($, engineAtom);
     const pane2 = await read2($, paneAtom);
     const source = engine.status === "ready" && pane2.model !== null ? { model: pane2.model } : { fallback: fallbackFor(engine, pane2.error) };
-    return draw($, e, [bandRow(source, e.props.bodyColumns, shown)]);
+    const now = await $.clock.now();
+    const undo = offer !== null && now < offer.until ? offer.handle : null;
+    return draw(
+      $,
+      e,
+      [bandRow(source, e.props.bodyColumns, shown, undo)],
+      "band"
+    );
   });
 }

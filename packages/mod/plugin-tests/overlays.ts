@@ -92,6 +92,19 @@ export const M1_PRESENCE: Overlay = {
   },
 };
 
+/** A next action that is a hand edit, which the band can press and then offer to undo. */
+export const M1_EDIT_NEXT: Overlay = {
+  milestone: "M1",
+  why: "The fixture's pane offers a read as its next action; a pack suggestion that names an edit arrives with the plan's next step. Until then the next action is this rename, so a band press that can be undone stays covered.",
+  patch: {
+    next: {
+      command: "edit",
+      args: ["rename", "worker:repo:worker", "Workers"],
+      label: "Rename worker to Workers",
+    },
+  },
+};
+
 /** `base` with each overlay's patch laid over it, in order. */
 export function overlay(base: PaneModel, ...overlays: Overlay[]): PaneModel {
   return overlays.reduce<PaneModel>(

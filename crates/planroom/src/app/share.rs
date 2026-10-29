@@ -1,4 +1,4 @@
-//! `planroom share --out DIR`: the bundle the session publishes as an Artifact (architecture.md,
+//! `planroom share [--out DIR]`: the bundle the session publishes as an Artifact (architecture.md,
 //! "Remote mode through the Artifact (S11)", step 1 and 2).
 //!
 //! It writes the embedded canvas build with a page fragment that selects the artifact transport,
@@ -58,7 +58,11 @@ pub fn run(req: &ShareReq, cwd: &Path) -> Result<Reply<ShareResult>, AppError> {
         extra: Default::default(),
     };
 
-    let out = out_dir(cwd, &req.out)?;
+    let out = match &req.out {
+        Some(out) => out_dir(cwd, out)?,
+        // No --out: the state directory's own share/, so /room share needs no argument in any layout.
+        None => out_dir(cwd, &workspace::state_dir(&root).join("share").to_string_lossy())?,
+    };
     let mut files = BTreeMap::new();
     let mut written = Vec::new();
     // The result lists, with their sizes, only the files made from this workspace: the canvas
@@ -225,7 +229,7 @@ fn fragment(index: &str) -> Result<String, AppError> {
     Ok(page)
 }
 
-/// `--out`, made absolute against the working directory.
+/// `--out`, or the state directory's `share/`, made absolute against the working directory.
 fn out_dir(cwd: &Path, out: &str) -> Result<PathBuf, AppError> {
     if out.trim().is_empty() {
         return Err(bad_out(&"empty"));

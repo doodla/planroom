@@ -1,65 +1,79 @@
 /**
  * The mod's tools (architecture.md, "The mod"; contracts.md, "Mod tool schemas"): a flat input of a
  * catalogue `command`, its CLI `args`, `base` and `idem`, and for `room_change` a `payload` passed
- * on stdin. Pure: register.tsx runs the argv this module builds.
+ * on stdin. Their specs are generated into `catalogue.ts` as `TOOL_SPECS`, from the catalogue and
+ * `en.toml`'s `[tools]`. Pure: register.tsx runs the argv this module builds.
  */
+
+import {
+  LEAF_OWN_FLAGS,
+  MOD_STRINGS,
+  TOOL_SPECS,
+  type CatalogueLeaf,
+  type Handle,
+  type ToolResult,
+  type ToolSpecData,
+} from "@planroom/contract";
+import { fill } from "@planroom/ui";
 
 import { leavesFor, type ToolName } from "./catalogue";
 
-export interface ToolSpecData {
-  name: ToolName;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  isDeferred: boolean;
+export type { ToolSpecData };
+
+/** The tools that have leaves in this catalogue, each with its generated synopsis lines. */
+export function toolSpecs(): readonly ToolSpecData[] {
+  return TOOL_SPECS;
 }
 
-const INTROS: Record<ToolName, string> = {
-  room_query:
-    "Read Planroom's map of this system. Pass base from the meta.seq you read.",
-  room_change:
-    "Change Planroom's map: your writes are ghosts a person accepts. Pass base from the meta.seq you read.",
-  room_handoff: "Report and collect Planroom hand-offs, or publish the map.",
-};
+/** Whether `args` names `flag`, as `--flag` or `--flag=value`. */
+export function hasFlag(args: readonly string[], flag: string): boolean {
+  return args.some((a) => a === flag || a.startsWith(`${flag}=`));
+}
 
-/** The tools that have leaves in this catalogue, each with its generated synopsis. */
-export function toolSpecs(): ToolSpecData[] {
-  const tools: ToolName[] = ["room_query", "room_change", "room_handoff"];
-  return tools.flatMap((name) => {
-    const leaves = leavesFor(name);
-    if (leaves.length === 0) {
-      return [];
-    }
-    const properties: Record<string, unknown> = {
-      command: { enum: leaves.map((l) => l.name) },
-      args: {
-        type: "array",
-        items: { type: "string" },
-        description: 'the command\'s CLI arguments, such as ["--focus", "ID"]',
-      },
-      base: { type: "integer" },
-      idem: { type: "string" },
-    };
-    if (name === "room_change") {
-      properties["payload"] = {
-        type: "object",
-        description: "passed on stdin to a command run with --file -",
-      };
-    }
-    const synopsis = leaves.map((l) => `${l.name}: ${l.summary}`).join("\n");
-    return [
-      {
-        name,
-        description: `${INTROS[name]}\n${synopsis}`,
-        inputSchema: {
-          type: "object",
-          required: ["command"],
-          additionalProperties: false,
-          properties,
-        },
-        isDeferred: name === "room_handoff",
-      },
-    ];
-  });
+/**
+ * Whether a leaf's own flags, read off its clap arguments, include `flag`: `share` takes no
+ * `--idem`, and no read takes `--base` or `--idem`.
+ */
+export function takes(leafName: string, flag: string): boolean {
+  return (LEAF_OWN_FLAGS[leafName] ?? []).includes(flag);
+}
+
+/**
+ * The supplied flags of one write: `--base` and `--idem` with their values, each only when the
+ * leaf takes it and `args` doesn't name it already. They go right after the leaf's path, before
+ * any subcommand, though the CLI reads a leaf's own flags on either side of it
+ * (`edit --base SEQ undo EVENT`).
+ */
+export function supplied(
+  leafName: string,
+  args: readonly string[],
+  base: number | undefined,
+  idem: string | undefined,
+): string[] {
+  const out: string[] = [];
+  if (
+    base !== undefined &&
+    takes(leafName, "--base") &&
+    !hasFlag(args, "--base")
+  )
+    out.push("--base", String(base));
+  if (
+    idem !== undefined &&
+    idem !== "" &&
+    takes(leafName, "--idem") &&
+    !hasFlag(args, "--idem")
+  )
+    out.push("--idem", idem);
+  return out;
+}
+
+/** A leaf's synopsis line in its tool's description, under the strip rule. */
+export function synopsisLine(tool: ToolName, name: string): string | undefined {
+  const spec = TOOL_SPECS.find((s) => s.name === tool);
+  return spec?.description
+    .split("\n")
+    .slice(1)
+    .find((line) => line === name || line.startsWith(`${name} `));
 }
 
 export interface ToolInput {
@@ -79,55 +93,135 @@ export interface ToolDefaults {
 }
 
 /**
- * The argv after the binary, and the stdin, for one tool call; or the reason it is refused. A
- * read takes no `--base` or `--idem`. A write takes the model's, else the defaults: `idem` always,
- * `base` when the leaf needs one. A `room_change` payload goes on stdin, with `--file -` unless
+ * A refusal the mod authors, in the registry's `invalid_argument` shape: `field`, the leaf's
+ * `synopsis` from its tool's description and its `schema --command LEAF` handle, which the hint
+ * names as an exact command, so a wrong argument costs one small read (contracts.md, DR-66).
+ */
+function refusal(
+  tool: ToolName,
+  l: CatalogueLeaf | undefined,
+  field: string,
+  message: string,
+): ToolResult {
+  const schema: Handle =
+    l === undefined
+      ? {
+          command: "schema",
+          args: ["--commands"],
+          label: MOD_STRINGS.tool_commands_label,
+        }
+      : {
+          command: "schema",
+          args: ["--command", l.name],
+          label: fill(MOD_STRINGS.tool_schema_label, { leaf: l.name }),
+        };
+  const synopsis =
+    l === undefined
+      ? leavesFor(tool)
+          .map((c) => c.name)
+          .join(" | ")
+      : (synopsisLine(tool, l.name) ?? l.name);
+  const words = schema.args.map((a) => (a.includes(" ") ? `"${a}"` : a));
+  return {
+    ok: false,
+    error: {
+      code: "invalid_argument",
+      category: "usage",
+      retry: "never",
+      message,
+      hint: `planroom schema ${words.join(" ")}`,
+      details: { field, synopsis, schema },
+    },
+    meta: {},
+  };
+}
+
+/**
+ * The argv after the binary, and the stdin, for one tool call; or the refusal to return. A leaf
+ * whose own flags take `--base` or `--idem` gets the model's, else the defaults: `idem` always,
+ * `base` when the leaf needs one, right after its path (`supplied`); any other leaf, a read or
+ * `share`, gets neither. A `room_change` payload goes on stdin, with `--file -` unless
  * the arguments name a file already, so a proposal needs no file and no Write call (DR-66).
+ * `focus` gives its summary unless the arguments ask for another detail (architecture.md, "Tools").
  */
 export function toolArgv(
   tool: ToolName,
   input: ToolInput,
   defaults: ToolDefaults = {},
-): { argv: string[]; stdin?: string } | { refused: string } {
+): { argv: string[]; stdin?: string } | { refused: ToolResult } {
   const leaf = leavesFor(tool).find((l) => l.name === input.command);
   if (leaf === undefined) {
     return {
-      refused: `${tool} has no command ${JSON.stringify(input.command)}.`,
+      refused: refusal(
+        tool,
+        undefined,
+        "command",
+        fill(MOD_STRINGS.tool_no_command, {
+          tool,
+          command: JSON.stringify(input.command) ?? "undefined",
+        }),
+      ),
     };
   }
-  const args = input.args ?? [];
-  if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) {
-    return { refused: "args must be an array of strings." };
+  const given = input.args ?? [];
+  if (!Array.isArray(given) || !given.every((a) => typeof a === "string")) {
+    return {
+      refused: refusal(tool, leaf, "args", MOD_STRINGS.tool_args_not_strings),
+    };
   }
+  const args: string[] = given;
   // room_query and most of room_change run with no prompt, so no tool may name another
   // workspace: a tool reads and writes only the session's own (DR-52).
-  if (args.some((a) => a === "--workspace" || a.startsWith("--workspace="))) {
+  if (hasFlag(args, "--workspace")) {
     return {
-      refused:
-        "Planroom's tools work in this session's workspace only, so --workspace isn't one of their arguments.",
+      refused: refusal(tool, leaf, "workspace", MOD_STRINGS.tool_no_workspace),
     };
   }
-  const argv = [...leaf.name.split(" "), ...args];
-  if (leaf.class !== "read") {
-    const base =
-      typeof input.base === "number"
-        ? input.base
-        : leaf.needs_base
-          ? defaults.base
-          : undefined;
-    if (base !== undefined && !args.includes("--base"))
-      argv.push("--base", String(base));
-    const idem = typeof input.idem === "string" ? input.idem : defaults.idem;
-    if (idem !== undefined && idem !== "" && !args.includes("--idem"))
-      argv.push("--idem", idem);
+  // The handler's PLANROOM_CLIENT names this session as the writer instance (DR-73).
+  if (hasFlag(args, "--client")) {
+    return {
+      refused: refusal(tool, leaf, "client", MOD_STRINGS.tool_no_client),
+    };
+  }
+  const base =
+    typeof input.base === "number"
+      ? input.base
+      : leaf.needs_base
+        ? defaults.base
+        : undefined;
+  const idem = typeof input.idem === "string" ? input.idem : defaults.idem;
+  const argv = [
+    ...leaf.name.split(" "),
+    ...supplied(leaf.name, args, base, idem),
+    ...args,
+  ];
+  if (leaf.name === "focus" && !hasFlag(args, "--detail")) {
+    argv.push("--detail", "summary");
   }
   if (tool === "room_change" && input.payload !== undefined) {
-    if (!args.includes("--file")) argv.push("--file", "-");
+    if (!hasFlag(args, "--file")) argv.push("--file", "-");
     argv.push("--json");
     return { argv, stdin: JSON.stringify(input.payload) };
   }
   argv.push("--json");
   return { argv };
+}
+
+/**
+ * The environment a tool call runs with, beside the engine's own: the chat agent as the actor,
+ * this session as the writer instance and the turn as the cause, never a person token or
+ * `PLANROOM_RAW` (DR-64).
+ */
+export function agentEnv(
+  sessionId: string,
+  turnId: string | null,
+): Record<string, string> {
+  const env: Record<string, string> = {
+    PLANROOM_ACTOR: `agent:${sessionId.slice(0, 8)}:chat`,
+    PLANROOM_CLIENT: `mod:${sessionId}`,
+  };
+  if (turnId !== null) env["PLANROOM_CAUSE"] = `turn:${turnId}`;
+  return env;
 }
 
 /**

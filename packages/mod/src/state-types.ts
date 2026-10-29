@@ -10,3 +10,4 @@ export type EngineStatus = EngineState["status"];
 export type PaneState = ShapedValue<PluginState["planroom"]["pane"]>;
 export type LastSeq = ShapedValue<PluginState["planroom"]["lastSeq"]>;
 export type TurnSeq = ShapedValue<PluginState["planroom"]["turnSeq"]>;
+export type Outbox = ShapedValue<PluginState["planroom"]["outbox"]>;

@@ -133,6 +133,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 118 | Ratify a plan and walk away: one signed approval of a bounded batch of hand-offs, an integration branch per repo, and slice POCs first | DR-23, DR-25, DR-26, DR-54, DR-55, DR-64, DR-66, DR-71, DR-73, DR-75, DR-77, DR-80, DR-106, DR-110, DR-115, DR-116, DR-117 | extended, amends DR-23, DR-25, DR-64, DR-65, DR-66, DR-71, DR-75, DR-77, DR-80 and DR-106 | the owner's request of 2026-10-29 |
 | 119 | One room: boards in areas, every view a link, repos and boards attached from anywhere, and plans that run side by side | DR-1, DR-29, DR-58, DR-77, DR-101, DR-115, DR-116, DR-118 | extended, amends DR-25, DR-29, DR-51, DR-65, DR-66, DR-71, DR-77, DR-78 and DR-101 | the owner's request of 2026-10-29 |
 | 120 | Ontologies as packs, chosen per board: domain concepts aligned to blocks at every level, and release management as the first domain | DR-9, DR-62, DR-109, DR-111, DR-114, DR-115, DR-116, DR-117, DR-119 | extended, amends DR-23, DR-36, DR-45, DR-46, DR-62, DR-74, DR-106 and DR-109 | the owner's request of 2026-10-29 |
+| 121 | The band offers undo, the pane's key map, and `/room` and the tools from one synopsis per leaf | DR-8, DR-14, DR-21, DR-54, DR-65, DR-66, DR-77, DR-85, DR-89, DR-105, DR-111, DR-113 | extended, amends DR-8, DR-54, DR-66, DR-77, DR-85, DR-89 and DR-105 | the merge of M1's band, keys, `/room` and tools |
 
 ## Where the design reviews disagreed
 
@@ -313,7 +314,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-8: Idempotency with request hashes, replays and a mod outbox
 
-- **Status:** accepted. Amended in review rounds 1, 2 and 3, and by DR-86.
+- **Status:** accepted. Amended in review rounds 1, 2 and 3, and by DR-86 and DR-121.
 - **Starting point:** extended "Events carry ... an idempotency key."
 - **Origin:** the concurrency-first design (§3.8, §3.10, §7.5).
 - **Context:** S8 requires safe retries. A reused key with a different payload silently replayed the wrong result in the simplicity-first design, as a design review found. Spawned children and module state die on a mod reload [mod-api §7], so an in-flight write could be lost.
@@ -331,6 +332,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 2:** a missing key is derived only for a `needs_base` command, where the base pins the intent. Every other command mints a fresh uuid v7 per invocation, and the mod, canvas and Artifact page mint one per user action. A scan keys each repo's event by `(repo, commit, packs_hash, previous active snapshot)`, so a move back to an earlier head records a new scan. `handoff merge` and `handoff revert` key each step and follow a step protocol: a retry with the same key resumes from the last committed step, a replay happens only after a terminal step, and a running detached duty is joined, never run twice (E1, correctness-1). Tests `retries.rs::base_less_commands_mint_a_fresh_key`, `a_rescan_after_a_head_move_writes_a_new_scan_event`, `a_move_back_to_an_earlier_head_records_a_new_scan`; `handoff_preflight.rs::a_retry_with_the_same_key_resumes_mid_merge`, `a_retry_joins_a_running_merge_duty`. Pending canvas edits move from `sessionStorage` to `localStorage`, keyed by workspace ID with their original keys, and any signed-in tab of the workspace flushes them, so a reload, a closed tab or a `serve` restart loses nothing (E10, principles-4) [DR-29]. Tests `tests/e2e/surface.spec.ts::reload_mid_edit_keeps_the_edit`, `serve_restart_keeps_pending_edits`.
 - **Amended in review round 3:** a pending canvas edit stores its tab's client ID, and the flushing tab sends it. A request hash covers the command, its canonical arguments, `base`, the actor and the client, never transport fields. A decision event's hash covers only its inputs, so a duplicate run replays even when Jev's pick drifted (F3; correctness-3, correctness-9) [DR-73]. Tests `tests/e2e/surface.spec.ts::a_flush_by_another_tab_keeps_the_original_writer`, `a_flush_of_a_committed_edit_replays`.
 - **Amended by DR-86:** a scan's key takes the snapshot's extraction-inputs hash where it took `packs_hash`, so a scan under other inputs at the same commit is another key.
+- **Amended by DR-121:** the outbox atom is `OutboxEntry`: a write's `idem`, its argv, the names of the variables it set (never their values), its stdin, its cause and its session. It is kept from before the process starts until any reply, and a reload resends it once, before the watch loop, as the same actor and client, so the store writes one event; a leaf that takes no `--idem` stays out of it.
 - **Sources (checked 2026-10-25):** [mod-api §7, §10]; candidate-concurrency-agents §3.8; the design reviews.
 
 ## DR-9: Packs are data; built-in extractors and linkers are declared by packs
@@ -1141,7 +1143,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-54: Surfaces act through catalogue verbs, reversibly, in real keystrokes
 
-- **Status:** accepted (decided in review round 1, D15). Amended in review rounds 2 and 3. Amended by DR-105 and DR-116.
+- **Status:** accepted (decided in review round 1, D15). Amended in review rounds 2 and 3. Amended by DR-105, DR-116 and DR-121.
 - **Starting point:** none; implements R13, S9 and principle 1 ("Everything is reversible, which is what makes bold defaults safe").
 - **Origin:** review round 1: ux-2, ux-3 and ux-4; the minor findings ux-8 and ux-10.
 - **Context:**
@@ -1167,6 +1169,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 3:** `l`, `p`, `i`, `h` and `t` deal pickers whose first ten entries are a key plus a digit. The stage picker is the stage run's cost card, so its pick is the confirming key, which replaces round 2's "Enter on a stage row under `i` runs that stage through its cost card". Merging is the unasked review card's Merge, then a second press. The row-key pool covers the drift and who lines' top items and 7 list rows, and the compact layout keeps the top diff line. S9 counts keys with no list open, per flow in `feature_list.json` (F9, ux-2, ux-3, principles-2) [DR-77].
 - **Amended by DR-105:** the surface tests named under `packages/mod/src/surfaces.test.tsx` live in `packages/mod/plugin-tests/surfaces.test.tsx`, where `claude plugin test` draws all four surfaces; the pure layout's tests stay in `packages/mod/src/layout.test.ts`.
 - **Amended by DR-116:** the pane gains the question line below the who line.
+- **Amended by DR-121:** the key tests named under `packages/mod/src/keys.test.tsx` live in `packages/mod/plugin-tests/keys.test.tsx`, where presses reach the host. A band press whose reply names an undo makes that undo the band's primary for 10 s, and a stray digit never presses a leaf that can spend.
 - **Sources (checked 2026-10-26):** [mod-spike] (bare digits, `ctrl+x tab`, the 49×34 dock, diff hunk headers); [mod-api §2] (at most 36 one-key actions per pane); KICKOFF S9, S15 and principle 1; review round 1 findings above and owner decision D15.
 
 ## DR-55: Hand-off revert and an enumerated irreversible list
@@ -1501,7 +1504,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-66: An agent surface that reports errors, takes proposals inline and brings the diff back
 
-- **Status:** accepted (decided in review round 2). Amended in review round 3. Amended by DR-106, DR-118 and DR-119.
+- **Status:** accepted (decided in review round 2). Amended in review round 3. Amended by DR-106, DR-118, DR-119 and DR-121.
 - **Starting point:** none; implements principle 2's agent interfaces, principle 1's "interrupt a person only for decisions only they can make" and R8's "its result comes back as a diff for review".
 - **Origin:** review round 2: principles-1, principles-3 and principles-7; the minor findings principles-10, principles-11 and principles-12.
 - **Context:**
@@ -1531,6 +1534,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended by DR-106:** plan items are written through `intent propose`, whose `PlanProposal` fixes their fields; `edit set`, `text` and `propose` wait for a later milestone.
 - **Amended by DR-118:** under a ratification, `collect` builds a verified candidate instead of dealing a review card.
 - **Amended by DR-119:** `room_query` and `room_change` gain a `board` property that reaches attached boards only.
+- **Amended by DR-121:** `band_never_names_a_spending_leaf` lives in `packages/mod/plugin-tests/keys.test.tsx`. Each tool's spec is generated into `catalogue.ts` as `TOOL_SPECS`, its description the `[tools]` intro from en.toml and one synopsis line per leaf. The tools refuse `--client` as they refuse `--workspace`, and their own refusal carries the leaf's synopsis, schema handle and hint.
 - **Sources (checked 2026-10-26):** KICKOFF principles 1 and 2, R8, S9 and S14; [mod-spike] (A-4: a tool result is a string or content blocks); review round 2 principles-1, principles-3, principles-7, principles-10, principles-11 and principles-12.
 
 ## DR-67: Paired owner devices, and inbox rows only from the mod
@@ -1847,7 +1851,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-77: Every pane action within two keys, and an Artifact that serves a cloud session
 
-- **Status:** accepted (decided in review round 3, F9 and F10); verify A-22 in WS5. Amended by DR-118 and DR-119.
+- **Status:** accepted (decided in review round 3, F9 and F10); verify A-22 in WS5. Amended by DR-118, DR-119 and DR-121.
 - **Starting point:** none for the pane, which implements R13, S9 and principle 1; kept and refined "Remote mode: ... the Artifact shows cached decisions and queues new ones" for the Artifact.
 - **Origin:** review round 3: ux-1, ux-2, ux-3 and principles-2; the minor findings ux-5, ux-6, ux-7, ux-10 and part of ux-9.
 - **Context:**
@@ -1879,6 +1883,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-22, DR-31, DR-54, DR-56 and DR-67.
 - **Amended by DR-118:** under a live ratification, a POC fail's redraft runs under the ratify press, whose card named its cost, and `h` deals the run's card, whose Stop takes a second key.
 - **Amended by DR-119:** `p` deals the board picker.
+- **Amended by DR-121:** the key tests live in `packages/mod/plugin-tests/keys.test.tsx`. The list's page Button takes the next free row key, and when the pool would be spent the list holds one row fewer, so every shown row keeps its key.
 - **Sources (checked 2026-10-26):** KICKOFF R13, R14, S9, S11 and principle 1; [mod-api §2] (36 one-key actions per pane), [mod-api §3] (`immediate`); [mod-spike]; [artifact §2]; review round 3 ux-1 to ux-10 and principles-2, and owner decisions F9 and F10.
 
 ## DR-78: Releases users install, detached work in its own session, a canvas port that never moves, and machine-wide files across versions
@@ -2190,7 +2195,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-85: What the walking skeleton's review settled
 
-- **Status:** accepted (decided at the merge of the review's fixes, 2026-10-26). Amended by DR-86, DR-87, DR-111 and DR-115.
+- **Status:** accepted (decided at the merge of the review's fixes, 2026-10-26). Amended by DR-86, DR-87, DR-111, DR-115 and DR-121.
 - **Starting point:** extended "Extractors read the repo", "One contract source", "Surfaces read one contract" and the release model.
 - **Origin:** the walking skeleton's review, round 1. Eight reviewers, one per focus and each checked by a separate verifier, found 18 material findings ([the review's index](research/skeleton-review/README.md)). Four fix branches fixed them (the scan, contract, engine and surfaces fixes), and the resolver and `check` items were fixed directly. This record settles each doc conflict the fixes raised.
 - **Context:** The skeleton's slice worked end to end, live. Its review still found that a dirty first scan froze a wrong map, persisted documents dropped unknown fields, surfaces offered buttons that failed, the guard missed everyday shell forms, and some documented gates and checks had no milestone. Each fix met a place where the docs were silent or said something else.
@@ -2228,6 +2233,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended by DR-87:** `UnavailableReason` is also a schema root, so the mod reads it from the generated types and its switch over reasons is checked at build time.
 - **Amended by DR-111:** blocks nesting like boxes, and a lid lifting on a level zoom, are how the table draws an abstraction level; every user-facing word speaks of abstraction levels, and no surface names a level.
 - **Amended by DR-115:** `no_repos`'s next action is `schema --command "intent new"`, "Start a plan here".
+- **Amended by DR-121:** a mod tool's own refusal of a call carries `field`, `synopsis` and `schema` as every CLI `invalid_argument` does, its `synopsis` the leaf's line in the tool's description. A leaf's synopsis is `CommandSpec::synopsis`, read off its request's clap arguments, and a leaf's own flags are global to its subcommands.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/` (round 1's findings and verdicts); the four fix branches' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
 
 ## DR-86: What the walking skeleton's review settled in round 2
@@ -2338,7 +2344,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-89: What M1 builds, compares and leaves to later milestones
 
-- **Status:** accepted (decided before M1's first change, 2026-10-26). Amended by DR-91, DR-95, DR-108, DR-109 and DR-110.
+- **Status:** accepted (decided before M1's first change, 2026-10-26). Amended by DR-91, DR-95, DR-108, DR-109, DR-110 and DR-121.
 - **Starting point:** none; it amends [Milestones](architecture.md#milestones) and serves S1, S3 and S15, and the feature list's gate (DR-59).
 - **Origin:** milestone planning: M1's scope, read against the tree after DR-88.
 - **Context:** M1's row in the Milestones table says it closes S1, S15 (most) and S3's deterministic part. Read against the code and `feature_list.json`, several things don't hold:
@@ -2453,6 +2459,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended by DR-108:** storefront's call to orders joins with its host taken from the `ORDERS_URL` read in `config.ts`, a compose-set read in storefront's container that a served endpoint confirms, not from the calls' own file.
 - **Amended by DR-109:** `scan`, not a freshness check, deals the changed-source card, with its pack's ID, changed file count and the copy's and source's short hashes as vars, and an accept takes the source as it reads at the pick.
 - **Amended by DR-110:** M1 also builds the plain `doctor`, which reports git, the store, its migrations, the pack set and the backup; `doctor --restore` and the restore card land with the restore, still in M1. The write-through's tests leave the feature list's due map for its tests.
+- **Amended by DR-121:** the `keys.test.tsx` tests live in `packages/mod/plugin-tests/keys.test.tsx`. `tool_results`, `surface.tools`, `surface.section` and `room_text` enter `budgets.json` as new keys, not raises.
 - **Sources (checked 2026-10-26):** `architecture.md` ([Milestones](architecture.md#milestones), trust in [Where the workspace lives](architecture.md#where-the-workspace-lives), [Ruby through the extractor contract](architecture.md#ruby-through-the-extractor-contract), `budgets.json` in [Token budgets](architecture.md#token-budgets-s7), [Spend guards](architecture.md#spend-guards), `intent next` in [Planning](architecture.md#planning-stages-ghosts-and-lint-r5), the server's exposure in [Security and privacy](architecture.md#security-and-privacy), the fold benchmark in [Performance budgets](architecture.md#performance-budgets), [Found by dogfooding](architecture.md#found-by-dogfooding)); `contracts.md` (open sets in [Versioning rules](contracts.md#versioning-rules), the Feature list row in [Every public contract](contracts.md#every-public-contract), `review` in [Command catalogue](contracts.md#command-catalogue), [Event model](contracts.md#event-model)); `feature_list.json` (S1, S3, C15); `examples/TRUTH.json` (`containers`, `relations`); `crates/contract/src/event.rs`; `crates/store/migrations/0001_init.sql`; `crates/planroom/tests/server_auth.rs`; `crates/planroom/src/server/auth.rs` (`CODE_LIFE`).
 
 ## DR-90: The guard lets everyday work through, and closes three more doors
@@ -2864,7 +2871,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-105: Pane sections with row keys and a 7-row page, the mod's lines from the string catalog, and one budget for `focus`
 
-- **Status:** accepted (decided at the merge of M1's pane sections, 2026-10-28). Amended by DR-116.
+- **Status:** accepted (decided at the merge of M1's pane sections, 2026-10-28). Amended by DR-116 and DR-121.
 - **Starting point:** extended DR-54, DR-57, DR-65, DR-77 and DR-82; amends DR-54 and DR-57.
 - **Origin:** the merge of M1's pane sections and fallback panes, read against the docs by an independent check.
 - **Context:**
@@ -2888,6 +2895,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Known gaps: below about 48 columns two long choice labels side by side can overflow the pane; the guard's verdict reasons, the tool descriptions, `room-args.ts`'s usage line, `live.ts`'s line, three of `engine.ts`'s lines and `/room`'s "+N more" are still written in the mod; no row is selected until a row key selects one, though architecture.md says an action key acts on the first row until then (the key map's action keys land with it); `room_query` asks for the full `focus` until the band and tools pass `--detail summary`; the resolver's source build takes no lock, so a reload mid-build can offer Build again; the all-surfaces sweep of every fallback pane, the not-yet-a-workspace state and every error frame is the surface sweep's, at M1's end.
   - Tests: `packages/ui/src/rows.test.ts`; `packages/mod/plugin-tests/surfaces.test.tsx` (`no_decision_shows_next_on_every_surface`, `drift_and_who_top_rows_carry_row_keys`, `compact_keeps_the_top_diff_line`, `pane_shows_the_engines_summary_line`, `a_check_again_press_refreshes_the_pane_with_no_way_back`, `a_running_source_build_offers_no_second_build`); `crates/planroom/tests/budgets.rs::focus_keeps_to_one_budget`; `crates/planroom/tests/focus.rs::focus_detail_summary_drops_the_minimap_and_keeps_the_rest`; the goldens `focus-no-repos.json` and `map-container.json`.
 - **Amended by DR-116:** the list takes the row keys left in the pool, at most 7, so it pages at 6 when every keyed section shows.
+- **Amended by DR-121:** the list's page Button takes the next free row key, and the list holds one row fewer when the pool would be spent; the first keyed row is selected from the start; the tools pass `focus` `--detail summary`; the tool descriptions, `room-args.ts`'s usage line and `/room`'s "+N more" come from `catalogue.ts` and en.toml. The key tests are in `packages/mod/plugin-tests/keys.test.tsx`.
 - **Sources (checked 2026-10-28):** `packages/mod/src/{layout, register, engine, fallback}.ts`; `packages/ui/src/{rows, text}.ts`; `crates/planroom/src/app/focus.rs`; `crates/xtask/src/generate.rs`; `crates/planroom/text/en.toml`; [The mod](architecture.md#the-mod); [Contracts](contracts.md).
 
 ## DR-106: The plan pack's stages and lint, the deterministic `intent` leaves, and `ask stage`
@@ -4285,3 +4293,44 @@ This page holds Planroom's numbered decision records. Each one gives the context
     - For release management, you select the release ontology on a board (`ontology use release`), draft a train, which the breakdown now offers as a release item type, and see a gate with no owner or a component released ahead of what it depends on before you ratify.
     - `ontology save` puts your ontology in your room's library. Every other workspace that uses it asks you before taking the new version.
 - **Sources (checked 2026-10-29):** KICKOFF.md:383; [What a pack is](architecture.md#what-a-pack-is) (architecture.md:617-680); [Lenses and questions](architecture.md#lenses-and-questions) (:870-938); [The v0.1 packs](architecture.md#the-v01-packs) (:940-953); [Layers, overrides and ghosts](architecture.md#layers-overrides-and-ghosts) (:338-349); [IDs and aliases](architecture.md#ids-and-aliases) (:312-318); [Claims, presence and projects](architecture.md#claims-presence-and-projects) (:529); [Where the workspace lives](architecture.md#where-the-workspace-lives) (:599); [Milestones](architecture.md#milestones) (:1761-1847); DR-9, DR-15, DR-23, DR-36, DR-45, DR-46, DR-62, DR-63, DR-73, DR-74, DR-106, DR-109, DR-111, DR-112; `crates/contract/src/pack.rs:21-70, :104-160, :390, :589-612`; `crates/contract/src/vocab.rs:19-28`; `crates/contract/src/view.rs:45`; `crates/contract/src/requests.rs:28-89`; `crates/planroom/src/packs/validate.rs:138-145, :343-371`; `crates/kernel/src/plan.rs:27-30`; `packs/plan/pack.toml:1-14, :79-95`; `boundaries.toml:26-34`.
+
+## DR-121: The band offers undo, the pane's key map, and `/room` and the tools from one synopsis per leaf
+
+- **Status:** accepted (decided at the merge of M1's band, keys, `/room` and tools, 2026-10-29).
+- **Starting point:** extends DR-14, DR-21, DR-54, DR-65 and DR-66; amends DR-8, DR-54, DR-66, DR-77, DR-85, DR-89 and DR-105, and the contract's area row. Builds on DR-111, the levels record, and DR-113, which pages `schema --commands`.
+- **Origin:** the merge of M1's band, keys, `/room` and tools, read against the docs at the merge.
+- **Context:**
+  - The tool descriptions, `/room`'s help and typeahead and the CLI's usage line each spelled a leaf's arguments their own way, and they drifted (drift-r2-4): a tool's description read `map: The map at a level through a lens.`, with no flags.
+  - The mod put `--base` and `--idem` after every write's arguments. The CLI read a leaf's own flags only before its subcommand and refused a flag the leaf doesn't take, so an `edit` through `room_change`, a typed `/room edit`, the band's undo and `/room share` came back `invalid_argument`.
+  - DR-8's outbox had no shape, so a write in flight when the mod reloaded was lost.
+  - DR-105 left gaps: the tool descriptions, `room-args.ts`'s usage line and `/room`'s "+N more" were written in the mod; no row was selected until a row key selected one; `room_query` asked for the full `focus`; the list's page Button had no key.
+  - `share --out` was required, and the mod can't know where a workspace's state directory is.
+- **Decision:**
+  - **One synopsis per leaf.** Every `CommandSpec` carries its request's clap arguments (`args`, the request's `augment_args`), and `CommandSpec::synopsis` and `CommandSpec::flags` read them. A leaf whose request has subcommands names them after its path: `planroom edit move|group|...|undo [--project PROJECT] ...`. `LeafListing` carries the synopsis, so the catalogue hash covers a leaf's flags, and the CLI's `invalid_argument` takes it from the spec. The listing pages as DR-113 decided, with its opaque cursor bound to the catalogue; a second copy of the paging, built beside the synopses with a bare index for a cursor, is dropped. `CommandSpec`'s `PartialEq` and `Eq` compare by path, since `args` is a function pointer. `intent next`, `pack add` and `pack remove` carry `args` too.
+  - **A leaf's own flags are global to its subcommands.** `WriteCommon`'s `--base`, `--idem`, `--project` and `--client` are clap globals, so `edit` reads them on either side of its subcommand, as its synopsis writes them. This only loosens the parser: every line it read before reads the same. The tool handler and the person's runs still put them right after the leaf's path, and only where `LEAF_OWN_FLAGS` lists them, so `share` and the reads get neither.
+  - **Generated for the mod.** `cargo xtask gen` appends to `catalogue.ts`: `TOOL_SPECS` (each tool's flat input, `isDeferred` on `room_handoff` alone, and a description made of its `[tools]` intro from en.toml and one synopsis line per leaf), `ROOM_COMMANDS` (each `/room` leaf with its synopsis, subcommands and flags), `LEAF_OWN_FLAGS` and `MOD_COMMANDS`, with their types. Every generated line drops `planroom`, `[--json]`, `[--base BASE]`, `[--idem IDEM]` and `[--client CLIENT]`, which the handler or the person's run supplies. `@planroom/contract` re-exports them, and `@planroom/ui` re-exports `ACTION_KEYS`, `KEY_MAP` and their types.
+  - **The tools** take their specs from `TOOL_SPECS`. They refuse `--client` as they refuse `--workspace`, in either form, and give `focus` `--detail summary` unless the arguments name a detail. Their own refusal carries the leaf's synopsis, its schema handle and the hint, as the engine's `invalid_argument` does.
+  - **`/room`** parses, helps and offers typeahead from `ROOM_COMMANDS`, in this order: the command words, a subcommand, the flags not yet typed, then, after a flag that takes a value, its fixed values. A flag whose value is open, such as `--level`, offers nothing, since `ask` alone lists the levels (DR-111). The text says at most two warnings and counts the rest. Its handles come from the result, its empty state and its warnings; a page's `meta.next` becomes the Next page handle, the command that ran with `--cursor`. A map page's summary counts the whole map from the `truncated` warning's total. `/room share` hands the model the publish's arguments as context.
+  - **The band** never presses a leaf that can spend on a stray digit. A press whose reply names an undo makes that undo the band's primary for 10 s (`1 undoes it` in the toast, or `u undoes it` after a pane press, where `1` is a card key). An undo's own reply offers none, and a failed one, such as a stale write, clears it.
+  - **The pane's keys.** `KEY_MAP` lists all 36 keys with their action and section: the card's `1` to `4`, the 12 row keys and the 20 action letters. `e` opens the canvas as the person's press, and the first keyed row is selected from the start. The list's page Button takes the next free row key; when the pool would be spent, the list holds one row fewer, so every shown row keeps its key. Keys whose leaf or data isn't there yet stay unwired.
+  - **The outbox** is `OutboxEntry` in `$.state`: the write's `idem`, its argv, the names of the variables it set (never their values), its stdin, its cause and its session. It is kept from before the process starts until any reply, and a reload resends it once, before the watch loop, as the same actor and client, so the store writes one event. A leaf that takes no `--idem` is no replayable write and stays out of it.
+  - **The prompt section** is one stable entry with the id `planroom:map`, by the host's `<plugin>:<name>` convention, from en.toml's `mod.prompt_section`, appended last. Its levels and lenses read the levels record's words. The hand-off sentence joins it when hand-off lands in M2.
+  - **`share --out` is optional.** Without it the bundle goes to the state directory's `share/` (`.planroom/share`, or `.git/planroom/share` for a one-repo workspace), so `/room share` needs no argument in any layout.
+  - **Budgets.** `budgets.json` reaches the mod's vitest files through `vitest.config.js`'s define `__PLANROOM_BUDGETS__`, declared in `packages/mod/src/budgets.d.ts`, not through an import edge, so `boundaries.toml` doesn't change. `tool_results` gates each golden CLI output, but the watch frames, as the tool result the handler returns, measured on the merged tree: `focus` 390, `focus-no-repos` 175, `invalid-argument` 126, `map-container` 724, `map-empty` 227 and `map-graph` 881 tokens, each within its leaf's budget. `surface.tools` 900 and `surface.section` 300 are architecture.md's shares of the always-on surface (the non-deferred tools measure 403 and the section 194), and `room_text` 300 is `/room`'s cap. All four are new keys, not raises (DR-89).
+  - **Tests.** The key tests live in `packages/mod/plugin-tests/keys.test.tsx`, where presses reach the host. The host stand-in refuses a `--base` or `--idem` the leaf doesn't take, as the engine's parser does. `every_golden_handle_runs_ok` fails a handle whose reply says `ok` from a process that exited nonzero. The golden `invalid-argument.json` is `map --detail nope --json`, so it keeps clap's own path now that a level is pack data.
+- **Alternatives rejected:**
+  - Hand-written tool descriptions and a hand-written `/room` grammar: they drifted from the CLI (drift-r2-4).
+  - Moving the supplied flags in the mod alone: the decided synopsis and a typed `/room edit move A B --project P` would still be refused.
+  - A raised `schema` budget for a listing with synopses: DR-113's pages hold it.
+  - Importing `budgets.json` in the mod's tests: an import edge out of the package that `boundaries.toml` would have to allow.
+  - Offering the flags after a flag whose value is open: the next word is that flag's value.
+  - The section id `planroom`: the host names a plugin's entries `<plugin>:<name>`.
+- **Consequences:**
+  - Contracts: `CommandSpec.args`, `CommandSpec::synopsis` and `CommandSpec::flags`, `LeafFlag` and `LeafListing.synopsis`; `OutboxEntry`; `ShareReq.out` optional; `WriteCommon`'s flags global; in `catalogue.ts`, `TOOL_SPECS`, `ROOM_COMMANDS`, `LEAF_OWN_FLAGS` and `MOD_COMMANDS`, with `ToolSpecData`, `RoomCommand`, `LeafFlag` and `ToolName`. All are additive, so `schema_version` stays 1. The catalogue hash changes.
+  - Ratified by this record, as gated surfaces: repo-layout.md's contract area row, which says the contract reads a leaf's derived clap arguments for its synopsis and flags and shapes the schemas it generates (`schema::generate`, `draft_reply_schema`); and `@planroom/contract`'s new exports `LEAF_OWN_FLAGS`, `ROOM_COMMANDS`, `TOOL_SPECS` and `MOD_COMMANDS`, and the types `LeafFlag`, `RoomCommand`, `ToolName` and `ToolSpecData`.
+  - The level sites take the levels record's forms: `catalogue.ts` lists no `--level` values, and every synopsis reads `[--level LEVEL]`; the golden's wrong argument is `--detail`; `room-args.test.ts`'s fixed-values case is `--detail`; en.toml's `[tools] args` example names `--focus` and `ID`, and the prompt section's levels and lenses follow `ask`. No level literal is added, and `level_words` doesn't change.
+  - DR-105's gaps closed: the tool descriptions, `room-args.ts`'s usage line, "+N more", `focus`'s summary for the tools, the first row selected and the page key.
+  - Known gaps: the guard's verdict reasons and `live.ts`'s line are still written in the mod; the resolver's source build takes no lock; `countsOf` has no plural; `/room map --level ` offers no levels (DR-111); pickers, presence, the block row keys and `x` and `z` land with MD3, and `main_flows_within_two_keys` with MD4; the mini-map's yarn from `MapView.yarn` comes later.
+  - Tests: `crates/contract/src/command.rs::a_leafs_own_flags_parse_after_its_subcommand`; `crates/planroom/tests/usage.rs::{a_leafs_synopsis_is_the_one_schema_commands_lists, a_leafs_own_flags_run_after_its_subcommand}`; `crates/planroom/tests/golden.rs::{every_golden_handle_runs_ok, an_edit_and_its_undo_handle_run_as_the_round_trip_runs_them, an_ok_reply_with_a_nonzero_exit_is_no_successful_run}`; `packages/mod/src/tools.test.ts::{tool_schemas_equal_catalogue, tool_results_within_budget, a_wrong_argument_returns_the_leaf_synopsis, a_tool_refuses_client}`; `packages/mod/src/room.test.ts::{room_text_within_budget, room_commands_snapshot, room_shows_per_repo_warnings}`; `packages/mod/src/room-args.test.ts`; `packages/mod/src/prompt.test.ts::section_is_byte_identical_across_states`; `packages/mod/plugin-tests/keys.test.tsx::{key_map_snapshot, band_never_names_a_spending_leaf, a_band_press_from_the_prompt_offers_undo, e_opens_the_canvas_with_a_person_token}`; `packages/mod/src/outbox.test.ts::reload_mid_write_makes_one_event`; `packages/mod/plugin-tests/tools.test.tsx`; `packages/ui/src/rows.test.ts::the_page_button_takes_the_next_free_row_key`.
+  - Users: an agent reads each leaf's arguments in its tool's description and gets the same line back from a wrong argument; a person types `/room` with typeahead, undoes a band press with one key, and keeps a write across a reload.
+- **Sources (checked 2026-10-29):** `crates/contract/src/{command, requests, view}.rs`; `crates/planroom/src/cli.rs` (`with_usage`); `crates/xtask/src/{generate, modgen}.rs`; `packages/mod/src/{tools, room, room-args, prompt, catalogue, layout}.ts` and `register.tsx`; `packages/mod/plugin-tests/host.ts`; `packages/ui/src/{keys, rows}.ts`; `crates/planroom/text/en.toml`; `budgets.json`; `vitest.config.js`; [The mod](architecture.md#the-mod); [Contracts](contracts.md#mod-tool-schemas-state-and-the-room-family).

@@ -5,9 +5,19 @@
     "claude": { "prompt_total": 11115, "output": 1113, "cache_hit_rate": 0.6 }
   },
   "surface": {
+    "tools": 900,
+    "section": 300,
     "skill_bodies": {}
   },
-  "room_text": null,
+  "room_text": 300,
+  "tool_results": {
+    "focus": 390,
+    "focus-no-repos": 175,
+    "invalid-argument": 126,
+    "map-container": 724,
+    "map-empty": 227,
+    "map-graph": 881
+  },
   "recorded": {
     "token_ratio": null
   }

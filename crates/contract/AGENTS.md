@@ -5,8 +5,8 @@
 This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#area-contracts).
 
 - **Owns:** every public type, `ErrorCode`, `WarningCode`, `Command` and `CommandSpec`.
-- **May depend on:** its allow-list in `boundaries.toml`: `serde`, `serde_json`, `schemars`, `clap` (derive only), `uuid`, `indexmap` [DR-79].
-- **Must not:** any other workspace crate or third-party crate; I/O, which its generated `clippy.toml` refuses as the kernel's does [DR-79]; logic beyond validation; any built-in pack kind or relation name as a string literal, with or without its pack prefix, or, outside tests, a built-in pack's level ID, since the kernel reads every constant here.
+- **May depend on:** its allow-list in `boundaries.toml`: `serde`, `serde_json`, `schemars`, `clap` (derive, and reading a leaf's derived arguments for its synopsis and flags), `uuid`, `indexmap` [DR-79].
+- **Must not:** any other workspace crate or third-party crate; I/O, which its generated `clippy.toml` refuses as the kernel's does [DR-79]; logic beyond validation, the shaping of the schemas it generates (`schema::generate`, `draft_reply_schema`), and a leaf's synopsis and flags read off its derived clap arguments; any built-in pack kind or relation name as a string literal, with or without its pack prefix, or, outside tests, a built-in pack's level ID, since the kernel reads every constant here.
 - **How to test it:** `cargo xtask test -p planroom-contract` (`tests/schema.rs`: the schema snapshot and round trips).
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):

@@ -12,7 +12,7 @@ export interface CatalogueLeaf {
   /** Can make a paid model call; the band and `PaneModel.next` never name such a leaf (DR-66). */
   readonly spends: boolean;
   readonly undo: "edit" | "compensate" | "query" | "not_undoable";
-  readonly tool: "room_query" | "room_change" | "room_handoff" | null;
+  readonly tool: ToolName | null;
   readonly room: boolean;
 }
 
@@ -333,7 +333,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
 ];
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
-export const CATALOGUE_HASH = "d0ba4c6bc8365ce3117100f20f45005c5f7748e7735e0c9536875aab49df0235";
+export const CATALOGUE_HASH = "991e269663af0875e0a8f678650a44815a3178e10da2cd47588f8b24f5517902";
 
 /** One pane the mod draws before the engine answers `focus` (DR-57). */
 export interface FallbackPane {
@@ -395,7 +395,7 @@ export const FALLBACK_PANES: Readonly<Record<"resolving" | "fetching" | "build_o
  * The mod's own lines, from the `[mod]` table of `en.toml`: templates whose `{name}`s the mod
  * fills with `fill` from `@planroom/ui`, then sanitizes.
  */
-export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band_points_to_pane" | "band_rekey" | "band_shown" | "batch_count" | "block_row" | "blocks_at_level" | "blocks_at_level_one" | "blocks_title" | "build_failed" | "building_line" | "compact_focus_line" | "done_line" | "engine_no_error" | "engine_not_ready" | "failed_line" | "first_page_label" | "focus_line" | "focused_block_row" | "guard_too_many_paths" | "guard_unchecked" | "handler_failed" | "lens_line" | "more_decisions" | "next_page_label" | "next_title" | "no_blocks" | "no_blocks_at_level" | "no_diffs" | "no_project" | "nobody_here" | "page_line" | "progress_done" | "progress_handoffs" | "progress_handoffs_one" | "progress_no_stage" | "progress_not_scanned" | "progress_scanning" | "project_line" | "room_argument_hint" | "room_description" | "selected_row" | "title" | "toast" | "who_agent" | "who_doing" | "workspace", string>> = {
+export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band_points_to_pane" | "band_rekey" | "band_shown" | "batch_count" | "block_row" | "blocks_at_level" | "blocks_at_level_one" | "blocks_title" | "build_failed" | "building_line" | "canvas_label" | "compact_focus_line" | "done_line" | "engine_exited" | "engine_no_error" | "engine_no_version" | "engine_not_ready" | "engine_rebuild" | "failed_line" | "first_page_label" | "focus_line" | "focused_block_row" | "guard_too_many_paths" | "guard_unchecked" | "handler_failed" | "lens_line" | "more_decisions" | "more_rows" | "next_page_label" | "next_title" | "no_blocks" | "no_blocks_at_level" | "no_diffs" | "no_project" | "nobody_here" | "outbox_dropped" | "page_line" | "progress_done" | "progress_handoffs" | "progress_handoffs_one" | "progress_no_stage" | "progress_not_scanned" | "progress_scanning" | "project_line" | "prompt_section" | "room_argument_hint" | "room_description" | "room_help_bare" | "room_help_help" | "room_more_warnings" | "room_no_command" | "room_open_quote" | "room_warning" | "selected_row" | "share_context" | "title" | "toast" | "toast_undo" | "toast_undo_pane" | "toast_warned" | "toast_warned_one" | "tool_args_not_strings" | "tool_commands_label" | "tool_no_client" | "tool_no_command" | "tool_no_workspace" | "tool_schema_label" | "who_agent" | "who_doing" | "workspace", string>> = {
   "back_label": "Back to the {level} level",
   "band_fallback": "{headline} {action}",
   "band_points_to_pane": "Next: {label} · /room to open it",
@@ -408,10 +408,14 @@ export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band
   "blocks_title": "Blocks · {level}",
   "build_failed": "The source build failed: {said}",
   "building_line": "Building the Planroom engine from source…",
+  "canvas_label": "Open the canvas",
   "compact_focus_line": "▣ {crumbs} · {level} · {lens}",
   "done_line": "{label}: done",
+  "engine_exited": "The engine exited {code} without a reply.",
   "engine_no_error": "The engine failed without an error.",
+  "engine_no_version": "The Planroom engine didn't answer version --json: {said}",
   "engine_not_ready": "The Planroom engine isn't ready yet.",
+  "engine_rebuild": "Rebuild the engine: {fix}",
   "failed_line": "{label} failed",
   "first_page_label": "First page",
   "focus_line": "▣ {crumbs}",
@@ -421,6 +425,7 @@ export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band
   "handler_failed": "The Planroom mod's tool handler failed.",
   "lens_line": "{level} · lens {lens}",
   "more_decisions": "+{count} more",
+  "more_rows": "+{count} more",
   "next_page_label": "Next page",
   "next_title": "Next",
   "no_blocks": "No blocks at this level yet",
@@ -428,6 +433,7 @@ export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band
   "no_diffs": "No pending diffs",
   "no_project": "no project",
   "nobody_here": "Nobody else is here",
+  "outbox_dropped": "A Planroom write from before the reload wasn't sent again; check the pane before you repeat it.",
   "page_line": "{first}–{last} of {total}",
   "progress_done": "{done}/{total} done",
   "progress_handoffs": "{count} hand-offs running",
@@ -436,12 +442,626 @@ export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band
   "progress_not_scanned": "not scanned",
   "progress_scanning": "scanning",
   "project_line": "{project} · seq {seq}",
+  "prompt_section": "Planroom is this workspace's shared, living map of the software system, which people and agents plan on together. Five ideas: levels (the map's abstraction levels, from the plan's intent down; ask lists them), lenses (which relations you see; ask lists them), intent (projects and their plan items), diffs (what changed against what was meant) and decisions (one card at a time, which a person picks).\nUse mcp__planroom__room_query to read: focus, map, find and ask. Use mcp__planroom__room_change to change: scan, edit, and intent's new, propose, lint and list. Your edits and proposals are ghosts until a person accepts them. Pass base from the meta.seq you read, so a write over a newer one fails instead of overwriting it. A wrong argument returns that command's synopsis.",
   "room_argument_hint": "[help | map | focus | scan …]",
   "room_description": "Planroom: focus the pane, or run a map command (/room help lists them)",
+  "room_help_bare": "focus the Planroom pane",
+  "room_help_help": "list these commands",
+  "room_more_warnings": "! {count} more warnings: /room shows them",
+  "room_no_command": "/room has no command \"{word}\". /room help lists them.",
+  "room_open_quote": "A {quote} quote isn't closed.",
+  "room_warning": "! {message}",
   "selected_row": "› {label}",
+  "share_context": "Publish this as an Artifact with the publish arguments, then make the db writes in order: {json}",
   "title": "Planroom",
   "toast": "{label}: {line}",
+  "toast_undo": "{label}: {line} · 1 undoes it",
+  "toast_undo_pane": "{label}: {line} · u undoes it",
+  "toast_warned": "{label}: {line} · {count} warnings",
+  "toast_warned_one": "{label}: {line} · 1 warning",
+  "tool_args_not_strings": "args must be an array of strings.",
+  "tool_commands_label": "List every command",
+  "tool_no_client": "Planroom's tools name this session as the writer, so --client isn't one of their arguments.",
+  "tool_no_command": "{tool} has no command {command}.",
+  "tool_no_workspace": "Planroom's tools work in this session's workspace only, so --workspace isn't one of their arguments.",
+  "tool_schema_label": "The {leaf} command's arguments and result",
   "who_agent": "{role} {session}",
   "who_doing": "{name}: {doing}",
   "workspace": "workspace"
 };
+
+/** A mod tool, as the model sees it: `mcp__planroom__<name>`. */
+export type ToolName = "room_query" | "room_change" | "room_handoff";
+
+/**
+ * Each leaf's own long flags, its subcommands' left out, from its clap arguments. A tool handler
+ * or `personRun` supplies `--base` or `--idem` only to a leaf that takes it, and puts it right
+ * after the leaf's path, before any subcommand (`edit --base SEQ undo EVENT`); the CLI reads it on
+ * either side of one.
+ */
+export const LEAF_OWN_FLAGS: Readonly<Record<string, readonly string[]>> = {
+  "map": [
+    "--level",
+    "--lens",
+    "--focus",
+    "--detail",
+    "--cursor"
+  ],
+  "find": [],
+  "ask": [
+    "--cursor"
+  ],
+  "focus": [
+    "--session",
+    "--detail"
+  ],
+  "scan": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "watch": [
+    "--since",
+    "--session"
+  ],
+  "schema": [
+    "--commands",
+    "--command",
+    "--def",
+    "--cursor"
+  ],
+  "version": [],
+  "person init": [
+    "--rekey",
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "serve": [
+    "--detach",
+    "--port"
+  ],
+  "share": [
+    "--out",
+    "--include-snippets",
+    "--include-presence"
+  ],
+  "import": [],
+  "doctor": [
+    "--pack",
+    "--update"
+  ],
+  "edit": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "open": [],
+  "review": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "intent new": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "intent next": [
+    "--stage",
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "intent propose": [
+    "--file",
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "intent lint": [
+    "--project"
+  ],
+  "intent version": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "intent list": [
+    "--project",
+    "--cursor"
+  ],
+  "pack add": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ],
+  "pack remove": [
+    "--base",
+    "--idem",
+    "--project",
+    "--client"
+  ]
+};
+
+/** One long flag of a `/room` leaf or of one of its subcommands (`sub`), for the typeahead. */
+export interface LeafFlag {
+  readonly sub: string | null;
+  readonly flag: string;
+  /** The value's name, such as `LENS`; null for a flag that takes no value. */
+  readonly valueName: string | null;
+  /** The values the flag accepts, when they are a fixed set. */
+  readonly values: readonly string[];
+}
+
+/** One `/room` command: its name, summary, synopsis line, subcommands and flags. */
+export interface RoomCommand {
+  readonly name: string;
+  readonly summary: string;
+  readonly synopsis: string;
+  readonly subs: readonly string[];
+  readonly flags: readonly LeafFlag[];
+}
+
+/** One mod tool as the mod registers it: a flat input and a generated description (DR-66). */
+export interface ToolSpecData {
+  name: ToolName;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  isDeferred: boolean;
+}
+
+/**
+ * The tools that have leaves, each described by its `[tools]` intro from `en.toml` and one
+ * synopsis line per leaf, less `planroom`, `[--json]`, `[--base BASE]`, `[--idem IDEM]` and
+ * `[--client CLIENT]`, which the handler supplies.
+ */
+export const TOOL_SPECS: readonly ToolSpecData[] = [
+  {
+    "name": "room_query",
+    "description": "Read Planroom's map of this system. Pass base from the meta.seq you read.\nmap [--level LEVEL] [--lens LENS] [--focus FOCUS] [--detail summary|graph] [--cursor CURSOR]\nfind TEXT\nask [QUESTION] [ARGS] [--cursor CURSOR]\nfocus [--session SESSION] [--detail full|summary]",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "enum": [
+            "map",
+            "find",
+            "ask",
+            "focus"
+          ]
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "the command's CLI arguments, such as [\"--focus\", \"ID\"]"
+        },
+        "base": {
+          "type": "integer"
+        },
+        "idem": {
+          "type": "string"
+        }
+      }
+    },
+    "isDeferred": false
+  },
+  {
+    "name": "room_change",
+    "description": "Change Planroom's map: your writes are ghosts a person accepts. Pass base from the meta.seq you read.\nscan [DIR] [--project PROJECT]\nedit move|group|rename|hide|pin|relate|unrelate|forbid|undo [--project PROJECT]\nintent new TEXT [--project PROJECT]\nintent next [--stage S] [--project PROJECT]\nintent propose --file F [--project PROJECT]\nintent lint [--project PROJECT]\nintent list [--project PROJECT] [--cursor CURSOR]",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "enum": [
+            "scan",
+            "edit",
+            "intent new",
+            "intent next",
+            "intent propose",
+            "intent lint",
+            "intent list"
+          ]
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "the command's CLI arguments, such as [\"--focus\", \"ID\"]"
+        },
+        "base": {
+          "type": "integer"
+        },
+        "idem": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object",
+          "description": "passed on stdin to a command run with --file -"
+        }
+      }
+    },
+    "isDeferred": false
+  },
+  {
+    "name": "room_handoff",
+    "description": "Report and collect Planroom hand-offs, or publish the map.\nshare [--out DIR] [--include-snippets] [--include-presence]",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "enum": [
+            "share"
+          ]
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "the command's CLI arguments, such as [\"--focus\", \"ID\"]"
+        },
+        "base": {
+          "type": "integer"
+        },
+        "idem": {
+          "type": "string"
+        }
+      }
+    },
+    "isDeferred": true
+  }
+];
+
+/** Every `/room` leaf in catalogue order, with its synopsis line under the same strip rule. */
+export const ROOM_COMMANDS: readonly RoomCommand[] = [
+  {
+    "name": "map",
+    "summary": "The map at a level through a lens.",
+    "synopsis": "/room map [--level LEVEL] [--lens LENS] [--focus FOCUS] [--detail summary|graph] [--cursor CURSOR]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--level",
+        "valueName": "LEVEL",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--lens",
+        "valueName": "LENS",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--focus",
+        "valueName": "FOCUS",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--detail",
+        "valueName": "DETAIL",
+        "values": [
+          "summary",
+          "graph"
+        ]
+      },
+      {
+        "sub": null,
+        "flag": "--cursor",
+        "valueName": "CURSOR",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "find",
+    "summary": "Search the map's blocks by name or ID, best match first.",
+    "synopsis": "/room find TEXT",
+    "subs": [],
+    "flags": []
+  },
+  {
+    "name": "ask",
+    "summary": "A question the loaded packs answer; alone, every loaded kind, lens and question.",
+    "synopsis": "/room ask [QUESTION] [ARGS] [--cursor CURSOR]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--cursor",
+        "valueName": "CURSOR",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "focus",
+    "summary": "Where you are, the one open decision and the next action.",
+    "synopsis": "/room focus [--session SESSION] [--detail full|summary]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--session",
+        "valueName": "SESSION",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--detail",
+        "valueName": "DETAIL",
+        "values": [
+          "full",
+          "summary"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "scan",
+    "summary": "Discover, extract and link the workspace's repos.",
+    "synopsis": "/room scan [DIR] [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "share",
+    "summary": "Write the canvas, its snapshot and the first live head for an Artifact publish.",
+    "synopsis": "/room share [--out DIR] [--include-snippets] [--include-presence]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--out",
+        "valueName": "DIR",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--include-snippets",
+        "valueName": null,
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--include-presence",
+        "valueName": null,
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "edit",
+    "summary": "One hand edit: move, group, rename, hide, pin, relate, unrelate or forbid, or undo a command.",
+    "synopsis": "/room edit move|group|rename|hide|pin|relate|unrelate|forbid|undo [--project PROJECT]",
+    "subs": [
+      "move",
+      "group",
+      "rename",
+      "hide",
+      "pin",
+      "relate",
+      "unrelate",
+      "forbid",
+      "undo"
+    ],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      },
+      {
+        "sub": "pin",
+        "flag": "--view",
+        "valueName": "VIEW",
+        "values": []
+      },
+      {
+        "sub": "pin",
+        "flag": "--x",
+        "valueName": "X",
+        "values": []
+      },
+      {
+        "sub": "pin",
+        "flag": "--y",
+        "valueName": "Y",
+        "values": []
+      },
+      {
+        "sub": "relate",
+        "flag": "--kind",
+        "valueName": "KIND",
+        "values": []
+      },
+      {
+        "sub": "unrelate",
+        "flag": "--kind",
+        "valueName": "KIND",
+        "values": []
+      },
+      {
+        "sub": "forbid",
+        "flag": "--kind",
+        "valueName": "KIND",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "open",
+    "summary": "Open the canvas in your browser, signed in with a one-time code it never prints.",
+    "synopsis": "/room open",
+    "subs": [],
+    "flags": []
+  },
+  {
+    "name": "intent new",
+    "summary": "Start a plan: a new project named by its text.",
+    "synopsis": "/room intent new TEXT [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "intent next",
+    "summary": "Draft a plan stage's items with Claude; they wait as ghosts for a person.",
+    "synopsis": "/room intent next [--stage S] [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--stage",
+        "valueName": "S",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "intent propose",
+    "summary": "Propose plan items from a file or stdin; an agent's wait as ghosts for a person.",
+    "synopsis": "/room intent propose --file F [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--file",
+        "valueName": "F",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "intent lint",
+    "summary": "The plan's lint findings: what each stage still lacks.",
+    "synopsis": "/room intent lint [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "intent version",
+    "summary": "Tag the plan as it stands with a version label; a person's alone.",
+    "synopsis": "/room intent version LABEL [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "intent list",
+    "summary": "Every project, and the items of the one named, each ghost with its review.",
+    "synopsis": "/room intent list [--project PROJECT] [--cursor CURSOR]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      },
+      {
+        "sub": null,
+        "flag": "--cursor",
+        "valueName": "CURSOR",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "pack add",
+    "summary": "Add an out-of-tree pack: validate it, copy it into the state directory and record it; a person's alone.",
+    "synopsis": "/room pack add DIR [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  },
+  {
+    "name": "pack remove",
+    "summary": "Remove an out-of-tree pack from the workspace's pack set; a person's alone.",
+    "synopsis": "/room pack remove ID [--project PROJECT]",
+    "subs": [],
+    "flags": [
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "PROJECT",
+        "values": []
+      }
+    ]
+  }
+];
+
+/** The slash commands the mod registers; no plugin skill may share one's name (DR-84). */
+export const MOD_COMMANDS = ["room"] as const;

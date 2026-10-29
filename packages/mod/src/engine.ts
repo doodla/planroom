@@ -4,6 +4,7 @@
  */
 
 import { FALLBACK_PANES, MOD_STRINGS } from "@planroom/contract";
+import { fill } from "@planroom/ui";
 import type {
   Envelope,
   ErrorObject,
@@ -98,7 +99,7 @@ export function engineFromVersion(
     return {
       ...base,
       status: "failed",
-      line: `The Planroom engine didn't answer version --json: ${said}`,
+      line: fill(MOD_STRINGS.engine_no_version, { said }),
     };
   }
   if (reply.ok) {
@@ -129,7 +130,7 @@ export function engineFromVersion(
         return {
           ...base,
           status: "version_mismatch",
-          line: `Rebuild the engine: ${fix ?? ""}`.trim(),
+          line: fill(MOD_STRINGS.engine_rebuild, { fix: fix ?? "" }).trim(),
           fix,
         };
       case "no_release":
@@ -228,7 +229,7 @@ export function toolResult(run: RunResult): ToolResult {
         retry: "never",
         message:
           firstLine(run.stderr) ||
-          `The engine exited ${run.exitCode} without a reply.`,
+          fill(MOD_STRINGS.engine_exited, { code: run.exitCode }),
       },
       meta: {},
     };

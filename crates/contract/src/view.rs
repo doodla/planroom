@@ -307,6 +307,28 @@ pub struct TurnSeq {
     pub seq: Option<Seq>,
 }
 
+/// One write in the mod's `outbox` atom: kept from before its process starts until any reply, so
+/// a reload mid-write resends it with the same `--idem` and request hash, and the store writes one
+/// event (DR-8). It holds a command line, as a hint does, and the names of the variables the run
+/// set, never their values, so no token or key is ever in it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct OutboxEntry {
+    /// The write's `--idem`.
+    pub idem: String,
+    /// The command line after the binary, `--idem` and `--json` included.
+    pub argv: Vec<String>,
+    /// The environment variables the run set, by name.
+    pub env_names: Vec<String>,
+    /// What the run sent on stdin, such as a proposal's JSON, so a resend carries its body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdin: Option<String>,
+    /// The run's `PLANROOM_CAUSE`, `turn:<id>`, so a resent agent edit stays in its turn's batch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
+    /// The session that ran it: only that session resends it, as the same actor and client.
+    pub session: String,
+}
+
 /// One lifted edge on the mini-map.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct MiniEdge {

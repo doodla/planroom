@@ -4397,6 +4397,11 @@
         "schema": {
           "$ref": "#/$defs/Handle",
           "description": "The `schema --command LEAF` handle for the leaf's types."
+        },
+        "synopsis": {
+          "type": "string",
+          "description": "The leaf's one-line synopsis, from its clap arguments: what its `invalid_argument` and its\ntool description show, so the catalogue hash covers its flags.",
+          "default": ""
         }
       },
       "required": [
@@ -5387,6 +5392,54 @@
         "max"
       ],
       "description": "Candidate nodes from a query shape over the subject, at most `max`."
+    },
+    "OutboxEntry": {
+      "type": "object",
+      "properties": {
+        "idem": {
+          "type": "string",
+          "description": "The write's `--idem`."
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The command line after the binary, `--idem` and `--json` included."
+        },
+        "env_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The environment variables the run set, by name."
+        },
+        "stdin": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What the run sent on stdin, such as a proposal's JSON, so a resend carries its body."
+        },
+        "cause": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The run's `PLANROOM_CAUSE`, `turn:<id>`, so a resent agent edit stays in its turn's batch."
+        },
+        "session": {
+          "type": "string",
+          "description": "The session that ran it: only that session resends it, as the same actor and client."
+        }
+      },
+      "required": [
+        "idem",
+        "argv",
+        "env_names",
+        "session"
+      ],
+      "description": "One write in the mod's `outbox` atom: kept from before its process starts until any reply, so\na reload mid-write resends it with the same `--idem` and request hash, and the store writes one\nevent (DR-8). It holds a command line, as a hint does, and the names of the variables the run\nset, never their values, so no token or key is ever in it."
     },
     "Outcome": {
       "type": "string",
@@ -7518,8 +7571,12 @@
       "type": "object",
       "properties": {
         "out": {
-          "type": "string",
-          "description": "The directory to write the bundle into, such as `.planroom/share`."
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The directory to write the bundle into; the state directory's `share/` when absent: `.planroom/share`,\nor `.git/planroom/share` for a workspace that is one repo.",
+          "default": null
         },
         "include_snippets": {
           "type": "boolean",
@@ -7532,10 +7589,7 @@
           "default": false
         }
       },
-      "required": [
-        "out"
-      ],
-      "description": "`planroom share --out DIR [--include-snippets] [--include-presence]`: the canvas built for an\nArtifact, `DIR/data/snapshot.json` and the first `live/head`, with the publish's arguments."
+      "description": "`planroom share [--out DIR] [--include-snippets] [--include-presence]`: the canvas built for an\nArtifact, `DIR/data/snapshot.json` and the first `live/head`, with the publish's arguments."
     },
     "ShareResult": {
       "type": "object",

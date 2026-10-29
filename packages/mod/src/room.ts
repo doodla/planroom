@@ -7,21 +7,63 @@
  */
 
 import {
+  MOD_COMMANDS,
   MOD_STRINGS,
   type Envelope,
   type Handle,
   type MapView,
+  type Warning,
 } from "@planroom/contract";
 import { fill, sanitize, truncate } from "@planroom/ui";
 
 import { leaf } from "./catalogue";
 import type { ToolResult } from "./engine";
+import { helpText, parseRoom } from "./room-args";
+import type { RoomCommand } from "@planroom/contract";
 
 /** One command's reply, as the mod keeps it: the tool result and the engine's summary line. */
 export interface Ran {
   result: ToolResult;
   /** The engine's one-line summary of the reply, or null when the envelope has none. */
   summary: string | null;
+  /** The arguments that ran after the command's name, for the next page's handle. */
+  args?: readonly string[];
+}
+
+/** `/room`, as register.tsx registers it: immediate, so it focuses the pane mid-turn (DR-77). */
+export const ROOM_COMMAND = {
+  name: MOD_COMMANDS[0],
+  description: MOD_STRINGS.room_description,
+  argumentHint: MOD_STRINGS.room_argument_hint,
+  immediate: true,
+} as const;
+
+/**
+ * What one `/room` does, before anything runs: bare `/room` only opens and focuses the pane, with
+ * no run, no text and no sync (DR-77); `help` and an error are text; a command line is a run.
+ */
+export function roomPlan(
+  args: string,
+  commands: readonly RoomCommand[],
+): {
+  open: boolean;
+  run?: { command: string; args: string[] };
+  text?: string;
+} {
+  const request = parseRoom(args, commands);
+  switch (request.kind) {
+    case "focus":
+      return { open: true };
+    case "help":
+      return { open: false, text: helpText(commands) };
+    case "error":
+      return { open: false, text: sanitize(request.message) };
+    case "run":
+      return {
+        open: false,
+        run: { command: request.leaf.name, args: request.args },
+      };
+  }
 }
 
 /**
@@ -73,6 +115,13 @@ function isHandle(value: unknown): value is Handle {
   );
 }
 
+/** The handle that takes back what a reply did, such as an edit's `undo`, or null. */
+export function undoOf(ran: Ran): Handle | null {
+  if (!ran.result.ok) return null;
+  const undo: unknown = (ran.result.result as { undo?: unknown } | null)?.undo;
+  return isHandle(undo) ? undo : null;
+}
+
 /**
  * The reply's summary line: the engine's own, else a short line the mod can say without the
  * engine (an error's message and hint, a map's block count, or the label of what ran). Never JSON.
@@ -104,7 +153,12 @@ export function lineFor(command: string, label: string, ran: Ran): string {
           : fill(MOD_STRINGS.no_blocks_at_level, { level: map.level }),
       );
     }
-    const n = map.nodes.length;
+    // A page of a larger map counts the whole map, from its `truncated` warning's total.
+    const total = warningsOf(result)
+      .filter((w) => w.code === "truncated")
+      .map((w) => (w.details as { total?: unknown } | null)?.total)
+      .find((t): t is number => typeof t === "number");
+    const n = total ?? map.nodes.length;
     return oneLine(
       fill(
         n === 1 ? MOD_STRINGS.blocks_at_level_one : MOD_STRINGS.blocks_at_level,
@@ -115,17 +169,69 @@ export function lineFor(command: string, label: string, ran: Ran): string {
   return oneLine(fill(MOD_STRINGS.done_line, { label: label || command }));
 }
 
-/** The handles a reply offers to go on: its next actions, from `meta.next`, the pane, an empty state. */
-export function handlesOf(result: ToolResult): Handle[] {
+/** The warnings a reply carries, each with a string code and message. */
+export function warningsOf(result: ToolResult): Warning[] {
+  const sent: unknown = result.meta.warnings;
+  return Array.isArray(sent)
+    ? (sent as unknown[]).filter((w): w is Warning => {
+        const x = w as Partial<Warning> | null;
+        return (
+          x !== null &&
+          typeof x === "object" &&
+          typeof x.code === "string" &&
+          typeof x.message === "string"
+        );
+      })
+    : [];
+}
+
+/** `args` less any `--cursor`, in either form. */
+function withoutCursor(args: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] ?? "";
+    if (a === "--cursor") {
+      i++;
+    } else if (!a.startsWith("--cursor=")) {
+      out.push(a);
+    }
+  }
+  return out;
+}
+
+/**
+ * The handles a reply offers to go on, deduplicated, in this order: the result's next action, its
+ * empty state's, each warning's `details.next` (a map page's drill-down among them), then, when
+ * `meta.next` is a cursor, the next page: the command that ran with its arguments and that cursor.
+ * `meta.next` is a cursor, never a handle (contracts.md, DR-86).
+ */
+export function handlesOf(
+  command: string,
+  result: ToolResult,
+  args: readonly string[] = [],
+): Handle[] {
   const r = (result.ok ? result.result : null) as {
     next?: unknown;
     empty?: { next?: unknown } | null;
   } | null;
-  const meta = result.meta["next"];
+  const cursor: unknown = result.meta.next;
+  const page: Handle[] =
+    typeof cursor === "string" && cursor !== ""
+      ? [
+          {
+            command,
+            args: [...withoutCursor(args), "--cursor", cursor],
+            label: MOD_STRINGS.next_page_label,
+          },
+        ]
+      : [];
   const found = [
-    ...(Array.isArray(meta) ? (meta as unknown[]) : [meta]),
-    r?.empty?.next,
     r?.next,
+    r?.empty?.next,
+    ...warningsOf(result).map(
+      (w) => (w.details as { next?: unknown } | null)?.next,
+    ),
+    ...page,
   ].filter(isHandle);
   const seen = new Set<string>();
   return found.filter((h) => {
@@ -155,19 +261,63 @@ export const ROOM_TEXT_TOKENS = 300;
 export const ROOM_TEXT_CHARS = ROOM_TEXT_TOKENS * 4;
 const SUMMARY_CHARS = 600;
 const HANDLES = 3;
+/** The warnings a `/room` text says, each one line of at most `WARNING_CHARS`. */
+const WARNINGS = 2;
+const WARNING_CHARS = 200;
+
+/** A warning as one line of `/room` text: `! message`, sanitized and cut. */
+function warningLine(w: Warning): string {
+  return truncate(
+    oneLine(fill(MOD_STRINGS.room_warning, { message: w.message })),
+    WARNING_CHARS,
+  );
+}
 
 /**
- * A `/room` result as the transcript row the model reads on every later turn: the summary line,
- * then each handle to go on, never the raw result; at most `ROOM_TEXT_CHARS` (DR-65).
+ * A `/room` result as the transcript row the model reads on every later turn, never the raw
+ * result: the summary line; at most two of its warnings, one line each; each handle to go on; and
+ * a line counting the warnings left out. A line that doesn't fit `ROOM_TEXT_CHARS` is dropped
+ * (DR-65).
  */
 export function roomText(command: string, ran: Ran): string {
   const lines = [truncate(lineFor(command, command, ran), SUMMARY_CHARS)];
-  for (const h of handlesOf(ran.result).slice(0, HANDLES)) {
+  const fits = (line: string) =>
+    lines.join("\n").length + 1 + line.length <= ROOM_TEXT_CHARS;
+  const warnings = warningsOf(ran.result);
+  let said = 0;
+  for (const w of warnings.slice(0, WARNINGS)) {
+    const line = warningLine(w);
+    if (!fits(line)) break;
+    lines.push(line);
+    said++;
+  }
+  for (const h of handlesOf(command, ran.result, ran.args).slice(0, HANDLES)) {
     const line = `→ ${handleLine(h)}`;
-    if (lines.join("\n").length + 1 + line.length > ROOM_TEXT_CHARS) break;
+    if (!fits(line)) break;
     lines.push(line);
   }
+  if (said < warnings.length) {
+    const more = oneLine(
+      fill(MOD_STRINGS.room_more_warnings, { count: warnings.length - said }),
+    );
+    if (fits(more)) lines.push(more);
+  }
   return truncate(lines.join("\n"), ROOM_TEXT_CHARS);
+}
+
+/**
+ * What `/room share` hands the model beside its text: one context entry, the publish's arguments
+ * and the `db` writes as compact JSON, display-sanitized, so the model makes the publish with no
+ * further read (architecture.md, "`/room` family"). Only an ok `share`, whose own budget bounds it.
+ */
+export function shareContext(command: string, ran: Ran): string[] | undefined {
+  if (command !== "share" || !ran.result.ok) return undefined;
+  const r = ran.result.result as { publish?: unknown; db?: unknown } | null;
+  if (r === null || typeof r !== "object" || r.publish === undefined) {
+    return undefined;
+  }
+  const json = JSON.stringify({ publish: r.publish, db: r.db ?? [] });
+  return [sanitize(fill(MOD_STRINGS.share_context, { json }))];
 }
 
 /** One row of a `/room` result drawn in the `CommandOutput` site. */
@@ -197,6 +347,15 @@ export function roomRows(command: string, ran: Ran): RoomRow[] {
       tone: ran.result.ok ? "bold" : "warn",
     },
   ];
+  // Every warning, one row each; a `truncated` one says only that the result was cut, so it's dim.
+  warningsOf(ran.result).forEach((w, i) => {
+    rows.push({
+      kind: "text",
+      key: `warning-${i}`,
+      text: oneLine(fill(MOD_STRINGS.room_warning, { message: w.message })),
+      tone: w.code === "truncated" ? "dim" : "warn",
+    });
+  });
   if (ran.result.ok) {
     const map = mapOf(ran.result.result);
     if (map !== null) {
@@ -211,7 +370,9 @@ export function roomRows(command: string, ran: Ran): RoomRow[] {
         rows.push({
           kind: "text",
           key: "blocks-more",
-          text: `+${map.nodes.length - ROOM_BLOCKS} more`,
+          text: fill(MOD_STRINGS.more_rows, {
+            count: map.nodes.length - ROOM_BLOCKS,
+          }),
           tone: "dim",
         });
       }
@@ -228,7 +389,7 @@ export function roomRows(command: string, ran: Ran): RoomRow[] {
       });
     }
   }
-  handlesOf(ran.result).forEach((h, i) => {
+  handlesOf(command, ran.result, ran.args).forEach((h, i) => {
     rows.push({
       kind: "text",
       key: `handle-${i}`,

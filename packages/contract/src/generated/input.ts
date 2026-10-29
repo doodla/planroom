@@ -1510,7 +1510,7 @@ export interface ServeReq {
   port?: number | null;
 }
 /**
- * `planroom share --out DIR [--include-snippets] [--include-presence]`: the canvas built for an
+ * `planroom share [--out DIR] [--include-snippets] [--include-presence]`: the canvas built for an
  * Artifact, `DIR/data/snapshot.json` and the first `live/head`, with the publish's arguments.
  *
  * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
@@ -1518,9 +1518,10 @@ export interface ServeReq {
  */
 export interface ShareReq {
   /**
-   * The directory to write the bundle into, such as `.planroom/share`.
+   * The directory to write the bundle into; the state directory's `share/` when absent: `.planroom/share`,
+   * or `.git/planroom/share` for a workspace that is one repo.
    */
-  out: string;
+  out?: string | null;
   /**
    * Keep each evidence line's text in the snapshot (redacted); left out by default.
    */
@@ -1857,6 +1858,11 @@ export interface LeafListing {
    */
   undo: string;
   schema: Handle2;
+  /**
+   * The leaf's one-line synopsis, from its clap arguments: what its `invalid_argument` and its
+   * tool description show, so the catalogue hash covers its flags.
+   */
+  synopsis?: string;
 }
 /**
  * An exact invocation a surface can offer, such as a drill-down or the next action.
@@ -3918,6 +3924,41 @@ export interface MiniMap {
 export interface OpenResult {
   opened: boolean;
   empty?: Empty | null;
+}
+/**
+ * One write in the mod's `outbox` atom: kept from before its process starts until any reply, so
+ * a reload mid-write resends it with the same `--idem` and request hash, and the store writes one
+ * event (DR-8). It holds a command line, as a hint does, and the names of the variables the run
+ * set, never their values, so no token or key is ever in it.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "OutboxEntry".
+ */
+export interface OutboxEntry {
+  /**
+   * The write's `--idem`.
+   */
+  idem: string;
+  /**
+   * The command line after the binary, `--idem` and `--json` included.
+   */
+  argv: string[];
+  /**
+   * The environment variables the run set, by name.
+   */
+  env_names: string[];
+  /**
+   * What the run sent on stdin, such as a proposal's JSON, so a resend carries its body.
+   */
+  stdin?: string | null;
+  /**
+   * The run's `PLANROOM_CAUSE`, `turn:<id>`, so a resent agent edit stays in its turn's batch.
+   */
+  cause?: string | null;
+  /**
+   * The session that ran it: only that session resends it, as the same actor and client.
+   */
+  session: string;
 }
 /**
  * One pack's `pack.toml`.

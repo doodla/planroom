@@ -19,8 +19,8 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 
 ## Layout
 
-- `src/`: the mod: `register.tsx`, which wires it to the host, then the engine resolver, the watch loop, the pane, `/room`, the tools, the guards, the actor and the person key, each with its vitest file.
-- `plugin-tests/`: the `claude plugin test` specs, which `cargo xtask test` bundles into `target/mod-test/`; `host.ts`, the host state they share; and `overlays.ts`, the test-only overlays on the golden `focus.json`, one per milestone that makes its state real, which `src/layout.test.ts` lays over the golden too.
+- `src/`: the mod: `register.tsx`, which wires it to the host, then the engine resolver, the watch loop, the pane, `/room`, the tools, the outbox, the prompt section, the guards, the actor and the person key, each with its vitest file.
+- `plugin-tests/`: the `claude plugin test` specs, which `cargo xtask test` bundles into `target/mod-test/`; `host.ts`, the host state they share; `globals.d.ts`, the plugin's skill names the bundles are given; and `overlays.ts`, the test-only overlays on the golden `focus.json`, one per milestone that makes its state real, which `src/layout.test.ts` lays over the golden too.
 - `vendor/`: `claude-code.d.ts`, the mod API types of the pinned Claude Code [DR-81].
 
 ## The host, as the walking skeleton found it

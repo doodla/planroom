@@ -12,11 +12,11 @@ import type {
   RenderElement,
   Register,
 } from "claude-code";
-import { MOD_STRINGS } from "@planroom/contract";
+import { MOD_STRINGS, type Handle } from "@planroom/contract";
 import { fill, sanitize } from "@planroom/ui";
 
-import { engineAtom, paneAtom, turnSeqAtom } from "./atoms";
-import { leaf, roomLeaves } from "./catalogue";
+import { engineAtom, outboxAtom, paneAtom, turnSeqAtom } from "./atoms";
+import { leaf, leafOfArgv, roomCommands } from "./catalogue";
 import {
   engineFromVersion,
   engineMissing,
@@ -57,21 +57,31 @@ import {
   runProcess,
   watchStop,
 } from "./live";
+import { add, byPerson, clear, entryFor, resend, stale } from "./outbox";
 import { personEnv, personKey, registerKey } from "./person";
+import { composeSections } from "./prompt";
 import {
   lineFor,
   replySummary,
+  ROOM_COMMAND,
+  roomPlan,
   roomRows,
   roomText,
+  shareContext,
   shownFrom,
+  warningsOf,
   type Ran,
   type RoomRow,
   type Shown,
+  undoOf,
 } from "./room";
-import { completions, helpText, parseRoom } from "./room-args";
+import { completions } from "./room-args";
 import type { EngineState } from "./state-types";
 import {
+  agentEnv,
   changeNeedsNoPrompt,
+  supplied,
+  takes,
   timeoutFor,
   toolArgv,
   toolSpecs,
@@ -117,6 +127,15 @@ function viewFor(seq: number, level: string): PaneView {
  * mid-build can't turn the building pane back into the offer.
  */
 let building = false;
+
+/** How long the band offers to undo a press, in milliseconds (DR-54). */
+const UNDO_MS = 10_000;
+
+/**
+ * The undo a press offered: the band's primary until `until`, and the pane's `u` until it is used
+ * or replaced. A reload forgets it, as it forgets what a press showed.
+ */
+let offer: { handle: Handle; until: number } | null = null;
 
 /**
  * Each `/room` run's full result, by the text it returned, so its `CommandOutput` row can draw it
@@ -204,6 +223,11 @@ async function startEngine($: $): Promise<void> {
     };
   }
   await setEngine($, state);
+  const bin = binary(state);
+  if (state.status === "ready" && bin !== null) {
+    // Writes a reload cut off go again first, so the pane the loop draws holds them.
+    await resendOutbox($, bin);
+  }
   if (state.status === "ready") {
     await refreshPane($);
     await registerOnce($);
@@ -213,10 +237,20 @@ async function startEngine($: $): Promise<void> {
 /** The engine's start-up in this module's life; session.start sets it, a reload starts it again. */
 let starting: Promise<void> = Promise.resolve();
 
-/** Run one catalogue command line through the engine; the reply as a tool result and its summary. */
+/** The writes this module life has running, so a second start-up never resends one mid-run. */
+const running = new Set<string>();
+
+/**
+ * Run one catalogue command line through the engine; the reply as a tool result and its summary.
+ * The one place every write starts (DR-8): a write, a leaf whose own flags take `--idem`, gets one
+ * right after its path when the line has none, and goes in the outbox before its process starts,
+ * by its argv, stdin, cause and the names of its variables, and leaves it on any reply, so a
+ * reload mid-write resends it as the same request. A leaf that takes no `--idem`, such as `share`,
+ * is no write the store can replay, so it runs as it is and never enters the outbox.
+ */
 async function runCommand(
   $: $,
-  argv: string[],
+  line: readonly string[],
   env: Record<string, string>,
   stdin?: string,
 ): Promise<Ran> {
@@ -226,17 +260,91 @@ async function runCommand(
   if (bin === null) {
     return { result: engineMissing(engine), summary: null };
   }
-  const run = await runProcess($, [bin, ...argv], env, timeoutFor(argv), stdin);
-  return {
-    result: toolResult(run),
-    summary: replySummary(parseReply(run.stdout)),
-  };
+  const spec = leafOfArgv(line);
+  let argv = [...line];
+  let entry = null;
+  if (spec !== undefined && takes(spec.name, "--idem")) {
+    const words = spec.name.split(" ").length;
+    const rest = line.slice(words);
+    argv = [
+      ...line.slice(0, words),
+      ...supplied(spec.name, rest, undefined, crypto.randomUUID()),
+      ...rest,
+    ];
+    entry = entryFor(argv, env, stdin, await $.session.id());
+  }
+  if (entry !== null) {
+    const held = entry;
+    running.add(held.idem);
+    await update($, outboxAtom, (outbox) => add(outbox, held));
+  }
+  try {
+    const run = await runProcess(
+      $,
+      [bin, ...argv],
+      env,
+      timeoutFor(argv),
+      stdin,
+    );
+    return {
+      result: toolResult(run),
+      summary: replySummary(parseReply(run.stdout)),
+    };
+  } finally {
+    if (entry !== null) {
+      const idem = entry.idem;
+      await update($, outboxAtom, (outbox) => clear(outbox, idem));
+      running.delete(idem);
+    }
+  }
+}
+
+/**
+ * Send again each write a reload cut off, before the watch loop starts (architecture.md,
+ * "Wiring", step 3). It calls `runProcess` directly, since `runCommand` waits on the start-up
+ * this runs inside. Each entry goes once, with its own argv, stdin and cause, as the same actor
+ * and client, a person's with a fresh token; any reply clears it, and no resend adds an entry. An
+ * entry of another session, or one the store answers `idempotency_mismatch`, is dropped, and the
+ * status line says so once.
+ */
+async function resendOutbox($: $, bin: string): Promise<void> {
+  const session = await $.session.id();
+  let dropped = false;
+  for (const entry of await read($, outboxAtom)) {
+    // A write still running in this module life, or one another start-up is resending now, goes
+    // once: never twice at the same time.
+    if (running.has(entry.idem)) continue;
+    running.add(entry.idem);
+    if (!stale(entry, session)) {
+      const again = resend(entry, session);
+      let env = { ...(await engineEnv()), ...again.env };
+      if (byPerson(entry)) {
+        const words = leafOfArgv(again.argv)?.name.split(" ").length ?? 1;
+        env = { ...(await personEnv($, again.argv, words)), ...again.env };
+      }
+      const run = await runProcess(
+        $,
+        [bin, ...again.argv],
+        env,
+        timeoutFor(again.argv),
+        again.stdin,
+      );
+      if (toolResult(run).error?.code === "idempotency_mismatch")
+        dropped = true;
+    } else {
+      dropped = true;
+    }
+    await update($, outboxAtom, (outbox) => clear(outbox, entry.idem));
+    running.delete(entry.idem);
+  }
+  if (dropped) $.ui.status(MOD_STRINGS.outbox_dropped);
 }
 
 /**
  * Run a catalogue command as the person: a press, a submit or a `/room` they typed. It carries a
  * one-time token for exactly this line and never `PLANROOM_ACTOR` (DR-64). A write gets a fresh
- * `idem` for this action, and a leaf that needs a base gets the pane's `seq`.
+ * `idem` for this action, and a leaf that needs a base gets the pane's `seq`, each right after
+ * the leaf's path and only where its own flags take it (`supplied`).
  */
 async function personRun(
   $: $,
@@ -245,15 +353,16 @@ async function personRun(
 ): Promise<Ran> {
   const path = command.split(" ");
   const spec = leaf(command);
-  const argv = [...path, ...args];
-  if (spec !== undefined && spec.class !== "read" && !args.includes("--idem")) {
-    argv.push("--idem", crypto.randomUUID());
-  }
-  if (spec?.needs_base === true && !args.includes("--base")) {
-    const pane = await read($, paneAtom);
-    if (pane.model !== null) argv.push("--base", String(pane.model.focus.seq));
-  }
-  argv.push("--json");
+  const base =
+    spec?.needs_base === true
+      ? (await read($, paneAtom)).model?.focus.seq
+      : undefined;
+  const argv = [
+    ...path,
+    ...supplied(command, args, base, crypto.randomUUID()),
+    ...args,
+    "--json",
+  ];
   const ran = await runCommand($, argv, await personEnv($, argv, path.length));
   // The store refused the person's own token: it may have lost the key, so check it again.
   if (ran.result.error?.code === "person_required") checked.delete(workspace);
@@ -264,7 +373,11 @@ async function personRun(
  * What a press does: a fallback's resolver step, the key's re-registration, putting the next
  * action back, or a command, whose result the pane shows in place of the press (ux-1).
  */
-async function act($: $, action: Action): Promise<void> {
+async function act(
+  $: $,
+  action: Action,
+  from: "pane" | "band" = "pane",
+): Promise<void> {
   if (action.kind === "clear") {
     shown = null;
     view = {};
@@ -333,10 +446,31 @@ async function act($: $, action: Action): Promise<void> {
   const seq = (await read($, paneAtom)).model?.focus.seq;
   const ran = await personRun($, action.command, action.args);
   const line = lineFor(action.command, action.label, ran);
+  // An undo's own reply offers no undo, so the band never offers to undo an undo; a failed one,
+  // such as a stale write, clears the offer too.
+  if (action.undo === true) offer = null;
+  const back = action.undo === true || !ran.result.ok ? null : undoOf(ran);
+  if (back !== null) {
+    offer = { handle: back, until: (await $.clock.now()) + UNDO_MS };
+    $.clock.after(UNDO_MS, () => $.ui.invalidate("ui.render"));
+  }
+  const said = { label: sanitize(action.label), line };
+  const warnings = warningsOf(ran.result).length;
   $.ui.toast(
-    ran.result.ok
-      ? fill(MOD_STRINGS.toast, { label: sanitize(action.label), line })
-      : line,
+    !ran.result.ok
+      ? line
+      : back !== null
+        ? fill(
+            from === "band"
+              ? MOD_STRINGS.toast_undo
+              : MOD_STRINGS.toast_undo_pane,
+            said,
+          )
+        : warnings > 1
+          ? fill(MOD_STRINGS.toast_warned, { ...said, count: warnings })
+          : warnings === 1
+            ? fill(MOD_STRINGS.toast_warned_one, said)
+            : fill(MOD_STRINGS.toast, said),
   );
   shown = seq === undefined ? null : shownFrom(action, ran, seq);
   view = {};
@@ -350,6 +484,7 @@ function draw(
   $: $,
   e: RenderInput<"Pane" | "AbovePrompt">,
   rows: Row[],
+  from: "pane" | "band" = "pane",
 ): RenderElement {
   const { Box, Text, Button, Code } = $.ui.resolve(e);
   return (
@@ -378,7 +513,7 @@ function draw(
             return (
               <Box key={row.key} flexDirection="row" gap={2}>
                 {row.buttons.map((b) => {
-                  const press = (): Promise<void> => act($, b.action);
+                  const press = (): Promise<void> => act($, b.action, from);
                   return b.hotkey === undefined ? (
                     <Button key={b.key} label={b.label} plain onPress={press} />
                   ) : b.primary === true ? (
@@ -470,24 +605,12 @@ async function handleTool(
     base: turn.seq ?? pane.model?.focus.seq,
   });
   if ("refused" in built) {
-    const refused: ToolResult = {
-      ok: false,
-      error: {
-        code: "invalid_argument",
-        retry: "never",
-        message: built.refused,
-      },
-      meta: {},
-    };
-    return { result: JSON.stringify(refused) };
+    return { result: JSON.stringify(built.refused) };
   }
-  const session = await $.session.id();
   const env: Record<string, string> = {
     ...(await engineEnv()),
-    PLANROOM_ACTOR: `agent:${session.slice(0, 8)}:chat`,
-    PLANROOM_CLIENT: `mod:${session}`,
+    ...agentEnv(await $.session.id(), turn.turnId),
   };
-  if (turn.turnId !== null) env["PLANROOM_CAUSE"] = `turn:${turn.turnId}`;
   const { result } = await runCommand($, built.argv, env, built.stdin);
   const seq = result.meta["seq"];
   if (typeof seq === "number") {
@@ -638,12 +761,7 @@ export function register(on: Parameters<Register>[0]): void {
     // the guard holds, and waits for it to be read.
     pinDataRoot(placeEnv($).then(pinnedDataRoot));
     // Immediate, so /room focuses the pane mid-turn, while the model is still working (A-22).
-    await $.command.register({
-      name: "room",
-      description: MOD_STRINGS.room_description,
-      argumentHint: MOD_STRINGS.room_argument_hint,
-      immediate: true,
-    });
+    await $.command.register(ROOM_COMMAND);
     // Awaited, so the tools are listed from turn one and the list never changes later (DR-20).
     for (const spec of toolSpecs()) {
       await $.tool.register(spec);
@@ -664,40 +782,48 @@ export function register(on: Parameters<Register>[0]): void {
   });
 
   on("command.run", { command: "room" }, async ($, e) => {
-    const request = parseRoom(e.args, roomLeaves());
-    switch (request.kind) {
-      case "focus":
-        // Bare /room focuses the pane and returns no text, so it costs the model nothing (DR-77).
-        await $.ui.open({ id: PANE, title: TITLE, focus: true });
-        return {};
-      case "help":
-        return { text: helpText(roomLeaves()) };
-      case "error":
-        return { text: sanitize(request.message) };
-      case "run": {
-        // A /room the person typed acts as the person; one a plugin or the SDK ran doesn't.
-        const typed =
-          e.origin.kind === "composer" || e.origin.kind === "bridge";
-        const ran = typed
-          ? await personRun($, request.leaf.name, request.args)
-          : await runCommand(
-              $,
-              [...request.leaf.name.split(" "), ...request.args, "--json"],
-              await clientEnv($),
-            );
-        await refreshPane($);
-        await registerOnce($);
-        // The model reads the summary line and handles; the row draws the whole result (DR-65).
-        const text = roomText(request.leaf.name, ran);
-        drawn.delete(text);
-        drawn.set(text, { command: request.leaf.name, ran });
-        for (const old of drawn.keys()) {
-          if (drawn.size <= DRAWN) break;
-          drawn.delete(old);
-        }
-        return { text };
-      }
+    const plan = roomPlan(e.args, roomCommands());
+    if (plan.open) {
+      // Bare /room focuses the pane and returns no text, so it costs the model nothing, and starts
+      // no sync (DR-77).
+      await $.ui.open({ id: PANE, title: TITLE, focus: true });
+      return {};
     }
+    if (plan.run === undefined) {
+      return plan.text === undefined ? {} : { text: plan.text };
+    }
+    const { command, args } = plan.run;
+    // A /room the person typed acts as the person; one a plugin or the SDK ran doesn't.
+    const typed = e.origin.kind === "composer" || e.origin.kind === "bridge";
+    const ran: Ran = {
+      ...(typed
+        ? await personRun($, command, args)
+        : await runCommand(
+            $,
+            [...command.split(" "), ...args, "--json"],
+            await clientEnv($),
+          )),
+      args,
+    };
+    await refreshPane($);
+    await registerOnce($);
+    // The model reads the summary line and handles; the row draws the whole result (DR-65).
+    const text = roomText(command, ran);
+    drawn.delete(text);
+    drawn.set(text, { command, ran });
+    for (const old of drawn.keys()) {
+      if (drawn.size <= DRAWN) break;
+      drawn.delete(old);
+    }
+    // `/room share` hands the model the publish's arguments, so it publishes with no other read.
+    const context = shareContext(command, ran);
+    return context === undefined ? { text } : { text, context };
+  });
+
+  // One stable section, the same bytes in every state, appended last (DR-20).
+  on("prompt.compose", async ($, e, next) => {
+    const composed = await next(e);
+    return { sections: composeSections(composed.sections) };
   });
 
   // The main loop's turn: its id is each tool write's cause, and the base resets with it.
@@ -709,7 +835,7 @@ export function register(on: Parameters<Register>[0]): void {
   });
 
   on("prompt.autocomplete", async ($, e, next) => {
-    const mine = completions(e.text, e.cursor, roomLeaves());
+    const mine = completions(e.text, e.cursor, roomCommands());
     const below = await next(e);
     return mine.length === 0
       ? below
@@ -768,6 +894,7 @@ export function register(on: Parameters<Register>[0]): void {
             e.props.scroll.bodyRows,
             shown,
             viewFor(pane.model.focus.seq, pane.model.focus.level),
+            offer?.handle ?? null,
           )
         : fallbackRows(fallbackFor(engine, pane.error), columns);
     return draw($, e, rows);
@@ -795,6 +922,13 @@ export function register(on: Parameters<Register>[0]): void {
       engine.status === "ready" && pane.model !== null
         ? { model: pane.model }
         : { fallback: fallbackFor(engine, pane.error) };
-    return draw($, e, [bandRow(source, e.props.bodyColumns, shown)]);
+    const now = await $.clock.now();
+    const undo = offer !== null && now < offer.until ? offer.handle : null;
+    return draw(
+      $,
+      e,
+      [bandRow(source, e.props.bodyColumns, shown, undo)],
+      "band",
+    );
   });
 }

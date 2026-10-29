@@ -56,8 +56,9 @@ pub enum Tool {
     RoomHandoff,
 }
 
-/// Everything the surfaces need to know about one command leaf.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Everything the surfaces need to know about one command leaf. Two specs are equal when their
+/// paths are: a path names one leaf, and the `args` function pointer has no meaningful equality.
+#[derive(Debug, Clone, Copy)]
 pub struct CommandSpec {
     /// Such as `["handoff", "merge"]`.
     pub path: &'static [&'static str],
@@ -78,13 +79,125 @@ pub struct CommandSpec {
     pub tool: Option<Tool>,
     /// Reachable as `/room ...`.
     pub room: bool,
+    /// The request's clap arguments, `<XReq as clap::Args>::augment_args`: the one source of the
+    /// CLI's parser, the leaf's synopsis and its flags, so the CLI's usage, the tool descriptions
+    /// and `/room`'s typeahead never disagree.
+    pub args: fn(clap::Command) -> clap::Command,
 }
+
+/// One long flag a leaf takes, as `CommandSpec::flags` lists it for `/room`'s typeahead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeafFlag {
+    /// The subcommand the flag belongs to, such as `relate`; `None` for the leaf's own.
+    pub sub: Option<String>,
+    /// Such as `--level`.
+    pub flag: String,
+    /// The value's name, such as `LENS`; `None` for a flag that takes no value.
+    pub value_name: Option<String>,
+    /// The values the flag accepts, when they are a fixed set.
+    pub values: Vec<String>,
+}
+
+impl PartialEq for CommandSpec {
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path
+    }
+}
+
+impl Eq for CommandSpec {}
 
 impl CommandSpec {
     /// The command name: the path joined with spaces.
     pub fn name(&self) -> String {
         self.path.join(" ")
     }
+
+    /// The leaf's clap command: its request's arguments under the last word of its path.
+    pub fn command(&self) -> clap::Command {
+        (self.args)(clap::Command::new(self.path.last().copied().unwrap_or_default()))
+    }
+
+    /// The leaf's one-line synopsis from its clap arguments, long flags only, such as
+    /// `planroom map [--level LEVEL] [--lens LENS] ... [--json]`.
+    /// A leaf whose request has subcommands names them after its path:
+    /// `planroom edit move|group|...|undo [--base BASE] ... [--json]`.
+    pub fn synopsis(&self) -> String {
+        let cmd = self.command();
+        let mut words = vec!["planroom".to_owned(), self.name()];
+        let subs: Vec<&str> = cmd.get_subcommands().map(clap::Command::get_name).collect();
+        if !subs.is_empty() {
+            words.push(subs.join("|"));
+        }
+        words.extend(usage_words(&cmd));
+        words.push("[--json]".into());
+        words.join(" ")
+    }
+
+    /// The leaf's long flags, its own first, then each subcommand's in order; positionals are
+    /// left out.
+    pub fn flags(&self) -> Vec<LeafFlag> {
+        let cmd = self.command();
+        let mut flags = long_flags(&cmd, None);
+        for sub in cmd.get_subcommands() {
+            flags.extend(long_flags(sub, Some(sub.get_name())));
+        }
+        flags
+    }
+}
+
+/// Whether an argument is left out of a synopsis: clap's own and the global `--json`.
+fn unlisted(arg: &clap::Arg) -> bool {
+    matches!(arg.get_id().as_str(), "help" | "version" | "json") || arg.is_hide_set()
+}
+
+/// An argument's value as a synopsis shows it: its fixed values joined with `|`, else its value
+/// name, else its ID in capitals.
+fn value_word(arg: &clap::Arg) -> String {
+    let values: Vec<String> = arg.get_possible_values().iter().map(|v| v.get_name().to_owned()).collect();
+    if values.is_empty() {
+        arg.get_value_names()
+            .and_then(|names| names.first())
+            .map_or_else(|| arg.get_id().as_str().to_uppercase(), |n| n.as_str().to_owned())
+    } else {
+        values.join("|")
+    }
+}
+
+/// The words a command's arguments add to its synopsis, in order: `--flag VALUE`, `--flag` or a
+/// positional's value, each in brackets unless it is required.
+pub fn usage_words(cmd: &clap::Command) -> Vec<String> {
+    cmd.get_arguments()
+        .filter(|arg| !unlisted(arg))
+        .map(|arg| {
+            let word = match arg.get_long() {
+                Some(long) if arg.get_action().takes_values() => format!("--{long} {}", value_word(arg)),
+                Some(long) => format!("--{long}"),
+                None => value_word(arg),
+            };
+            if arg.is_required_set() { word } else { format!("[{word}]") }
+        })
+        .collect()
+}
+
+fn long_flags(cmd: &clap::Command, sub: Option<&str>) -> Vec<LeafFlag> {
+    cmd.get_arguments()
+        .filter(|arg| !unlisted(arg))
+        .filter_map(|arg| {
+            let long = arg.get_long()?;
+            let takes = arg.get_action().takes_values();
+            let values = if takes {
+                arg.get_possible_values().iter().map(|v| v.get_name().to_owned()).collect()
+            } else {
+                vec![]
+            };
+            let value_name = takes.then(|| {
+                arg.get_value_names()
+                    .and_then(|names| names.first())
+                    .map_or_else(|| arg.get_id().as_str().to_uppercase(), |n| n.as_str().to_owned())
+            });
+            Some(LeafFlag { sub: sub.map(str::to_owned), flag: format!("--{long}"), value_name, values })
+        })
+        .collect()
 }
 
 /// One variant per catalogue leaf; the request travels as `args`.
@@ -138,6 +251,7 @@ const MAP: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: Some(Tool::RoomQuery),
     room: true,
+    args: <MapReq as clap::Args>::augment_args,
 };
 
 const FIND: CommandSpec = CommandSpec {
@@ -159,6 +273,7 @@ const FIND: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: Some(Tool::RoomQuery),
     room: true,
+    args: <FindReq as clap::Args>::augment_args,
 };
 
 const ASK: CommandSpec = CommandSpec {
@@ -183,6 +298,7 @@ const ASK: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: Some(Tool::RoomQuery),
     room: true,
+    args: <AskReq as clap::Args>::augment_args,
 };
 
 const FOCUS: CommandSpec = CommandSpec {
@@ -203,6 +319,7 @@ const FOCUS: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: Some(Tool::RoomQuery),
     room: true,
+    args: <FocusReq as clap::Args>::augment_args,
 };
 
 const SCAN: CommandSpec = CommandSpec {
@@ -227,6 +344,7 @@ const SCAN: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: Some(Tool::RoomChange),
     room: true,
+    args: <ScanReq as clap::Args>::augment_args,
 };
 
 const WATCH: CommandSpec = CommandSpec {
@@ -247,6 +365,7 @@ const WATCH: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: None,
     room: false,
+    args: <WatchReq as clap::Args>::augment_args,
 };
 
 const SCHEMA: CommandSpec = CommandSpec {
@@ -262,6 +381,7 @@ const SCHEMA: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: None,
     room: false,
+    args: <SchemaReq as clap::Args>::augment_args,
 };
 
 const VERSION: CommandSpec = CommandSpec {
@@ -277,6 +397,7 @@ const VERSION: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: None,
     room: false,
+    args: <VersionReq as clap::Args>::augment_args,
 };
 
 const PERSON_INIT: CommandSpec = CommandSpec {
@@ -300,6 +421,7 @@ const PERSON_INIT: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: None,
     room: false,
+    args: <PersonInitReq as clap::Args>::augment_args,
 };
 
 const SERVE: CommandSpec = CommandSpec {
@@ -322,6 +444,7 @@ const SERVE: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: None,
     room: false,
+    args: <ServeReq as clap::Args>::augment_args,
 };
 
 const SHARE: CommandSpec = CommandSpec {
@@ -344,6 +467,7 @@ const SHARE: CommandSpec = CommandSpec {
     undo: Undo::NotUndoable("a viewer may already have seen what was published"),
     tool: Some(Tool::RoomHandoff),
     room: true,
+    args: <ShareReq as clap::Args>::augment_args,
 };
 
 const IMPORT: CommandSpec = CommandSpec {
@@ -366,6 +490,7 @@ const IMPORT: CommandSpec = CommandSpec {
     undo: Undo::Edit,
     tool: None,
     room: false,
+    args: <ImportReq as clap::Args>::augment_args,
 };
 
 const DOCTOR: CommandSpec = CommandSpec {
@@ -388,6 +513,7 @@ const DOCTOR: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: None,
     room: false,
+    args: <DoctorReq as clap::Args>::augment_args,
 };
 
 const EDIT: CommandSpec = CommandSpec {
@@ -416,6 +542,7 @@ const EDIT: CommandSpec = CommandSpec {
     undo: Undo::Edit,
     tool: Some(Tool::RoomChange),
     room: true,
+    args: <EditReq as clap::Args>::augment_args,
 };
 
 const OPEN: CommandSpec = CommandSpec {
@@ -438,6 +565,7 @@ const OPEN: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: None,
     room: true,
+    args: <OpenReq as clap::Args>::augment_args,
 };
 
 const REVIEW: CommandSpec = CommandSpec {
@@ -467,6 +595,7 @@ const REVIEW: CommandSpec = CommandSpec {
     undo: Undo::Edit,
     tool: None,
     room: false,
+    args: <ReviewReq as clap::Args>::augment_args,
 };
 
 /// The errors `intent new` may return; `intent propose` and `intent version` add theirs.
@@ -506,6 +635,7 @@ const INTENT_NEW: CommandSpec = CommandSpec {
     undo: Undo::Edit,
     tool: Some(Tool::RoomChange),
     room: true,
+    args: <IntentNewReq as clap::Args>::augment_args,
 };
 
 /// `intent next`: the engine asks Claude to draft a stage, and the reply's items wait as the
@@ -540,6 +670,7 @@ const INTENT_NEXT: CommandSpec = CommandSpec {
     undo: Undo::Edit,
     tool: Some(Tool::RoomChange),
     room: true,
+    args: <IntentNextReq as clap::Args>::augment_args,
 };
 
 const INTENT_PROPOSE: CommandSpec = CommandSpec {
@@ -570,6 +701,7 @@ const INTENT_PROPOSE: CommandSpec = CommandSpec {
     undo: Undo::Edit,
     tool: Some(Tool::RoomChange),
     room: true,
+    args: <ProposeReq as clap::Args>::augment_args,
 };
 
 const INTENT_LINT: CommandSpec = CommandSpec {
@@ -585,6 +717,7 @@ const INTENT_LINT: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: Some(Tool::RoomChange),
     room: true,
+    args: <LintReq as clap::Args>::augment_args,
 };
 
 const INTENT_VERSION: CommandSpec = CommandSpec {
@@ -612,6 +745,7 @@ const INTENT_VERSION: CommandSpec = CommandSpec {
     undo: Undo::Edit,
     tool: None,
     room: true,
+    args: <IntentVersionReq as clap::Args>::augment_args,
 };
 
 const INTENT_LIST: CommandSpec = CommandSpec {
@@ -627,6 +761,7 @@ const INTENT_LIST: CommandSpec = CommandSpec {
     undo: Undo::Query,
     tool: Some(Tool::RoomChange),
     room: true,
+    args: <IntentListReq as clap::Args>::augment_args,
 };
 
 /// The errors `pack add` and `pack remove` may return.
@@ -655,6 +790,7 @@ const PACK_ADD: CommandSpec = CommandSpec {
     undo: Undo::Compensate,
     tool: None,
     room: true,
+    args: <PackAddReq as clap::Args>::augment_args,
 };
 
 const PACK_REMOVE: CommandSpec = CommandSpec {
@@ -670,6 +806,7 @@ const PACK_REMOVE: CommandSpec = CommandSpec {
     undo: Undo::Compensate,
     tool: None,
     room: true,
+    args: <PackRemoveReq as clap::Args>::augment_args,
 };
 
 impl Command {
@@ -758,6 +895,10 @@ pub struct LeafListing {
     pub undo: String,
     /// The `schema --command LEAF` handle for the leaf's types.
     pub schema: Handle,
+    /// The leaf's one-line synopsis, from its clap arguments: what its `invalid_argument` and its
+    /// tool description show, so the catalogue hash covers its flags.
+    #[serde(default)]
+    pub synopsis: String,
 }
 
 impl LeafListing {
@@ -798,27 +939,29 @@ impl LeafListing {
                 args: vec!["--command".into(), spec.name()],
                 label: spec.summary.into(),
             },
+            synopsis: spec.synopsis(),
         }
     }
 }
 
-/// Flattened into every write request.
+/// Flattened into every write request. Its flags are global, so a leaf with subcommands, such as
+/// `edit`, reads them after its subcommand as well as before it.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct WriteCommon {
     /// The `seq` of the view you acted on; required when the command writes user-authored state.
-    #[arg(long)]
+    #[arg(long, global = true)]
     #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
     pub base: Option<Seq>,
     /// The idempotency key; derived from the request when absent.
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub idem: Option<String>,
     /// The project the write belongs to.
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub project: Option<NodeId>,
     /// The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
     /// edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
     /// agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
-    #[arg(long)]
+    #[arg(long, global = true)]
     #[serde(default)]
     pub client: Option<String>,
 }
@@ -984,13 +1127,15 @@ pub struct OpenResult {
     pub empty: Option<Empty>,
 }
 
-/// `planroom share --out DIR [--include-snippets] [--include-presence]`: the canvas built for an
+/// `planroom share [--out DIR] [--include-snippets] [--include-presence]`: the canvas built for an
 /// Artifact, `DIR/data/snapshot.json` and the first `live/head`, with the publish's arguments.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct ShareReq {
-    /// The directory to write the bundle into, such as `.planroom/share`.
+    /// The directory to write the bundle into; the state directory's `share/` when absent: `.planroom/share`,
+    /// or `.git/planroom/share` for a workspace that is one repo.
     #[arg(long, value_name = "DIR")]
-    pub out: String,
+    #[serde(default)]
+    pub out: Option<String>,
     /// Keep each evidence line's text in the snapshot (redacted); left out by default.
     #[arg(long)]
     #[serde(default)]
@@ -1380,5 +1525,19 @@ mod tests {
         assert_eq!(scan.common.base, Some(12));
         let focus: FocusReq = parse(&["--session", "s1"]);
         assert_eq!(focus.session.as_deref(), Some("s1"));
+    }
+
+    /// A leaf's own flags parse after its subcommand as well as before it, so its synopsis
+    /// (`edit move|...|undo [--project PROJECT] ...`) runs as written.
+    #[test]
+    fn a_leafs_own_flags_parse_after_its_subcommand() {
+        let after: EditReq =
+            parse(&["move", "a", "b", "--base", "4", "--project", "plan:x:y", "--idem", "k"]);
+        let before: EditReq =
+            parse(&["--base", "4", "--project", "plan:x:y", "--idem", "k", "move", "a", "b"]);
+        assert_eq!(after, before);
+        assert_eq!(after.common.base, Some(4));
+        assert_eq!(after.common.project.as_ref().map(|p| p.0.as_str()), Some("plan:x:y"));
+        assert_eq!(after.common.idem.as_deref(), Some("k"));
     }
 }

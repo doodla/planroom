@@ -92,18 +92,79 @@ test("rows_fit_compact_at_80x24_and_100x30: inline panes keep the focus line, th
 });
 
 test("keys: the card's choices take 1 to 4, rows an action targets take the row-key pool", () => {
-  const rows = paneRows(busy, DOCK.columns, DOCK.rows);
-  // Only the list's page Button goes without a key here; the key map pages the list.
+  // Every Button has a key, the list's page Button among them (decided: it takes the next free
+  // row key).
+  const paged: PaneModel = {
+    ...busy,
+    minimap: { ...goldenMap, blocks: goldenMap.blocks.slice(0, 10) },
+  };
+  expect(goldenMap.blocks.length).toBeGreaterThanOrEqual(10);
+  const rows = paneRows(paged, DOCK.columns, DOCK.rows);
   const keyless = buttons(rows).filter((b) => b.hotkey === undefined);
-  expect(keyless.map((b) => b.key).filter((k) => k !== "page")).toEqual([]);
+  expect(keyless.map((b) => b.key)).toEqual([]);
   const hotkeys = buttons(rows).flatMap((b) =>
     b.hotkey === undefined ? [] : [b.hotkey],
   );
   expect(hotkeys.slice(0, 4)).toEqual(["1", "2", "3", "4"]);
   // The two diffs, then the drift line's top item and the who line's top row; blocks run nothing
-  // until `map --focus` exists, so they take no key (ux-1).
-  expect(hotkeys.slice(4)).toEqual(["5", "6", "7", "8"]);
+  // until `map --focus` exists, so they take no key (ux-1); the page Button takes the next free
+  // row key, and the action row's `e` opens the canvas.
+  expect(hotkeys.slice(4)).toEqual(["5", "6", "7", "8", "9", "e"]);
+  expect(buttons(rows).find((b) => b.key === "page")?.hotkey).toBe("9");
   expect(new Set(hotkeys).size).toBe(hotkeys.length);
+});
+
+test("an action key acts on the selected row: the first keyed row until a row key selects another", () => {
+  const marked = (view: { selected?: string }) =>
+    buttons(paneRows(busy, DOCK.columns, DOCK.rows, null, view))
+      .filter((b) => b.label.startsWith("› "))
+      .map((b) => b.key);
+  expect(marked({})).toEqual(["diff-0"]);
+  expect(marked({ selected: "who-0" })).toEqual(["who-0"]);
+  // With no diffs, the drift line's top item is first.
+  const calm = paneRows({ ...busy, diffs: [] }, DOCK.columns, DOCK.rows);
+  expect(
+    buttons(calm)
+      .filter((b) => b.label.startsWith("› "))
+      .map((b) => b.key),
+  ).toEqual(["drift-0"]);
+  // With nothing keyed, nothing is marked.
+  expect(
+    buttons(paneRows(golden, DOCK.columns, DOCK.rows)).some((b) =>
+      b.label.startsWith("› "),
+    ),
+  ).toBe(false);
+});
+
+test("e opens the canvas as the person's press, and u undoes the last press while it is offered", () => {
+  const plain = buttons(paneRows(golden, DOCK.columns, DOCK.rows));
+  const canvas = plain.find((b) => b.key === "canvas");
+  expect(canvas).toMatchObject({
+    hotkey: "e",
+    action: { kind: "run", command: "open", args: [] },
+  });
+  expect(plain.some((b) => b.key === "undo")).toBe(false);
+  const undo = {
+    command: "edit",
+    args: ["--base", "12", "undo", "ev_1"],
+    label: "Undo the rename",
+  };
+  const offered = buttons(
+    paneRows(golden, DOCK.columns, DOCK.rows, null, {}, undo),
+  );
+  expect(offered.find((b) => b.key === "undo")).toMatchObject({
+    hotkey: "u",
+    action: { kind: "run", command: "edit", undo: true },
+  });
+  for (const [columns, rows] of [
+    [DOCK.columns, DOCK.rows],
+    [80, 8],
+    [40, 34],
+  ] as const) {
+    const laid = paneRows(golden, columns, rows, null, {}, undo);
+    expect(height(laid)).toBeLessThanOrEqual(rows);
+    expect(widest(laid)).toBeLessThanOrEqual(columns);
+  }
 });
 
 test("ux-1: no Button runs map --focus, which the engine refuses until M1", () => {

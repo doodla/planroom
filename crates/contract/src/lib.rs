@@ -29,10 +29,10 @@ pub mod vocab;
 pub use card::{Card, CardKind};
 pub use command::{
     ActorRule, Class, CodeReq, Command, CommandList, CommandSpec, DefSchema, Detail, DoctorReq, DrainReq,
-    FocusDetail, FocusReq, Idea, ImportReq, LayoutPut, LeafListing, LeafSchema, MapReq, OpenReq, OpenResult,
-    PackAddReq, PackCheck, PackRemoveReq, PackReport, PackSetResult, PersonInitReq, PersonKey, ScanReq,
-    ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken, ShareReq, Tool,
-    Undo, VersionInfo, VersionReq, WatchReq, WriteCommon,
+    FocusDetail, FocusReq, Idea, ImportReq, LayoutPut, LeafFlag, LeafListing, LeafSchema, MapReq, OpenReq,
+    OpenResult, PackAddReq, PackCheck, PackRemoveReq, PackReport, PackSetResult, PersonInitReq, PersonKey,
+    ScanReq, ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken, ShareReq,
+    Tool, Undo, VersionInfo, VersionReq, WatchReq, WriteCommon,
 };
 pub use command::{
     DoctorBackup, DoctorGit, DoctorMigrations, DoctorPacks, DoctorReport, DoctorResult, DoctorStore,
@@ -82,7 +82,7 @@ pub use store::{STORE_POINTER_FILE, StorePointer};
 pub use stream::StreamFrame;
 pub use view::{
     BatchInfo, Choice, Crumb, DecisionCard, DiffLine, DriftLine, EngineState, EngineStatus, Focus, LastSeq,
-    LayoutKey, LiftedEdge, MapNode, MapView, MiniBlock, MiniEdge, MiniMap, PaneModel, PaneState, Position,
-    PresenceRow, Progress, ScanState, Stakes, Tone, TurnSeq,
+    LayoutKey, LiftedEdge, MapNode, MapView, MiniBlock, MiniEdge, MiniMap, OutboxEntry, PaneModel, PaneState,
+    Position, PresenceRow, Progress, ScanState, Stakes, Tone, TurnSeq,
 };
 pub use vocab::{KindVocab, LensVocab, LevelVocab, RelationVocab, Vocabulary};

@@ -6,14 +6,11 @@
 
 import { ROW_KEYS, type RowKey } from "./keys";
 
+/** The face-up card's keys, kept beside the row keys in `keys.ts`'s key map. */
+export { CARD_KEYS } from "./keys";
+
 /** A list shows this many rows a page, each with its row key. */
 export const PAGE_ROWS = 7;
-
-/**
- * The face-up card's keys: its choices take `1` to `4`, two to a row, and a card with one action
- * (the next action, the way back, a fallback's step) takes `1` (DR-54).
- */
-export const CARD_KEYS = ["1", "2", "3", "4"] as const;
 
 /** Diff lines that take a row key at most: the pane's top 3. */
 const DIFF_ROWS = 3;
@@ -36,14 +33,18 @@ export interface SectionKeys {
   drift: RowKey | undefined;
   who: RowKey | undefined;
   list: RowKey[];
+  /** The list's page Button's key, when `keyRows` was asked for one and the pool has one left. */
+  page?: RowKey;
 }
 
 /**
  * The pool's keys in order: up to 3 diff lines, then the drift line's top item when there is one,
  * the who line's top row when there is one, then up to 7 list rows. A section with nothing to
- * target takes no key, so the next one moves up.
+ * target takes no key, so the next one moves up. With `page`, the list's page Button takes the
+ * next free key after the list's rows; when the pool would be spent, the list keeps one row fewer
+ * so the Button still has one, and every shown row keeps its key (DR-77).
  */
-export function keyRows(sections: KeyedSections): SectionKeys {
+export function keyRows(sections: KeyedSections, page = false): SectionKeys {
   let next = 0;
   const take = (count: number): RowKey[] => {
     const keys = ROW_KEYS.slice(next, next + Math.max(0, count));
@@ -53,8 +54,15 @@ export function keyRows(sections: KeyedSections): SectionKeys {
   const diffs = take(Math.min(sections.diffs, DIFF_ROWS));
   const drift = sections.drift ? take(1)[0] : undefined;
   const who = sections.who ? take(1)[0] : undefined;
-  const list = take(Math.min(sections.list, PAGE_ROWS));
-  return { diffs, drift, who, list };
+  const free = ROW_KEYS.length - next;
+  const rows = Math.min(sections.list, PAGE_ROWS, page ? free - 1 : free);
+  const list = take(rows);
+  const keys: SectionKeys = { diffs, drift, who, list };
+  if (page) {
+    const key = take(1)[0];
+    if (key !== undefined) keys.page = key;
+  }
+  return keys;
 }
 
 /** One page of a list. `first` and `last` count from 1, and are 0 for an empty list. */

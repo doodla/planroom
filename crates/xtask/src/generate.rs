@@ -61,6 +61,7 @@ pub const GOLDEN_TESTS: &[(&str, &str, &[&str])] = &[(
         "tests/golden/cli/map-graph.json",
         "tests/golden/cli/map-empty.json",
         "tests/golden/cli/watch-frames.json",
+        "tests/golden/cli/invalid-argument.json",
     ],
 )];
 
@@ -191,7 +192,7 @@ export interface CatalogueLeaf {{
   /** Can make a paid model call; the band and `PaneModel.next` never name such a leaf (DR-66). */
   readonly spends: boolean;
   readonly undo: \"edit\" | \"compensate\" | \"query\" | \"not_undoable\";
-  readonly tool: \"room_query\" | \"room_change\" | \"room_handoff\" | null;
+  readonly tool: ToolName | null;
   readonly room: boolean;
 }}
 
@@ -216,11 +217,13 @@ export const FALLBACK_PANES: Readonly<Record<\"{states}\", FallbackPane>> = {pan
  * fills with `fill` from `@planroom/ui`, then sanitizes.
  */
 export const MOD_STRINGS: Readonly<Record<\"{mod_keys}\", string>> = {mod_strings};
+{tail}
 ",
         hash = catalogue_hash()?,
         states = FALLBACK_STATES.join("\" | \""),
         panes = fallback_panes(root)?,
         mod_keys = mod_keys.join("\" | \""),
+        tail = modgen::catalogue_tail(root)?,
     );
     Ok(Group {
         name: "packages/contract/src/generated/catalogue.ts",
