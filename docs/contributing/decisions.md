@@ -121,7 +121,18 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 105 | Pane sections with row keys and a 7-row page, the mod's lines from the string catalog, and one budget for `focus` | DR-54, DR-57, DR-65, DR-77, DR-82 | extended, amends DR-54 and DR-57 | the merge of M1's pane sections |
 | 106 | The plan pack's stages and lint, the deterministic `intent` leaves, and `ask stage` | DR-15, DR-23, DR-52, DR-66, DR-89, DR-101 | extended, amends DR-5, DR-23, DR-66, DR-92 and DR-94 | the merge of M1's plan pack |
 | 107 | The link snapshot and `runtime_wiring`, with test code kept out of every runtime join | DR-12, DR-42, DR-86, DR-87, DR-100 | extended, amends DR-86 and DR-87 | the merge of M1's link snapshot |
+| 108 | Imports join workspace packages, and a wrapper's call sites bind its method and path | DR-12, DR-89, DR-107 | extended, amends DR-12 and DR-89 | the merge of M1's imports linker |
+| 109 | The pack set as workspace state, the changed-source card, and the Ruby pack | DR-62, DR-89, DR-101 | extended, amends DR-62, DR-89 and DR-101 | the merge of M1's pack set |
+| 110 | Event backups written through on every person-authored commit, a temporary host's redacted ref, and the plain `doctor` | DR-53, DR-75, DR-89 | extended, amends DR-53, DR-75 and DR-89 | the merge of M1's event backups |
+| 111 | Levels are abstraction levels that packs declare, under the kernel's intent | DR-42, DR-45, DR-46, DR-59, DR-85, DR-109 | extended, amends DR-42, DR-45, DR-46, DR-59, DR-85 and DR-109 | the owner's request of 2026-10-29 |
+| 112 | Diagrams for people and agents: pictures the engine derives from its views, and diagrams agents draw that stay ghosts until a person accepts them | DR-3, DR-4, DR-5, DR-11, DR-22, DR-54, DR-111 | extended, amends DR-5 | the owner's request of 2026-10-29 |
 | 113 | `intent next` drafts a plan stage from replay, as the model's ghosts, and `schema --commands` pages | DR-18, DR-23, DR-49, DR-65, DR-93, DR-106, DR-109, DR-111 | extended, amends DR-18, DR-23, DR-93 and DR-109 | the merge of M1's `intent next` from replay |
+| 115 | Starting from nothing: a plan-only workspace, intended blocks that next actions target and that resolve when code lands, and a hand-off that starts a new repo | DR-23, DR-25, DR-48, DR-57, DR-64, DR-73, DR-74, DR-75, DR-80, DR-85, DR-86, DR-87, DR-101, DR-106, DR-110, DR-113 | extended, amends DR-25, DR-57, DR-74, DR-85, DR-87 and DR-106 | the owner's request of 2026-10-29 |
+| 116 | Questions on a sticky line, assumptions you can see, a one-line read-back, and corrections that feed the next draft | DR-23, DR-50, DR-54, DR-73, DR-106, DR-111, DR-112, DR-113 | extended, amends DR-4, DR-23, DR-54, DR-64, DR-75, DR-105 and DR-106 | the owner's request of 2026-10-29 |
+| 117 | Context packs: the map as a ranked, budgeted reading list for a plan item or a block, built into every hand-off | DR-4, DR-15, DR-27, DR-52, DR-64, DR-75, DR-112, DR-115, DR-116 | extended, amends DR-4 and DR-27 | the owner's request of 2026-10-29 |
+| 118 | Ratify a plan and walk away: one signed approval of a bounded batch of hand-offs, an integration branch per repo, and slice POCs first | DR-23, DR-25, DR-26, DR-54, DR-55, DR-64, DR-66, DR-71, DR-73, DR-75, DR-77, DR-80, DR-106, DR-110, DR-115, DR-116, DR-117 | extended, amends DR-23, DR-25, DR-64, DR-65, DR-66, DR-71, DR-75, DR-77, DR-80 and DR-106 | the owner's request of 2026-10-29 |
+| 119 | One room: boards in areas, every view a link, repos and boards attached from anywhere, and plans that run side by side | DR-1, DR-29, DR-58, DR-77, DR-101, DR-115, DR-116, DR-118 | extended, amends DR-25, DR-29, DR-51, DR-65, DR-66, DR-71, DR-77, DR-78 and DR-101 | the owner's request of 2026-10-29 |
+| 120 | Ontologies as packs, chosen per board: domain concepts aligned to blocks at every level, and release management as the first domain | DR-9, DR-62, DR-109, DR-111, DR-114, DR-115, DR-116, DR-117, DR-119 | extended, amends DR-23, DR-36, DR-45, DR-46, DR-62, DR-74, DR-106 and DR-109 | the owner's request of 2026-10-29 |
 
 ## Where the design reviews disagreed
 
@@ -214,7 +225,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-4: Actor identity and actor rules
 
-- **Status:** accepted; A-3 settled: the Bash tool has no TTY. Amended in review rounds 1, 2 and 3.
+- **Status:** accepted; A-3 settled: the Bash tool has no TTY. Amended in review rounds 1, 2 and 3. Amended by DR-116 and DR-117.
 - **Starting point:** extended "Events carry the workspace, project, actor, cause and an idempotency key."
 - **Origin:** the concurrency-first design (§3.7, §3.11); fixes the fatal flaw two design reviews found in the simplicity-first design, where a CLI call with no `PLANROOM_ACTOR` was attributed to a person, so an agent's Bash calls could skip ghosting and approve its own merge. The extensibility-first design left the CLI's actor undefined.
 - **Context:** R5 says nothing the AI invents counts until a person accepts it, and R8 says merges follow a person's approval. Agents reach the engine through the mod's tools and through Bash. Plugin variables aren't in the Bash tool's environment [plugin-packaging §3].
@@ -240,6 +251,8 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 1:** TTY-based person detection is dropped in favor of the `/dev/tty` confirmation; unnamed non-terminal writes are `actor_required`; the person key moves to the mod's `$.store` with only its hash in `store.db`; writes carry a client ID (owner decisions D1 and D2; correctness-2, security-3). `open` is person-only and never prints its code. Importing inbox rows and event exports is person-only and leaves `room_change`. The guard resolves paths, covers every file tool and pty-wrapped person-only commands, and keeps the implementer in worktrees under the data root (D15, D16; security-2, security-3, principles-1) [DR-52]. `handoff revert` is person-only, and `review` is a mixed catalogue leaf (ux-3, principles-3) [DR-54, DR-55]. A-3 settled by a live spike: the Bash tool runs with stdin and stdout not on a TTY, so an unnamed Bash write is always `actor_required`.
 - **Amended in review round 2:** the mod passes a one-time action token signed through `crypto.subtle` over `command ‖ canonical(args) ‖ idem ‖ base ‖ at`, never the key; DR-72 made it an ECDSA P-256 signature, so `store.db` keeps only the public key. The rejected alternative above assumed the mod had no crypto, but the mod runtime has `crypto.subtle` [mod-api, module rules]. The guard denies reads of the mod's `$.store` file, and `handoff start`, `merge` and `revert` refuse the `/dev/tty` path, since anyone with a pty can confirm it (E15; security-1, security-8) [DR-64].
 - **Amended in review round 3:** DR-72's key pair replaced the key and the HMAC token described above: the mod passes an ECDSA P-256 token, and `store.db` holds only the public key, in `meta.person_pubkey`. `open` and `person init --rekey` refuse the `/dev/tty` path and take a mod press, or for the rekey a token under the old key (F15; security-3, security-4) [DR-75].
+- **Amended by DR-116:** a chat answer whose quote the mod finds in the person's prompts applies at once, as `from_chat`.
+- **Amended by DR-117:** a proposal an engine miner writes is a ghost whoever runs it.
 - **Sources (checked 2026-10-25):** [mod-api §3] (`CommandRunInput.origin`), [mod-api §8] (`tool.check` sees every tool); [plugin-packaging §3] (Bash environment lacks plugin variables); the design reviews (fatal flaws in the simplicity-first and extensibility-first designs).
 
 ## DR-5: Base required; field-level authored revisions
@@ -558,7 +571,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-23: Plan stages with their methods and structural lint
 
-- **Status:** accepted. Amended in review round 1. Amended by DR-106 and DR-113.
+- **Status:** accepted. Amended in review round 1. Amended by DR-106, DR-113, DR-116, DR-118 and DR-120.
 - **Starting point:** extended "Structural lint runs in code; semantic lint goes to Jev."
 - **Origin:** the concurrency-first design (§6.1); a design review noted the simplicity-first design reduced R5's methods to a sentence.
 - **Context:** R5 names the methods per stage (Jobs-to-be-Done and laddering, SMART and non-goals, MECE and the WBS 100% rule, GTD and HTN, MoSCoW and an MVP line, pre-mortem, lint), and S3's lint depends on them.
@@ -568,6 +581,9 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 1:** stages declare the `kernel.item` types they write, with prop schemas, instead of plan-pack kinds [DR-45]. Pack `[[rules]]` lose `forbid_edge`: boundary rules are intended-layer edits only, so one violation has one report path (extensibility-11). every stage shares one plan-pack prefix, the planning rules and the union `PlanProposal` schema, with a 1-hour TTL. The stage's method goes in the uncached tail, so a plan's later stages read the cache. The budget test asserts a hit-rate floor of 0.6 after the first stage (cost-6, principles-6).
 - **Amended by DR-106:** the rule types `covers` (the WBS 100% rule) and `disjoint` (MECE) count a subject's children of the rule's kinds that pass its prop tests; the four checks no rule type can express yet (a ladder under 2 rungs, no non-goal, no MVP line, a Must below the line) wait for M2.
 - **Amended by DR-113:** the shared prefix is `packs/plan/prompts/plan.md` and the union `DraftReply` schema, `PlanProposal`'s strict form with props as name-value pairs, since structured output refuses an open object; it is at least 16,000 bytes and the same for every stage and project. A reply that can't be used is `model_reply_invalid` and writes nothing until M2's card.
+- **Amended by DR-116:** pack data gains `[[items]]` (item types no stage owns, any pack may declare), a stage's `readback`, and the rule type `referenced`.
+- **Amended by DR-118:** an eighth stage, `derisk`, a stage's `needed_when`, the `poc` item type, `risk`'s `stakes` and `rests_on`, and the rule type `max_descendants`.
+- **Amended by DR-120:** the rule type `ordered`; `[[items]]` entries' `concept`, `summary`, `stages` and `checklist`; and the plan pack's `moscow_order`.
 - **Sources (checked 2026-10-25):** KICKOFF R5; candidate-concurrency-agents §6.1; the design reviews.
 
 ## DR-24: Duties under leases instead of a jobs API
@@ -586,7 +602,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-25: Engine-made clones, two implementers, a cross-repo merge preflight
 
-- **Status:** accepted. Amended in review rounds 1, 2 and 3.
+- **Status:** accepted. Amended in review rounds 1, 2 and 3. Amended by DR-115, DR-118 and DR-119.
 - **Starting point:** none; replaces the research suggestion of `planroom:implementer` registered with `isolation: 'worktree'` [mod-api §5].
 - **Origin:** the simplicity-first design (§6.6, D17); the merge preflight from the extensibility-first design (§6.6).
 - **Context:** S4's change spec touches `worker` and `platform` [TRUTH scenarios.S4.implementer_patches]; Claude Code's worktree isolation covers only the session's repo. A merge that fails in the second repo must not leave the first merged.
@@ -596,6 +612,9 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 1:** `handoff merge` commits a `merging` step with each repo's planned target before touching git, records each repo's result, then commits `merged`. A retry resumes from the step and skips a repo whose `HEAD` already contains `planroom/KEY` (correctness-10). Contracts gain `HandoffState::Merging`; test `handoff_preflight.rs::a_crash_between_repos_resumes_on_retry`. the hand-off directory, its spec and its worktrees live in `DATA_ROOT/handoffs/<workspace_id>/KEY/`, outside `.planroom/`, and the mod's guard keeps the implementer's Edit and Write inside its worktrees (D16, security-3) [DR-52]. `handoff revert` undoes a merge in every repo behind the same kind of preflight and resume, the `merging` step records each repo's head before the merge, and cancel or drop moves the branch to `refs/planroom/archive/KEY` (D15, principles-3) [DR-55].
 - **Amended in review round 2:** `handoff merge` and `handoff revert` run under a `handoff:KEY` lease and key each step, so a retry resumes and a second invocation joins (E1) [DR-8]. The preflight also checks that each repo's `HEAD` is on the spec's base branch, and before each repo's merge the command checks that `HEAD` is still the recorded `before`. On a mismatch, or a merge that fails after the preflight, it runs `git merge --abort`, returns `handoff_conflict` and deals one card, "Revert worker's merge, or retry?", with revert pre-selected, and the hand-off loop gains `merging --> reverting`. Contracts gain `SpecRepo.base_branch` (correctness-11). Test `handoff_preflight.rs::a_commit_after_preflight_aborts_cleanly`. The engine makes a separate local clone per touched repo instead of a linked worktree, and `handoff collect` fetches only each clone's `HEAD` into `planroom/KEY` in the real repo, so the implementer's Bash can't move or delete the person's refs. The title changes to match (E15, security-2) [DR-64]. The mod runs `collect` right after `report`, and `collect` deals the review card (principles-7) [DR-66].
 - **Amended in review round 3:** a hand-off also reaches `merged` when a scan finds its change on the tracked branch, landed by a pull request, a squash or a rebase (F20, unasked-6) [DR-80].
+- **Amended by DR-115:** a hand-off may create a repo at start; its merge into an unborn branch is `--ff-only`, with its commits as change units.
+- **Amended by DR-118:** `merge`, `revert` and `cancel` gain a `--plan` form under `plan:<project>`.
+- **Amended by DR-119:** in a repo two workspaces hold, Planroom's branch names gain the first 8 characters of the workspace ID.
 - **Sources (checked 2026-10-25):** [mod-api §5]; `examples/TRUTH.json` scenarios.S4; the design reviews.
 
 ## DR-26: The hand-off guard asks the person
@@ -612,7 +631,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-27: Curation drafts: templates, then Claude, then the curator agent
 
-- **Status:** accepted. Amended in review rounds 1 and 2.
+- **Status:** accepted. Amended in review rounds 1 and 2. Amended by DR-117.
 - **Starting point:** none; implements R12.
 - **Origin:** the simplicity-first design's templates (§6.8); the concurrency-first design's Claude drafting and its two CI paths (§6.5, §10.2).
 - **Context:** S12 must pass deterministically; drafts should read well when a model is reachable.
@@ -621,6 +640,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Consequences:** contracts `CurationDraft`; tests `s12_curation.rs` (both paths).
 - **Amended in review round 1:** curation mines runs from `handoff report` and from a person's import only; agent-imported runs are kept untrusted. Cards name their source runs and show in full any draft with a URL, command substitution, a shell pipe or `allowed-tools` (security-9) [DR-52]. The curator spawns only after a person's card or `/room curate`, and its usage goes into the ledger (cost-10) [DR-51].
 - **Amended in review round 2:** a refinement call caches the shared curation prompt and puts the target file in the uncached tail, with the 5-minute TTL, since no two drafts share a target (cost-7) [DR-65]. The curator submits drafts on stdin with `edit propose --file -`, and the guard allows that and `curate --json` with no prompt (principles-3) [DR-66].
+- **Amended by DR-117:** curation may propose a workspace edit, a block's `context` hints, as well as a repo patch.
 - **Sources (checked 2026-10-25):** `examples/TRUTH.json` scenarios.S12; the design reviews.
 
 ## DR-28: Engine bootstrap without a SessionStart hook
@@ -638,7 +658,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-29: Browser login with a one-time code
 
-- **Status:** accepted. Amended in review rounds 1, 2 and 3.
+- **Status:** accepted. Amended in review rounds 1, 2 and 3. Amended by DR-119.
 - **Starting point:** extended "A single-writer local server per workspace" (its exposure).
 - **Origin:** the concurrency-first design (§12.2); a design review flagged the simplicity-first design's `?t=` query-string token.
 - **Context:** a token in a query string lands in logs and history.
@@ -648,6 +668,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 1:** an in-memory bearer token sent as a header replaces the cookie, and every request needs an exact `Origin` (D17, security-7). The code has 128 bits and a 60 s life, reaches `serve` through the control token, and is never printed (security-3). `.planroom/` is 0700 and its files 0600.
 - **Amended in review round 2:** `open` writes the URL into a 0600 redirect page under `DATA_ROOT/open/` and opens that file, so the code is in no process's argv, and a second try at a code revokes the token the first exchange issued (E15, security-4) [DR-64]. The tab keeps its bearer token in `sessionStorage`, scoped to its origin and port, so a reload within one `serve` stays logged in. `serve` prefers the port its last `serve.json` recorded, so the origin and the tab's storage survive a restart. A tab with no valid token shows the engine-authored "This tab needs a fresh link" state with its pending edits counted, which the empty-state audit visits (E10, principles-4) [DR-8]. The consequence that a reload asks for a new code no longer holds. Tests `server_auth.rs::the_code_is_never_in_an_argv`, `a_code_exchanged_twice_revokes_its_token`, `serve_prefers_its_last_port`. Where no browser can be seen (no display on Linux, an SSH session, a container host, or an opener that fails), `open` opens nothing and returns `opened: false` with `/room share` as the next action, and on WSL it opens through `wslview` (ux-4, unasked-7).
 - **Amended in review round 3:** `serve` never moves off its workspace's port. `workspaces.json` gives each workspace its own, another program holding it is `port_in_use`, and `serve --port N` is the deliberate move, so a tab's pending edits never strand in another origin. `server_auth.rs::serve_port_moves_only_when_asked` replaces `serve_prefers_its_last_port` (F8, unasked-7) [DR-78].
+- **Amended by DR-119:** one room server and port serves every workspace, with workspace routes under `/w/{id}`; a new tab takes the token from an open tab.
 - **Sources (checked 2026-10-25):** candidate-concurrency-agents §12.2; the design reviews.
 
 ## DR-30: Skills hidden from the slash menu
@@ -726,13 +747,14 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-36: One boundaries file for both languages
 
-- **Status:** accepted. Amended in review rounds 1 and 2.
+- **Status:** accepted. Amended in review rounds 1 and 2. Amended by DR-120.
 - **Starting point:** kept and combined "a crate-graph test or `cargo-deny` bans in Rust, and `dependency-cruiser` or `eslint-plugin-boundaries` in TypeScript."
 - **Origin:** the concurrency-first design (§9.3) for one source; the simplicity-first design (§9.3) for the kernel allow-list, the pack-literal scan, the three-way self-test and the decision-record gate.
 - **Decision:** `boundaries.toml` is the single source. `cargo xtask check boundaries` reads it with `cargo metadata`; `cargo xtask gen` writes `.dependency-cruiser.cjs` from it. Also: the kernel's external-dependency allow-list, a scan that no string literal in `crates/kernel/src` equals a built-in pack kind or relation name, with or without its `<pack>.` prefix, and a self-test that plants a Rust, a TypeScript and a pack crossing in a temporary copy and expects each to fail.
 - **Alternatives rejected:** `eslint-plugin-boundaries` (missed 1 of 5 planted imports, mid-migration [ts-stack §6.1]); two hand-kept configs.
 - **Amended in review round 1:** the literal scan matches bare kind and relation names too, and the self-test plants a bare relation name (D10, extensibility-1) [DR-45]. The self-test installs JS dependencies offline in its copy, runs every check on the unmodified copy as a control, and plants a declared `workspace:*` crossing and a relative import, expecting exactly the rule's name and no unresolvable import. It also plants a layout change without a record (D14, repo-2) [DR-59].
 - **Amended in review round 2:** `boundaries.toml` also holds the kernel's no-I/O list as item paths and each TypeScript package's `third_party` allow-list, so the generated checks allow only what it names (repo-8, repo-9) [DR-70].
+- **Amended by DR-120:** the literal scan also refuses built-in concept IDs.
 - **Sources (checked 2026-10-25):** [ts-stack §6.1]; [rust-stack §10]; the design reviews.
 
 ## DR-37: One schema in two views, one version
@@ -877,7 +899,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-45: Intent is kernel vocabulary
 
-- **Status:** accepted (decided in review round 1, D10). Amended in review rounds 2 and 3. Amended by DR-111.
+- **Status:** accepted (decided in review round 1, D10). Amended in review rounds 2 and 3. Amended by DR-111 and DR-120.
 - **Starting point:** extended "A typed property graph of four primitives" with R14's Intent idea.
 - **Origin:** review round 1, extensibility-1, option a.
 - **Context:** the kernel's own algorithms needed plan-pack names. The reconciler read `touches`, the attach trigger read next actions, and projects were fixed to `plan:<project>`. The `tree` shape carried PR thread status, and the machine shapes read fixed prop names. The literal scan caught only `pack.` prefixes, so a coupled kernel could still pass it. R14 makes Intent one of the five core ideas, and R16 says the kernel depends on no domain.
@@ -899,11 +921,12 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 2:** the domain-free scan also covers `crates/contract/src`, the kernel's one workspace dependency, so a constant there can't carry a pack name into the kernel. The self-test plants one, and the contract's area contract forbids such literals (E14, repo-3).
 - **Amended in review round 3:** the domain-free scan matches every built-in kind and relation name with its `<pack>.` prefix, and a bare name unless `boundaries.toml`'s `kernel_vocabulary` list holds it. That list names the words the kernel and the contract must spell, such as `person`, `repo`, `file`, `commit` and `state`, so Actor parsing passes while `"watches"` still fails, and the self-test plants both (extensibility-7). `packages/ui`, `canvas` and `mod` get the same scan, since they style from `MapNode.tone`, never a kind ID (extensibility-6) [DR-46].
 - **Amended by DR-111:** the literal scan also refuses a built-in pack's level ID in the kernel's and the contract's sources and in the TypeScript surfaces, outside tests and the uses `boundaries.toml`'s `level_words` lists, and the surface rule reads "no built-in kind, lens or level ID".
+- **Amended by DR-120:** the kernel's vocabulary gains `kernel.concept`, `kernel.realizes` and `kernel.is_a`.
 - **Sources (checked 2026-10-26):** KICKOFF R11, R14, R16; review round 1 extensibility-1 and owner decision D10.
 
 ## DR-46: Pack data tables and typed emits
 
-- **Status:** accepted (decided in review round 1, D11, D13 and D21). Amended in review rounds 2 and 3. Amended by DR-111.
+- **Status:** accepted (decided in review round 1, D11, D13 and D21). Amended in review rounds 2 and 3. Amended by DR-111 and DR-120.
 - **Starting point:** extended "Packs. Declarative files that add kinds, levels, roll-up rules, extractors, lenses, decision kinds and a default view."
 - **Origin:** review round 1: extensibility-2, extensibility-5 and correctness-8; the minor findings extensibility-8 and extensibility-10.
 - **Context:**
@@ -930,6 +953,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 2:** every Container-level kind uses the kernel's prefix `container`, so a pack that only adds an image role re-IDs no container (extensibility-4). Merged tables refuse a duplicate key, overlapping globs take the first match in load order, two default lenses are `pack_invalid` unless one is the code pack's, and `Tier` gains `Precise` for the SCIP reader DR-11 deferred (extensibility-6, in part). A reference in `from`, `to`, `parent` or `scope` takes the same forms, and a bare path such as `$file` is `pack_invalid`: templates write `@id:code.file:$file` (extensibility-8). Tests `packs.rs::a_pack_that_only_adds_an_image_role_keeps_every_container_id`, `duplicate_table_keys_are_pack_invalid`, `two_default_lenses_are_pack_invalid`; `extract/tests/contract.rs::a_bare_path_reference_is_pack_invalid`.
 - **Amended in review round 3:** `KindDecl.tone` (`service`, `library`, `store` or `infra`) picks a Container-level kind's block token, and `MapNode` carries it, so a surface styles an out-of-tree kind without naming a kind ID. A palette for lens yarn stays a known gap (extensibility-6, in part). Test `packages/ui/src/tokens.test.ts::every_tone_has_a_token`.
 - **Amended by DR-111:** the kinds that use the kernel's `container` prefix share one level and every kind at that level uses it, so no rule names a level; an image role names a kind that uses the prefix, and a tone is any kind's block color.
+- **Amended by DR-120:** pack data gains `[[concepts]]`, `concepts/*.toml`, `LensDecl.concepts` and `LensDecl.explains`; a built-in `ontology` pack joins the v0.1 packs.
 - **Sources (checked 2026-10-26):** `examples/TRUTH.json` repos, containers, questions.unmonitored and scenarios.S10; review round 1 findings above and owner decisions D11, D13 and D21.
 
 ## DR-47: Deterministic scan bounds and a per-blob fact cache
@@ -1036,7 +1060,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-51: One spend record, a user-level ledger and a measured always-on surface
 
-- **Status:** accepted (decided in review round 1, D20). Amended in review rounds 2 and 3.
+- **Status:** accepted (decided in review round 1, D20). Amended in review rounds 2 and 3. Amended by DR-119.
 - **Starting point:** none; serves the constraint "Spend" and principle 2's size budgets.
 - **Origin:** review round 1: cost-2 and cost-5; the minor findings cost-8, cost-9 and cost-10.
 - **Context:**
@@ -1059,6 +1083,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-22, which read the number from `claude plugin details`.
 - **Amended in review round 2:** the spend log's path is absolute, resolved by `cargo xtask` through `git rev-parse --git-common-dir`, so every worktree and nested session shares one file, and a lock covers sum, check and append. `.claude/settings.json` no longer sets it, and the engine refuses a relative path (cost-1). `live evidence S02` compares each question's chat usage with `recorded` and refuses a regression, and `budgets.rs` gates a chat proxy per S2 question and each skill body (cost-2). Imported `sample` calls reach the spend log (cost-6). The daily cap counts real dollars only (cost-8) [DR-65].
 - **Amended in review round 3:** `ledger.db` changes only by additions and records a `min_reader_version`, so older engines keep reading it, and a ledger migration keeps a `VACUUM INTO` copy (operability-7) [DR-78].
+- **Amended by DR-119:** `ledger.db` gains the `running` table and the `project` column; `room.max_running_handoffs` caps implementers across workspaces, and `room.max_daily_agent_usd` their priced usage.
 - **Sources (checked 2026-10-26):** KICKOFF `<constraints>` Spend; [claude-gateway §2] (prices); [mod-api §6, §9]; [plugin-packaging §1]; review round 1 findings above and owner decision D20.
 
 ## DR-52: What agents can reach: confined reads, person-only imports, and guarded worktrees
@@ -1116,7 +1141,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-54: Surfaces act through catalogue verbs, reversibly, in real keystrokes
 
-- **Status:** accepted (decided in review round 1, D15). Amended in review rounds 2 and 3. Amended by DR-105.
+- **Status:** accepted (decided in review round 1, D15). Amended in review rounds 2 and 3. Amended by DR-105 and DR-116.
 - **Starting point:** none; implements R13, S9 and principle 1 ("Everything is reversible, which is what makes bold defaults safe").
 - **Origin:** review round 1: ux-2, ux-3 and ux-4; the minor findings ux-8 and ux-10.
 - **Context:**
@@ -1141,6 +1166,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 2:** the band and `PaneModel.next` also never name a leaf that can spend (`CommandSpec.spends`), so a stray digit can't start a paid model call (principles-12). The review card that `collect` deals takes a second key to merge (principles-7) [DR-66]. With no open decision the pane draws `PaneModel.next` as its face-up card, so vscode and mobile, which have no band, still show the next action (ux-5). A band press from the empty prompt shows a toast of what it did, and for 10 s the band's primary is its undo (ux-6). Choices sit two to a row, and a fixed label holds 20 columns (ux-7). Below 34 body rows or 49 columns the pane draws a compact layout: a focus line, the card and the list (ux-8). Enter on a stage row under `i` runs that stage through its cost card, and an accepted stage makes `intent version` the next action (ux-11). Tests `surfaces.test.tsx::no_decision_shows_next_on_every_surface`, `rows_fit_compact_at_80x24_and_100x30`; `keys.test.tsx::a_band_press_from_the_prompt_offers_undo`. On the canvas, the action tray, lid drops, felt pins and chalk relations each run one catalogue `edit` leaf, so hand edits follow this record's rules too (ux-2) [DR-68].
 - **Amended in review round 3:** `l`, `p`, `i`, `h` and `t` deal pickers whose first ten entries are a key plus a digit. The stage picker is the stage run's cost card, so its pick is the confirming key, which replaces round 2's "Enter on a stage row under `i` runs that stage through its cost card". Merging is the unasked review card's Merge, then a second press. The row-key pool covers the drift and who lines' top items and 7 list rows, and the compact layout keeps the top diff line. S9 counts keys with no list open, per flow in `feature_list.json` (F9, ux-2, ux-3, principles-2) [DR-77].
 - **Amended by DR-105:** the surface tests named under `packages/mod/src/surfaces.test.tsx` live in `packages/mod/plugin-tests/surfaces.test.tsx`, where `claude plugin test` draws all four surfaces; the pure layout's tests stay in `packages/mod/src/layout.test.ts`.
+- **Amended by DR-116:** the pane gains the question line below the who line.
 - **Sources (checked 2026-10-26):** [mod-spike] (bare digits, `ctrl+x tab`, the 49×34 dock, diff hunk headers); [mod-api §2] (at most 36 one-key actions per pane); KICKOFF S9, S15 and principle 1; review round 1 findings above and owner decision D15.
 
 ## DR-55: Hand-off revert and an enumerated irreversible list
@@ -1197,7 +1223,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-57: The pane before the engine and outside a workspace
 
-- **Status:** accepted (decided in review round 1, D15). Amended in review rounds 2 and 3. Amended by DR-105.
+- **Status:** accepted (decided in review round 1, D15). Amended in review rounds 2 and 3. Amended by DR-105 and DR-115.
 - **Starting point:** none; implements principle 1 ("Never show a blank state") for S14's first run.
 - **Origin:** review round 1, principles-5; ux-6 (downgraded); the minor findings unasked-7 and operability-8.
 - **Context:** every pane row came from `focus`, which needs an engine. So the pane had nothing to draw while the engine downloaded or built, and the rule that the engine authors every string left the mod no text for it. `focus` in a directory with no repos was an error. `watch` started in every session, so a session in a parent of 70 repos would create a store or poll for nothing. Nothing said what works with mods off.
@@ -1217,6 +1243,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 2:** a `person_key_mismatch` fallback pane shows the one terminal line that re-keys the workspace, and the mods-off text lists the presses that go missing and which person-only commands a terminal can still run (unasked-4, downgraded) [DR-60].
 - **Amended in review round 3:** before registering anything, the mod checks its host's version and the `$` members it calls; on a mismatch it shows one line and leaves the skills and the CLI (F19, unasked-5) [DR-76]. The `person_key_mismatch` pane's action is a pane Button that runs `person init --rekey` with a press, not a terminal line, and `open` takes only a press, so neither runs with mods off (F15) [DR-75].
 - **Amended by DR-105:** each fallback pane is a `FallbackPane { headline, detail, action }`, not a `PaneModel`, for `resolving`, `fetching`, `build_offered`, `building`, `version_mismatch`, `person_key_mismatch`, `unsupported_platform`, `failed` and `no_focus`; there is no `store_busy` pane and no `/reload-plugins` action, and `building` has no action, since one source build runs at a time. `no_blank_pane` lives in `packages/mod/plugin-tests/surfaces.test.tsx` and `packages/mod/src/layout.test.ts`; the all-surfaces audit is the surface sweep's, at M1's end.
+- **Amended by DR-115:** `intent new` also makes a workspace, a plan-only one, in a folder with no repos.
 - **Sources (checked 2026-10-26):** KICKOFF principle 1, S14 and S15; [mod-api §7]; review round 1 principles-5, ux-6, unasked-7 and operability-8; owner decision D15.
 
 ## DR-58: One data root, a self-locating resolver, an embedded canvas and visible background work
@@ -1342,7 +1369,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-62: The pack set is workspace state
 
-- **Status:** accepted (decided in review round 2, E6). Amended in review round 3. Amended by DR-109.
+- **Status:** accepted (decided in review round 2, E6). Amended in review round 3. Amended by DR-109 and DR-120.
 - **Starting point:** extended "Packs. Declarative files that add kinds, levels, roll-up rules, extractors, lenses, decision kinds and a default view."
 - **Origin:** review round 2, extensibility-1; the minor finding extensibility-7.
 - **Context:**
@@ -1367,6 +1394,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-9, DR-10, DR-13, DR-48 and DR-60.
 - **Amended in review round 3:** `pack add` copies the validated pack into the state directory's `packs/<sha256>/`, and every process loads only the copy, so editing, moving or deleting a pack's source refuses no write. A changed source deals one person-only card, update or keep the current copy, with Keep pre-selected, and `packs_mismatch` remains only for engine version skew (extensibility-3, downgraded). Tests `packs.rs::an_added_pack_loads_from_its_copy`, `editing_a_packs_source_deals_one_card_and_refuses_no_write`, `deleting_a_packs_source_changes_nothing`.
 - **Amended by DR-109:** a copy is named by the sha256 over its files (`tests/` left out), in 0700 directories at 0600, read with a bounded walk; the config's list counts once, at the first trusted scan; the record also names the engine that wrote it (`packs_engine`, with its commit for a `-dev` build); only an engine older than that one refuses writes, and a newer one, or the same version at another commit, records its own built-ins at its first write, so no process reloads.
+- **Amended by DR-120:** `ontology add` and `ontology save` also change the pack set, person-only.
 - **Sources (checked 2026-10-26):** KICKOFF R5, R10, R11, R16 and S10; review round 2 extensibility-1 and extensibility-7, and owner decision E6.
 
 ## DR-63: Decision kinds express v0.1's kinds as data
@@ -1395,7 +1423,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-64: Agents never hold the person's authority
 
-- **Status:** accepted (decided in review round 2, E15); verify A-15 in WS8. Amended in review round 3.
+- **Status:** accepted (decided in review round 2, E15); verify A-15 in WS8. Amended in review round 3. Amended by DR-116 and DR-118.
 - **Starting point:** extended "Events carry the workspace, project, actor, cause and an idempotency key" (who counts as a person) and "A single-writer local server per workspace" (its exposure).
 - **Origin:** review round 2: security-1, security-2, security-4, security-5, security-6, security-7 and unasked-6; the minor findings security-8 and security-10.
 - **Context:**
@@ -1430,11 +1458,13 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: a hand-off runs unattended within its approved commands; commands outside them cost one card. A repo with a per-repo filter, such as a local Git LFS install, is refused for a merge with one card naming the keys; a global install isn't affected.
   - It amends DR-4, DR-16, DR-25, DR-29, DR-49, DR-52 and DR-60.
 - **Amended in review round 3:** the implementer's Bash runs under Claude Code's sandbox [A-18], its installs run before it starts, and without a sandbox its approved commands ask; `open` and `person init --rekey` take only a press; `PLANROOM_RAW` reaches only a read's `--json` stdout; and the browser opener gets the fixed system `PATH` (F15; security-1, security-4, security-7) [DR-75]. The 2.35.2 floor becomes 2.34.1, and the engine itself refuses a repo another user owns (unasked-8) [DR-78].
+- **Amended by DR-116:** a chat answer is an agent write that applies, never a person action; person-only commands stay person-only.
+- **Amended by DR-118:** `handoff start` also runs with no press when a live ratification's signed envelope covers its spec.
 - **Sources (checked 2026-10-26):** KICKOFF R5, R8 and principle 1; [mod-api §7] (`$.store` is a JSON file under the Claude Code configuration directory) and its module rules (`crypto.subtle`); review round 2 security-1, security-2, security-4 to security-8, security-10 and unasked-6, and owner decision E15.
 
 ## DR-65: Cost gates that can fail
 
-- **Status:** accepted (decided in review round 2, E16). Amended in review round 3. Extended by DR-89.
+- **Status:** accepted (decided in review round 2, E16). Amended in review round 3. Extended by DR-89. Amended by DR-118 and DR-119.
 - **Starting point:** none; serves the constraint "Spend" and S7's token budgets.
 - **Origin:** review round 2: cost-1, cost-2, cost-3 and cost-5; the minor findings cost-6, cost-7, cost-8, cost-9 and cost-10.
 - **Context:**
@@ -1465,11 +1495,13 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-18, DR-27, DR-50 and DR-51.
 - **Amended in review round 3:** a `scan` event triggers one `decide` duty run that spends that scan's budget, and leftovers wait for the next scan or a `decide --run` (cost-5). S7's warm phase repeats `decide --run` until none is pending (cost-4). `xtask live record` refuses a warm prefix before it pays, from the ledger's last write of that `prefix_hash` (cost-2). The live spend plan adds development re-records, aborted recordings and Phase 1's spend, and the walking skeleton seeds both spend logs (cost-1, cost-3). Bare `/room` returns no `text`, and any other `/room` text holds at most 300 tokens, gated as `room_text` (cost-6). Tests `duties.rs::one_scan_spends_at_most_its_budget_across_duty_runs`, `live_gate.rs::a_warm_prefix_is_refused_before_any_call`, `docs.rs::the_spend_log_starts_with_phase_1`, `packages/mod/src/room.test.ts::room_text_within_budget`.
 - **Extended by DR-89:** in M1, `intent next` answers from `tests/replay/` until M2's consent card and daily cap.
+- **Amended by DR-118:** a ratification's own spend and time caps stop further starts; the daily cap keeps its meaning.
+- **Amended by DR-119:** `handoff advance` starts nothing once today's priced agent usage across the room reaches `room.max_daily_agent_usd`; a person's `handoff start` press still runs, its card naming the sum.
 - **Sources (checked 2026-10-26):** KICKOFF `<constraints>` Spend, S7 and R9; [claude-gateway §4] (a prefix below the minimum fails silently); [mod-api §6] (the session cache lasts 5 minutes); review round 2 cost-1 to cost-10 except cost-4, and owner decision E16.
 
 ## DR-66: An agent surface that reports errors, takes proposals inline and brings the diff back
 
-- **Status:** accepted (decided in review round 2). Amended in review round 3. Amended by DR-106.
+- **Status:** accepted (decided in review round 2). Amended in review round 3. Amended by DR-106, DR-118 and DR-119.
 - **Starting point:** none; implements principle 2's agent interfaces, principle 1's "interrupt a person only for decisions only they can make" and R8's "its result comes back as a diff for review".
 - **Origin:** review round 2: principles-1, principles-3 and principles-7; the minor findings principles-10, principles-11 and principles-12.
 - **Context:**
@@ -1497,6 +1529,8 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-21, DR-22, DR-25, DR-27 and DR-54.
 - **Amended in review round 3:** `invalid_argument` carries the leaf's synopsis and its `schema --command LEAF` handle in `details` and `hint`, so a wrong tool argument costs one small read (principles-6) [DR-21]. Test `packages/mod/src/tools.test.ts::a_wrong_argument_returns_the_leaf_synopsis`.
 - **Amended by DR-106:** plan items are written through `intent propose`, whose `PlanProposal` fixes their fields; `edit set`, `text` and `propose` wait for a later milestone.
+- **Amended by DR-118:** under a ratification, `collect` builds a verified candidate instead of dealing a review card.
+- **Amended by DR-119:** `room_query` and `room_change` gain a `board` property that reaches attached boards only.
 - **Sources (checked 2026-10-26):** KICKOFF principles 1 and 2, R8, S9 and S14; [mod-spike] (A-4: a tool result is a string or content blocks); review round 2 principles-1, principles-3, principles-7, principles-10, principles-11 and principles-12.
 
 ## DR-67: Paired owner devices, and inbox rows only from the mod
@@ -1640,7 +1674,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-71: Everyday git moves: a tracked branch, the working tree and every repo layout
 
-- **Status:** accepted (decided in review round 2, E17). Amended in review round 3, and by DR-85 and DR-92.
+- **Status:** accepted (decided in review round 2, E17). Amended in review round 3, and by DR-85, DR-92, DR-118 and DR-119.
 - **Starting point:** extended DR-44 (the reconciler) and DR-33 (freshness on read).
 - **Origin:** review round 2: unasked-2; the minor findings unasked-8 and unasked-12.
 - **Context:**
@@ -1665,6 +1699,8 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 3:** the S7 consequence above gives way to DR-72's fast-forward. The reconciler runs on S7's rescan and classifies the `routine` commit `unplanned`, which deals no card (correctness-10). Test `s07_decisions.rs::the_routine_commit_is_unplanned`. A single-repo workspace's state directory is `.git/planroom/` [DR-74].
 - **Amended by DR-85:** `meta.dirty_repos` counts untracked files. Uncommitted work never reaches the map, and an untracked file is the commonest uncommitted work, so the signal runs `git status --porcelain=v1 -z --untracked-files=normal`, which honours `.gitignore`, in place of `--untracked-files=no`.
 - **Amended by DR-92:** the call turns off every filter driver git's config names and adds `--ignore-submodules=dirty`, so counting runs no command the repo or a submodule configures; a submodule the workspace maps reports its own status.
+- **Amended by DR-118:** a ratified hand-off's base branch is the plan's integration branch.
+- **Amended by DR-119:** a workspace may hold repos a person attaches from anywhere.
 - **Sources (checked 2026-10-26):** `examples/README.md` (S7's `routine` branch starts from `main`); KICKOFF principle 1 and R1; review round 2 unasked-2, unasked-8 and unasked-12, and owner decision E17.
 
 ## DR-72: Owner follow-ups after review round 2: signed person tokens, Git LFS filters, S7's fast-forward
@@ -1714,7 +1750,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-74: Repo namespaces that survive duplicates and renames, and a single repo's state in its git directory
 
-- **Status:** accepted (decided in review round 3, F5 and F6). Amended by DR-97.
+- **Status:** accepted (decided in review round 3, F5 and F6). Amended by DR-97, DR-115 and DR-120.
 - **Starting point:** kept "Stable, namespaced IDs such as `<repo>:<kind>:<key>`" and extended DR-53's backups.
 - **Origin:** review round 3: unasked-1, unasked-2 and unasked-4.
 - **Context:**
@@ -1738,12 +1774,14 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: same-named repos map apart, a renamed file keeps its corrections, and `git clean -x` in a single repo leaves Planroom's state alone.
   - Milestones: M1's IDs and backup slices grow by 3 h.
   - It amends DR-42, DR-48, DR-53 and DR-71.
+- **Amended by DR-115:** a `.planroom/` at a repo's root is its state directory when the data root records it as trusted and git tracks nothing in it; `intended` is a reserved namespace.
+- **Amended by DR-120:** `onto` is a reserved namespace.
 - **Sources (checked 2026-10-26):** KICKOFF R1, R6, R15 and principle 1; `git-diff(1)` (`-M`), `git-rev-parse(1)` (`--absolute-git-dir`); review round 3 unasked-1, unasked-2, unasked-4 and owner decisions F5 and F6.
 - **Amended by DR-97:** a repo named `ws` or `plan` takes the suffix too, the suffix grows 4 hex at a time while the suffixed name is still taken, and a root's namespace is fixed at the first scan that maps the repo, inside that scan's transaction.
 
 ## DR-75: Authority stays with a person's own action
 
-- **Status:** accepted (decided in review round 3, F7, F11 and F15); verify A-18 in WS8. Amended by DR-88, DR-98 and DR-110.
+- **Status:** accepted (decided in review round 3, F7, F11 and F15); verify A-18 in WS8. Amended by DR-88, DR-98, DR-110, DR-116 and DR-118.
 - **Starting point:** extended "Events carry the workspace, project, actor, cause and an idempotency key" (who counts as a person) and "Remote mode: ... Artifact edits land as events in a db collection; the session imports them".
 - **Origin:** review round 3: security-1 to security-4, principles-3 and unasked-3; the minor findings security-5 to security-9 and security-11, and part of security-10.
 - **Context:**
@@ -1781,6 +1819,8 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended by DR-88:** the mod registers the person key's public half once per workspace in each mod's life and again after a press the store refuses as no person's, not once per workspace for good.
 - **Amended by DR-98:** each unsigned row's ghost is caused by the open Apply card it joins, since an import writes no event of its own to name.
 - **Amended by DR-110:** the ref's copy redacts every line, its header too, through `redact::value_with_open`, which masks a stored record's marked fields and every string under its open values. It is kept in 1,000-line segments under its own lock and committed as one parentless, unsigned commit through git plumbing, with no working tree, index or branch touched.
+- **Amended by DR-116:** a signed owner row may also apply `intent answer`.
+- **Amended by DR-118:** a ratified hand-off's installs run unsandboxed only from manifests byte-identical to the envelope's; from a changed or new lockfile they run sandboxed, reaching only the registry hosts the envelope names, or, where the host can't limit them, wait for a person's press.
 - **Sources (checked 2026-10-26):** KICKOFF R5, R8, S11 and principle 1; the Artifact tool's browser-storage rule (storage survives a republish to the same URL); [artifact §2]; review round 3 security-1 to security-11, principles-3 and unasked-3, and owner decisions F7, F11 and F15.
 
 ## DR-76: The mod checks its host
@@ -1807,7 +1847,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-77: Every pane action within two keys, and an Artifact that serves a cloud session
 
-- **Status:** accepted (decided in review round 3, F9 and F10); verify A-22 in WS5.
+- **Status:** accepted (decided in review round 3, F9 and F10); verify A-22 in WS5. Amended by DR-118 and DR-119.
 - **Starting point:** none for the pane, which implements R13, S9 and principle 1; kept and refined "Remote mode: ... the Artifact shows cached decisions and queues new ones" for the Artifact.
 - **Origin:** review round 3: ux-1, ux-2, ux-3 and principles-2; the minor findings ux-5, ux-6, ux-7, ux-10 and part of ux-9.
 - **Context:**
@@ -1837,11 +1877,13 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Walking skeleton: WS5 checks A-22.
   - Milestones: M1's mod slice grows 2 h and its canvas slice 1 h; M5's remote slice grows 4 h, and its docs slice 1 h, shared with DR-78.
   - It amends DR-22, DR-31, DR-54, DR-56 and DR-67.
+- **Amended by DR-118:** under a live ratification, a POC fail's redraft runs under the ratify press, whose card named its cost, and `h` deals the run's card, whose Stop takes a second key.
+- **Amended by DR-119:** `p` deals the board picker.
 - **Sources (checked 2026-10-26):** KICKOFF R13, R14, S9, S11 and principle 1; [mod-api §2] (36 one-key actions per pane), [mod-api §3] (`immediate`); [mod-spike]; [artifact §2]; review round 3 ux-1 to ux-10 and principles-2, and owner decisions F9 and F10.
 
 ## DR-78: Releases users install, detached work in its own session, a canvas port that never moves, and machine-wide files across versions
 
-- **Status:** accepted (decided in review round 3, F8, F16 and F17); verify A-20, A-21 and A-23 in WS8.
+- **Status:** accepted (decided in review round 3, F8, F16 and F17); verify A-20, A-21 and A-23 in WS8. Amended by DR-119.
 - **Starting point:** kept and refined "plugin/ ... engine bootstrap" and DR-69's release flow; extended "Store: single-writer local server" through DR-29's stable port.
 - **Origin:** review round 3: operability-1, operability-2 and unasked-7; the minor findings operability-3, operability-5 to operability-8, unasked-8 and unasked-10.
 - **Context:**
@@ -1874,6 +1916,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Walking skeleton: WS5 checks the detach on both systems; WS8 checks A-20, A-21 and A-23 and grows 1 h.
   - Milestones: M1's canvas, extractors and backup slices grow 1 h each; M5's release slice grows 2 h.
   - It amends DR-1, DR-16, DR-29, DR-51, DR-53, DR-58, DR-64 and DR-69.
+- **Amended by DR-119:** the room's port, recorded in `room.json`, replaces the port per workspace; `workspaces.json` entries gain `attached`.
 - **Sources (checked 2026-10-26):** [plugin-packaging §5] (real git and GitHub installs unverified; version resolution); [mod-api §7] (process groups on reload unverified); `/bin/sh -> dash` in this container, and the round-3 verifier's `set -m` check; KICKOFF's packaging constraint and S14; review round 3 operability-1 to operability-8, unasked-7, unasked-8 and unasked-10, and owner decisions F8, F16 and F17.
 
 ## DR-79: Gates that fire only where they mean something
@@ -1918,7 +1961,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-80: Hand-off results land however the change reaches the tracked branch
 
-- **Status:** accepted (decided in review round 3, F20).
+- **Status:** accepted (decided in review round 3, F20). Amended by DR-118.
 - **Starting point:** none; serves R7 and R8 ("reconciliation closes the loop after merge").
 - **Origin:** review round 3: unasked-6.
 - **Context:** the only route to `merged` was the person-only `handoff merge`, a local `git merge --no-ff`. A repo with a protected `main`, or a team used to pull requests, lands the branch by a pull request, often squashed. Then `planroom/KEY` was never an ancestor, the item stayed in progress, and the squash commit, which touches the item's targets, fell through to the residual card.
@@ -1936,6 +1979,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: a team with protected branches lands hand-offs the way it lands everything else.
   - Milestones: M2's hand-off slice grows 2 h and its reconciler slice 1 h.
   - It amends DR-25, DR-44 and DR-55.
+- **Amended by DR-118:** a plan's integration branch may land by pull request, `landed_by` `Plan`.
 - **Sources (checked 2026-10-26):** KICKOFF R7, R8 and principle 1; `git patch-id --stable` (git documentation); review round 3 unasked-6 and owner decision F20.
 
 ## DR-81: What the walking skeleton's engine and plugin work settled
@@ -2146,7 +2190,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-85: What the walking skeleton's review settled
 
-- **Status:** accepted (decided at the merge of the review's fixes, 2026-10-26). Amended by DR-86, DR-87 and DR-111.
+- **Status:** accepted (decided at the merge of the review's fixes, 2026-10-26). Amended by DR-86, DR-87, DR-111 and DR-115.
 - **Starting point:** extended "Extractors read the repo", "One contract source", "Surfaces read one contract" and the release model.
 - **Origin:** the walking skeleton's review, round 1. Eight reviewers, one per focus and each checked by a separate verifier, found 18 material findings ([the review's index](research/skeleton-review/README.md)). Four fix branches fixed them (the scan, contract, engine and surfaces fixes), and the resolver and `check` items were fixed directly. This record settles each doc conflict the fixes raised.
 - **Context:** The skeleton's slice worked end to end, live. Its review still found that a dirty first scan froze a wrong map, persisted documents dropped unknown fields, surfaces offered buttons that failed, the guard missed everyday shell forms, and some documented gates and checks had no milestone. Each fix met a place where the docs were silent or said something else.
@@ -2183,6 +2227,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - `share`'s publish arguments name `root`, with `files` relative to it, and its result lists only the files it built from the workspace.
 - **Amended by DR-87:** `UnavailableReason` is also a schema root, so the mod reads it from the generated types and its switch over reasons is checked at build time.
 - **Amended by DR-111:** blocks nesting like boxes, and a lid lifting on a level zoom, are how the table draws an abstraction level; every user-facing word speaks of abstraction levels, and no surface names a level.
+- **Amended by DR-115:** `no_repos`'s next action is `schema --command "intent new"`, "Start a plan here".
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/` (round 1's findings and verdicts); the four fix branches' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
 
 ## DR-86: What the walking skeleton's review settled in round 2
@@ -2225,7 +2270,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-87: What the walking skeleton's review settled in round 3
 
-- **Status:** accepted (decided at the merge of round 3's fixes, 2026-10-26). Amended by DR-88, DR-97 and DR-107.
+- **Status:** accepted (decided at the merge of round 3's fixes, 2026-10-26). Amended by DR-88, DR-97, DR-107 and DR-115.
 - **Starting point:** extended "Extractors read the repo", "Actors: agents never act as a person", "Surfaces read one contract" and Remote mode.
 - **Origin:** round 3, the last, of the walking skeleton's review. Its 9 material findings, 8 distinct defects, are in [the review's index](research/skeleton-review/README.md), with what stays open in [its accepted risk](research/skeleton-review/accepted-risk.md). One fix repaired CI, and two fix branches fixed the rest (the engine and guard fixes).
 - **Context:** Round 2's fixes held where they were aimed. Round 3 found their edges: a late scan could still move a repo back when the repo set changed rather than `HEAD`; a repo's own config could re-allow a transport on a git without `GIT_NO_LAZY_FETCH`; a workspace whose repos had no commit looped on a scan that mapped nothing; import's reply passed its budget with many rows; and the guard resolved paths against a directory the shell had left, checked only four tools' paths, and let an agent rewrite the mod that guards it.
@@ -2253,6 +2298,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-86 (the late scan, the transports, `repo_unborn` in scan's summary, the guard's reach), DR-83 (import's result) and DR-85 (the resolver's reason types).
 - **Amended by DR-88:** a tool the guard doesn't know is held through every string it's given, not only strings that look like a path, and a string that reaches only a place the write rule holds is put to the person.
 - **Amended by DR-107:** with no repo names in a repo's snapshot, a late scan no longer re-derives its inputs under the write lock; `scan_superseded`'s `repos_changed` means only that another scan fixed the repo's root under another namespace, or this namespace for another root.
+- **Amended by DR-115:** `plan_only` wins over `repos_unborn` when a plan exists; `repos_unreadable` still wins over both.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/round3-*.json`; the two fix branches' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
 - **Amended by DR-97:** an unborn repo writes no snapshot and no scan event; `repo_unborn` and the scan's summary say it maps after its first commit, and the live frame's unborn line remains only for empty-commit events an older engine wrote.
 
@@ -2705,7 +2751,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-101: Workspace trust by record, a pinned person key, confined reads, and the credential paths a scan checks
 
-- **Status:** accepted (decided at the merge of M1's workspace trust, 2026-10-28). Amended by DR-109.
+- **Status:** accepted (decided at the merge of M1's workspace trust, 2026-10-28). Amended by DR-109 and DR-119.
 - **Starting point:** extended DR-52, DR-74, DR-78 and DR-89; amends DR-48 and DR-88.
 - **Origin:** the merge of M1's workspace trust, confined reads and guarded places, read against the docs by independent checks over three rounds.
 - **Context:**
@@ -2733,6 +2779,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Known gap: a store planted over a workspace whose key is already pinned leaves a person no way to re-register under their own key after accepting its trust card, since `person init` refuses the mismatch and `--rekey` needs a token under the planted key. Deleting the planted state directory clears it. M2 lets `person init` re-register when the store's key doesn't match the root's pin, with the pinned key's token as the authority.
   - Tests: `trust.rs`; `confine.rs::a_credential_path_needs_a_person`, `a_read_outside_the_workspace_is_path_refused` and `workspace_flag_on_a_read_needs_an_existing_store`; `tools.test.ts::a_tool_call_never_names_another_workspace`; `guard.test.ts::an append, an archive's own names and gio hide no guarded place`.
 - **Amended by DR-109:** `planroom-testkit`'s `fixture_with_packs` builds the fixture workspace as `cargo xtask fixture` does, its Ruby pack config recorded as trusted, for every test that scans the fixture as CI paths do; the plain `fixture` writes no state directory, so the engine's first scan creates and records it.
+- **Amended by DR-119:** the tools still refuse `--workspace` and reach another workspace only through an attached board.
 - **Sources (checked 2026-10-28):** `crates/planroom/src/app/{trust, confine, data, cards, review, person, actor}.rs`; `packages/mod/src/{guard, tools}.ts`; `crates/xtask/src/fixture.rs`; [Where the workspace lives](architecture.md#where-the-workspace-lives); [Contracts](contracts.md).
 
 ## DR-102: Every directory's purpose checked, generated paths marked from one table, and golden reads caught by literal
@@ -2817,7 +2864,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-105: Pane sections with row keys and a 7-row page, the mod's lines from the string catalog, and one budget for `focus`
 
-- **Status:** accepted (decided at the merge of M1's pane sections, 2026-10-28).
+- **Status:** accepted (decided at the merge of M1's pane sections, 2026-10-28). Amended by DR-116.
 - **Starting point:** extended DR-54, DR-57, DR-65, DR-77 and DR-82; amends DR-54 and DR-57.
 - **Origin:** the merge of M1's pane sections and fallback panes, read against the docs by an independent check.
 - **Context:**
@@ -2840,11 +2887,12 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: `FocusReq.detail` (`summary` or `full`, additive); `PaneModel.minimap` omitted at `summary`; `FALLBACK_PANES` and `MOD_STRINGS` in `catalogue.ts`.
   - Known gaps: below about 48 columns two long choice labels side by side can overflow the pane; the guard's verdict reasons, the tool descriptions, `room-args.ts`'s usage line, `live.ts`'s line, three of `engine.ts`'s lines and `/room`'s "+N more" are still written in the mod; no row is selected until a row key selects one, though architecture.md says an action key acts on the first row until then (the key map's action keys land with it); `room_query` asks for the full `focus` until the band and tools pass `--detail summary`; the resolver's source build takes no lock, so a reload mid-build can offer Build again; the all-surfaces sweep of every fallback pane, the not-yet-a-workspace state and every error frame is the surface sweep's, at M1's end.
   - Tests: `packages/ui/src/rows.test.ts`; `packages/mod/plugin-tests/surfaces.test.tsx` (`no_decision_shows_next_on_every_surface`, `drift_and_who_top_rows_carry_row_keys`, `compact_keeps_the_top_diff_line`, `pane_shows_the_engines_summary_line`, `a_check_again_press_refreshes_the_pane_with_no_way_back`, `a_running_source_build_offers_no_second_build`); `crates/planroom/tests/budgets.rs::focus_keeps_to_one_budget`; `crates/planroom/tests/focus.rs::focus_detail_summary_drops_the_minimap_and_keeps_the_rest`; the goldens `focus-no-repos.json` and `map-container.json`.
+- **Amended by DR-116:** the list takes the row keys left in the pool, at most 7, so it pages at 6 when every keyed section shows.
 - **Sources (checked 2026-10-28):** `packages/mod/src/{layout, register, engine, fallback}.ts`; `packages/ui/src/{rows, text}.ts`; `crates/planroom/src/app/focus.rs`; `crates/xtask/src/generate.rs`; `crates/planroom/text/en.toml`; [The mod](architecture.md#the-mod); [Contracts](contracts.md).
 
 ## DR-106: The plan pack's stages and lint, the deterministic `intent` leaves, and `ask stage`
 
-- **Status:** accepted (decided at the merge of M1's plan pack, 2026-10-28).
+- **Status:** accepted (decided at the merge of M1's plan pack, 2026-10-28). Amended by DR-115, DR-116, DR-118 and DR-120.
 - **Starting point:** extended DR-15, DR-23, DR-52, DR-66, DR-89 and DR-101; amends DR-5, DR-23, DR-66, DR-92 and DR-94.
 - **Origin:** the merge of M1's plan pack, lint, the deterministic `intent` leaves and `ask stage`, read against the docs by independent checks over two rounds.
 - **Context:**
@@ -2868,6 +2916,10 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: `IntentNewReq`, `IntentVersionReq`, `IntentListReq`, `PlanProposal`, `ProposedItem`, `IntentListResult`, `PlanItem`, `LintResult`, `LintFinding`; `RuleType::Covers` and `Disjoint`; `StageDecl.prompt`; the empty states `no_intent`, `no_plan_items` and `no_findings`; `truncated`'s `entries_cut` for `intent list`; `path_refused`'s proposal-file reach.
   - Known gaps: `ask stage` and `intent lint` read the built-in packs only, as other reads do until the pack set loads a workspace's; the four M2 stage checks; an automatic version 1.
   - Tests: `crates/planroom/tests/s03_plan.rs`; `crates/planroom/tests/intent.rs`; `crates/planroom/tests/packs.rs`'s plan-pack validation tests; `budgets.rs::an_intent_list_page_keeps_to_its_budget_however_long_its_touch_ids`; the kernel's plan and lint unit tests.
+- **Amended by DR-115:** a proposal may put intended blocks, and a next action may target one.
+- **Amended by DR-116:** the plan pack gains the `question` item type, its checklist line and its rules; `answer` is settable through `intent propose`.
+- **Amended by DR-118:** an eighth stage, `derisk`, a stage's `needed_when`, the `poc` item type, `risk`'s `stakes` and `rests_on`, and the rule type `max_descendants`.
+- **Amended by DR-120:** the rule type `ordered`; `[[items]]` entries' `concept`, `summary`, `stages` and `checklist`; and the plan pack's `moscow_order`.
 - **Sources (checked 2026-10-28):** `packs/plan/`; `crates/kernel/src/{plan, lint}.rs`; `crates/planroom/src/app/{intent, ask, confine, edit}.rs`; `crates/contract/src/plan.rs`; [Planning](architecture.md#planning-stages-ghosts-and-lint-r5); [Contracts](contracts.md).
 
 ## DR-107: The link snapshot and `runtime_wiring`, with test code kept out of every runtime join
@@ -2925,7 +2977,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-109: The pack set as workspace state, the changed-source card, and the Ruby pack
 
-- **Status:** accepted (decided at the merge of M1's pack set, 2026-10-29). Amended by DR-111 and DR-113.
+- **Status:** accepted (decided at the merge of M1's pack set, 2026-10-29). Amended by DR-111, DR-113 and DR-120.
 - **Starting point:** extends DR-62; amends DR-62, DR-89 and DR-101.
 - **Origin:** the merge of M1's pack set, read against the docs and the truth by independent checks over two rounds.
 - **Context:**
@@ -2948,6 +3000,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `crates/store/tests/pack_record.rs`; `crates/planroom/tests/packs.rs`'s pack-set cases; `trust.rs::{an_agent_cannot_add_a_pack, planroom_packs_loads_nothing_outside_doctor, an_out_of_tree_pack_loads_without_a_card}`; `s10_extensibility.rs::{ruby_absent_without_pack, healthcheck_edges_through_the_ruby_pack}`; `s01_first_look.rs::{search_finds_every_truth_entity, repo_languages_match_truth}`.
 - **Amended by DR-111:** the known read gap covers every read, `map` and `find` among them: until reads load the workspace's recorded pack set, `map --level` refuses an out-of-tree pack's level with `invalid_argument` naming the built-in levels, and that level's blocks count at the finest.
 - **Amended by DR-113:** the decided-at-the-merge hand-off is `Command`'s alone: `schema --def Command` keeps every variant and its `$ref` and hands off the leaf request types it leaves out behind one `schema --commands` handle, while every other type keeps its per-type `schema --def` handles. `schema --commands` itself pages, with an opaque cursor bound to the catalogue.
+- **Amended by DR-120:** a pack's recorded source may be the room's library, `DATA_ROOT/ontologies/<id>/`.
 - **Sources (checked 2026-10-29):** `crates/planroom/src/{packs, app/pack.rs}`; `crates/store/src/meta.rs`; `examples/packs/ruby/`; [What a pack is](architecture.md#what-a-pack-is); [Contracts](contracts.md).
 
 ## DR-110: Event backups written through on every person-authored commit, a temporary host's redacted ref, and the plain `doctor`
@@ -3211,3 +3264,1024 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `crates/planroom/tests/s03_plan.rs::{stages_produce_ghosts_until_accepted, a_stage_that_drafts_nothing_is_refused_before_any_call}`; `budgets.rs::{s3_cache_hit_rate_at_least_0_6_after_the_first_stage, every_built_leafs_reply_on_the_fixture_keeps_to_its_budget}`; `live_gate.rs::{intent_next_without_a_record_flag_is_budget_exceeded, a_relative_replay_dir_is_refused, the_proxy_alone_makes_no_model_request}`; `privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output`; `crates/planroom/src/app/draft.rs`'s unit tests (the shared prefix, the prop cut, the slice's marks, a fifty-item draft); `crates/contract/src/plan.rs::the_draft_schema_is_strict_and_order_free`; `crates/models/src/gate.rs::a_relative_replay_dir_is_refused`; `version.rs::{schema_commands_pages_join_to_the_whole_catalogue, a_schema_commands_cursor_no_page_gave_is_refused}`; `crates/planroom/src/app/version.rs::{schema_def_command_hands_its_leaf_requests_off_by_one_handle, a_schema_commands_cursor_from_another_catalogue_or_off_a_page_edge_is_refused}`; `catalogue.rs::undo_classes_snapshot`.
   - Users: with no chat, a person or a CI job drafts a plan's next stage with one command and reviews the model's ghosts. An agent reads the command list a page at a time.
 - **Sources (checked 2026-10-29):** `crates/planroom/src/app/{draft, intent, models, version}.rs`; `crates/planroom/src/cli.rs` (`with_usage`); `crates/contract/src/{plan, command, errors, requests}.rs`; `crates/models/src/gate.rs`; `packs/plan/{pack.toml, prompts/plan.md}`; `tests/replay/claude/plan.stage.*/`; `budgets.json`; `docs/evidence/spend.jsonl`; [Claude](architecture.md#claude); [Live spend plan](architecture.md#live-spend-plan); [Contracts](contracts.md#error-codes).
+
+## DR-115: Starting from nothing: a plan-only workspace, intended blocks that next actions target and that resolve when code lands, and a hand-off that starts a new repo
+
+- **Status:** accepted (decided on the owner's request of 2026-10-29).
+- **Starting point:** extends DR-23 and DR-106 (the plan pack and its proposals), DR-57, DR-85, DR-86 and DR-87 (empty states), DR-25 and DR-64 (hand-off clones), DR-48 and DR-101 (trust), DR-73 (a person's field wins), DR-80 (landed commits as change units), DR-110 (event backups) and the `intent next` draft (DR-113). DR-117, DR-118, DR-119 and DR-120 build on its intended blocks and plan-only workspaces. Keeps KICKOFF's "AI proposes, person disposes", every person-only gate of DR-64 and DR-75, and the intended layer as architecture.md:343 states it. Amends DR-57 (only `scan` makes a workspace), DR-74 (where the state directory is, and the reserved namespaces), DR-85 (`no_repos`'s next action), DR-87 (`repos_unborn` when a plan exists), DR-106 (what a proposal writes and what a next action may target) and DR-25 (a hand-off clones only repos that exist, and merges with `--no-ff`).
+- **Origin:** the owner, 2026-10-29, on starting from nothing: "it has to be supported". The owner accepted the proposals that follow: "Yeah I like these. Get them planned properly."
+- **Context:**
+  - A folder with no repos is no workspace. `focus` and `map` show "No git repos here" with `focus` as the next action (architecture.md:593, contracts.md:181), and `scan` refuses with `workspace_not_found` when it finds no repos (`crates/planroom/src/app/scan.rs:89-92`).
+  - `intent new` opens an existing store only, so it fails with `workspace_not_found` before any scan (`crates/planroom/src/app/intent.rs:174-180`). No plan can start in an empty folder.
+  - A `.planroom/` at a repo's root is never that repo's state directory (architecture.md:590; `crates/planroom/src/app/workspace.rs:110-121`). So a person who starts a plan and then runs `git init` in the same folder would lose sight of it.
+  - The intended layer names intended nodes (architecture.md:343), and `Node` already carries a `layer` (`crates/contract/src/model.rs:254`). But no command puts an intended block: `EditOp` writes renames, groups, pins and intended relations only (`crates/contract/src/requests.rs:30-70`), and plan items sit at the kernel's `intent` level, never on the ladder (`crates/kernel/src/plan.rs:101-116`).
+  - Attachment refuses a target that matches no block (architecture.md:1229). An engine draft drops such a target and counts it in `intent.targets_dropped`, and lint flags an item left with none (the `intent next` change, DR-113). With an unborn or README-only repo, the map is near empty, so next actions have almost nothing to target.
+  - A hand-off clones each touched repo and checks out its base commit (architecture.md:1311). `handoff merge` runs `git merge --no-ff` (architecture.md:1344), and `SpecRepo.base_commit` is required (contracts.md:1135-1137). So the first implementation has nowhere to go. Git refuses `--no-ff` into a branch with no commit ("Non-fast-forward commit does not make sense into an empty head"; git 2.43.0, checked 2026-10-29), and `--ff-only` into one works.
+  - The mod starts `watch` once `focus` answers from a store (`packages/mod/src/watch.ts:169-171`). The card kinds are an open set (`crates/contract/src/card.rs:47-53`). Swift and Kotlin have no built-in grammar; the code pack's languages are TypeScript, JavaScript, Python, Go and Rust, with Ruby as a pack (architecture.md:944).
+- **Decision:**
+  - **A plan-only workspace (amends DR-57).** A folder becomes a workspace when `scan` or `intent new` runs there.
+    - `intent new TEXT` in a folder with no store creates the state directory and the store where `scan` would, records the directory as trusted by the engine, writes its `workspaces.json` entry as `scan` does (so the room lists its boards, DR-119), and puts the project. The reply's summary says so in one line: "Started a plan in newthing/. No repos yet."
+    - The project follows DR-106: an agent's `intent new` puts it as a ghost, so nothing the agent starts counts until a person accepts it. The state directory and the store hold no authored state of their own, as with an agent's `scan`.
+    - It refuses the home directory and the filesystem root with `path_refused`, reasons `home_directory` and `filesystem_root`. A store there would make every folder below it one workspace, since the root is the nearest ancestor that holds one. The hint is the one line that makes a folder for the plan.
+    - `focus`, `map` and the other reads work in it. `scan` in a workspace with a store and no repos returns ok, maps nothing and writes no event: "No repos to map yet; your plan is kept." With no store and no repos, `scan` still refuses with `workspace_not_found` and creates nothing.
+  - **Empty states (amends DR-85 and DR-87).**
+    - `no_repos` (no repos, and no store or a store with no plan) says "No git repos here. Start a plan, or add a repo." Its next action is `schema --command "intent new"`, "Start a plan here", as `no_intent`'s is. It was `focus`, which only looped.
+    - New `plan_only`: `focus` or `map` with nothing at the top, where a plan exists and no repo has a commit. The line says the map fills from the plan's intended blocks and from each repo's first commit. Its next action is `intent list`, "Show the plan".
+    - `plan_only` wins over `repos_unborn`, since the plan is the work in hand and the line still says a first commit maps the repo. `repos_unreadable` keeps winning over both, since git can't read a repo until a person fixes it.
+  - **A plan begun before `git init` (amends DR-74).** A `.planroom/` at a repo's root counts as that repo's state directory only when the data root records that exact directory as trusted (its root, path, inode and birth time, DR-101) and git tracks nothing inside it. A clone or a copied tree can't carry such a record, so a committed `.planroom/` still loads nothing. Every other `.planroom/` at a repo's root stays ignored, as before. The engine never moves the directory into `.git/planroom/`.
+  - **Intended blocks (extends DR-106).** An intended block is a node on the intended layer at a ladder level: a repo, service, module or file the plan means to exist.
+    - `PlanProposal` gains `blocks`. Each `ProposedBlock` has a `key`, a `kind` that a loaded pack declares at a ladder level, a `name`, an optional `parent` and a required `expect`.
+    - Its ID is `intended:<id_prefix>:<key>`, the key following DR-106's rule. `intended` joins `ws` and `plan` as a reserved namespace, so a repo directory named `intended` takes the 4-hex suffix and an intended block never shares an ID with a fact.
+    - The ID carries no project. The intended layer is shared by the workspace's projects (architecture.md:529), so one intended block can serve two plans. A proposal that names an intended key that already exists re-proposes that block, as DR-106 re-proposes an item: a person's sets only the fields that differ, and an agent's is a ghost against the block, which every project then sees.
+    - `expect` says where its code will live: `repo`, a namespace that exists or a new repo's directory name (same character rule as a key, left unchanged by redaction, since it becomes a namespace), an optional repo-relative `path`, and an optional `branch`, the new repo's first branch, which defaults to `main` and is read only when `repo` names no repo. A block with no `expect` is refused, because a scan could never find it. When the agent can't know, it guesses, and the person corrects it before accepting.
+    - `parent` is a block at a coarser ladder level, intended or actual, or none at the top. A proposed block may name another block in the same proposal as its parent.
+    - Blocks follow the ghost rules: an agent's blocks are one ghost batch with the proposal's items, and a person accepts them, block by block or as a batch.
+    - The plan pack's `breakdown` and `next_actions` stages declare `blocks = true`, so `intent next` drafts may propose blocks and `ask stage` lists the ladder's levels with the kinds at each.
+  - **Next actions target intended blocks (amends DR-106).**
+    - A `kernel.touches` target may be an intended block, accepted or a ghost. An engine draft drops only a target that is neither an actual block nor an intended one in the model or in the same draft.
+    - A person's accept of an item whose target is still a ghost block is `invalid_argument` with `field` `touches`, carrying the ghost and its exact `review` in `ghosts`, as DR-106 does for a ghost parent. Accepting the batch accepts both.
+    - Lint reads an accepted intended block as a found target.
+    - An intended block holds no evidence, so the impact radius lists it and adds nothing around it.
+  - **On the map.** `MapNode` gains `intended`. An unresolved intended block draws as a dashed outline in its kind's tone, beside the actual blocks at its level, and a ghost one is also translucent. A resolved block isn't drawn: its actual block is. A plan-only workspace's top level is therefore the plan's intended repos.
+  - **Resolution: an intended block meets its code.** `Node` gains `resolved`, the actual block's ID, set by an ordinary edit on the intended block.
+    - **Candidates.** The candidates are the actual blocks at the intended block's level, in the namespace `expect.repo` names, whose location is `expect.path` or lies under it. A block's location is its first evidence path, or the repo's root when its evidence names none.
+    - **At scan, once.** Inside the scan's transaction, after the snapshot commits, each accepted, unresolved intended block with exactly one candidate of its own kind is resolved by an edit with the `system` actor, `cause` set to the scan. Diffs lists it once: "Intended service api found: api:container:api. Undo." The engine resolves a block automatically at most once. After a person undoes an automatic resolution, only a person resolves that block. So a scan never fights an undo.
+    - **The resolve card.** When the candidates are several, or one of another kind, the scan deals one `resolve` card per intended block: "Which block is the intended api?", with up to three candidates by nearest location and "Keep it intended" as the default. A rejected card is dealt again only when the candidate set changes.
+    - **By hand.** `edit resolve INTENDED ACTUAL` resolves any intended block to any actual block at its level. A person's applies at once. An agent's is a ghost.
+    - **What follows a resolution.** The fold reads a resolved block as its actual block, as it reads a renamed target: `kernel.touches` targets, intended `require`, `forbid` and `allow-only` edges, the impact radius, the reconciler and lint all see the actual block.
+    - **When the code goes away.** If the actual block vanishes and no recorded rename carries it, the intended block reads as unresolved again, draws as an outline, and Diffs says so once. It deals no card.
+    - Why this is safe: the rule matches only what a person accepted (the block, its kind and its `expect`), it runs only on code a scan maps from the tracked branch, it is one undoable edit, and it never sets a field a person holds (DR-73).
+  - **A hand-off can start a new repo (amends DR-25).** A next action whose target is an intended block whose `expect.repo` names no repo puts a created repo in the spec.
+    - **At start.** `handoff start` creates the repo at `<root>/<repo>` with `git init --template= --initial-branch=<branch>`, hooks off and the cleared environment, `<branch>` being the intended block's `expect.branch`. The start is a person's press (DR-64), or a live ratification whose envelope names the repo, its directory and its branch (DR-118); nothing else creates a repo. The start card says so: "Creates the repo api/ here on main, then runs cargo test and git commit in it, sandboxed."
+    - **The clone.** The engine clones the empty repo locally as for any repo and switches it to an orphan `planroom/KEY`. The implementer's first commit is the branch's root.
+    - **One path for both.** A repo that already exists with no commit, such as one a person made with `git init`, takes the same path with no creation step.
+    - **Refusals.** `handoff start` refuses with `invalid_argument`, `field` `expect.repo`: a workspace whose root is a repo (a new repo needs a folder of repos), and a name that is a reserved namespace or an existing repo's. A directory in the way that isn't empty fails as `handoff_conflict`, naming its files, with nothing created.
+    - **`collect` and cancel** work unchanged, since the real repo exists from the start: `collect` fetches into `refs/heads/planroom/KEY`, and a cancel or drop archives the branch at `refs/planroom/archive/KEY`.
+    - **Merge.** The preflight checks that the working tree is empty of everything but ignored files, and that `HEAD` names the unborn base branch. Then the merge runs `git merge --ff-only planroom/KEY`. With no merge commit, the hand-off records the branch's commits as its change units, as DR-80 does for a landed pull request, and `handoff revert` reverts them, newest first. The repo stays, with its history, so nothing anyone committed is lost.
+    - **Reconciling.** A created repo's reconcile window starts at the empty tree, so its first scan classifies the hand-off's commits as a later scan would, and the item can reach `done`.
+    - **Proof in the spec.** `SpecRule` gains `Exists`, one per intended block the hand-off's items target. `collect` checks it against the proposed snapshot by the candidate rule, so the review card reads "rules 2/2 met, blocks 1/1 found".
+  - **Languages with no grammar.** Starting from nothing in Swift or Kotlin maps files and directories only, through the `files` built-in. Intended blocks at those levels resolve against them. A finer level waits for a pack's `regex` extractor, the path AGENTS.md's table gives for any other language. This record adds no grammar.
+- **Alternatives rejected:**
+  - **Letting `scan` start an empty workspace:** a scan maps repos. One with none would write a scan event that names nothing, the case DR-97 removed for unborn repos.
+  - **Giving an intended block the ID its code will have:** an extractor's key isn't knowable before the code exists. A wrong guess leaves the block unresolvable, and a right one puts an intended and an actual node on one ID.
+  - **A relation from the intended block to its actual block:** the fold would follow a second edge on every read of either node. A field on the intended node reads the same and follows the fold's rename path. DR-120's `kernel.realizes` joins a concept to the blocks that build it, a different fact; a concept that realizes an intended block follows this record's read-through to the actual block.
+  - **A model decision kind to match blocks:** a model would choose what the plan meant. A deterministic rule over what the person accepted, then a person's card, keeps "AI proposes, person disposes".
+  - **Resolving at every scan, even after an undo:** the engine would undo the person's undo.
+  - **Creating the repo at merge instead of at start:** `collect`, cancel and the archive ref would need a second path with no real repo to hold refs.
+  - **An engine-authored root commit, so `--no-ff` works:** the engine has no git identity of its own and never fabricates one. Every merge commit it makes carries a person's identity: the person's own on their `handoff merge` press, or the one a ratification's envelope names (DR-118). An empty root commit that no person asked for is neither.
+  - **Making the workspace root itself the new repo:** the state directory would have to move into its git directory.
+  - **Moving `.planroom/` into `.git/planroom/` after `git init`:** `watch` and `serve` may hold the store open, the trust record would need rewriting, and the move can cross filesystems. Recognising the trusted directory where it is costs one rule.
+  - **Allowing a plan-only workspace in the home directory:** every later session below home would write into it.
+- **Consequences:**
+  - **Contracts:**
+    - `PlanProposal.blocks`, `ProposedBlock`, `Expect { repo, path, branch }` (`path` marked `x-redact`); `Node.expect` and `Node.resolved`, set only on intended-layer nodes; `MapNode.intended`.
+    - `EditOp::Resolve` and the `edit resolve` leaf, with its `CommandSpec` and the reversible undo class.
+    - The card kind `resolve`.
+    - `SpecRepo.created`, with `base_commit` optional and absent only on a repo with no commit; `SpecRule` kind `Exists`; `collect`'s blocks-found count.
+    - `StageDecl.blocks` in the pack format.
+    - The empty reason `plan_only`, and `no_repos`'s new line and next action.
+    - `path_refused` reasons `home_directory` and `filesystem_root`.
+    - The reserved namespace `intended`.
+    - Strings in `en.toml`: `empty.no_repos` reworded, `empty.plan_only`, `intent.workspace_started`, `scan.plan_only`, `card.resolve.*`, `diffs.intended_resolved`, `diffs.intended_unresolved`, `handoff.creates_repo`.
+    - No error or warning code is added. `schema_version` stays 1: the widened `base_commit` and the changed next action meet no released reader (the precedent of DR-85 and DR-111).
+  - **Milestones:**
+
+    | Slice | Milestone | h |
+    |---|---|---|
+    | A plan-only workspace: `intent new` creates the state directory, the store and the trust record; the home and root refusals; `scan` ok with no repos; `no_repos`'s new next action and `plan_only`; a trusted `.planroom/` at a repo's root; the golden `focus` reply | M1 | 5 |
+    | Intended blocks: `PlanProposal.blocks`, IDs and the reserved namespace, the ladder and parent checks, ghost batches, `kernel.touches` to intended blocks with the ghost-target accept rule, `StageDecl.blocks` and `ask stage`'s kinds by level, `intent next` drafts with blocks, and the breakdown and next-actions recordings recorded again with blocks (`cargo xtask live record`, under $0.05 in the spend log), `MapNode.intended` | M2 | 8 |
+    | Resolution: candidates, the once-only resolution at scan, the `resolve` card, `edit resolve` and its undo, the fold's read-through to the actual block, falling back on a vanished block, Diffs lines | M2 | 7 |
+    | A hand-off into a new or unborn repo: creation at start, the orphan clone branch, the refusals, the empty-tree preflight and `--ff-only` merge, commits as change units and their revert, the empty-tree reconcile window, `SpecRule::Exists` and the blocks-found count; after M2's hand-off slice | M2 | 8 |
+    | Surfaces: the dashed outline and ghost translucency on the canvas and in the pane's block rows, the `resolve` card on both, the start card's create line | M2 | 3 |
+    | The greenfield CI path: an empty folder to a mapped, reconciled repo through one `patch` hand-off | M2 | 2 |
+
+    M1 grows by 5 h. M2 grows by 28 h.
+  - **Tests** (all offline: temporary folders and data roots, strict replay, the `patch` implementer with a patch each test writes in its temporary folder, fake keys):
+    - M1, `crates/planroom/tests/greenfield.rs`: `intent_new_in_an_empty_folder_starts_a_plan_only_workspace`, `an_agents_intent_new_in_an_empty_folder_waits_as_a_ghost_project`, `intent_new_refuses_the_home_directory_and_the_filesystem_root`, `scan_in_a_plan_only_workspace_maps_nothing_and_keeps_the_plan`, `a_plan_begun_before_git_init_stays_the_workspace`, `a_committed_planroom_dir_at_a_repo_root_still_loads_nothing`.
+    - M1, `crates/planroom/tests/empty_states.rs`: `no_repos_offers_to_start_a_plan`, `a_plan_only_workspace_says_the_map_fills_from_the_plan`, `a_plan_wins_over_repos_unborn_but_not_over_repos_unreadable`. `focus.rs::focus_outside_a_workspace_is_an_empty_state_and_creates_nothing` stays as it is.
+    - M1, `packages/mod/src/watch.test.ts`: "a plan-only workspace's store starts the watch"; `tests/golden/cli/focus-plan-only.json` from `cargo xtask gen --golden`.
+    - M2, `crates/planroom/tests/intended.rs`: `a_proposal_puts_intended_blocks_as_one_ghost_batch`, `a_block_without_expect_is_refused`, `a_repo_named_intended_takes_a_suffix`, `a_proposal_naming_an_existing_intended_key_re_proposes_that_block`, `a_next_action_may_target_an_intended_block`, `accepting_an_item_whose_target_is_a_ghost_block_names_its_review`, `the_map_draws_intended_blocks_and_not_resolved_ones`.
+    - M2, `crates/planroom/tests/intent.rs`: `a_breakdown_draft_proposes_intended_blocks_from_replay`, `a_draft_keeps_a_target_that_names_a_block_in_the_same_draft`.
+    - M2, `crates/planroom/tests/intended_resolve.rs`: `one_candidate_of_the_same_kind_resolves_at_scan`, `two_candidates_deal_one_resolve_card`, `an_undone_resolution_is_never_redone_by_a_scan`, `an_agents_edit_resolve_is_a_ghost`, `touches_and_rules_follow_a_resolution`, `a_vanished_block_reads_as_intended_again`.
+    - M2, `crates/kernel/tests/intended.rs`: `a_resolved_block_reads_as_its_actual_block`, `an_intended_block_adds_nothing_to_the_impact_radius`.
+    - M2, `crates/planroom/tests/handoff_new_repo.rs`: `handoff_start_creates_the_repo_with_no_hooks`, `the_patch_implementer_commits_on_an_orphan_branch`, `merge_into_an_unborn_branch_fast_forwards_and_records_the_commits`, `revert_of_a_created_repo_keeps_its_history`, `cancel_archives_a_created_repos_work`, `a_root_that_is_a_repo_refuses_a_new_repo`, `a_directory_in_the_way_is_a_handoff_conflict`, `collect_counts_intended_blocks_found`.
+    - M2, `crates/planroom/tests/greenfield.rs`: `an_empty_folder_reaches_a_mapped_repo_through_one_handoff`. An empty folder, `intent new`, a proposal of an intended repo and a next action on it through `intent propose --file` (drafting blocks from replay is `intent.rs`'s test, on the fixture's recordings, so this path needs no recording of its own), accept, `handoff start` with the `patch` implementer, `collect`, `merge`, the rescan that resolves the block, and the item `done`.
+    - M2, `packages/ui/src/map.test.ts`: "an intended block carries its tone and the intended mark"; `tests/e2e/surface.spec.ts::empty_state_audit` gains `plan_only`.
+    - `feature_list.json` gains a tier A entry, "Start from nothing" (R5, R6, R8), with `greenfield.rs::an_empty_folder_reaches_a_mapped_repo_through_one_handoff` and the M1 `greenfield.rs` and `empty_states.rs` tests above.
+  - **Known gaps:**
+    - No remote is created. A person pushes a new repo where they want it.
+    - A workspace whose root is a repo can't take a new repo.
+    - `git init` at a plan-only root after hand-offs created child repos makes the root the only repo, so discovery stops listing the children.
+    - A `.planroom/` kept at a repo's root is not safe from `git clean -x`. The event backup (DR-110) and its restore card bring the plan back.
+    - Resolution compares level, kind and location only. A block that moved during implementation goes to the card.
+    - Two plans that pick one key for a block share it. Two plans that pick different keys for one block make two intended nodes of one kind and one `expect`. DR-119's duplicate check pairs the items that target them; both blocks stay until a person rejects one.
+    - Languages with no grammar map files and directories only.
+  - **Users:**
+    - In an empty folder, the pane says "No git repos here. Start a plan, or add a repo." You describe what you want to build in chat, and the agent starts the plan as a ghost for you to accept.
+    - The map shows the planned repos and services as dashed outlines, and the next actions point at them.
+    - The hand-off card says it will create the repo, and on what branch.
+    - After the merge, each outline fills in with the real block, with one line you can undo. Where the engine can't tell which block is meant, you get one card to pick it.
+- **Sources (checked 2026-10-29):** the owner's design session of 2026-10-29; [Main flows](architecture.md#main-flows); [Where the workspace lives](architecture.md#where-the-workspace-lives); [Layers, overrides and ghosts](architecture.md#layers-overrides-and-ghosts); [Planning](architecture.md#planning-stages-ghosts-and-lint-r5); [The change spec](architecture.md#the-change-spec-r8); [The hand-off loop](architecture.md#the-hand-off-loop); [Contracts](contracts.md#cli-json-envelope) and its [Change spec](contracts.md#change-spec); `crates/planroom/src/app/{intent, scan, workspace}.rs`; `crates/planroom/src/app/map/read.rs`; `crates/contract/src/{model, requests, view, card}.rs`; `crates/kernel/src/plan.rs`; `packages/mod/src/watch.ts`; git 2.43.0's `merge` and `revert` on a branch with no commit.
+
+## DR-116: Questions on a sticky line, assumptions you can see, a one-line read-back, and corrections that feed the next draft
+
+- **Status:** accepted (decided on the owner's request of 2026-10-29). M1 builds questions as plan items; M2 builds the sticky line, chat answers, the read-back, the assumption lint, corrections and the intent-capture evals; M3 adds diagrams to questions.
+- **Starting point:** extends R5 ("nothing the AI invents counts until a person accepts it"), DR-23 and DR-106 (the plan pack's stages and lint), DR-50 (a batch accepts only the items its card showed), DR-73 (a person's field wins over automatic writes), DR-111 and DR-112 (drawn diagrams), and DR-113 (`intent next` drafts and their recordings). DR-117 reads its questions into context packs, DR-118 adds POC answers and stop pins through it, DR-119 ranks its questions across boards, and DR-120 declares item types through its `[[items]]` table and adds `concept`, `summary`, `stages` and `checklist` to its `ItemTypeDecl`. Keeps every stage, method and rule of `packs/plan/pack.toml`, ghosts until a person accepts them, and the band's no-spend, reversible rule (DR-54). Amends:
+  - DR-4 and DR-64: one more agent write applies at once instead of as a ghost, a chat answer, within the bounds below;
+  - DR-23 and DR-106: a pack table of item types that no stage owns and any pack may declare, a stage's read-back, and one more rule type, `referenced`;
+  - DR-54 and DR-105: one more pane line, and a list page that takes the row keys left in the pool;
+  - DR-75: a signed owner row may also answer a question.
+- **Origin:** the owner, 2026-10-29: "it's a visual layer. I'm fine with the agent making a reasonable first guess at the plan. As long as I can correct it. Questions is good, no max, but assume the user may stop at any point. I'd curate one or two questions and keep it sticky somewhere. They get updated too along with the plan in case chat or something answers it." On answers given in chat: "Yeah, but make them visible-ish while relevant so the user can correct if needed."
+- **Context:**
+  - The plan pack has seven stages, each with a method checklist and structural lint (`packs/plan/pack.toml:16-121`), and nine rules of the types `requires_prop`, `requires_edge`, `min_children`, `covers` and `disjoint` (`crates/contract/src/pack.rs:473-479`). Lint checks shape, not meaning; semantic lint is M2's Jev work (architecture.md:1216-1224).
+  - An agent's items are ghosts until a person accepts them, one by one or as a batch (architecture.md:347, :1227). Accept or reject is the only feedback, and a reject carries no reason (`crates/contract/src/requests.rs:116-124`).
+  - Nothing in a plan asks the person anything. A draft rests on guesses that no item states.
+  - `kernel::plan::next_stage` picks the first stage with no live item of a type it writes, and `stage_of` the first stage that writes a type (`crates/kernel/src/plan.rs:249-256`). So an item type that every stage declared would make every stage look drafted.
+  - A proposed item has a key, a type, a name, a parent, props and touches (`crates/contract/src/plan.rs:39-56`). The plan pack declares no relations; `kernel.touches` means what an item touches on the map.
+  - `PaneModel` carries focus, the open decision, progress, diffs, drift, who and the next action (`crates/contract/src/view.rs:97-113`). The pane's fixed sections take 18 of 34 rows, and the list keeps at least 10 (architecture.md:1468-1479).
+  - Every letter and digit of the pane is spoken for. The 24 action keys and the pool of 12 row keys (`packages/ui/src/keys.ts:16-29`) make the 36 one-key actions a pane may have. The pool goes to the top 3 diff lines, the drift line's top item, the who line's top row, then 7 list rows (`packages/ui/src/rows.ts:10`, `:45-58`).
+  - Cards are dealt by writes, one open card per kind and subject (`crates/contract/src/card.rs:17-52`); from M2, `decide ID CHOICE` picks them, and only a person may (contracts.md:436, :447).
+  - The mod's `prompt.submit` hook sees each prompt's text and its origin: `composer` for the person's own Enter, `bridge` for the person's message through Remote Control, and other kinds for peers, schedules and the SDK (`packages/mod/vendor/claude-code.d.ts:9288-9300`, `:9503-9570`). The mod doesn't hook it today.
+- **Decision:**
+  - **The agent always drafts; nothing waits for an answer.**
+    - Every stage drafts on its best guess. Where it had to guess, it writes a question that states the guess as the assumption the plan is built on.
+    - No stage, lint rule, version or hand-off waits for an answer. A question nobody answers keeps its assumption, and the plan reads the assumption as the answer.
+    - There is no maximum count of questions. Surfaces show the top ones and page the rest.
+  - **A question is a plan item.**
+    - Pack data gains an `[[items]]` table: item types any stage may write, which no stage owns. `next_stage` and `stage_of` read stage items only, so a question never makes a stage look drafted. An `[[items]]` ID that a stage also declares is refused at load (`items_stage_clash`). Any pack may declare `[[items]]`; an item type ID that two loaded packs declare is `pack_invalid` (`item_claimed`).
+    - The plan pack's `[[items]]` has one entry, `question`. The item's `name` is the question, as a person would be asked it. Its props:
+
+      | Prop | Type | Holds |
+      |---|---|---|
+      | `assumption` | string | the answer the plan is built on until someone answers |
+      | `changes` | string | what a different answer would change |
+      | `stakes` | `low`, `medium` or `high` | how costly a wrong assumption is |
+      | `rests_on` | list of item keys | the items built on the assumption |
+      | `options` | list of up to 3 strings | other likely answers |
+      | `answer` | string | the answer, once someone gives one |
+
+    - `intent propose` resolves each `rests_on` entry as it resolves a parent: a key in the batch, a key of the project's items, or a full item ID of the project. It stores full item IDs. An entry that resolves to nothing is `invalid_argument` with `field` `items[i].props.rests_on[j]`.
+    - Each stage's checklist gains one line: "Where you had to guess, write a question: the guess as its assumption, what another answer changes, its stakes, and the items that rest on it." It is pack data, so `ask stage` and `intent next` carry it as they carry the rest. It changes every stage's request, so the six stage recordings are recorded again with `cargo xtask live record` (about $0.09, as they cost $0.0877), logged in `docs/evidence/spend.jsonl`.
+    - Two structural rules, expressible today: `question_assumption` (`requires_prop` `assumption`) and `question_rests_on` (`requires_prop` `rests_on`).
+  - **What a question's state is, derived on every read.** Nothing about a question's state is stored, so every plan change re-evaluates every question, and the sticky slot moves on by itself.
+    - A question **rests on** the live items its `rests_on` names, with their descendants, each counted once. Live means accepted, or a ghost still pending, and not done. Done counts from M2, when the reconciler marks items done.
+    - Its **status** is the first that holds:
+      - `dropped`: nothing live rests on it;
+      - `open`: no `answer`;
+      - `from_chat`: its `answer` came from a chat answer (below) and no person has confirmed it;
+      - `from_poc`: its `answer` came from a passed proof of concept (DR-118 decides when) and no person has confirmed it;
+      - `answered`: anything else.
+    - **Kept or corrected.** An answered question is `kept` when its `answer` equals its `assumption`, and corrected otherwise. A later re-proposed assumption that differs from the answer reads as corrected, so the items resting on it show up to redraft.
+    - **Rank.** Score is the stakes weight times the count of what rests on it: `low` 1, `medium` 3, `high` 9. Ties go to higher stakes, then to the lower item ID. A high-stakes question with two items resting on it (18) outranks a low one with ten (10). The weights are a first guess; the evals don't measure them, so a change to them needs a record.
+    - **The sticky slot** holds two `open` questions: first any that a paused hand-off's stop names (DR-118), newest stop first, then the top by score. A `from_chat` or `from_poc` question doesn't take a slot; it shows beside it until it drops.
+    - **Ghosts count.** The sticky slot, the rank and `ask stage` read the project's pending draft as well as its accepted items, because the questions are about the draft you're reviewing. Lint keeps reading accepted items only (R5).
+    - The engine computes all of this in `kernel::plan`, reads it from the pack's prop names, and names no item type, so the kernel stays domain-free.
+  - **Answering.** `intent answer ITEM` with exactly one of `--keep` (the answer is the assumption), `--option N` (one of its `options`), `--text TEXT` (at most 200 characters) or `--confirm` (a person takes a chat or POC answer as their own). It is actor `mixed`, `needs_base` true, undone with `edit undo`, and never spends.
+    - **A person's answer applies.** On a question that is still a ghost, it also accepts that one item, in the same command: two events, one undo. Only that item is accepted, not its batch (DR-50).
+    - **An agent's answer is a ghost**, like any agent write, unless it is a chat answer. A ghost answer that a person accepts answers the question; so does an accepted re-proposal that sets `answer`. That is how an accepted item resolves a question.
+    - Anyone may set `answer` through `intent propose` too, under the same rules. `intent answer` is the narrow leaf the pane, the canvas, the Artifact and the chat use.
+  - **A chat answer applies at once (amends DR-4 and DR-64).** When you answer a question in chat, the agent records it with `intent answer ITEM --text TEXT --from-chat --quote QUOTE`. It applies at once with status `from_chat`, and it stays visible while it matters. Here is how that stays safe and reversible:
+    - **Only your words.** The only route is `room_change`. The mod keeps your last three prompts whose origin is `composer` or `bridge`, in module memory only: never in `$.state`, never logged, never sent to the engine. Its handler applies the call only when `QUOTE`, at least 2 characters and whitespace-normalized, occurs in one of them. Otherwise it refuses with `invalid_argument` and `argument.quote_not_in_chat`, and the agent may propose the answer as a ghost instead. A prompt from a peer, a schedule, a channel or the SDK never counts. The handler strips `--quote`, so your words never reach the engine, an event or a log.
+    - **No other route.** The guard denies any agent Bash call that names `intent answer`, as it does a person-only command. The engine refuses `--from-chat` from any client but `mod:*` with `invalid_argument` and `argument.from_chat_outside_mod`.
+    - **Bounded.** A chat answer sets one field, `answer`, on one question. It accepts nothing, changes no other item, starts nothing, and can't confirm a read-back. It is no person action: every person-only command stays person-only.
+    - **Never over yours.** A chat answer never sets an `answer` a person holds (DR-73). It commits as a ghost instead and warns `answer_held`, so you see the proposed change and decide.
+    - **Visible while it matters.** A `from_chat` question shows beside the sticky line in the pane, and as an "answered in chat" chip beside each item resting on it, on the plan board and the project's shelf. It shows until nothing live rests on it, or until you confirm it.
+    - **Two keys from pane focus to correct.** Its row key selects it, then `n` deals its card with the chat answer marked and the other answers beside it. `y` confirms it as yours (`--confirm`). `edit undo` reverses it; an agent may undo only its own.
+    - **Seen before you walk away.** A chat answer to a `high`-stakes question counts as answered, so the plan builds on it. Lint keeps flagging it until you confirm it (below), so it can't waive a POC (DR-118), and DR-118's ratify card lists such answers, so you see them before you approve a bounded batch.
+    - **A POC's answer shows the same way.** A `from_poc` question shows a "confirmed by POC" chip where a `from_chat` one shows "answered in chat", with the same row, card, `--confirm` and undo. DR-118 decides when a pass writes one and what evidence it carries.
+    - This is a guardrail, as DR-4 says of the actor rules, not a boundary between processes of one OS user. An agent that quotes your earlier words out of context can still record a wrong answer. The chip, the card and the undo are the containment.
+  - **The sticky line in the pane (amends DR-54 and DR-105).**
+    - One row, below the who line and above the mini-map and the list, drawn only when the focused project has an `open` or a `from_chat` question. It shows the top open question and its assumption, cut to width, then "+N" for the other open ones, then "✓N from chat" and "✓N by POC" for the unconfirmed answers. With no open question, it shows the newest chat answer: "✓ from chat: {question} → {answer}".
+    - It takes the row key after the who line's. The list takes the keys left in the pool, at most 7, and pages at that size. So every visible row keeps a direct key: with three diffs, a drift item, a who row and a question line, the list pages at 6.
+    - **Keys on the selected question line.** `y` keeps the assumption (`intent answer --keep`), or confirms a chat answer. `o` or `n` deals the question card.
+    - **The question card** comes from `focus --picker questions [--entry ID]`, face up in place of the open decision, as any picker is. Its question line is the question; its why line is "Assumed: {assumption} · {count} items rest on it". Its choices are Keep, the first two `options`, and Other…, which opens an `Input`. The list holds the other open questions and the chat answers still in play; a row key on one deals its card. A pick runs `intent answer` as your press.
+    - At 34 body rows the fixed sections take 19 rows, so the list keeps 15. The compact layout keeps the question line after the top diff line. The mobile mod has no `Input`, so Other… says "Answer in chat".
+    - No new letter key. `y`, `n` and `o` keep their meanings: accept, reject and open, applied to a question.
+  - **The canvas.** The top two open questions sit as pinned notes in the Intent concept, on every view, so there is no sixth concept (R14). A tap deals the question card in the Decisions stack. Chat-answer chips sit beside items on the plan board and on the project's shelf.
+  - **The Artifact (amends DR-75).** A signed owner row may apply `intent answer`, which is reversible, beside `edit`, `review` and `intent propose`. An unsigned row stays a ghost on the Apply card. The snapshot carries `PaneModel.questions`, so the page shows the sticky questions.
+  - **A one-line read-back, one key to confirm.**
+    - The intent stage declares its read-back in pack data: its parts in order, each a prop of the intent item and its fragment ("You want {want}", " for {who}", ", so that {so_that}"), and a fragment for the non-goals ("; not {names}"). The intent item gains the prop `who`: who the job is for. A part whose prop is unset is left out. Non-goals list up to two names, then "+N". The kernel composes the line and hashes the values it read.
+    - A write that changes the read-back deals a `readback` card, whose subject is the project ID and the read-back's hash. It closes any open read-back card of that project as superseded. Its question is the read-back; its why is "Is this what you want?"; its choices are That's it, Not quite and Later, with Later pre-selected, so nothing waits on it.
+    - **That's it** (`decide CARD yes`) accepts the pending ghosts the read-back read, and only those (the card's `BatchInfo.items`, DR-50). It records the pick. The read-back is confirmed while a `yes` pick exists for its current hash; any later change to what it reads makes it unconfirmed and deals a new card.
+    - **Not quite** (`decide CARD no [--note TEXT]`, at most 200 characters) records your note as a correction. In chat, the agent reads the note through `ask stage` and redrafts the intent. On the canvas and in the mod, the choice opens a one-line field for the note. On the mobile mod, it records the pick and says "Say what's off in chat".
+    - `decide` is person-only, so no agent can confirm a read-back.
+  - **Lint for high-stakes guesses.** A new rule type, `referenced`, domain-free, read from pack data. Its subject passes when it holds the prop `unless`, and, with `unless_held`, when a person holds that field (DR-73) or the engine set it from a passed POC, so an unconfirmed agent or chat write doesn't count; or, with `live`, when its list prop `live` names no live item; or, with `by`, when a node of `by.kinds` passing `by`'s field tests names it in its list prop `by.prop`. Otherwise it is a finding.
+    - Its finding lists the live items its `live` prop names, the first 5 and a count.
+    - The plan pack's rule `question_high_stakes_open` uses it with `unless` `answer`, `unless_held`, `live` `rests_on`, `props.type` `question` and `props.stakes` `high`, and no `by`. So a `from_chat` answer to a high-stakes question stays a finding until you `--confirm` it. Its message: "The plan rests on a high-stakes guess nobody has confirmed." It is a finding, never a gate. DR-118's `derisk_question_tested` uses the same type with `by`.
+  - **Corrections feed the next draft as "not this".**
+    - `review ID reject` takes an optional `--why TEXT`, at most 200 characters, stored in the `review` event's body. The canvas's reject of a plan ghost offers the field; the pane's `n` sends none.
+    - `ask stage` returns `not_this`: the project's newest 10 corrections. Each has the item, its stage, what was proposed (each value cut to 160 characters), what you did, and your why or note. What you did is one of:
+      - rejected an agent's ghost;
+      - changed a field an agent had set;
+      - answered a question with something other than its assumption;
+      - said Not quite to a read-back.
+    - `ask stage` also returns `redraft`: items resting on a corrected answer that haven't been re-proposed since the answer.
+    - `intent next` puts the same two lists in the stage request's uncached tail, so the shared prefix stays cached. An empty list is left out, so a request with no corrections keeps its bytes and its recording.
+    - Outside a ratification, no Planroom model call redrafts on its own. A redraft is the chat agent's turn, or `intent next` from the stage picker's cost card. The one redraft that runs unasked is a failed POC's, which the ratify press confirmed with its cost (DR-118).
+  - **`ask stage`** also returns the project's questions in rank order, with status, assumption and what rests on each: the first 10 open, then the rest counted. It keeps to its leaf's budget, cutting `not_this` before questions.
+  - **Diagrams in questions (M3).** A question may carry `diagram`, a topic of a diagram drawn on its project (DR-112). An unknown topic is `invalid_argument`. The question card's why line names it, and `o` on the card shows it. Once `diagram draw` exists, the breakdown and next-actions checklists gain the line: "Where the work changes a flow or a lifecycle, draw it with `diagram draw` on the project, cite its blocks, and name its topic in the question or item it explains." The read-back stays text.
+  - **Evals for intent capture.**
+    - 24 cases in `packs/plan/evals/intent_capture.cases.jsonl`: a request text and a map, from the fixture or a synthetic one. The case writer writes them, with at least two injection canaries (a request that says "ask nothing" or "assume X"). The independent labeller labels each without seeing any draft: the job's key terms, the ambiguities a good draft asks about (each with its terms), and what the request already settles. The split is by hash, as for Jev kinds.
+    - A deterministic scorer reads each recorded intent-stage draft:
+      - **coverage:** the share of labelled ambiguities that a question's name or assumption covers by one of their terms;
+      - **false asks:** questions about what the request already settles;
+      - **read-back match:** the share of the job's key terms in the read-back.
+    - `cargo xtask live eval intent_capture`, behind `PLANROOM_LIVE_GATEWAY=1`, records one intent-stage call per case into `tests/replay/claude/intent_capture/`. It stops at $0.45, logged in `docs/evidence/spend.jsonl`.
+    - CI recomputes `intent_capture.result.json` from the replays and fails if any byte differs. The holdout floors are coverage 0.75 and false asks at most 0.15 per case; below either, CI fails.
+- **Alternatives rejected:**
+  - **A gate: no next stage until the questions are answered.** The owner chose "never a gate"; you may stop answering at any point.
+  - **A cap on questions.** The owner said "no max". Curation happens in what the surfaces show, not in what the plan holds.
+  - **Separate `question` and `assumption` item types.** Every question carries its assumption, and an assumption with nothing to ask is still a question with one, so one type holds each fact once.
+  - **Questions as decision kinds or cards.** Cards show one at a time and rank by stakes and staleness. A question has to stay answerable at any time beside the plan, and change with it.
+  - **Storing a question's status or the sticky pick.** Derived state is never stored (architecture.md:297), and deriving it on every read is what re-evaluates questions on every plan change.
+  - **A `rests_on` relation.** The plan pack declares no relations, and `kernel.touches` means touching the map. A prop of item IDs, resolved like a parent, needs neither.
+  - **Ranking by count alone or by stakes alone.** The owner named both, and a product lets a high-stakes question with little resting on it outrank a trivial one with much.
+  - **Chat answers as ghosts.** You would press a key for every answer you had just typed, which the owner's "resolves immediately" rules out.
+  - **A chat answer with no quote check.** An agent could record an answer you never gave.
+  - **Sending your prompt to the engine to check the quote.** Your words would cross into argv or stdin and an engine process; the mod already holds them, and prompts are never logged.
+  - **A new pane letter for questions.** All 24 action keys and 12 row keys are in use, at the host's cap of 36.
+  - **Taking the row key from the who line or a diff line.** Either breaks a key people already use; shortening the list's page by one only when every section is full breaks nothing.
+  - **The read-back as a pack suggestion.** A suggestion's text is static, and it has one action; the read-back changes with the plan and needs Not quite and a record of the pick.
+  - **A read-back prop on the intent item, or an `intent readback` leaf.** Cards, `decide` and the pick record already do this, person-only.
+  - **An automatic redraft when you correct an answer.** It would spend without a press; the band never spends (DR-54). A failed POC's redraft is different: the ratify card named it and its cost, and the ratify press confirmed it (DR-118).
+  - **Judging drafts with a model in CI.** CI is offline. The labeller's labels and a deterministic scorer over replays make the result recompute byte for byte.
+- **Consequences:**
+  - **Contracts** (all additive; `schema_version` stays 1; `planroom.pack/v1` and `planroom.event/v1` keep their tags):
+    - pack: `PackFile.items` (`ItemTypeDecl { id, props }`); `StageDecl.readback` (`ReadbackDecl { parts: [{ prop, text }], not: { item_type, text } }`); `RuleType::Referenced` with params `unless`, `unless_held`, `live`, `by` (`kinds`, `prop` and field tests) and prop tests; the `[pack]` reasons `items_stage_clash`, `item_claimed` and `readback_prop`;
+    - plan: `PlanItem.question` (`QuestionState { status, kept, rests, score, sticky }`, status `open`, `answered`, `from_chat`, `from_poc` or `dropped`); `IntentAnswerReq { item, keep, option, text, confirm, from_chat }` with `Command::IntentAnswer`; `AskStageResult.questions`, `.not_this` (`Correction { item, stage, was, now, why, by }`), `.redraft` and `.readback` (`Readback { text, hash, confirmed }`);
+    - view: `PaneModel.questions` (`QuestionLine { top, open, from_chat, from_poc }`, `top` at most 2 `QuestionRow { item, question, assumption, stakes, rests, status, answer }`); the picker name `questions`;
+    - cards and review: the card kind `readback`; `DecideReq.note`; `ReviewReq.why`, stored in the `review` body;
+    - `invalid_argument` reasons `argument.quote_not_in_chat`, `argument.from_chat_outside_mod`, `argument.not_a_question`, `argument.answer_one_of`, `argument.nothing_to_confirm` and `argument.unknown_diagram_topic` (M3); the warning `answer_held`;
+    - redaction marks on every new free-text field: `question`, `assumption`, `answer`, `text`, `was`, `now`, `why` and `note`. Item IDs, the hash and the scores aren't marked;
+    - en.toml: `[questions]` for the pane line, the card's why line, Keep, Other… and "Answer in chat"; `card.readback.*`; the chips' "answered in chat" and "confirmed by POC";
+    - the guard's denial `intent_answer_in_bash`; one more `room_change` synopsis line, which `tool_schemas_equal_catalogue` holds within `surface.tools`' 900 tokens. A raise there needs its own record.
+  - **Milestones:**
+
+    | Milestone | Slice | Requirement and scenario | h |
+    |---|---|---|---|
+    | M1 | Questions as plan items: the `[[items]]` table and its loader checks, `question` with its props, `rests_on` resolved at propose, the derived status, rank and sticky pick in `kernel::plan`, the checklist line and the six stage recordings recorded again, `question_assumption` and `question_rests_on`, `ask stage`'s questions, a person's `answer` through `intent propose` | R5, S3 | 5 |
+    | M2 | Sticky questions and answers: `intent answer` for a person (1.5 h); chat answers with the mod's quote check, the guard, the held-field rule and `answer_held` (2 h); `PaneModel.questions`, the pane line, the row-key rule, the compact layout and the question card (2.5 h); the canvas's pinned notes (1.5 h); chips on the plan board and shelf (1 h); signed owner rows and the snapshot (0.5 h); tests and docs (1 h) | R5, R13, S3, S9 | 10 |
+    | M2 | The read-back: the stage's `readback` and the composed line and hash (1 h); the `readback` card dealt and superseded (1.5 h); `decide` yes and no with `--note` (1 h); surfaces (0.5 h); tests (1 h) | R5, R13, S3 | 5 |
+    | M2 | Assumption lint and corrections: `referenced` and `question_high_stakes_open` (1.5 h); `review --why` (1 h); `not_this` in `ask stage` and `intent next`'s tail (2 h); `redraft` (1 h); tests (1 h) | R5, S3 | 6.5 |
+    | M2 | Intent-capture evals: the cases and labels, the scorer, the live record behind its gate, CI's recompute and floors, the report row | R5, S7 | 5 |
+    | M3 | Diagrams in questions: the `diagram` prop and its check, the card's line, the two checklist lines | R4, R5 | 1.5 |
+
+    - M1 grows by 5 h, M2 by 26.5 h and M3 by 1.5 h: 33 h in all.
+    - M1's slice depends on the plan pack and `ask stage` (DR-106) and on `intent next` (DR-113), whose recordings it records again.
+    - M2's slices need its decision runner and `decide` for cards, batch accepts, the plan board, and `intent next`'s recordings.
+    - The M3 slice follows DR-112's drawn diagrams.
+  - **Tests** (offline, with replays and the `patch` implementer; none needs a live call):
+    - M1, `crates/kernel/tests/plan_questions.rs`: `a_question_with_nothing_live_resting_on_it_is_dropped`, `the_score_is_the_stakes_weight_times_what_rests`, `a_descendant_counts_once_however_many_named_ancestors`, `a_rejected_resting_item_no_longer_counts`, `an_answer_equal_to_the_assumption_reads_as_kept`, `the_sticky_slot_holds_the_top_two_open_questions`, `a_reproposal_that_moves_the_resting_items_moves_the_sticky_slot_on`, `pending_ghosts_count_toward_the_rank_and_not_toward_lint`;
+    - M1, `crates/planroom/tests/intent.rs`: `rests_on_resolves_keys_and_stores_item_ids`, `an_unknown_rests_on_entry_is_invalid_argument_with_its_path`, `a_question_never_makes_a_stage_look_drafted`, `ask_stage_lists_open_questions_in_rank_order`, `a_persons_proposed_answer_resolves_the_question`;
+    - M1, `crates/planroom/tests/packs.rs`: `an_items_type_a_stage_also_declares_is_refused`, `an_item_type_two_packs_declare_is_pack_invalid`; `crates/kernel/tests/lint.rs::a_question_without_an_assumption_or_resting_items_is_flagged`;
+    - M2, `crates/planroom/tests/questions.rs`: `a_persons_answer_applies_and_undoes`, `answering_a_ghost_question_accepts_that_item_alone_and_one_undo_reverses_both`, `an_agents_answer_without_from_chat_is_a_ghost`, `from_chat_outside_the_mod_is_invalid_argument`, `a_chat_answer_applies_and_reads_as_from_chat`, `a_chat_answer_over_a_persons_answer_is_a_ghost_with_answer_held`, `a_confirm_makes_a_chat_answer_the_persons`, `exactly_one_answer_flag_is_taken`, `a_chat_answer_fades_when_nothing_live_rests_on_it`, `the_pane_carries_at_most_two_sticky_questions_within_the_focus_budget`;
+    - M2, `packages/mod/src/tools.test.ts`: `a_chat_answer_whose_quote_is_not_in_the_persons_recent_prompts_is_refused`, `the_quote_never_reaches_the_engine`, `a_peer_or_scheduled_prompt_is_not_the_persons_words`; `packages/mod/src/guard.test.ts::intent_answer_from_bash_is_denied`;
+    - M2, `packages/ui/src/rows.test.ts`: `the_question_line_takes_the_key_after_who`, `the_list_takes_the_keys_left_so_every_visible_row_keeps_one`; `packages/mod/src/layout.test.ts::rows_fit_at_49x34` and `rows_fit_compact_at_80x24_and_100x30` with the question line;
+    - M2, `packages/mod/plugin-tests/surfaces.test.tsx`: `a_question_is_kept_in_two_keys_from_pane_focus`, `a_chat_answer_is_corrected_in_two_keys_from_its_row`, `other_on_mobile_says_answer_in_chat`; the key map snapshot;
+    - M2, `tests/e2e/src/surface.spec.ts`: `question_notes_pin_under_intent_on_every_view`, `a_chat_answer_chip_sits_beside_its_resting_items`; `exactly_five_concepts` still passes;
+    - M2, `crates/planroom/tests/s11_remote.rs::a_signed_owner_row_may_answer_a_question`;
+    - M2, `crates/planroom/tests/readback.rs`: `the_readback_is_one_line_from_the_intent_and_its_non_goals`, `a_change_to_the_readback_deals_a_new_card_and_supersedes_the_old`, `yes_accepts_exactly_the_items_the_card_read`, `a_later_change_unconfirms_the_readback`, `a_note_on_not_quite_reaches_not_this`, `an_agent_cannot_confirm_a_readback`, `later_leaves_the_plan_going`; `crates/planroom/tests/packs.rs::a_readback_part_names_a_prop_its_stage_writes`;
+    - M2, `crates/kernel/tests/lint.rs`: `an_open_high_stakes_question_with_live_resting_items_is_flagged`, `a_dropped_or_answered_question_is_not_flagged`, `a_high_stakes_chat_answer_stays_flagged_until_confirmed`, `referenced_passes_a_subject_a_by_node_names`;
+    - M2, `crates/planroom/tests/questions.rs::a_poc_answer_reads_as_from_poc_and_confirms_with_one_key`; `crates/kernel/tests/plan_questions.rs::a_question_a_stop_names_takes_the_sticky_slot_first`;
+    - M2, `crates/planroom/tests/intent.rs`: `not_this_lists_each_kind_of_correction_newest_first`, `a_reject_why_is_masked_on_every_output`, `items_resting_on_a_corrected_answer_stay_in_redraft_until_reproposed`, `ask_stage_cuts_not_this_before_questions_to_keep_its_budget`; `crates/planroom/tests/budgets.rs::the_stage_tail_with_not_this_keeps_the_prefix_hit_rate`;
+    - M2, `crates/planroom/tests/evals.rs`: `intent_capture_recomputes_from_replays`, `an_ambiguity_counts_as_covered_only_by_a_question_naming_its_terms`, `a_question_about_what_the_request_settles_is_a_false_ask`;
+    - M3, `crates/planroom/tests/diagram.rs`: `a_question_names_a_diagram_topic_of_its_project`, `an_unknown_diagram_topic_is_invalid_argument`;
+    - the goldens `ask-stage.json` and `focus.json` with questions, and `intent-answer.json`, through `cargo xtask gen --golden`;
+    - `feature_list.json` gains a tier C entry, "Getting intent right" (R5, R13), with these tests.
+  - **Known gaps:**
+    - the quote check is a guardrail: it proves the words were yours, not that they answer this question;
+    - the mod forgets your recent prompts on a reload, so a chat answer to a prompt from before the reload is refused, and the agent proposes it as a ghost;
+    - the canvas and the Artifact have no chat, so they have no chat answers;
+    - until M2's reconciler marks items done, a chat answer shows until its resting items are rejected or re-proposed away;
+    - the rank's weights aren't measured by the evals; the evals measure what the intent stage asks, not how it ranks;
+    - only the intent stage declares a read-back;
+    - a change counts toward `not_this` only when an agent wrote the value it replaced;
+    - meaning stays with M2's semantic lint (`plan_item_vagueness`, `next_action_concrete`); the evals score Claude's drafts, not Jev.
+  - **Users:**
+    - You get a full first draft at once, built on stated guesses. You see them as questions, the top one on a line in the pane and the top two pinned on the canvas.
+    - Two keys keep a guess, or open its card to choose another answer. Stop whenever you like: every unanswered guess stands as drafted.
+    - Answer in chat, and the question resolves at once. It shows as answered in chat beside the work it touches until that work is done, and its row key and `n` correct it. A high-stakes one stays on lint's list until you confirm it.
+    - After the intent stage, one line reads back what you asked for, and `1` confirms it.
+    - What you reject or change, and why, shapes the next stage's draft.
+- **Sources (checked 2026-10-29):** `packs/plan/pack.toml`; `packs/plan/README.md`; `crates/kernel/src/{plan, lint, next}.rs`; `crates/contract/src/{plan, pack, view, card, requests}.rs`; `packages/ui/src/{keys, rows}.ts`; `packages/mod/src/{layout, guard}.ts`; `packages/mod/vendor/claude-code.d.ts` (`PromptSubmitInput`, `PromptOrigin`); DR-4, DR-7, DR-23, DR-50, DR-54, DR-63, DR-64, DR-73, DR-75, DR-105, DR-106, DR-111, DR-112; [Layers, overrides and ghosts](architecture.md#layers-overrides-and-ghosts); [Planning](architecture.md#planning-stages-ghosts-and-lint-r5); [Pane](architecture.md#pane); [The canvas](architecture.md#the-canvas); [Evals and thresholds](architecture.md#evals-and-thresholds-s7); [Milestones](architecture.md#milestones); contracts.md:434-447.
+
+## DR-117: Context packs: the map as a ranked, budgeted reading list for a plan item or a block, built into every hand-off
+
+- **Status:** accepted (decided on the owner's request of 2026-10-29). M2 builds most of it, M3 to M5 the rest; M1 builds none of it.
+- **Starting point:** extends R8's change spec, whose `context` field the pack now fills (architecture.md:1300; contracts.md:1140); R12's curation (DR-27), which gains two miners; and DR-112's staleness by fingerprint, which the pack reuses. Builds on DR-115 (intended targets, and workspaces with no repos) and DR-116 (questions, their statuses and their score). DR-118 starts the hand-offs whose specs the pack fills, and DR-120 declares a section through `[[context]]`. Keeps DR-15 (a fixed set of shapes, and the two-pack bar for a new one), DR-52, DR-64 and DR-75 (no change to who may do what), the rule that tool results carry pointers, never repo text (architecture.md:1162, :1600), and R5 (ghosts never count). Amends DR-4 with one rule: a proposal an engine miner writes is a ghost whoever runs it, since the engine guessed it. Amends DR-27: curation can also propose a workspace edit, not only a repo patch.
+- **Origin:** the owner, 2026-10-29: "I like the context pack idea. How could we bring it to planroom?" On delivery: "I expect to work in the plan room, ratify the plan and walk away basically."
+- **Context:**
+  - The map already knows what an agent needs for a piece of work: a plan item's parents (packs/plan/pack.toml:4-8: every item is a `kernel.item` under its parent), its `kernel.touches` targets, the evidence lines behind each block and edge (`crates/contract/src/model.rs:210-234`), the edges' `via` nodes such as endpoints (`:259-272`), and the intended layer's rules (architecture.md:343).
+  - Nothing turns that into a reading list. The change spec's `context` holds excerpts within 4,000 tokens, including each target repo's `AGENTS.md` and `CLAUDE.md`, fenced and untrusted, but no rule says which excerpts (architecture.md:1300; contracts.md:1140). The spec isn't built yet: hand-offs are M2.
+  - Evidence is a single line (`Evidence::Line`), not a range. Tool results carry pointers and at most 200 characters of a line (architecture.md:1162, :1600).
+  - `ask` returns `AskResult`: a question, a summary and items of ID, name, why and handles (`crates/contract/src/requests.rs:194-215`). It has no room for ranges, sections or a hash.
+  - The kernel serves five of its twelve shapes (`crates/kernel/src/query/mod.rs:1-8`; `crates/contract/src/pack.rs:322-335`). None walks a node's parents. DR-15 lets a new shape in only with two packs that use it.
+  - Curation mines only what Planroom observed of a run: the Bash calls in the mod's `observed.json` and the branch's commits (architecture.md:1360; DR-75). It doesn't see what an implementer read.
+  - Ghosts are excluded from questions, lint and reconciliation until a person accepts them (architecture.md:347).
+- **Decision:**
+  - **What a context pack is.** The map turned into a reading list for one subject: a plan item, or a block at any level of the ladder. It is derived on read and stored nowhere, except as a copy inside a change spec.
+    - A project isn't a subject: its pack would be the whole plan. A ghost isn't one either: accept it first. Both are `invalid_argument`, with `argument.context_subject` or `argument.context_ghost`.
+    - The pack reads the model as questions do: ghosts never enter it (R5). Questions enter by DR-116's statuses. An `open` question is marked `unconfirmed`, since the plan rests on its assumption; a `from_chat` or `from_poc` one carries its status as its mark. None of them is a ghost, so the implementer sees them and knows what the plan rests on. `answered` and `dropped` questions stay out.
+  - **One leaf of its own, `context ID`.** It isn't an `ask` question. Its reply needs sections, ranges, costs and a hash, and `ask` keeps one result type (DR-54; DR-112 kept `AskResult` the same way).
+
+    | Leaf | Idea | Class | Undo | Tool | Budget |
+    |---|---|---|---|---|---|
+    | `context ID [--version V] [--budget TOKENS] [--known HASH]` | Lenses | read | query | `room_query` | 1,500 |
+
+    It is actor `any`, `needs_base` false and `spends` false. `--version` pins a plan item's plan version (default: the project's head) and is `invalid_argument` on a block. `--budget` is the reading budget, below.
+  - **Sections, in reading order.** The engine serves five; packs declare the rest.
+
+    | Section | Source | What it holds |
+    |---|---|---|
+    | `intent` | engine | For a plan item: its parents from the intent down, the item, its direct children and the project's non-goals, as one line each. For a block: the open, accepted items whose `kernel.touches` reach it, each with its intent's line. |
+    | `rules` | engine | The intended layer's required edges and boundary rules that name the subject or a target, in the change spec's `SpecRule` shape. |
+    | `questions` | engine | The questions whose `rests_on` reaches the subject or a parent of it (for a block: an item that touches it), with status `open`, `from_chat` or `from_poc` (DR-116): the question, its assumption or answer, its stakes and its mark. |
+    | `instructions` | engine, from pack data | The repo instruction files that apply to each target, as pointers. |
+    | `targets` | code pack | Each target's own evidence, as ranges, and the evidence of the edges the subject's rules name. |
+    | `interfaces` | code pack | The `runtime` neighbours of each target, depth 1, both ways: the evidence of the joining edges and of their `via` nodes (endpoints, schemas, queues). |
+    | pack sections | other packs | Whatever a pack declares, in pack load order: the ontology pack's `definitions`, for one. |
+    | `diagrams` | engine | Accepted diagrams of the subject, its targets and its project (DR-112), as `diagram show` handles with their hashes; a stale one carries `fresh: false`. |
+
+  - **The intent chain needs no new shape.** The chain is the kernel's own plan structure (`kernel.item` under `kernel.project`), which the kernel already walks for lint. So the engine serves it, as it serves the built-in `stage` and `lint` (DR-15's round-3 amendment). A pack shape that walks parents would have one user, and DR-15 asks for two.
+  - **Packs declare sections as data.** A `[[context]]` table in a pack has:
+    - `id` and `label` (the heading the reply and the canvas show);
+    - `from`: `subject` or `targets`, the start set;
+    - `steps`: zero to three query shape steps, checked as a question's are (architecture.md:889); zero means the start set itself;
+    - `cite`: `nodes` (the result nodes' own evidence), `edges` (the evidence of the edges joining the start set to the result, and of their `via_ref` nodes) or `props` (the named props of the result nodes, inline, each cut to 200 characters);
+    - `props`: the prop names, with `cite = "props"` only;
+    - `max_entries`: 1 to 20, default 10.
+    - An `id` equal to an engine section, or one another loaded pack declares, is `pack_invalid` (`context_reserved`, `context_duplicate`).
+    - The code pack declares `targets` and `interfaces`, and its `instruction_files = ["AGENTS.md", "CLAUDE.md"]`. A pack may add file names; the loaded packs' lists merge. So the kernel names no file and no lens.
+  - **Pointers, not text.** A pointer is `{ path, lines: [first, last], commit, cost, why, source }`.
+    - `path` is `<repo>/<repo-relative path>`, as in evidence. The reply's `roots` maps each repo to its checkout, so an agent can open it. A root is an absolute path, so `roots`' values are marked `x-redact`, as DR-119 marks `BoardRow.root`; its keys, the namespaces, aren't.
+    - A range is the evidence line from 5 lines before to 20 after, clamped to the file. Ranges in one file merge when 10 lines or fewer apart, and a merged range stops at 120 lines.
+    - `cost` is `ceil(bytes / 4)` of the range at `commit`, from the line index the scan verified evidence against. No file is read for the reply.
+    - `why` is one engine-authored line from en.toml, such as "the `http` edge from worker to orders (POST /orders/{id}/events)". It can hold a name or a `via`, so it is marked `x-redact`.
+    - `source` is `evidence`, `instructions` or `curated`.
+    - An intended target, one not built yet, cites its nearest built ancestor's evidence and is marked `intended`. A resolved one reads as its actual block (DR-115) and cites that block's evidence. In a workspace with no repos, the pack holds `intent`, `rules`, `questions` and `diagrams`, and no pointers.
+    - Instruction files are cited by their headed sections: the repo root's file, then each one in a directory above a target's path, nearest last. The scan indexes each instruction file's ATX headings (`#` lines outside code fences) in the line index, so no file is read for the reply. A file is cited by its first section, and by each section whose heading names a target's repo-relative path, its directory or its name, each section at most 120 lines; a file with no heading is one pointer of at most 400 lines. A `CLAUDE.md` that only imports `AGENTS.md` (`@AGENTS.md`) is cited once, as `AGENTS.md`. From M4, when the artifacts pack is loaded, a section is also cited when its text, not only its heading, names a target.
+    - Plan text (the intent, rules and questions lines) is inline, each line cut to 160 characters, marked `x-redact` and passed through `display::sanitize`. Repo text is never inline in the reply. The tool result is marked `untrusted: true`, as every tool result is.
+  - **Ranked and budgeted.** Every entry has a tier. When the pointers' summed `cost` passes the reading budget, the cut drops whole entries from the lowest tier first, and within a tier from the end of its section.
+
+    | Tier | Entries | Cut |
+    |---|---|---|
+    | 1 | `intent`, `rules` | never |
+    | 2 | `questions`; `instructions`; the first 5 `targets` pointers | fourth |
+    | 3 | the other `targets` pointers, and curated includes | third |
+    | 4 | `interfaces`, `diagrams` | second |
+    | 5 | pack sections | first |
+
+    - Within a section the order is fixed: `questions` by DR-116's score, then ID; `targets` in the item's touch order, then path and line; `interfaces` and pack sections by lifted-edge count, then ID; `instructions` root first.
+    - The reading budget defaults to 6,000 tokens, and `--budget` takes 1,000 to 24,000. Tier 1 is inline text, so it counts against the reply, not the reading budget. It holds at most 15 lines, about 600 tokens: past that, non-goals and then rules beyond the first 10 are counted in `omitted`, never cut by the reading budget.
+    - The reply keeps to the leaf's 1,500 tokens by the same cut, with the `truncated` warning (DR-86). Each section counts what it dropped in `omitted`. Nothing pages: the pack is a list to read in order, and its tail is what to read last.
+  - **Hashed, and stale when a cited node changes (DR-112's mechanics).**
+    - `fingerprint` is DR-112's: each cited node's kind, level, parent and name, and its evidence's paths and line texts, line numbers left out. The pack's also covers each instruction file's blob ID at the scanned commit. M2 builds this function in the kernel, and DR-112's M3 slice reuses it.
+    - `hash` is the sha256 of the redacted entries and the fingerprint, computed whether or not `PLANROOM_RAW` is set. With `--known HASH` equal to it, the reply is `unchanged: true` with no sections. An agent pays for a pack only when it changed.
+  - **Delivered to implementers automatically.** Building a pack is a read, so delivery needs no new authority. The person approved the hand-off, by a `handoff start` press or by the ratification that starts it (DR-118); the pack only fills its spec.
+    - `handoff start` builds the subject item's pack at the spec's base commit. Entries become excerpts in `context`, in cut order, while they fit the field's 4,000 tokens after what the hand-off loop puts first (a retry's failure excerpt, DR-118). An excerpt that doesn't fit is never cut in half: it goes to the spec's new `reading` list as a pointer, up to the 6,000-token reading budget. Excerpts stay fenced, marked untrusted and redacted, as today.
+    - A range is read at the base commit. When the scanned commit differs, each range is re-anchored by its evidence line's text, searching 50 lines either way, nearest first. A range that can't be re-anchored goes to `reading` as a pointer marked `anchored: false`.
+    - The spec keeps `context_hash` and `context_fingerprint`. `handoff collect` takes the fingerprint again over the current model. On any difference it warns `context_stale`, naming the changed cited IDs (at most 10, with a count of the rest), and the review card shows the line.
+    - A stale pack doesn't stop a running hand-off. The implementer worked from the commit the pack was built at, and the spec's rules and checks catch a real conflict. A hand-off that hasn't started builds its pack when it starts, so work sequenced behind another hand-off or a proof of concept reads the result.
+  - **On demand in chat, secondarily.** The `planroom` skill gains two lines: before working on a plan item or a block, run `context ID` and read what it lists, in order, with your own Read; pass `--known` with the hash you hold. The chat agent's Read stays under the mod's guard, and no pointer can name a path in a store, `.planroom/` or the data root, since every pointer is a workspace repo file.
+  - **Curation learns from what implementers read.**
+    - The mod writes each Read call it saw the implementer make to `observed.json`, beside its Bash calls: the path inside its clone, as `<repo>/<path>`, and the line range, or the whole file.
+    - `handoff report` writes two new fields on the run: `context`, the entries the spec gave (path, lines, section, excerpt or pointer), and `reads`, the observed reads. Only Planroom writes them; the run's agent-written steps stay `claimed` and are never mined (DR-75). Runs an agent imports teach nothing (DR-52).
+    - Two new miners run in the `curate` duty, deterministic, with no model:
+
+      | Miner | Rule | Proposal |
+      |---|---|---|
+      | `context_missing` | a range read, or a file edited, outside what the spec gave, in 3 or more runs whose subjects touch the same block | include that range in every pack whose targets hold that block |
+      | `context_unread` | a pointer given, not as an excerpt, in 5 or more runs and read in none | skip that range in that block's packs |
+
+    - A proposal is an `edit set` of the block's `context` field: `{ include: [{ path, lines, why }], skip: [{ path, lines }] }`, kept in the fold beside the node and read only by the pack builder. It is an override, so a rescan keeps it.
+    - The `curate` duty writes it as a ghost, by the rule this record adds to DR-4: a proposal an engine miner writes is a ghost whoever runs it. DR-120's concept miner follows the same rule. One batch per `curate` run, listed in Decisions: "Context hints from 4 runs: give 2 ranges, skip 1". It counts only after a person accepts it. Reject hides it, and `edit undo` reverses an accepted one. An agent can't accept it.
+    - Accepting checks each included path against the read confinement (DR-52): a path outside the workspace's repos, or a credential path, is refused. A rejected hint's cluster isn't proposed again until 3 more runs show it.
+    - An accepted include enters `targets` or `interfaces`, wherever its block appears, marked `curated`. A skip removes the pointer from that block's packs.
+  - **What a person sees.**
+    - On the canvas, a plan item's detail on the plan board (Intent) shows one line: "Reading for this item: 14 ranges in 6 files, about 5,200 tokens; 2 open questions." Opening it lists the sections, each pointer with its evidence popover. No new view or concept.
+    - The hand-off review card adds one line: "Given 9 ranges; read 7 of them, and 2 files outside them." It adds the `context_stale` line when there is one.
+    - `/room context ID` draws the summary line and the handles, within `/room`'s 300 tokens. No new pane section or key.
+  - **Why these numbers.** 4,000 tokens is the spec's existing excerpt budget. 6,000 for reading caps what an implementer reads before it starts, excerpts included, at 10,000 tokens, a small part of its window; 24,000 bounds an explicit `--budget`. The window of 5 before and 20 after an evidence line holds a call with its function's opening. The 3-run rule is curation's own (architecture.md:1364), and 5 for skips is stricter because a skip removes reading.
+- **Alternatives rejected:**
+  - **`ask context ID` returning `AskResult`:** its items have no ranges, costs, sections or hash. Widening `AskResult` for one question would change every question's result.
+  - **A new `ancestors` shape for the intent chain:** one pack would use it, short of DR-15's two, and the chain is the kernel's own plan structure.
+  - **The whole pack as excerpts for the chat agent:** repo text would enter tool results, against architecture.md:1600, and an agent would pay for text it doesn't read.
+  - **Pointers only in the spec:** the implementer would spend turns reading what the spec can carry. The spec's 4,000-token excerpt field already exists for this.
+  - **Storing packs, or pack events:** a pack is a view of the model. Stored, it would be a second model that goes stale. The spec keeps a copy only because the implementer must read exactly what it was given.
+  - **Curated hints as `CLAUDE.md` lines:** they would change the repo for every agent, not just Planroom's packs, and need a merge for each. Gotchas that belong there stay with curation's existing miners.
+  - **Learning by a model's ranking:** it would cost money on every pack and be hard to check. The counts above are deterministic and testable offline.
+  - **Stopping a hand-off when its pack goes stale:** every merge into a shared branch would stop neighbouring work. DR-118 owns the stop conditions, and a stale pack isn't one.
+  - **A pack for a project:** it would be the whole plan; each item has its own.
+- **Consequences:**
+  - **Contracts:**
+    - `Command::Context` and `ContextReq { id, version, budget, known }`;
+    - `ContextPack { subject, version, roots, sections, reading: { budget, used, omitted }, hash, unchanged, empty }` with `roots`' values marked `x-redact`, `ContextSection { id, label, entries, omitted }`, `ContextEntry { tier, node, text, pointer, marks, handles }` with `text` marked `x-redact`, `ContextPointer { path, lines, commit, cost, why, source, anchored }` with `why` marked, and `ContextMark` (`unconfirmed`, `from_chat`, `from_poc`, `intended`, `curated`, `stale`);
+    - `ContextDecl` and `PackFile.context`, and `PackFile.instruction_files`; the `[pack]` reasons `context_reserved`, `context_duplicate` and `context_cite`;
+    - `ChangeSpec.reading`, `ChangeSpec.context_hash` and `ChangeSpec.context_fingerprint`, all additive in `planroom.change-spec/v1`; `ContextExcerpt` gains `section`;
+    - `ImplementerRun.context` and `ImplementerRun.reads`, optional and additive, like `denied` and `claimed`, so `fixture_format_is_unchanged` still holds;
+    - the `context` override field and `ContextHints`; the `context_stale` warning with `{ key, changed, more }`; `argument.context_subject` and `argument.context_ghost`; en.toml's `[context]`.
+    - All additive: `schema_version` stays 1. A reader that doesn't know the `context` override field ignores it.
+  - **Milestones:**
+    - M1: none. M1 has no hand-off to deliver a pack to, and the owner's path ("ratify the plan and walk away") needs M2's hand-offs before a pack does anything.
+    - M2 grows by 18.5 h:
+      - the `context` leaf: contract 1 h, the kernel's sections, ranges, cut, fingerprint and hash 3 h, the app's line-index costs, chain, rules, questions and instruction files 2.5 h, instruction files' headings in the line index and their sections 1 h, `[[context]]` in the loader and the code pack's sections 1.5 h, `/room context` and the skill lines 0.5 h, tests, goldens and docs 1.5 h (11 h);
+      - ‖ the spec's context: excerpts and `reading` from the pack, re-anchoring at the base commit, `context_hash` and the fingerprint, `context_stale` at `collect`, and the review card's line, after the hand-off slice (4 h);
+      - the observed reads in `observed.json`, and the run's `context` and `reads` at `handoff report` (1.5 h);
+      - the plan board's reading line and list, with the canvas slice (2 h).
+    - M3 grows by 1 h: the `diagrams` section, with the drawn diagrams slice.
+    - M4 grows by 1 h: instruction-file sections cited by their text as well as their headings, with the artifacts pack slice.
+    - M5 grows by 5 h: the two miners, the `context` override field in the fold, the ghost batch in Decisions, and the builder reading accepted hints, with the `curate` slice.
+    - The total grows by 25.5 h.
+  - **Tests** (all offline in CI, on the fixture, with the `patch` implementer and replays; none needs a model):
+    - `crates/kernel/tests/context.rs` (M2): `the_chain_runs_from_the_intent_down_to_the_item_and_its_children`, `a_block_lists_the_open_items_that_touch_it`, `ranges_merge_within_ten_lines_and_stop_at_120`, `the_cut_drops_whole_entries_from_the_lowest_tier_first`, `intent_and_rules_are_never_cut`, `ghosts_never_enter_a_pack`, `the_hash_changes_with_a_cited_line_text_and_not_with_seq_or_a_line_shift`, `the_order_is_deterministic`;
+    - `crates/planroom/tests/context.rs` (M2): `context_on_a_next_action_lists_its_chain_rules_targets_and_interfaces` (the S4 item `worker-status-via-api`), `context_on_a_block_lists_its_evidence_and_its_neighbours_interfaces`, `a_project_or_a_ghost_is_not_a_subject`, `a_known_hash_returns_unchanged`, `the_reply_holds_pointers_and_no_repo_text` (a planted secret and a planted "ignore previous instructions" line appear in no reply field), `the_reading_budget_bounds_the_summed_cost`, `an_intended_target_cites_its_nearest_built_ancestor`, `a_workspace_with_no_repos_gets_intent_rules_and_questions`, `instruction_files_come_from_pack_data_and_an_import_only_claude_md_is_cited_once`, `instruction_files_are_cited_by_their_first_section_and_sections_whose_heading_names_a_target`, `roots_are_masked_and_namespaces_are_not`, `question_marks_follow_their_status`, `context_output_is_redacted` (the hash is equal across two runs and under `PLANROOM_RAW=1`), `context_requests_round_trip_through_the_schema`;
+    - `crates/planroom/tests/packs.rs` (M2): `a_context_section_with_a_reserved_id_is_pack_invalid`, `two_packs_declaring_one_context_id_are_pack_invalid`, `a_context_sections_steps_are_checked_like_a_questions`;
+    - `crates/planroom/tests/handoff_context.rs` (M2): `the_spec_context_is_filled_from_the_pack_within_4000_tokens`, `an_excerpt_that_does_not_fit_becomes_a_reading_pointer`, `excerpts_are_fenced_untrusted_and_redacted`, `a_range_is_re_anchored_at_the_base_commit_by_its_line_text`, `collect_warns_context_stale_naming_the_changed_ids`, `a_handoff_builds_its_pack_when_it_starts`, `report_records_the_context_given_and_the_reads_observed` (the testkit writes the `observed.json` the mod would);
+    - `packages/mod/src/agents.test.ts::observed_reads_are_written_before_report` and `packages/mod/src/room.test.ts::room_context_keeps_text_within_budget` (M2);
+    - `tests/e2e/src/plan.spec.ts::a_plan_items_reading_list_opens_with_evidence_popovers` (M2);
+    - `crates/planroom/tests/diagram.rs::a_context_pack_lists_accepted_diagrams_and_marks_stale_ones` (M3); `crates/planroom/tests/s05_artifacts.rs::instruction_sections_whose_text_names_a_target_are_cited` (M4);
+    - `crates/planroom/tests/s12_curation.rs` (M5): `a_range_read_in_three_runs_and_never_given_is_proposed_as_a_ghost_hint`, `a_pointer_unread_in_five_runs_is_proposed_for_skip`, `an_accepted_hint_enters_the_next_pack_and_undo_removes_it`, `agent_imported_runs_teach_no_hint`, `an_agent_cannot_accept_a_hint`, `a_hint_outside_the_workspace_is_refused_at_accept`, `a_rejected_hint_waits_for_three_more_runs`;
+    - the goldens `context-item.json` and `context-block.json`, through `cargo xtask gen --golden`; `budgets.json` gains `tool_results["context-item"]` and `["context-block"]`, new keys, not raises (DR-89), gated by `tools.test.ts::tool_results_within_budget`; the leaf's synopsis line stays inside `surface.tools`' 900 tokens, and a raise there needs its own record;
+    - a new tier C entry in `feature_list.json`, "Context packs" (R8, R12), added by M2's change with these tests.
+  - **Known gaps:**
+    - the fingerprint covers each cited line, not the window around it, so a change inside a range that leaves its cited line alone doesn't make the pack stale;
+    - a chat agent's reads aren't observed or mined; only implementer runs teach curation;
+    - a chat agent's Read reads the working tree, which can differ from the scanned commit a pointer names;
+    - until M4, an instruction file's section is cited only when its heading names a target, so a section that names one only in its text is left out; a file with no heading is cited whole, up to 400 lines;
+    - `tokens_est` is `bytes / 4`, so `cost` is an estimate, as every budget is.
+  - **Users:** you plan in the plan room and ratify; each hand-off's implementer gets exactly what the map says it needs, and you see on its review card what it read beyond that. An agent in chat can ask for any item's or block's reading list and pay for it only when it changed. Over time, Decisions offers you hints from what implementers needed, and nothing changes until you accept one.
+- **Sources (checked 2026-10-29):** architecture.md:343, :347, :870-926, :1159-1170, :1296-1311, :1358-1371, :1590-1600, :1761-1860; contracts.md:1122-1183; decisions.md DR-4, DR-15, DR-27, DR-52, DR-64, DR-75, DR-111, DR-112; `crates/contract/src/{model.rs, pack.rs, requests.rs, event.rs, command.rs}`; `crates/kernel/src/query/mod.rs`; `packs/plan/pack.toml`; KICKOFF.md:99-102 (R12).
+
+## DR-118: Ratify a plan and walk away: one signed approval of a bounded batch of hand-offs, an integration branch per repo, and slice POCs first
+
+- **Status:** accepted (decided on the owner's request of 2026-10-29). M2 builds all of it; M1 is unchanged.
+- **Starting point:** extends DR-23 and DR-106 (the plan pack's stages and lint), DR-25 (clones and the merge preflight), DR-55 (archived branches), DR-64 and DR-75 (approved commands, the sandbox, observed runs), DR-66 (report, then collect), DR-71 (the tracked branch) and DR-80 (landing by pull request). Builds on DR-115 (a hand-off may create a repo), DR-116 (questions, their statuses, score and sticky slot, and the `referenced` rule type) and DR-117 (context packs fill each spec). DR-119 adds overlap choices, take-in and room caps on top of it. Keeps DR-26 (the touch-set guard), DR-73 (a person's field wins over automatic writes), DR-77's second key for a repo-changing choice, and DR-110 (backups). Extends DR-54: the pane's Progress row shows a ratified run, with no row or key added. Amends DR-64 and DR-75 (`handoff start` is no longer only a press, and installs from a changed manifest may run sandboxed), DR-65 (no spawn is refused by a cap), DR-66 (collect always deals a review card), DR-71 (a hand-off's base branch is the tracked branch), DR-25 and DR-80 (merge and landing are per hand-off), DR-77 (a POC fail's redraft runs under the ratification's press, and under a live ratification `h` deals the run's card), and DR-23 and DR-106 (an eighth stage, `derisk`, a stage's `needed_when`, and the rule type `max_descendants`).
+- **Origin:** the owner, 2026-10-29: "I expect to work in the plan room, ratify the plan and walk away basically." On de-risking: "Could we also have a concept for slice pocs so very large plans are derisked?" and "The pocs for design work would be valuable, so maybe we keep them." The owner accepted the proposal set ("Yeah I like these. Get them planned properly"), and raised no objection to the integration-branch default.
+- **Context:**
+  - `handoff start ITEM` is person-only, because it is the approval of one spec and its command list (architecture.md:1298; decisions.md:1413). It refuses the terminal path, so it needs a mod press or a canvas tab (decisions.md:1414). A press signs one token for one command, valid for 30 s and spent once (DR-64). So a plan of nine next actions costs nine presses, one at a time.
+  - The mod runs the spec's installs outside the sandbox, in each clone at its base commit, as part of the person's start. That is safe only because the base is the person's own tracked branch, which no implementer has touched (architecture.md:467; decisions.md:1755).
+  - After the implementer reports, the mod runs `handoff collect`, which deals one review card per hand-off (architecture.md:1343; decisions.md:1480). Merge is person-only and lands on the tracked branch (architecture.md:1344, :1354). A hand-off's base branch is the repo's tracked branch (architecture.md:1300; decisions.md:1648).
+  - The implementer's own report is a claim. Only the Bash calls the mod observed, in `observed.json`, count as what ran (architecture.md:1308; decisions.md:1755).
+  - The daily cap counts gateway and TypeSafe dollars only. Spawned agents' usage is priced and reported, and no spawn is refused by a cap (decisions.md:1450).
+  - The plan pack has seven stages. The premortem rates failure stories and gives each high one a mitigation; nothing tests the riskiest guess before the work starts (packs/plan/pack.toml:97-109). Lint has five rule types (crates/contract/src/pack.rs:468-479). A field test can't test that a prop is absent (crates/kernel/src/next.rs:87-101).
+  - Plan versions are `version` events, tags on `seq`, and a later version is a person's tag (architecture.md:394).
+  - `HandoffState` has no state between `reported` and a person's review (contracts.md:710-711).
+- **Decision:**
+  - **Ratify is one signed person action over a plan version.**
+    - `intent ratify [--project P] [--version LABEL] [--spend-usd N] [--hours N] [--parallel N] --digest SHA` is person-only, from a mod press or a canvas tab, never the terminal path. With no `--version`, it tags the head as the next version in the same commit.
+    - `intent ratify --dry-run` is a read anyone may run. It returns the envelope below, its digest and the card. The press signs the digest, because the token covers the command's canonical arguments (DR-64). So the signature covers the exact batch the card showed.
+    - **The envelope** (`planroom.ratify-envelope/v1`) is built from the version's fold, so it holds accepted items only:
+      - the hand-offs: one per accepted `next_action` rated `must` or `should`, and one per POC that isn't waived. Each has its key, its plan items, its rules, its repos, the components of its touch points, its commands (the checks, `git add`, `git commit`), its installs with the sha256 of each manifest and lockfile they read, and the keys it waits for;
+      - per repo: the tracked branch, its head now (the plan's base), the integration branch, and the git identity (`user.name` and `user.email`) that its merge commits carry, as git resolves it in that repo; for a repo a hand-off creates (DR-115), its directory, its first branch and the identity git resolves at the workspace root, and no head;
+      - the sandboxed installs: per repo, the registry hosts that installs from a changed or new lockfile may reach (below);
+      - the redraft: for each POC, one breakdown draft of its gated items if it fails, with the estimator's cost of one such draft (DR-65);
+      - the caps: spend in dollars, hours, and how many hand-offs run at once;
+      - the implementer (`agent`, or `patch` with its patch directory's digest);
+      - the waived POCs, and the chat answers to high-stakes questions the plan builds on;
+      - each overlap with another live plan and the choice made for it (DR-119).
+    - `could` and `wont` items are listed on the card and left out. A person who wants one rates it `should` and ratifies again.
+    - A next action with no rating, as when you stopped before the priorities stage, runs as `should`. The card counts them: "3 unrated, run as should".
+    - **Whose name is on a merge commit.** A merge commit the engine makes on an integration branch (a candidate, below, or a take-in, DR-119) carries the identity the envelope names for that repo, passed as `-c user.name=… -c user.email=…`, and a `Planroom-Ratification: <event ID>` trailer. The card shows each identity, and the digest covers it. A repo where git resolves no identity gets no Ratify: the card says which repo and the line that sets one, and `intent ratify` returns `ratify_blocked` with `details.no_identity`. The engine has no identity of its own and never fabricates one (DR-115); the person whose ratification causes a merge is its committer.
+    - At commit the engine rebuilds the envelope. A digest that differs is `ratify_stale`: the plan or a head moved since the card. The card deals again with the new batch.
+    - The ratification is a `ratify` event, an event kind of its own beside DR-112's `diagram`. Its body is the envelope, whole. Export, backups and the stream carry it.
+    - **Defaults.** Hours default to 12 and parallel runs to 3. The spend cap defaults to the estimator's figure (DR-65): each agent hand-off at the median priced usage of this workspace's last 20 agent runs, or $2 with no history, plus 50% for one retry each; one checker run per integration attempt at its own median, or $0.05; and each POC's redraft. The card shows each, and the person can change them before the press. They are command arguments, not settings, because each plan needs its own.
+    - **The card says what the run needs.** It adds two lines: "Runs while a Claude Code session with Planroom stays open here; the 12 h keep counting while none is", and, for a repo whose later installs can't run sandboxed, "Later hand-offs in api/ will wait for you once one adds a lockfile".
+    - **The ratify press is the confirming press for each redraft it names (amends DR-77).** DR-77 runs a paid step only on a press made while its card is face up. The ratify card names each POC's redraft and its cost, so the ratify press confirms them, as the stage picker's digit confirms a stage draft. A redraft is a gateway call: it counts against the daily cap and the ratification's spend cap, and runs only while both have room.
+  - **What the ratification authorizes, and nothing more (amends DR-64 and DR-75).**
+    - `handoff start KEY` runs with no press when a live ratification covers KEY. The engine builds the spec as it would for a press, then checks it against the envelope: same items, same rules, repos and touch-point components within the envelope's, commands and installs a subset of its, except installs from a changed or new lockfile, which run sandboxed within the envelope's registry hosts (below). Anything outside is `person_required`, as today.
+    - The authority is the person's signed event, not the caller. So it doesn't matter which process asks: the engine starts only what the ratification already approved, when the schedule below allows it. The spec's `by` names the person who ratified, and the `handoff` event names the ratification as its cause.
+    - A ratification is live until its time cap passes, the person revokes it, a newer ratification of the same project replaces it, or every hand-off it covers is closed.
+    - It never extends. An item accepted after the version isn't covered, and an agent's ghost never enters a version. New work needs a new ratification.
+    - **Revoke.** `intent ratify --revoke [--project P]` is person-only. Its press is the Stop choice on the run's card (below), which turns into a confirm, "Stop gift-wrap? Nothing new starts; runs in flight finish and wait", and a second key revokes (DR-77). Nothing new starts or integrates. Runs in flight finish and wait for the plan review, with every branch kept.
+    - **Installs outside the sandbox only from the base's manifests.** A ratified hand-off's installs run outside the sandbox only when every manifest and lockfile they read is byte-identical, by sha256, to the envelope's (DR-75's reason, kept: no lifecycle script an implementer wrote runs unsandboxed).
+    - **Installs from a changed or new lockfile run sandboxed (amends DR-75).** When a lockfile in the base differs from the envelope's, or is new, as in a repo the plan creates once its first hand-off adds one, the installs it calls for run inside the sandbox instead: the mod runs them through `planroom:checker` in the clone, its guard allowing exactly those install commands, with the sandbox's network open only to the registry hosts the envelope names for that repo. The code pack names each install command's registry hosts as data (`registry.npmjs.org` for `npm ci`), and the envelope lists, per repo, the hosts of the install commands its lockfiles call for, or for a repo the plan creates, of every install command the code pack names; the card shows them. An install that fails is a failed attempt. Where the host's sandbox can't limit the network by host, the hand-off waits for a person's `handoff start` press instead (`install_changed`), and the ratify card said so.
+    - **A sandbox is required.** Where the host can't sandbox the implementer, the ratify card says so and offers no Ratify choice. Per-hand-off presses work as before.
+  - **Work lands on one integration branch per repo, never the tracked branch (amends DR-25, DR-66 and DR-71).**
+    - The integration branch is `planroom-plan/<project key>`, made at ratification from the tracked branch's head. It sits outside `planroom/` so no hand-off key can clash with it as a ref directory.
+    - A ratified hand-off's base branch is the integration branch, and its base commit is that branch's head when it starts.
+    - **A repo the plan creates.** Its integration branch is made when DR-115's start creates the repo, unborn. The first candidate there is `planroom/KEY` itself, with no merge, and integrating it moves the branch with `update-ref` from nothing. The plan merge into its unborn tracked branch is DR-115's `--ff-only` merge, behind DR-115's preflight.
+    - **Collect builds a candidate instead of dealing a card.** It fetches the clone's `HEAD` into `planroom/KEY`, as today. Then it makes a verify clone at the integration head, merges `planroom/KEY` with `--no-ff`, hooks and signing off, under the envelope's identity for that repo (above), records the candidate commit, and scans it into the `proposed:KEY` snapshot. A merge conflict counts as a failed attempt.
+    - **Rules on the candidate.** The hand-off's rules, and every rule of the hand-offs already integrated under this ratification, must hold on the candidate. So a later hand-off can't undo an earlier one.
+    - **Checks on the candidate, by a sandboxed checker.** The mod spawns `planroom:checker` in the verify clone: Bash only, the Bash sandbox on, a fixed cheap model. Its guard allows exactly the spec's check commands in that clone and denies everything else. The mod writes `observed.json` with each command it saw and its exit code. Only those exit codes count; the checker's own words don't.
+    - **Integrate.** `handoff integrate KEY` moves the integration branch to the recorded candidate commit with `git update-ref NEW OLD`, so it fails if anyone moved the branch. Nothing the checks wrote in the clone can change what lands. The hand-off moves to `integrated`.
+    - The tracked branch, the working tree and the person's other refs never change during the run.
+  - **The run.**
+    - `handoff advance [--project P]` starts every hand-off the live ratification allows now, under the `ratify:<project>` lease, and returns the started keys for the mod to spawn. Anyone may run it; a second call joins the first. The mod runs it after every `handoff` event it hears from `watch`, and at `session.start`.
+    - **Order.** POCs start first, in parallel. A hand-off waits for every POC that gates it. Hand-offs whose touch-point components overlap run one after another, `must` before `should`, then by item ID. The rest run in parallel, up to the parallel cap.
+    - **One retry.** A hand-off whose rules don't hold, whose checks fail, whose merge conflicts or whose implementer gives up or times out restarts once from the current integration head. Its spec's `context` gains the failure as an untrusted excerpt: the unmet rules, or the failing check's output excerpt, redacted. It goes first and is cut to 800 tokens, and DR-117's excerpts fill the rest of the field's 4,000. A second failure stops it.
+    - **Stop conditions.** Each stops only the work that depends on it:
+
+      | Stop | What pauses |
+      |---|---|
+      | `poc_failed`: a POC fails after its retry | the items it gates |
+      | `rules_unmet`: a hand-off fails after its retry | it, and hand-offs queued behind it on overlapping touch points |
+      | `question`: a run's result names a new `high`-stakes question | the hand-offs whose items the question rests on |
+      | `outside_touch_points` or `hidden_characters` at collect | it; it waits for a person's review |
+      | `install_changed`: a lockfile differs from the envelope's, and the host can't sandbox its installs by host | it, until a person's press |
+      | `integration_moved`: `update-ref` found the branch moved, and no take-in recorded the move (DR-119) | the whole plan |
+      | `take_in_stopped`: a take-in needs judgment (DR-119 defines it) | the whole plan |
+      | `spend_cap` or `time_cap` | every start not yet made |
+      | `budget_exceeded` from a model call the run needs | the hand-off that needed it |
+
+    - A stop moves the hand-off to `paused` with its reason, deals one stop card, and pins its question: DR-116's sticky slot takes a question a stop names first. Everything that doesn't depend on it keeps going.
+    - **Stopping may rest on an agent's say-so; going on never does.** A new question in an implementer's result is a ghost, as any agent write is. It still pauses the hand-offs resting on it, because pausing costs nothing and loses nothing. Integration rests only on the engine's rules and the observed exit codes.
+    - **The caps.** Ledger rows gain the hand-off key and the ratification's event ID. `advance` sums the ratification's rows before each start and starts nothing past the spend cap. It starts nothing after the time cap. A run in flight at the time cap is stopped where the host allows it; otherwise it finishes and isn't integrated. This amends DR-65 for a cap the person set on their own run; the daily cap keeps its meaning, and a gateway call, such as a POC's redraft, still counts against both. DR-119's room caps, on running implementers and on agent spend across workspaces, hold automatic starts too.
+    - The run advances only while a Claude Code session with the mod is open in the workspace, since only the mod spawns implementers. The next session resumes it. The ratify card says so before you walk away.
+    - **Where the run shows in the pane (extends DR-54 and amends DR-77; no row or key is added).** While the focused project has a live ratification, the Progress row, which already shows hand-offs running and owns `h`, shows the run instead of the stage: "run 5/9 · $4.10/$12 · paused: POC stripe-webhooks", cut to width. `h` then deals the run's card in place of the hand-off picker: its question line is that summary, its why line the time left and the first stop, and its choices are Stop, then the paused hand-offs to retry or review, then the items ready to hand off, as the picker lists them. So the fixed sections stay at DR-116's 19 rows at 34 body rows, and the list's page doesn't change.
+  - **Slice POCs.**
+    - **A derisk stage** follows the premortem: intent, outcome, breakdown, next actions, priorities, premortem, derisk, lint. Its method is "riskiest assumption first". It writes `poc` items.
+    - **A plan that needs no POC skips it (amends DR-23).** `StageDecl` gains `needed_when`, a list of rule IDs of the same pack. `kernel::plan::next_stage` passes over a stage with `needed_when` while none of those rules has a finding, as if it were drafted. The derisk stage's is `["derisk_question_tested", "derisk_large_plan"]`, so a plan of 12 or fewer next actions with no untested high-stakes question goes from the premortem to lint, and the stage picker and the next action never offer a paid draft with nothing to do. A rule ID that the pack doesn't declare is `pack_invalid` (`stage_needed_when`).
+    - **Its candidates, ranked.** `ask stage derisk` returns the project's open questions (DR-116) and its premortem risks, ranked by stakes × uncertainty × how much rests on them:
+      - stakes weigh as DR-116's score weighs them;
+      - uncertainty is 3 for an open question, 2 for one answered in chat, and a risk's likelihood (`low` 1, `medium` 2, `high` 3); a question a person or a passed POC answered isn't a candidate;
+      - what rests on it is counted as DR-116 counts it, at least 1.
+      - The premortem stage's `risk` gains `stakes` and `rests_on`, and its checklist one line asking for them.
+    - **A POC item's props:**
+
+      | Prop | Holds |
+      |---|---|
+      | `hypothesis` | what must be true, in one sentence |
+      | `tests` | the question and risk items it tests |
+      | `slice` | the thinnest end-to-end path that tests it, touching each layer once; its `kernel.touches` targets are those layers |
+      | `check` | the pass/fail command, one of its spec's checks |
+      | `budget_usd`, `budget_minutes` | its own caps; passing either is a fail |
+      | `on_pass`, `on_fail` | what the plan does either way |
+      | `gates` | the work and next-action items that wait for it, with their descendants |
+      | `status` | `planned` or `waived`; the engine writes `passed` or `failed` |
+      | `waiver` | why it is waived, when it is |
+
+    - **When a plan needs POCs.** Two rules in the derisk stage's lint, each a finding until it's met:
+      - `derisk_question_tested`: a `high`-stakes question with no answer a person holds or a POC wrote, and something live resting on it, needs a POC whose `tests` names it. It is DR-116's `referenced` with `unless` `answer`, `unless_held`, `live` `rests_on` and `by` the `poc` items' `tests`, so an unconfirmed chat answer doesn't waive a POC.
+      - `derisk_large_plan`: a project with more than 12 `must` or `should` next actions needs at least one POC. Twelve is past two days of hand-offs, where one wrong guess wastes most of the run. It is pack data, so another pack can set its own.
+    - **A waiver is a POC with `status` `waived` and its reason.** An agent's waiver is a ghost and doesn't count until a person accepts it. A waived POC runs nothing and gates nothing.
+    - **Ratify refuses the full work without them.** Any finding from the derisk stage's rules makes `intent ratify` return `ratify_blocked`, with the findings, and a hint naming `intent next --stage derisk`. Other lint findings show on the card and don't block.
+    - **One new rule type,** domain-free, which the kernel reads from pack data:
+      - `max_descendants`: a subject with more than `max` descendants of `kinds` passing the `count` field tests, unless one descendant passes the `unless` field tests.
+    - **A pass is kept (the owner's choice).** A POC whose rules hold and whose `check` exits 0 integrates like any hand-off, so later work builds on it.
+    - **A pass answers what it tests.** Each question it `tests` gets its `assumption` as its `answer`, written by `system:ratify` with the integration as its cause. Its evidence is the repo, the branch, the candidate commit, the check command, its exit code and its redacted output excerpt. The question's status reads `from_poc` (DR-116), so it shows a "confirmed by POC" chip beside the items resting on it while they are in play, two keys from correcting, as DR-116 shows a chat answer. A risk it tests gains the evidence; its likelihood stays as a person set it.
+    - **Unless the implementer changed the check.** When the POC's diff touches what its `check` runs (a file its command names, a file under a directory it names, or the manifest that defines the script it calls, such as `package.json` for `npm test`), the pass still integrates, but each answer is written as a ghost, not as `from_poc`. The plan card lists it under "check changed by the implementer", and the question stays open until a person accepts the answer.
+    - **A fail pauses its part.** The branch moves to `refs/planroom/archive/KEY`, as a cancel's does (DR-55), so nothing is lost. The items it gates pause. Its questions pin first. If the workspace allows Claude and both the daily cap and the spend cap have room, `intent next --stage breakdown` redrafts the gated items as ghosts, with `on_fail` and the failure in the uncached tail, as "not this" (DR-116). The ratify press confirmed this redraft and its cost (above). Otherwise the redraft waits for the person's press on the stage picker.
+  - **The person returns to one review (amends DR-25 and DR-80).**
+    - `diff --plan P` maps the integration branch's diff from the plan's base onto the map: each hand-off's rules, each POC's hypothesis and result, the stops, the denied commands, and every `outside_touch_points` and `hidden_characters` warning, with those hunks expanded.
+    - When the last hand-off integrates or stops, or the person opens the plan, one card deals: "gift-wrap: 7 of 9 integrated, 2 POCs passed, rules 14/14, +812 −120 in 31 files in 2 repos. Merge the plan, ask for changes, or keep it?" Merge takes the second, deliberate key (DR-77).
+    - `handoff merge --plan P` (person only) preflights every repo as `handoff merge` does, under the `plan:<project>` lease and the step protocol. Then it runs `git merge --no-ff planroom-plan/<project>` on each tracked branch with hooks off. Every integrated hand-off moves to `merged`, `landed_by` `Plan`. A preflight conflict with the tracked branch returns `handoff_conflict` with the files.
+    - `handoff revert --plan P` (person only) reverts the plan's merge commit in every repo, behind the same preflight and resume.
+    - **By pull request.** The card names the integration branch. A person may push it and land it by a pull request, as for one hand-off (DR-80): the patch identity is taken over the integration branch's diff from the plan's base.
+    - **Ask for changes** starts a person's hand-off on the integration branch, with the ordinary per-hand-off review. **Keep it** leaves everything as it is.
+    - `handoff cancel --plan P` (person only) moves the integration branch to `refs/planroom/archive/plan/<project>/<n>` and archives each open hand-off's branch.
+    - Paused hand-offs stay paused. A person can retry one (`handoff start KEY`), review it alone, or drop it.
+    - **A re-ratification keeps what's done.** Ratifying a later version keeps every integrated hand-off whose items and rules are unchanged, and continues on the same integration branch.
+  - **The loop gains three states.** `reported → verifying` (collect under a ratification), `verifying → integrated`, `verifying → paused`, `failed → paused` (after the retry), `paused → started` (retry), `paused → reviewing` (a person reviews it alone), `paused → dropped`, `integrated → merging` and `integrated → merged` (the plan merge, or the plan's pull request). Each is a `handoff` event, with its cause.
+  - **How the two exceptions stay safe and reversible.** The owner chose two places where something counts before a person accepts it item by item:
+    - **The ratification approves a bounded batch.** It is the person's signed press over a digest of every spec's rules, repos, touch points, commands and installs, the registry hosts sandboxed installs may reach, each POC's redraft and its cost, the identity on its merge commits, and the caps. The engine checks each start against it, and nothing outside it runs. The only branch it changes is the integration branch; the tracked branch changes only on the person's merge, with its second key, and `handoff revert --plan` undoes that. Revoke stops it at once; cancel archives everything.
+    - **A POC pass answers its questions.** The person approved each POC's hypothesis, `check` and `on_pass` in the batch. The answer rests on the engine's rules and the exit codes the mod observed, never on an agent's report. The check itself may run code the implementer wrote, so a pass is evidence, not proof (Known gaps), and a pass whose check the implementer changed answers only as a ghost. It never sets an answer a person holds (DR-73). It shows as "confirmed by POC" with its evidence, and `edit undo` or `intent answer` reverses it. Reopening it re-pins the question; work already integrated waits for the plan review.
+    - The chat answer that resolves a question at once is DR-116's. The ratify card lists such answers to high-stakes questions, from the envelope.
+- **Alternatives rejected:**
+  - **The mod signs each start with the person key.** The key would sign without a press, so any code in the mod's process could start anything.
+  - **A long-lived delegated token.** A bearer secret whose leak is the person's authority. A ratify event holds no secret, and its authority is bounded by its envelope.
+  - **Bounds alone, such as "any change in repos X and Y".** Work an agent chose would run unapproved. The envelope binds each hand-off's rules and touch points.
+  - **Merging each hand-off into the tracked branch.** The owner's default is the integration branch, and the tracked branch should change only on a person's press.
+  - **No integration branch, each hand-off reviewed alone on return.** Nine reviews instead of one, and nothing checks the hand-offs together.
+  - **Rebasing hand-offs onto the integration branch.** It rewrites the implementer's commits, which breaks patch identity and the archive's record.
+  - **Running checks through `process.run`.** It would run code an implementer wrote, unsandboxed, with the network and the person's rights.
+  - **Trusting the implementer's reported checks.** They are claims (DR-75), and they ran before the merge with the other hand-offs.
+  - **Installs from the integration head.** An implementer's manifest would run its lifecycle scripts outside the sandbox (DR-75).
+  - **Stopping the whole plan on any stop.** The owner asked to pause only the dependent work.
+  - **Throwaway POC branches.** The owner chose to keep the POCs that pass.
+  - **POCs as a separate kind of run.** A second loop; the hand-off loop already brings clones, the sandbox, rules, archives and review.
+  - **The POC threshold as a setting.** Pack data lets a domain pack set its own, and needs no new key.
+  - **`could` items in the batch.** They would spend the cap on what the plan says it can do without.
+  - **A per-hand-off drop on the plan review that reverts its integration merge.** Every later hand-off would need its checks again; a follow-up hand-off does the same through the ordinary path.
+  - **A run line and a Stop key of its own in the pane.** Every key and the row budget are spent (DR-116). The Progress row already shows hand-offs running and owns `h`.
+  - **A redraft after a POC fail with no named cost.** It would spend without a confirming press (DR-77). The ratify card names it, so the one press covers it.
+  - **Merge commits under an engine identity, or the person's global config read at merge time.** The first fabricates an identity; the second signs with whatever config the run's environment holds, unseen. The envelope's identity is shown and signed.
+  - **Every install after a manifest change waiting for a person.** A repo the plan creates has no lockfile at ratification, so every later hand-off there would wait, and walking away from a new project would not work.
+- **Consequences:**
+  - **Contracts:**
+    - `RatifyEnvelope` (`planroom.ratify-envelope/v1`), `RatifiedHandoff`, `RatifyBase` (with `created` for a repo a hand-off creates, `identity` `{name, email}` and `registries`), `RatifyRedraft` `{poc, est_usd}`, `RatifyCaps`; `EventBody::Ratify` and `EventKind::Ratify`, the body holding the envelope, its digest and `revokes` for a revoke;
+    - `HandoffState::Verifying`, `Integrated` and `Paused`; `HandoffStep.ratify` and `HandoffStep.stop`; `StopReason` (`poc_failed`, `rules_unmet`, `question`, `outside_touch_points`, `hidden_characters`, `install_changed`, `integration_moved`, `spend_cap`, `time_cap`, `budget_exceeded`, and DR-119's `take_in_stopped`); `LandedBy::Plan`; `SpecInstall.manifests` (path and sha256) and `SpecInstall.sandboxed`; `StageDecl.needed_when` and the `[pack]` reason `stage_needed_when`; the code pack's install table gains each command's registry hosts;
+    - `PlanRun`, the read of a plan's run: state (`drafting`, `ratified`, `running`, `paused`, `done`), each hand-off's state and stop, spend against the cap, the time left and the pinned question;
+    - `RuleType::MaxDescendants` with its parameter table;
+    - the plan pack's `derisk` stage and `poc` item type; `risk` gains `stakes` and `rests_on`; rules `poc_status`, `poc_hypothesis`, `poc_check`, `poc_gates`, `poc_budget`, `poc_slice_target`, `derisk_question_tested` and `derisk_large_plan`;
+    - errors `ratify_blocked` (conflict, exit 4, retry `never`; `details {findings, no_identity, card}`; the hint names `intent next --stage derisk`, or the `git config` line for a repo with no identity) and `ratify_stale` (conflict, exit 4, retry `after_reread`; `details {digest, current}`);
+    - warning `plan_paused` on `focus` and `intent run`: `details {project, keys, reason, card}`;
+    - redaction marks: `ratify_blocked`'s registry entry redacts `findings`, and `plan_paused`'s nothing; `RatifiedHandoff.title`, each touch point's `why`, `SpecInstall.manifests[].path` and `RatifyBase.identity` are marked `x-redact`; `PlanRun.question` is DR-116's `QuestionRow`, already marked; the `ratify` event's body goes through the event backup's redaction as every body does; no key, digest, commit, event ID or registry host is marked;
+    - catalogue leaves, with their budgets:
+
+      | Leaf | Idea | Actor | Class | Undo | Tool | Budget |
+      |---|---|---|---|---|---|---|
+      | `intent ratify [--project P] [--version LABEL] [--spend-usd N] [--hours N] [--parallel N] [--overlap …] --digest SHA` | Intent | person; refuses the terminal path | handoff | `Edit` (a revoke ends it) | none | 600 |
+      | `intent ratify --dry-run [same flags] [--cursor C]` | Intent | any | read | `Query` | `room_query` | 1,500, paged by hand-off; the digest covers the whole envelope, not the page |
+      | `intent ratify --revoke [--project P]` | Intent | person | handoff | `Edit` | none | 300 |
+      | `intent run [--project P]` | Intent | any | read | `Query` | `room_query` | 600 |
+      | `handoff advance [--project P]` | Diffs | any | handoff | as `handoff collect` | `room_handoff` | 300 |
+      | `handoff integrate KEY` | Diffs | any | handoff | as `handoff collect` | `room_handoff` | 300 |
+      | `diff --plan P [--cursor C]` | Diffs | any | read | `Query` | `room_query` | 1,500, paged by repo |
+      | `handoff merge\|revert\|cancel --plan P` | Diffs | person; `merge` and `revert` refuse the terminal path | handoff | each leaf's own | none | 600 |
+
+    - `budgets.json` gains `tool_results["ratify-dry-run"]`, `["intent-run"]`, `["diff-plan"]`, `["handoff-advance"]` and `["handoff-integrate"]`, new keys, not raises (DR-89); the new synopsis lines of `room_query` and `room_handoff` stay inside `surface.tools`' 900 tokens with DR-116's and DR-119's, and a raise there needs its own record;
+    - ledger columns `handoff` and `ratify`, additions under DR-78's rule;
+    - `plugin/agents/checker.md`: `model: haiku`, `effort: low`, tools `Bash`, the Bash sandbox on.
+    - `schema_version` stays 1: every addition is additive, and no release exists (DR-111's precedent).
+  - **Milestones:** M1 gains nothing; every rule here acts on hand-offs, the model calls' consent and caps, or the plan board, which M2 builds. M2 grows by 62 h:
+
+    | Slice | Milestone | h |
+    |---|---|---|
+    | The derisk stage, the `poc` item type and its rules, `risk`'s new props, `StageDecl.needed_when` and the skipped stage, the `max_descendants` rule type and `referenced`'s `by` in `derisk_question_tested`, waivers, the ranked candidates in `ask stage derisk`, the derisk stage's recording and the premortem's recorded again through `cargo xtask live record` (about $0.03) | M2 | 5 |
+    | Ratification: the envelope and its digest, `--dry-run` paged by hand-off, the identities and the redraft lines, unrated next actions as `should`, the `ratify` event through the fold, export and backups, the derisk and identity gates, `ratify_blocked` and `ratify_stale`, revoke, and `handoff start` under a ratification with its envelope check | M2 | 9.5 |
+    | The ratified run: `handoff advance` and its order, the integration branch, the install gate and sandboxed installs from a changed or new lockfile, collect's candidate and verify clone, merge commits under the envelope's identity, rules on the candidate, `handoff integrate` with `update-ref`, one retry with its failure context, stop reasons, stop cards and `plan_paused`, the three new states, the caps from tagged ledger rows, and a created repo's unborn integration branch | M2 | 18 |
+    | POC outcomes: POCs first and their gates, a pass kept with its `from_poc` answers and evidence, a pass whose check the implementer changed answering as ghosts, a fail archived with its part paused, its questions pinned and its redraft as ghosts, with the redraft's recording (a breakdown request with `on_fail` and the failure in its tail, about $0.015) | M2 | 6.5 |
+    | The plan review and landing: `diff --plan` paged by repo, the plan card, `--plan` on `merge`, `revert` and `cancel` under `plan:<project>`, the plan landed by pull request, re-ratification's carry-over, `intent run`, the new `budgets.json` keys | M2 | 7.5 |
+    | ‖ The mod: `advance` on every `handoff` event and at `session.start`, the `planroom:checker` spawn and its guard for checks and sandboxed installs with their registry hosts, priced runs tagged in the ledger, the ratify card with its caps, identities, redraft and session lines and its second key, no Ratify without a sandbox, the run on the Progress row and the run's card under `h` with its Stop confirm | M2 | 7.5 |
+    | ‖ The canvas: a POC lane above the breakdown on `PlanBoard`, each POC a card from hypothesis to result with its gated items below it, run states as tints, and the plan review in `DiffTray` | M2 | 5 |
+    | The walk-away CI path: a fixture plan with two POCs, one passing and one failing, and three next actions, through ratify, the run and one plan merge | M2 | 3 |
+
+  - **Tests** (offline, strict replay, the `patch` implementer with patches the test writes under its temporary root and names with `--patches`; in Rust tests the testkit's checker stand-in writes `observed.json` as the mod does; the CI paths set `user.name` and `user.email` in each fixture repo's own config and none globally):
+    - `crates/kernel/tests/lint.rs`: `referenced_finds_a_high_stakes_question_no_poc_tests`, `max_descendants_passes_with_a_poc_or_a_waiver`.
+    - `crates/kernel/tests/plan_stages.rs`: `a_small_plan_skips_derisk_to_lint`, `a_stage_whose_needed_when_rules_find_something_is_next`.
+    - `crates/planroom/tests/ratify.rs`: `ratify_needs_a_person_press`, `ratify_refuses_the_terminal_path`, `unrated_next_actions_run_as_should_and_the_card_says_so`, `a_repo_with_no_git_identity_blocks_ratify`, `the_dry_run_pages_by_handoff_and_its_digest_covers_every_page`, `the_envelope_names_each_pocs_redraft_and_its_cost`, `ratify_refuses_a_plan_with_an_untested_high_stakes_question`, `ratify_refuses_a_large_plan_without_a_poc_or_waiver`, `an_accepted_waiver_lets_ratify_through`, `an_agents_waiver_stays_a_ghost_and_blocks`, `could_items_are_listed_and_left_out`, `a_changed_plan_makes_the_digest_stale`, `a_ratified_handoff_starts_without_a_press`, `a_spec_outside_the_envelope_needs_a_person`, `an_item_accepted_after_the_version_is_not_covered`, `revoke_stops_new_starts_and_integrations`.
+    - `crates/planroom/tests/handoff_integration.rs`: `work_lands_on_the_integration_branch_never_the_tracked_branch`, `a_handoff_integrates_only_when_its_rules_and_checks_hold`, `a_later_handoff_that_breaks_an_earlier_rule_does_not_integrate`, `what_the_checks_write_never_lands`, `overlapping_touch_points_run_one_after_another`, `a_failure_retries_once_with_its_output_then_pauses_its_dependents`, `an_outside_touch_points_change_waits_for_a_person`, `a_changed_lockfile_installs_sandboxed_without_a_press`, `a_created_repos_second_handoff_installs_sandboxed_without_a_press`, `without_host_limits_a_changed_lockfile_waits_for_a_person`, `candidate_merges_use_the_identity_the_envelope_names_with_its_trailer`, `a_moved_integration_branch_pauses_the_plan`, `the_spend_cap_stops_new_starts`, `the_time_cap_stops_new_starts`, `a_crash_mid_integration_resumes`, `the_plan_merges_with_one_person_press_after_preflight`, `a_plan_merge_reverts_in_every_repo`, `a_pull_request_of_the_integration_branch_lands_the_plan`, `cancel_archives_the_integration_branch`, `re_ratifying_keeps_unchanged_integrated_handoffs`, `a_created_repos_integration_branch_starts_unborn_and_lands_by_fast_forward`, `a_retry_puts_its_failure_first_in_the_spec_context`.
+    - `crates/planroom/tests/poc.rs`: `pocs_start_first_and_gate_their_dependents`, `a_passed_poc_is_kept_and_answers_its_questions_with_evidence`, `undo_reopens_a_poc_answer_and_pins_it`, `a_poc_never_overwrites_a_persons_answer`, `a_failed_poc_pauses_only_its_gated_items`, `a_failed_poc_branch_is_archived_not_lost`, `a_failed_poc_redrafts_its_gated_items_as_ghosts` (strict replay of the redraft's recording), `a_redraft_waits_when_the_spend_cap_has_no_room`, `a_pass_whose_check_the_implementer_changed_answers_as_a_ghost`, `ask_stage_derisk_ranks_by_stakes_uncertainty_and_what_rests`.
+    - `crates/planroom/tests/walk_away.rs::ratify_then_return_to_one_review`: the CI path above.
+    - `crates/planroom/tests/budgets.rs`: the five new `tool_results` keys, gated by `tools.test.ts::tool_results_within_budget`.
+    - `crates/kernel/tests/handoff_loop.rs::ratified_transitions_follow_the_loop_table`.
+    - `crates/store/tests/ledger.rs::ratified_runs_are_tagged_and_summed`.
+    - `packages/mod/src/agents.test.ts`: `advance_runs_on_each_handoff_event_and_at_session_start`, `the_checker_spawns_sandboxed_with_bash_only`.
+    - `packages/mod/src/guard.test.ts`: `the_checker_runs_only_the_spec_checks_in_its_verify_clone`, `sandboxed_installs_reach_only_the_envelopes_registry_hosts`, `without_a_sandbox_the_ratify_card_offers_no_ratify`, `the_ratify_card_says_the_run_needs_an_open_session`.
+    - `packages/mod/src/layout.test.ts`: `the_progress_row_shows_the_run_within_49_columns`, and `rows_fit_at_49x34` and `rows_fit_compact_at_80x24_and_100x30` unchanged with a run live; `packages/mod/plugin-tests/surfaces.test.tsx::h_deals_the_runs_card_and_stop_takes_a_second_key`; the key map snapshot unchanged.
+    - `packages/canvas/src/views/poc-lane.test.ts::pocs_sit_above_the_breakdown_with_their_gated_items_below`.
+    - `feature_list.json` gains a tier A entry, "Ratify and walk away" (R5, R7, R8, R10), with `walk_away.rs::ratify_then_return_to_one_review` and the `ratify.rs`, `handoff_integration.rs` and `poc.rs` tests above.
+  - **Known gaps:**
+    - The run advances only while a session with the mod is open. Closing it pauses the run, and the time cap keeps counting; the ratify card says both.
+    - Spend is summed before each start, so runs in flight can pass the cap by up to the parallel count of runs. A run in flight at the time cap finishes where the host can't stop a spawned agent; it isn't integrated.
+    - A check runs code its implementer may have written, so a POC's pass is evidence, not proof. The rules are the engine's own, a pass whose check files the implementer changed answers only as a ghost, and the plan review shows each POC's diff first. A change that defeats the check from a file it doesn't name still passes.
+    - A sandboxed install's lifecycle scripts still run, inside the sandbox, with their registry reachable; they can read and write the clone.
+    - Each integration costs one cheap checker run, which the default spend cap counts.
+    - Until DR-119's take-in lands in M3, the integration branch doesn't take in later moves of the tracked branch, and a plan merge that conflicts returns `handoff_conflict`.
+    - Nothing notifies the person away from the pane, the canvas or the Artifact when a plan pauses.
+  - **Users:**
+    - You plan in the room, then press Ratify. The card reads: "Ratify gift-wrap v3: 9 hand-offs, 2 POCs first, in storefront and orders. Runs npm ci, then pytest, npm test and git commit, sandboxed. Up to $12.00 and 12 h, 3 at a time, including one redraft per POC that fails. Merges as Ana Ruiz <ana@example.com>. Lands on planroom-plan/gift-wrap, never main. Runs while a Claude Code session with Planroom stays open here." A second key confirms it.
+    - While you're away, the pane's Progress row reads "run 5/9 · $4.10/$12 · paused: POC stripe-webhooks". `h` opens the run's card. The canvas shows the POC lane above the breakdown, each card going from its hypothesis to its result.
+    - A stop pauses only the work that depends on it, pins its question, and leaves the rest running.
+    - When you return, one card shows the whole plan's result. One deliberate key merges it into main; one command reverts it.
+    - Passed POCs are kept in the plan. Each question a POC answered shows "confirmed by POC", two keys from correcting.
+    - Stop on the run's card, then a second key, revokes the ratification at any time, and nothing is lost.
+- **Sources (checked 2026-10-29):** the owner's design session of 2026-10-29; [The change spec](architecture.md#the-change-spec-r8), [Implementers](architecture.md#implementers) and [The hand-off loop](architecture.md#the-hand-off-loop) (architecture.md:1296-1356); the reconciler's classes (:1280-1295); the guard's framing (:466-480); [Milestones](architecture.md#milestones); DR-25, DR-64, DR-65, DR-66, DR-71, DR-72, DR-75, DR-80, DR-89, DR-106 and DR-111; `packs/plan/pack.toml`; `crates/contract/src/pack.rs`; `crates/kernel/src/{lint.rs, next.rs}`; `crates/contract/src/event.rs`; [Contracts](contracts.md#change-spec).
+
+## DR-119: One room: boards in areas, every view a link, repos and boards attached from anywhere, and plans that run side by side
+
+- **Status:** accepted (decided on the owner's request of 2026-10-29).
+- **Starting point:** keeps KICKOFF R10, "It holds several projects (plans) that share one model of the system" (KICKOFF.md:89), and architecture.md:529: projects in one workspace share facts, overrides and the intended layer. Keeps KICKOFF's "A single-writer local server per workspace: HTTP commands and queries, plus a scoped live stream" (KICKOFF.md:394) in substance: each workspace keeps one store, SQLite stays its single writer (DR-1), and its commands and stream keep a route of their own; one process now hosts every workspace's routes. Builds on DR-115 (plan-only workspaces get boards), DR-116 (the question score and `QuestionRow`) and DR-118 (ratification, integration branches, the `ratify:<project>` lease, the checker and `PlanRun`). Extends DR-29, DR-58, DR-77 and DR-101. DR-120 adds summary props to its board rows. Amends DR-29 and DR-78 (one canvas port per workspace), DR-71 (which repos a workspace holds), DR-66 and DR-101 (the tools' input and their refusal of `--workspace`), DR-77 (the `p` picker), DR-51 and DR-65 (the ledger, and a room cap on automatic starts by agent spend) and DR-25 (branch names in a shared repo). It adds `take_in_stopped` to DR-118's `StopReason`. It fills DR-118's known gap: taking later moves of the tracked branch into a plan's integration branch.
+- **Origin:** the owner, 2026-10-29. On parallel plans: "Does planroom effectively support multiple parallel plans at once? I can imagine wanting to work on a bunch of things". On the room: "Ideally a single planroom for everything. But any layer/view should be bookmarkable. Just different boards for each project. In the mod, it would be whatever repo/project but with the option to attach a different board/repo as well. An abstraction and organization layer above would be nice." The owner accepted the proposals ("your recs are fine"; "Yeah I like these. Get them planned properly").
+- **Context:**
+  - The workspace is the unit. `workspaces.json` maps each root the engine created to its `workspace_id` and one canvas port, distinct across workspaces (architecture.md:599; `crates/planroom/src/app/data.rs:88-97`). `serve` binds that one workspace's port and never moves it (architecture.md:1423; `crates/planroom/src/server/mod.rs:116-149`, `:304-351`), so each workspace has its own origin, login and tab.
+  - A workspace's repos are its root, its submodules, or its children or grandchildren that are repos (architecture.md:591). A repo elsewhere can't join, so a linker can't join a service to a library kept in another folder.
+  - The mod works in the session's directory (`packages/mod/src/register.tsx:633`). Its tools refuse `--workspace` in every call (`packages/mod/src/tools.ts:103-107`; DR-101), so a session reaches one workspace.
+  - The canvas keeps its view in memory: the level only (`packages/canvas/src/store.ts:57-58`). No URL names a view, so nothing can be bookmarked. A handle is an exact invocation, `{command, args, label}` (contracts.md:147), and the Artifact's snapshot already keys its precomputed views by handle (DR-77).
+  - Many projects per workspace work today: project-scoped items, versions and views; claims and presence (architecture.md:385-387); safe concurrent writes. Nothing checks two plans against each other. DR-118 runs each ratified plan on its own integration branch, and leaves taking in later moves of the tracked branch to this record.
+  - DR-116 ranks a plan's questions by stakes weight times what rests on them. Nothing ranks them across plans.
+- **Decision:**
+  - **The room: areas, boards, bookmarks.** The room is your organization layer above every workspace. It lives in the data root and never in a repo.
+    - **A board is one project's plan and its map.** Every project in a listed workspace is a board, `<workspace_id>~<project slug>`. Every listed workspace also has its map board, `<workspace_id>`, which shows the map with no plan. Boards are derived from `workspaces.json` and each store's projects, so a new project is a board at once and nothing has to be kept in step. A plan-only workspace gets its boards the same way, since DR-115's `intent new` writes its `workspaces.json` entry.
+    - **An area groups boards.** One level, no nesting: the breadcrumb then holds at most two lids above a board, which fits the phone's `⋯` lid, and areas can nest later as an addition. A board sits in one area or in none. A new project's board joins the area that holds its workspace's map board; a new workspace's boards sit in none, shown last as "Not in an area".
+    - **You can hide a board.** A hidden board leaves the lists and stays one press away under "Hidden". Nothing about its workspace changes.
+    - **A bookmark is a board and a handle.** `{id, board, handle, name, at}`. Only a read can be a bookmark: a leaf of class `read` that never spends and isn't in Setup, such as `map`, `focus`, `show`, `find`, `ask`, `diff`, `who`, `intent list` and `intent lint`. A bookmark of a write or a paid read would act when opened.
+    - **A plan version is a handle too.** `map` gains `--version LABEL`: the map folded at that plan version's `seq`, whose snapshots stay while the version refers to them (architecture.md, Versions and revisions). With `--board`, a bookmark can hold a board, a level, a lens, a focus and a version.
+    - **The file.** `DATA_ROOT/room.json` (`planroom.room/v1`): areas in order, each board's area or hidden mark, bookmarks, and the room's port. It follows `workspaces.json`'s rules: one lock, write and rename, `min_reader_version`, unknown fields kept (DR-78, DR-85). Its type lives in `crates/planroom`, since surfaces read the room through commands, never the file.
+    - **Only a person writes the room** (`area`, `board`, `bookmark` leaves, actor `person`). It is your own organization, and an agent's guess at it would need a review loop worth less than the change. An agent gives you a link instead (`link`, a read), and you save it with one press. The token is checked as for any person write in the workspace the press comes from; a canvas tab's bearer token stands for it, as for every canvas write. Each write's undo class is `Compensate`, naming its reverse, and each reply carries the handle that undoes it.
+  - **Every view is a link.**
+    - **One encoding.** A view path is `/b/<board>/<command words joined by />` with each argument as a repeated `a` query parameter, in order: `/b/01JC~gift-wrap/map?a=--level&a=component&a=--lens&a=flow`. It encodes any handle exactly, with no per-leaf table. It holds IDs and flags only, never a label or a token, and is at most 2,000 bytes. `contract::room::view_path` and its parser are pure; `@planroom/ui`'s `view-path.ts` is their port, and both run one table of cases, as `display` does.
+    - **Three forms of one link.** The local canvas URL is `http://127.0.0.1:PORT` plus the path. The `/room` argument is `/room go PATH` or `/room go BOOKMARK`. The Artifact anchor is `#` plus the path. `link BOARD -- COMMAND ARGS` returns all three.
+    - **The login code stays apart.** It still rides in the fragment, `#code=...` (DR-29), and the view rides in the path and query. A link holds nothing secret, so a bookmark can sit in a browser or a note.
+  - **One room server (amends DR-29 and DR-78).** `serve` starts or reuses the one server of your room, whatever directory it runs in.
+    - **One port.** `room.json` records the room's port. The first room server takes the port of the workspace first recorded in `workspaces.json`, else a free one. So the common case, one workspace used before, keeps its origin, and with it that tab's storage and pending edits. After that the port never moves unasked: another program on it is `port_in_use`, and `serve --port N` is the deliberate move, as DR-78 decided for a workspace. New `workspaces.json` entries record the room's port, so an older engine that reads them meets the room server on the same origin and defers to it through DR-69's handshake.
+    - **Routes.** A workspace's routes move under `/w/{workspace_id}`: `POST /w/{id}/api/v1/{command}`, `GET /w/{id}/api/v1/stream` and `PUT /w/{id}/api/v1/layout`. `POST /api/v1/{command}` serves only the leaves that need no workspace (`boards`, `area`, `board`, `bookmark`, `link`, `inbox`, `version`, `schema`); any other is `invalid_argument` naming its `/w/` route. `GET /api/v1/stream` is the room stream. `GET /` and `GET /b/*` serve the canvas page. `code`, `session` and `drain` are unchanged. A workspace `workspaces.json` doesn't list is `not_found`.
+    - **One login for the room.** A tab's bearer token reaches every board, since every board is yours and `open` stays person-only. Auth, `Origin`, `Host`, CSP and the limits apply to every route as before (DR-29, DR-82).
+    - **Bounded work.** The server folds a workspace on its first request and keeps at most 16 folded, closing the least recently used after 10 minutes idle. A board stream polls only its workspace's `data_version`, as today. The room stream polls each listed store once a second, only while a room client is connected, and sends a `board` frame when a board's state changes. The 64-client cap counts every stream.
+    - `serve.json` is written into each state directory the server serves, without the control token (DR-88).
+    - `open [LINK]` (person-only, as before) logs a tab in and lands it on LINK: a view path or a bookmark ID. With none, it opens the session's board.
+  - **The canvas in the room.** The room adds no sixth concept (R14).
+    - **Levels.** The room is the topmost lid in the breadcrumb: room, then area, then board, then the board's levels. A bookmark is found by name in the breadcrumb's search.
+    - **Intent.** The project shelf becomes the room's shelf: board cards by area, each with its run row (below).
+    - **Decisions.** At room scope, the card stack holds the room's inbox (below), the top question face up.
+    - **Lenses and Diffs** stay in place and apply to the board you open.
+    - **The URL follows the view.** Each change of board, level, lens or focus pushes the view path, so back and forward walk your views and any view can be bookmarked from the browser. A view's Bookmark action runs `bookmark add` as your press.
+    - **A new tab logs in from an open one.** A tab with no token asks the open tabs of its origin over a `BroadcastChannel` for theirs. Every same-origin page is the canvas build, under a CSP that allows only its own scripts, so this shares nothing beyond the origin that already holds the token. With no open tab, the needs-login state keeps the view, and `open LINK` lands on it.
+    - Pending edits stay keyed by workspace ID (architecture.md:1528), so the edits of every board live in the one origin's storage, and any signed-in tab flushes them.
+  - **The mod: the session's boards (amends DR-66, DR-77 and DR-101).**
+    - **A session opens on its directory's board.** One live project: its board. Several, or none: the map board, where the board picker lists the projects.
+    - **`/room attach BOARD`** adds a board from the room to this session, and `/room detach BOARD` removes it. These are typed person actions, kept in a new `$.state` atom, `boards`. Bare `/room attach` deals the room's board picker. `/room attach PATH` attaches a repo (below), or, for a path that is a workspace root, that workspace's map board.
+    - **The board picker.** `p` deals `focus --picker board`: the session's own boards, then its attached ones, then "Attach a board…". A board is a key and a digit (DR-77). `focus --picker project` stays and lists this workspace's project boards.
+    - **`PaneModel.board`** names the board in view and how many the session holds. The focus line shows the board's name only when the session holds more than one.
+    - **The tools reach attached boards only.** `room_query` and `room_change` gain an optional `board` string. The handler maps it to `--board` itself, and refuses a board the session hasn't attached with `invalid_argument` naming those it has. `--workspace` and `--board` stay refused inside `args`. The property is a plain string, not an enum of attached boards, because the tool schemas sit in the cached prefix and an enum would change it at every attach. With more than one board, the per-turn context names them in one line, at most 60 tokens; the composed section stays byte-identical (DR-20).
+    - The pane's `watch` follows the board in view, and the session's presence row is written to that board's store.
+    - `/room go LINK|BOOKMARK` shows the view as `/room` text, with `e` to open it on the canvas. A bookmark on a board the session hasn't attached attaches it for the session, since the typed command is your press.
+  - **A repo from anywhere (amends DR-71).**
+    - `repo attach PATH` and `repo detach NAMESPACE` are person-only, from a press or a typed `/room`, never the terminal path, because an attached repo becomes readable to every agent working in the workspace (DR-75's rule for repo-changing commands, applied to what widens agents' reads).
+    - The list lives in the workspace's `workspaces.json` entry, `attached: [{path, at}]`: in the data root, outside every repo, where the guard keeps agents out. A planted store or a committed config can't add a repo to a scan.
+    - An attached repo is one of the workspace's repos: scans, linkers, confined reads, hand-offs and the reconciler see it. Its namespace follows DR-74 and DR-97, keyed in `meta.repos` by its canonical absolute path.
+    - **Refusals.** A path that isn't a repo's root, or is already one of the workspace's repos, is `invalid_argument`. A credential path (DR-101) or a repo another user owns (DR-78) is `path_refused`, for a person too, since attaching would hand it to agents.
+    - **A detached repo's edits wait.** The next scan leaves the repo out, and the fold treats its namespace as one the scan didn't cover (DR-47), so no retarget card deals and Diffs stays quiet. Attaching it again brings every edit back. A path that has gone is `repo_skipped` with reason `attached_missing`, and its last map stays.
+    - **A repo two workspaces hold.** A branch Planroom makes in such a repo, a hand-off's or an integration branch, gains `-` and the first 8 characters of the workspace ID, so two workspaces' plans of one name never share a ref. The name is fixed in the spec when the branch is made, so a repo shared later keeps the names it has.
+  - **Plans side by side: the overlap check.**
+    - **What overlaps.** Two live plans in one workspace overlap when one's touch set or impact radius (M2's impact over via evidence) meets the other's touch set. A plan is live from its first accepted item until it lands or is cancelled.
+    - **At ratification.** `intent ratify --dry-run` lists every overlap with a ratified, running or paused plan, and the ratify card shows each with its choice. `intent ratify` gains `--overlap side-by-side|after|merge`, which DR-118's envelope and digest cover:
+      - **Side by side** (the default): both run; this plan lands after the other in the landing order, and take-in (below) brings the other's work in when it lands. It is the default because it blocks nothing and loses nothing.
+      - **After:** this plan's hand-offs whose touch-point components meet the other plan's wait until that plan lands or is cancelled. The rest run.
+      - **Merge:** this plan isn't ratified. Its live items are proposed into the other plan as one ghost batch, each carrying an alias of its old ID. Accepting the batch retracts this plan's items in the same commit, and the board reads "merged into gift-wrap". Rejecting it leaves both plans as they were.
+    - **Later overlaps.** When an accepted batch grows a running plan's touch set into another's, the `plan.overlap` card deals for the new overlap only. It is deterministic, stakes `person`, with the same three choices and side by side as its default. Until you pick, the default holds.
+    - **Shared blocks show both tints.** `MapNode.plans` lists each live plan whose touch set holds the block, with its tint: the project's creation order modulo 8. The canvas stripes a block two plans touch. CLI text adds a plans column when any row has two.
+  - **Duplicate work.** The `plan.duplicate_work` decision kind lives in the plan pack, stakes `person`, so it always deals a card and never acts alone (DR-50).
+    - **Candidates** are pairs of accepted work items or next actions in two live plans of one workspace whose `kernel.touches` targets are one block, or one inside the other. Two intended blocks of one kind whose `expect` names one repo, with one `path` inside the other's (DR-115), count as one block. At most 20 pairs per check, nearest first.
+    - Jev scores whether the two aim at the same change. The check runs at ratification and after each accepted batch in a plan that has a live sibling.
+    - **One card per pair, batched by cause** (DR-20): keep both (the default), keep the first plan's, or keep the second plan's. Keeping one rejects the other item through `review`, which `edit undo` reverses. Past a spend guard, both stay and the card stays pending (AGENTS.md, Money and credentials).
+    - Name similarity alone would flag unrelated work on one block, so a model reads the intent; the person decides every time.
+  - **Landing order and take-in (fills DR-118's known gap).**
+    - **The order.** Live plans land in ratification order unless a project's `land_after` field names another plan: an ordinary `edit set` on the project node, so an agent's is a ghost and `edit undo` reverses a person's. The ratify card's side-by-side choice sets it. A cycle is `invalid_argument`.
+    - **The order sequences review cards, never your hand.** A plan's unasked plan card (DR-118) deals once its run is done and every plan before it has landed, been cancelled, or been kept. Until then its run row reads "lands after gift-wrap". You may open any plan and merge it at any time; the others take it in.
+    - **Take-in.** When a repo's tracked branch moves forward, whatever moved it, every live ratification whose integration branch in that repo lacks the new head takes it in. The `take_in` duty runs under the plan's `ratify:<project>` lease, in the plan's verify clone at the integration head: `git merge --no-ff` of the tracked head, hooks and signing off, under the identity the live ratification's envelope names for that repo, with its `Planroom-Ratification` trailer (DR-118's rule for merge commits). It then checks every integrated hand-off's rules on the result and runs the plan's checks through the checker, as for a candidate. When all hold, `update-ref NEW OLD` moves the integration branch. A `take_in` event records the repo, the tracked head, the integration heads before and after, and the result.
+    - **It stops only for judgment.** A merge git can't finish is aborted, leaving the branch as it was. Rules or checks that fail leave the branch as it was too. Either way the plan stops with `take_in_stopped`, a `StopReason` this record adds to DR-118's, whose scope is the whole plan: nothing more integrates, runs in flight finish and wait, and one card deals: hand off a fix on the integration branch, keep the plan where it was (the default, which changes nothing), or cancel the plan.
+    - **In-flight work follows.** `integrate` and take-in hold the same lease. A candidate built on a head that a recorded take-in replaced is built again at the new head; DR-118's `integration_moved` stop counts only a move no take-in recorded.
+    - **Reversible.** A take-in is one merge commit on the integration branch, never on the tracked branch. `handoff revert --take-in EVENT` (person-only) archives the take-in's head at `refs/planroom/archive/plan/<project>/take-in-<seq>` and moves the branch back with `update-ref`, while no hand-off has integrated on top; after that, it is `invalid_argument` naming those hand-offs, and the plan's own cancel or "ask for changes" applies. `diff --plan` shows each take-in as "taken in from main".
+    - Like the run itself, take-in advances only while a session with the mod is open in the workspace, since only the mod spawns the checker.
+  - **Room caps (amends DR-51 and DR-65).**
+    - **Running hand-offs.** `room.max_running_handoffs` (default 3) caps implementers running at once across every workspace. Each plan's own `--parallel` cap still applies (DR-118). Machines and appetites differ, so one fixed number serves no one (R14); 3 keeps a laptop responsive and the spend rate visible. It is a user-level key only: a workspace's file can't raise a machine-wide cap, and a key there gets `config_key_ignored`.
+    - **The count** is the `running` table in `ledger.db`, one row per running implementer, `{workspace_id, handoff, project, started_at, lease_until}`, renewed every 60 s by the process that tracks the run, freed at collect, cancel or 5 minutes past its lease. A crashed holder frees its slot.
+    - `handoff advance` starts nothing past either cap, and its reply carries `handoff_waiting`. Your own `handoff start` press runs past the room cap: its card names the count ("4 running; your room cap is 3"), because you dispose.
+    - **Agent spend.** The daily cap spans every workspace but counts gateway and TypeSafe dollars only, and no spawn is refused by it (DR-51, DR-65). Implementer and checker usage, most of a plan's spend, is priced and counted nowhere across plans. So `room.max_daily_agent_usd` (default 50) caps the automatic starts of the whole room: `handoff advance` sums today's priced agent rows in the user-level ledger, across every workspace, implementers and checkers alike, and starts nothing once the sum reaches the cap. Each plan's own spend cap still applies (DR-118), and gateway calls stay under the daily cap. No single default fits every budget (R14); $50 is about two nine-hand-off plans at the no-history estimate, so a second plan isn't held on day one and a third waits for you. It is a user-level key only, as `max_running_handoffs` is. Your own `handoff start` press runs past it, its card naming the sum ("$52.10 of agent spend today; your room cap is $50").
+    - Ledger rows gain `project`, filled by every call made for a plan, drafting included, so each plan's spend can be shown.
+  - **The portfolio and one inbox.**
+    - **`boards`** lists the room: areas in order, then boards not in an area by last activity, hidden boards counted, and bookmarks. Each project board's row carries its run: DR-118's `PlanRun` state (`drafting`, `ratified`, `running`, `paused`, `done`), hand-offs integrated of total, stops, spend against its cap and its drafting spend, "lands after", the top open question (DR-116's `QuestionRow`), and a handle to open it. Above them, the room's caps: implementers running against `room.max_running_handoffs`, today's agent spend against `room.max_daily_agent_usd`, and today's gateway spend against the daily cap.
+    - **`inbox`** lists open questions across every listed board, ranked together by DR-116's score, then by stakes, then by the board's place in the room, then by item ID. Each row is a `QuestionRow` with its board, and its handles carry `--board`, so you answer it where you read it.
+    - Reads open each store read-only and never migrate one. A board whose root is gone, whose store can't be read, or whose store a newer engine wrote stays listed, with `board_unreachable` and its reason.
+  - **What counts before a person accepts it.** This record grants no agent new authority. Room writes, repo attach and detach, `land_after`, every overlap choice, every duplicate pick and every take-in reversal are a person's. The one automatic act is take-in, and it runs only under a live ratification, which already approved changing that plan's integration branch (DR-118, amending DR-64 and DR-75). It never touches a tracked branch, a working tree or a ref a person made. It moves a branch only after the rules and checks hold, with `update-ref` guarding against a race. It records the head it replaced, and one press moves it back.
+- **Alternatives rejected:**
+  - **One store for the whole room:** facts and trust stay per workspace, as the owner chose. A planted store could then reach every workspace, and every store would need a migration.
+  - **The room in a repo:** a clone would carry your organization into other people's checkouts, and a committed room could add repos to scans.
+  - **Boards as records you create:** they would drift from projects. Derived boards need no syncing.
+  - **Nested areas:** deeper breadcrumbs for a handful of boards; they can come later as an addition.
+  - **A port per workspace, with the room as an index page:** a login per port, bookmarks that break across origins, and not the one server the owner asked for.
+  - **The view in the local URL's fragment:** the fragment carries the login code, and a path lets the server serve a direct link.
+  - **A per-leaf URL scheme (`?level=component`):** a table to keep in step with every leaf in two languages. Repeated `a` parameters encode any handle exactly.
+  - **The tab token in `localStorage`:** it would outlive the tab and authorize any later load of the origin. A `BroadcastChannel` shares it only between tabs alive now.
+  - **Agents writing bookmarks and areas:** a review loop on your own filing system; a link in chat costs you one press.
+  - **An enum of attached boards in the tool schema:** it changes the cached prefix on every attach.
+  - **Attached repos in the store or the workspace config:** a planted store or a committed config could make a scan read outside the workspace.
+  - **Refusing a repo two workspaces share:** a library used by two projects is common; a suffix on Planroom's branch names settles the one clash.
+  - **Rebasing an integration branch when another plan lands:** it rewrites commits a person may have reviewed. A merge commit keeps them and can be moved back.
+  - **A strict landing order that refuses an out-of-order merge:** the order is a default; you dispose.
+  - **Duplicate detection by name similarity alone:** it would flag unrelated changes to one block.
+  - **The daily cap as the room's spend cap:** it counts gateway and TypeSafe dollars only (DR-65), so walk-away runs in several plans would spend on agents with nothing across plans bounding them.
+  - **A cross-workspace landing queue:** plans in two workspaces meet only in a repo both hold, and take-in reacts to any move of its tracked branch.
+- **Consequences:**
+  - **Contracts:**
+    - types in `crates/contract/src/room.rs`: `BoardId`, `AreaId`, `BookmarkId`; `RoomView` `{summary, caps, areas, unplaced, hidden, bookmarks, empty}`, `RoomCaps`, `AreaRow`, `BoardRow` (with `run: Option<PlanRun>`, `drafting_usd`, `lands_after`, `question: Option<QuestionRow>`, `tint`, `reachable`, `handle`), `BookmarkRow`, `InboxRow` `{board, row: QuestionRow, score}`, `LinkResult` `{path, url, room_arg}`, `view_path` and `parse_view_path`; `BoardRef` and `PaneModel.board`; `PlanMark` `{project, tint}` and `MapNode.plans`; `StreamFrame::Board {board, seq, state}`; `EventKind::TakeIn` and `EventBody::TakeIn`; the picker name `board`; `EmptyReason::RoomEmpty` ("Nothing in your room yet. Map a folder of repos, or start a plan in an empty one.", next `focus`, "Show this folder");
+    - redaction marks: `AreaRow.name`, `BoardRow.name`, `BookmarkRow.name` and `BoardRef.name` (a name you type can be pasted from a repo), and `BoardRow.root`, a path; never a board, area or bookmark ID, a view path or a handle;
+    - catalogue leaves: `boards [--cursor C]` and `link BOARD -- COMMAND ARGS` (reads, Levels), `inbox [--cursor C]` (a read, Decisions), each within 1,500 tokens; `area add|rename|remove|move`, `board place|hide|show`, `bookmark add|rename|remove` (person, Levels, `Compensate`); `repo attach PATH` and `repo detach NAMESPACE` (person, press only, Levels, `Compensate`); `map --version LABEL`; the global `--board BOARD`, which on a read needs a store, as `--workspace` does; `open [LINK]`; `intent ratify --overlap`; `handoff revert --take-in EVENT`; `/room boards|go|attach|detach|inbox`;
+    - the tools' `board` property; the `boards` atom in `$.state`;
+    - warnings `board_unreachable` `{board, reason}` (`root_gone`, `store_unreadable`, `store_newer`), `handoff_waiting` `{reason, running, max, spent_usd, max_usd}` (reason `running` or `spend`), `take_in_stopped` `{repo, project, files, card}` (`files` masked); `repo_skipped`'s reason `attached_missing`; `invalid_argument`'s reasons `argument.not_a_view`, `argument.view_path_too_long`, `argument.not_a_repo_root`, `argument.already_in_workspace`, `argument.board_not_attached`, `argument.land_after_cycle`, `argument.take_in_built_on`; no new error code;
+    - decision kinds `plan.overlap` (deterministic) and `plan.duplicate_work` (Jev), each with `stakes = "person"`, a default and `evals/`;
+    - formats: `room.json`, `planroom.room/v1`, internal, in Persisted documents; `workspaces.json` entries gain `attached`; `ledger.db` gains the `running` table and the `project` column, additions under DR-78's rule;
+    - the HTTP route table above; the room stream;
+    - configuration: `[room] max_running_handoffs = 3` and `max_daily_agent_usd = 50`, user-level only, `PLANROOM_ROOM_MAX_RUNNING_HANDOFFS` and `PLANROOM_ROOM_MAX_DAILY_AGENT_USD`;
+    - `StopReason::TakeInStopped`, added to DR-118's enum;
+    - `schema_version` stays 1: every change is additive, except the move of a workspace's routes under `/w/`, which lands before any release (DR-85's precedent);
+    - design tokens `--plan-tint-0` to `--plan-tint-7` in both themes.
+  - **Layout:** `@planroom/ui` exports `viewPath` and `parseViewPath`, a gated package export, ratified with `cargo xtask gen --layout-lock` in this record's merge commit; new files inside existing areas only (`crates/planroom/src/app/room.rs`, `crates/planroom/src/server/room.rs`, `packages/canvas/src/views/room.tsx`, `packages/ui/src/view-path.ts`).
+  - **Milestones.** Nothing goes into M1. M1's paths run in one workspace, and every shape this record changes, the per-workspace port among them, changes before any release. Parallel plans need ratification and integration branches, which land in M2 (DR-118), so they follow in M3, beside M3's multi-repo work.
+
+    | Slice | Milestone | h |
+    |---|---|---|
+    | The room and its links: `room.json`, derived boards, areas, placing and hiding, bookmarks, `boards`, `link`, `--board`, `map --version`, the view-path encoding and its `@planroom/ui` port, `room_empty` and `board_unreachable` | M3 | 9 |
+    | One room server: the `/w/` routes, the workspace-free routes, `/b/*` pages, lazy folds with the 16-workspace bound, board and room streams, the room port taken from the first workspace's, handshake, drain and `port_in_use` on it, `serve.json` per workspace, `open [LINK]` | M3 | 9 |
+    | ‖ The canvas in the room: the room lid, board cards by area with run rows, the URL following the view with history, bookmark actions, the token from an open tab, plan tints and their tokens | M3 | 8 |
+    | ‖ The mod's boards: `PaneModel.board`, the board picker, `/room attach`, `detach`, `go`, `boards` and `inbox`, the tools' `board`, the per-turn line, `watch` following the board | M3 | 6 |
+    | ‖ A repo from anywhere: `repo attach` and `detach`, `attached` in `workspaces.json`, discovery, namespaces and confinement, detached namespaces left uncovered, the refusals, branch names in a shared repo | M3 | 6 |
+    | The overlap check: touch sets and impact radius, `--overlap` on ratify, the `plan.overlap` kind and its cases, holding the after choice's hand-offs, `MapNode.plans` | M3 | 7 |
+    | Merging one plan into another: the ghost batch with aliases, retraction on accept, the merged board's state | M3 | 4 |
+    | ‖ Duplicate work: the `plan.duplicate_work` kind, its candidates, replayed Jev, 60 eval cases (about $0.02 live, recorded once) | M3 | 6 |
+    | Landing order and take-in: `land_after`, the order of plan cards, the `take_in` duty, its checks, the stop card, the `take_in` event, rebuilt candidates, `handoff revert --take-in` | M3 | 9 |
+    | ‖ Room caps and plan spend: the `running` table with leases, `room.max_running_handoffs`, `room.max_daily_agent_usd` summed over priced agent rows, `handoff_waiting` and its reasons, a person's start past either cap, the ledger's `project` | M3 | 5 |
+    | The portfolio and the inbox: run rows in `boards`, drafting spend, `inbox`, the room's Decisions stack, `/room inbox` | M3 | 5 |
+    | The parallel-plans CI path: two overlapping fixture plans through ratify, one landing, the other's take-in and its landing | M3 | 3 |
+    | Links in the Artifact: anchors, and each bookmarked view of the shared workspace precomputed in the snapshot within its 1 MB, the rest read requests (DR-77) | M5 (remote) | 3 |
+    | Docs: the room's concept page and the guide to organizing boards | M5 (docs) | 2 |
+
+    M3 grows by 77 h and M5 by 5 h. The overlap, take-in, caps and portfolio slices need DR-118's M2 slices; the duplicate-work slice needs M2's decision runner and evals.
+  - **Tests** (offline, strict replay, the `patch` implementer, fake keys):
+    - `crates/planroom/tests/room.rs`: `every_project_is_a_board_in_the_room`, `a_workspace_without_a_plan_has_its_map_board`, `a_new_board_joins_its_workspaces_area`, `room_writes_need_a_person`, `each_room_write_returns_its_undo`, `removing_an_area_keeps_its_boards`, `a_bookmark_of_a_write_or_a_spend_is_refused`, `a_moved_workspace_keeps_its_boards_and_bookmarks`, `an_unreachable_board_stays_listed_with_its_reason`, `room_reads_never_migrate_a_store`, `room_json_keeps_unknown_fields`, `a_newer_room_file_is_refused`, `the_board_flag_reads_another_workspace`, `the_board_flag_on_a_read_needs_a_store`, `map_at_a_version_folds_at_its_seq`, `link_returns_the_three_forms`;
+    - `crates/contract/tests/view_path.rs::view_paths_round_trip` and `::the_ui_port_runs_the_same_cases`; `packages/ui/src/view-path.test.ts::view_paths_round_trip`;
+    - `crates/planroom/tests/server_auth.rs`: `one_room_server_routes_every_board`, `a_board_route_needs_the_bearer_token`, `an_unlisted_workspace_is_not_found`, `a_workspace_leaf_on_the_room_route_names_its_route`, `the_room_port_is_the_first_workspaces_port`, `the_room_port_moves_only_when_asked`, `a_board_page_path_serves_the_canvas`, `open_lands_on_its_link_and_keeps_the_code_in_the_fragment`; `stream.rs`: `a_board_stream_sends_only_its_workspaces_frames`, `the_room_stream_sends_a_boards_new_state`; `serve_limits.rs::idle_workspaces_are_closed_past_sixteen`;
+    - `crates/planroom/tests/attach.rs`: `an_attached_repo_maps_with_the_workspace`, `linkers_join_across_an_attached_repo`, `attach_needs_a_press`, `a_credential_path_cannot_be_attached_even_by_a_person`, `another_users_repo_cannot_be_attached`, `a_detached_repos_edits_wait_without_cards`, `reattaching_brings_the_edits_back`, `confined_reads_reach_an_attached_repo`, `a_shared_repo_gets_suffixed_branch_names`;
+    - `crates/planroom/tests/parallel.rs`: `ratifying_an_overlapping_plan_lists_the_overlap`, `side_by_side_lands_after_the_earlier_plan`, `after_holds_only_the_shared_handoffs`, `merging_proposes_one_ghost_batch_with_aliases`, `accepting_the_merge_batch_retracts_the_old_items`, `a_later_overlap_deals_one_card`, `two_plans_intending_one_block_are_duplicate_candidates`, `shared_blocks_carry_both_plans_marks`, `land_after_orders_the_plan_cards`, `a_land_after_cycle_is_refused`, `a_landed_plan_is_taken_in_by_the_others`, `a_take_in_conflict_stops_only_that_plan`, `a_take_in_with_failing_checks_leaves_the_branch`, `a_take_in_never_writes_the_tracked_branch`, `a_candidate_built_before_a_take_in_is_rebuilt`, `a_take_in_reverts_to_its_recorded_head`, `take_in_merges_use_the_ratifications_identity`, `a_take_in_stop_reads_as_take_in_stopped_in_the_plan_run`, `automatic_starts_wait_for_a_room_slot`, `a_persons_start_runs_past_the_cap_with_its_card`, `the_room_spend_cap_holds_automatic_starts_across_workspaces`, `a_persons_start_runs_past_the_room_spend_cap_with_its_card`, `a_dead_holders_slot_frees_after_its_lease`, `a_workspace_config_cannot_raise_either_room_cap`, `spend_is_attributed_to_its_plan`, `the_portfolio_shows_each_plans_run`, `the_inbox_ranks_questions_across_boards`;
+    - `crates/planroom/tests/duplicate_work.rs`: `two_plans_aiming_at_one_block_deal_one_card` (strict replay), `past_the_spend_guard_both_items_stay`, `keeping_one_rejects_the_other_reversibly`; the every-kind contract test covers both new kinds; `cargo xtask eval` recomputes their results;
+    - `crates/planroom/tests/parallel_plans_ci.rs`: the CI path above;
+    - `feature_list.json` gains a tier C entry, "One room and plans side by side" (R10, R13), with `parallel_plans_ci.rs` and the `room.rs`, `attach.rs` and `parallel.rs` tests above;
+    - `packages/mod/src/tools.test.ts`: `a_tool_call_reaches_only_an_attached_board`, `a_tool_call_never_names_another_workspace` (kept); `room.test.ts`: `room_attach_adds_a_board_to_the_session`, `room_go_opens_a_bookmark`; `keys.test.tsx::a_board_is_a_key_and_a_digit`; `prompt.test.ts::attached_boards_leave_the_composed_section_unchanged`; `guard.test.ts::an_attached_boards_state_directory_is_guarded`; `surface_tokens.sh` keeps the tools within 900 tokens with `board`;
+    - `tests/e2e/src/room.spec.ts`: `the_room_lists_areas_and_boards`, `a_bookmark_url_reopens_its_view`, `back_and_forward_walk_the_views`, `a_new_tab_logs_in_from_an_open_tab`, `pending_edits_of_two_boards_flush_on_one_origin`; `surface.spec.ts::exactly_five_concepts` covers the room lid and the room's shelf; `empty_state_audit` visits the empty room; `tokens.test.ts::contrast_meets_the_bar` covers the tints.
+  - **Known gaps:**
+    - The overlap and duplicate checks look within one workspace. Plans in two workspaces that hold one repo meet only when one lands, where take-in covers them.
+    - The landing order is per workspace.
+    - The Artifact holds one workspace. A room-wide Artifact is later.
+    - On a temporary host, `room.json` goes with the container. Boards come back from the stores; areas and bookmarks don't.
+    - A dev build's tab left at another workspace's old port keeps its unsent edits there. No release ever served one.
+    - Take-in and the run advance only while a session with the mod is open in the workspace.
+  - **Users:**
+    - The canvas opens on your room: areas of boards, each board's state, what it's waiting on and what it has spent, and the top question across every plan. Any view you reach has a link you can bookmark, paste into `/room go`, or open on a phone's Artifact.
+    - In Claude Code, a session opens on its folder's board. `p` and a digit switch boards; `/room attach` brings in another board, or a repo from anywhere, so its services join your map.
+    - When you ratify a plan that touches what another is changing, the card says so and offers side by side, after, or merge. Shared blocks show both plans' colors.
+    - When one plan lands, the others take it in and check themselves. You hear about it only when a conflict needs you.
+- **Sources (checked 2026-10-29):** KICKOFF.md:89 (R10) and :394; [Claims, presence and projects](architecture.md#claims-presence-and-projects) (architecture.md:385-387, :529); [Where the workspace lives](architecture.md#where-the-workspace-lives) (architecture.md:587-608); [Local server and live stream](architecture.md#local-server-and-live-stream) (architecture.md:1420-1440); [The canvas](architecture.md#the-canvas) (architecture.md:1518-1535); the Milestones section of architecture.md; [CLI JSON envelope](contracts.md#cli-json-envelope) (`Handle`, contracts.md:147), [HTTP API and live stream](contracts.md#http-api-and-live-stream), [Mod tool schemas, state and the room family](contracts.md#mod-tool-schemas-state-and-the-room-family); DR-1, DR-20, DR-25, DR-29, DR-47, DR-48, DR-50, DR-51, DR-54, DR-58, DR-71, DR-74, DR-77, DR-78, DR-85, DR-97, DR-101, DR-111; DR-115, DR-116, DR-118; `crates/planroom/src/app/data.rs`, `crates/planroom/src/server/mod.rs`, `packages/mod/src/{register.tsx, tools.ts}`, `packages/canvas/src/store.ts`.
+
+## DR-120: Ontologies as packs, chosen per board: domain concepts aligned to blocks at every level, and release management as the first domain
+
+- **Status:** accepted (decided on the owner's request of 2026-10-29). M3 builds all of it, after the release pack it extends; formal imports (OWL, RDF, schema.org) stay out of v0.1.
+- **Starting point:** extends KICKOFF's "Packs. Declarative files that add kinds, levels, roll-up rules, extractors, lenses, decision kinds and a default view" (KICKOFF.md:383) and R11's "domains plug in with no core change". Keeps DR-9 (packs are data, never code), DR-62 and DR-109 (the pack set is workspace state, changed only by a person), DR-111 (levels are pack data; a kind may sit at the kernel's `intent`) and KICKOFF's "AI proposes, person disposes". Builds on DR-114 (reads load the workspace's recorded pack set), the intended blocks and their resolution of DR-115, the `[[items]]` table and questions of DR-116, the `[[context]]` sections and the mined-ghost rule of DR-117, and the boards and portfolio of DR-119. Amends:
+  - DR-45: the kernel's vocabulary gains one kind and two relations;
+  - DR-46: pack data gains `[[concepts]]`, `concepts/*.toml`, and two lens fields; a new built-in pack, `ontology`, joins the v0.1 packs;
+  - DR-62 and DR-109: two more person-only commands change the pack set, and a pack's source may be the room's ontology library;
+  - DR-74: `onto` joins the reserved namespaces;
+  - DR-23 and DR-106: a new rule type, `ordered`, four fields on DR-116's `[[items]]` entries, and one new plan pack rule;
+  - DR-36: the literal scan also refuses built-in concept IDs.
+- **Origin:** the owner, 2026-10-29: "I feel like there will be multiple in play, appropriate at each abstraction layer. I'd like a pack around that." And: "I imagine different ontologies being needed for every project/domain. For example, I'm tackling release management for multiple things." The owner accepted domain concepts and a methodology per level as pack data first, with formal imports later ("your recs are fine"), and asked for the set to be planned ("Yeah I like these. Get them planned properly"). Whether the owner's releases run on independent cadences or as coordinated trains is still open with the owner, so this record serves both. The accepted proposal put `concept`, `term` and one relation, `realizes`, in an ontology pack. This record moves the concept kind and its relations into the kernel instead, because the kernel's own algorithms (the fold, lint, `find` and the miner) must read them and the kernel may name no pack's kind (below); it adds `kernel.is_a`, since the `concepts` lens draws is-a as edges; and it keeps the ontology pack for everything else: the lens, the glossary question, the draft prompt, the context section and the suggestion. Terms are a prop, not nodes.
+- **Context:**
+  - A pack declares kinds, relations, lenses, questions, rules, decision kinds, suggestions, prompts and levels (architecture.md:631-647; `crates/contract/src/pack.rs:21-70`). Every kind it declares describes something an extractor finds or a plan holds. No pack can say what a thing means in the domain.
+  - The kernel owns `kernel.group`, `kernel.external`, `kernel.project`, `kernel.item` and one relation, `kernel.touches` (architecture.md:318; AGENTS.md Conventions). Nothing aligns a domain idea with the blocks that build it: an "order" is a service, an aggregate, a table and a file, and the map shows four unrelated blocks.
+  - A pack may give a kind the `intent` level: it is visible to every pack (`crates/planroom/src/packs/validate.rs:343-346`), and only a pack's own `[[levels]]` may not claim it (:369-371).
+  - A lens is a set of relations, a flow, its kinds and a level (architecture.md:872). Several lenses may share a level. A lens can't narrow to some nodes of a kind.
+  - The rule types are `requires_prop`, `requires_edge`, `min_children`, `covers` and `disjoint` (architecture.md:652-658). None compares two items through what their targets depend on.
+  - The plan pack writes items only as the stages declare them (`packs/plan/pack.toml:16-110`), and its `priorities` stage sets `moscow` on work and next actions (:79-95). DR-116 adds `[[items]]`, item types any stage may write, which any pack may declare.
+  - The release pack (M3, 5 h; architecture.md:1815) maps tags, release workflows and images, with `release-order`, `stale` and `bump-breaks` (architecture.md:950). It knows versions and deploys, but not products, channels, environments, gates, freezes, rollouts or release trains.
+  - Every pack a workspace loads applies to every project in it. Out-of-tree packs come from `pack add DIR` alone (architecture.md:662-667), and the data root holds no shared library of them (architecture.md:599).
+  - The domain-free scan refuses built-in kind, relation and level names in the kernel and the contract (`boundaries.toml:26-34`).
+- **Decision:**
+  - **The kernel gains the words for meaning (amends DR-45).** The kernel's algorithms must read concepts: the fold derives them, lint checks them, `find` matches their terms, and the miner proposes them. DR-45 put intent in the kernel for the same reason, so concepts follow it.
+    - `kernel.concept`, prefix `concept`, at the kernel's `intent` level: apart from the ladder, because one concept is realized at every level.
+    - `kernel.realizes`, from a concept to a block at any ladder level, actual or intended (DR-115).
+    - `kernel.is_a`, from a concept to a more general concept.
+    - "Part of" is the concept's parent, so containment, roll-up and `edit move` work unchanged.
+    - A concept's props: `definition` (at most 280 characters), `terms` (its synonyms: at most 12, each at most 48 characters), `realized_in` (`code`, the default, or `plan`), and `ontology` (the ID of the pack it belongs to).
+    - A concept's ID is `onto:concept:<ontology>/<key>`, the key following plan keys' rule. `onto` joins `ws`, `plan` and DR-115's `intended` as a reserved namespace (amends DR-74), so a repo named `onto` takes the 4-hex suffix.
+    - Everything else lives in packs: lenses, rules, prompts, questions, item types and the domain's concepts themselves.
+  - **An ontology is a pack that declares concepts (amends DR-46).**
+    - `[[concepts]]` in `pack.toml`, or in `concepts/*.toml` merged at load, as `languages/*.toml` is. Each entry has `key`, `name`, `definition`, `terms`, `is_a` (keys of the pack's own concepts or `<pack>/<key>` of a pack it requires), `part_of` (one such key), `realized_in`, and an optional `realized_by`.
+    - `realized_by` is a `when` predicate, the `filter` shape's (DR-63, round 3), over the kinds the pack can see: `realized_by = { kinds = ["release.tag"] }` makes every tag a realization of `version`.
+    - Loading refuses, with `pack_invalid`: a key twice; an `is_a` or `part_of` naming no concept in scope (`concept_unknown`); a cycle through either (`concept_cycle`); one term on two concepts of one pack (`concept_term`).
+    - The built-in packs that declare concepts are always loaded, but a board views through none of them until it selects one (below). An out-of-tree ontology arrives through `pack add` or `ontology add`, as person-only as before.
+  - **The ontology pack.** A new built-in pack, `packs/ontology/`, requiring nothing, holds the tooling every ontology uses: the `concepts` lens, the `glossary` question, the `ontology_draft` prompt, the `definitions` context section and the "Name the domain" suggestion. It declares no concepts, so it is no ontology a board selects. It speaks only the kernel's `kernel.concept`, `kernel.realizes` and `kernel.is_a`, so it needs no other pack.
+  - **Pack concepts are derived, not stored.** The fold builds each loaded pack's concepts, their `is_a` edges and their `realized_by` edges from the pack set, beside the snapshots' facts. They change only when `packs_hash` does, which already refolds.
+    - A `realized_by` edge is inferred, with confidence 1.0 and the pack as its provenance. You confirm or reject it as any inferred edge (architecture.md:345-346). Its ID hashes its kind and ends, so a rejection holds across refolds.
+    - Your corrections are ordinary overrides and rejections on those IDs: rename, move, hide, `definition`, `terms`. An authored put on an ID a pack declares reads as overrides of its fields, and your field wins (DR-73).
+    - After `pack remove`, overrides on its concepts wait for it to come back. They raise no `rescan.retarget` card, since the `onto` namespace of an unloaded ontology is not orphaned, only absent.
+  - **A board chooses the ontologies it views through.**
+    - The workspace loads its packs. A project's `ontologies` prop, a list of loaded ontology IDs, chooses which of them its board shows. A board is one project's plan and map (DR-119), so the project is the selection's home.
+    - `ontology use ID... [--project P]` sets it; `ontology use --default` clears it. Unset means every out-of-tree ontology the workspace loaded, which a person added, and no built-in one. So a board views through the release ontology only after `ontology use release`, and a workspace with one ontology it added needs no step. An ID no loaded pack declares concepts in is `invalid_argument`, naming the loaded ones.
+    - A person's `ontology use` applies; an agent's is a ghost, since it changes what the board shows and what drafts are written from.
+    - The selection scopes five things: concept chips on blocks, the board's lens list, the board's ontology lint, the glossary in prompts, and the context pack's `definitions`. It never refuses a read: `map --lens L` naming an unselected ontology's lens still answers, with the warning `ontology_unselected`.
+  - **A methodology per level is a profile lens.**
+    - `LensDecl` gains `concepts`, keys of the pack's own concepts. A lens with `concepts` shows those concepts beside the blocks that realize them, at its level, as the plan lens shows items beside their targets. Several profiles may share a level.
+    - `LensDecl` gains `explains` (default false). On a profile with it, every block of the lens's `kinds` at its level that none of its concepts realizes is a lint finding, `code_unexplained`. It is opt-in, so a profile flags only the level whose method says every block has a meaning.
+    - The ontology pack's `concepts` lens shows every selected concept with its `is_a` edges and parents, at `intent`.
+  - **Every block shows what it means.** `MapNode` gains `concepts`: up to two `ConceptTag { id, name }` from the selected ontologies, by the `kernel.realizes` edges that count (inferred or accepted, never a ghost), with `more_concepts` counting the rest. Surfaces draw them as chips. Under a profile lens, `diagram map` labels each block "Concept: block name" (DR-112).
+  - **The kernel checks meaning.** `ask lint` and each board's lint add four built-in checks over the selected ontologies, beside every pack's `[[rules]]`:
+    - `concept_unrealized`: a `code` concept that no `kernel.realizes` edge that counts joins to an actual block. The edges that count are those chips count: inferred from a pack's `realized_by`, or accepted, never a ghost, so a mined edge counts only once a person accepts it. Its line says "planned, unbuilt" when an unresolved intended block realizes it, and "not planned" otherwise. A resolved intended block reads as its actual block (DR-115), so a concept that realizes one counts as built. A `plan` concept is never flagged: items instantiate it, and code doesn't.
+    - `code_unexplained`: as above, only on a profile with `explains`.
+    - `term_ambiguous` (one term, two meanings): one word, case-folded, that is a name or term of two selected concepts.
+    - `concepts_overlap` (two terms, one meaning): two selected concepts whose realized actual blocks are the same set, of at least two.
+  - **Words reach the map by `find` and `glossary`.** `find` also matches a concept's terms. The ontology pack's question `glossary WORD` runs `find`, then `filter` to `kernel.concept`, then `neighbors` over `kernel.realizes` forward, depth 1: what the word means and what builds it.
+  - **Proposals are ghosts, and only a person makes them count.**
+    - `ontology propose ID --file F|-` writes an agent's proposal (`OntologyProposal`: concepts with key, name, definition, terms, `is_a`, `part_of`, and `realizes` targets by node ID) as one ghost batch. In chat, Claude drafts it itself, as it does plan proposals (architecture.md:1226), so it spends nothing.
+    - `ontology propose ID --mine` runs the deterministic miner, `kernel::ontology::mine`, and writes what it finds as one ghost batch, even when a person runs it, by DR-117's rule that a proposal an engine miner writes is a ghost whoever runs it. The miner:
+      - splits every block name and plan item name into words (camelCase, `snake_case`, kebab-case, path parts), lowercases them and strips a plural `s`, `es` or `ies`;
+      - drops a word that names more than 30% of the nodes at any one level, so `src`, `lib` and `main` fall out without a stop list;
+      - proposes a concept for each word that names at least 3 nodes of at least 2 kinds, ranked by kinds, then levels, then nodes, then the word, top 20 per run, each with ghost `realizes` edges to at most 20 nodes it names (types, tables, API resources, routes, screens);
+      - for a word that already names a selected concept, proposes only `realizes` edges to blocks not yet joined to it;
+      - for each `concepts_overlap` finding, proposes the merge: the second concept's name added to the first's `terms`, and the second hidden. Rejecting it keeps both.
+    - `ontology draft ID [--project P]` is the engine-run draft. A capable-tier Claude call, the ontology pack's `ontology_draft` prompt, reads the project's items, the miner's candidates and the selected glossary, and writes an `OntologyProposal` as one ghost batch by the `model` actor. It spends, so it carries the consent card and the daily cap exactly as `intent next` does (DR-89), and tests replay it.
+    - `ontology realize CONCEPT BLOCK [--remove]` adds an authored `kernel.realizes` edge, as a plan item's `kernel.touches` is authored, never on the intended layer, so drift never reads it. `--remove` takes back an authored edge, or rejects an inferred one.
+    - `ontology define CONCEPT [--name N] [--definition T] [--term W]... [--parent C] [--is-a C]...` puts a new concept or sets an existing one's fields.
+    - A person's `realize` and `define` apply; an agent's are ghosts. Accepting a ghost batch, item by item or whole, is the existing review (DR-50). This record adds no exception to "nothing an agent writes counts until a person accepts it".
+  - **Saving an ontology makes it portable (amends DR-62 and DR-109).**
+    - The room's ontology library is `DATA_ROOT/ontologies/<id>/`, user-level and never in a repo. Each version is a directory of its own, `versions/<n>/`, never changed once written, and the file `current` names the newest. Version directories are only ever added (DR-78); `current` is the one file rewritten, by write and rename.
+    - `ontology save ID` is person-only, with a press, a typed `/room` or a `/dev/tty` confirmation, as `pack add` is. It writes a new directory, `versions/<n+1>/`: every file of the loaded version byte for byte, except that `concepts/` holds one file, `concepts/saved.toml`, with the ontology's current concepts (pack concepts with your overrides, plus authored concepts in `onto:concept:ID/`, their `is_a` edges and parents). The library's version is the directory's number; `pack.toml`, its `version` included, is copied as written. So no key is declared twice, and nothing is overwritten.
+      - A pack whose `pack.toml` holds `[[concepts]]` is refused with `invalid_argument`, `argument.concepts_in_pack_toml`: its keys would be declared twice, and `pack.toml` isn't rewritten (below). The hint is to move them to `concepts/*.toml`.
+      - It writes under `ontologies/<id>.lock`: the version directory aside, then renamed into place, then `current`.
+      - It refuses with `ontology_changed` when the library's current version isn't the one this workspace loaded, so two workspaces never race to one version number. It is a conflict, exit 4, retry `after_reread`; the hint is the changed-source card's Update, or `planroom ontology add ID`.
+      - In the same commit, it records the library copy as the workspace's source for that pack, copies it as `pack add` does, and retracts the authored concepts it saved, so each concept has one home. One undo restores the old record and the authored concepts. The library keeps the version, since an undo changes the workspace and never deletes a file.
+      - It never saves `realizes` edges: they name this workspace's blocks. A new workspace aligns through `realized_by`, the miner and you.
+      - A built-in ontology's ID is `invalid_argument`: the binary owns it, and your corrections to it stay this workspace's overrides.
+    - `ontology add ID` is `pack add` of the version `current` names: person-only, undone by `pack remove`. Each workspace still records its own copy (DR-109), with the library ID and version as its source.
+    - When another workspace saves a newer version, every workspace whose recorded source is that library ID gets DR-109's changed-source card at its next scan, with Keep pre-selected. No workspace's ontology changes without its person's pick.
+    - `ontology list` lists the loaded ontologies, with the board's selection marked, and the library's, each with its version, its concept count and the workspaces it knows of. It is a read, paged under 1,500 tokens.
+  - **Plans, questions, context packs and diagrams speak the domain's words.**
+    - An engine-run stage (`intent next`) gets the board's glossary in its uncached tail: each selected concept's name, its definition cut to one line and its terms, at most 600 tokens, most-realized first. An empty glossary is left out, as an empty `not_this` is (DR-116), so a board with no selection sends the same bytes as before, and no recording made without one is invalidated.
+    - `ask stage` lists the same glossary, so a drafting agent in chat reads it too. Questions (DR-116) name concepts through the same words.
+    - **A stage learns the domain's item types.** DR-116's `[[items]]` entries gain `stages`, the stage IDs that may write the type, and an optional `checklist` line. `ask stage` and the stage request list, for the stage they serve, the `[[items]]` types whose `stages` name it, from the plan pack and from the board's selected ontologies: each with its props, its `concept` and its checklist line. An unselected ontology's types aren't listed, so the request keeps its bytes.
+    - The ontology pack declares the `[[context]]` section `definitions` (DR-117): from the targets, `neighbors` over `kernel.realizes` backward, depth 1, citing `definition` and `terms`.
+  - **Release management is the release pack's ontology.** The release pack (built-in, requiring `code`) is the first worked domain. Release management needs the release pack's kinds, and a built-in pack may require only `code`, so the concepts go into that pack rather than into a pack of their own.
+    - Concepts, with what realizes them:
+
+      | Concept | `realized_in` | `realized_by` |
+      |---|---|---|
+      | `product` | code | `code.workspace`, `code.repo` |
+      | `component` | code | `code.service`, `code.library`, `code.package` |
+      | `version` | code | `release.tag` |
+      | `version_constraint` | code | none; you or the miner align it |
+      | `release` | code | `release.release_workflow` |
+      | `channel`, `environment` | code | none; the miner finds them in workflow and deploy names |
+      | `release_train`, `gate`, `freeze`, `rollout`, `rollback` | plan | none |
+
+    - Item types, through DR-116's `[[items]]`, each with `stages = ["breakdown", "next_actions"]` and one checklist line: "On a release board, draft each train, its releases, gates and freezes as these types." DR-116's `ItemTypeDecl` gains `concept`, the key of the concept it instantiates, and `summary`, at most three prop names a portfolio row shows, beside `stages` and `checklist`.
+      - `release_train`: `cadence` (`independent` or `coordinated`), `channel`, `next_date`; summary `cadence`, `next_date`.
+      - `release`: touches the component it releases; `version`, `channel`, `date`.
+      - `gate`: touches what it guards; `owner`, `environment`, `check`.
+      - `freeze`: `from`, `until`, `scope`. `rollout`: `stages` (percentages). `rollback`: `trigger`, `steps`.
+    - Rules: `gate_owner` (`requires_prop` `owner` on gates: a gate with no owner), `release_has_component` (`requires_edge` `kernel.touches` on releases), and `release_order` (`ordered`, below: a component released ahead of what it depends on).
+    - A profile lens, `releases`, at `container`, about `component`, `version`, `channel` and `environment`, over `kernel.realizes`, `release.deploys` and `code.depends_on_package`.
+    - **Both cadences, one model.** A coordinated release is one project whose train is `coordinated`, with one `release` item per component; `release_order` orders them along dependencies. Independent cadences are one project per product or component, each with its own train, and every board can select the release ontology. Two trains releasing one component meet in DR-119's overlap check at ratification. DR-119's `boards` lists every train with its summary props: `BoardRow` gains `summary`, the `summary` props of the project's open items whose type declares one, at most 3 items, each value cut to 60 characters.
+  - **One new rule type, `ordered` (amends DR-23).**
+    - Parameters: `prop` (the prop that orders), `values` (an explicit order; without it, values compare as text, so ISO dates order by time), `along` (relations; without it, the default lens's relations, so a pack names no code relation), and `props.<name>` (field test).
+    - It finds a subject whose `kernel.touches` target depends, through one edge of `along` lifted to the targets' level, on another subject's target, while the subject's `prop` comes before the other's. The finding names both items and the edge.
+    - The release pack uses it in `release_order`: `prop = "date"`, along `code.depends_on_package` and `release.deploys`. The plan pack uses it too, on its own merits, in `moscow_order`: `prop = "moscow"`, `values = ["must", "should", "could", "wont"]`, no `along`. It finds a must-do next action that rests on a could-do one.
+  - **Guarded (amends DR-36).** The literal scan also refuses, in the kernel's and the contract's sources and the TypeScript surfaces, a string literal equal to a built-in pack's concept ID (`release/gate`), outside tests. AGENTS.md's naming convention lists the kernel's new kind and relations. Both are gated surfaces, ratified with this record and `cargo xtask gen --layout-lock` in its merge commit.
+- **Alternatives rejected:**
+  - **Concepts as pack kinds only, with the engine naming them:** the domain-free scan forbids it, and declared roles in pack data are the second role mechanism DR-45 and DR-111 rejected.
+  - **One node kind per concept** (`release.gate` as a kind): a domain's vocabulary would need a pack per word, and an agent's draft couldn't add a concept without a new pack and a person's `pack add`.
+  - **Terms as nodes with a `means` relation:** it doubles the nodes for no gain. "One term, two meanings" is a word on two concepts, and a prop answers it.
+  - **Pack concepts stored as events at `pack add`:** two homes for one concept, and a pack update would conflict with its own copy.
+  - **Authored concepts and `realizes` edges on the intended layer:** drift would read a domain idea as a missing block forever.
+  - **Selection per workspace:** the owner asked for an ontology per project or domain, and a workspace holds several projects.
+  - **Hiding unselected ontologies' answers:** a bookmarked view would break when a board's selection changes. A warning keeps the read working.
+  - **Mining at every scan:** each scan would deal a ghost batch nobody asked for. A suggestion offers `--mine` instead.
+  - **A model to find synonyms and overlaps:** it costs money on every run and can't be tested offline. Shared realizations are a deterministic signal.
+  - **Release management as an out-of-tree example pack:** releases wouldn't ship it, and it would duplicate the release pack's kinds. Inside the release pack it ships with the binary, and a board turns it on with `ontology use release`.
+  - **Unset meaning every loaded ontology:** built-in packs always load, so every board in every workspace would view through release management, with its chips and its unrealized `channel` and `environment`.
+  - **`is_a` as a prop of concept keys, so the kernel gains one relation:** the `concepts` lens draws is-a as edges, and a lens is a set of relations (architecture.md:872), so a prop would need a second lens mechanism.
+  - **The concept kind and `realizes` in the ontology pack, as first proposed:** the fold, lint, `find` and the miner are the kernel's and must read them, and the kernel may name no pack's kind (`boundaries.toml:26-34`).
+  - **The ontology pack's declarations in the plan pack:** the lens, the glossary and the context section serve every board, plan or none, and the owner asked for a pack around ontologies.
+  - **Saving `realizes` edges into the library:** they name one workspace's blocks, which another workspace doesn't have.
+  - **Saving a built-in ontology's corrections into the library:** the copy would shadow the binary's pack and drift from it at the next release.
+  - **Rewriting `pack.toml` on save:** `toml` drops comments, and the planroom crate's allow-list has no format-preserving editor. One generated `concepts/saved.toml` in a new version directory keeps every hand-written file intact.
+  - **Saving over the library's current files:** a workspace that loaded the old version would lose its source; a new directory per version overwrites nothing.
+  - **OWL, RDF or schema.org import now:** the owner put formal imports later. `[[concepts]]` is a subset an importer can write.
+  - **Semantic-version checks in `release_order`:** satisfying a constraint is domain logic, and packs carry no code. The rule orders by date along the dependency edges.
+- **Consequences:**
+  - **Contracts:**
+    - The kernel's `kernel.concept`, `kernel.realizes` and `kernel.is_a` in `Kind` and the relation list; the reserved namespace `onto`.
+    - `ConceptDecl` and `PackFile.concepts`; `RealizedIn`; `Vocabulary.concepts`; `LensDecl.concepts` and `LensDecl.explains`; `ItemTypeDecl.concept`, `.summary`, `.stages` and `.checklist`; `AskStageResult.glossary` and `.item_types`; `BoardRow.summary` (marked `x-redact`); `RuleType::Ordered` and its row in `RuleType::params`.
+    - `MapNode.concepts` and `more_concepts`; `ConceptTag`, whose `name` is marked `x-redact` because an authored or mined name comes from repo text.
+    - `Command::Ontology` with the leaves `list`, `use`, `propose`, `draft`, `realize`, `define`, `save` and `add`; `OntologyProposal`, `OntologyListResult`, `OntologySaveResult`.
+
+      | Leaf | Idea | Class | Undo | Actor | Budget |
+      |---|---|---|---|---|---|
+      | `ontology list [--cursor C]` | Lenses | read | query | any | 1,500 |
+      | `ontology use ID...\|--default [--project P]` | Lenses | write | reversible | any; an agent's is a ghost | 300 |
+      | `ontology propose ID --file F\|-\|--mine` | Intent | write | reversible | any; always ghosts | 600 |
+      | `ontology draft ID [--project P]` | Intent | write, spends | reversible | any; always ghosts | 600 |
+      | `ontology realize CONCEPT BLOCK [--remove]` | Lenses | write | reversible | any; an agent's is a ghost | 300 |
+      | `ontology define CONCEPT ...` | Lenses | write | reversible | any; an agent's is a ghost | 300 |
+      | `ontology save ID` | Lenses | write | compensate | person | 300 |
+      | `ontology add ID` | Lenses | write | compensate | person | 300 |
+
+    - Error `ontology_changed` (conflict, exit 4, retry `after_reread`; `details`: `id`, `library_version`, `loaded_version`; no key masked), with its row in the regenerated `docs/reference/errors.md`. Warning `ontology_unselected` (`details`: `lens`, `ontology`).
+    - `pack_invalid` reasons `concept_unknown`, `concept_cycle`, `concept_term`, `concept_key`, `lens_concepts`. `invalid_argument` gains `ontologies` in `details`, and the reason `argument.concepts_in_pack_toml`.
+    - Lint findings `concept_unrealized`, `code_unexplained`, `term_ambiguous`, `concepts_overlap`, and the packs' `gate_owner`, `release_has_component`, `release_order` and `moscow_order`.
+    - Formats: `planroom.pack/v1` gains the optional `[[concepts]]` table and `concepts/*.toml`, an additive change with `schema_version` kept at 1. The library is pack directories and a `current` file holding one number, and adds no format of its own.
+    - Layout: the new `packs/ontology/` with its `README.md`, and its line in `packs/AGENTS.md`'s Layout list, ratified with this record's layout lock.
+  - **Milestones:** M1 gains nothing. The ontology needs reads that load the recorded pack set (DR-114, finishing in M1), the consent card and daily cap (M2), the context packs (M2) and the release pack (M3), and the owner's release work begins with M3's release pack. Its slices follow M3's release pack slice. The selection's home is a project prop, so only `BoardRow.summary` and the trains' portfolio wait for DR-119's portfolio slice. M3 grows by 45.5 h:
+
+    | Slice | Milestone | h |
+    |---|---|---|
+    | Concepts as kernel vocabulary and pack data: the three kernel names and `onto`; `[[concepts]]` and `concepts/*.toml` with their checks; the fold's derived concepts and `realized_by` edges; overrides, rejections and the absent-ontology rule; `find` over terms; the built-in `packs/ontology/` with its README and Layout line; the literal scan and the layout lock | M3 | 10 |
+    | Boards and checks: `ontology use` and `list`, the project's `ontologies` prop and the default of no built-in ontology, the board's lens list and `ontology_unselected`; profile lenses with `concepts` and `explains`; `MapNode.concepts`; the four kernel checks; `glossary` | M3 | 8 |
+    | Authoring and the library: `propose` with `--file` and `--mine` and the miner, `realize`, `define`; `save` into a new version directory with its lock and `current` file, the `pack.toml` refusal, `ontology_changed`, the record switch and one undo; `add`; the changed-source card from the library | M3 | 9 |
+    | ‖ Release management in the release pack: concepts, `ItemTypeDecl`'s `concept`, `summary`, `stages` and `checklist`, the release item types listed in `ask stage` and the stage request on a release board, the `ordered` rule type with `release_order` and `moscow_order`, `gate_owner`, the `releases` profile; a coordinated and an independent train in the fixture's tests; `BoardRow.summary` after DR-119's portfolio slice | M3 | 8.5 |
+    | The domain's words: `ontology draft` with its prompt, replay and consent, and its one recording (about $0.02); the glossary in stage tails and `ask stage`, left out when empty, with one breakdown recording on a release board (about $0.015) that the glossary and release-item tests replay; the `definitions` context section; profile labels in `diagram map` | M3 | 5.5 |
+    | Surfaces: concept chips on blocks; the `concepts` lens in the canvas; the lens list by board; the glossary in search; `/room ontology` typeahead; the "Name the domain" suggestion, an ordinary `[[suggestions]]` entry, with no pane line of its own | M3 | 4.5 |
+
+  - **Tests** (all offline, through the CLI's `--json`, with replays and the `patch` implementer where a hand-off is involved):
+    - `crates/kernel/tests/ontology.rs`: `pack_concepts_fold_under_onto_with_their_parents`, `a_realized_by_predicate_derives_inferred_realizes_edges`, `a_rejected_realizes_edge_stays_rejected_across_refolds`, `an_authored_put_on_a_pack_concept_reads_as_its_overrides`, `overrides_on_a_removed_ontology_wait_and_raise_no_card`, `the_miner_finds_words_recurring_across_kinds_and_levels`, `the_miner_drops_a_word_naming_most_of_a_level`, `the_miner_output_is_deterministic`, `an_unrealized_code_concept_is_flagged_and_an_intended_realization_reads_as_planned`, `a_plan_concept_is_never_unrealized`, `one_word_on_two_selected_concepts_is_ambiguous`, `two_concepts_realized_by_the_same_blocks_overlap`, `only_selected_ontologies_are_checked`, `an_inferred_realization_counts_as_built_and_a_mined_ghost_does_not`.
+    - `crates/kernel/tests/lint.rs`: `ordered_flags_an_item_dated_before_what_its_target_depends_on`, `ordered_follows_an_explicit_value_order`, `ordered_without_along_reads_the_default_lens`.
+    - `crates/planroom/tests/packs.rs`: `a_concept_naming_an_unknown_concept_is_pack_invalid`, `an_is_a_cycle_is_pack_invalid`, `one_term_on_two_concepts_of_a_pack_is_pack_invalid`, `a_lens_naming_another_packs_concept_is_pack_invalid`, `concepts_toml_merges_into_its_pack`, `the_ontology_pack_loads_and_declares_glossary_and_definitions`.
+    - `crates/planroom/tests/ontology.rs`: `ontology_use_sets_the_projects_ontologies`, `a_board_with_no_selection_shows_no_release_concepts_or_findings`, `ontology_use_default_clears_the_selection`, `an_agents_ontology_use_is_a_ghost`, `an_unknown_ontology_is_invalid_argument_naming_the_loaded_ones`, `an_unselected_lens_leaves_the_board_and_still_answers_with_a_warning`, `mined_proposals_are_ghosts_even_for_a_person`, `an_agents_proposal_is_one_ghost_batch`, `nothing_proposed_counts_in_lint_until_accepted`, `save_needs_a_person`, `save_writes_the_library_and_switches_the_record_in_one_undo`, `save_refuses_when_the_library_moved_on`, `save_keeps_every_other_pack_file_byte_for_byte`, `save_writes_a_new_version_directory_and_overwrites_nothing`, `save_refuses_a_pack_with_concepts_in_pack_toml`, `a_built_in_ontology_cannot_be_saved`, `undo_of_a_save_restores_the_authored_concepts_and_keeps_the_library`, `another_workspace_gets_the_changed_source_card_after_a_save`, `ontology_add_records_a_copy_as_pack_add_does`, `glossary_finds_a_concept_by_its_term`.
+    - `crates/planroom/tests/ontology_draft.rs`: `a_replayed_draft_writes_one_ghost_batch`, `a_draft_without_consent_spends_nothing`.
+    - `crates/planroom/tests/release_mgmt.rs`: `a_gate_with_no_owner_is_flagged`, `a_component_released_before_its_dependency_is_flagged`, `a_coordinated_train_orders_its_releases_along_dependencies`, `independent_trains_keep_their_own_cadence`, `tags_realize_versions_through_the_pack`, `the_releases_profile_shows_components_with_their_concepts`, `a_breakdown_on_a_release_board_lists_release_item_types`, `a_replayed_release_breakdown_writes_a_train_and_a_gate` (strict replay of the release-board recording), `a_board_without_the_release_ontology_sends_unchanged_stage_bytes`.
+    - `crates/planroom/tests/s03_plan.rs::a_must_action_resting_on_a_could_action_is_flagged`; `crates/planroom/tests/map_read.rs::blocks_carry_only_the_selected_ontologies_concepts`; `crates/planroom/tests/intent_next.rs::the_stage_tail_carries_the_boards_glossary`; `crates/planroom/tests/context.rs::definitions_carry_the_targets_concepts`; `crates/planroom/tests/diagram.rs::a_profile_lens_labels_blocks_with_their_concepts`; `crates/planroom/tests/room.rs::a_train_boards_row_carries_its_summary_props`.
+    - `packages/ui/src/map.test.ts::concept_chips_show_two_and_a_count`; `packages/canvas/src/lens-switcher.test.ts::lenses_follow_the_boards_ontologies`; `tests/e2e/src/surface.spec.ts::concept_chips_sit_on_blocks_under_a_profile_lens`, with `exactly_five_concepts` still passing.
+    - `cargo xtask check boundaries --self-test` plants `"release/gate"` in the kernel and expects the scan to refuse it.
+    - `feature_list.json` gains two tier C entries: "Ontologies chosen per board" (R11, R13), with the `ontology.rs` tests above, and "Release management concepts" (R11), with the `release_mgmt.rs` tests above.
+  - **Known gaps:**
+    - No OWL, RDF or schema.org import in v0.1.
+    - `release_order` compares dates along dependency edges; it doesn't check that a release satisfies a version constraint.
+    - Corrections to a built-in ontology stay in their workspace; only out-of-tree ontologies travel through the library.
+    - `realizes` edges never travel. A new workspace re-aligns through `realized_by`, the miner and you.
+    - The miner splits and singularizes English names only.
+    - The library is never pruned, and an older version can be restored only by `pack add` of its `versions/<n>/` directory.
+  - **Users:**
+    - Blocks carry chips that say what they mean ("Version", "Component"). A lens per method shows each level in the domain's words.
+    - The pane suggests "Name the domain: 14 words recur across your code". One key runs `--mine`, and the proposals arrive as one ghost batch you accept, edit or reject.
+    - Lint says when a concept is planned and unbuilt, when code means nothing in the domain, and when one word means two things or two words mean one.
+    - Plans, questions and hand-off reading lists use your words.
+    - For release management, you select the release ontology on a board (`ontology use release`), draft a train, which the breakdown now offers as a release item type, and see a gate with no owner or a component released ahead of what it depends on before you ratify.
+    - `ontology save` puts your ontology in your room's library. Every other workspace that uses it asks you before taking the new version.
+- **Sources (checked 2026-10-29):** KICKOFF.md:383; [What a pack is](architecture.md#what-a-pack-is) (architecture.md:617-680); [Lenses and questions](architecture.md#lenses-and-questions) (:870-938); [The v0.1 packs](architecture.md#the-v01-packs) (:940-953); [Layers, overrides and ghosts](architecture.md#layers-overrides-and-ghosts) (:338-349); [IDs and aliases](architecture.md#ids-and-aliases) (:312-318); [Claims, presence and projects](architecture.md#claims-presence-and-projects) (:529); [Where the workspace lives](architecture.md#where-the-workspace-lives) (:599); [Milestones](architecture.md#milestones) (:1761-1847); DR-9, DR-15, DR-23, DR-36, DR-45, DR-46, DR-62, DR-63, DR-73, DR-74, DR-106, DR-109, DR-111, DR-112; `crates/contract/src/pack.rs:21-70, :104-160, :390, :589-612`; `crates/contract/src/vocab.rs:19-28`; `crates/contract/src/view.rs:45`; `crates/contract/src/requests.rs:28-89`; `crates/planroom/src/packs/validate.rs:138-145, :343-371`; `crates/kernel/src/plan.rs:27-30`; `packs/plan/pack.toml:1-14, :79-95`; `boundaries.toml:26-34`.

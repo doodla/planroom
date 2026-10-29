@@ -1190,10 +1190,15 @@ Scanned repos are the person's code, so a model call is disclosed, consented and
 | S05, S12 segmentation and curation refinement | 3 calls | cheap | under $0.01 | 3 | about $0.03 |
 | S07 evals | every auto-candidate kind, 2 runs | Jev | $0.02 to $0.05 per pass [jev §9] | 3 | about $0.15 |
 | S02, S08, S09, S11, S14 evidence | product calls in live sessions, and S11's Ask Claude taps through `sample` | Jev, cheap and `sample` | under $0.05 | 1 each | about $0.25 |
-| Development re-records | S03 runs for prompt tuning in M2 and for the slice changes M3 and M4 bring | capable | about $0.15 | 6 | about $0.90 |
+| Development re-records | S03 runs for prompt tuning in M2 and for the slice changes M3 and M4 bring, and the plan-stage recordings that DR-115, DR-116 and DR-118 record again (about $0.17 together: the six stage requests, the breakdown and next-actions requests with blocks, the derisk stage and the premortem), which come out of these 6 runs | capable | about $0.15 | 6 | about $0.90 |
+| Intent-capture evals | 24 intent-stage calls, one per case, stopped at $0.45 [DR-116] | capable | about $0.015 | 1 | at most $0.45 |
+| Duplicate-work evals | the `plan.duplicate_work` kind over 60 cases, recorded once [DR-119] | Jev | about $0.02 | 1 | about $0.02 |
+| Ontology draft | one `ontology draft` call [DR-120] | capable | about $0.02 | 1 | about $0.02 |
+| Release-board breakdown | one breakdown request with the glossary in its tail [DR-120] | capable | about $0.015 | 1 | about $0.015 |
+| POC-fail redraft | one breakdown request with `on_fail` and the failure in its tail [DR-118] | capable | about $0.015 | 1 | about $0.015 |
 | Aborted recordings | a run refused or failed partway, up to one stage call | cheap or capable | under $0.05 | 3 | about $0.15 |
 | Phase 1 research | already spent: Jev and Claude on the gateway | | | | about $0.03 |
-| Total | | | | | about $2.10, with about $0.65 left before the guard refuses at $2.75 |
+| Total | | | | | about $2.62, with about $0.13 left before the guard refuses at $2.75 |
 
 ### When no model is reachable
 
@@ -1765,14 +1770,14 @@ Estimates are in hours of focused build work, tests included. Each milestone end
 | Milestone | Scope | Tier A and B scenarios it closes | Estimate |
 |---|---|---|---|
 | WS | walking skeleton | none (the slice) | 28 h |
-| M1 | kernel, store, code and plan packs, mod and canvas basics | S15 (most), S3 (deterministic part); it builds S1's M1 subset without closing S1 [DR-89] | 130 h |
-| M2 | diffs, reconciliation, hand-off, Jev decisions | S3, S4, S7, S8 | 92 h |
-| M3 | multi-repo, observability, release | S1, S2 | 47 h |
-| M4 | artifacts, state machines, anatomy | S5, S6 | 36.5 h |
-| M5 | context curation, polish, release | S9, S10, S11, S12, S13, S14, S15 (the rest) | 75 h |
-| Total | | | 408.5 h |
+| M1 | kernel, store, code and plan packs, mod and canvas basics | S15 (most), S3 (deterministic part); it builds S1's M1 subset without closing S1 [DR-89] | 140 h |
+| M2 | diffs, reconciliation, hand-off, Jev decisions, intended blocks, questions, context packs, ratification | S3, S4, S7, S8 | 227 h |
+| M3 | multi-repo, observability, release, the room, parallel plans, ontologies | S1, S2 | 172 h |
+| M4 | artifacts, state machines, anatomy | S5, S6 | 37.5 h |
+| M5 | context curation, polish, release | S9, S10, S11, S12, S13, S14, S15 (the rest) | 85 h |
+| Total | | | 689.5 h |
 
-### M1: kernel, store, code and plan packs, mod and canvas basics (130 h)
+### M1: kernel, store, code and plan packs, mod and canvas basics (140 h)
 
 | Slice | Requirement and scenario | h |
 |---|---|---|
@@ -1790,8 +1795,10 @@ Estimates are in hours of focused build work, tests included. Each milestone end
 | The S1 CI path and the truth comparator; `same_output`; `map` paging, `--cursor` with `meta.next` at every detail, which the comparator follows to the whole map, since `map` keeps to its budget [DR-86] | S1, R13 | 4 |
 | Repo gates the skeleton left: the pin-age audit, with DR-83's advisory exceptions [DR-70, DR-83]; generated regions marked, and the read-only list and `.gitattributes` generated; Layout lists and `every_directory_has_a_purpose`; amended records marked in their status [DR-79]; the testkit row's allow-list; the bare-name scan and the pack `requires` plants, which print "not built" until packs land [DR-83]; the S15 gates `check` names that the skeleton didn't build: the breaking-change guard over `schema/baseline/` with `gen --schema-baseline`, `feature_list_is_complete`, the secret scan over `tests/replay/` and `docs/evidence/`, and `release_pins`, each a `not built` line in `check` until it lands ([The one task entry point](repo-layout.md#the-one-task-entry-point)) [DR-85]. The walking skeleton's gates work built the rest of DR-70's and DR-79's gates (see [What the walking skeleton found](#what-the-walking-skeleton-found)) | R16, S15 | 4 |
 | Serve and resolver as the docs stand [DR-82]: the resolver's cache key with the catalogue hash; `serve`'s `drain`, version handshake, reuse of a running server, 10 s request timeout, 64-client cap, a `reset` for an SSE client its broadcast drops, `serve.json` removed on a `schema_mismatch` exit, and a start in a workspace with no store yet; a scan frame's `target` as the repo's node ID; the control token kept under the data root rather than in `serve.json`, so a tree read of the workspace (`grep -r x .`) never reaches it before the canvas writes as the person, and a login page removed once its code expires unused | R10, R13, S14 | 4 |
+| ‖ A plan-only workspace: `intent new` in a folder with no store creates the state directory, the store, the engine's trust record and the `workspaces.json` entry; `path_refused` for the home directory and the filesystem root; `scan` ok with a store and no repos; `no_repos`'s next action `schema --command "intent new"` and the `plan_only` empty reason; a trusted, untracked `.planroom/` at a repo's root; the golden `focus` reply [DR-115] | R5, R10, S3 | 5 |
+| ‖ Questions as plan items: the `[[items]]` table with `items_stage_clash` and `item_claimed`, `question` and its props, `rests_on` resolved at propose, the derived status, rank and sticky pick in `kernel::plan`, the checklist line and the six stage recordings recorded again (about $0.09), `question_assumption` and `question_rests_on`, `ask stage`'s questions, a person's `answer` through `intent propose` [DR-116] | R5, S3 | 5 |
 
-### M2: diffs, reconciliation, hand-off, Jev decisions (92 h)
+### M2: diffs, reconciliation, hand-off, Jev decisions (227 h)
 
 | Slice | Requirement and scenario | h |
 |---|---|---|
@@ -1805,8 +1812,29 @@ Estimates are in hours of focused build work, tests included. Each milestone end
 | Budgets: `meta.size`, default budgets, paging, `budgets.json`'s per-question keys and `cargo xtask gen --budgets`, the budget test with the S2 chat proxy and skill-body budgets, the live comparison in `live evidence S02`, the always-on token snapshot [DR-65]; a budget on every agent-facing leaf, `schema --command` and `--def`, the clamp on pack question budgets, and `invalid_argument` with the leaf's synopsis [DR-21, DR-66]; what DR-85 left to this slice: paging `--detail graph` for the canvas and the `share` snapshot, and `invalid_argument`'s `synopsis` and `schema` over HTTP [DR-85] | S7 | 5 |
 | The S3, S4, S7 and S8 CI paths, including the S8 fault harness and the interleavings proptest; the read-only poll connection and a process's own commits through its live loop, with the two-client `stream.rs` tests [DR-1]; lease takeover from a dead holder and presence per writer instance [DR-24] | S3, S4, S7, S8 | 11 |
 | Canvas `DiffTray`, `DecisionStack`, `PlanBoard` and the heat ramp; the three motion moments; the mod's diffs, decisions and hand-off flows | R13, S13 | 7 |
+| ‖ Intended blocks: `PlanProposal.blocks` with `Expect { repo, path, branch }`, `intended:` IDs and the reserved namespace, the ladder and parent checks, ghost batches, `kernel.touches` to intended blocks and the ghost-target accept rule, `StageDecl.blocks` and `ask stage`'s kinds by level, `intent next` drafts with blocks and the breakdown and next-actions recordings recorded again (under $0.05), `MapNode.intended` [DR-115] | R5, R6, S3 | 8 |
+| Resolution: the candidate rule, the once-only resolution at scan by the `system` actor, the `resolve` card, `edit resolve` and its undo, the fold's read-through to the actual block, the fallback when the block vanishes, Diffs lines; after the reconciler slice [DR-115] | R6, R7, S4 | 7 |
+| A hand-off into a new or unborn repo: `git init --template=` at start, the orphan `planroom/KEY`, the refusals and `handoff_conflict`, the empty-tree preflight and `--ff-only` merge, commits as change units and their newest-first revert, the empty-tree reconcile window, `SpecRule::Exists` and the blocks-found count; after the hand-off slice [DR-115] | R8, S4 | 8 |
+| ‖ Intended outlines and ghost translucency on the canvas and the pane's block rows, the `resolve` card on both, the start card's create line; with the canvas slice [DR-115] | R13 | 3 |
+| The greenfield CI path: an empty folder to a mapped, reconciled repo through one `patch` hand-off, its proposal given with `intent propose --file`, so it needs no recording of its own (`greenfield.rs::an_empty_folder_reaches_a_mapped_repo_through_one_handoff`) [DR-115] | S3, S4 | 2 |
+| ‖ Sticky questions and answers: `intent answer` for a person, chat answers with the mod's quote check, the guard's denial, the held-field rule and `answer_held`, `PaneModel.questions`, the pane's question line, the row-key rule and the compact layout, the question card, the canvas's pinned notes, chips on the plan board and shelf, signed owner rows and the snapshot [DR-116] | R5, R13, S3, S9 | 10 |
+| The read-back: the stage's `readback` in pack data, the composed line and its hash, the `readback` card dealt and superseded, `decide` yes (exactly the read ghosts) and no with `--note`; after the decision runner [DR-116] | R5, R13, S3 | 5 |
+| ‖ Assumption lint and corrections: the `referenced` rule type and `question_high_stakes_open`, `review --why`, `not_this` in `ask stage` and `intent next`'s uncached tail, `redraft` [DR-116] | R5, S3 | 6.5 |
+| Intent-capture evals: 24 cases and independent labels, the deterministic scorer, the live record behind `PLANROOM_LIVE_GATEWAY` with a $0.45 stop, CI's recompute and holdout floors; after the evals slice [DR-116] | R5, S7 | 5 |
+| ‖ The `context ID` leaf: contract types, the kernel's sections, range merging, the tiered cut, the fingerprint and hash; line-index costs, the intent chain, rules, questions and instruction files cited by their headed sections; `roots` masked; `[[context]]` in the loader and the code pack's `targets` and `interfaces`; `/room context` and the skill lines [DR-117] | R8, R12, S4 | 11 |
+| The spec's context from the pack: excerpts within 4,000 tokens, `reading` pointers, re-anchoring at the base commit, `context_hash` and the fingerprint, `context_stale` at `collect`, the review card's line; after the hand-off slice [DR-117] | R8, S4 | 4 |
+| The implementer's Read calls in `observed.json`; `ImplementerRun.context` and `reads` at `handoff report` [DR-117] | R12, S9 | 1.5 |
+| ‖ The plan board's reading line and list with evidence popovers; with the canvas slice [DR-117] | R13 | 2 |
+| The derisk stage, the `poc` item type and its rules, `risk`'s `stakes` and `rests_on`, `StageDecl.needed_when` and the skipped stage, the `max_descendants` rule type and `referenced`'s `by`, waivers, `ask stage derisk`'s ranked candidates, the derisk recording and the premortem's recorded again (about $0.03); after DR-116's lint slice [DR-118] | R5, S3 | 5 |
+| Ratification: the envelope and its digest, `--dry-run` paged by hand-off, the identities and redraft lines, unrated next actions as `should`, the `ratify` event through the fold, export and backups, the derisk and identity gates, `ratify_blocked` and `ratify_stale`, revoke, `handoff start` under a ratification with its envelope check [DR-118] | R8, R10, S4 | 9.5 |
+| The ratified run: `handoff advance` and its order, the integration branch (unborn for a created repo), the install gate and sandboxed installs from a changed or new lockfile, `collect`'s candidate and verify clone, merge commits under the envelope's identity, rules on the candidate, `handoff integrate` with `update-ref`, one retry with its failure excerpt, stop reasons, stop cards and `plan_paused`, the three new states, caps from tagged ledger rows [DR-118] | R8, S4, S8 | 18 |
+| POC outcomes: POCs first and their gates, a pass kept with its `from_poc` answers and evidence, a pass whose check the implementer changed answering as ghosts, a fail archived with its part paused, its questions pinned, the redraft as ghosts with its recording (about $0.015) [DR-118] | R5, R8, S3 | 6.5 |
+| The plan review and landing: `diff --plan` paged by repo, the plan card, `--plan` on `merge`, `revert` and `cancel` under `plan:<project>`, the plan landed by pull request, re-ratification's carry-over, `intent run`, the five `budgets.json` keys [DR-118] | R7, R8, S4 | 7.5 |
+| ‖ The mod: `advance` on `handoff` events and at `session.start`, the `planroom:checker` spawn and guard for checks and sandboxed installs, priced runs tagged in the ledger, the ratify card with caps, identities, redraft and session lines and second key, no Ratify without a sandbox, the run on the Progress row and the run's card under `h` with its Stop confirm [DR-118] | R8, R13, S9 | 7.5 |
+| ‖ The canvas: the POC lane above the breakdown on `PlanBoard`, hypothesis-to-result cards with gated items below, run tints, the plan review in `DiffTray` [DR-118] | R13 | 5 |
+| The walk-away CI path: a fixture plan with a passing and a failing POC and three next actions, through ratify, the run and one plan merge (`walk_away.rs::ratify_then_return_to_one_review`) [DR-118] | S3, S4 | 3 |
 
-### M3: multi-repo, observability, release (47 h)
+### M3: multi-repo, observability, release (172 h)
 
 | Slice | Requirement and scenario | h |
 |---|---|---|
@@ -1818,12 +1846,33 @@ Estimates are in hours of focused build work, tests included. Each milestone end
 | ‖ Derived diagrams: `diagram map` and `diagram ask` as Mermaid in the safe subset with a legend and a hash, and `--known` [DR-112] | R2, R4 | 5 |
 | Drawn diagrams: `diagram draw` and `diagram show`, the subset's parser and checks, the `diagram` event and the fold's skip, ghosts with review and undo, staleness by the cited nodes' fingerprint, the canvas's diagram view, the pane's fence and the Artifact's snapshot [DR-112] | R4, R5, R13 | 12 |
 | S2 evidence and its budgets committed | S2, S7 | 3 |
+| Diagrams in questions: the `diagram` prop and its check, the question card's line, the two checklist lines; after drawn diagrams [DR-116] | R4, R5 | 1.5 |
+| The context pack's `diagrams` section: accepted diagrams as `diagram show` handles with hashes, stale ones marked; with drawn diagrams [DR-117] | R4, R8 | 1 |
+| The room and its links: `room.json`, derived boards, areas, placing and hiding, bookmarks, `boards`, `link`, `--board`, `map --version`, the view-path encoding and its `@planroom/ui` port, `room_empty` and `board_unreachable` [DR-119] | R10, R13, R14 | 9 |
+| One room server: the `/w/` routes, the workspace-free routes, `/b/*` pages, lazy folds bounded at 16 workspaces, board and room streams, the room port taken from the first workspace's, handshake, drain and `port_in_use` on it, `serve.json` per workspace, `open [LINK]` [DR-119] | R10, R13, S14 | 9 |
+| ‖ The canvas in the room: the room lid, board cards by area with run rows, the URL following the view, bookmark actions, the token from an open tab, plan tints and their tokens [DR-119] | R13, S13 | 8 |
+| ‖ The mod's boards: `PaneModel.board`, the board picker, `/room attach`, `detach`, `go`, `boards` and `inbox`, the tools' `board`, the per-turn line, `watch` following the board [DR-119] | R10, R13, S9 | 6 |
+| ‖ A repo from anywhere: `repo attach` and `detach`, `attached` in `workspaces.json`, discovery, namespaces and confinement, detached namespaces left uncovered, the refusals, suffixed branch names in a shared repo [DR-119] | R1, R10, S1 | 6 |
+| The overlap check: touch sets and impact radius, `--overlap` on `intent ratify`, the `plan.overlap` kind and its cases, holding the after choice's hand-offs, `MapNode.plans` [DR-119] | R7, R10 | 7 |
+| Merging one plan into another: the ghost batch with aliases, retraction on accept, the merged board's state [DR-119] | R5, R10 | 4 |
+| ‖ Duplicate work: the `plan.duplicate_work` Jev kind, its candidates (intended blocks by kind and `expect` included), replayed Jev, 60 eval cases (about $0.02 live, recorded once) [DR-119] | R9, R10, S7 | 6 |
+| Landing order and take-in: `land_after`, the order of plan cards, the `take_in` duty, its checks, the stop card, the `take_in` event, rebuilt candidates, `handoff revert --take-in` [DR-119] | R7, R8, R10 | 9 |
+| ‖ Room caps and plan spend: the `running` table with leases, `room.max_running_handoffs`, `room.max_daily_agent_usd` over priced agent rows across workspaces, `handoff_waiting` and its reasons, a person's start past either cap, the ledger's `project` [DR-119] | R10, S8 | 5 |
+| The portfolio and the inbox: run rows in `boards`, drafting spend, `inbox` ranked across boards, the room's Decisions stack, `/room inbox` [DR-119] | R10, R13 | 5 |
+| The parallel-plans CI path: two overlapping fixture plans through ratify, one landing, the other's take-in and landing (`parallel_plans_ci.rs`) [DR-119] | R10, S8 | 3 |
+| Concepts as kernel vocabulary and pack data: `kernel.concept`, `kernel.realizes`, `kernel.is_a` and the `onto` namespace; `[[concepts]]` and `concepts/*.toml` with their checks; the fold's derived concepts and `realized_by` edges; overrides, rejections and the absent-ontology rule; `find` over terms; the built-in `packs/ontology/` with its README and Layout line; the literal scan and the layout lock; after the release pack slice [DR-120] | R1, R11, S10 | 10 |
+| Boards and checks: `ontology use` and `list`, the project's `ontologies` prop with no built-in ontology by default, the board's lens list and `ontology_unselected`; profile lenses with `concepts` and `explains`; `MapNode.concepts`; the four kernel checks; `glossary` [DR-120] | R2, R11, S10 | 8 |
+| Authoring and the library: `ontology propose` with `--file` and `--mine` and the miner, `realize`, `define`; `save` into a new version directory with its lock and `current` file, the `pack.toml` refusal, `ontology_changed`, the record switch and one undo; `add`; the changed-source card from the library [DR-120] | R6, R11 | 9 |
+| ‖ Release management in the release pack: concepts, `ItemTypeDecl`'s `concept`, `summary`, `stages` and `checklist`, the release item types in `ask stage` and the stage request on a release board, the `ordered` rule type with `release_order` and `moscow_order`, `gate_owner`, the `releases` profile; a coordinated and an independent train in tests; after the release pack slice, and its `BoardRow.summary` after DR-119's portfolio slice [DR-120] | R11, S2, S10 | 8.5 |
+| The domain's words: `ontology draft` with its prompt, consent and one recording (about $0.02); the glossary in stage tails and `ask stage`, left out when empty, with one breakdown recording on a release board (about $0.015); the `definitions` context section; profile labels in `diagram map` [DR-120] | R5, R11 | 5.5 |
+| ‖ Surfaces: concept chips on blocks, the `concepts` lens on the canvas, the lens list by board, the glossary in search, `/room ontology` typeahead, the "Name the domain" suggestion as an ordinary `[[suggestions]]` entry, with no pane line [DR-120] | R13 | 4.5 |
 
-### M4: artifacts, state machines, anatomy (36.5 h)
+### M4: artifacts, state machines, anatomy (37.5 h)
 
 | Slice | Requirement and scenario | h |
 |---|---|---|
 | ‖ The artifacts pack: `markdown` (headings, XML-like tags, frontmatter, and `mentions` candidates for part relations), `gh_workflow` parts, skills, agent configs, decision records; missing-part rules; the segmentation prompt (Claude replay) | R3, S5 | 8 |
+| Instruction-file sections cited when their text, not only their heading, names a target; with the artifacts pack [DR-117] | R8, R12, S5 | 1 |
 | `review_threads`, `pr`, `commit_addresses_thread` (evals), touched components | R3, S5 | 5 |
 | Breakdown edits, then a text diff, then a `patch` hand-off on the snapshot copy | R3, R6, S5 | 3 |
 | ‖ The machines pack: Go and Rust transition queries, the Mermaid pattern, pairing and `machines_same`, checks, drift, step-through, variables and guards; `diagram ask` over a machine as a state diagram [DR-112] | R4, S6 | 8.5 |
@@ -1831,15 +1880,18 @@ Estimates are in hours of focused build work, tests included. Each milestone end
 | Canvas `Anatomy` and `Machine` views with the TS step-through; mod Markdown renderers | R13 | 6 |
 | The S5 and S6 CI paths and evidence | S5, S6 | 2 |
 
-### M5: context curation, polish, release (75 h)
+### M5: context curation, polish, release (85 h)
 
 | Slice | Requirement and scenario | h |
 |---|---|---|
 | `curate`: miners, template drafts and Claude refinement, `import` of runs, triggers, the curator agent, proposals as `patch` hand-offs | R12, S12 | 7 |
+| Curation from reads: the `context_missing` and `context_unread` miners, the `context` override field in the fold, ghost hint batches in Decisions, the builder reading accepted hints, the confinement check at accept; with the `curate` slice [DR-117] | R12, S12 | 5 |
 | Full remote mode: snapshot without snippets, `live/head`, inbox import with attribution and conflicts from rows the mod passes on stdin, a writer instance per page load and rows in counter order [DR-61], device pairing and signed owner rows, and a wake's sync that applies only signed rows [DR-67]; signed rows limited to reversible edits, unpaired rows kept as ghosts on one Apply card, and picks pre-selected for a desk key [DR-75]; Send to Claude with the queued rows as the page's face-up card, and an unavailable state a phone can act on [DR-56], `sample` Ask Claude; the Artifact page in Playwright with the fake `db`; every lens's maps and the precomputed answers in the snapshot, read requests answered into `answers/`, the request state in place of `/room open`, the turn-start sync in a cloud session, and the Pair this device card with its key check on load [DR-77] | R13, S11 | 16 |
+| ‖ Links in the Artifact: anchors, bookmarked views of the shared workspace precomputed in the snapshot within 1 MB, the rest read requests; with the remote slice [DR-119] | R13, S11 | 3 |
 | ‖ The toy pack and S10 | R11, S10 | 1 |
 | Mobile, touch, accessibility, reduced motion, empty states; the phone's four-target top row and the felt-toned card token; the keyboard model, the screen-reader outline and the axe audit [DR-68]; the screenshot pass and fixes; S13 evidence (trace, captures) | R13, S13, S15 | 11 |
 | ‖ Docs: guides (Remove Planroom, with the Artifact and paired devices, and Upgrade Planroom among them), concepts, reference (generated CLI, errors, configuration), contributing (this page, decisions, repo layout, adding a pack, live testing, releasing with the owner checklist, style guide); docs tests; CLI help in the five ideas, with Setup under `help --all` [DR-77, DR-78] | R15 | 11 |
+| ‖ Docs: the room's concept page and the guide to organizing boards; with the docs slice [DR-119] | R15 | 2 |
 | Iris art finish (the 1280×640 social preview with the wordmark, the plugin icon), under $5 with prompts and a spend row per image [DR-69] | R15 | 2 |
 | Release workflow with Iris's `verify`, `checks`, `build` and `publish` gates, run from `main` with `-dev` versions between releases and `gen --version` [DR-69], packaging, `SHA256SUMS`, the resolver suite (the source build from a checkout and from a clone, a stale lock, the 20 s lock wait and its envelopes, a missing tag, no plugin variables, the base-URL rule, `PLANROOM_RESOLVE`, pruning by last use, the detach on macOS), the plugin install test with mods on and off, the skill visibility check; every resolver output validated against the committed schema, over the generated `contract.sh` that DR-85 built [DR-69, DR-85]; the README's install line naming the release, the detach in its own session on Linux and macOS, a non-default base cached apart, and the failed download's URLs [DR-78]; S14 evidence (a fresh session, an agent driving S1 and S2) | R15, S14 | 17 |
 | S9 evidence: every main flow from the mod in a live session, one real implementer hand-off recorded | S9 | 4 |
