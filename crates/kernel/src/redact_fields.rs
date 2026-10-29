@@ -226,6 +226,13 @@ pub const PATHS: &[(&str, &[&str])] = &[
         "map.empty.line",
         "map.nodes[].name",
     ]),
+    ("SliceItem", &[
+        "name",
+        "props",
+    ]),
+    ("SliceTarget", &[
+        "name",
+    ]),
     ("Snapshot", &[
         "answers[].error.message",
         "answers[].warnings[].message",
@@ -245,6 +252,12 @@ pub const PATHS: &[(&str, &[&str])] = &[
         "pane.who[].doing",
         "unavailable.line",
         "who[].doing",
+    ]),
+    ("StageSlice", &[
+        "items[].name",
+        "items[].props",
+        "name",
+        "targets[].name",
     ]),
     ("StreamFrame", &[
         "summary",

@@ -21,6 +21,7 @@ use crate::{
     WarningCode, WatchReq,
 };
 use crate::{DoctorReport, DoctorResult};
+use crate::{DraftReply, StageSlice};
 use crate::{
     EngineState, LastSeq, PaneState, ReplayRecord, ResolverStatus, ToolResult, TurnSeq, UnavailableReason,
 };
@@ -143,6 +144,8 @@ pub fn generate(view: View) -> Value {
         IntentListResult,
         LintResult,
         PlanProposal,
+        StageSlice,
+        DraftReply,
         AskReq,
         AskResult,
         FindReq,

@@ -760,6 +760,9 @@ impl Ctx<'_> {
             Command::Review(req) => project(&req.common)?,
             // A project's text, a proposal's file and a version's label name no kind or ID.
             Command::IntentNew(req) => project(&req.common)?,
+            // A stage is checked against the stages when it runs; a suggestion never names a leaf
+            // that spends anyway.
+            Command::IntentNext(req) => project(&req.common)?,
             Command::IntentPropose(req) => project(&req.common)?,
             Command::IntentVersion(req) => project(&req.common)?,
             // A project there is an ID, a slug or a name, resolved when it runs.

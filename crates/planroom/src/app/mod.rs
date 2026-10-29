@@ -9,6 +9,7 @@ pub mod confine;
 pub mod data;
 pub mod dirty;
 pub mod doctor;
+pub mod draft;
 pub mod edit;
 pub mod error;
 pub mod find;

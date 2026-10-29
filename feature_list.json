@@ -222,6 +222,7 @@
       "tests": [
         "crates/planroom/tests/s03_plan.rs::stages_produce_ghosts_until_accepted",
         "crates/planroom/tests/s03_plan.rs::agent_accept_is_person_required",
+        "crates/planroom/tests/s03_plan.rs::a_stage_that_drafts_nothing_is_refused_before_any_call",
         "crates/planroom/tests/s03_plan.rs::next_actions_touch_the_three_targets",
         "crates/planroom/tests/s03_plan.rs::lint_flags_a_missing_done_test",
         "crates/planroom/tests/s03_plan.rs::lint_flags_a_vague_action",
@@ -237,13 +238,11 @@
         "crates/planroom/tests/budgets.rs::s3_cache_hit_rate_at_least_0_6_after_the_first_stage"
       ],
       "due": {
-        "crates/planroom/tests/s03_plan.rs::stages_produce_ghosts_until_accepted": "M1",
         "crates/planroom/tests/s03_plan.rs::next_actions_touch_the_three_targets": "M2",
         "crates/planroom/tests/s03_plan.rs::lint_flags_a_vague_action": "M2",
         "crates/planroom/tests/s03_plan.rs::accepted_plan_is_version_2": "M2",
         "crates/planroom/tests/s03_plan.rs::version_diff_renders_in_the_shared_view": "M2",
-        "tests/e2e/src/plan.spec.ts": "M2",
-        "crates/planroom/tests/budgets.rs::s3_cache_hit_rate_at_least_0_6_after_the_first_stage": "M1"
+        "tests/e2e/src/plan.spec.ts": "M2"
       }
     },
     {
@@ -1477,6 +1476,10 @@
         "crates/xtask/tests/gates.rs::area_contracts_match_repo_layout",
         "crates/xtask/tests/schema_guard.rs::breaking_change_guard",
         "crates/planroom/tests/catalogue.rs::every_leaf_has_a_budget_or_streams",
+        "crates/planroom/tests/version.rs::schema_commands_pages_join_to_the_whole_catalogue",
+        "crates/planroom/src/app/version.rs::schema_def_command_hands_its_leaf_requests_off_by_one_handle",
+        "crates/planroom/tests/version.rs::a_schema_commands_cursor_no_page_gave_is_refused",
+        "crates/planroom/src/app/version.rs::a_schema_commands_cursor_from_another_catalogue_or_off_a_page_edge_is_refused",
         "packages/mod/src/tools.test.ts::a_wrong_argument_returns_the_leaf_synopsis",
         "crates/planroom/tests/s15_surface.rs::help_shows_five_ideas",
         "crates/xtask/tests/skips.rs::a_skip_fails_under_ci",
@@ -2119,7 +2122,8 @@
         "crates/planroom/tests/docs.rs::the_spend_log_starts_with_phase_1",
         "crates/planroom/tests/live_gate.rs::the_cap_keeps_a_25_cent_margin",
         "crates/planroom/tests/live_gate.rs::a_live_flag_without_a_spend_log_is_refused",
-        "crates/planroom/tests/live_gate.rs::intent_next_without_a_record_flag_is_budget_exceeded"
+        "crates/planroom/tests/live_gate.rs::intent_next_without_a_record_flag_is_budget_exceeded",
+        "crates/planroom/tests/live_gate.rs::a_relative_replay_dir_is_refused"
       ],
       "due": {
         "crates/store/tests/ledger.rs::the_daily_cap_spans_workspaces": "M2",
@@ -2132,8 +2136,7 @@
         "crates/planroom/tests/budgets.rs::a_prefix_that_never_caches_fails": "M2",
         "crates/planroom/tests/text.rs::card_costs_match_the_estimator": "M2",
         "crates/planroom/tests/live_gate.rs::a_warm_prefix_is_refused_before_any_call": "M2",
-        "crates/planroom/tests/docs.rs::the_spend_log_starts_with_phase_1": "M5",
-        "crates/planroom/tests/live_gate.rs::intent_next_without_a_record_flag_is_budget_exceeded": "M1"
+        "crates/planroom/tests/docs.rs::the_spend_log_starts_with_phase_1": "M5"
       },
       "decision": "DR-51, DR-65"
     },

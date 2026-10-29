@@ -23,7 +23,7 @@ marked (masked) holds repo-derived text, so its secrets are masked like a reply'
 
 | Code | Category | Exit | Retry | Meaning | `details` |
 |---|---|---|---|---|---|
-| `invalid_argument` | usage | 2 | never | bad flags or request | `field`, `synopsis`, `schema`, `cycle`, `lenses`, `levels`, `ghosts`, `count`, `card` |
+| `invalid_argument` | usage | 2 | never | bad flags or request | `field`, `synopsis`, `schema`, `next`, `cycle`, `lenses`, `levels`, `ghosts`, `count`, `card` |
 | `ambiguous_ref` | usage | 2 | never | an ID suffix or name matched several records | `candidates`, `level` |
 | `workspace_not_found` | not_found | 3 | never | no repos at the path, or a read found no workspace store | `path` |
 | `not_found` | not_found | 3 | never | unknown ID, question or file | `closest` |
@@ -51,6 +51,7 @@ marked (masked) holds repo-derived text, so its secrets are masked like a reply'
 | `git_too_old` | unavailable | 7 | never | the git on PATH is older than 2.34.1, the oldest whose plumbing the adapter uses | `found`, `minimum`, `fix` |
 | `packs_mismatch` | unavailable | 7 | never | this process resolved another pack set than the one the store records; a write is refused | `recorded`, `resolved` |
 | `replay_missing` | unavailable | 7 | never | strict replay found no record | `key`, `path` |
+| `model_reply_invalid` | failed | 8 | never | a model's reply couldn't be used: unparsable, cut off, refused, or naming nothing new; nothing was written | `purpose`, `key`, `reason`, `field` |
 | `serve_limit` | unavailable | 7 | later | the local server hit one of its limits: a request still running at 10 s, or a 65th stream client | `limit`, `max` |
 | `internal` | internal | 70 | never | a bug | `report` |
 

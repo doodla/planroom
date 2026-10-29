@@ -240,6 +240,19 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "room": true
   },
   {
+    "name": "intent next",
+    "idea": "intent",
+    "summary": "Draft a plan stage's items with Claude; they wait as ghosts for a person.",
+    "actor": "any",
+    "class": "change",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": true,
+    "undo": "edit",
+    "tool": "room_change",
+    "room": true
+  },
+  {
     "name": "intent propose",
     "idea": "intent",
     "summary": "Propose plan items from a file or stdin; an agent's wait as ghosts for a person.",
@@ -320,7 +333,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
 ];
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
-export const CATALOGUE_HASH = "6310d45f1ef5b475228681ba14f9615f41ba9b9bab78e4e8cecd240d11a65a9c";
+export const CATALOGUE_HASH = "d0ba4c6bc8365ce3117100f20f45005c5f7748e7735e0c9536875aab49df0235";
 
 /** One pane the mod draws before the engine answers `focus` (DR-57). */
 export interface FallbackPane {

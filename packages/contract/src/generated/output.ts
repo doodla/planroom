@@ -32,6 +32,7 @@ export type CommandName =
       | "open"
       | "review"
       | "intent new"
+      | "intent next"
       | "intent propose"
       | "intent lint"
       | "intent version"
@@ -102,6 +103,7 @@ export type ErrorCode =
       | "git_too_old"
       | "packs_mismatch"
       | "replay_missing"
+      | "model_reply_invalid"
       | "serve_limit"
       | "internal"
     )
@@ -312,6 +314,10 @@ export type Command =
   | {
       command: "intent_new";
       args: IntentNewReq;
+    }
+  | {
+      command: "intent_next";
+      args: IntentNextReq;
     }
   | {
       command: "intent_propose";
@@ -588,6 +594,13 @@ export type Detail = "summary" | "graph";
  * via the `definition` "DoctorResult".
  */
 export type DoctorResult = PackReport | DoctorReport;
+/**
+ * A prop's value: text, or a list of text.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DraftValue".
+ */
+export type DraftValue = string | string[];
 /**
  * An edge end: a node ID, or an alias another extractor defines, such as `host:orders`.
  *
@@ -1272,6 +1285,7 @@ export interface Card {
         | "open"
         | "review"
         | "intent new"
+        | "intent next"
         | "intent propose"
         | "intent lint"
         | "intent version"
@@ -1417,7 +1431,7 @@ export interface WatchReq {
   session: string | null;
 }
 /**
- * `planroom schema [--commands | --command LEAF | --def NAME]`.
+ * `planroom schema [--commands [--cursor C] | --command LEAF | --def NAME]`.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "SchemaReq".
@@ -1435,6 +1449,10 @@ export interface SchemaReq {
    * One type's definition, with the definitions it references.
    */
   def: string | null;
+  /**
+   * With --commands: the page after the one whose `meta.next` gave this cursor.
+   */
+  cursor?: Cursor | null;
 }
 /**
  * `planroom version`.
@@ -1616,6 +1634,36 @@ export interface IntentNewReq {
   client: string | null;
 }
 /**
+ * `planroom intent next [--stage S]`: draft a plan stage's items as ghosts.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "IntentNextReq".
+ */
+export interface IntentNextReq {
+  /**
+   * The stage to draft; the next one the plan lacks when absent.
+   */
+  stage: string | null;
+  /**
+   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   */
+  base: number | null;
+  /**
+   * The idempotency key; derived from the request when absent.
+   */
+  idem: string | null;
+  /**
+   * The project the write belongs to.
+   */
+  project: NodeId | null;
+  /**
+   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   */
+  client: string | null;
+}
+/**
  * `planroom intent propose --file F|-`: plan items proposed as ghosts, one batch.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -1767,7 +1815,8 @@ export interface PackRemoveReq {
   client: string | null;
 }
 /**
- * What `schema --commands` returns: every leaf, summary first.
+ * What `schema --commands` returns: one page of the catalogue's leaves in order, each whole,
+ * summary first; `meta.next` is the cursor of the page after, and the pages join to every leaf.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "CommandList".
@@ -2307,6 +2356,58 @@ export interface PackCheck {
   line: string;
 }
 /**
+ * One drafted item.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DraftItem".
+ */
+export interface DraftItem {
+  /**
+   * The item's key: a new one, or an existing item's to re-propose it.
+   */
+  key: string;
+  /**
+   * The item type.
+   */
+  type: string;
+  name: string;
+  /**
+   * A key of this reply, a key of the slice's items, or `project`; null keeps an existing
+   * item's parent and puts a new one under the project.
+   */
+  parent: string | null;
+  /**
+   * Block IDs from the slice's targets.
+   */
+  touches: string[];
+  props: DraftProp[];
+}
+/**
+ * One prop of a drafted item.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DraftProp".
+ */
+export interface DraftProp {
+  name: string;
+  value: DraftValue;
+}
+/**
+ * What an engine-run plan stage asks Claude to return: [`PlanProposal`]'s strict form. Structured
+ * output refuses an open object, so each item's props are name-value pairs, and the engine maps
+ * the reply back to a `PlanProposal` before it checks and writes it. Like the proposal, it is
+ * read once and never stored on its own, so it carries no `format` tag.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DraftReply".
+ */
+export interface DraftReply {
+  /**
+   * The stage's items, new and re-proposed.
+   */
+  items: DraftItem[];
+}
+/**
  * `POST /api/v1/drain`: the control token from the server's record under the data root,
  * `DATA_ROOT/serve/<port>.json`, which asks that `serve` to finish its in-flight requests and
  * exit, so a newer engine can take the workspace's port (DR-58, DR-69).
@@ -2504,6 +2605,7 @@ export interface Envelope {
         | "open"
         | "review"
         | "intent new"
+        | "intent next"
         | "intent propose"
         | "intent lint"
         | "intent version"
@@ -3147,6 +3249,7 @@ export interface InboxRow {
         | "open"
         | "review"
         | "intent new"
+        | "intent next"
         | "intent propose"
         | "intent lint"
         | "intent version"
@@ -3266,36 +3369,6 @@ export interface PlanItem {
    * The review a person runs to accept each of its first pending ghosts.
    */
   handles: Handle1[];
-}
-/**
- * `planroom intent next [--stage S]`: draft a plan stage's items as ghosts.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "IntentNextReq".
- */
-export interface IntentNextReq {
-  /**
-   * The stage to draft; the next one the plan lacks when absent.
-   */
-  stage: string | null;
-  /**
-   * The `seq` of the view you acted on; required when the command writes user-authored state.
-   */
-  base: number | null;
-  /**
-   * The idempotency key; derived from the request when absent.
-   */
-  idem: string | null;
-  /**
-   * The project the write belongs to.
-   */
-  project: NodeId | null;
-  /**
-   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
-   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
-   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
-   */
-  client: string | null;
 }
 /**
  * One plan item type a stage writes.
@@ -4387,6 +4460,45 @@ export interface SharedFile {
   bytes: number;
 }
 /**
+ * One plan item in a stage's slice.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "SliceItem".
+ */
+export interface SliceItem {
+  /**
+   * Its key within the project.
+   */
+  key: string;
+  type: string;
+  name: string;
+  /**
+   * Its parent's key in the project, or `project`.
+   */
+  parent: string | null;
+  /**
+   * An event's state; set at commit and changed only by `review` and `undo` events.
+   */
+  status: "applied" | "ghost" | "conflict" | "open" | "closed";
+  props: {
+    [k: string]: unknown;
+  };
+  /**
+   * The blocks it touches.
+   */
+  touches: NodeId[];
+}
+/**
+ * A block on the map a stage's next actions may touch.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "SliceTarget".
+ */
+export interface SliceTarget {
+  id: NodeId;
+  name: string;
+}
+/**
  * `planroom.snapshot/v1`: what the Artifact page draws with no engine, published as
  * `data/snapshot.json`. It passes `kernel::redact`, and holds no evidence `contains` unless
  * `share --include-snippets`, and no presence unless `share --include-presence`.
@@ -4444,6 +4556,38 @@ export interface Empty1 {
    */
   line?: string | null;
   next: Handle1;
+}
+/**
+ * The slice an engine-run plan stage sends Claude, `intent next`'s request tail: the project, the
+ * stage, every item the plan holds, live and ghost, in the order `intent list` gives them, and,
+ * for a stage that writes next actions, the blocks on the map they may touch. It carries no
+ * `seq`, event ID, key, time, path or evidence, so its bytes, and the replay key over them,
+ * depend only on the plan and the map. It has no `format` tag: it is never stored but inside a
+ * `planroom.replay/v1` record's request.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "StageSlice".
+ */
+export interface StageSlice {
+  project: NodeId;
+  /**
+   * The project's name.
+   */
+  name: string;
+  /**
+   * The stage to draft, such as `outcome`.
+   */
+  stage: string;
+  items: SliceItem[];
+  /**
+   * The items cut from the end to keep the slice within its bytes.
+   */
+  items_left_out: number;
+  targets: SliceTarget[];
+  /**
+   * The targets cut from the end to keep the slice within its bytes.
+   */
+  targets_left_out: number;
 }
 /**
  * A tool result's error: the envelope's error whole (DR-66). Only an error the mod authors, when no

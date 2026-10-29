@@ -47,7 +47,7 @@ const YOURS_MAX_BYTES: usize = 600;
 /// The most bytes of `theirs` a `stale_write` carries.
 pub(crate) const THEIRS_MAX_BYTES: usize = 400;
 /// The most bytes of changed IDs a reply lists; `more_targets` counts the rest.
-const TARGETS_MAX_BYTES: usize = 500;
+pub(crate) const TARGETS_MAX_BYTES: usize = 500;
 /// The most characters of a name or an ID a reply's line quotes.
 const QUOTE_CHARS: usize = 80;
 

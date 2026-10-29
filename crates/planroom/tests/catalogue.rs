@@ -17,6 +17,7 @@ const SNAPSHOT: &[(&str, &str)] = &[
     ("intent lint", "query"),
     ("intent list", "query"),
     ("intent new", "edit"),
+    ("intent next", "edit"),
     ("intent propose", "edit"),
     ("intent version", "edit"),
     ("map", "query"),

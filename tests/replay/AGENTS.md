@@ -19,6 +19,8 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 
 Recorded model calls. Strict replay (`PLANROOM_REPLAY=strict`, which every `cargo xtask` command sets) answers every Jev and Claude call from them, so no test, check or CI job makes a live call. A call with no record fails with `replay_missing`, which names the record's key and path.
 
+The engine reads records only from the folder `PLANROOM_REPLAY_DIR` names, by an absolute path; every test that replays a call sets it to this folder, so `cargo xtask live record SNN` writes into the checkout it runs in. With the variable unset, strict replay finds no record, and nothing is read relative to the folder a command runs in.
+
 Only `cargo xtask live record SNN` writes here, under `PLANROOM_LIVE_GATEWAY=1` or `PLANROOM_LIVE_JEV=1` and the build's spend log. Never write or edit a record by hand.
 
 - Each file is a `planroom.replay/v1` record ([Contracts](../../docs/contributing/contracts.md#model-request-response-and-replay)), named by its key: `sha256(path ‖ canonical body)`, the request path, then the body as canonical JSON less the gateway's routing options.
@@ -29,5 +31,5 @@ To test it, run `cargo xtask test -p planroom-models`: the adapter's replay, dec
 
 ## Layout
 
-- `claude/<purpose>/<key>.json`: (M1) Claude calls, one folder per purpose, such as `claude/plan.stage.outcome/`.
+- `claude/<purpose>/<key>.json`: Claude calls, one folder per purpose, such as `claude/plan.stage.outcome/`.
 - `jev/`: (M2) Jev calls, once the Jev adapter records them.

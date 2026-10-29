@@ -8,6 +8,8 @@ plugin/types/index.d.ts
 packages/mod/vendor/
 pnpm-lock.yaml
 target/
+# Recorded model calls, written by `cargo xtask live record` and never by hand.
+tests/replay/
 
 # Inputs that are frozen or edited only by their owners.
 KICKOFF.md

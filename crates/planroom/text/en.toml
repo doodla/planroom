@@ -32,6 +32,7 @@ git_too_old = "git {found} is too old; Planroom needs {minimum} or newer."
 git_missing = "No git on PATH answered; Planroom needs git {minimum} or newer."
 packs_mismatch = "This engine loaded other packs than the ones this workspace records, so it won't write."
 replay_missing = "No recorded model reply for {key}, and replay is strict."
+model_reply_invalid = "Claude's reply for {purpose} couldn't be used ({reason}), so nothing was written."
 serve_limit = "The canvas server is at its limit: {what}."
 pack_invalid = "The pack file {file} isn't valid at line {line}: {why}"
 
@@ -73,6 +74,7 @@ model_api_key_env = "planroom doctor"
 model_unknown_model = "planroom doctor"
 model_purpose = "planroom doctor"
 model_model_setting = "planroom doctor"
+model_replay_dir_relative = "export PLANROOM_REPLAY_DIR=\"$(git rev-parse --show-toplevel)/tests/replay\""
 
 # The data root's shared files (DR-78).
 [data]
@@ -110,6 +112,7 @@ live_flag_without_spend_log = "A PLANROOM_LIVE_* flag is set but PLANROOM_SPEND_
 live_flag_value = "A PLANROOM_LIVE_* flag takes only the value 1."
 replay_mode = "PLANROOM_REPLAY takes strict or record."
 record_without_live_flag = "Record mode makes live calls, so it needs PLANROOM_LIVE_GATEWAY=1 or PLANROOM_LIVE_JEV=1."
+replay_dir_relative = "PLANROOM_REPLAY_DIR must be an absolute path, so recordings are never read from the folder a command runs in."
 credential_host = "A credential goes only to ai-gateway.vercel.sh, api.typesafe.ai or the host of your user-level base_url, as a plain https URL."
 api_key_env = "api_key_env must name AI_GATEWAY_API_KEY, VERCEL_OIDC_TOKEN or TYPESAFE_API_KEY."
 unknown_model = "The gateway doesn't know the pinned model ID in your config."
@@ -376,6 +379,9 @@ summary = "planroom {version} for {target}, catalogue {hash}."
 [schema]
 summary = "Planroom contract schema version {version}: {id}"
 commands = "{count} commands in the catalogue."
+commands_page = "Commands {first} to {last} of the {count} in the catalogue; for the next page, run schema --commands --cursor {cursor}."
+commands_last_page = "Commands {first} to {last}, the last of the {count} in the catalogue."
+cursor_unreadable = "--cursor takes the meta.next schema --commands gave; this one isn't one."
 commands_label = "List every command"
 leaf = "{leaf} takes {request} and returns {result}."
 leaf_brief = "{leaf} takes {request} and returns {result}; to keep to the budget, only the request's types keep their descriptions."
@@ -384,6 +390,7 @@ leaf_split = "{leaf} takes {request} and returns {result}; to keep to the budget
 def = "{name} and the types it references."
 def_bare = "{name} and the types it references; to keep to the budget, the types leave out their descriptions."
 def_split = "{name} and the types it references, without descriptions to keep to the budget; schema --def gives each type a handle names."
+def_commands_split = "{name} and the types it references, without descriptions to keep to the budget; schema --commands names each command's schema --command, which gives the request type it takes, and any other type a handle names comes by schema --def."
 def_label = "Read {def}"
 
 # share and import: the Artifact bundle and the inbox (architecture.md, Remote mode).
@@ -644,6 +651,7 @@ nothing_new = "The proposal changes nothing: every item already holds what it pr
 review_label = "Accept it"
 stage_label = "Show the stage's checklist"
 next_label = "Show the next page"
+lint_label = "Lint the plan"
 list = "{count} plans: {names}."
 list_items = "The plan {project}: {items} items, {ghosts} with edits waiting as proposals."
 list_items_one = "The plan {project}: 1 item, {ghosts} with edits waiting as proposals."
@@ -654,11 +662,29 @@ cursor_unreadable = "--cursor takes the meta.next intent list gave; this one isn
 lint = "The plan {project}: {count} findings, such as {rules}."
 lint_one = "The plan {project}: 1 finding, {rules}."
 lint_cut = "{kept} of the {total} findings fit this reply's {budget}-token budget; ask stage STAGE PROJECT shows one stage's."
+# What intent next says: the engine drafts a stage with Claude, and the reply's items wait as
+# the model's ghosts. Its lines name counts and IDs, never the reply's text.
+drafted = "Drafted {count} {stage} items for {project}: {ids}."
+drafted_one = "Drafted 1 {stage} item for {project}: {ids}."
+targets_dropped = "{count} touch targets the reply named aren't one block each on the map, so they were left out."
+targets_dropped_one = "1 touch target the reply named isn't one block on the map, so it was left out."
+next_lint = "The lint stage drafts nothing: {lint} lists the plan's findings."
+next_none = "Every stage of this plan has items, so there's no stage left to draft: {lint} lists what remains."
+# The question that ends a stage's request, after the plan's slice: the stage, its method, its
+# checklist one step per line as the pack writes it, and each item type it writes with its props.
+next_question = """
+Draft the {stage} stage of the plan in the repo-data block above. Its method is {method}, and its checklist is:
+{checklist}
+Write only these item types, each with only the props listed after it:
+{types}
+Return only the JSON the output schema describes."""
 
 # The model boundary's own lines (DR-89).
 [models]
 replay_only = "Model calls answer from recordings until the consent card and the daily cap arrive, and this call has none, so nothing was sent."
 internal = "a model call's request or recording couldn't be built or written"
+off = "Model calls are off in this configuration (models or claude.backend is off), so nothing was sent."
+session_later = "Drafting with your Claude session arrives with the session backend; set claude.backend to auto or gateway, or draft the stage in chat."
 
 # Cards a write deals (DR-89): each card names its question and why lines by these keys, and its
 # choices' labels. `{count}` is derived live where a card counts what waits on it.

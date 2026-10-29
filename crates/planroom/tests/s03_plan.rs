@@ -1,7 +1,9 @@
 //! S3, the top-down plan's deterministic part (architecture.md, "Planning: stages, ghosts and lint
 //! (R5)"; DR-4, DR-23, DR-89): an agent's proposal lands as ghosts that only a person accepts,
-//! item by item, and structural lint reads the accepted plan alone. Person steps run with a
-//! one-time token under the test's registered key; agent steps with `PLANROOM_ACTOR` and no token.
+//! item by item, and structural lint reads the accepted plan alone. `intent next` drafts each
+//! stage with Claude, answered from `tests/replay/claude/plan.stage.<S>/` under strict replay, and
+//! its items are Claude's ghosts whoever asked. Person steps run with a one-time token under the
+//! test's registered key; agent steps with `PLANROOM_ACTOR` and no token.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -17,16 +19,40 @@ use serde_json::{Value, json};
 const AGENT: &str = "agent:1a2b3c4d:chat";
 const INTENT: &str = "Add retries to the worker";
 
+/// The checkout's recordings, which `intent next` answers from under strict replay and which
+/// `cargo xtask live record S03` writes in record mode.
+fn replay_dir() -> PathBuf {
+    std::fs::canonicalize(concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/replay")).unwrap()
+}
+
 /// `planroom ARGS --json` with `env` and `stdin`: the exit code and the one envelope on stdout.
+///
+/// A model request's bytes are its replay key, so nothing of the user's reaches one: no
+/// user-level config (`XDG_CONFIG_HOME` is a folder beside the workspace that holds none), no
+/// `PLANROOM_MODELS` or `PLANROOM_CLAUDE_*`, and no marker of a temporary host
+/// (`CLAUDE_CODE_REMOTE`, `CODESPACES`, `REMOTE_CONTAINERS`), so a run never takes one. The replay
+/// mode, the live flag and the spend log pass through, so `cargo xtask live record S03` reaches
+/// the engine.
 fn run(root: &Path, args: &[&str], env: &[(&str, &str)], stdin: &str) -> (i32, Value) {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_planroom"));
     cmd.current_dir(root)
         .env("PLANROOM_DATA", root.join(".data"))
+        .env("PLANROOM_REPLAY_DIR", replay_dir())
+        .env("XDG_CONFIG_HOME", root.with_file_name("config-home"))
         .env_remove("PLANROOM_PERSON_TOKEN")
         .env_remove("PLANROOM_ACTOR")
         .env_remove("PLANROOM_CLIENT")
+        .env_remove("PLANROOM_MODELS")
+        .env_remove("CLAUDE_CODE_REMOTE")
+        .env_remove("CODESPACES")
+        .env_remove("REMOTE_CONTAINERS")
         .args(args)
         .arg("--json");
+    for (name, _) in std::env::vars_os() {
+        if name.to_str().is_some_and(|n| n.starts_with("PLANROOM_CLAUDE_")) {
+            cmd.env_remove(name);
+        }
+    }
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -229,4 +255,157 @@ fn lint_flags_a_missing_done_test() {
     assert_ne!(code, 0, "{env}");
     assert_eq!(env["error"]["code"], "invalid_argument", "{env}");
     assert_eq!(env["error"]["details"]["field"], "items[1].parent", "{env}");
+}
+
+/// Every item `intent list` lists for the only project, page after page.
+fn items(root: &Path) -> Vec<Value> {
+    let mut out = Vec::new();
+    let mut args: Vec<String> = vec!["intent".into(), "list".into()];
+    loop {
+        let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+        let (code, list) = run(root, &argv, &[], "");
+        assert_eq!(code, 0, "{list}");
+        out.extend(list["result"]["items"].as_array().unwrap().iter().cloned());
+        let Some(next) = list["meta"]["next"].as_str() else { return out };
+        args = vec!["intent".into(), "list".into(), "--cursor".into(), next.into()];
+    }
+}
+
+fn item_by<'a>(items: &'a [Value], id: &str) -> &'a Value {
+    items.iter().find(|i| i["id"] == id).unwrap_or_else(|| panic!("no item {id} in {items:?}"))
+}
+
+#[test]
+fn stages_produce_ghosts_until_accepted() {
+    let (_tmp, root) = workspace();
+    let (code, env) = person(&root, "intent new", &[INTENT], "", "");
+    assert_eq!((code, env["result"]["status"].as_str()), (0, Some("applied")), "{env}");
+
+    let stages = ["intent", "outcome", "breakdown", "next_actions", "priorities", "premortem"];
+    for (n, stage) in stages.into_iter().enumerate() {
+        // The person asks for the stage; Claude's items wait as Claude's ghosts all the same.
+        let (code, env) = person(&root, "intent next", &["--stage", stage], "", "");
+        assert_eq!(code, 0, "{stage}: {env}");
+        assert_eq!(env["result"]["status"], "ghost", "{stage}: {env}");
+        assert!(env["result"]["count"].as_u64().unwrap() >= 1, "{stage}: {env}");
+        let claude = &env["meta"]["models"]["claude"];
+        assert_eq!(claude["calls"], 1, "{stage}: {env}");
+        if n > 0 {
+            assert_eq!(claude["cache_hits"], 1, "{stage} reads the prefix the first stage wrote: {env}");
+        }
+        let named: Vec<String> = env["result"]["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t.as_str().unwrap().to_owned())
+            .collect();
+        assert!(!named.is_empty(), "{stage}: {env}");
+
+        // Each drafted item is a new ghost, or a live item whose change waits, as each item
+        // priorities rates does. The reply names the IDs that fit its budget and counts the rest,
+        // and before the stage every item was accepted, so the items that wait now are the stage's.
+        let listed = items(&root);
+        let waiting = |item: &Value| !item["pending"].as_array().unwrap().is_empty();
+        let targets: Vec<String> =
+            listed.iter().filter(|i| waiting(i)).map(|i| i["id"].as_str().unwrap().to_owned()).collect();
+        let more = env["result"]["more_targets"].as_u64().unwrap() as usize;
+        assert!(
+            targets.len() <= named.len() + more && named.iter().all(|id| targets.contains(id)),
+            "{stage}: {env}"
+        );
+        for id in &named {
+            let item = item_by(&listed, id);
+            assert!(item["status"] == "ghost" || waiting(item), "{stage}: {item}");
+        }
+        // Lint reads only what a person accepted.
+        let (code, lint) = run(&root, &["intent", "lint"], &[], "");
+        assert_eq!(code, 0, "{lint}");
+        for finding in lint["result"]["findings"].as_array().into_iter().flatten() {
+            let subject = finding["subject"].as_str().unwrap();
+            let ghost =
+                targets.iter().any(|t| t == subject) && item_by(&listed, subject)["status"] == "ghost";
+            assert!(!ghost, "{stage}: lint names the ghost {subject}");
+        }
+
+        // The person accepts the items one by one, parents first, each item's events in order:
+        // its node's, then its touch edges'.
+        let mut left: Vec<String> = targets.clone();
+        while !left.is_empty() {
+            let listed = items(&root);
+            let ready = left
+                .iter()
+                .position(|id| {
+                    let parent = item_by(&listed, id)["parent"].as_str().unwrap_or_default().to_owned();
+                    !left.contains(&parent)
+                })
+                .unwrap_or_else(|| panic!("{stage}: a parent cycle among {left:?}"));
+            let id = left.remove(ready);
+            let pending: Vec<String> = item_by(&listed, &id)["pending"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e.as_str().unwrap().to_owned())
+                .collect();
+            for event in &pending {
+                let base = seq(&root);
+                let (code, env) = person(&root, "review", &["--base", &base, event, "accept"], &base, "");
+                assert_eq!(code, 0, "{stage}: accepting {event} of {id}: {env}");
+            }
+            let listed = items(&root);
+            assert_eq!(item_by(&listed, &id)["pending"], json!([]), "{stage}: {id} is accepted");
+            assert_eq!(item_by(&listed, &id)["status"], "applied", "{stage}: {id}");
+            for other in &left {
+                let waiting = item_by(&listed, other)["pending"].as_array().unwrap().len();
+                assert!(waiting > 0, "{stage}: {other} still waits for the person");
+            }
+        }
+    }
+
+    // Every item is accepted, and with every stage drafted the next is lint, which drafts nothing.
+    assert!(items(&root).iter().all(|i| i["pending"] == json!([])));
+    let (code, env) = person(&root, "intent next", &[], "", "");
+    assert_eq!(code, 2, "{env}");
+    assert_eq!(env["error"]["code"], "invalid_argument", "{env}");
+    assert_eq!(env["error"]["details"]["field"], "stage", "{env}");
+    // Its line names the exact lint for the plan.
+    let lint = "planroom intent lint --project plan:add-retries-to-the-worker:project";
+    assert!(env["error"]["message"].as_str().unwrap().contains(lint), "{env}");
+}
+
+/// What `intent next` settles before it would ask Claude: a stage that drafts nothing, a stage no
+/// pack declares, and a key the store already holds each answer at once, with no model call, so
+/// they hold with no recording and with the replay mode unset, where any call would be refused.
+#[test]
+fn a_stage_that_drafts_nothing_is_refused_before_any_call() {
+    let (_tmp, root) = workspace();
+    let agent = [("PLANROOM_ACTOR", AGENT), ("PLANROOM_REPLAY", "")];
+    let (code, env) = run(&root, &["intent", "new", INTENT, "--idem", "plan-start"], &agent, "");
+    assert_eq!(code, 0, "{env}");
+    let before = seq(&root);
+
+    let (code, env) = run(&root, &["intent", "next", "--stage", "lint"], &agent, "");
+    assert_eq!((code, env["error"]["details"]["field"].as_str()), (2, Some("stage")), "{env}");
+    let lint = "planroom intent lint --project plan:add-retries-to-the-worker:project";
+    assert!(env["error"]["message"].as_str().unwrap().contains(lint), "{env}");
+    // The hint is the exact `intent lint`, which the details hand off as `next`; the leaf's
+    // schema handle stays in the details.
+    assert_eq!(env["error"]["hint"], lint, "{env}");
+    let next = &env["error"]["details"]["next"];
+    assert_eq!(
+        (next["command"].as_str(), &next["args"]),
+        (Some("intent"), &json!(["lint", "--project", "plan:add-retries-to-the-worker:project"])),
+        "{env}"
+    );
+    assert_eq!(env["error"]["details"]["schema"]["args"], json!(["--command", "intent next"]), "{env}");
+
+    let (code, env) = run(&root, &["intent", "next", "--stage", "nope"], &agent, "");
+    assert_eq!((code, env["error"]["details"]["field"].as_str()), (2, Some("stage")), "{env}");
+    assert_eq!(env["error"]["hint"], "planroom schema --command \"intent next\"", "{env}");
+    assert!(env["error"]["message"].as_str().unwrap().contains("premortem"), "the stages are named: {env}");
+
+    // A key another command stored meets idempotency_mismatch before any call.
+    let (code, env) =
+        run(&root, &["intent", "next", "--stage", "intent", "--idem", "plan-start"], &agent, "");
+    assert_eq!((code, env["error"]["code"].as_str()), (4, Some("idempotency_mismatch")), "{env}");
+    assert_eq!(seq(&root), before, "nothing was written");
 }

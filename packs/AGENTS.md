@@ -26,5 +26,6 @@ Each directory here is a built-in pack: `crates/planroom/build.rs` embeds every 
 - `code/queries/`: the tree-sitter queries those extractors run.
 - `code/tests/**`: the code pack's conformance kit: each case's inputs and what it expects; the tree's layout is data.
 - `plan/`: the plan pack: the seven stages, their item types and methods, and the structural lint rules; no kinds of its own.
+- `plan/prompts/`: the Claude prefix every engine-run plan stage shares: the planning rules and the reply schema's worked example; each stage's checklist stays in `pack.toml`.
 
 The other built-in packs (`observability/`, `release/`, `artifacts/`, `machines/`) each get a directory here when their milestone builds them.

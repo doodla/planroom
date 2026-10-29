@@ -10,6 +10,7 @@ Planroom embeds it in the binary, so every workspace loads it.
 |---|---|
 | `[[stages]]` | `intent`, `outcome`, `breakdown`, `next_actions`, `priorities`, `premortem` and `lint`, each with its method, the item types it writes and their props, its checklist and the lint rules it runs |
 | `[[rules]]` | the nine structural lint rules below |
+| `[[prompts]]` | `stage`, the Claude prefix every engine-run stage shares, in `prompts/plan.md` |
 
 A project is a `kernel.project` node, `plan:<slug>:project`. Each plan item is a `kernel.item` node, `plan:<slug>:<key>`, whose `type` prop names an item type. What a next action touches is a `kernel.touches` edge to a node on the map.
 
@@ -27,7 +28,9 @@ A project is a `kernel.project` node, `plan:<slug>:project`. Each plan item is a
 
 An item type's props are every stage's props for it together, so a `work` item takes `method`, `scope` and `moscow`.
 
-A stage's `prompt` is its method's checklist, one step per line. `planroom ask stage STAGE` returns those lines. A later engine-run stage may reword them, but keeps one step per line.
+A stage's `prompt` is its method's checklist, one step per line. `planroom ask stage STAGE` returns those lines, and `planroom intent next` sends them unchanged in the request's tail, after the shared prefix.
+
+The shared prefix is `prompts/plan.md`: what each stage is for, the rules every drafted item follows, the reply's working limits and a worked example, then the reply's schema. It is the same bytes for every stage and every project, so after a plan's first stage each call reads the cache the first one wrote, for an hour. Keep each checklist in `pack.toml`, one step per line, and the prefix free of anything that names one stage's request.
 
 ## The lint rules
 
@@ -50,10 +53,11 @@ A stage's `prompt` is its method's checklist, one step per line. `planroom ask s
 ```sh
 planroom intent new "Add retries to the worker"
 planroom ask stage next_actions
+planroom intent next --stage outcome
 planroom intent propose --base SEQ --file plan.json
 planroom intent lint
 planroom intent list
 planroom intent version v1
 ```
 
-An agent's proposal lands as ghosts, and a person accepts each item with `planroom review`. `intent version` is a person's alone.
+An agent's proposal lands as ghosts, and so does every item `intent next` drafts, whoever runs it: Claude wrote it. A person accepts each item with `planroom review`. `intent version` is a person's alone.

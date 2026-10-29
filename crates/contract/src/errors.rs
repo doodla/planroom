@@ -103,7 +103,7 @@ macro_rules! error_codes {
 }
 
 error_codes! {
-    InvalidArgument = "invalid_argument", Usage, Never, "bad flags or request", ["field", "synopsis", "schema", "cycle", "lenses", "levels", "ghosts", "count", "card"];
+    InvalidArgument = "invalid_argument", Usage, Never, "bad flags or request", ["field", "synopsis", "schema", "next", "cycle", "lenses", "levels", "ghosts", "count", "card"];
     AmbiguousRef = "ambiguous_ref", Usage, Never, "an ID suffix or name matched several records", ["candidates", "level"];
     WorkspaceNotFound = "workspace_not_found", NotFound, Never,
         "no repos at the path, or a read found no workspace store", ["path"];
@@ -165,6 +165,9 @@ error_codes! {
         "this process resolved another pack set than the one the store records; a write is refused",
         ["recorded", "resolved"];
     ReplayMissing = "replay_missing", Unavailable, Never, "strict replay found no record", ["key", "path"];
+    ModelReplyInvalid = "model_reply_invalid", Failed, Never,
+        "a model's reply couldn't be used: unparsable, cut off, refused, or naming nothing new; nothing was written",
+        ["purpose", "key", "reason", "field"];
     ServeLimit = "serve_limit", Unavailable, Later,
         "the local server hit one of its limits: a request still running at 10 s, or a 65th stream client",
         ["limit", "max"];

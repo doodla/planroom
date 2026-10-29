@@ -1,12 +1,14 @@
 //! The live gate and the build-wide spend log (architecture.md, Spend guards and What leaves the
 //! machine; DR-49, DR-65, DR-89).
 //!
-//! `scan` reads the gate before it does anything: a relative `PLANROOM_SPEND_LOG`, or a
-//! `PLANROOM_LIVE_*` flag with no spend log, is `invalid_argument`, and an ambient proxy alone
-//! makes no model request. No command makes a live call yet (`intent next` brings the first), so
-//! the cap, its margin and the shared log are checked through the models crate's adapter with a
-//! transport that never touches the network, and across processes run from different worktrees
-//! and folders of one checkout.
+//! `scan` and `intent next` read the gate before they do anything: a relative `PLANROOM_SPEND_LOG`
+//! or `PLANROOM_REPLAY_DIR`, or a `PLANROOM_LIVE_*` flag with no spend log, is `invalid_argument`,
+//! and an ambient proxy alone makes no model request. `intent next` is the one command that can
+//! make a live call, and only in record mode under `PLANROOM_LIVE_GATEWAY=1`, which no test here
+//! sets: outside it, the call is `budget_exceeded` before anything is sent. So the cap, its margin
+//! and the shared log are checked through the models crate's adapter with a transport that never
+//! touches the network, and across processes run from different worktrees and folders of one
+//! checkout.
 
 use std::ffi::OsString;
 use std::io::ErrorKind;
@@ -28,6 +30,7 @@ use serde_json::{Value, json};
 const GATE_VARS: &[&str] = &[
     "PLANROOM_SPEND_LOG",
     "PLANROOM_REPLAY",
+    "PLANROOM_REPLAY_DIR",
     "PLANROOM_LIVE_GATEWAY",
     "PLANROOM_LIVE_JEV",
     "AI_GATEWAY_API_KEY",
@@ -62,6 +65,30 @@ fn scan(cwd: &Path, vars: &[(&str, &str)]) -> (Value, Output) {
     );
     (serde_json::from_str(&stdout).unwrap(), out)
 }
+
+/// `planroom ARGS --json` in `cwd` with only `vars` of the gate's variables set: the envelope and
+/// the process's output.
+fn planroom(cwd: &Path, args: &[&str], vars: &[(&str, &str)]) -> (Value, Output) {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_planroom"));
+    cmd.args(args).arg("--json").current_dir(cwd).env("PLANROOM_DATA", cwd.join(".data"));
+    for name in GATE_VARS.iter().chain(&["PLANROOM_ACTOR", "PLANROOM_PERSON_TOKEN", "PLANROOM_CLIENT"]) {
+        cmd.env_remove(name);
+    }
+    for (k, v) in vars {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().expect("the binary runs");
+    let stdout = String::from_utf8(out.stdout.clone()).unwrap();
+    let env = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("{args:?}: {e}: {stdout}\n{}", String::from_utf8_lossy(&out.stderr)));
+    (env, out)
+}
+
+/// An agent, which writes ghosts.
+const AGENT: (&str, &str) = ("PLANROOM_ACTOR", "agent:1a2b3c4d:chat");
+/// The plan an agent starts, and the hint every model refusal for its first stage carries.
+const INTENT: &str = "Add retries to the worker";
+const ASK_STAGE: &str = "planroom ask stage intent plan:add-retries-to-the-worker:project";
 
 /// The scan was refused with `invalid_argument` on `field`, before it wrote anything.
 fn refused_on(dir: &Path, env: &Value, out: &Output, field: &str) {
@@ -429,9 +456,75 @@ fn the_proxy_alone_makes_no_model_request() {
         assert_eq!(adapter.call(&ask("anything", 0.01)).unwrap_err().code, code, "{vars:?}");
     }
     assert_eq!(fake.sent.get(), 0);
+    // A plan's first stage with only the proxy set asks no model either: the call is refused
+    // before anything is sent.
+    let (env, _) = planroom(dir.path(), &["intent", "new", INTENT], &[proxied.as_slice(), &[AGENT]].concat());
+    assert_eq!(env["ok"], true, "{env}");
+    let (env, out) = planroom(
+        dir.path(),
+        &["intent", "next", "--stage", "intent"],
+        &[proxied.as_slice(), &[AGENT]].concat(),
+    );
+    assert_eq!(env["error"]["code"], "budget_exceeded", "{env}");
+    assert_eq!(out.status.code(), Some(6));
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(connections(), 0, "intent next reached the proxy");
     // Record mode without the gateway flag isn't a mode at all.
     let refused = LiveEnv::from_vars(
         [("PLANROOM_REPLAY", "record")].map(|(k, v)| (OsString::from(k), OsString::from(v))),
     );
     assert_eq!(refused.unwrap_err().details["field"], "PLANROOM_REPLAY");
+}
+
+/// The `seq` of the workspace in `cwd`, as `map` reads it.
+fn head(cwd: &Path) -> u64 {
+    let (env, _) = planroom(cwd, &["map"], &[]);
+    env["meta"]["seq"].as_u64().unwrap_or_else(|| panic!("{env}"))
+}
+
+#[test]
+fn intent_next_without_a_record_flag_is_budget_exceeded() {
+    let dir = workspace();
+    let (env, _) = scan(dir.path(), &[]);
+    assert_eq!(env["ok"], true, "{env}");
+    let (env, _) = planroom(dir.path(), &["intent", "new", INTENT], &[AGENT]);
+    assert_eq!(env["ok"], true, "{env}");
+    let before = head(dir.path());
+    let log = dir.path().join("spend.jsonl");
+    std::fs::write(&log, "").unwrap();
+    let flagged = [
+        ("PLANROOM_LIVE_GATEWAY", "1"),
+        ("PLANROOM_SPEND_LOG", log.to_str().unwrap()),
+        ("AI_GATEWAY_API_KEY", "fake-gateway-key-NOT-REAL"),
+    ];
+    // With no gate variable at all, and with the live flag, a spend log and a key but no record
+    // mode: either way the call would be live, and outside record mode a live call is refused.
+    for vars in [&[AGENT][..], &[&[AGENT][..], &flagged[..]].concat()] {
+        let (env, out) = planroom(dir.path(), &["intent", "next", "--stage", "intent"], vars);
+        assert_eq!(out.status.code(), Some(6), "{env}");
+        assert_eq!(env["error"]["code"], "budget_exceeded", "{env}");
+        assert_eq!(env["error"]["details"]["guard"], "replay_only", "{env}");
+        // The `models.replay_only` line.
+        let line = "Model calls answer from recordings until the consent card and the daily cap arrive, and this call has none, so nothing was sent.";
+        assert_eq!(env["error"]["message"], line, "{env}");
+        // The stage and the plan are known, so the hint drafts the stage in chat instead.
+        assert_eq!(env["error"]["hint"], ASK_STAGE, "{env}");
+    }
+    assert_eq!(head(dir.path()), before, "nothing was written");
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), "", "nothing reached the spend log");
+}
+
+#[test]
+fn a_relative_replay_dir_is_refused() {
+    let dir = workspace();
+    let relative = [("PLANROOM_REPLAY", "strict"), ("PLANROOM_REPLAY_DIR", "tests/replay")];
+    let export = "export PLANROOM_REPLAY_DIR=\"$(git rev-parse --show-toplevel)/tests/replay\"";
+    let (env, out) = scan(dir.path(), &relative);
+    refused_on(dir.path(), &env, &out, "PLANROOM_REPLAY_DIR");
+    assert_eq!(env["error"]["hint"], export, "{env}");
+    // `intent next` reads the gate first too, before it looks for a workspace.
+    let (env, out) =
+        planroom(dir.path(), &["intent", "next", "--stage", "intent"], &[&relative[..], &[AGENT]].concat());
+    refused_on(dir.path(), &env, &out, "PLANROOM_REPLAY_DIR");
+    assert_eq!(env["error"]["hint"], export, "{env}");
 }

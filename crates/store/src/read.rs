@@ -205,6 +205,22 @@ impl<'a> Snapshot<'a> {
         decode_rows(&mut stmt)
     }
 
+    /// Whether a command was committed under the idempotency key `idem`: an event keyed `idem`,
+    /// or `idem#1`, the first of a command's several. A leaf that would pay for its plan, such as
+    /// `intent next`, checks this first, so a retry of its key replays the stored reply, or meets
+    /// `idempotency_mismatch`, without calling a model again.
+    pub fn holds_key(&self, idem: &str) -> Result<bool, StoreError> {
+        Ok(self
+            .tx
+            .query_row(
+                "SELECT 1 FROM events WHERE idem = ?1 OR idem = ?1 || '#1' LIMIT 1",
+                [idem],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
     /// One `meta` value, such as the `workspace_id` that names this store.
     pub fn meta(&self, key: &str) -> Result<Option<String>, StoreError> {
         Ok(self.tx.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)).optional()?)

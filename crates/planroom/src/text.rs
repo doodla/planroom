@@ -96,6 +96,7 @@ pub const LABELS: &[&str] = &[
     "find.narrower",
     "find.show",
     "import.map_label",
+    "intent.lint_label",
     "intent.next_label",
     "intent.review_label",
     "intent.stage_label",

@@ -78,7 +78,7 @@ enum Cmd {
     Open(OpenReq),
     /// Accept or reject one ghost or conflict, or pick a card a write dealt.
     Review(ReviewReq),
-    /// Plans: start one, propose its items, lint it, tag a version, list them.
+    /// Plans: start one, draft a stage with Claude, propose its items, lint it, tag a version, list them.
     #[command(subcommand)]
     Intent(IntentCmd),
     /// Add or remove an out-of-tree pack: the workspace's pack set; a person's alone.
@@ -98,6 +98,8 @@ enum PackCmd {
 enum IntentCmd {
     /// Start a plan: a new project named by its text.
     New(IntentNewReq),
+    /// Draft a plan stage's items with Claude; they wait as ghosts for a person.
+    Next(planroom_contract::IntentNextReq),
     /// Propose plan items from a file or stdin; an agent's wait as ghosts for a person.
     Propose(ProposeReq),
     /// The plan's lint findings: what each stage still lacks.
@@ -139,6 +141,7 @@ pub fn parse_leaf(command: &str, args: &[String]) -> Result<Command, clap::Error
         Cmd::Open(req) => Command::Open(req),
         Cmd::Review(req) => Command::Review(req),
         Cmd::Intent(IntentCmd::New(req)) => Command::IntentNew(req),
+        Cmd::Intent(IntentCmd::Next(req)) => Command::IntentNext(req),
         Cmd::Intent(IntentCmd::Propose(req)) => Command::IntentPropose(req),
         Cmd::Intent(IntentCmd::Lint(req)) => Command::IntentLint(req),
         Cmd::Intent(IntentCmd::Version(req)) => Command::IntentVersion(req),
@@ -206,7 +209,7 @@ pub fn main() -> ExitCode {
         Cmd::Watch(req) => watch(cli.json, &req, &cwd),
         Cmd::Schema(req) => {
             let name = Command::Schema(req.clone()).name();
-            finish(cli.json, &name.0, app::version::schema(&req), started)
+            finish_paged(cli.json, &name.0, app::version::schema(&req), started)
         }
         Cmd::Person(PersonCmd::Init(req)) => {
             let name = Command::PersonInit(req.clone()).name();
@@ -249,6 +252,22 @@ pub fn main() -> ExitCode {
         Cmd::Intent(IntentCmd::New(req)) => {
             let name = Command::IntentNew(req.clone()).name();
             finish_written(cli.json, &name.0, app::intent::new(&req, &cwd, &caller, &mut Tty), started)
+        }
+        Cmd::Intent(IntentCmd::Next(req)) => {
+            let name = Command::IntentNext(req.clone()).name();
+            let drafted = app::intent::next(&req, &cwd, &caller, &mut Tty);
+            // A write's meta, and the model call it made in `meta.models`.
+            let (replayed, replayed_from, models) = drafted
+                .as_ref()
+                .map_or((false, None, None), |d| (d.written.replayed, d.written.replayed_from, d.models));
+            let reply =
+                drafted.map(|d| Paged { reply: d.written.reply, next: None, dirty: Default::default() });
+            finish_meta(cli.json, &name.0, reply, started, budget_of(&name.0), |meta| Meta {
+                replayed,
+                replayed_from,
+                models,
+                ..meta
+            })
         }
         Cmd::Intent(IntentCmd::Propose(req)) => {
             let name = Command::IntentPropose(req.clone()).name();
@@ -744,8 +763,11 @@ fn with_usage(e: AppError, command: &str) -> AppError {
     // So does a review of the Apply card, and an undo that waits on an open card: the hint
     // reviews that card's first ghost, the step that picks it (DR-89).
     let card_step = e.details.get("ghosts").is_some() || e.details.get("card").is_some();
+    // And so does a refusal whose details hand off the command to run instead as `next`, such as
+    // `intent next` on a stage that drafts nothing, whose hint is the exact `intent lint`.
+    let handed_off = e.details.get("next").is_some();
     let e = e.details(Value::Object(details));
-    if (from_env || card_step) && e.hint.is_some() { e } else { e.with_hint(hint) }
+    if (from_env || card_step || handed_off) && e.hint.is_some() { e } else { e.with_hint(hint) }
 }
 
 /// A leaf's one-line synopsis from its clap arguments, long flags only, such as

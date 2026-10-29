@@ -845,13 +845,28 @@ fn person_required_names_a_path_that_exists() {
     let a = key(24);
     let (_tmp, root) = registered(&a);
     let agent = [("PLANROOM_ACTOR", "agent:1a2b3c4d:chat")];
-    let (_, catalogue) = cli(&root, &["schema", "--commands"], "", &[]);
-    let leaves: Vec<&str> = catalogue["result"]["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|l| l["name"].as_str().unwrap())
-        .collect();
+    // Every page of the listing, following `meta.next`.
+    let mut names: Vec<String> = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let mut args = vec!["schema", "--commands"];
+        if let Some(c) = &cursor {
+            args.extend(["--cursor", c.as_str()]);
+        }
+        let (_, page) = cli(&root, &args, "", &[]);
+        names.extend(
+            page["result"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|l| l["name"].as_str().unwrap().to_owned()),
+        );
+        cursor = page["meta"]["next"].as_str().map(str::to_owned);
+        if cursor.is_none() {
+            break;
+        }
+    }
+    let leaves: Vec<&str> = names.iter().map(String::as_str).collect();
     let room = |name: &str| planroom_contract::Command::SPECS.iter().any(|s| s.name() == name && s.room);
 
     let (_, env) = cli(&root, &["open"], "", &agent);

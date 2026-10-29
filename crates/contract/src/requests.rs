@@ -145,7 +145,7 @@ pub struct ReviewResult {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct IntentNextReq {
     /// The stage to draft; the next one the plan lacks when absent.
-    #[arg(long)]
+    #[arg(long, value_name = "S")]
     #[serde(default)]
     pub stage: Option<String>,
     #[serde(flatten)]

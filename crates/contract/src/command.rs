@@ -7,7 +7,7 @@ use crate::envelope::{CommandName, Cursor, Empty, Handle};
 use crate::errors::ErrorCode;
 use crate::model::{LevelId, NodeId, Seq};
 use crate::plan::{IntentListReq, IntentNewReq, IntentVersionReq};
-use crate::requests::{AskReq, EditReq, FindReq, LintReq, ProposeReq, ReviewReq};
+use crate::requests::{AskReq, EditReq, FindReq, IntentNextReq, LintReq, ProposeReq, ReviewReq};
 use crate::view::MapView;
 
 /// Which of the five ideas (plus setup) a command belongs to; help is grouped by it.
@@ -108,6 +108,7 @@ pub enum Command {
     Open(OpenReq),
     Review(ReviewReq),
     IntentNew(IntentNewReq),
+    IntentNext(IntentNextReq),
     IntentPropose(ProposeReq),
     IntentLint(LintReq),
     IntentVersion(IntentVersionReq),
@@ -507,6 +508,40 @@ const INTENT_NEW: CommandSpec = CommandSpec {
     room: true,
 };
 
+/// `intent next`: the engine asks Claude to draft a stage, and the reply's items wait as the
+/// model's ghosts, whoever runs it. It mints a fresh key on each run, so a repeat drafts again.
+const INTENT_NEXT: CommandSpec = CommandSpec {
+    path: &["intent", "next"],
+    idea: Idea::Intent,
+    summary: "Draft a plan stage's items with Claude; they wait as ghosts for a person.",
+    actor: ActorRule::Any,
+    class: Class::Change,
+    budget_tokens: 1_500,
+    needs_base: false,
+    spends: true,
+    errors: &[
+        ErrorCode::InvalidArgument,
+        ErrorCode::AmbiguousRef,
+        ErrorCode::NotFound,
+        ErrorCode::ActorRequired,
+        ErrorCode::PersonRequired,
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::IdempotencyMismatch,
+        ErrorCode::StaleWrite,
+        ErrorCode::PacksMismatch,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::BudgetExceeded,
+        ErrorCode::ModelUnavailable,
+        ErrorCode::ReplayMissing,
+        ErrorCode::ModelReplyInvalid,
+        ErrorCode::Internal,
+    ],
+    undo: Undo::Edit,
+    tool: Some(Tool::RoomChange),
+    room: true,
+};
+
 const INTENT_PROPOSE: CommandSpec = CommandSpec {
     path: &["intent", "propose"],
     idea: Idea::Intent,
@@ -657,6 +692,7 @@ impl Command {
         OPEN,
         REVIEW,
         INTENT_NEW,
+        INTENT_NEXT,
         INTENT_PROPOSE,
         INTENT_LINT,
         INTENT_VERSION,
@@ -684,6 +720,7 @@ impl Command {
             Command::Open(_) => &OPEN,
             Command::Review(_) => &REVIEW,
             Command::IntentNew(_) => &INTENT_NEW,
+            Command::IntentNext(_) => &INTENT_NEXT,
             Command::IntentPropose(_) => &INTENT_PROPOSE,
             Command::IntentLint(_) => &INTENT_LINT,
             Command::IntentVersion(_) => &INTENT_VERSION,
@@ -867,7 +904,7 @@ pub struct WatchReq {
     pub session: Option<String>,
 }
 
-/// `planroom schema [--commands | --command LEAF | --def NAME]`.
+/// `planroom schema [--commands [--cursor C] | --command LEAF | --def NAME]`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct SchemaReq {
     /// List the command catalogue instead of the schema's summary.
@@ -882,6 +919,10 @@ pub struct SchemaReq {
     #[arg(long, value_name = "NAME")]
     #[serde(default)]
     pub def: Option<String>,
+    /// With --commands: the page after the one whose `meta.next` gave this cursor.
+    #[arg(long, value_name = "CURSOR", requires = "commands")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<Cursor>,
 }
 
 /// `planroom version`.
@@ -1224,7 +1265,8 @@ pub struct DefSchema {
     pub handles: Vec<Handle>,
 }
 
-/// What `schema --commands` returns: every leaf, summary first.
+/// What `schema --commands` returns: one page of the catalogue's leaves in order, each whole,
+/// summary first; `meta.next` is the cursor of the page after, and the pages join to every leaf.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CommandList {
     pub summary: String,

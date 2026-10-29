@@ -12,6 +12,9 @@
 //!   those flags exist only for this build: both are `invalid_argument` otherwise (DR-65).
 //! - An ambient proxy is never a credential: it counts for Claude only under
 //!   `PLANROOM_LIVE_GATEWAY=1` (DR-49).
+//! - `PLANROOM_REPLAY_DIR` names the recordings' directory by an absolute path, as the spend log
+//!   is named; the engine never reads recordings relative to the directory it runs in, where a
+//!   workspace could plant them. Tests set it to the checkout's `tests/replay/`.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -22,6 +25,8 @@ use crate::error::ModelError;
 pub const SPEND_LOG: &str = "PLANROOM_SPEND_LOG";
 /// The variable that picks the replay mode.
 pub const REPLAY: &str = "PLANROOM_REPLAY";
+/// The variable that names the recordings' directory, by an absolute path.
+pub const REPLAY_DIR: &str = "PLANROOM_REPLAY_DIR";
 /// Every live flag starts with this.
 pub const LIVE_PREFIX: &str = "PLANROOM_LIVE_";
 /// The flag that lets Claude calls go to the gateway, the build container's proxy included.
@@ -71,6 +76,8 @@ pub struct LiveEnv {
     pub jev: bool,
     /// `PLANROOM_SPEND_LOG`, absolute.
     pub spend_log: Option<PathBuf>,
+    /// `PLANROOM_REPLAY_DIR`, absolute: where strict replay and record mode find recordings.
+    pub replay_dir: Option<PathBuf>,
 }
 
 impl LiveEnv {
@@ -83,6 +90,7 @@ impl LiveEnv {
     pub fn from_vars(vars: impl IntoIterator<Item = (OsString, OsString)>) -> Result<LiveEnv, ModelError> {
         let mut spend_log = None;
         let mut replay = None;
+        let mut replay_dir = None;
         let mut flags: Vec<(String, OsString)> = Vec::new();
         for (name, value) in vars {
             if value.is_empty() {
@@ -92,6 +100,7 @@ impl LiveEnv {
             match name {
                 SPEND_LOG => spend_log = Some(value),
                 REPLAY => replay = Some(value),
+                REPLAY_DIR => replay_dir = Some(value),
                 _ if name.starts_with(LIVE_PREFIX) => flags.push((name.to_owned(), value)),
                 _ => {}
             }
@@ -106,6 +115,12 @@ impl LiveEnv {
                 }
                 Some(path)
             }
+        };
+        let replay_dir = match replay_dir.map(PathBuf::from) {
+            Some(dir) if !dir.is_absolute() => {
+                return Err(ModelError::invalid_argument(REPLAY_DIR, "replay_dir_relative"));
+            }
+            dir => dir,
         };
         let (mut gateway, mut jev) = (false, false);
         for (name, value) in &flags {
@@ -131,7 +146,7 @@ impl LiveEnv {
         if mode == Mode::Record && !(gateway || jev) {
             return Err(ModelError::invalid_argument(REPLAY, "record_without_live_flag"));
         }
-        Ok(LiveEnv { mode, gateway, jev, spend_log })
+        Ok(LiveEnv { mode, gateway, jev, spend_log, replay_dir })
     }
 
     /// Whether a live call to `provider` may be sent, and the spend log it must go through.
@@ -146,5 +161,25 @@ impl LiveEnv {
             (Mode::Record, true, Some(log)) => Ok(log),
             _ => Err(ModelError::budget_exceeded(REPLAY_ONLY, 0.0, 0.0)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn read(vars: &[(&str, &str)]) -> Result<LiveEnv, ModelError> {
+        LiveEnv::from_vars(vars.iter().map(|(k, v)| (OsString::from(k), OsString::from(v))))
+    }
+
+    #[test]
+    fn a_relative_replay_dir_is_refused() {
+        let err = read(&[(REPLAY, "strict"), (REPLAY_DIR, "tests/replay")]).unwrap_err();
+        assert_eq!(err.details["field"], REPLAY_DIR);
+        assert_eq!(err.reason, Some("replay_dir_relative"));
+        let env = read(&[(REPLAY, "strict"), (REPLAY_DIR, "/checkout/tests/replay")]).unwrap();
+        assert_eq!(env.replay_dir.as_deref(), Some(std::path::Path::new("/checkout/tests/replay")));
+        // Empty is unset, as for every variable the gate reads.
+        assert_eq!(read(&[(REPLAY_DIR, "")]).unwrap().replay_dir, None);
     }
 }

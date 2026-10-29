@@ -868,6 +868,22 @@
           "properties": {
             "command": {
               "type": "string",
+              "const": "intent_next"
+            },
+            "args": {
+              "$ref": "#/$defs/IntentNextReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
               "const": "intent_propose"
             },
             "args": {
@@ -979,7 +995,7 @@
         "summary",
         "items"
       ],
-      "description": "What `schema --commands` returns: every leaf, summary first."
+      "description": "What `schema --commands` returns: one page of the catalogue's leaves in order, each whole,\nsummary first; `meta.next` is the cursor of the page after, and the pages join to every leaf."
     },
     "CommandName": {
       "description": "A command name from the catalogue, its path joined with spaces.",
@@ -1004,6 +1020,7 @@
             "open",
             "review",
             "intent new",
+            "intent next",
             "intent propose",
             "intent lint",
             "intent version",
@@ -1705,6 +1722,100 @@
         "engine_version"
       ],
       "description": "The workspace's store."
+    },
+    "DraftItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "The item's key: a new one, or an existing item's to re-propose it."
+        },
+        "type": {
+          "type": "string",
+          "description": "The item type."
+        },
+        "name": {
+          "type": "string"
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A key of this reply, a key of the slice's items, or `project`; null keeps an existing\nitem's parent and puts a new one under the project."
+        },
+        "touches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Block IDs from the slice's targets."
+        },
+        "props": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DraftProp"
+          }
+        }
+      },
+      "required": [
+        "key",
+        "type",
+        "name",
+        "parent",
+        "touches",
+        "props"
+      ],
+      "description": "One drafted item."
+    },
+    "DraftProp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/DraftValue"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "description": "One prop of a drafted item."
+    },
+    "DraftReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DraftItem"
+          },
+          "description": "The stage's items, new and re-proposed."
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "description": "What an engine-run plan stage asks Claude to return: [`PlanProposal`]'s strict form. Structured\noutput refuses an open object, so each item's props are name-value pairs, and the engine maps\nthe reply back to a `PlanProposal` before it checks and writes it. Like the proposal, it is\nread once and never stored on its own, so it carries no `format` tag."
+    },
+    "DraftValue": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ],
+      "description": "A prop's value: text, or a list of text."
     },
     "DrainReq": {
       "type": "object",
@@ -2547,6 +2658,7 @@
             "git_too_old",
             "packs_mismatch",
             "replay_missing",
+            "model_reply_invalid",
             "serve_limit",
             "internal"
           ]
@@ -7352,6 +7464,17 @@
           ],
           "description": "One type's definition, with the definitions it references.",
           "default": null
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With --commands: the page after the one whose `meta.next` gave this cursor."
         }
       },
       "required": [
@@ -7359,7 +7482,7 @@
         "command",
         "def"
       ],
-      "description": "`planroom schema [--commands | --command LEAF | --def NAME]`."
+      "description": "`planroom schema [--commands [--cursor C] | --command LEAF | --def NAME]`."
     },
     "SchemaSummary": {
       "type": "object",
@@ -7619,6 +7742,55 @@
       ],
       "description": "The reply's size."
     },
+    "SliceItem": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Its key within the project."
+        },
+        "type": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "x-redact": true
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Its parent's key in the project, or `project`."
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "`applied` for an accepted item, `ghost` for one waiting for a person."
+        },
+        "props": {
+          "type": "object",
+          "additionalProperties": true,
+          "x-redact": true
+        },
+        "touches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NodeId"
+          },
+          "description": "The blocks it touches."
+        }
+      },
+      "required": [
+        "key",
+        "type",
+        "name",
+        "parent",
+        "status",
+        "props",
+        "touches"
+      ],
+      "description": "One plan item in a stage's slice."
+    },
     "SliceSpec": {
       "type": "object",
       "additionalProperties": false,
@@ -7653,6 +7825,23 @@
         "max_tokens"
       ],
       "description": "The slice of the model a request carries; evidence goes in as path and contains, never line."
+    },
+    "SliceTarget": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/NodeId"
+        },
+        "name": {
+          "type": "string",
+          "x-redact": true
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "description": "A block on the map a stage's next actions may touch."
     },
     "Snapshot": {
       "type": "object",
@@ -7778,6 +7967,57 @@
         "lint"
       ],
       "description": "`[[stages]]`: one plan stage (R5)."
+    },
+    "StageSlice": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "$ref": "#/$defs/NodeId"
+        },
+        "name": {
+          "type": "string",
+          "description": "The project's name.",
+          "x-redact": true
+        },
+        "stage": {
+          "type": "string",
+          "description": "The stage to draft, such as `outcome`."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SliceItem"
+          }
+        },
+        "items_left_out": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The items cut from the end to keep the slice within its bytes."
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SliceTarget"
+          }
+        },
+        "targets_left_out": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The targets cut from the end to keep the slice within its bytes."
+        }
+      },
+      "required": [
+        "project",
+        "name",
+        "stage",
+        "items",
+        "items_left_out",
+        "targets",
+        "targets_left_out"
+      ],
+      "description": "The slice an engine-run plan stage sends Claude, `intent next`'s request tail: the project, the\nstage, every item the plan holds, live and ghost, in the order `intent list` gives them, and,\nfor a stage that writes next actions, the blocks on the map they may touch. It carries no\n`seq`, event ID, key, time, path or evidence, so its bytes, and the replay key over them,\ndepend only on the plan and the map. It has no `format` tag: it is never stored but inside a\n`planroom.replay/v1` record's request."
     },
     "Stakes": {
       "oneOf": [

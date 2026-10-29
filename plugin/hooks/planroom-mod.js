@@ -227,6 +227,19 @@ var CATALOGUE = [
     "room": true
   },
   {
+    "name": "intent next",
+    "idea": "intent",
+    "summary": "Draft a plan stage's items with Claude; they wait as ghosts for a person.",
+    "actor": "any",
+    "class": "change",
+    "budget_tokens": 1500,
+    "needs_base": false,
+    "spends": true,
+    "undo": "edit",
+    "tool": "room_change",
+    "room": true
+  },
+  {
     "name": "intent propose",
     "idea": "intent",
     "summary": "Propose plan items from a file or stdin; an agent's wait as ghosts for a person.",

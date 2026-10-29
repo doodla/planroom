@@ -703,8 +703,14 @@ fn budget(name: &str) -> u64 {
 fn reply(cwd: &Path, args: &[&str], stdin: &str, env: &[(&str, &str)]) -> Value {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_planroom"));
     cmd.args(args).arg("--json").current_dir(cwd).env("PLANROOM_DATA", cwd.join(".data"));
-    for name in ["PLANROOM_PERSON_TOKEN", "PLANROOM_ACTOR", "PLANROOM_CLIENT"] {
+    for name in ["PLANROOM_PERSON_TOKEN", "PLANROOM_ACTOR", "PLANROOM_CLIENT", "PLANROOM_MODELS"] {
         cmd.env_remove(name);
+    }
+    // A model request's bytes are its replay key: no configuration of the user's reaches one.
+    for (name, _) in std::env::vars_os() {
+        if name.to_str().is_some_and(|n| n.starts_with("PLANROOM_CLAUDE_")) {
+            cmd.env_remove(name);
+        }
     }
     for (k, v) in env {
         cmd.env(k, v);
@@ -953,6 +959,21 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
         "",
         &[(MINT, "")],
     );
+    // `intent next`, an agent's draft of a new plan's first stage: its slice holds the project and
+    // no item, so it is S3's first call, answered from that recording.
+    let replay = std::fs::canonicalize(concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/replay")).unwrap();
+    let config_home = tmp.path().join("config-home");
+    let drafting = [
+        ("PLANROOM_ACTOR", "agent:1a2b3c4d:chat"),
+        ("PLANROOM_REPLAY_DIR", replay.to_str().unwrap()),
+        ("XDG_CONFIG_HOME", config_home.to_str().unwrap()),
+    ];
+    run(&["intent", "new", "Add retries to the worker"], "", &agent);
+    run(
+        &["intent", "next", "--stage", "intent", "--project", "plan:add-retries-to-the-worker:project"],
+        "",
+        &drafting,
+    );
 
     let mut covered = BTreeSet::new();
     for (args, stdin, env) in &runs {
@@ -1046,4 +1067,54 @@ fn focus_keeps_to_one_budget() {
     assert!(summary["result"].get("minimap").is_none(), "{summary}");
     assert!(summary["meta"]["size"]["tokens_est"].as_u64().unwrap() <= budget, "{summary}");
     assert!(warned(&summary, "workspace_untrusted"), "{summary}");
+}
+
+/// The S3 recordings: each stage's call for "Add retries to the worker", decoded, in stage order.
+fn s3_calls() -> Vec<(String, planroom_models::claude::Usage)> {
+    let replay = planroom_testkit::repo_root().join("tests/replay/claude");
+    let mut calls = Vec::new();
+    for stage in ["intent", "outcome", "breakdown", "next_actions", "priorities", "premortem"] {
+        let dir = replay.join(format!("plan.stage.{stage}"));
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display())) {
+            let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+            let record: planroom_contract::ReplayRecord = serde_json::from_str(&text).unwrap();
+            let request = serde_json::to_string(&record.request).unwrap();
+            if request.contains("plan:add-retries-to-the-worker:project") {
+                let reply = planroom_models::claude::decode(record.response.status, &record.response.body);
+                found.push(reply.unwrap_or_else(|e| panic!("{stage}: {e:?}")).usage);
+            }
+        }
+        assert_eq!(found.len(), 1, "{stage}: one recording of S3's call");
+        calls.push((stage.to_owned(), found[0]));
+    }
+    calls
+}
+
+/// S3's stage calls share one cached prefix: the first writes it cold, each later one reads it and
+/// writes none, so over them the cache serves at least `budgets.json`'s hit rate; and no call's
+/// prompt or output is more than 20% over the largest recorded (contracts.md, the budgets row).
+#[test]
+fn s3_cache_hit_rate_at_least_0_6_after_the_first_stage() {
+    let budgets: Value = serde_json::from_str(
+        &std::fs::read_to_string(planroom_testkit::repo_root().join("budgets.json")).unwrap(),
+    )
+    .unwrap();
+    let claude = &budgets["s3.plan"]["claude"];
+    let floor = claude["cache_hit_rate"].as_f64().unwrap_or_else(|| panic!("budgets.json: {budgets}"));
+    let calls = s3_calls();
+    let (first, rest) = calls.split_first().unwrap();
+    assert!(first.1.cache_write > 0 && first.1.cache_read == 0, "the first stage starts cold: {first:?}");
+    for (stage, usage) in rest {
+        assert_eq!(usage.cache_write, 0, "{stage} writes no cache: {usage:?}");
+    }
+    let read: u64 = rest.iter().map(|(_, u)| u.cache_read).sum();
+    let total: u64 = rest.iter().map(|(_, u)| u.prompt_total()).sum();
+    let rate = read as f64 / total.max(1) as f64;
+    assert!(rate >= floor, "a hit rate of {rate:.3} after the first stage, under {floor}");
+    let (prompt, output) = (claude["prompt_total"].as_u64().unwrap(), claude["output"].as_u64().unwrap());
+    for (stage, usage) in &calls {
+        assert!(usage.prompt_total() as f64 <= 1.2 * prompt as f64, "{stage}: {usage:?} over {prompt}");
+        assert!(usage.output as f64 <= 1.2 * output as f64, "{stage}: {usage:?} over {output}");
+    }
 }

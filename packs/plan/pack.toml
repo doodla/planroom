@@ -119,6 +119,17 @@ Go back to the stage a finding names, and re-propose the items it flags.
 Repeat until lint has no findings, or the person accepts what remains.
 """
 
+# The Claude prefix every engine-run stage shares (`intent next`): the planning rules and a worked
+# example, then the reply's schema. Each stage's checklist above goes in the request's tail.
+
+[[prompts]]
+id = "stage"
+file = "plan.md"
+tier = "capable"
+role = "propose"
+output = "DraftReply"
+ttl = "1h"
+
 # Structural lint: each rule's subjects are plan items of one type, picked by `props.type`.
 
 [[rules]]

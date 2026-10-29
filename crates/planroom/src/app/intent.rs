@@ -25,9 +25,9 @@ use std::path::{Path, PathBuf};
 
 use planroom_contract::{
     Actor, Command, CommandName, Cursor, EditResult, Empty, EmptyReason, ErrorCode, EventBody, EventId,
-    Handle, IntentListReq, IntentListResult, IntentNewReq, IntentVersionReq, LevelId, LintFinding, LintReq,
-    LintResult, Node, NodeId, PlanItem, PlanProject, PlanProposal, PlanVersion, ProposeReq, RuleDecl, Seq,
-    StageDecl, Status, Warning, WarningCode,
+    Handle, IntentListReq, IntentListResult, IntentNewReq, IntentNextReq, IntentVersionReq, LevelId,
+    LintFinding, LintReq, LintResult, ModelTier, ModelUse, Node, NodeId, PlanItem, PlanProject, PlanProposal,
+    PlanVersion, ProposeReq, RuleDecl, Seq, StageDecl, Status, Usage, Warning, WarningCode,
 };
 use planroom_kernel::cas::{self, Authority, Check, Proposed};
 use planroom_kernel::fold::{Folded, Writer};
@@ -377,6 +377,175 @@ pub fn propose(
     .map_err(|e| cycle_field(e, &proposal))
 }
 
+/// What `intent next` returns: its write, and the model call it made, which `meta.models` reports.
+/// A retry of a stored key replays the write and calls no model.
+#[derive(Debug, Clone)]
+pub struct Drafted {
+    pub written: Written<EditResult>,
+    pub models: Option<ModelUse>,
+}
+
+/// `planroom intent next [--stage S] [--project P]`: the engine asks Claude to draft a plan stage,
+/// and the reply's items wait as the model's ghosts whoever runs it, until a person accepts each
+/// with `review` (architecture.md, "Planning: stages, ghosts and lint (R5)"; DR-23, DR-89).
+///
+/// The live gate is read first, as `scan` reads it. In M1 `claude.backend = auto` and `gateway`
+/// both reach the gateway adapter, whose gate answers from a recording, records a live call under
+/// `PLANROOM_LIVE_GATEWAY=1` in record mode, or refuses it; `session` arrives with the session
+/// backend, and `off` (or `models = "off"`) turns every call off. The stage is `--stage` or the
+/// next one the plan lacks; the project is `--project` or the only one, a ghost one included.
+///
+/// The read and the call happen before the write's transaction, and the reply's items are checked
+/// as a proposal is, then planned inside it against the commit's own snapshot, as `intent propose`
+/// plans them. A reply that can't be used is `model_reply_invalid` and writes nothing. A key the
+/// store already holds replays its stored reply, or meets `idempotency_mismatch`, before any call.
+/// Once the stage and the project are known, a model error's hint is the `ask stage` that drafts
+/// the stage in chat instead.
+pub fn next(
+    req: &IntentNextReq,
+    cwd: &Path,
+    caller: &Caller,
+    terminal: &mut dyn Terminal,
+) -> Result<Drafted, AppError> {
+    let env = crate::app::models::live_env()?;
+    let root = workspace::find_root(cwd).ok_or_else(|| AppError::workspace_not_found(cwd))?;
+    let trusted = crate::app::trust::at(&root) == crate::app::trust::Trust::Trusted;
+    let loaded_config = crate::config::for_workspace(&workspace::state_dir(&root), trusted)?;
+    let config = loaded_config.config;
+    backend(&config)?;
+    let (root, mut store) = open_write(cwd)?;
+    let spec = Command::IntentNext(req.clone()).spec();
+    let stage_flag = req.stage.as_deref().map(|s| ("--stage", s));
+    let line = line("intent next", req.common.base, req.common.project.as_ref(), stage_flag.as_slice(), None);
+    let caller_writer =
+        edit::writer_for(spec, &req.common, &line, caller, &mut store, &root, req.common.base, terminal)?;
+    let loaded = packs::loaded()?;
+    let model = match crate::app::draft::stage_tier(loaded)? {
+        ModelTier::Cheap => config.claude.model_cheap.clone(),
+        ModelTier::Capable => config.claude.model_capable.clone(),
+    };
+    // The items are the model's proposal whoever asked for them, written from the caller's client.
+    let writer = Writer { actor: Actor::Model { id: model }, client: caller_writer.client };
+    let writing = || Writing {
+        spec,
+        args: json!({"stage": req.stage, "project": req.common.project}),
+        idem: req.common.idem.as_deref(),
+        project: req.common.project.clone(),
+        writer: writer.clone(),
+        base: req.common.base,
+    };
+    let snapshot = store.snapshot()?;
+    if let Some(idem) = req.common.idem.as_deref()
+        && snapshot.holds_key(idem)?
+    {
+        drop(snapshot);
+        let written = edit::commit(&mut store, &root, writing(), |_, _, _| {
+            Err(AppError::internal("a held key replays"))
+        })?;
+        return Ok(Drafted { written, models: None });
+    }
+    let folded = live::folded(&snapshot, &loaded.vocabulary)?;
+    drop(snapshot);
+    let project_flag = req.common.project.as_ref().map(|p| p.0.as_str());
+    let drafting = crate::app::draft::drafting(loaded, &folded, req.stage.as_deref(), project_flag)?;
+    let stage = drafting.stage.id.clone();
+    let project = drafting.project.clone();
+    // Once the stage and the project are known, a model refusal names the chat route instead.
+    let ask_stage =
+        format!("planroom ask stage {} {}", text::shell_word(&stage), text::shell_word(&project.id.0));
+    let hinted = |e: AppError| match e.code {
+        ErrorCode::BudgetExceeded
+        | ErrorCode::ModelUnavailable
+        | ErrorCode::ReplayMissing
+        | ErrorCode::ModelReplyInvalid => e.with_hint(ask_stage.clone()),
+        _ => e,
+    };
+    let call = &drafting.call;
+    let key = planroom_models::claude::build(&config.claude, call).key;
+    let reply = crate::app::models::ask_claude(call, &env, &config).map_err(hinted)?;
+    let (proposal, dropped) =
+        crate::app::draft::proposal(&reply, &call.purpose, &key, &folded, &project).map_err(hinted)?;
+    let invalid = |e: AppError| {
+        if e.code != ErrorCode::InvalidArgument {
+            return e;
+        }
+        let field = e.details.get("field").and_then(Value::as_str).map(str::to_owned);
+        hinted(crate::app::draft::unusable(
+            &call.purpose,
+            &key,
+            crate::app::draft::Unusable::InvalidItems,
+            field.as_deref(),
+        ))
+    };
+    check_items(&proposal, &stages(loaded)).map_err(invalid)?;
+    let count = proposal.items.len();
+    let nothing_new = |e: AppError| {
+        // The only `items` refusal a plan makes once its items are checked: nothing differs.
+        if e.code == ErrorCode::InvalidArgument && e.details.get("field") == Some(&json!("items")) {
+            let why = crate::app::draft::Unusable::NothingNew;
+            hinted(crate::app::draft::unusable(&call.purpose, &key, why, Some("items")))
+        } else {
+            e
+        }
+    };
+    let mut written = edit::commit(&mut store, &root, writing(), |snapshot, folded, base| {
+        let mut plan =
+            plan_proposal(&proposal, None, snapshot, folded, &writer, base).map_err(nothing_new)?;
+        let shown: Vec<String> = plan.targets.iter().take(3).map(|id| q(id)).collect();
+        let key = if count == 1 { "intent.drafted_one" } else { "intent.drafted" };
+        let vars: &[(&str, &dyn std::fmt::Display)] = &[
+            ("count", &count),
+            ("stage", &stage),
+            ("project", &q(&project.name)),
+            ("ids", &shown.join(", ")),
+        ];
+        plan.line = text::get(key, vars);
+        if dropped > 0 {
+            plan.line.push(' ');
+            let key = if dropped == 1 { "intent.targets_dropped_one" } else { "intent.targets_dropped" };
+            plan.line.push_str(&text::get(key, &[("count", &dropped)]));
+        }
+        Ok(plan)
+    })
+    .map_err(|e| {
+        // A parent cycle the reply's items would close: the reply can't be used as it stands.
+        if e.code == ErrorCode::InvalidArgument && e.details.get("field") == Some(&json!("parent")) {
+            invalid(cycle_field(e, &proposal))
+        } else {
+            e
+        }
+    })?;
+    written.reply.warnings.extend(loaded_config.warnings);
+    if crate::app::draft::cache_not_applied(&reply) {
+        written.reply.warnings.push(Warning {
+            code: WarningCode::CacheNotApplied,
+            message: text::get("warning.cache_not_applied", &[]),
+            details: json!({"purpose": call.purpose}),
+        });
+    }
+    let usage = Usage {
+        calls: 1,
+        cache_hits: u32::from(reply.usage.cache_read > 0),
+        cost_usd: reply.cost_usd.unwrap_or(0.0),
+    };
+    Ok(Drafted { written, models: Some(ModelUse { jev: Usage::default(), claude: usage }) })
+}
+
+/// The configured backend may reach the gateway adapter: `off` (or `models = "off"`) turns every
+/// call off, and `session` arrives with the session backend, so both are `model_unavailable`.
+fn backend(config: &crate::config::Config) -> Result<(), AppError> {
+    let unavailable = |key: &str| {
+        AppError::new(ErrorCode::ModelUnavailable, &[("provider", &"claude")])
+            .details(json!({"provider": "claude"}))
+            .with_message(text::get(key, &[]))
+    };
+    match (config.models.as_str(), config.claude.backend.as_str()) {
+        ("off", _) | (_, "off") => Err(unavailable("models.off")),
+        (_, "session") => Err(unavailable("models.session_later")),
+        _ => Ok(()),
+    }
+}
+
 /// A parent cycle names the request field it came from: the first of the proposal's items, in
 /// its order, that the cycle runs through, since an item can keep a parent the proposal doesn't name.
 fn cycle_field(e: AppError, proposal: &PlanProposal) -> AppError {
@@ -573,7 +742,7 @@ fn too_long(value: &Value) -> bool {
 }
 
 /// An item's key: its ID after the project's prefix.
-fn key_of(id: &NodeId) -> &str {
+pub(crate) fn key_of(id: &NodeId) -> &str {
     id.0.rsplit_once(':').map_or(id.0.as_str(), |(_, key)| key)
 }
 

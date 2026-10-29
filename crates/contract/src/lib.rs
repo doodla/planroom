@@ -63,6 +63,9 @@ pub use pack::{
     Shape, ShapeStep, StageDecl, SuggestionDecl,
 };
 pub use plan::{
+    DraftItem, DraftProp, DraftReply, DraftValue, SliceItem, SliceTarget, StageSlice, draft_reply_schema,
+};
+pub use plan::{
     IntentListReq, IntentListResult, IntentNewReq, IntentVersionReq, LintFinding, LintResult, PlanItem,
     PlanProject, PlanProposal, PlanVersion, ProposedItem,
 };

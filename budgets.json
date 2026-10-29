@@ -1,6 +1,9 @@
 {
   "fold.20k": { "ms": 50 },
   "fold.50k": { "ms": 500 },
+  "s3.plan": {
+    "claude": { "prompt_total": 11115, "output": 1113, "cache_hit_rate": 0.6 }
+  },
   "surface": {
     "skill_bodies": {}
   },
