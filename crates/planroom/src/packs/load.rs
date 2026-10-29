@@ -31,6 +31,9 @@ pub struct Source {
     pub label: String,
     /// The directory it was read from; none for an embedded pack.
     pub dir: Option<PathBuf>,
+    /// For a pack read from its copy in the state directory, the directory the copy was made
+    /// from, which its record names in place of the copy's own path.
+    pub recorded: Option<String>,
     /// Every file but its tests, by its path in the pack with `/` separators.
     pub files: BTreeMap<String, Vec<u8>>,
 }
@@ -334,28 +337,55 @@ fn is_language_file(path: &str) -> bool {
     path.strip_prefix("languages/").is_some_and(|rest| !rest.contains('/') && rest.ends_with(".toml"))
 }
 
+/// How far [`read_dir`] walks a pack before it stops: a pack is data a person names, read on every
+/// trusted scan, so no directory can stall or exhaust the process that reads it.
+pub mod bounds {
+    /// Entries walked, directories and `tests/` included.
+    pub const ENTRIES: usize = 1_000;
+    /// Directories deep below the pack's own.
+    pub const DEPTH: usize = 16;
+    /// Bytes in one file the pack holds.
+    pub const FILE_BYTES: u64 = 1 << 20;
+    /// Bytes read in all, `tests/` left out.
+    pub const TOTAL_BYTES: u64 = 4 << 20;
+}
+
 /// The pack in the directory `dir`, as an out-of-tree pack. A pack holds data only: an
-/// executable file, or anything but a plain file or a directory, is `pack_invalid` (DR-9).
+/// executable file, or anything but a plain file or a directory, is `pack_invalid` (DR-9). The
+/// walk is bounded ([`bounds`]): past a bound it stops at once with `pack_invalid` naming it.
 pub fn read_dir(dir: &Path) -> Result<Source, AppError> {
+    use std::io::Read;
     let label = dir.display().to_string();
     let mut files = BTreeMap::new();
-    let mut todo = vec![dir.to_path_buf()];
+    let mut todo = vec![(dir.to_path_buf(), 0usize)];
     let unreadable = |path: &Path, e: std::io::Error| {
         let shown = path.display().to_string();
         AppError::pack_invalid(&shown, 1, &shown, "unreadable", &[("why", &e)])
+    };
+    let too_large = |path: &Path, rel: &str, bound: String| {
+        let shown = path.display().to_string();
+        AppError::pack_invalid(&shown, 1, rel, "too_large", &[("bound", &bound)])
     };
     if !dir.join(MANIFEST).is_file() {
         let shown = dir.join(MANIFEST).display().to_string();
         return Err(AppError::pack_invalid(&shown, 1, MANIFEST, "no_manifest", &[]));
     }
-    while let Some(at) = todo.pop() {
+    let (mut walked, mut total) = (0usize, 0u64);
+    while let Some((at, depth)) = todo.pop() {
         for entry in fs::read_dir(&at).map_err(|e| unreadable(&at, e))? {
             let path = entry.map_err(|e| unreadable(&at, e))?.path();
-            let meta = fs::symlink_metadata(&path).map_err(|e| unreadable(&path, e))?;
             let rel = path.strip_prefix(dir).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+            walked += 1;
+            if walked > bounds::ENTRIES {
+                return Err(too_large(&path, &rel, format!("{} entries", bounds::ENTRIES)));
+            }
+            let meta = fs::symlink_metadata(&path).map_err(|e| unreadable(&path, e))?;
             let shown = path.display().to_string();
             if meta.is_dir() {
-                todo.push(path);
+                if depth + 1 > bounds::DEPTH {
+                    return Err(too_large(&path, &rel, format!("{} directories deep", bounds::DEPTH)));
+                }
+                todo.push((path, depth + 1));
                 continue;
             }
             if !meta.is_file() {
@@ -367,10 +397,22 @@ pub fn read_dir(dir: &Path) -> Result<Source, AppError> {
             if rel.starts_with(TESTS) {
                 continue;
             }
-            files.insert(rel, fs::read(&path).map_err(|e| unreadable(&path, e))?);
+            // Read no more than the bound allows, whatever the file grows to meanwhile.
+            let mut bytes = Vec::new();
+            fs::File::open(&path)
+                .and_then(|f| f.take(bounds::FILE_BYTES + 1).read_to_end(&mut bytes))
+                .map_err(|e| unreadable(&path, e))?;
+            if bytes.len() as u64 > bounds::FILE_BYTES {
+                return Err(too_large(&path, &rel, format!("{} bytes in one file", bounds::FILE_BYTES)));
+            }
+            total += bytes.len() as u64;
+            if total > bounds::TOTAL_BYTES {
+                return Err(too_large(&path, &rel, format!("{} bytes in all", bounds::TOTAL_BYTES)));
+            }
+            files.insert(rel, bytes);
         }
     }
-    Ok(Source { origin: Origin::OutOfTree, label, dir: Some(dir.to_path_buf()), files })
+    Ok(Source { origin: Origin::OutOfTree, label, dir: Some(dir.to_path_buf()), recorded: None, files })
 }
 
 #[cfg(unix)]

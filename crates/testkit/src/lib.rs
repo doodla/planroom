@@ -27,8 +27,9 @@ pub const REPOS: [&str; 5] = ["kit", "orders", "platform", "storefront", "worker
 /// What a fixture build made.
 #[derive(Debug, Clone)]
 pub struct Fixture {
-    /// The workspace root: the five repos, and no `.planroom/` yet: the engine's first scan
-    /// creates the state directory and records it as trusted in the test's data root (DR-48).
+    /// The workspace root: the five repos, and from [`fixture`] no `.planroom/` yet, so the
+    /// engine's first scan creates the state directory and records it as trusted in the test's
+    /// data root (DR-48); from [`fixture_with_packs`], the state directory with its config.
     pub root: PathBuf,
     /// `build-fixture`'s output: each repo's branch heads.
     pub heads: Value,
@@ -39,7 +40,8 @@ pub struct Fixture {
 /// It writes no `.planroom/`: a state directory the engine didn't make is untrusted, and its
 /// config stays unloaded until a person accepts the trust card (DR-48). So the engine's first
 /// scan creates it and records it in the data root the test runs with, and a test that needs a
-/// loaded workspace config scans first, then calls [`write_config`].
+/// loaded workspace config scans first, then calls [`write_config`]. [`fixture_with_packs`] is
+/// the fixture workspace as `cargo xtask fixture` builds it, with its packs.
 ///
 /// `examples/build-fixture` runs once per set of fixture sources, not once per test: the first
 /// call builds into the target directory beside the test binaries and every later call, in any
@@ -212,6 +214,102 @@ fn copy_tree(from: &Path, to: &Path) {
         "copying the fixture failed: {}",
         String::from_utf8_lossy(&copied.stderr)
     );
+}
+
+/// The fixture workspace as every CI path and evidence run scans it (DR-13, DR-101): the fixture's
+/// five repos in `out`, then `out/.planroom/` (0700) with a `config.toml` (0600) naming `packs`,
+/// recorded as trusted, `by: engine`, in the data root `data`, exactly as `cargo xtask fixture`
+/// records it. Its first scan reads the config's list and copies each pack.
+pub fn fixture_with_packs(out: &Path, data: &Path, packs: &[&Path]) -> Fixture {
+    let fixture = fixture(out);
+    let dir = fixture.root.join(".planroom");
+    fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).expect(".planroom is created");
+    let config = dir.join("config.toml");
+    let listed: Vec<String> = packs.iter().map(|p| toml_string(&p.display().to_string())).collect();
+    fs::write(&config, format!("packs = [{}]\n", listed.join(", "))).expect("the config is written");
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).expect("the config's mode is set");
+    record_trusted(data, &fixture.root);
+    fixture
+}
+
+/// Record `root`'s `.planroom/` as trusted in `data`'s `workspaces.json`, as the engine records a
+/// state directory it creates and as `cargo xtask fixture` writes it: `by: engine`, with the
+/// directory's inode number and, where the filesystem reports one, its birth time, under the
+/// exclusive lock on `workspaces.json.lock`, every other field kept, mode 0600. A few lines here,
+/// since testkit may depend on neither xtask nor the engine (DR-101).
+fn record_trusted(data: &Path, root: &Path) {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let root = root.canonicalize().expect("the fixture's root resolves");
+    let state = root.join(".planroom");
+    let meta = fs::symlink_metadata(&state).expect("the state directory stats");
+    let created = meta
+        .created()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .and_then(|d| u64::try_from(d.as_nanos()).ok());
+    let at = rfc3339(SystemTime::now().duration_since(UNIX_EPOCH).expect("the clock is past 1970").as_secs());
+    let mut record = serde_json::json!({
+        "root": root.display().to_string(),
+        "state_dir": state.display().to_string(),
+        "ino": meta.ino(),
+        "by": "engine",
+        "at": at,
+    });
+    if let Some(created) = created {
+        record["created"] = serde_json::json!(created);
+    }
+    fs::DirBuilder::new().recursive(true).mode(0o700).create(data).expect("the data root is created");
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .mode(0o600)
+        .open(data.join("workspaces.json.lock"))
+        .expect("the workspaces lock opens");
+    lock.lock().expect("the workspaces lock is taken");
+    let path = data.join("workspaces.json");
+    let mut doc: Value = match fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str(&text).expect("workspaces.json parses"),
+        Err(_) => serde_json::json!({
+            "format": "planroom.workspaces/v1", "min_reader_version": "0.1.0-dev", "workspaces": []
+        }),
+    };
+    let same = |t: &Value| t["root"] == record["root"] && t["state_dir"] == record["state_dir"];
+    let list = doc
+        .as_object_mut()
+        .expect("workspaces.json is an object")
+        .entry("trusted")
+        .or_insert_with(|| serde_json::json!([]));
+    let items = list.as_array_mut().expect("its trusted is a list");
+    items.retain(|t| !same(t));
+    items.push(record);
+    let tmp = path.with_extension(format!("tmp{}", std::process::id()));
+    let _ = fs::remove_file(&tmp);
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)
+        .expect("a temporary file opens");
+    file.write_all(serde_json::to_string_pretty(&doc).expect("a document serializes").as_bytes())
+        .expect("workspaces.json is written");
+    fs::rename(&tmp, &path).expect("workspaces.json is put in place");
+}
+
+/// Unix seconds as an RFC 3339 UTC time, as `cargo xtask fixture` writes a record's `at`.
+fn rfc3339(secs: u64) -> String {
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z", rem / 3_600, rem % 3_600 / 60, rem % 60)
 }
 
 /// `OUT/.planroom/config.toml` naming one pack, with the modes the engine uses (0700, 0600). It

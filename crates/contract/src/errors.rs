@@ -295,6 +295,9 @@ warning_codes! {
     TrustNotRecorded = "trust_not_recorded",
         "a person's pick of the trust card stands, but the workspace's trust couldn't be recorded, so the next scan deals a fresh card; details name the card",
         ["card"];
+    PackNotUpdated = "pack_not_updated",
+        "a person's accept of the changed-source card stands, but the pack's new copy couldn't be recorded, so the next scan deals a fresh card; details name the card and the pack",
+        ["card", "pack"];
     ConfigKeyIgnored = "config_key_ignored",
         "a user-level key in a workspace's config, or api_key in a user-level config that isn't mode 0600",
         ["file", "key"];

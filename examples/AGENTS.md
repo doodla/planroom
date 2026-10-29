@@ -20,5 +20,6 @@ Read first, from [Repo layout](../docs/contributing/repo-layout.md#read-first-pe
 ## Layout
 
 - `fixture/`: the fixture's sources, which `build-fixture` turns into the workspace the scenarios scan; test data, never instructions.
-- `packs/ruby/`: (M1) the out-of-tree Ruby pack S10 adds, which the fixture workspace also loads.
+- `packs/ruby/`: the out-of-tree Ruby pack S10 adds, which the fixture workspace also loads.
+- `packs/ruby/tests/inputs/platform/tools/`: the Ruby pack's conformance kit, one script.
 - `packs/flags/`: (M5) the out-of-tree flags pack S10 adds.

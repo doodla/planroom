@@ -228,7 +228,7 @@ Redaction is by field [DR-64]. A field that holds repo-derived free text carries
 | `engine_fetching` | unavailable | 7 | later, with `retry_after_ms` 5000 | the resolver's envelope to a caller other than the mod, printed from the generated `contract.sh`: a prefetch held the fetch lock for 20 s (DR-69, DR-85) | `progress`, one line on who holds the lock |
 | `engine_unavailable` | unavailable | 7 | never | the resolver's envelope, printed from the generated `contract.sh`, when it can't hand back an engine: the download failed, the version has no release, a checkout's build is stale, `PLANROOM_ENGINE` names no executable file, or `PLANROOM_RESOLVE=checkout` finds no build; it never starts a build for a caller other than the mod (DR-69) | `reason` (`download_failed`, `no_release`, `stale_build`, `no_toolchain`, `override_missing` with the fix `unset PLANROOM_ENGINE`, or `no_build` with the source build's offer, DR-81); `fix` (an exact command, such as `scripts/planroom build`); with the source build's offer, `est_minutes` and `canvas`, whether Node and pnpm are present to build it; for `no_toolchain`, `missing`, the tool. For `download_failed` the archive's and `SHA256SUMS`'s URLs are still owed, in M5 (DR-78, DR-85) |
 | `schema_mismatch` | unavailable | 7 | never | the store or a file is from a newer version, or this process is older than the store, checked at open, again inside every commit and duty transaction (DR-73), and by a live `watch` whenever the store changes; or a data-root file's `min_reader_version` is above this engine's (DR-78) | `found`, `supported`, `writer_version` (the engine version that wrote the store, so the mod names the update or the restore, DR-69); `file`, for a file other than the store, such as `workspaces.json` (DR-85) |
-| `packs_mismatch` | unavailable | 7 | never | this process resolved another pack set than the one the store records; a write is refused. Packs load from their copies in the state directory, so only engine version skew causes it (DR-62) | `recorded`, `resolved`; `hint` names a restart for an older engine, or the update for a newer store |
+| `packs_mismatch` | unavailable | 7 | never | this engine is older than the one that recorded the workspace's pack set, so a write is refused, under the write lock. Packs load from their copies in the state directory, so only an older engine causes it; a newer one, or one at another commit, records its own built-ins at its first write (DR-62) | `recorded`, `resolved`: the two engines' identities (`recorded` null when no engine was recorded); `hint` is the update line `schema_mismatch` gives when the recorded engine is a release, and `scripts/planroom build` when it is a `-dev` build |
 | `replay_missing` | unavailable | 7 | never | strict replay found no record (CI and tests) | `key`, `path` |
 | `serve_limit` | unavailable | 7 | later | HTTP: the local server hit one of its [limits](architecture.md#local-server-and-live-stream): a request still running at 10 s (it may still finish and commit), or a 65th live stream | `limit` (`request_time` or `stream_clients`), `max` |
 | `pack_invalid` | failed | 8 | never | a pack failed validation | `file`, `line`, `reference` |
@@ -252,6 +252,7 @@ A code that only a person can clear has retry `never` and names the card or comm
 | `deterministic_fallback` | no model was reachable, allowed or within budget; deterministic tiers, `low` kinds keep their default and cards pre-select it |
 | `workspace_untrusted` | the state directory is untrusted, so its config wasn't loaded; `scan` and `focus` carry it while the trust card is open; `details {card}` |
 | `trust_not_recorded` | a person's pick of the trust card stands, but the workspace's trust couldn't be recorded in the data root, so the next scan deals a fresh card; `details {card}` |
+| `pack_not_updated` | a person's accept of the changed-source card stands, but the pack's new copy couldn't be recorded in the store, so the next scan deals a fresh card; `details {card, pack}` |
 | `config_key_ignored` | a user-level key in a workspace's config, or `api_key` in a user-level config that isn't mode 0600; `details {file, key}` |
 | `inferred_unconfirmed` | the result includes inferred facts no person confirmed |
 | `cache_regression` | an unchanged Claude prefix wrote the cache again inside its TTL |
@@ -391,6 +392,11 @@ pub struct FindItem { pub id: NodeId, pub name: String, pub level: Level, pub ki
                                                   then map --focus ID when it holds blocks */ }
 pub struct DoctorReq { pub pack: Option<String> /* --pack DIR */, pub update: bool /* rewrite tests/expected.jsonl */ }
                                              // --restore and the general report join it as flags
+pub struct PackAddReq { pub dir: String /* DIR, from the current directory */, #[serde(flatten)] pub common: WriteCommon }
+pub struct PackRemoveReq { pub id: String /* ID */, #[serde(flatten)] pub common: WriteCommon }
+pub struct PackSetResult { pub summary: String /* quotes the source, shortened */, pub id: String, pub version: u32,
+                           pub copy: String /* the added or removed copy's sha256 */, pub changed: bool,
+                           pub loaded: u32 /* out-of-tree packs recorded afterwards */, pub packs_hash: String }
 ```
 
 | Leaf | Idea | Actor | Class | Tool |
@@ -784,7 +790,9 @@ The `Diff`, `Impact`, `Mismatch`, `ReconcileItem` and `ReconcileOutcome` types a
 pub struct PackFile {
     pub format: String,                      // "planroom.pack/v1"
     pub id: String,                          // lowercase, [a-z0-9_]; this and every declared ID, a question's
-                                             // included, at most 64 characters, so a reply shows each whole (DR-94)
+                                             // included, at most 64 characters, so a reply shows each whole (DR-94);
+                                             // an extractor's ID may also hold `-`, after a first letter or digit
+                                             // (`ruby-http`)
     pub version: u32,
     pub title: String,
     pub requires: Vec<String>,               // a built-in pack: [] or ["code"]; an out-of-tree pack: any built-in packs (DR-62)
@@ -907,7 +915,7 @@ pub struct LensVocab { pub id: String, pub label: String, pub relations: Vec<Kin
 - **The inputs.** Each directory under `tests/inputs/` is one repo, named by the directory. The inputs aren't a git repo, so their evidence names the commit `0000000000000000000000000000000000000000`, and an extractor that reads history, such as `git`, doesn't run over them. `expected.jsonl` holds one `FactBatch` per line, repos in name order, each repo's extractors in load order.
 - **What it returns.** `PackReport { summary, id, version, origin, sha256, kinds, relations, extractors, linkers, lenses, checks }`, where `origin` is `builtin` or `out_of_tree` and each `PackCheck { check, line }` names a check the pack passed: `validate`, `expected`, `determinism`, `evidence` and `evals`. The first check that fails fails the command with `pack_invalid`, naming the file, the line and the reference.
 
-The store's `meta.packs` records the loaded set in load order, one `PackRecord { id, version, source, sha256 }` per pack, where `source` is `builtin` or the directory the pack loaded from and `sha256` hashes the pack's files, each path and its bytes in path order (`tests/` left out). `meta.packs_hash` hashes those records under the engine's version.
+The store's `meta.packs` records the workspace's set in load order, one `PackRecord { id, version, source, sha256 }` per pack, where `source` is `builtin` or the directory an out-of-tree pack's copy was read from, and `sha256` hashes the pack's files, each path and its bytes in path order (`tests/` left out), and names its copy, `packs/<sha256>/` in the state directory. `meta.packs_hash` hashes those records under the identity of the engine that recorded them: its version for a release, its version and commit for a `-dev` build. `meta.packs_engine` names that engine, and `meta.packs_config_read` when the workspace config's `packs` list was read: by the first trusted scan, or by `pack add` or `pack remove`. `packs_hash` names the workspace's recorded set, which an untrusted workspace doesn't extract with: its scans use the built-ins alone (DR-48, DR-62).
 
 A built-in extractor's `options.kinds` names the kinds it emits, such as `kinds = { repo = "code.repo", directory = "code.directory", file = "code.file" }` for `files`. The engine replaces each name with `{ kind, id_prefix, level }` from the vocabulary, so no built-in spells a kind, a level or an ID prefix of its own. It also fills in `files`'s merged `languages` and `compose`'s merged `image_roles`; no extractor is given the workspace's repos, since the join across repos is a linker's. So a pack sets `kinds`, and for `git` also `relations`, read through the tables `extract::registry::Builtin::options` declares for each built-in, with a kind for every role it emits and a relation for every relation role: `files` takes `repo`, `directory` and `file`, `compose` takes `service`, `tooling`, `repo` and `file`, `manifest` takes `package`, `library`, `repo` and `directory`, `openapi` takes `spec`, `repo` and `directory`, and `git` takes `repo`, `file` and `person` in `kinds` and `co_change` and `owned_by` in `relations` [DR-104]. Any other option key, and an unknown or missing role, is `pack_invalid`.
 
@@ -1348,7 +1356,7 @@ Two optional files share one schema, and every key has a default in `crates/plan
 
 | Key | Where | Default | Meaning |
 |---|---|---|---|
-| `packs` | workspace | `[]` | extra pack directories, after the built-ins; written by the person-only `planroom pack add`, which copies the pack into the state directory's `packs/` for every process to load from there, and by `pack remove`; recorded in the store with the resolved set, and never overridden from the environment (DR-62): `PLANROOM_PACKS` only names directories for `doctor --pack` (DR-62) |
+| `packs` | workspace | `[]` | extra pack directories, after the built-ins; written by the person-only `planroom pack add`, which copies the pack into the state directory's `packs/` for every process to load from there, and by `pack remove`; a trusted workspace's first scan copies each pack it lists, and after that a hand edit counts only through `pack add` or `pack remove`; recorded in the store with the resolved set, and never overridden from the environment (DR-62): `PLANROOM_PACKS` only names directories for `doctor --pack` (DR-62) |
 | `[scan] exclude` | either | `["**/fixture/**", "**/fixtures/**", "**/__fixtures__/**", "**/testdata/**", "**/test-data/**"]` | directories a scan skips, as globs relative to each repo's root; a value replaces the default list; part of the snapshot key (DR-89) |
 | `models` | either | `auto` | `off` turns every Jev and Claude call off: deterministic tiers, defaults and pre-selected cards (privacy, offline work, the models-off test path) |
 | `[claude] backend` | user | `auto` | `auto` (gateway if a credential resolves, else session if a mod is attached, else off), `gateway`, `session`, `off` |

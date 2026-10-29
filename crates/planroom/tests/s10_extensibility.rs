@@ -125,6 +125,7 @@ fn ask_lists_what_is_loaded() {
         origin: Origin::OutOfTree,
         label: "mem/widgets".into(),
         dir: None,
+        recorded: None,
         files: BTreeMap::from([("pack.toml".to_owned(), manifest.into_bytes())]),
     });
     let wider = packs::resolve(sources).unwrap();
@@ -208,6 +209,7 @@ fn a_listing_page_keeps_to_its_budget_however_long_the_ids() {
         origin: Origin::OutOfTree,
         label: "mem/longids".into(),
         dir: None,
+        recorded: None,
         files: BTreeMap::from([("pack.toml".to_owned(), manifest.into_bytes())]),
     });
     // And one whose own ID is that long, so its kind's qualified ID is longer still.
@@ -219,6 +221,7 @@ fn a_listing_page_keeps_to_its_budget_however_long_the_ids() {
         origin: Origin::OutOfTree,
         label: "mem/longname".into(),
         dir: None,
+        recorded: None,
         files: BTreeMap::from([("pack.toml".to_owned(), named.into_bytes())]),
     });
     let loaded = packs::resolve(sources).unwrap();
@@ -245,4 +248,196 @@ fn a_listing_page_keeps_to_its_budget_however_long_the_ids() {
         assert!(item.why.chars().count() < 400, "{item:?}");
     }
     assert!(items.iter().any(|i| i.id == "longids.short_one" && !i.handles.is_empty()));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Ruby through the extractor contract (architecture.md, A new language and an out-of-tree pack;
+// DR-13, DR-62): the fixture without the Ruby pack has no `healthcheck`, and a person's
+// `pack add` of a copy outside the tree brings it, with its two `http` edges, to every later
+// command.
+
+use p256::ecdsa::signature::Signer;
+use p256::ecdsa::{Signature, SigningKey};
+use planroom_store::{Shape, Store};
+
+/// `planroom ARGS --json` in `cwd` with the data root `data` and `env`: the envelope, which must
+/// be `ok`.
+fn run(cwd: &Path, data: &Path, args: &[&str], env: &[(&str, &str)]) -> Value {
+    let out = Command::new(env!("CARGO_BIN_EXE_planroom"))
+        .args(args)
+        .arg("--json")
+        .current_dir(cwd)
+        .env("PLANROOM_DATA", data)
+        .env_remove("PLANROOM_RAW")
+        .env_remove("PLANROOM_PACKS")
+        .env_remove("PLANROOM_ACTOR")
+        .envs(env.iter().copied())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("the binary runs");
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let env: Value =
+        serde_json::from_str(stdout.trim()).unwrap_or_else(|e| panic!("{args:?}: {e}: {stdout}"));
+    assert_eq!(env["ok"], true, "{args:?}: {env}");
+    env
+}
+
+fn person_key() -> SigningKey {
+    let mut bytes = [0u8; 32];
+    bytes[31] = 7;
+    bytes[0] = 1;
+    SigningKey::from_slice(&bytes).unwrap()
+}
+
+fn b64url(bytes: &[u8]) -> String {
+    const ABC: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let n = chunk.iter().enumerate().fold(0u32, |acc, (i, b)| acc | (u32::from(*b) << (16 - 8 * i)));
+        for i in 0..=chunk.len() {
+            out.push(ABC[(n >> (18 - 6 * i) & 63) as usize] as char);
+        }
+    }
+    out
+}
+
+/// A person's token under `key` over `command` with the argv after it, as the mod signs one.
+fn token(key: &SigningKey, command: &str, args: &[&str]) -> String {
+    let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let sig: Signature = key.sign(&planroom_kernel::keys::person_token_message(command, &args, "", "", at));
+    format!("{at}.{}", b64url(&sig.to_bytes()))
+}
+
+/// Register `key` in the workspace at `ws`, as the mod's first start does.
+fn register(ws: &Path, data: &Path, key: &SigningKey) {
+    use std::io::Write;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_planroom"))
+        .args(["person", "init", "--json"])
+        .current_dir(ws)
+        .env("PLANROOM_DATA", data)
+        .env("PLANROOM_PERSON_TOKEN", token(key, "person init", &[]))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let public = b64url(&key.verifying_key().to_sec1_point(false).to_bytes());
+    child.stdin.take().unwrap().write_all(public.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
+}
+
+/// Every fact of the workspace's active set, parsed, by shape.
+fn facts(ws: &Path) -> Vec<(Shape, Value)> {
+    let store = Store::open_existing(&ws.join(".planroom/store.db")).unwrap().expect("a store");
+    store
+        .facts(&store.active_set().unwrap().snapshots())
+        .unwrap()
+        .into_iter()
+        .map(|r| (r.shape, serde_json::from_str(&r.body).unwrap()))
+        .collect()
+}
+
+/// The containers `map --level container` shows: name to node.
+fn containers(ws: &Path, data: &Path) -> BTreeMap<String, Value> {
+    let map = run(ws, data, &["map", "--level", "container"], &[]);
+    map["result"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| (n["name"].as_str().unwrap().to_owned(), n.clone()))
+        .collect()
+}
+
+#[test]
+fn ruby_absent_without_pack() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().join("data");
+    let ws = planroom_testkit::fixture(&tmp.path().join("shop")).root;
+    run(&ws, &data, &["scan"], &[]);
+    assert!(!containers(&ws, &data).contains_key("healthcheck"));
+    let facts = facts(&ws);
+    let node = |id: &str| {
+        facts
+            .iter()
+            .find(|(s, f)| *s == Shape::Node && f["id"] == id)
+            .map(|(_, f)| f.clone())
+            .unwrap_or_else(|| panic!("{id} is mapped"))
+    };
+    let script = node("platform:file:tools/healthcheck.rb");
+    assert!(script["props"].get("language").is_none(), "a universal-tier file with no language: {script}");
+    assert_eq!(script["provenance"]["extractor"], "code/files", "{script}");
+    let platform = node("platform:repo:platform");
+    let languages: Vec<&str> =
+        platform["props"]["languages"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
+    assert!(!languages.contains(&"ruby"), "{languages:?}");
+}
+
+#[test]
+fn healthcheck_edges_through_the_ruby_pack() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().join("data");
+    let ws = planroom_testkit::fixture(&tmp.path().join("shop")).root;
+    run(&ws, &data, &["scan"], &[]);
+    // A copy of the pack outside the tree, added by a person.
+    let pack = tmp.path().join("packs/ruby");
+    std::fs::create_dir_all(pack.parent().unwrap()).unwrap();
+    let copied = Command::new("cp")
+        .arg("-R")
+        .arg(planroom_testkit::repo_root().join("examples/packs/ruby"))
+        .arg(&pack)
+        .status()
+        .unwrap();
+    assert!(copied.success());
+    let key = person_key();
+    register(&ws, &data, &key);
+    let dir = pack.to_str().unwrap();
+    let added = run(
+        &ws,
+        &data,
+        &["pack", "add", dir],
+        &[("PLANROOM_PERSON_TOKEN", &token(&key, "pack add", &[dir]))],
+    );
+    assert_eq!(added["result"]["id"], "ruby", "{added}");
+    run(&ws, &data, &["scan"], &[]);
+
+    // The map: healthcheck under platform, with an `http` edge, GET /healthz, to each service.
+    let containers = containers(&ws, &data);
+    let healthcheck = containers.get("healthcheck").unwrap_or_else(|| panic!("{containers:?}"));
+    assert_eq!(healthcheck["parent"], "platform:repo:platform", "{healthcheck}");
+    let truth = planroom_testkit::truth();
+    let facts = facts(&ws);
+    for want in truth["relations"].as_array().unwrap().iter().filter(|r| r["from"] == "healthcheck") {
+        let to = &containers[want["to"].as_str().unwrap()]["id"];
+        let edge = facts
+            .iter()
+            .find(|(s, e)| *s == Shape::Edge && e["from"]["id"] == healthcheck["id"] && e["to"]["id"] == *to)
+            .map(|(_, e)| e)
+            .unwrap_or_else(|| panic!("healthcheck -> {to}"));
+        assert_eq!(edge["kind"], "code.http", "{edge}");
+        assert_eq!(edge["via"], want["via"], "{edge}");
+        for evidence in want["evidence"].as_array().unwrap() {
+            let found = edge["evidence"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| planroom_testkit::evidence_matches(evidence, e));
+            assert!(found, "{evidence} on {edge}");
+        }
+        // Provenance: the Ruby pack's extractor, through the code pack's linker.
+        assert_eq!(edge["provenance"]["linker"], "code/runtime_wiring", "{edge}");
+        let hints = edge["provenance"]["hints"].as_array().unwrap();
+        assert!(hints.iter().any(|h| h["extractor"] == "ruby/ruby-http"), "{edge}");
+    }
+
+    // Every later command sees it, with no variable set. `path` reads through the lens its
+    // question names, so `ask` takes no `--lens`.
+    let path = run(&ws, &data, &["ask", "path", "healthcheck", "orders"], &[]);
+    assert!(path["result"]["items"].as_array().is_some_and(|i| !i.is_empty()), "{path}");
+    assert!(path.to_string().contains("healthcheck"), "{path}");
+    let found = run(&ws, &data, &["find", "healthcheck"], &[]);
+    assert!(
+        found["result"]["items"].as_array().unwrap().iter().any(|i| i["id"] == healthcheck["id"]),
+        "{found}"
+    );
 }

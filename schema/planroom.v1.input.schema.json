@@ -917,6 +917,38 @@
             "command",
             "args"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "pack_add"
+            },
+            "args": {
+              "$ref": "#/$defs/PackAddReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "const": "pack_remove"
+            },
+            "args": {
+              "$ref": "#/$defs/PackRemoveReq"
+            }
+          },
+          "required": [
+            "command",
+            "args"
+          ]
         }
       ],
       "description": "One variant per catalogue leaf; the request travels as `args`."
@@ -966,7 +998,9 @@
             "intent propose",
             "intent lint",
             "intent version",
-            "intent list"
+            "intent list",
+            "pack add",
+            "pack remove"
           ]
         },
         {
@@ -4886,6 +4920,55 @@
       ],
       "description": "What happened with the decision."
     },
+    "PackAddReq": {
+      "type": "object",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "The pack's directory, from the current directory."
+        },
+        "base": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The `seq` of the view you acted on; required when the command writes user-authored state.",
+          "maximum": 9007199254740991
+        },
+        "idem": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The idempotency key; derived from the request when absent."
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The project the write belongs to."
+        },
+        "client": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending\nedits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an\nagent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.",
+          "default": null
+        }
+      },
+      "required": [
+        "dir"
+      ],
+      "description": "`planroom pack add DIR`: validate the pack in `DIR`, copy it into the state directory's\n`packs/<sha256>/` and record it in the workspace's pack set and config (DR-62). Person only."
+    },
     "PackCheck": {
       "type": "object",
       "properties": {
@@ -5072,6 +5155,55 @@
       ],
       "description": "One loaded pack as the store's `meta.packs` records it, in load order (DR-62)."
     },
+    "PackRemoveReq": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The pack's ID."
+        },
+        "base": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The `seq` of the view you acted on; required when the command writes user-authored state.",
+          "maximum": 9007199254740991
+        },
+        "idem": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The idempotency key; derived from the request when absent."
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The project the write belongs to."
+        },
+        "client": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending\nedits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an\nagent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.",
+          "default": null
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "description": "`planroom pack remove ID`: drop the out-of-tree pack `ID` from the workspace's pack set and\nconfig (DR-62). Person only."
+    },
     "PackReport": {
       "type": "object",
       "properties": {
@@ -5147,6 +5279,51 @@
         "checks"
       ],
       "description": "What `doctor --pack DIR` returns: the pack, what it declares, and each conformance check."
+    },
+    "PackSetResult": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string",
+          "description": "The pack's ID."
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "copy": {
+          "type": "string",
+          "description": "The sha256 of the copy the pack was added or removed with, which names it in the state\ndirectory's `packs/`."
+        },
+        "changed": {
+          "type": "boolean",
+          "description": "Whether the workspace's recorded pack set changed."
+        },
+        "loaded": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The out-of-tree packs recorded afterwards."
+        },
+        "packs_hash": {
+          "type": "string",
+          "description": "The recorded set's hash afterwards."
+        }
+      },
+      "required": [
+        "summary",
+        "id",
+        "version",
+        "copy",
+        "changed",
+        "loaded",
+        "packs_hash"
+      ],
+      "description": "What `pack add` and `pack remove` return: the pack and its copy, whether the record changed,\nand the workspace's pack set afterwards. It carries no path: the summary quotes the source,\nshortened."
     },
     "PaneModel": {
       "type": "object",
@@ -7632,6 +7809,7 @@
             "deterministic_fallback",
             "workspace_untrusted",
             "trust_not_recorded",
+            "pack_not_updated",
             "config_key_ignored",
             "inferred_unconfirmed",
             "cache_regression",

@@ -21,6 +21,8 @@ const SNAPSHOT: &[(&str, &str)] = &[
     ("intent version", "edit"),
     ("map", "query"),
     ("open", "query"),
+    ("pack add", "compensate"),
+    ("pack remove", "compensate"),
     ("person init", "query"),
     ("review", "edit"),
     ("scan", "query"),

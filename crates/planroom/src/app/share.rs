@@ -41,6 +41,7 @@ pub fn run(req: &ShareReq, cwd: &Path) -> Result<Reply<ShareResult>, AppError> {
     let root = workspace::find_root(cwd).ok_or_else(|| AppError::workspace_not_found(cwd))?;
     let mut store = Store::open_existing(&workspace::store_path(&root))?
         .ok_or_else(|| AppError::workspace_not_found(&root))?;
+    crate::app::hook(&mut store);
     let index = canvas::file("index.html").ok_or_else(no_canvas)?;
     let index = std::str::from_utf8(index.0).map_err(AppError::internal)?;
     let page = fragment(index)?;

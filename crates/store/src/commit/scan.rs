@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use planroom_contract::{Actor, Client, EventBody, EventId, Rename, ScanStats, Seq, Status, Timestamp};
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
-use super::{NewEvent, check_version, idem_exists, insert_event};
+use super::{NewEvent, idem_exists, insert_event};
 use crate::read::{self, FactRow, Snapshot};
 use crate::{Store, StoreError};
 
@@ -169,7 +169,7 @@ impl Store {
     ) -> Result<ScanCommitted, E> {
         let tx =
             self.conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(StoreError::from)?;
-        check_version(&tx)?;
+        crate::meta::check_writer(self.guard.as_deref(), &tx)?;
         let snapshot = Snapshot::over(tx)?;
         let tx = snapshot.tx();
         let mut active = read::active_snapshots(tx)?;

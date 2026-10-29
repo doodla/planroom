@@ -930,6 +930,10 @@ fn every_built_leafs_reply_on_the_fixture_keeps_to_its_budget() {
         ("WAYLAND_DISPLAY", ""),
     ];
     run(&["open"], "", &open);
+    // A person's `pack add` of the Ruby pack, whose reply quotes its source short, and its remove.
+    let ruby = planroom_testkit::repo_root().join("examples/packs/ruby");
+    run(&["pack", "add", ruby.to_str().unwrap()], "", &[(MINT, "")]);
+    run(&["pack", "remove", "ruby"], "", &[(MINT, "")]);
     // A person's plan, linted with every item flagged, and its version.
     run(&["intent", "new", &"q".repeat(200)], "", &[(MINT, "")]);
     let person_items: Vec<Value> = (0..50)

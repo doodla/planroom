@@ -1333,7 +1333,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-62: The pack set is workspace state
 
-- **Status:** accepted (decided in review round 2, E6). Amended in review round 3.
+- **Status:** accepted (decided in review round 2, E6). Amended in review round 3. Amended by DR-109.
 - **Starting point:** extended "Packs. Declarative files that add kinds, levels, roll-up rules, extractors, lenses, decision kinds and a default view."
 - **Origin:** review round 2, extensibility-1; the minor finding extensibility-7.
 - **Context:**
@@ -1357,6 +1357,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: adding a pack is one command, and every session, tab and agent sees it.
   - It amends DR-9, DR-10, DR-13, DR-48 and DR-60.
 - **Amended in review round 3:** `pack add` copies the validated pack into the state directory's `packs/<sha256>/`, and every process loads only the copy, so editing, moving or deleting a pack's source refuses no write. A changed source deals one person-only card, update or keep the current copy, with Keep pre-selected, and `packs_mismatch` remains only for engine version skew (extensibility-3, downgraded). Tests `packs.rs::an_added_pack_loads_from_its_copy`, `editing_a_packs_source_deals_one_card_and_refuses_no_write`, `deleting_a_packs_source_changes_nothing`.
+- **Amended by DR-109:** a copy is named by the sha256 over its files (`tests/` left out), in 0700 directories at 0600, read with a bounded walk; the config's list counts once, at the first trusted scan; the record also names the engine that wrote it (`packs_engine`, with its commit for a `-dev` build); only an engine older than that one refuses writes, and a newer one, or the same version at another commit, records its own built-ins at its first write, so no process reloads.
 - **Sources (checked 2026-10-26):** KICKOFF R5, R10, R11, R16 and S10; review round 2 extensibility-1 and extensibility-7, and owner decision E6.
 
 ## DR-63: Decision kinds express v0.1's kinds as data
@@ -2280,7 +2281,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-89: What M1 builds, compares and leaves to later milestones
 
-- **Status:** accepted (decided before M1's first change, 2026-10-26). Amended by DR-91, DR-95 and DR-108.
+- **Status:** accepted (decided before M1's first change, 2026-10-26). Amended by DR-91, DR-95, DR-108 and DR-109.
 - **Starting point:** none; it amends [Milestones](architecture.md#milestones) and serves S1, S3 and S15, and the feature list's gate (DR-59).
 - **Origin:** milestone planning: M1's scope, read against the tree after DR-88.
 - **Context:** M1's row in the Milestones table says it closes S1, S15 (most) and S3's deterministic part. Read against the code and `feature_list.json`, several things don't hold:
@@ -2393,6 +2394,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended by DR-91:** a card's own kind travels as `card_kind`, since `kind` tags the event body, and a card carries `vars`, the values its question and why lines name.
 - **Amended by DR-95:** a budgets raise is a larger ceiling, a smaller `_rate` floor, a removed key, a number set back to null or a number replaced by another shape; a new key, a first number and `recorded` are none.
 - **Amended by DR-108:** storefront's call to orders joins with its host taken from the `ORDERS_URL` read in `config.ts`, a compose-set read in storefront's container that a served endpoint confirms, not from the calls' own file.
+- **Amended by DR-109:** `scan`, not a freshness check, deals the changed-source card, with its pack's ID, changed file count and the copy's and source's short hashes as vars, and an accept takes the source as it reads at the pick.
 - **Sources (checked 2026-10-26):** `architecture.md` ([Milestones](architecture.md#milestones), trust in [Where the workspace lives](architecture.md#where-the-workspace-lives), [Ruby through the extractor contract](architecture.md#ruby-through-the-extractor-contract), `budgets.json` in [Token budgets](architecture.md#token-budgets-s7), [Spend guards](architecture.md#spend-guards), `intent next` in [Planning](architecture.md#planning-stages-ghosts-and-lint-r5), the server's exposure in [Security and privacy](architecture.md#security-and-privacy), the fold benchmark in [Performance budgets](architecture.md#performance-budgets), [Found by dogfooding](architecture.md#found-by-dogfooding)); `contracts.md` (open sets in [Versioning rules](contracts.md#versioning-rules), the Feature list row in [Every public contract](contracts.md#every-public-contract), `review` in [Command catalogue](contracts.md#command-catalogue), [Event model](contracts.md#event-model)); `feature_list.json` (S1, S3, C15); `examples/TRUTH.json` (`containers`, `relations`); `crates/contract/src/event.rs`; `crates/store/migrations/0001_init.sql`; `crates/planroom/tests/server_auth.rs`; `crates/planroom/src/server/auth.rs` (`CODE_LIFE`).
 
 ## DR-90: The guard lets everyday work through, and closes three more doors
@@ -2690,7 +2692,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-101: Workspace trust by record, a pinned person key, confined reads, and the credential paths a scan checks
 
-- **Status:** accepted (decided at the merge of M1's workspace trust, 2026-10-28).
+- **Status:** accepted (decided at the merge of M1's workspace trust, 2026-10-28). Amended by DR-109.
 - **Starting point:** extended DR-52, DR-74, DR-78 and DR-89; amends DR-48 and DR-88.
 - **Origin:** the merge of M1's workspace trust, confined reads and guarded places, read against the docs by independent checks over three rounds.
 - **Context:**
@@ -2717,6 +2719,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - The mod's tools refuse `--workspace` in every call, since `room_query` and some `room_change` leaves are auto-allowed.
   - Known gap: a store planted over a workspace whose key is already pinned leaves a person no way to re-register under their own key after accepting its trust card, since `person init` refuses the mismatch and `--rekey` needs a token under the planted key. Deleting the planted state directory clears it. M2 lets `person init` re-register when the store's key doesn't match the root's pin, with the pinned key's token as the authority.
   - Tests: `trust.rs`; `confine.rs::a_credential_path_needs_a_person`, `a_read_outside_the_workspace_is_path_refused` and `workspace_flag_on_a_read_needs_an_existing_store`; `tools.test.ts::a_tool_call_never_names_another_workspace`; `guard.test.ts::an append, an archive's own names and gio hide no guarded place`.
+- **Amended by DR-109:** `planroom-testkit`'s `fixture_with_packs` builds the fixture workspace as `cargo xtask fixture` does, its Ruby pack config recorded as trusted, for every test that scans the fixture as CI paths do; the plain `fixture` writes no state directory, so the engine's first scan creates and records it.
 - **Sources (checked 2026-10-28):** `crates/planroom/src/app/{trust, confine, data, cards, review, person, actor}.rs`; `packages/mod/src/{guard, tools}.ts`; `crates/xtask/src/fixture.rs`; [Where the workspace lives](architecture.md#where-the-workspace-lives); [Contracts](contracts.md).
 
 ## DR-102: Every directory's purpose checked, generated paths marked from one table, and golden reads caught by literal
@@ -2906,3 +2909,28 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Known gaps: binding reads at most 64 call sites per wrapped hint; a dotted import of more than 32 segments resolves no constant; `fmt.Sprintf`, `format!` and bound queue keys make no join in M1; relative and same-package imports wait for M3's module and file joins; the lifted storefront → orders edge's 3-item sample comes from its `GET /orders/{id}` child, so `orders.ts:26` and the POST route's lines don't show through the map (DR-92's owed read).
   - Tests: `crates/extract/tests/link.rs` (wrapper binding, imports, imported constants, and the linear-time cases, which run alone under nextest); `crates/xtask/tests/gates.rs::every_test_that_asserts_a_wall_clock_budget_runs_alone`; the units in `link/{mod, bind, runtime}.rs`; `privacy.rs`'s masked container on scan's own page; five S1 recall checks.
 - **Sources (checked 2026-10-29):** `crates/extract/src/link/`; `packs/code/`; [Hints and linkers](architecture.md#hints-and-linkers); [Contracts](contracts.md).
+
+## DR-109: The pack set as workspace state, the changed-source card, and the Ruby pack
+
+- **Status:** accepted (decided at the merge of M1's pack set, 2026-10-29).
+- **Starting point:** extends DR-62; amends DR-62, DR-89 and DR-101.
+- **Origin:** the merge of M1's pack set, read against the docs and the truth by independent checks over two rounds.
+- **Context:**
+  - DR-62 made the pack set workspace state, but nothing read the config's `packs`, copied a pack or recorded a set, so an out-of-tree pack could change under a running workspace and two processes could extract with different sets.
+  - The truth lists the `healthcheck` container and its two `http` edges, which only the Ruby pack's extractor can find.
+- **Decision:**
+  - **Copies.** `pack add` (person-only, undone by Compensate) validates a pack and copies it into `.planroom/packs/<sha256>/`, named by the sha256 over its files with `tests/` left out, in 0700 directories at 0600, written aside and renamed into place. Reading a pack stops with `pack_invalid` past 1,000 entries, 16 directories deep, 1 MiB in one file or 4 MiB in all. Every process loads an out-of-tree pack only from its copy; a copy that is missing or no longer hashes to its name is copied again from a source that still does, and is otherwise set aside as `.<sha256>.<uuid>.stale` and the scan stops with `pack_invalid` naming the command that fixes it. `pack remove` drops a pack from the set.
+  - **The record.** The store's `meta` holds the resolved list (each pack's ID, version, source and copy's sha256), `packs_hash`, `packs_engine` (the engine that recorded it, with its commit for a `-dev` build) and `packs_config_read`. The config's `packs` counts once, at the workspace's first trusted scan, which copies and records each pack it names; after that only `pack add` and `pack remove` change the set. A changed `packs_hash` makes every repo's snapshot stale.
+  - **The write guard.** Every authored write checks the record under the write lock. Only an engine older than the one that recorded the set refuses, with `packs_mismatch`; a newer engine, or the same version at another commit, records its own built-ins at its first write, in that write's transaction, so no process reloads. `put_layout` and `touch_presence` are exempt.
+  - **The changed-source card.** Each scan of a trusted workspace reads every recorded source before its commit. One that no longer hashes to its copy deals one person-only card for its pack, with Keep pre-selected, unless one is open or a Keep of the source as it reads now stands. Update takes the source as it reads at the pick, and its undo records the copy it replaced.
+  - **The Ruby pack** (`examples/packs/ruby`) requires only `code` and carries no code: a `[[languages]]` entry and a `regex` extractor that emits the existing hint kinds, so `healthcheck` maps as a tooling container under `platform` with its two `http` edges. The fixture workspace loads it: `cargo xtask fixture` writes its config and records the trust, and `planroom-testkit`'s `fixture_with_packs` builds the same state for every test that scans the fixture as CI paths do.
+- **Alternatives rejected:**
+  - Loading a pack from its source each time: an edit outside the workspace would change the set under a running process.
+  - Refusing writes from any engine whose identity differs from the recorder's: every rebuild of a `-dev` engine would lock the store until a reload.
+  - Reading the config's `packs` on every scan: a hand edit would change the set with no person's action.
+- **Consequences:**
+  - Contracts: `PackAddReq`, `PackRemoveReq` and `PackSetResult`; the `packs_mismatch` row and its two hints; the `pack_not_updated` warning; `meta.packs`, `packs_hash`, `packs_engine` and `packs_config_read`, with `packs_hash`'s meaning widened and `schema_version` kept at 1 before any release (as DR-87); an extractor ID may hold `-`.
+  - Decided at the merge: `find` matches words fuzzily against names and IDs, so a component's repo-qualified truth path is searched as two words (`orders cmd/orders`); scoring a whole path would change `find`'s documented matching. `schema --def Command` has about 190 bytes of margin after its trim: the leaf that passes it moves a type's referenced types behind one `schema --commands` handle, not a raised budget.
+  - Known gaps: reads (`focus`, `ask`) use the built-ins; copies are never pruned; two `-dev` builds at different commits re-record and re-extract in turn; in an untrusted workspace with recorded packs, `packs_hash` names a set its snapshots weren't extracted with until a person trusts it; an open changed-source card outlives `pack remove` until it is picked; `doctor` doesn't read `PLANROOM_PACKS` yet; an error reply isn't held to its leaf's budget.
+  - Tests: `crates/store/tests/pack_record.rs`; `crates/planroom/tests/packs.rs`'s pack-set cases; `trust.rs::{an_agent_cannot_add_a_pack, planroom_packs_loads_nothing_outside_doctor, an_out_of_tree_pack_loads_without_a_card}`; `s10_extensibility.rs::{ruby_absent_without_pack, healthcheck_edges_through_the_ruby_pack}`; `s01_first_look.rs::{search_finds_every_truth_entity, repo_languages_match_truth}`.
+- **Sources (checked 2026-10-29):** `crates/planroom/src/{packs, app/pack.rs}`; `crates/store/src/meta.rs`; `examples/packs/ruby/`; [What a pack is](architecture.md#what-a-pack-is); [Contracts](contracts.md).

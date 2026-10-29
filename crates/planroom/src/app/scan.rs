@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 
 use planroom_contract::errors::WARNING_SAMPLE;
 use planroom_contract::{
-    Actor, Client, Command, CommandName, FACTS_FORMAT, FactBatch, Handle, Rename, ScanReq, ScanResult,
-    ScanStats, Seq, Surface, Tier, Warning, WarningCode,
+    Actor, Client, Command, CommandName, FACTS_FORMAT, FactBatch, Handle, PackRecord, Rename, ScanReq,
+    ScanResult, ScanStats, Seq, Surface, Tier, Warning, WarningCode,
 };
 use planroom_extract::git::{Git, GitError};
 use planroom_extract::link::{Selection, Unresolved, WorkspaceFacts};
@@ -29,7 +29,8 @@ use crate::app::dirty::Dirty;
 use crate::app::error::AppError;
 use crate::app::workspace::{self, Repo, Workspace};
 use crate::app::{Paged, Reply, map, models, new_event_id};
-use crate::packs::{self, Loaded, Run};
+use crate::packs::state::{self, Changed};
+use crate::packs::{Loaded, Run};
 use crate::{clock, config, text};
 
 const RULES: ScanRules = ScanRules {
@@ -46,6 +47,14 @@ pub struct Prepared {
     started: Seq,
     repos: Vec<RepoScan>,
     warnings: Vec<Warning>,
+    /// The record's out-of-tree packs as this scan read them before it extracted.
+    read_packs: Vec<PackRecord>,
+    /// The set this scan read from the workspace config and copied, which its commit records
+    /// unless a concurrent `pack add` or `pack remove` moved the record meanwhile.
+    config_packs: Option<Vec<PackRecord>>,
+    /// The recorded packs whose source changed since their copy was made, each read before the
+    /// commit: what the changed-source dealer deals for.
+    changed: Vec<Changed>,
 }
 
 /// A scan, with the repos whose uncommitted work it didn't map: it reads `HEAD`'s tree, never the
@@ -56,19 +65,20 @@ pub fn run(req: &ScanReq, cwd: &Path) -> Result<Paged<ScanResult>, AppError> {
     Ok(Paged { dirty, ..Paged::whole(commit(prepared)?) })
 }
 
-/// Discover the workspace and extract each repo at its `HEAD` with the built-in packs. Nothing is
-/// written yet.
+/// Discover the workspace and extract each repo at its `HEAD` with the workspace's pack set: the
+/// built-ins, and in a trusted workspace each recorded out-of-tree pack from its copy, or at its
+/// first trusted scan each pack its config lists (DR-48, DR-62). Nothing is written yet.
 pub fn prepare(req: &ScanReq, cwd: &Path) -> Result<Prepared, AppError> {
-    // A workspace's own packs come from its config, which loads only once the workspace is
-    // trusted, so none loads yet.
-    // The packs this process loads once, which the map it returns reads too: the scan compiles
-    // their declarative extractors, queries and regexes, which a second load would only repeat.
-    prepare_with(req, cwd, packs::loaded()?.clone())
+    prepare_inner(req, cwd, None)
 }
 
-/// [`prepare`] with the pack set `packs`: a scan runs every extractor the set declares, built-in
-/// and declarative alike.
+/// [`prepare`] with the pack set `packs` in place of the workspace's: a scan runs every extractor
+/// the set declares, built-in and declarative alike. Its commit records nothing of that set.
 pub fn prepare_with(req: &ScanReq, cwd: &Path, packs: Loaded) -> Result<Prepared, AppError> {
+    prepare_inner(req, cwd, Some(packs))
+}
+
+fn prepare_inner(req: &ScanReq, cwd: &Path, given: Option<Loaded>) -> Result<Prepared, AppError> {
     // A scan's decision run may call a model, so the live gate is read first: a relative spend
     // log, or a live flag with none, stops the scan before it reads anything (DR-65).
     models::live_env()?;
@@ -81,21 +91,36 @@ pub fn prepare_with(req: &ScanReq, cwd: &Path, packs: Loaded) -> Result<Prepared
     }
     // Read before any repo, so a scan that commits meanwhile is newer than this one; with it, the
     // commit each repo's active snapshot was read at, which its renames are reported from.
-    let (started, mapped) = match Store::open_existing(&ws.store_path())? {
+    let (started, mapped, recorded) = match Store::open_existing(&ws.store_path())? {
         Some(store) => {
             let snapshot = store.snapshot()?;
-            (snapshot.seq(), mapped_commits(&snapshot)?)
+            (snapshot.seq(), mapped_commits(&snapshot)?, store.recorded_packs()?)
         }
-        None => (0, BTreeMap::new()),
+        None => (0, BTreeMap::new(), None),
     };
     let mut warnings = ws.warnings.clone();
     // A workspace's own config loads only from a state directory the data root records as
     // trusted (DR-48); otherwise only the user-level file and the variables apply.
-    let trusted = crate::app::trust::check(&ws) == crate::app::trust::Trust::Trusted;
+    let trust = crate::app::trust::check(&ws);
+    let trusted = trust == crate::app::trust::Trust::Trusted;
     let loaded = config::for_workspace(&ws.state_dir(), trusted)?;
     warnings.extend(loaded.warnings);
     let exclude = loaded.config.scan.exclude;
     let globs = walk::Exclude::new(&exclude)?;
+    let read_packs = recorded.as_ref().map(|r| state::out_of_tree(&r.packs)).unwrap_or_default();
+    let (packs, config_packs) = match given {
+        Some(packs) => (packs, None),
+        None => {
+            let set =
+                state::for_scan(&ws.state_dir(), &ws.root, trust, &loaded.config.packs, recorded.as_ref())?;
+            (set.loaded, set.config)
+        }
+    };
+    // Each recorded source is read here, before the commit, so no file is read under the lock.
+    let changed = match (&recorded, trusted) {
+        (Some(recorded), true) => state::changed(&packs, recorded),
+        _ => Vec::new(),
+    };
     // Compiles the declarative extractors, once per process: a pack's broken query is
     // `pack_invalid` here, before any repo is read.
     let runs = packs.runs()?;
@@ -110,7 +135,7 @@ pub fn prepare_with(req: &ScanReq, cwd: &Path, packs: Loaded) -> Result<Prepared
             Err(RepoError::App(e)) => return Err(e),
         }
     }
-    Ok(Prepared { ws, packs, started, repos, warnings })
+    Ok(Prepared { ws, packs, started, repos, warnings, read_packs, config_packs, changed })
 }
 
 /// Commit a prepared scan. A repo stays where it is when its `HEAD` moved on since it was read, or
@@ -119,7 +144,7 @@ pub fn prepare_with(req: &ScanReq, cwd: &Path, packs: Loaded) -> Result<Prepared
 /// moves no repo back either: the join across repos is the link snapshot's, built here from the
 /// active set the commit finds (DR-12, DR-86).
 pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
-    let Prepared { ws, packs, started, repos, mut warnings } = prepared;
+    let Prepared { ws, packs, started, repos, mut warnings, read_packs, config_packs, changed } = prepared;
     // With nothing to write, a workspace with no store stays without one: a repo with no commit
     // yet writes nothing (DR-86).
     let store = if repos.iter().all(|r| r.commit.is_empty()) {
@@ -151,9 +176,16 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
         let summary = summary(&write, 0, 0);
         return Ok(Reply { result: ScanResult { map: view, next: next() }, seq: 0, warnings, text: summary });
     };
-    let records = serde_json::to_string(&packs.records()).map_err(AppError::internal)?;
-    store.meta_insert_once("packs", &records)?;
-    store.meta_insert_once("packs_hash", &write.packs_hash)?;
+    // A scan that read the config's list records the set it extracted with, inside its own
+    // transaction, unless a concurrent `pack add` or `pack remove` moved the record since it read
+    // it: then the default verdict stands, and its snapshots, keyed by the older set, are
+    // extracted again by the next scan. Every other scan writes under the default guard `hook`
+    // installed.
+    if let Some(set) = config_packs
+        && let Some(guard) = state::config_guard(set, read_packs, write.at.0.clone())
+    {
+        store.guard_packs(guard);
+    }
     let paths: BTreeMap<&str, &PathBuf> = ws.repos.iter().map(|r| (r.name.as_str(), &r.path)).collect();
     // Why each superseded repo stays.
     let mut why: BTreeMap<String, &str> = BTreeMap::new();
@@ -180,7 +212,8 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     };
     let mut deal = |snapshot: &planroom_store::Snapshot<'_>| {
         let trust = crate::app::trust::check(&ws);
-        let cx = crate::app::cards::ScanCx { root: &ws.root, state_dir: &state_dir, trust };
+        let cx =
+            crate::app::cards::ScanCx { root: &ws.root, state_dir: &state_dir, trust, changed: &changed };
         let dealt = crate::app::cards::deal_for_scan(snapshot, &cx, &dealt_at)?;
         warnings.retain(|w| w.code != WarningCode::WorkspaceUntrusted);
         let card = dealt.iter().find_map(|d| match &d.event.body {
@@ -334,7 +367,9 @@ fn workspace_facts(
     let mut members: Vec<u64> = set.values().copied().collect();
     members.sort_unstable();
     let rows = snapshot.facts(&members)?;
-    selection.facts(set.keys().cloned(), rows.iter().map(packs::link_member)).map_err(AppError::internal)
+    selection
+        .facts(set.keys().cloned(), rows.iter().map(crate::packs::link_member))
+        .map_err(AppError::internal)
 }
 
 /// The `unresolved_ref` warning for the joins the linkers left unresolved, if any: their count

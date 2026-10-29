@@ -82,7 +82,7 @@ planroom/
 ├── schema/                          GENERATED: planroom.v1.schema.json, planroom.v1.input.schema.json; baseline/, the breaking-change guard's copy
 ├── examples/
 │   ├── fixture/  build-fixture  check-fixture  TRUTH.json  README.md  kickoff-snapshot.md
-│   ├── packs/ruby/                 (M1) an out-of-tree data pack for S10, also loaded by the fixture workspace
+│   ├── packs/ruby/                 an out-of-tree data pack for S10, also loaded by the fixture workspace
 │   └── packs/flags/                (M5) an out-of-tree data pack for S10
 ├── tests/
 │   ├── replay/                      recorded responses keyed by request hash

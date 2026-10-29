@@ -290,11 +290,37 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
     "undo": "query",
     "tool": "room_change",
     "room": true
+  },
+  {
+    "name": "pack add",
+    "idea": "setup",
+    "summary": "Add an out-of-tree pack: validate it, copy it into the state directory and record it; a person's alone.",
+    "actor": "person_only",
+    "class": "change",
+    "budget_tokens": 400,
+    "needs_base": false,
+    "spends": false,
+    "undo": "compensate",
+    "tool": null,
+    "room": true
+  },
+  {
+    "name": "pack remove",
+    "idea": "setup",
+    "summary": "Remove an out-of-tree pack from the workspace's pack set; a person's alone.",
+    "actor": "person_only",
+    "class": "change",
+    "budget_tokens": 400,
+    "needs_base": false,
+    "spends": false,
+    "undo": "compensate",
+    "tool": null,
+    "room": true
   }
 ];
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
-export const CATALOGUE_HASH = "d32b2672b7a1740a7e9b889f7a3aaa867d595a7478903440a076684aeb33b41e";
+export const CATALOGUE_HASH = "f9e137d13cb5ce02f0d344f1f0e325c381bed2262783702bc3ad2566e2c7a831";
 
 /** One pane the mod draws before the engine answers `focus` (DR-57). */
 export interface FallbackPane {

@@ -1004,6 +1004,7 @@ mod tests {
             origin: packs::Origin::OutOfTree,
             label: "mem/asks".into(),
             dir: None,
+            recorded: None,
             files: BTreeMap::from([("pack.toml".to_owned(), manifest.into_bytes())]),
         });
         let loaded = packs::resolve(sources).unwrap();

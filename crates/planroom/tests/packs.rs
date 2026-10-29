@@ -58,6 +58,7 @@ fn source(origin: Origin, id: &str, requires: &[&str], body: &str) -> Source {
         origin,
         label: format!("mem/{id}"),
         dir: None,
+        recorded: None,
         files: BTreeMap::from([("pack.toml".to_owned(), manifest(id, requires, body).into_bytes())]),
     }
 }
@@ -2351,4 +2352,632 @@ fn read_commands_and_watch_frames_compile_no_query() {
     let Leaf::Scan(scan) = leaf("scan", &[]) else { panic!("scan") };
     planroom::app::scan::run(&scan, &root).unwrap();
     assert!(loaded.compiled());
+}
+
+// ---------------------------------------------------------------------------------------------
+// The pack set as workspace state (architecture.md, The pack set is workspace state; DR-62).
+//
+// Each test has its own data root, config home and home. Its workspace holds one repo, `app`,
+// whose `tools/a.stm` reads `name: alpha` and `alias: beta`. The test pack `stems`, outside the
+// workspace, maps a `.stm` file to a tooling container named by the `name:` line, so `alpha` on
+// the map is the sign that the pack loaded; an edited source reads the `alias:` line instead, so
+// `beta` is the sign that the edit loaded. Its kinds are the built-ins', so every read shows it.
+
+use p256::ecdsa::signature::Signer;
+use p256::ecdsa::{Signature, SigningKey};
+
+/// The test pack's manifest, reading `field:` lines.
+fn stems_manifest(field: &str) -> String {
+    manifest(
+        "stems",
+        &["code"],
+        &format!(
+            r##"[[languages]]
+id = "stemlang"
+extensions = ["stm"]
+line_comment = "#"
+
+[[extractors]]
+id = "stem-names"
+files = ["**/*.stm"]
+regex = "(?m)^{field}: (\\w+)"
+emit = [{{ node = "code.tooling", key = "$1", name = "$1", parent = "@id:code.repo:$repo" }},
+        {{ node = "code.file", key = "$file", parent = "@id:code.tooling:$1" }}]
+"##
+        ),
+    )
+}
+
+/// One test's machine: its data root, config home and home, apart from every other test's.
+struct Room {
+    tmp: tempfile::TempDir,
+}
+
+impl Room {
+    fn new() -> Room {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("home")).unwrap();
+        Room { tmp }
+    }
+
+    fn path(&self, rel: &str) -> PathBuf {
+        self.tmp.path().join(rel)
+    }
+
+    /// `planroom ARGS --json` in `cwd` with this machine's places and `env`: its exit code and
+    /// envelope.
+    fn run(&self, cwd: &Path, args: &[&str], env: &[(&str, &str)]) -> (i32, Value) {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planroom"));
+        cmd.current_dir(cwd).env_clear();
+        if let Some(path) = std::env::var_os("PATH") {
+            cmd.env("PATH", path);
+        }
+        let out = cmd
+            .env("HOME", self.path("home"))
+            .env("PLANROOM_DATA", self.path("data"))
+            .env("XDG_CONFIG_HOME", self.path("cfg"))
+            .args(args)
+            .arg("--json")
+            .envs(env.iter().copied())
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        let env: Value = serde_json::from_str(stdout.trim())
+            .unwrap_or_else(|e| panic!("{args:?}: {e}: {stdout}\n{}", String::from_utf8_lossy(&out.stderr)));
+        (out.status.code().unwrap(), env)
+    }
+
+    fn ok(&self, cwd: &Path, args: &[&str]) -> Value {
+        let (code, env) = self.run(cwd, args, &[]);
+        assert_eq!(code, 0, "{args:?}: {env}");
+        env
+    }
+
+    /// `planroom LEAF ARGS` as a person: a token under `key` over the leaf and its arguments.
+    fn person(&self, cwd: &Path, key: &SigningKey, leaf: &str, args: &[&str], base: &str) -> (i32, Value) {
+        let signed = token(key, leaf, args, base);
+        let argv: Vec<&str> = leaf.split(' ').chain(args.iter().copied()).collect();
+        self.run(cwd, &argv, &[("PLANROOM_PERSON_TOKEN", &signed)])
+    }
+
+    /// Register `key` in `ws`, as the mod's first start does.
+    fn register(&self, ws: &Path, key: &SigningKey) {
+        let signed = token(key, "person init", &[], "");
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planroom"));
+        cmd.current_dir(ws).env_clear();
+        if let Some(path) = std::env::var_os("PATH") {
+            cmd.env("PATH", path);
+        }
+        let mut child = cmd
+            .env("HOME", self.path("home"))
+            .env("PLANROOM_DATA", self.path("data"))
+            .env("XDG_CONFIG_HOME", self.path("cfg"))
+            .env("PLANROOM_PERSON_TOKEN", signed)
+            .args(["person", "init", "--json"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        child.stdin.take().unwrap().write_all(public(key).as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
+    }
+
+    /// `pack add DIR` as a person: the envelope.
+    fn add(&self, ws: &Path, key: &SigningKey, dir: &Path) -> Value {
+        let (code, env) = self.person(ws, key, "pack add", &[dir.to_str().unwrap()], "");
+        assert_eq!(code, 0, "{env}");
+        env
+    }
+
+    /// The containers `map --level container` shows, by name, sorted.
+    fn containers(&self, ws: &Path) -> Vec<String> {
+        let map = self.ok(ws, &["map", "--level", "container"]);
+        let mut names: Vec<String> = map["result"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["name"].as_str().unwrap().into())
+            .collect();
+        names.sort();
+        names
+    }
+
+    fn seq(&self, ws: &Path) -> String {
+        self.ok(ws, &["map"])["meta"]["seq"].as_u64().unwrap().to_string()
+    }
+
+    /// A person's `edit rename` of the `app` repo's container: the envelope.
+    fn edit(&self, ws: &Path, key: &SigningKey, name: &str) -> (i32, Value) {
+        let base = self.seq(ws);
+        self.person(ws, key, "edit", &["--base", &base, "rename", "app:repo:app", name], &base)
+    }
+}
+
+fn key(seed: u8) -> SigningKey {
+    let mut bytes = [0u8; 32];
+    bytes[31] = seed;
+    bytes[0] = 1;
+    SigningKey::from_slice(&bytes).unwrap()
+}
+
+fn b64url(bytes: &[u8]) -> String {
+    const ABC: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let n = chunk.iter().enumerate().fold(0u32, |acc, (i, b)| acc | (u32::from(*b) << (16 - 8 * i)));
+        for i in 0..=chunk.len() {
+            out.push(ABC[(n >> (18 - 6 * i) & 63) as usize] as char);
+        }
+    }
+    out
+}
+
+fn public(key: &SigningKey) -> String {
+    b64url(&key.verifying_key().to_sec1_point(false).to_bytes())
+}
+
+/// A person's token under `key` over `command` with the argv after it, as the mod signs one.
+fn token(key: &SigningKey, command: &str, args: &[&str], base: &str) -> String {
+    let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let sig: Signature = key.sign(&planroom_kernel::keys::person_token_message(command, &args, "", base, at));
+    format!("{at}.{}", b64url(&sig.to_bytes()))
+}
+
+/// A scanned workspace with one repo, `app`, a registered person key, and the `stems` pack's
+/// source outside it, not yet added: the room, the workspace, the key and the pack's source.
+fn stems_workspace() -> (Room, PathBuf, SigningKey, PathBuf) {
+    let room = Room::new();
+    let ws = room.path("ws");
+    planroom_testkit::git_repo(
+        &ws.join("app"),
+        &[("tools/a.stm".into(), b"name: alpha\nalias: beta\n".to_vec())],
+    );
+    let ws = ws.canonicalize().unwrap();
+    // A source path a shell would split, which every hint quotes.
+    let pack = room.path("src/stem pack");
+    fs::create_dir_all(&pack).unwrap();
+    fs::write(pack.join("pack.toml"), stems_manifest("name")).unwrap();
+    let pack = pack.canonicalize().unwrap();
+    room.ok(&ws, &["scan"]);
+    let key = key(7);
+    room.register(&ws, &key);
+    (room, ws, key, pack)
+}
+
+/// [`stems_workspace`] with the pack added and scanned in.
+fn stems_added() -> (Room, PathBuf, SigningKey, PathBuf) {
+    let (room, ws, key, pack) = stems_workspace();
+    room.add(&ws, &key, &pack);
+    room.ok(&ws, &["scan"]);
+    assert!(room.containers(&ws).contains(&"alpha".to_owned()), "the added pack loads");
+    (room, ws, key, pack)
+}
+
+fn store_of(ws: &Path) -> Store {
+    Store::open_existing(&ws.join(".planroom/store.db")).unwrap().expect("a store")
+}
+
+/// The workspace's recorded out-of-tree packs.
+fn recorded(ws: &Path) -> Vec<planroom_contract::PackRecord> {
+    let record = store_of(ws).recorded_packs().unwrap().expect("a pack record");
+    record.packs.into_iter().filter(|r| r.source != "builtin").collect()
+}
+
+/// The open cards of `kind`.
+fn open_cards(ws: &Path, kind: &str) -> Vec<planroom::app::cards::OpenCard> {
+    let store = store_of(ws);
+    let snapshot = store.snapshot().unwrap();
+    planroom::app::cards::open(&snapshot).unwrap().into_iter().filter(|c| c.card.kind.0 == kind).collect()
+}
+
+fn mode(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+#[test]
+fn an_added_pack_loads_from_its_copy() {
+    let (room, ws, key, pack) = stems_workspace();
+    let added = room.add(&ws, &key, &pack);
+    assert_eq!(added["result"]["changed"], true, "{added}");
+    assert_eq!(added["result"]["loaded"], 1, "{added}");
+    let sha = added["result"]["copy"].as_str().unwrap().to_owned();
+    // The copy, named by its sha256, private, holding the pack's files.
+    let copy = ws.join(".planroom/packs").join(&sha);
+    assert_eq!(mode(&copy), 0o700);
+    assert_eq!(mode(&copy.join("pack.toml")), 0o600);
+    assert_eq!(fs::read_to_string(copy.join("pack.toml")).unwrap(), stems_manifest("name"));
+    // The config names the source by its canonical path, and the record names the source and the
+    // copy.
+    let config = fs::read_to_string(ws.join(".planroom/config.toml")).unwrap();
+    assert!(config.contains(&serde_json::to_string(pack.to_str().unwrap()).unwrap()), "{config}");
+    let records = recorded(&ws);
+    assert_eq!(records.len(), 1, "{records:?}");
+    assert_eq!(records[0].source, pack.display().to_string());
+    assert_eq!(records[0].sha256, sha);
+    room.ok(&ws, &["scan"]);
+    assert!(room.containers(&ws).contains(&"alpha".to_owned()));
+    // The source edited: every process still loads the copy.
+    fs::write(pack.join("pack.toml"), stems_manifest("alias")).unwrap();
+    room.ok(&ws, &["scan"]);
+    let names = room.containers(&ws);
+    assert!(names.contains(&"alpha".to_owned()) && !names.contains(&"beta".to_owned()), "{names:?}");
+}
+
+#[test]
+fn editing_a_packs_source_deals_one_card_and_refuses_no_write() {
+    let (room, ws, key, pack) = stems_added();
+    fs::write(pack.join("pack.toml"), stems_manifest("alias")).unwrap();
+    room.ok(&ws, &["scan"]);
+    room.ok(&ws, &["scan"]);
+    let cards = open_cards(&ws, "pack_source");
+    assert_eq!(cards.len(), 1, "two scans deal one card");
+    let card = &cards[0].card;
+    assert_eq!(card.subject, "stems");
+    assert_eq!(card.vars["pack"], "stems");
+    assert_eq!(card.vars["files"], "1");
+    assert_eq!(card.vars["from"], recorded(&ws)[0].sha256[..12]);
+    assert!(card.choices.iter().any(|c| c.id == "reject" && c.preselected), "Keep is preselected");
+    let focus = room.ok(&ws, &["focus"]);
+    let question = focus["result"]["decision"]["question"].as_str().unwrap();
+    assert!(question.contains("Pack stems changed on disk (1 files)"), "{question}");
+    // Writes go on meanwhile.
+    let (code, edited) = room.edit(&ws, &key, "renamed");
+    assert_eq!(code, 0, "{edited}");
+    assert_eq!(edited["result"]["status"], "applied", "{edited}");
+}
+
+#[test]
+fn accepting_the_changed_source_card_updates_the_copy() {
+    let (room, ws, key, pack) = stems_added();
+    let old = recorded(&ws)[0].sha256.clone();
+    fs::write(pack.join("pack.toml"), stems_manifest("alias")).unwrap();
+    room.ok(&ws, &["scan"]);
+    let card = open_cards(&ws, "pack_source").remove(0).event.id.0;
+    let base = room.seq(&ws);
+    let (code, accepted) = room.person(&ws, &key, "review", &["--base", &base, &card, "accept"], &base);
+    assert_eq!(code, 0, "{accepted}");
+    assert!(accepted["summary"].as_str().unwrap().contains("now loads its new copy"), "{accepted}");
+    let new = recorded(&ws)[0].sha256.clone();
+    assert_ne!(new, old);
+    assert!(ws.join(".planroom/packs").join(&new).is_dir());
+    room.ok(&ws, &["scan"]);
+    let names = room.containers(&ws);
+    assert!(names.contains(&"beta".to_owned()) && !names.contains(&"alpha".to_owned()), "{names:?}");
+    // An undo of the review records the old copy again, and the card is open again.
+    let review = accepted["result"]["event"].as_str().unwrap().to_owned();
+    let base = room.seq(&ws);
+    let (code, undone) = room.person(&ws, &key, "edit", &["--base", &base, "undo", &review], &base);
+    assert_eq!(code, 0, "{undone}");
+    assert_eq!(recorded(&ws)[0].sha256, old);
+    room.ok(&ws, &["scan"]);
+    assert!(room.containers(&ws).contains(&"alpha".to_owned()));
+    // A reject keeps the old copy, and deals no second card while the source stays as it is.
+    let card = open_cards(&ws, "pack_source").remove(0).event.id.0;
+    let base = room.seq(&ws);
+    let (code, rejected) = room.person(&ws, &key, "review", &["--base", &base, &card, "reject"], &base);
+    assert_eq!(code, 0, "{rejected}");
+    assert_eq!(recorded(&ws)[0].sha256, old);
+    room.ok(&ws, &["scan"]);
+    assert!(open_cards(&ws, "pack_source").is_empty(), "Keep holds");
+    // A later edit of the source deals a fresh card.
+    fs::write(pack.join("README.md"), "stems\n").unwrap();
+    room.ok(&ws, &["scan"]);
+    let fresh = open_cards(&ws, "pack_source");
+    assert_eq!(fresh.len(), 1);
+    assert_ne!(fresh[0].event.id.0, card);
+}
+
+#[test]
+fn deleting_a_packs_source_changes_nothing() {
+    let (room, ws, key, pack) = stems_added();
+    let before = room.ok(&ws, &["map", "--level", "container"])["result"].clone();
+    fs::remove_dir_all(&pack).unwrap();
+    let scanned = room.ok(&ws, &["scan"]);
+    let warnings = scanned["meta"]["warnings"].as_array().cloned().unwrap_or_default();
+    assert!(warnings.iter().all(|w| !w.to_string().contains("stems")), "{scanned}");
+    assert!(open_cards(&ws, "pack_source").is_empty());
+    assert_eq!(room.ok(&ws, &["map", "--level", "container"])["result"], before);
+    let (code, edited) = room.edit(&ws, &key, "renamed");
+    assert_eq!(code, 0, "{edited}");
+}
+
+#[test]
+fn a_missing_copy_is_copied_again_from_an_unchanged_source() {
+    let (room, ws, _key, pack) = stems_added();
+    let sha = recorded(&ws)[0].sha256.clone();
+    let copy = ws.join(".planroom/packs").join(&sha);
+    fs::remove_dir_all(&copy).unwrap();
+    room.ok(&ws, &["scan"]);
+    assert!(copy.join("pack.toml").is_file(), "copied again");
+    assert!(room.containers(&ws).contains(&"alpha".to_owned()));
+    // A copy whose files changed is set aside and copied again too.
+    fs::write(copy.join("pack.toml"), stems_manifest("alias")).unwrap();
+    room.ok(&ws, &["scan"]);
+    assert_eq!(fs::read_to_string(copy.join("pack.toml")).unwrap(), stems_manifest("name"));
+    let aside = fs::read_dir(ws.join(".planroom/packs")).unwrap().flatten().any(|e| {
+        let name = e.file_name().into_string().unwrap();
+        name.starts_with(&format!(".{sha}.")) && name.ends_with(".stale")
+    });
+    assert!(aside, "the bad copy stays, renamed aside");
+    // With the source changed too, the scan can't copy it again: the hint adds it again.
+    fs::remove_dir_all(&copy).unwrap();
+    fs::write(pack.join("pack.toml"), stems_manifest("alias")).unwrap();
+    let (code, refused) = room.run(&ws, &["scan"], &[]);
+    assert_eq!(code, 8, "{refused}");
+    assert_eq!(refused["error"]["code"], "pack_invalid", "{refused}");
+    assert_eq!(refused["error"]["hint"], format!("planroom pack add '{}'", pack.display()), "{refused}");
+    // With the source gone, the hint removes the pack.
+    fs::remove_dir_all(&pack).unwrap();
+    let (code, refused) = room.run(&ws, &["scan"], &[]);
+    assert_eq!(code, 8, "{refused}");
+    assert_eq!(refused["error"]["hint"], "planroom pack remove stems", "{refused}");
+}
+
+#[test]
+fn alternating_scans_with_different_environments_never_flip_the_snapshot() {
+    let (room, ws, _key, _pack) = stems_added();
+    let other = pack_dir(&room.path("other"), "toggles", &["code"], TOGGLES);
+    let state = |ws: &Path| {
+        let store = store_of(ws);
+        let active = store.active_set().unwrap().snapshots();
+        let hash = store.recorded_packs().unwrap().unwrap().hash;
+        (active, hash, store.seq().unwrap())
+    };
+    let before = state(&ws);
+    for set in [true, false, true, false] {
+        let env: &[(&str, &str)] = if set { &[("PLANROOM_PACKS", other.to_str().unwrap())] } else { &[] };
+        let (code, scanned) = room.run(&ws, &["scan"], env);
+        assert_eq!(code, 0, "{scanned}");
+        assert_eq!(state(&ws), before, "the scan with PLANROOM_PACKS set: {set}");
+    }
+}
+
+/// Plant `record` over the workspace's pack record, through a store this test opens, which has no
+/// guard.
+fn plant(ws: &Path, record: planroom_store::RecordedPacks) {
+    let mut store = store_of(ws);
+    store.record_packs(|_| Ok::<_, planroom_store::StoreError>(Some(record))).unwrap();
+}
+
+#[test]
+fn a_process_with_another_pack_set_refuses_writes() {
+    let (room, ws, key, _pack) = stems_added();
+    let mut store = store_of(&ws);
+    let held = store.meta("packs_engine").unwrap();
+    store.meta_swap("packs_engine", held.as_deref(), "999.0.0", &[("packs_hash", &"0".repeat(64))]).unwrap();
+    drop(store);
+    let base = room.seq(&ws);
+    let tried = [
+        room.run(&ws, &["scan"], &[]),
+        room.edit(&ws, &key, "renamed"),
+        room.person(&ws, &key, "review", &["--base", &base, "nothing", "accept"], &base),
+        room.person(&ws, &key, "pack remove", &["stems"], ""),
+    ];
+    for (code, refused) in tried {
+        assert_eq!(code, 7, "{refused}");
+        assert_eq!(refused["error"]["code"], "packs_mismatch", "{refused}");
+        assert_eq!(refused["error"]["details"]["recorded"], "999.0.0", "{refused}");
+        assert!(refused["error"]["hint"].as_str().unwrap().contains("/plugin update planroom"), "{refused}");
+    }
+    // A prerelease's record names the build that fixes it.
+    let mut store = store_of(&ws);
+    store.meta_swap("packs_engine", Some("999.0.0"), "999.0.0-dev+abc", &[]).unwrap();
+    drop(store);
+    let (code, refused) = room.run(&ws, &["scan"], &[]);
+    assert_eq!(code, 7, "{refused}");
+    assert_eq!(refused["error"]["hint"], "scripts/planroom build", "{refused}");
+    // Reads never check.
+    room.ok(&ws, &["map"]);
+    room.ok(&ws, &["focus"]);
+    assert_eq!(store_of(&ws).meta("packs_hash").unwrap().unwrap(), "0".repeat(64), "nothing was written");
+}
+
+#[test]
+fn a_newer_engine_records_its_own_packs_at_its_first_write() {
+    for engine in [Some("0.0.1"), None] {
+        let (room, ws, key, _pack) = stems_added();
+        let mut record = store_of(&ws).recorded_packs().unwrap().unwrap();
+        let ours = record.hash.clone();
+        let oot: Vec<_> = record.packs.iter().filter(|r| r.source != "builtin").cloned().collect();
+        // An older engine's record: another built-in set and another hash.
+        record.packs.retain(|r| r.source != "builtin");
+        record.packs.insert(
+            0,
+            planroom_contract::PackRecord {
+                id: "code".into(),
+                version: 1,
+                source: "builtin".into(),
+                sha256: "0".repeat(64),
+            },
+        );
+        record.hash = "1".repeat(64);
+        record.engine = engine.map(str::to_owned);
+        plant(&ws, record);
+        let (code, edited) = room.edit(&ws, &key, "renamed");
+        assert_eq!(code, 0, "{engine:?}: {edited}");
+        assert_eq!(edited["result"]["status"], "applied");
+        let after = store_of(&ws).recorded_packs().unwrap().unwrap();
+        assert_eq!(after.hash, ours, "{engine:?}: this engine's set");
+        assert_eq!(after.engine.as_deref(), Some(planroom::packs::engine().as_str()));
+        let kept: Vec<_> = after.packs.iter().filter(|r| r.source != "builtin").cloned().collect();
+        assert_eq!(kept, oot, "{engine:?}: the out-of-tree records stay");
+    }
+}
+
+#[test]
+fn a_pack_that_only_adds_an_image_role_keeps_every_container_id() {
+    let room = Room::new();
+    let ws = fixture(&room.path("shop")).root;
+    room.ok(&ws, &["scan"]);
+    let key = key(7);
+    room.register(&ws, &key);
+    let containers = |room: &Room| -> BTreeMap<String, Value> {
+        let map = room.ok(&ws, &["map", "--level", "container", "--detail", "graph"]);
+        map["result"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| (n["id"].as_str().unwrap().to_owned(), n.clone()))
+            .collect()
+    };
+    let before = containers(&room);
+    let grafana = before.values().find(|n| n["name"] == "grafana").expect("the fixture's grafana").clone();
+    let pack = pack_dir(
+        &room.path("src"),
+        "dashboards",
+        &["code"],
+        "[[image_roles]]\nimage = \"grafana*\"\nrole = \"dashboards\"\nkind = \"code.tooling\"\n",
+    );
+    room.add(&ws, &key, &pack);
+    room.ok(&ws, &["scan"]);
+    let after = containers(&room);
+    assert_eq!(
+        before.keys().collect::<Vec<_>>(),
+        after.keys().collect::<Vec<_>>(),
+        "every container ID stays"
+    );
+    let id = grafana["id"].as_str().unwrap();
+    assert_ne!(after[id]["kind"], grafana["kind"], "{grafana} -> {}", after[id]);
+    assert_eq!(after[id]["kind"], "code.tooling", "{}", after[id]);
+}
+
+#[test]
+fn a_pack_past_its_size_bound_is_invalid() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pack = pack_dir(tmp.path(), "wide", &["code"], "");
+    fs::create_dir_all(pack.join("data")).unwrap();
+    for i in 0..1_001 {
+        fs::write(pack.join(format!("data/{i:04}.txt")), "").unwrap();
+    }
+    let env = doctor(&pack);
+    assert_eq!(env["error"]["code"], "pack_invalid", "{env}");
+    let message = env["error"]["message"].as_str().unwrap();
+    assert!(message.contains("1000 entries"), "{message}");
+    // A deep pack and a large file stop the walk the same way.
+    let deep = pack_dir(tmp.path(), "deep", &["code"], "");
+    fs::create_dir_all(deep.join(["d"; 17].join("/"))).unwrap();
+    assert!(doctor(&deep)["error"]["message"].as_str().unwrap().contains("16 directories deep"));
+    let big = pack_dir(tmp.path(), "big", &["code"], "");
+    fs::write(big.join("blob.txt"), vec![b'x'; (1 << 20) + 1]).unwrap();
+    assert!(doctor(&big)["error"]["message"].as_str().unwrap().contains("bytes in one file"));
+}
+
+#[test]
+fn a_long_source_path_keeps_the_pack_reply_in_budget() {
+    let (room, ws, key, _pack) = stems_workspace();
+    let mut deep = room.path("long");
+    while deep.as_os_str().len() < 3_000 {
+        deep.push("d".repeat(200));
+    }
+    let pack = pack_dir(&deep, "stems", &["code"], "");
+    fs::write(pack.join("pack.toml"), stems_manifest("name")).unwrap();
+    assert!(pack.as_os_str().len() >= 3_000);
+    let budget =
+        planroom_contract::Command::SPECS.iter().find(|s| s.name() == "pack add").unwrap().budget_tokens;
+    let added = room.add(&ws, &key, &pack);
+    let tokens = added["meta"]["size"]["tokens_est"].as_u64().unwrap();
+    assert!(tokens <= u64::from(budget), "{tokens} tokens over {budget}: {added}");
+    let (code, removed) = room.person(&ws, &key, "pack remove", &["stems"], "");
+    assert_eq!(code, 0, "{removed}");
+    assert!(removed["meta"]["size"]["tokens_est"].as_u64().unwrap() <= u64::from(budget), "{removed}");
+}
+
+#[test]
+fn an_extractor_id_may_hold_a_dash_as_the_contract_says() {
+    let tmp = tempfile::tempdir().unwrap();
+    let extractor = |id: &str| {
+        format!(
+            "[[extractors]]\nid = \"{id}\"\nfiles = [\"**/*.stm\"]\nregex = \"(?m)^name: (\\\\w+)\"\n\
+             emit = [{{ node = \"code.tooling\", key = \"$1\", name = \"$1\", parent = \"@id:code.repo:$repo\" }}]\n"
+        )
+    };
+    let dashed = pack_dir(tmp.path(), "dashed", &["code"], &extractor("stem-names"));
+    let env = doctor(&dashed);
+    assert_eq!(env["ok"], true, "{env}");
+    for (id, body) in [
+        ("leading", extractor("-stem")),
+        ("upper", extractor("Stem")),
+        ("lensdash", "[[lenses]]\nid = \"stem-lens\"\nlabel = \"Stems\"\nrelations = []\n".to_owned()),
+    ] {
+        let env = doctor(&pack_dir(tmp.path(), id, &["code"], &body));
+        assert_eq!(env["error"]["code"], "pack_invalid", "{id}: {env}");
+    }
+    // The contract states the rule the loader keeps.
+    let contracts = fs::read_to_string(repo_root().join("docs/contributing/contracts.md")).unwrap();
+    let start = contracts.find("pub struct PackFile {").expect("contracts.md declares PackFile");
+    let manifest = &contracts[start..start + contracts[start..].find("\n}").unwrap()];
+    assert!(manifest.contains("an extractor's ID may also hold `-`"), "{manifest}");
+}
+
+/// That `env` is `pack_invalid` with the exact line that checks the pack in `dir`, quoted for a
+/// shell: the directory's path holds a space, so the hint quotes it.
+fn assert_checks(env: &Value, dir: &Path) {
+    assert_eq!(env["error"]["code"], "pack_invalid", "{env}");
+    let shown = dir.to_str().unwrap();
+    assert!(shown.contains(' ') && !shown.contains('\''), "{shown}");
+    assert_eq!(env["error"]["hint"], format!("planroom doctor --pack '{shown}'"), "{env}");
+}
+
+#[test]
+fn a_pack_add_that_fails_names_the_pack_to_check() {
+    let (room, ws, key, _pack) = stems_workspace();
+    // A key no table declares.
+    let bad = room.path("src/bad pack");
+    fs::create_dir_all(&bad).unwrap();
+    fs::write(bad.join("pack.toml"), manifest("bad", &["code"], "unknown = 1\n")).unwrap();
+    let bad = bad.canonicalize().unwrap();
+    let (code, env) = room.person(&ws, &key, "pack add", &[bad.to_str().unwrap()], "");
+    assert_eq!(code, 8, "{env}");
+    assert_checks(&env, &bad);
+    // No manifest.
+    let empty = room.path("src/empty pack");
+    fs::create_dir_all(&empty).unwrap();
+    let empty = empty.canonicalize().unwrap();
+    let (_, env) = room.person(&ws, &key, "pack add", &[empty.to_str().unwrap()], "");
+    assert_checks(&env, &empty);
+    // No directory.
+    let missing = room.path("src/no pack");
+    let (_, env) = room.person(&ws, &key, "pack add", &[missing.to_str().unwrap()], "");
+    assert_checks(&env, &missing);
+    // Valid alone, but not with the set: it claims the code pack's extension.
+    let clash = room.path("src/clash pack");
+    fs::create_dir_all(&clash).unwrap();
+    let body = "[[languages]]\nid = \"py2\"\nextensions = [\"py\"]\nline_comment = \"#\"\n";
+    fs::write(clash.join("pack.toml"), manifest("clash", &["code"], body)).unwrap();
+    let clash = clash.canonicalize().unwrap();
+    let (_, env) = room.person(&ws, &key, "pack add", &[clash.to_str().unwrap()], "");
+    assert_checks(&env, &clash);
+    assert!(recorded(&ws).is_empty(), "nothing was recorded");
+}
+
+#[test]
+fn a_config_pack_that_fails_at_the_first_scan_names_the_pack_to_check() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().join("data");
+    let bad = tmp.path().join("bad pack");
+    fs::create_dir_all(&bad).unwrap();
+    fs::write(bad.join("pack.toml"), manifest("bad", &["code"], "unknown = 1\n")).unwrap();
+    let bad = bad.canonicalize().unwrap();
+    let missing = tmp.path().canonicalize().unwrap().join("no pack");
+    for (n, listed) in [&bad, &missing].into_iter().enumerate() {
+        let ws =
+            planroom_testkit::fixture_with_packs(&tmp.path().join(format!("shop{n}")), &data, &[listed]).root;
+        let out = Command::new(env!("CARGO_BIN_EXE_planroom"))
+            .args(["scan", "--json"])
+            .current_dir(&ws)
+            .env("PLANROOM_DATA", &data)
+            .env_remove("PLANROOM_PACKS")
+            .env_remove("PLANROOM_ACTOR")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        let env: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(out.status.code(), Some(8), "{env}");
+        assert_checks(&env, listed);
+    }
 }

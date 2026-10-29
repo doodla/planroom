@@ -491,3 +491,92 @@ fn a_planted_store_key_cannot_pick_the_trust_card() {
     assert!(!m.loads_config(&ws));
     assert_eq!(trust_card(&m.focus(&ws)).as_deref(), Some(card.as_str()), "the card still waits");
 }
+
+/// A pack outside every workspace: one tooling container per `.stm` file's `name:` line.
+fn stems_pack(m: &Machine) -> PathBuf {
+    let dir = m.path("src/stems");
+    write(
+        &dir.join("pack.toml"),
+        "format = \"planroom.pack/v1\"\nid = \"stems\"\nversion = 1\ntitle = \"Stems\"\nrequires = [\"code\"]\n\n\
+         [[languages]]\nid = \"stemlang\"\nextensions = [\"stm\"]\n\n\
+         [[extractors]]\nid = \"stem-names\"\nfiles = [\"**/*.stm\"]\nregex = \"(?m)^name: (\\\\w+)\"\n\
+         emit = [{ node = \"code.tooling\", key = \"$1\", name = \"$1\", parent = \"@id:code.repo:$repo\" }]\n",
+    );
+    dir.canonicalize().unwrap()
+}
+
+/// `pack add DIR` as the person with `key`.
+fn pack_add(m: &Machine, ws: &Path, key: &SigningKey, dir: &Path) -> (i32, Value) {
+    let args = [dir.to_str().unwrap()];
+    let signed = token(key, "pack add", &args, "");
+    m.run(ws, &["pack", "add", args[0]], &[("PLANROOM_PERSON_TOKEN", &signed)], "")
+}
+
+#[test]
+fn an_agent_cannot_add_a_pack() {
+    let m = Machine::new();
+    let person = key(7);
+    let ws = repos(&m.path("ws"));
+    trusted_with_key(&m, &ws, &person);
+    let pack = stems_pack(&m);
+    let config = fs::read_to_string(ws.join(".planroom/config.toml")).unwrap();
+    let record = || m.ok(&ws, &["ask", "kinds"], &[])["meta"]["seq"].clone();
+    let seq = record();
+    let agent = [("PLANROOM_ACTOR", "agent:1a2b3c4d:chat")];
+    for args in [["pack", "add", pack.to_str().unwrap()], ["pack", "remove", "stems"]] {
+        let (code, refused) = m.run(&ws, &args, &agent, "");
+        assert_eq!(code, 5, "{args:?}: {refused}");
+        assert_eq!(refused["error"]["code"], "person_required", "{refused}");
+        // The line a person runs names the very pack, quoted for a shell.
+        let hint = refused["error"]["hint"].as_str().unwrap();
+        assert!(hint.contains(&format!("planroom {} {}", args[..2].join(" "), args[2])), "{hint}");
+        // An agent carrying a person's token is no person either.
+        let signed = token(&person, &args[..2].join(" "), &args[2..], "");
+        let mut with = agent.to_vec();
+        with.push(("PLANROOM_PERSON_TOKEN", &signed));
+        let (code, refused) = m.run(&ws, &args, &with, "");
+        assert_eq!(code, 5, "{refused}");
+    }
+    assert!(!ws.join(".planroom/packs").exists(), "nothing was copied");
+    assert_eq!(fs::read_to_string(ws.join(".planroom/config.toml")).unwrap(), config);
+    assert_eq!(record(), seq);
+    m.scan(&ws);
+    assert!(!m.containers(&ws).contains(&"alpha".to_owned()), "no pack loads");
+}
+
+#[test]
+fn planroom_packs_loads_nothing_outside_doctor() {
+    let m = Machine::new();
+    let ws = planroom_testkit::fixture(&m.path("shop")).root;
+    let ruby = planroom_testkit::repo_root().join("examples/packs/ruby");
+    let env = [("PLANROOM_PACKS", ruby.to_str().unwrap())];
+    let (code, scanned) = m.run(&ws, &["scan"], &env, "");
+    assert_eq!(code, 0, "{scanned}");
+    let (code, map) = m.run(&ws, &["map", "--level", "container"], &env, "");
+    assert_eq!(code, 0, "{map}");
+    let names: Vec<&str> =
+        map["result"]["nodes"].as_array().unwrap().iter().map(|n| n["name"].as_str().unwrap()).collect();
+    assert!(!names.contains(&"healthcheck"), "{names:?}");
+    let (code, kinds) = m.run(&ws, &["ask", "kinds"], &env, "");
+    assert_eq!(code, 0, "{kinds}");
+    assert!(!kinds.to_string().contains("ruby"), "{kinds}");
+    let store = planroom_store::Store::open_existing(&ws.join(".planroom/store.db")).unwrap().unwrap();
+    let record = store.recorded_packs().unwrap().expect("the first scan records the set");
+    assert!(record.packs.iter().all(|r| r.source == "builtin"), "{:?}", record.packs);
+}
+
+#[test]
+fn an_out_of_tree_pack_loads_without_a_card() {
+    let m = Machine::new();
+    let person = key(7);
+    let ws = repos(&m.path("ws"));
+    git_repo(&ws.join("tools"), &[("a.stm".into(), b"name: alpha\n".to_vec())]);
+    trusted_with_key(&m, &ws, &person);
+    let pack = stems_pack(&m);
+    let (code, added) = pack_add(&m, &ws, &person, &pack);
+    assert_eq!(code, 0, "{added}");
+    let scanned = m.scan(&ws);
+    assert!(m.containers(&ws).contains(&"alpha".to_owned()), "the pack loads");
+    assert_eq!(untrusted(&scanned), None);
+    assert_eq!(m.focus(&ws)["result"]["decision"], Value::Null, "no card for a pack a person added");
+}

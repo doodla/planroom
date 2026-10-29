@@ -13,9 +13,9 @@ use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
     AskReq, Class, Command, CommandName, DoctorReq, EditReq, Envelope, ErrorCode, FindReq, FocusReq, Handle,
-    ImportReq, IntentListReq, IntentNewReq, IntentVersionReq, LintReq, MapReq, Meta, OpenReq, PersonInitReq,
-    ProposeReq, ReviewReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq, ShareReq, Size, StreamFrame,
-    VersionReq, Warning, WarningCode, WatchReq,
+    ImportReq, IntentListReq, IntentNewReq, IntentVersionReq, LintReq, MapReq, Meta, OpenReq, PackAddReq,
+    PackRemoveReq, PersonInitReq, ProposeReq, ReviewReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq,
+    ShareReq, Size, StreamFrame, VersionReq, Warning, WarningCode, WatchReq,
 };
 use planroom_kernel::display::{sanitize, sanitize_lines};
 use planroom_kernel::redact;
@@ -81,6 +81,17 @@ enum Cmd {
     /// Plans: start one, propose its items, lint it, tag a version, list them.
     #[command(subcommand)]
     Intent(IntentCmd),
+    /// Add or remove an out-of-tree pack: the workspace's pack set; a person's alone.
+    #[command(subcommand)]
+    Pack(PackCmd),
+}
+
+#[derive(Subcommand)]
+enum PackCmd {
+    /// Add an out-of-tree pack: validate it, copy it into the state directory and record it; a person's alone.
+    Add(PackAddReq),
+    /// Remove an out-of-tree pack from the workspace's pack set; a person's alone.
+    Remove(PackRemoveReq),
 }
 
 #[derive(Subcommand)]
@@ -132,6 +143,8 @@ pub fn parse_leaf(command: &str, args: &[String]) -> Result<Command, clap::Error
         Cmd::Intent(IntentCmd::Lint(req)) => Command::IntentLint(req),
         Cmd::Intent(IntentCmd::Version(req)) => Command::IntentVersion(req),
         Cmd::Intent(IntentCmd::List(req)) => Command::IntentList(req),
+        Cmd::Pack(PackCmd::Add(req)) => Command::PackAdd(req),
+        Cmd::Pack(PackCmd::Remove(req)) => Command::PackRemove(req),
     })
 }
 
@@ -248,6 +261,14 @@ pub fn main() -> ExitCode {
         Cmd::Intent(IntentCmd::List(req)) => {
             let name = Command::IntentList(req.clone()).name();
             finish_paged(cli.json, &name.0, app::intent::list(&req, &cwd), started)
+        }
+        Cmd::Pack(PackCmd::Add(req)) => {
+            let name = Command::PackAdd(req.clone()).name();
+            finish(cli.json, &name.0, app::pack::add(&req, &cwd, &caller, &mut Tty), started)
+        }
+        Cmd::Pack(PackCmd::Remove(req)) => {
+            let name = Command::PackRemove(req.clone()).name();
+            finish(cli.json, &name.0, app::pack::remove(&req, &cwd, &caller, &mut Tty), started)
         }
     }
 }

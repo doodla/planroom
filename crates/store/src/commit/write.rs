@@ -4,7 +4,7 @@ use planroom_contract::{Actor, Cause, Client, EventBody, EventId, NodeId, Seq, S
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::Value;
 
-use super::{Dealt, check_version, insert_event};
+use super::{Dealt, insert_event};
 use crate::read::Snapshot;
 use crate::{Store, StoreError};
 
@@ -104,7 +104,7 @@ impl Store {
     ) -> Result<Committed, E> {
         let tx =
             self.conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(StoreError::from)?;
-        check_version(&tx)?;
+        crate::meta::check_writer(self.guard.as_deref(), &tx)?;
         if let Some(found) = replay(&tx, idem, request_hash)? {
             return Ok(found);
         }

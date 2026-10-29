@@ -21,6 +21,7 @@
 
 pub mod embed;
 pub mod load;
+pub mod state;
 mod validate;
 
 pub use validate::ID_MAX;
@@ -80,7 +81,11 @@ impl Pack {
             version: self.file.version,
             source: match self.origin {
                 Origin::BuiltIn => "builtin".into(),
-                Origin::OutOfTree => self.source.label.clone(),
+                // A copy records the directory it was copied from, so the hash never depends on
+                // where the copy sits.
+                Origin::OutOfTree => {
+                    self.source.recorded.clone().unwrap_or_else(|| self.source.label.clone())
+                }
             },
             sha256: self.sha256.clone(),
         }
@@ -203,8 +208,8 @@ pub struct Loaded {
     /// pack-qualified name: compiled once, the first time [`Loaded::programs`] is asked. A clone
     /// shares them, so a process whose scans each clone its one loaded set compiles them once.
     programs: Arc<OnceLock<Result<Programs, AppError>>>,
-    /// The set's hash: every pack's record under this engine's version, so an engine whose
-    /// built-ins change re-extracts every repo (DR-62).
+    /// The set's hash: every pack's record under this engine's identity ([`engine`]), so an
+    /// engine whose built-ins change re-extracts every repo (DR-62).
     pub hash: String,
 }
 
@@ -419,6 +424,33 @@ impl Loaded {
     }
 }
 
+/// This engine's identity, as a pack record names the engine that recorded it: its version for a
+/// release, and for a prerelease its version and the commit it was built from, when the build
+/// recorded one. Every `main` commit shares one `-dev` version, so the version alone would keep a
+/// store's snapshots across a change in what the built-ins extract.
+pub fn engine() -> String {
+    identity(env!("CARGO_PKG_VERSION"), option_env!("PLANROOM_GIT_COMMIT"))
+}
+
+/// The identity of an engine at `version`, built from `commit`: `VERSION` for a release,
+/// `VERSION+COMMIT` for a prerelease whose build recorded its commit.
+pub fn identity(version: &str, commit: Option<&str>) -> String {
+    match commit.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(commit) if version.contains('-') => format!("{version}+{commit}"),
+        _ => version.to_owned(),
+    }
+}
+
+/// The hash of a pack set's records, in load order, under this engine's identity, so an engine
+/// whose built-ins could extract otherwise re-extracts every repo (DR-62).
+pub fn set_hash(records: &[PackRecord]) -> String {
+    keys::sha256_hex(&[
+        "planroom.packs/v1",
+        &format!("engine@{}", engine()),
+        &keys::canonical(&json!(records)),
+    ])
+}
+
 /// `<pack>.<name>`.
 pub fn qualify(pack: &str, name: &str) -> String {
     format!("{pack}.{name}")
@@ -476,11 +508,7 @@ fn merge(packs: Vec<Pack>) -> Loaded {
         );
     }
     let records: Vec<PackRecord> = packs.iter().map(Pack::record).collect();
-    let hash = keys::sha256_hex(&[
-        "planroom.packs/v1",
-        concat!("engine@", env!("CARGO_PKG_VERSION")),
-        &keys::canonical(&json!(records)),
-    ]);
+    let hash = set_hash(&records);
     Loaded {
         packs,
         vocabulary,
@@ -491,5 +519,30 @@ fn merge(packs: Vec<Pack>) -> Loaded {
         patterns: BTreeMap::new(),
         programs: Arc::new(OnceLock::new()),
         hash,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dev_builds_engine_identity_names_its_commit() {
+        assert_eq!(identity("0.1.0-dev", Some("abc123")), "0.1.0-dev+abc123");
+        assert_eq!(identity("0.1.0-dev", None), "0.1.0-dev", "a build that recorded no commit");
+        assert_eq!(identity("0.1.0-dev", Some("  ")), "0.1.0-dev");
+        assert_eq!(identity("0.1.0", Some("abc123")), "0.1.0", "a release is its version alone");
+        // Two prerelease builds at different commits hash one set apart, so a store's snapshots
+        // never outlive a change in what the built-ins extract.
+        let records = loaded().unwrap().records();
+        let at = |commit: &str| {
+            keys::sha256_hex(&[
+                "planroom.packs/v1",
+                &format!("engine@{}", identity("0.1.0-dev", Some(commit))),
+                &keys::canonical(&json!(records)),
+            ])
+        };
+        assert_ne!(at("aaa"), at("bbb"));
+        assert_eq!(set_hash(&records), loaded().unwrap().hash);
     }
 }

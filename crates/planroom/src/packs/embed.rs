@@ -21,6 +21,7 @@ pub fn sources() -> Vec<Source> {
             origin: Origin::BuiltIn,
             label: format!("packs/{dir}"),
             dir: None,
+            recorded: None,
             files,
         })
         .collect()

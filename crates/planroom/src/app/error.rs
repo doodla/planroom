@@ -184,6 +184,14 @@ impl From<StoreError> for AppError {
             }
             StoreError::IdempotencyMismatch { idem, .. } => AppError::new(e.code(), &[("idem", idem)]),
             StoreError::Busy => AppError::new(e.code(), &[]),
+            // Only an engine older than the one that recorded the set is refused, and a person
+            // clears it by updating: a release from the plugin, a prerelease by building it.
+            StoreError::PacksMismatch { recorded, .. } => {
+                let version = recorded.as_deref().and_then(|r| r.split('+').next()).unwrap_or_default();
+                let hint =
+                    if version.contains('-') { "hint.packs_mismatch_dev" } else { "hint.packs_mismatch" };
+                AppError::new(e.code(), &[]).with_hint(text::get(hint, &[]))
+            }
             StoreError::Io(what) | StoreError::Sqlite(what) => return AppError::internal(what),
         };
         base.details(details)

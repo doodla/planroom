@@ -9,7 +9,10 @@
 //!   for a state directory the engine can't vouch for, whose subject is the workspace ID, so a
 //!   moved workspace keeps one card. A person's pick of it records or removes the workspace's
 //!   trust once `review` commits ([`picked`]), and an undo of an accept removes it again
-//!   ([`after_trust_undo`]).
+//!   ([`after_trust_undo`]). Then the changed-source card, one per recorded pack whose source no
+//!   longer hashes to its copy, whose subject is the pack's ID: an accept records the copy
+//!   `review` made of the source as it read at the pick ([`picked_pack`]), and an undo of it
+//!   records the copy it replaced ([`after_pack_undo`]).
 //! - `focus` puts the first open card face up in `PaneModel.decision` and counts the rest.
 //! - The Apply card's subject is the workspace ID. Its ghosts name it as their cause, its count is
 //!   derived live from them, and it resolves with its last ghost's review.
@@ -24,12 +27,12 @@ use std::path::Path;
 
 use planroom_contract::{
     Actor, BatchInfo, Card, CardKind, Choice, Client, CommandName, DecisionCard, EditResult, ErrorCode,
-    Event, EventBody, EventId, Handle, ReviewResult, Seq, Stakes, Status, Surface, Timestamp, Verdict,
-    Warning, WarningCode,
+    Event, EventBody, EventId, Handle, PackRecord, ReviewResult, Seq, Stakes, Status, Surface, Timestamp,
+    Verdict, Warning, WarningCode,
 };
 use planroom_kernel::fold::{Folded, Writer};
 use planroom_kernel::keys;
-use planroom_store::{Dealt, NewEvent, Snapshot, Store};
+use planroom_store::{Dealt, NewEvent, RecordedPacks, Snapshot, Store};
 use serde_json::json;
 
 use crate::app::data::TrustedBy;
@@ -37,6 +40,7 @@ use crate::app::edit::Written;
 use crate::app::error::AppError;
 use crate::app::new_event_id;
 use crate::app::trust::{self, Trust};
+use crate::packs::state::{self, Changed};
 use crate::text;
 
 /// The Apply card's kind: unsigned inbox edits, waiting as ghosts (DR-83).
@@ -48,40 +52,48 @@ const VAR_CHARS: usize = 80;
 
 /// The trust card's kind: a state directory the engine can't vouch for (DR-48, DR-89).
 pub const TRUST: &str = "trust";
+/// The changed-source card's kind: a recorded pack whose source differs from its copy (DR-62,
+/// DR-89).
+pub const PACK_SOURCE: &str = "pack_source";
+/// The hex characters of a pack's hash the changed-source card names.
+pub const HASH_CHARS: usize = 12;
 
-/// What a scan's dealers know besides the store: the workspace the scan ran in, and how its trust
-/// stood as the scan committed.
+/// What a scan's dealers know besides the store: the workspace the scan ran in, how its trust
+/// stood as the scan committed, and the recorded packs whose source changed, each read before the
+/// commit.
 #[derive(Debug, Clone)]
 pub struct ScanCx<'a> {
     pub root: &'a Path,
     pub state_dir: &'a Path,
     pub trust: Trust,
+    pub changed: &'a [Changed],
 }
 
-/// One dealer of a card a scan deals: what it would deal, read from the store as the scan's
-/// commit finds it and from the scan's own context, or none. [`deal_for_scan`] drops a card one
-/// already open makes a second.
+/// One dealer of the cards a scan deals: what it would deal, read from the store as the scan's
+/// commit finds it and from the scan's own context, none or several. [`deal_for_scan`] drops a
+/// card one already open makes a second.
 pub struct Dealer {
     pub kind: &'static str,
-    pub deal: fn(&Snapshot<'_>, &ScanCx<'_>) -> Result<Option<Card>, AppError>,
+    pub deal: fn(&Snapshot<'_>, &ScanCx<'_>) -> Result<Vec<Card>, AppError>,
 }
 
-/// The dealers `scan` asks, in order. The changed-source and restore cards join here.
-pub const SCAN_DEALERS: &[Dealer] = &[Dealer { kind: TRUST, deal: deal_trust }];
+/// The dealers `scan` asks, in order. The restore card joins here.
+pub const SCAN_DEALERS: &[Dealer] =
+    &[Dealer { kind: TRUST, deal: deal_trust }, Dealer { kind: PACK_SOURCE, deal: deal_pack_source }];
 
 /// The trust card, for a workspace whose state directory is untrusted, unless a pick of an earlier
 /// one still stands as a reject: the reject keeps the config unloaded until an undo reopens it.
 /// After a standing accept, a workspace untrusted again, as when it moved or its state directory
 /// was replaced, gets a fresh card.
-fn deal_trust(snapshot: &Snapshot<'_>, cx: &ScanCx<'_>) -> Result<Option<Card>, AppError> {
+fn deal_trust(snapshot: &Snapshot<'_>, cx: &ScanCx<'_>) -> Result<Vec<Card>, AppError> {
     if cx.trust != Trust::Untrusted {
-        return Ok(None);
+        return Ok(vec![]);
     }
     let workspace = snapshot.meta("workspace_id")?.unwrap_or_default();
     if standing_pick(snapshot, TRUST, &workspace)? == Some(Verdict::Reject) {
-        return Ok(None);
+        return Ok(vec![]);
     }
-    Ok(Some(Card {
+    Ok(vec![Card {
         kind: CardKind(TRUST.into()),
         subject: workspace,
         question: "card.trust_question".into(),
@@ -94,7 +106,63 @@ fn deal_trust(snapshot: &Snapshot<'_>, cx: &ScanCx<'_>) -> Result<Option<Card>, 
         ],
         default: "reject".into(),
         dealt_by: CommandName("scan".into()),
-    }))
+    }])
+}
+
+/// The changed-source card, one per pack, for each pack the scan found changed (architecture.md,
+/// The pack set is workspace state). It deals for a pack when the workspace is trusted, the pack
+/// is still recorded with the copy the scan compared, no card for it is open, and the pick that
+/// stands on its earlier cards isn't a reject of the source as it reads now: Keep holds until the
+/// source changes again. Its subject is the pack's ID.
+fn deal_pack_source(snapshot: &Snapshot<'_>, cx: &ScanCx<'_>) -> Result<Vec<Card>, AppError> {
+    if cx.trust != Trust::Trusted || cx.changed.is_empty() {
+        return Ok(vec![]);
+    }
+    let recorded: Vec<PackRecord> = match snapshot.meta(planroom_store::meta::META_PACKS)? {
+        Some(text) => serde_json::from_str(&text).map_err(AppError::internal)?,
+        None => vec![],
+    };
+    let mut cards = Vec::new();
+    for changed in cx.changed {
+        let still =
+            recorded.iter().any(|r| r.id == changed.id && r.sha256 == changed.from && r.source != "builtin");
+        if !still {
+            continue;
+        }
+        let to = short_hash(&changed.to);
+        let kept = standing(snapshot, PACK_SOURCE, &changed.id)?.is_some_and(|(verdict, card)| {
+            verdict == Verdict::Reject && card.vars.get("to").is_some_and(|v| *v == to)
+        });
+        if kept {
+            continue;
+        }
+        cards.push(Card {
+            kind: CardKind(PACK_SOURCE.into()),
+            subject: changed.id.clone(),
+            question: "card.pack_source_question".into(),
+            why: "card.pack_source_why".into(),
+            vars: [
+                ("pack".to_owned(), changed.id.clone()),
+                ("files".to_owned(), changed.files.to_string()),
+                ("from".to_owned(), short_hash(&changed.from)),
+                ("to".to_owned(), to),
+            ]
+            .into(),
+            stakes: Stakes::Person,
+            choices: vec![
+                Choice { id: "accept".into(), label: "card.pack_source_update".into(), preselected: false },
+                Choice { id: "reject".into(), label: "card.pack_source_keep".into(), preselected: true },
+            ],
+            default: "reject".into(),
+            dealt_by: CommandName("scan".into()),
+        });
+    }
+    Ok(cards)
+}
+
+/// The first [`HASH_CHARS`] hex characters of a pack's hash, as the changed-source card names it.
+pub fn short_hash(sha256: &str) -> String {
+    sha256.chars().take(HASH_CHARS).collect()
 }
 
 /// The pick that stands on the closed cards of `kind` about `subject`: the last review naming one
@@ -106,6 +174,15 @@ pub fn standing_pick(
     kind: &str,
     subject: &str,
 ) -> Result<Option<Verdict>, AppError> {
+    Ok(standing(snapshot, kind, subject)?.map(|(verdict, _)| verdict))
+}
+
+/// [`standing_pick`], with the card that pick closed.
+pub fn standing(
+    snapshot: &Snapshot<'_>,
+    kind: &str,
+    subject: &str,
+) -> Result<Option<(Verdict, Card)>, AppError> {
     let events = snapshot.card_events()?;
     let open: BTreeSet<EventId> = planroom_kernel::fold::open_cards(&events).into_iter().collect();
     let closed: BTreeSet<&EventId> = events
@@ -120,10 +197,15 @@ pub fn standing_pick(
             && closed.contains(of)
             && event.status != Status::Conflict
         {
-            last = Some(*verdict);
+            last = Some((*verdict, of));
         }
     }
-    Ok(last)
+    Ok(last.and_then(|(verdict, of)| {
+        events.iter().find(|e| &e.id == of).and_then(|e| match &e.body {
+            EventBody::Card(card) => Some((verdict, card.clone())),
+            _ => None,
+        })
+    }))
 }
 
 /// The open trust card of the store's workspace, if one is.
@@ -142,35 +224,41 @@ pub fn untrusted_warning(id: &EventId, card: &Card) -> Warning {
     }
 }
 
-/// What a person's pick of a trust card does once `review` committed it (DR-89), acting on the
-/// workspace at `root`, where the review ran: an accept records its state directory as trusted by
-/// a person, with its current identity, and a reject removes any record. A replayed pick acts only
-/// while that review still stands, so a retry repairs a record write that failed, and a pick an
-/// undo reversed never trusts the workspace again. The reply gains its line, or, when the record
-/// can't be written, `trust_not_recorded`: the pick stands, and the next scan deals a fresh card.
-pub fn picked(store: &Store, written: &mut Written<ReviewResult>, root: &Path) -> Result<(), AppError> {
-    let result = &written.reply.result;
-    let Some(card) = result.card_resolved.clone() else { return Ok(()) };
+/// The card a committed review picked, when that review still stands on it: the card is closed
+/// and the last review naming it is this one. A replayed pick acts only while it stands, so a
+/// retry repairs a record write that failed, and a pick an undo reversed never acts again.
+fn picked_card(store: &Store, result: &ReviewResult) -> Result<Option<(EventId, Card)>, AppError> {
+    let Some(card) = result.card_resolved.clone() else { return Ok(None) };
     if result.of != card {
-        return Ok(());
+        return Ok(None);
     }
     let snapshot = store.snapshot()?;
     let events = snapshot.card_events()?;
-    let is_trust =
-        events.iter().any(|e| e.id == card && matches!(&e.body, EventBody::Card(c) if c.kind.0 == TRUST));
-    if !is_trust {
-        return Ok(());
-    }
+    let Some(body) = events.iter().find(|e| e.id == card).and_then(|e| match &e.body {
+        EventBody::Card(c) => Some(c.clone()),
+        _ => None,
+    }) else {
+        return Ok(None);
+    };
     let open: BTreeSet<EventId> = planroom_kernel::fold::open_cards(&events).into_iter().collect();
     let last = events.iter().rev().find(|e| {
         matches!(&e.body, EventBody::Review { of, .. } if *of == card) && e.status != Status::Conflict
     });
     let stands = !open.contains(&card) && last.is_some_and(|e| e.id == result.event);
-    drop(snapshot);
-    if !stands {
+    Ok(stands.then_some((card, body)))
+}
+
+/// What a person's pick of a trust card does once `review` committed it (DR-89), acting on the
+/// workspace at `root`, where the review ran: an accept records its state directory as trusted by
+/// a person, with its current identity, and a reject removes any record. It acts only while that
+/// review stands ([`picked_card`]). The reply gains its line, or, when the record can't be
+/// written, `trust_not_recorded`: the pick stands, and the next scan deals a fresh card.
+pub fn picked(store: &Store, written: &mut Written<ReviewResult>, root: &Path) -> Result<(), AppError> {
+    let Some((card, body)) = picked_card(store, &written.reply.result)? else { return Ok(()) };
+    if body.kind.0 != TRUST {
         return Ok(());
     }
-    let verdict = result.verdict;
+    let verdict = written.reply.result.verdict;
     let done = match verdict {
         Verdict::Accept => trust::record(root, TrustedBy::Person),
         Verdict::Reject => trust::revoke(root),
@@ -191,37 +279,169 @@ pub fn picked(store: &Store, written: &mut Written<ReviewResult>, root: &Path) -
     Ok(())
 }
 
-/// After an `edit undo` commits: when it reversed a person's accept of a trust card, which is open
-/// again, the workspace's trust record goes with it. An undo of that undo records nothing, so the
-/// next scan deals a fresh card, and an agent's undo, a ghost that applies nothing, leaves the card
-/// closed and changes nothing. An undo never trusts a workspace.
-pub fn after_trust_undo(store: &Store, result: &EditResult, root: &Path) -> Result<(), AppError> {
-    if result.status != Status::Applied {
+/// What a person's pick of a changed-source card does once `review` committed it, while that
+/// review stands ([`picked_card`]): an accept records `update`, the copy `review` made of the
+/// pack's source as it read at the pick, in place of that pack's record alone; a reject records
+/// nothing and keeps the current copy. A pack no longer recorded changes nothing either way. The
+/// reply gains its line, or, when the record can't be written, `pack_not_updated`: the pick
+/// stands, and the next scan deals a fresh card.
+pub fn picked_pack(
+    store: &mut Store,
+    written: &mut Written<ReviewResult>,
+    update: Option<&PackUpdate>,
+) -> Result<(), AppError> {
+    let Some((card, body)) = picked_card(store, &written.reply.result)? else { return Ok(()) };
+    if body.kind.0 != PACK_SOURCE {
         return Ok(());
+    }
+    let pack = body.subject.clone();
+    let recorded = store.recorded_packs()?;
+    let is_recorded = |r: Option<&RecordedPacks>| {
+        r.is_some_and(|r| state::out_of_tree(&r.packs).iter().any(|p| p.id == pack))
+    };
+    let line = match (written.reply.result.verdict, update) {
+        (Verdict::Reject, _) if is_recorded(recorded.as_ref()) => text::get("review.pack_kept", &[]),
+        (Verdict::Accept, Some(update)) if is_recorded(recorded.as_ref()) => {
+            match replace_record(store, &update.record) {
+                Ok(true) => {
+                    let to = short_hash(&update.record.sha256);
+                    if update.newer {
+                        let card_to = body.vars.get("to").cloned().unwrap_or_default();
+                        text::get(
+                            "review.pack_updated_newer",
+                            &[("pack", &pack), ("to", &to), ("card", &card_to)],
+                        )
+                    } else {
+                        text::get("review.pack_updated", &[("pack", &pack), ("to", &to)])
+                    }
+                }
+                Ok(false) => text::get("review.pack_gone", &[("pack", &pack)]),
+                Err(_) => {
+                    written.reply.warnings.push(Warning {
+                        code: WarningCode::PackNotUpdated,
+                        message: text::get("warning.pack_not_updated", &[("card", &card.0), ("pack", &pack)]),
+                        details: json!({"card": card.0, "pack": pack}),
+                    });
+                    return Ok(());
+                }
+            }
+        }
+        _ => text::get("review.pack_gone", &[("pack", &pack)]),
+    };
+    written.reply.text.push(' ');
+    written.reply.text.push_str(&line);
+    Ok(())
+}
+
+/// Record `record` in place of the recorded out-of-tree pack of its ID, under the write lock;
+/// false, recording nothing, when no such pack is recorded any more.
+fn replace_record(store: &mut Store, record: &PackRecord) -> Result<bool, AppError> {
+    let mut replaced = false;
+    store.record_packs(|current: Option<&RecordedPacks>| {
+        let Some(current) = current else { return Ok::<_, AppError>(None) };
+        let mut packs = current.packs.clone();
+        let Some(slot) = packs.iter_mut().find(|p| p.id == record.id && p.source != state::BUILTIN) else {
+            return Ok(None);
+        };
+        replaced = true;
+        if *slot == *record {
+            return Ok(None);
+        }
+        *slot = record.clone();
+        Ok(Some(state::record_of(packs, current.config_read.clone())))
+    })?;
+    Ok(replaced)
+}
+
+/// The card an applied `edit undo` reversed a person's accept of, which is open again: the undo
+/// events are followed back to what the first one reversed. None for any other write, and for an
+/// agent's undo, a ghost that applies nothing.
+fn undone_accept(store: &Store, result: &EditResult) -> Result<Option<Card>, AppError> {
+    if result.status != Status::Applied {
+        return Ok(None);
     }
     let snapshot = store.snapshot()?;
     let events = snapshot.card_events()?;
     // The command's first event: for an undo, the `undo` event itself.
-    let Some(written) = events.iter().find(|e| e.id == result.event) else { return Ok(()) };
+    let Some(written) = events.iter().find(|e| e.id == result.event) else { return Ok(None) };
     if !matches!(written.body, EventBody::Undo { .. }) {
-        return Ok(());
+        return Ok(None);
     }
-    // Follow the undos back to what the first one reversed.
     let mut at = written;
     for _ in 0..=events.len() {
         let EventBody::Undo { of } = &at.body else { break };
-        let Some(next) = events.iter().find(|e| &e.id == of) else { return Ok(()) };
+        let Some(next) = events.iter().find(|e| &e.id == of) else { return Ok(None) };
         at = next;
     }
-    let EventBody::Review { of: card, verdict: Verdict::Accept } = &at.body else { return Ok(()) };
-    let is_trust =
-        events.iter().any(|e| &e.id == card && matches!(&e.body, EventBody::Card(c) if c.kind.0 == TRUST));
+    let EventBody::Review { of: card, verdict: Verdict::Accept } = &at.body else { return Ok(None) };
     let open = planroom_kernel::fold::open_cards(&events);
-    drop(snapshot);
-    if is_trust && open.contains(card) {
-        trust::revoke(root)?;
+    if !open.contains(card) {
+        return Ok(None);
     }
+    Ok(events.iter().find(|e| &e.id == card).and_then(|e| match &e.body {
+        EventBody::Card(c) => Some(c.clone()),
+        _ => None,
+    }))
+}
+
+/// After an `edit undo` commits: when it reversed a person's accept of a trust card, which is open
+/// again, the workspace's trust record goes with it; and when it reversed an accept of a
+/// changed-source card, the copy that accept replaced is recorded again ([`after_pack_undo`]). An
+/// undo of that undo records nothing, so the next scan deals a fresh card, and an agent's undo, a
+/// ghost that applies nothing, leaves the card closed and changes nothing. An undo never trusts a
+/// workspace.
+pub fn after_trust_undo(store: &mut Store, result: &EditResult, root: &Path) -> Result<(), AppError> {
+    let Some(card) = undone_accept(store, result)? else { return Ok(()) };
+    match card.kind.0.as_str() {
+        TRUST => trust::revoke(root),
+        PACK_SOURCE => after_pack_undo(store, &card, root),
+        _ => Ok(()),
+    }
+}
+
+/// An undo of a person's accept of the changed-source card `card`: the one copy in the state
+/// directory whose name starts with the card's `from` is recorded again for its pack, read and
+/// checked against its name. With none or two, or with the pack no longer recorded, it changes
+/// nothing.
+pub fn after_pack_undo(store: &mut Store, card: &Card, root: &Path) -> Result<(), AppError> {
+    let Some(from) = card.vars.get("from").filter(|f| !f.is_empty()) else { return Ok(()) };
+    let state_dir = crate::app::workspace::state_dir(root);
+    let Ok(entries) = std::fs::read_dir(state::dir(&state_dir)) else { return Ok(()) };
+    let names: Vec<String> = entries
+        .flatten()
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|name| name.starts_with(from.as_str()))
+        .collect();
+    let [name] = names.as_slice() else { return Ok(()) };
+    let Some(current) = store.recorded_packs()? else { return Ok(()) };
+    let Some(record) = state::out_of_tree(&current.packs).into_iter().find(|p| p.id == card.subject) else {
+        return Ok(());
+    };
+    let Ok(source) = crate::packs::read_dir(&state::copy_path(&state_dir, name)) else { return Ok(()) };
+    if source.sha256() != *name {
+        return Ok(());
+    }
+    let mut source = source;
+    source.recorded = Some(record.source.clone());
+    let pack = crate::packs::load::parse(source)?;
+    if pack.id() != card.subject {
+        return Ok(());
+    }
+    replace_record(store, &pack.record())?;
     Ok(())
+}
+
+/// The copy a person's accept of a changed-source card takes: made by `review` before its commit,
+/// from the pack's source as it read at the pick, and recorded once the review commits
+/// ([`picked_pack`]).
+#[derive(Debug, Clone)]
+pub struct PackUpdate {
+    pub card: EventId,
+    /// The record that replaces the pack's: its source unchanged, its new copy's hash.
+    pub record: PackRecord,
+    /// The source no longer reads as the card named it: it changed again since the card was
+    /// dealt, and the pick takes it as it reads now.
+    pub newer: bool,
 }
 
 /// An open card: its event and its body.
@@ -259,12 +479,13 @@ pub fn deal_for_scan(
 ) -> Result<Vec<Dealt>, AppError> {
     let mut dealt = Vec::new();
     for dealer in SCAN_DEALERS {
-        let Some(card) = (dealer.deal)(snapshot, cx)? else { continue };
-        debug_assert_eq!(card.kind.0, dealer.kind);
-        if open_of(snapshot, &card.kind.0, &card.subject)?.is_some() {
-            continue;
+        for card in (dealer.deal)(snapshot, cx)? {
+            debug_assert_eq!(card.kind.0, dealer.kind);
+            if open_of(snapshot, &card.kind.0, &card.subject)?.is_some() {
+                continue;
+            }
+            dealt.push(dealt_card(card, snapshot.seq(), at));
         }
-        dealt.push(dealt_card(card, snapshot.seq(), at));
     }
     Ok(dealt)
 }

@@ -73,9 +73,15 @@ pub fn run(
     let base =
         req.common.base.ok_or_else(|| AppError::new(ErrorCode::BaseRequired, &[("command", &"review")]))?;
     let writer = cli_writer(req, caller, &mut store, &root, base, terminal)?;
+    // An accept of a changed-source card reads, validates and copies the pack's source as it
+    // reads now, before the commit, so a pack that no longer loads refuses the pick with nothing
+    // committed.
+    let update = crate::app::pack::update_for_card(&store, &root, &req.id, req.verdict)?;
     let mut written = write(req, &mut store, writer, base)?;
-    // A trust card's pick records or removes the workspace's trust where it ran (DR-89).
+    // A trust card's pick records or removes the workspace's trust where it ran, and a
+    // changed-source card's accept records the copy just made (DR-89).
     cards::picked(&store, &mut written, &root)?;
+    cards::picked_pack(&mut store, &mut written, update.as_ref())?;
     Ok(written)
 }
 

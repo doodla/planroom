@@ -99,6 +99,7 @@ pub fn run(
     let root = workspace::find_root(cwd).ok_or_else(|| AppError::workspace_not_found(cwd))?;
     let mut store = Store::open_existing(&workspace::store_path(&root))?
         .ok_or_else(|| AppError::workspace_not_found(&root))?;
+    crate::app::hook(&mut store);
 
     // A token, or a person's claim, makes this a person's import, checked before anything is read;
     // a tokenless sync only answers reads and leaves the rest (DR-77). An agent is never a person,

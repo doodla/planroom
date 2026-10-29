@@ -36,6 +36,8 @@ export type CommandName =
       | "intent lint"
       | "intent version"
       | "intent list"
+      | "pack add"
+      | "pack remove"
     )
   | string;
 /**
@@ -150,6 +152,7 @@ export type WarningCode =
       | "deterministic_fallback"
       | "workspace_untrusted"
       | "trust_not_recorded"
+      | "pack_not_updated"
       | "config_key_ignored"
       | "inferred_unconfirmed"
       | "cache_regression"
@@ -323,6 +326,14 @@ export type Command =
   | {
       command: "intent_list";
       args: IntentListReq;
+    }
+  | {
+      command: "pack_add";
+      args: PackAddReq;
+    }
+  | {
+      command: "pack_remove";
+      args: PackRemoveReq;
     };
 /**
  * The five fixed levels, from the plan down to the code.
@@ -1255,6 +1266,8 @@ export interface Card {
         | "intent lint"
         | "intent version"
         | "intent list"
+        | "pack add"
+        | "pack remove"
       )
     | string;
 }
@@ -1679,6 +1692,68 @@ export interface IntentListReq {
    * The cursor `meta.next` gave, to read the page after it.
    */
   cursor?: Cursor | null;
+}
+/**
+ * `planroom pack add DIR`: validate the pack in `DIR`, copy it into the state directory's
+ * `packs/<sha256>/` and record it in the workspace's pack set and config (DR-62). Person only.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "PackAddReq".
+ */
+export interface PackAddReq {
+  /**
+   * The pack's directory, from the current directory.
+   */
+  dir: string;
+  /**
+   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   */
+  base?: number | null;
+  /**
+   * The idempotency key; derived from the request when absent.
+   */
+  idem?: string | null;
+  /**
+   * The project the write belongs to.
+   */
+  project?: NodeId | null;
+  /**
+   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   */
+  client?: string | null;
+}
+/**
+ * `planroom pack remove ID`: drop the out-of-tree pack `ID` from the workspace's pack set and
+ * config (DR-62). Person only.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "PackRemoveReq".
+ */
+export interface PackRemoveReq {
+  /**
+   * The pack's ID.
+   */
+  id: string;
+  /**
+   * The `seq` of the view you acted on; required when the command writes user-authored state.
+   */
+  base?: number | null;
+  /**
+   * The idempotency key; derived from the request when absent.
+   */
+  idem?: string | null;
+  /**
+   * The project the write belongs to.
+   */
+  project?: NodeId | null;
+  /**
+   * The client ID of the writer instance, such as a canvas tab. A flush of a tab's pending
+   * edits sends the ID of the tab that made them, never the flusher's (DR-73); absent, it is an
+   * agent's own ID from `PLANROOM_ACTOR`, or `cli:<pid>` for a person at a terminal.
+   */
+  client?: string | null;
 }
 /**
  * What `schema --commands` returns: every leaf, summary first.
@@ -2286,6 +2361,8 @@ export interface Envelope {
         | "intent lint"
         | "intent version"
         | "intent list"
+        | "pack add"
+        | "pack remove"
       )
     | string;
   /**
@@ -2899,6 +2976,8 @@ export interface InboxRow {
         | "intent lint"
         | "intent version"
         | "intent list"
+        | "pack add"
+        | "pack remove"
       )
     | string;
   /**
@@ -3704,6 +3783,39 @@ export interface PackReport {
    * `pack_invalid`, naming the file, the line and the reference.
    */
   checks: PackCheck[];
+}
+/**
+ * What `pack add` and `pack remove` return: the pack and its copy, whether the record changed,
+ * and the workspace's pack set afterwards. It carries no path: the summary quotes the source,
+ * shortened.
+ *
+ * This interface was referenced by `PlanroomContractV1Input`'s JSON-Schema
+ * via the `definition` "PackSetResult".
+ */
+export interface PackSetResult {
+  summary: string;
+  /**
+   * The pack's ID.
+   */
+  id: string;
+  version: number;
+  /**
+   * The sha256 of the copy the pack was added or removed with, which names it in the state
+   * directory's `packs/`.
+   */
+  copy: string;
+  /**
+   * Whether the workspace's recorded pack set changed.
+   */
+  changed: boolean;
+  /**
+   * The out-of-tree packs recorded afterwards.
+   */
+  loaded: number;
+  /**
+   * The recorded set's hash afterwards.
+   */
+  packs_hash: string;
 }
 /**
  * What `focus` returns: the pane, the band and the status line, fit to `focus`'s catalogue budget

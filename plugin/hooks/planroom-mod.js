@@ -277,6 +277,32 @@ var CATALOGUE = [
     "undo": "query",
     "tool": "room_change",
     "room": true
+  },
+  {
+    "name": "pack add",
+    "idea": "setup",
+    "summary": "Add an out-of-tree pack: validate it, copy it into the state directory and record it; a person's alone.",
+    "actor": "person_only",
+    "class": "change",
+    "budget_tokens": 400,
+    "needs_base": false,
+    "spends": false,
+    "undo": "compensate",
+    "tool": null,
+    "room": true
+  },
+  {
+    "name": "pack remove",
+    "idea": "setup",
+    "summary": "Remove an out-of-tree pack from the workspace's pack set; a person's alone.",
+    "actor": "person_only",
+    "class": "change",
+    "budget_tokens": 400,
+    "needs_base": false,
+    "spends": false,
+    "undo": "compensate",
+    "tool": null,
+    "room": true
   }
 ];
 var FALLBACK_PANES = {

@@ -1,6 +1,8 @@
 //! `cargo xtask fixture OUT [--no-packs]`: `examples/build-fixture OUT`, then
-//! `OUT/.planroom/config.toml` loading `examples/packs/ruby` (DR-13). The pack loader reads that
-//! config once it exists; until then the path is ready and unused.
+//! `OUT/.planroom/config.toml` loading `examples/packs/ruby` (DR-13). The workspace's first
+//! trusted scan reads that list and copies each pack into the state directory's `packs/`, and
+//! the store records the set (DR-62); `planroom-testkit`'s `fixture_with_packs` builds the same
+//! state for the tests.
 //!
 //! A workspace config loads only from a state directory the data root records as trusted (DR-48),
 //! so with the config this records `OUT/.planroom/` as trusted, `by: engine`, in the data root of

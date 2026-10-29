@@ -18,6 +18,9 @@ pub enum StoreError {
     NewerFile { file: PathBuf, found: String, supported: String },
     /// The same idem with a different request hash.
     IdempotencyMismatch { idem: String, stored_event: String, stored_seq: Seq },
+    /// The pack guard refused the write: this engine is older than the one that recorded the
+    /// workspace's pack set, named by their identities (DR-62).
+    PacksMismatch { recorded: Option<String>, resolved: String },
     /// A file the store needs couldn't be created or read.
     Io(String),
     /// Any other SQLite failure, or a stored row that doesn't parse.
@@ -31,6 +34,7 @@ impl StoreError {
             StoreError::Busy => ErrorCode::StoreBusy,
             StoreError::SchemaMismatch { .. } | StoreError::NewerFile { .. } => ErrorCode::SchemaMismatch,
             StoreError::IdempotencyMismatch { .. } => ErrorCode::IdempotencyMismatch,
+            StoreError::PacksMismatch { .. } => ErrorCode::PacksMismatch,
             StoreError::Io(_) | StoreError::Sqlite(_) => ErrorCode::Internal,
         }
     }
@@ -47,6 +51,9 @@ impl StoreError {
             }),
             StoreError::IdempotencyMismatch { idem, stored_event, .. } => {
                 json!({"idem": idem, "stored_event": stored_event})
+            }
+            StoreError::PacksMismatch { recorded, resolved } => {
+                json!({"recorded": recorded, "resolved": resolved})
             }
             StoreError::Io(_) | StoreError::Sqlite(_) => json!({}),
         }
@@ -66,6 +73,11 @@ impl fmt::Display for StoreError {
             StoreError::IdempotencyMismatch { idem, .. } => {
                 write!(f, "idem {idem} was used for another request")
             }
+            StoreError::PacksMismatch { recorded, resolved } => write!(
+                f,
+                "the workspace's pack set was recorded by {}, newer than this engine, {resolved}",
+                recorded.as_deref().unwrap_or("an unknown engine")
+            ),
             StoreError::Io(e) | StoreError::Sqlite(e) => f.write_str(e),
         }
     }

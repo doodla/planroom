@@ -112,6 +112,8 @@ pub enum Command {
     IntentLint(LintReq),
     IntentVersion(IntentVersionReq),
     IntentList(IntentListReq),
+    PackAdd(PackAddReq),
+    PackRemove(PackRemoveReq),
 }
 
 const MAP: CommandSpec = CommandSpec {
@@ -585,6 +587,49 @@ const INTENT_LIST: CommandSpec = CommandSpec {
     room: true,
 };
 
+/// The errors `pack add` and `pack remove` may return.
+const PACK_SET_ERRORS: &[ErrorCode] = &[
+    ErrorCode::InvalidArgument,
+    ErrorCode::WorkspaceNotFound,
+    ErrorCode::PersonRequired,
+    ErrorCode::NotFound,
+    ErrorCode::PackInvalid,
+    ErrorCode::PacksMismatch,
+    ErrorCode::StoreBusy,
+    ErrorCode::SchemaMismatch,
+    ErrorCode::Internal,
+];
+
+const PACK_ADD: CommandSpec = CommandSpec {
+    path: &["pack", "add"],
+    idea: Idea::Setup,
+    summary: "Add an out-of-tree pack: validate it, copy it into the state directory and record it; a person's alone.",
+    actor: ActorRule::PersonOnly,
+    class: Class::Change,
+    budget_tokens: 400,
+    needs_base: false,
+    spends: false,
+    errors: PACK_SET_ERRORS,
+    undo: Undo::Compensate,
+    tool: None,
+    room: true,
+};
+
+const PACK_REMOVE: CommandSpec = CommandSpec {
+    path: &["pack", "remove"],
+    idea: Idea::Setup,
+    summary: "Remove an out-of-tree pack from the workspace's pack set; a person's alone.",
+    actor: ActorRule::PersonOnly,
+    class: Class::Change,
+    budget_tokens: 400,
+    needs_base: false,
+    spends: false,
+    errors: PACK_SET_ERRORS,
+    undo: Undo::Compensate,
+    tool: None,
+    room: true,
+};
+
 impl Command {
     /// Every leaf's spec, in catalogue order.
     pub const SPECS: &'static [CommandSpec] = &[
@@ -609,6 +654,8 @@ impl Command {
         INTENT_LINT,
         INTENT_VERSION,
         INTENT_LIST,
+        PACK_ADD,
+        PACK_REMOVE,
     ];
 
     pub const fn spec(&self) -> &'static CommandSpec {
@@ -634,6 +681,8 @@ impl Command {
             Command::IntentLint(_) => &INTENT_LINT,
             Command::IntentVersion(_) => &INTENT_VERSION,
             Command::IntentList(_) => &INTENT_LIST,
+            Command::PackAdd(_) => &PACK_ADD,
+            Command::PackRemove(_) => &PACK_REMOVE,
         }
     }
 
@@ -1066,6 +1115,50 @@ pub struct DefSchema {
 pub struct CommandList {
     pub summary: String,
     pub items: Vec<LeafListing>,
+}
+
+/// `planroom pack add DIR`: validate the pack in `DIR`, copy it into the state directory's
+/// `packs/<sha256>/` and record it in the workspace's pack set and config (DR-62). Person only.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct PackAddReq {
+    /// The pack's directory, from the current directory.
+    #[arg(value_name = "DIR")]
+    pub dir: String,
+    #[serde(flatten)]
+    #[command(flatten)]
+    pub common: WriteCommon,
+}
+
+/// `planroom pack remove ID`: drop the out-of-tree pack `ID` from the workspace's pack set and
+/// config (DR-62). Person only.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
+pub struct PackRemoveReq {
+    /// The pack's ID.
+    #[arg(value_name = "ID")]
+    pub id: String,
+    #[serde(flatten)]
+    #[command(flatten)]
+    pub common: WriteCommon,
+}
+
+/// What `pack add` and `pack remove` return: the pack and its copy, whether the record changed,
+/// and the workspace's pack set afterwards. It carries no path: the summary quotes the source,
+/// shortened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PackSetResult {
+    pub summary: String,
+    /// The pack's ID.
+    pub id: String,
+    pub version: u32,
+    /// The sha256 of the copy the pack was added or removed with, which names it in the state
+    /// directory's `packs/`.
+    pub copy: String,
+    /// Whether the workspace's recorded pack set changed.
+    pub changed: bool,
+    /// The out-of-tree packs recorded afterwards.
+    pub loaded: u32,
+    /// The recorded set's hash afterwards.
+    pub packs_hash: String,
 }
 
 /// What `scan` returns: the map at the top level with the default lens, and the next action.

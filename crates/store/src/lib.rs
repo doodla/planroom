@@ -10,6 +10,7 @@ mod commit;
 mod error;
 pub mod fs_check;
 mod layouts;
+pub mod meta;
 pub mod migrate;
 mod pointer;
 mod presence;
@@ -31,6 +32,7 @@ pub use commit::{
 };
 pub use error::StoreError;
 pub use fs_check::{Environment, Notice, Placement, register, take_notices};
+pub use meta::{PackGuard, PackVerdict, RecordedPacks};
 pub use read::{ActiveSet, FactRow, Shape, Snapshot, SnapshotKey};
 pub use tail::Tail;
 
@@ -58,6 +60,8 @@ pub struct Store {
     conn: Connection,
     path: PathBuf,
     hook: Option<Sender<Seq>>,
+    /// The guard every authored write runs on the pack record ([`Store::guard_packs`]).
+    guard: Option<Box<PackGuard>>,
 }
 
 /// Where the store asked for at `path` (`<state dir>/store.db`) lives: the file itself, or the
@@ -208,7 +212,7 @@ impl Store {
         }
         conn.pragma_update(None, "synchronous", "FULL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
-        let store = Store { conn, path: path.to_path_buf(), hook: None };
+        let store = Store { conn, path: path.to_path_buf(), hook: None, guard: None };
         store.check_place();
         Ok(store)
     }
@@ -270,7 +274,7 @@ impl Store {
     /// Set a `meta` value only when it has none yet; returns the value it holds afterwards.
     pub fn meta_insert_once(&mut self, key: &str, value: &str) -> Result<String, StoreError> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        commit::check_version(&tx)?;
+        meta::check_writer(self.guard.as_deref(), &tx)?;
         tx.execute("INSERT OR IGNORE INTO meta (key, value) VALUES (?1, ?2)", [key, value])?;
         let held: String = tx.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0))?;
         tx.commit()?;
@@ -287,7 +291,7 @@ impl Store {
         also: &[(&str, &str)],
     ) -> Result<bool, StoreError> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        commit::check_version(&tx)?;
+        meta::check_writer(self.guard.as_deref(), &tx)?;
         let held: Option<String> =
             tx.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)).optional()?;
         if held.as_deref() != expected {
@@ -309,7 +313,7 @@ impl Store {
     /// spent, so each token works once (DR-64).
     pub fn spend_token(&mut self, digest: &str, now: u64, expires: u64) -> Result<bool, StoreError> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        commit::check_version(&tx)?;
+        meta::check_writer(self.guard.as_deref(), &tx)?;
         let held: Option<String> =
             tx.query_row("SELECT value FROM meta WHERE key = 'spent_tokens'", [], |r| r.get(0)).optional()?;
         let mut spent: serde_json::Map<String, serde_json::Value> = match held {

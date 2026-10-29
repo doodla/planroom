@@ -19,6 +19,7 @@ pub mod map;
 pub mod models;
 pub mod open;
 pub mod owner;
+pub mod pack;
 pub mod person;
 pub mod review;
 pub mod scan;
@@ -41,10 +42,16 @@ pub fn announce_commits_to(hook: Sender<Seq>) {
     let _ = OWN_COMMITS.set(hook);
 }
 
-/// Hook a store this process opened for writing to the live loop, when one runs.
+/// Hook a store this process opened for writing to the live loop, when one runs, and install the
+/// pack guard every authored write runs under the write lock: an engine older than the one that
+/// recorded the workspace's pack set is refused with `packs_mismatch`, and any other records its
+/// own built-ins at its first write (DR-62).
 pub fn hook(store: &mut planroom_store::Store) {
     if let Some(hook) = OWN_COMMITS.get() {
         store.set_commit_hook(hook.clone());
+    }
+    if let Some(guard) = crate::packs::state::default_guard() {
+        store.guard_packs(guard);
     }
 }
 

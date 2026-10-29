@@ -1,0 +1,25 @@
+format = "planroom.pack/v1"
+id = "ruby"
+version = 1
+title = "Ruby scripts"
+requires = ["code"]
+
+[[languages]]
+id = "ruby"
+extensions = ["rb"]
+line_comment = "#"
+block_comment = ["=begin", "=end"]
+
+[[extractors]]
+id = "ruby-script"
+files = ["**/*.rb"]
+regex = "(?m)^require '([^']+)'"
+emit = [{ node = "code.tooling", key = "$stem", name = "$stem", parent = "@id:code.repo:$repo" },
+        { node = "code.file", key = "$file", parent = "@id:code.tooling:$stem" },
+        { edge = "code.imports", from = "@id:code.file:$file", to = "@ext:$1", via = "$1" }]
+
+[[extractors]]
+id = "ruby-http"
+files = ["**/*.rb"]
+regex = "'(https?)://([a-z0-9-]+):(\\d+)(/[^']*)'"
+emit = [{ hint = "code.url", scope = "@id:code.file:$file", key = "$2", attrs = { scheme = "$1", host = "$2", port = "$3", path = "$4", method = "GET" } }]

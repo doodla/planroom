@@ -100,8 +100,6 @@
       ],
       "due": {
         "crates/planroom/tests/s01_first_look.rs::every_truth_container_component_and_relation_with_evidence": "M3",
-        "crates/planroom/tests/s01_first_look.rs::search_finds_every_truth_entity": "M1",
-        "crates/planroom/tests/s01_first_look.rs::repo_languages_match_truth": "M1",
         "crates/planroom/tests/s01_first_look.rs::deterministic_with_models_off": "M1",
         "tests/e2e/src/first-look.spec.ts": "M1",
         "crates/planroom/tests/first_run.rs::first_scan_deals_at_most_three_cards": "M2",
@@ -973,7 +971,7 @@
           "planroom map --lens flags --json",
           "planroom decide --json",
           "harness: edit $TMP/elsewhere/flags/pack.toml, then planroom scan --json and a person edit with --base: the edit applies, and one person-only card offers to update the pack or keep its copy; then delete $TMP/elsewhere: planroom map --lens flags --json is unchanged (DR-62)",
-          "planroom ask path healthcheck orders --lens runtime --json; planroom ask why healthcheck storefront --json",
+          "planroom ask path healthcheck orders --json; planroom ask why healthcheck storefront --json",
           "a source scan of core, the shipped engine crates (crates/contract, kernel, store, extract, models, and planroom with build.rs) and packs/, not xtask or testkit, for the toy packs' identifiers as quoted literals: \"flags.flag\", \"flags.reads_flag\", \"flag_stale\", \"ruby/ruby-http\", \"ruby/ruby-script\" and \"rb\" (DR-13)"
         ],
         "compare": [
@@ -1013,6 +1011,7 @@
         "crates/planroom/tests/packs.rs::requires_is_inward_only",
         "crates/planroom/tests/packs.rs::alternating_scans_with_different_environments_never_flip_the_snapshot",
         "crates/planroom/tests/packs.rs::a_process_with_another_pack_set_refuses_writes",
+        "crates/planroom/tests/packs.rs::a_newer_engine_records_its_own_packs_at_its_first_write",
         "crates/planroom/tests/packs.rs::an_out_of_tree_pack_may_require_any_built_in",
         "crates/planroom/tests/packs.rs::a_pack_that_only_adds_an_image_role_keeps_every_container_id",
         "crates/planroom/tests/packs.rs::duplicate_table_keys_are_pack_invalid",
@@ -1031,23 +1030,13 @@
         "crates/planroom/tests/packs.rs::accepting_the_changed_source_card_updates_the_copy"
       ],
       "due": {
-        "crates/planroom/tests/s10_extensibility.rs::ruby_absent_without_pack": "M1",
         "crates/planroom/tests/s10_extensibility.rs::toy_pack_adds_kinds_lens_and_decision": "M5",
-        "crates/planroom/tests/s10_extensibility.rs::healthcheck_edges_through_the_ruby_pack": "M1",
         "crates/planroom/tests/s10_extensibility.rs::no_engine_source_mentions_the_packs": "M5",
         "crates/planroom/tests/s10_extensibility.rs::same_binary_runs_with_and_without_the_packs": "M5",
-        "crates/planroom/tests/packs.rs::alternating_scans_with_different_environments_never_flip_the_snapshot": "M1",
-        "crates/planroom/tests/packs.rs::a_process_with_another_pack_set_refuses_writes": "M1",
-        "crates/planroom/tests/packs.rs::a_pack_that_only_adds_an_image_role_keeps_every_container_id": "M1",
         "crates/planroom/tests/packs.rs::every_v0_1_decision_kind_validates_against_the_contract": "M2",
-        "crates/planroom/tests/trust.rs::an_agent_cannot_add_a_pack": "M1",
         "crates/kernel/tests/effects.rs::retarget_needs_a_person_stakes_role_subject": "M2",
         "crates/planroom/tests/s10_extensibility.rs::an_edgeless_lens_kind_shows_on_its_map": "M5",
-        "crates/kernel/tests/policy.rs::when_reads_graph_structure": "M2",
-        "crates/planroom/tests/packs.rs::an_added_pack_loads_from_its_copy": "M1",
-        "crates/planroom/tests/packs.rs::editing_a_packs_source_deals_one_card_and_refuses_no_write": "M1",
-        "crates/planroom/tests/packs.rs::deleting_a_packs_source_changes_nothing": "M1",
-        "crates/planroom/tests/packs.rs::accepting_the_changed_source_card_updates_the_copy": "M1"
+        "crates/kernel/tests/policy.rs::when_reads_graph_structure": "M2"
       }
     },
     {
@@ -1791,7 +1780,7 @@
       "id": "C6",
       "title": "Pack conformance kit",
       "tier": "C",
-      "status": "failing",
+      "status": "passing",
       "requirements": [
         "R11"
       ],
@@ -1815,8 +1804,6 @@
       "tests": [
         "crates/planroom/tests/packs.rs::doctor_pack_passes_on_every_pack"
       ],
-      "due": {
-      },
       "decision": "DR-10"
     },
     {
@@ -1962,9 +1949,7 @@
         "crates/planroom/tests/trust.rs::rejecting_the_trust_card_keeps_the_config_unloaded"
       ],
       "due": {
-        "crates/planroom/tests/trust.rs::an_out_of_tree_pack_loads_without_a_card": "M1",
-        "crates/planroom/tests/trust.rs::an_out_of_tree_pack_cannot_enable_its_own_auto_action": "M2",
-        "crates/planroom/tests/trust.rs::planroom_packs_loads_nothing_outside_doctor": "M1"
+        "crates/planroom/tests/trust.rs::an_out_of_tree_pack_cannot_enable_its_own_auto_action": "M2"
       },
       "decision": "DR-48"
     },

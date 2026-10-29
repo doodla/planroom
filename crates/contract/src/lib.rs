@@ -30,9 +30,9 @@ pub use card::{Card, CardKind};
 pub use command::{
     ActorRule, Class, CodeReq, Command, CommandList, CommandSpec, DefSchema, Detail, DoctorReq, DrainReq,
     FocusDetail, FocusReq, Idea, ImportReq, LayoutPut, LeafListing, LeafSchema, MapReq, OpenReq, OpenResult,
-    PackCheck, PackReport, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary,
-    ServeInfo, ServeReq, SessionReq, SessionToken, ShareReq, Tool, Undo, VersionInfo, VersionReq, WatchReq,
-    WriteCommon,
+    PackAddReq, PackCheck, PackRemoveReq, PackReport, PackSetResult, PersonInitReq, PersonKey, ScanReq,
+    ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken, ShareReq, Tool,
+    Undo, VersionInfo, VersionReq, WatchReq, WriteCommon,
 };
 pub use config::Config;
 pub use decision::{

@@ -50,7 +50,7 @@ YAML and JSON name no test files, so a compose file is read wherever it sits. A 
 
 You don't edit this pack to add a language or a domain. You write a pack of your own that requires `code`.
 
-This build loads only the built-in packs, so a workspace can't load your pack yet. Today you check it with `planroom doctor --pack DIR`, as [Test it](#test-it) shows for this pack. The person-only `planroom pack add DIR`, which adds a pack to a workspace, is planned for M1 (see [M1](../../docs/contributing/architecture.md#m1-kernel-store-code-and-plan-packs-mod-and-canvas-basics-122-h) in Architecture).
+Check your pack with `planroom doctor --pack DIR`, as [Test it](#test-it) shows for this pack. Then add it to a workspace with `planroom pack add DIR`, which only a person runs: it copies the pack into the workspace's state directory, and every later scan loads that copy. `planroom pack remove ID` takes it out again. [`examples/packs/ruby`](../../examples/packs/ruby/README.md) is such a pack.
 
 Your pack may:
 

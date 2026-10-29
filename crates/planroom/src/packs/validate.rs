@@ -409,7 +409,7 @@ impl Names {
             for (i, decl) in pack.file.extractors.iter().enumerate() {
                 let at = root.key("extractors").at(i).key("id");
                 let eid = extractor_id(decl);
-                syntax(src, &at, eid)?;
+                extractor_syntax(src, &at, eid)?;
                 if !seen.insert(eid) {
                     return Err(twice(at, "extractors", eid));
                 }
@@ -638,6 +638,9 @@ impl Ctx<'_> {
             Command::IntentVersion(req) => project(&req.common)?,
             // A project there is an ID, a slug or a name, resolved when it runs.
             Command::IntentLint(_) | Command::IntentList(_) => {}
+            // A pack's directory or ID names no kind, relation, lens or node ID.
+            Command::PackAdd(req) => project(&req.common)?,
+            Command::PackRemove(req) => project(&req.common)?,
             // The text `find` searches for names no kind, relation, lens or ID.
             Command::Find(_)
             | Command::Ask(_)
@@ -1170,6 +1173,18 @@ fn syntax(src: &Source, at: &KeyPath, id: &str) -> Result<(), AppError> {
     let ok = !id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
     if !ok {
         return Err(src.invalid_at(at, At::Value, id, "id_syntax", &[("id", &id)]));
+    }
+    bounded(src, at, id)
+}
+
+/// An extractor's ID at `at`: lowercase letters, digits, `_` and `-`, starting with a letter or a
+/// digit, at most [`ID_MAX`] long, as architecture.md names the Ruby pack's `ruby-http`. Its
+/// pack-qualified name, `<pack>/<id>`, is what provenance and the fact cache key carry.
+fn extractor_syntax(src: &Source, at: &KeyPath, id: &str) -> Result<(), AppError> {
+    let ok = id.bytes().next().is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-');
+    if !ok {
+        return Err(src.invalid_at(at, At::Value, id, "extractor_id_syntax", &[("id", &id)]));
     }
     bounded(src, at, id)
 }

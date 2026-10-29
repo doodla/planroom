@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use planroom_contract::{EventBody, Level};
 use planroom_store::Store;
-use planroom_testkit::fixture;
 use planroom_testkit::truth::{self, Cli, Report, ScanRead, Scope};
+use planroom_testkit::{fixture, fixture_with_packs};
 use serde_json::Value;
 
 /// Held by every test in this file, so a timed one runs alone under `cargo test` too.
@@ -56,7 +56,8 @@ fn cold_scan_under_5_s() {
     assert_eq!(repos, 5, "the five repos at the top: {}", env["result"]["map"]);
 }
 
-/// A scanned copy of the fixture: the temporary directory that holds the copy and its data root.
+/// A scanned copy of the fixture workspace as every CI path scans it, with the Ruby pack its config
+/// names (DR-13): the temporary directory that holds the copy and its data root.
 struct Scanned {
     _dir: tempfile::TempDir,
     root: PathBuf,
@@ -67,7 +68,8 @@ impl Scanned {
     fn new() -> Scanned {
         let dir = tempfile::tempdir().unwrap();
         let data = dir.path().join("data");
-        let root = fixture(&dir.path().join("shop")).root;
+        let ruby = planroom_testkit::repo_root().join("examples/packs/ruby");
+        let root = fixture_with_packs(&dir.path().join("shop"), &data, &[&ruby]).root;
         planroom(&root, &data, &["scan", &root.display().to_string()]);
         Scanned { _dir: dir, root, data }
     }
@@ -225,4 +227,90 @@ fn truth_recall_never_drops() {
     // held from then on.
     let raised: Vec<&String> = recall.difference(&floor).collect();
     assert!(raised.is_empty(), "recall rose above the floor; add these to {RECALL_FLOOR}: {raised:?}");
+}
+
+impl Scanned {
+    /// Every node of the active set, parsed.
+    fn nodes(&self) -> Vec<Value> {
+        let store = Store::open_existing(&self.root.join(".planroom/store.db")).unwrap().expect("a store");
+        store
+            .facts(&store.active_set().unwrap().snapshots())
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.shape == planroom_store::Shape::Node)
+            .map(|r| serde_json::from_str(&r.body).unwrap())
+            .collect()
+    }
+}
+
+/// `find` finds every truth entity in its one reply, untruncated: each of the 11 containers by its
+/// name, and each of the 24 components by its repo and its whole path, since a last segment
+/// repeats (`api`) or is a common word.
+#[test]
+fn search_finds_every_truth_entity() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let scanned = Scanned::new();
+    let truth = planroom_testkit::truth();
+    let nodes = scanned.nodes();
+    let find = |query: &str, expected: &str| {
+        let env = planroom(&scanned.root, &scanned.data, &["find", query]);
+        let warnings = env["meta"]["warnings"].as_array().cloned().unwrap_or_default();
+        assert!(!warnings.iter().any(|w| w["code"] == "truncated"), "find {query}: truncated: {env}");
+        let ids: Vec<&str> =
+            env["result"]["items"].as_array().unwrap().iter().map(|i| i["id"].as_str().unwrap()).collect();
+        assert!(ids.contains(&expected), "find {query}: {expected} not among {ids:?}");
+    };
+    let containers = truth["containers"].as_array().unwrap();
+    assert_eq!(containers.len(), 11);
+    for container in containers {
+        let name = container["name"].as_str().unwrap();
+        let node = nodes
+            .iter()
+            .find(|n| n["level"] == "container" && n["name"] == name)
+            .unwrap_or_else(|| panic!("the container {name} is mapped"));
+        find(name, node["id"].as_str().unwrap());
+    }
+    let components = truth["components"].as_array().unwrap();
+    assert_eq!(components.len(), 24);
+    for component in components {
+        let path = component["path"].as_str().unwrap();
+        let (repo, rest) = path.split_once('/').unwrap();
+        let node = nodes
+            .iter()
+            .find(|n| {
+                let id = n["id"].as_str().unwrap();
+                n["level"] != "system"
+                    && id.starts_with(&format!("{repo}:"))
+                    && id
+                        .split_once(':')
+                        .and_then(|(_, tail)| tail.split_once(':'))
+                        .is_some_and(|(_, key)| key == rest)
+            })
+            .unwrap_or_else(|| panic!("the component {path} is mapped"));
+        // Its repo and its path in the repo, as two words: `find` matches each word, fuzzily, in a
+        // block's name or ID, and an ID holds both.
+        find(&format!("{repo} {rest}"), node["id"].as_str().unwrap());
+    }
+    // The flags wait on the flags pack; until then `find` answers.
+    planroom(&scanned.root, &scanned.data, &["find", "gift"]);
+}
+
+/// Each repo's languages hold the truth's, `ruby` among `platform`'s through the Ruby pack.
+#[test]
+fn repo_languages_match_truth() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let scanned = Scanned::new();
+    let truth = planroom_testkit::truth();
+    let nodes = scanned.nodes();
+    for (repo, want) in truth["repos"].as_object().unwrap() {
+        let node = nodes
+            .iter()
+            .find(|n| n["level"] == "system" && n["id"] == format!("{repo}:repo:{repo}"))
+            .unwrap_or_else(|| panic!("the repo {repo} is mapped"));
+        let have: BTreeSet<&str> =
+            node["props"]["languages"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
+        for language in want["languages"].as_array().unwrap() {
+            assert!(have.contains(language.as_str().unwrap()), "{repo}: {language} not in {have:?}");
+        }
+    }
 }

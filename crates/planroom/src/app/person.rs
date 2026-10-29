@@ -34,6 +34,7 @@ pub fn run(
     let root = workspace::find_root(cwd).ok_or_else(|| AppError::workspace_not_found(cwd))?;
     let mut store = Store::open_existing(&workspace::store_path(&root))?
         .ok_or_else(|| AppError::workspace_not_found(&root))?;
+    crate::app::hook(&mut store);
     let mut submitted = String::new();
     stdin.read_to_string(&mut submitted).map_err(AppError::internal)?;
     let submitted = submitted.trim().to_owned();

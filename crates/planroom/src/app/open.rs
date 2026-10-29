@@ -62,6 +62,9 @@ pub fn run(
         None => std::fs::canonicalize(cwd).map_err(|_| AppError::workspace_not_found(cwd))?,
     };
     let mut store = Store::open_existing(&workspace::store_path(&root))?;
+    if let Some(store) = store.as_mut() {
+        crate::app::hook(store);
+    }
     let registered = match &store {
         Some(store) => store.meta("person_pubkey")?,
         None => None,
