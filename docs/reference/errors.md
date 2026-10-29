@@ -86,6 +86,8 @@ A warning never changes the exit code.
 | `model_request_pending` | the session backend is waiting for the mod | none |
 | `store_migrated` | this command migrated the store; details name the versions and the VACUUM INTO copy | `from`, `to`, `backup` |
 | `temporary_host` | this host loses its files with its container, so a redacted copy of the backup is also kept at a local ref | `repo` (masked), `ref` |
+| `backup_behind` | the event backup stops before the last person-authored event; the next person edit tries to catch it up | `backup_seq`, `file_seq`, `last_authored` |
+| `backup_ref_failed` | the redacted backup couldn't be copied to its local ref; the next person edit tries again | `repo` (masked), `ref` |
 | `reconcile_paused` | a repo's HEAD moved other than forward along its tracked branch, so the map follows it and the reconciler skipped it | `repo` (masked), `head`, `tracked_branch`, `reason` |
 | `duty_failed` | a background duty failed and hasn't succeeded since; details name the duty, when, and its log under the data root | `duty`, `at`, `log` |
 | `unnamed_paths` | files whose paths aren't UTF-8, or hold a newline or a backslash, which no node ID can name, so they aren't mapped; details name the repo, the count and the first 10 paths in sorted order, escaped | `repo` (masked), `count`, `paths` (masked) |

@@ -318,6 +318,12 @@ warning_codes! {
     TemporaryHost = "temporary_host",
         "this host loses its files with its container, so a redacted copy of the backup is also kept at a local ref",
         ["repo", "ref"] redact ["repo"];
+    BackupBehind = "backup_behind",
+        "the event backup stops before the last person-authored event; the next person edit tries to catch it up",
+        ["backup_seq", "file_seq", "last_authored"];
+    BackupRefFailed = "backup_ref_failed",
+        "the redacted backup couldn't be copied to its local ref; the next person edit tries again",
+        ["repo", "ref"] redact ["repo"];
     ReconcilePaused = "reconcile_paused",
         "a repo's HEAD moved other than forward along its tracked branch, so the map follows it and the reconciler skipped it",
         ["repo", "head", "tracked_branch", "reason"] redact ["repo"];

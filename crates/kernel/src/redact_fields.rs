@@ -39,6 +39,33 @@ pub const PATHS: &[(&str, &[&str])] = &[
     ("DirtyRepo", &[
         "repo",
     ]),
+    ("DoctorBackup", &[
+        "backup_ref",
+        "file",
+    ]),
+    ("DoctorMigrations", &[
+        "copies",
+    ]),
+    ("DoctorPacks", &[
+        "packs[].source",
+    ]),
+    ("DoctorReport", &[
+        "backup.backup_ref",
+        "backup.file",
+        "migrations.copies",
+        "packs.packs[].source",
+        "store.path",
+    ]),
+    ("DoctorResult", &[
+        "backup.backup_ref",
+        "backup.file",
+        "migrations.copies",
+        "packs.packs[].source",
+        "store.path",
+    ]),
+    ("DoctorStore", &[
+        "path",
+    ]),
     ("DriftLine", &[
         "summary",
     ]),
@@ -68,6 +95,9 @@ pub const PATHS: &[(&str, &[&str])] = &[
     ]),
     ("Evidence", &[
         "contains",
+    ]),
+    ("ExportHeader", &[
+        "state_dir",
     ]),
     ("FactBatch", &[
         "edges[].evidence[].contains",
@@ -155,6 +185,9 @@ pub const PATHS: &[(&str, &[&str])] = &[
     ]),
     ("OpenResult", &[
         "empty.line",
+    ]),
+    ("PackRecord", &[
+        "source",
     ]),
     ("PaneModel", &[
         "decision.question",
@@ -292,6 +325,9 @@ pub const OPEN: &[(&str, &[&str])] = &[
         "over{}",
         "scores",
     ]),
+    ("ExportHeader", &[
+        "{}",
+    ]),
     ("LiveHead", &[
         "{}",
     ]),
@@ -327,6 +363,7 @@ pub const WARNING_DETAILS: &[(&str, &[&str])] = &[
     ("repo_skipped", &["repo", "fix"]),
     ("scan_superseded", &["repo"]),
     ("temporary_host", &["repo"]),
+    ("backup_ref_failed", &["repo"]),
     ("reconcile_paused", &["repo"]),
     ("unnamed_paths", &["repo", "paths"]),
     ("unsafe_filesystem", &["path", "store"]),

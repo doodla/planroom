@@ -165,6 +165,8 @@ export type WarningCode =
       | "model_request_pending"
       | "store_migrated"
       | "temporary_host"
+      | "backup_behind"
+      | "backup_ref_failed"
       | "reconcile_paused"
       | "duty_failed"
       | "unnamed_paths"
@@ -579,6 +581,14 @@ export type Outcome = "acted" | "card" | "escalated" | "picked" | "overridden";
  * via the `definition` "Detail".
  */
 export type Detail = "summary" | "graph";
+/**
+ * What `doctor` returns: with `--pack DIR`, that pack's conformance report; with no flag, the
+ * general report.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DoctorResult".
+ */
+export type DoctorResult = PackReport | DoctorReport;
 /**
  * An edge end: a node ID, or an alias another extractor defines, such as `host:orders`.
  *
@@ -1517,8 +1527,9 @@ export interface ImportReq {
   source: string;
 }
 /**
- * `planroom doctor --pack DIR [--update]`: one pack's conformance kit (DR-10). `--pack` is the
- * one check this build has; the backup, restore and general report join it as flags.
+ * `planroom doctor [--pack DIR [--update]]`: with no flag, the general report of git, the
+ * store, its migrations, the pack set and the event backup; with `--pack`, one pack's conformance
+ * kit (DR-10). `--restore` joins them later.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "DoctorReq".
@@ -2083,6 +2094,220 @@ export interface DirtyRepo {
   files: number;
 }
 /**
+ * How far the event backup has come (DR-53).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DoctorBackup".
+ */
+export interface DoctorBackup {
+  /**
+   * `DATA_ROOT/backups/<workspace_id>/events.ndjson`, or `DATA_ROOT/backups` when the
+   * workspace ID names no directory there, so no backup can exist.
+   */
+  file: string;
+  /**
+   * The store's mark: the `seq` the last append brought the file to.
+   */
+  backup_seq: number;
+  /**
+   * The last `seq` the file holds of this store: its last whole line's, or 0 when the
+   * write-through would rename it aside (its header names another workspace, `store_version`
+   * or state directory, or that line is above the store's head) or no backup can exist.
+   */
+  file_seq: number;
+  /**
+   * The `seq` of the last person-authored event.
+   */
+  last_authored: number;
+  /**
+   * Whether the smaller of `backup_seq` and `file_seq` is below `last_authored`, which the
+   * `backup_behind` warning reports.
+   */
+  behind: boolean;
+  /**
+   * Whether this host loses its files with its container, so each backup also goes to a
+   * redacted ref in one workspace repo.
+   */
+  temporary_host: boolean;
+  /**
+   * That repo's path from the workspace root, once the first copy fixed it.
+   */
+  backup_ref: string | null;
+}
+/**
+ * The git on `PATH`.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DoctorGit".
+ */
+export interface DoctorGit {
+  /**
+   * Its version, such as `2.43.0`.
+   */
+  version: string;
+  /**
+   * The oldest the engine runs on, `2.34.1`.
+   */
+  minimum: string;
+}
+/**
+ * The store's version and the copies its migrations kept.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DoctorMigrations".
+ */
+export interface DoctorMigrations {
+  /**
+   * The store's version.
+   */
+  store_version: number;
+  /**
+   * The version this engine writes.
+   */
+  supported: number;
+  /**
+   * The `store-vN.db` copies under `DATA_ROOT/backups/<workspace_id>/`, by file name, newest
+   * first, at most 3.
+   */
+  copies: string[];
+}
+/**
+ * The pack set.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DoctorPacks".
+ */
+export interface DoctorPacks {
+  /**
+   * The recorded set, in load order, or this engine's built-ins when none is recorded; at
+   * most 6.
+   */
+  packs: PackRecord[];
+  /**
+   * How many more packs the set holds than `packs` lists.
+   */
+  more: number;
+  /**
+   * The recorded set's hash; none before a set is recorded.
+   */
+  recorded_hash: string | null;
+  /**
+   * The hash of this engine's set: its built-ins, then the record's out-of-tree packs.
+   */
+  hash: string;
+  /**
+   * Whether `recorded_hash` is `hash`; none before a set is recorded.
+   */
+  matches: boolean | null;
+}
+/**
+ * One loaded pack as the store's `meta.packs` records it, in load order (DR-62).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PackRecord".
+ */
+export interface PackRecord {
+  id: string;
+  version: number;
+  /**
+   * `builtin` for a pack embedded in the binary; else the directory it was loaded from.
+   */
+  source: string;
+  /**
+   * The lowercase hex sha256 over the pack's files, each path and its bytes in path order.
+   */
+  sha256: string;
+}
+/**
+ * What `doctor` with no flag returns: git, the store, its migrations, the pack set and the event
+ * backup (DR-53, DR-89). Outside a workspace, or before its first scan, `store`, `migrations` and
+ * `backup` are null. A path longer than 160 characters shows as `…` and its last 159.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DoctorReport".
+ */
+export interface DoctorReport {
+  summary: string;
+  git: DoctorGit;
+  store: DoctorStore | null;
+  migrations: DoctorMigrations | null;
+  packs: DoctorPacks;
+  backup: DoctorBackup | null;
+}
+/**
+ * The workspace's store.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "DoctorStore".
+ */
+export interface DoctorStore {
+  /**
+   * The store file.
+   */
+  path: string;
+  workspace_id: string;
+  /**
+   * The store's head.
+   */
+  seq: number;
+  /**
+   * How many events it holds.
+   */
+  events: number;
+  /**
+   * The engine that wrote the store last; none for a store with no record of it.
+   */
+  engine_version: string | null;
+}
+/**
+ * What `doctor --pack DIR` returns: the pack, what it declares, and each conformance check.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PackReport".
+ */
+export interface PackReport {
+  summary: string;
+  id: string;
+  version: number;
+  /**
+   * `builtin` when the directory holds a built-in pack's ID, else `out_of_tree`.
+   */
+  origin: string;
+  /**
+   * The lowercase hex sha256 over the pack's files, as the store's pack record names it.
+   */
+  sha256: string;
+  /**
+   * The pack's kinds, relations, extractors, linkers and lenses, qualified.
+   */
+  kinds: string[];
+  relations: string[];
+  extractors: string[];
+  linkers: string[];
+  lenses: string[];
+  /**
+   * Each check the kit passed, in order. The first check that fails fails the command with
+   * `pack_invalid`, naming the file, the line and the reference.
+   */
+  checks: PackCheck[];
+}
+/**
+ * One conformance check `doctor --pack` passed.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PackCheck".
+ */
+export interface PackCheck {
+  /**
+   * `validate`, `expected`, `determinism`, `evidence` or `evals`.
+   */
+  check: string;
+  /**
+   * One engine-authored line on what it found.
+   */
+  line: string;
+}
+/**
  * `POST /api/v1/drain`: the control token from the server's record under the data root,
  * `DATA_ROOT/serve/<port>.json`, which asks that `serve` to finish its in-flight requests and
  * exit, so a newer engine can take the workspace's port (DR-58, DR-69).
@@ -2495,6 +2720,34 @@ export interface HandoffStep {
  */
 export interface Card1 {
   kind: "card";
+}
+/**
+ * The first line of an event export or of the automatic event backup, `planroom.event/v1`; every
+ * line after it is one `Event`. Readers check `format` with `format::check(…, "event")`.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ExportHeader".
+ */
+export interface ExportHeader {
+  /**
+   * `planroom.event/v1`.
+   */
+  format: string;
+  /**
+   * The workspace the events belong to, which its store's `meta.workspace_id` also holds.
+   */
+  workspace_id: string;
+  /**
+   * The store version that wrote the events.
+   */
+  store_version: number;
+  /**
+   * Where the workspace's state directory was when a backup wrote this file: its parent made
+   * absolute, joined with its own name, so it holds while the directory is missing. An export
+   * names none.
+   */
+  state_dir?: string | null;
+  [k: string]: unknown;
 }
 /**
  * What every extractor and linker returns, sorted by ID.
@@ -3454,22 +3707,6 @@ export interface OpenResult {
   empty?: Empty | null;
 }
 /**
- * One conformance check `doctor --pack` passed.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "PackCheck".
- */
-export interface PackCheck {
-  /**
-   * `validate`, `expected`, `determinism`, `evidence` or `evals`.
-   */
-  check: string;
-  /**
-   * One engine-authored line on what it found.
-   */
-  line: string;
-}
-/**
  * One pack's `pack.toml`.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -3656,56 +3893,6 @@ export interface StageDecl {
    * The IDs of the lint rules the stage runs.
    */
   lint: string[];
-}
-/**
- * One loaded pack as the store's `meta.packs` records it, in load order (DR-62).
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "PackRecord".
- */
-export interface PackRecord {
-  id: string;
-  version: number;
-  /**
-   * `builtin` for a pack embedded in the binary; else the directory it was loaded from.
-   */
-  source: string;
-  /**
-   * The lowercase hex sha256 over the pack's files, each path and its bytes in path order.
-   */
-  sha256: string;
-}
-/**
- * What `doctor --pack DIR` returns: the pack, what it declares, and each conformance check.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "PackReport".
- */
-export interface PackReport {
-  summary: string;
-  id: string;
-  version: number;
-  /**
-   * `builtin` when the directory holds a built-in pack's ID, else `out_of_tree`.
-   */
-  origin: string;
-  /**
-   * The lowercase hex sha256 over the pack's files, as the store's pack record names it.
-   */
-  sha256: string;
-  /**
-   * The pack's kinds, relations, extractors, linkers and lenses, qualified.
-   */
-  kinds: string[];
-  relations: string[];
-  extractors: string[];
-  linkers: string[];
-  lenses: string[];
-  /**
-   * Each check the kit passed, in order. The first check that fails fails the command with
-   * `pack_invalid`, naming the file, the line and the reference.
-   */
-  checks: PackCheck[];
 }
 /**
  * What `pack add` and `pack remove` return: the pack and its copy, whether the record changed,

@@ -120,6 +120,24 @@ pub fn warning(notice: Notice) -> Warning {
                 details: json!({"from": from, "to": to, "backup": backup}),
             }
         }
+        Notice::BackupBehind { backup_seq, file_seq, last_authored } => Warning {
+            code: WarningCode::BackupBehind,
+            message: text::get(
+                "warning.backup_behind",
+                &[("backup_seq", &backup_seq), ("file_seq", &file_seq), ("last_authored", &last_authored)],
+            ),
+            details: json!({"backup_seq": backup_seq, "file_seq": file_seq, "last_authored": last_authored}),
+        },
+        Notice::TemporaryHost { repo, reference } => Warning {
+            code: WarningCode::TemporaryHost,
+            message: text::get("warning.temporary_host", &[("ref", &reference), ("repo", &repo)]),
+            details: json!({"repo": repo, "ref": reference}),
+        },
+        Notice::BackupRefFailed { repo, reference } => Warning {
+            code: WarningCode::BackupRefFailed,
+            message: text::get("warning.backup_ref_failed", &[("ref", &reference), ("repo", &repo)]),
+            details: json!({"repo": repo, "ref": reference}),
+        },
     }
 }
 
@@ -142,6 +160,25 @@ mod tests {
         }
         assert_eq!(linux_name(0x1234), "0x1234");
         assert!(planroom_store::fs_check::classify(&linux_name(0xEF53), Path::new("/home/a/ws")).is_none());
+    }
+
+    #[test]
+    fn the_backup_notices_become_their_warnings() {
+        let behind = warning(Notice::BackupBehind { backup_seq: 3, file_seq: 4, last_authored: 9 });
+        assert_eq!(behind.code, WarningCode::BackupBehind);
+        assert_eq!(behind.details, json!({"backup_seq": 3, "file_seq": 4, "last_authored": 9}));
+        assert!(behind.message.contains('9') && !behind.message.contains('{'), "{}", behind.message);
+
+        let reference = "refs/planroom/backup/ws-1";
+        let copied = warning(Notice::TemporaryHost { repo: "app".into(), reference: reference.into() });
+        assert_eq!(copied.code, WarningCode::TemporaryHost);
+        assert_eq!(copied.details, json!({"repo": "app", "ref": reference}));
+        assert!(copied.message.contains(reference) && copied.message.contains("app"), "{}", copied.message);
+
+        let failed = warning(Notice::BackupRefFailed { repo: "app".into(), reference: reference.into() });
+        assert_eq!(failed.code, WarningCode::BackupRefFailed);
+        assert_eq!(failed.details, json!({"repo": "app", "ref": reference}));
+        assert!(failed.message.contains(reference) && !failed.message.contains('{'), "{}", failed.message);
     }
 
     #[test]

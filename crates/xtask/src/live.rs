@@ -8,7 +8,9 @@
 //!   found through `git rev-parse --git-common-dir`, so every worktree, folder and nested process
 //!   adds to the one file.
 //! - For `test`, a temporary `PLANROOM_DATA` under `target/`, so no test writes your data root,
-//!   and no `OPENAI_API_KEY` or `GEMINI_API_KEY`, which Planroom never reads.
+//!   and no `OPENAI_API_KEY` or `GEMINI_API_KEY`, which Planroom never reads, nor
+//!   `CLAUDE_CODE_REMOTE`, `CODESPACES` or `REMOTE_CONTAINERS`, which would make every person edit
+//!   write a backup ref; `live record`'s test run unsets the same.
 //!
 //! `live record SNN` needs `PLANROOM_LIVE_GATEWAY=1` or `PLANROOM_LIVE_JEV=1`. It prints its
 //! estimate from the live spend plan's rows for SNN and refuses when that is more than the spend
@@ -27,8 +29,10 @@ const ARCHITECTURE: &str = "docs/contributing/architecture.md";
 const PLAN_HEADING: &str = "#### Live spend plan";
 /// The engine's defaults, which hold the cap.
 const DEFAULTS: &str = "crates/planroom/src/config/defaults.toml";
-/// The variables a test run never passes on.
-pub const UNSET_FOR_TESTS: &[&str] = &["OPENAI_API_KEY", "GEMINI_API_KEY"];
+/// The variables a test run never passes on: the model keys, and the marks of a temporary host,
+/// which would make every person edit write a backup ref.
+pub const UNSET_FOR_TESTS: &[&str] =
+    &["OPENAI_API_KEY", "GEMINI_API_KEY", "CLAUDE_CODE_REMOTE", "CODESPACES", "REMOTE_CONTAINERS"];
 
 /// The absolute path of the main checkout's spend log, from `root`, any checkout of the repo.
 pub fn spend_log_path(root: &Path) -> Result<PathBuf, String> {
@@ -180,12 +184,15 @@ pub fn record(root: &Path, scenario: &str) -> Result<String, String> {
         ));
     }
     let test = scenario_test(root, &scenario)?;
-    let status = Command::new("cargo")
+    let mut cargo = Command::new("cargo");
+    cargo
         .args(["test", "--locked", "-p", "planroom", "--test", &test])
         .current_dir(root)
-        .env("PLANROOM_REPLAY", "record")
-        .status()
-        .map_err(|e| format!("could not run cargo test: {e}"))?;
+        .env("PLANROOM_REPLAY", "record");
+    for name in UNSET_FOR_TESTS {
+        cargo.env_remove(name);
+    }
+    let status = cargo.status().map_err(|e| format!("could not run cargo test: {e}"))?;
     let after = log.total().map_err(|e| format!("{}: {e}", log_path.display()))?;
     let line = format!("{scenario} spent ${:.4}; the spend log now totals ${after:.4}", after - spent);
     if status.success() { Ok(line) } else { Err(format!("cargo test --test {test} failed; {line}")) }

@@ -75,6 +75,26 @@ pub fn store_path(root: &Path) -> PathBuf {
     state_dir(root).join(STORE)
 }
 
+/// The workspace root whose state directory is `dir`, [`state_dir`] read backwards: `.planroom`
+/// gives its parent; `<x>/.git/planroom` gives `<x>`; `planroom/` in a linked worktree's git
+/// directory, whose `gitdir` file names the worktree's `.git`, gives that worktree. Anything else,
+/// such as `planroom/` in a submodule's git directory, gives `None`.
+pub fn root_of_state_dir(dir: &Path) -> Option<PathBuf> {
+    let parent = dir.parent()?;
+    match dir.file_name()?.as_bytes() {
+        name if name == DIR.as_bytes() => Some(parent.to_path_buf()),
+        name if name == GIT_DIR_NAME.as_bytes() => {
+            if parent.file_name()? == ".git" {
+                return parent.parent().map(Path::to_path_buf);
+            }
+            let named = fs::read(parent.join("gitdir")).ok()?;
+            let named = Path::new(std::ffi::OsStr::from_bytes(named.trim_ascii_end()));
+            parent.join(named).parent().map(Path::to_path_buf)
+        }
+        _ => None,
+    }
+}
+
 /// The git directory of the repo at `repo`: its `.git` directory, or, for the `.git` file of a
 /// submodule or a linked worktree, the directory git names for it. `None` when git can't say.
 fn git_dir(repo: &Path) -> Option<PathBuf> {

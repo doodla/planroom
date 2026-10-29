@@ -15,11 +15,12 @@ use crate::{
 };
 use crate::{
     CodeReq, Command, CommandList, DefSchema, DoctorReq, DrainReq, Edge, Envelope, ErrorCode, ErrorObject,
-    Event, Evidence, FactBatch, FocusReq, Hint, LayoutPut, LeafSchema, MapReq, MapView, Node, OpenReq,
-    OpenResult, PaneModel, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary,
+    Event, Evidence, ExportHeader, FactBatch, FocusReq, Hint, LayoutPut, LeafSchema, MapReq, MapView, Node,
+    OpenReq, OpenResult, PaneModel, PersonInitReq, PersonKey, ScanReq, ScanResult, SchemaReq, SchemaSummary,
     ServeInfo, ServeReq, SessionReq, SessionToken, StreamFrame, VersionInfo, VersionReq, Warning,
     WarningCode, WatchReq,
 };
+use crate::{DoctorReport, DoctorResult};
 use crate::{
     EngineState, LastSeq, PaneState, ReplayRecord, ResolverStatus, ToolResult, TurnSeq, UnavailableReason,
 };
@@ -110,6 +111,7 @@ pub fn generate(view: View) -> Value {
         Hint,
         FactBatch,
         Event,
+        ExportHeader,
         ShareReq,
         ImportReq,
         ShareResult,
@@ -153,6 +155,8 @@ pub fn generate(view: View) -> Value {
         PackRemoveReq,
         PackSetResult,
         ReplayRecord,
+        DoctorResult,
+        DoctorReport,
     );
     // Planroom reads a configuration file and never emits one.
     if view == View::Input {

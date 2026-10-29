@@ -12,6 +12,8 @@
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
+use planroom_contract::Seq;
+
 /// Names the type of the filesystem the existing directory `dir` is on, such as `ext4`, `nfs`
 /// or `apfs`; `None` when it can't tell.
 pub type FsType = fn(&Path) -> Option<String>;
@@ -148,6 +150,13 @@ pub enum Notice {
     UnsafeFilesystem { placement: Placement, path: PathBuf, fs: String, store: PathBuf },
     /// `store_migrated`: the store moved from `from` to `to`, and its copy is at `backup`.
     Migrated { from: u32, to: u32, backup: PathBuf },
+    /// `backup_behind`: the event backup's mark is at `backup_seq` and its file at `file_seq`,
+    /// below `last_authored`, the highest person-authored event of the commit that tried.
+    BackupBehind { backup_seq: Seq, file_seq: Seq, last_authored: Seq },
+    /// `temporary_host`: the redacted backup was copied to `reference` in `repo`, a namespace.
+    TemporaryHost { repo: String, reference: String },
+    /// `backup_ref_failed`: the redacted backup couldn't be copied to `reference` in `repo`.
+    BackupRefFailed { repo: String, reference: String },
 }
 
 /// The most notices kept until the composition root takes them: a long-running server opens the

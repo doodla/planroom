@@ -5,6 +5,7 @@
 //! (DR-1). The store holds no business rules: the keys a scan derives come from functions the
 //! composition root passes in.
 
+pub mod backup;
 mod cards;
 mod commit;
 mod error;
@@ -26,6 +27,7 @@ use std::time::Duration;
 use planroom_contract::{Seq, StorePointer};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
+pub use backup::{Backup, BackupMark, backups_area, dir_of, file_seq, held_seq, register_copy, state_key};
 pub use commit::{
     Committed, Dealt, LinkFacts, META_REPOS, NewEvent, Planned, RepoOutcome, RepoScan, ScanCommitted,
     ScanKey, ScanRules, ScanWrite, Write,
@@ -59,6 +61,9 @@ pub struct Init {
 pub struct Store {
     conn: Connection,
     path: PathBuf,
+    /// The directory of the path the caller opened, which differs from `path`'s when
+    /// `store.pointer` moved the store.
+    state_dir: PathBuf,
     hook: Option<Sender<Seq>>,
     /// The guard every authored write runs on the pack record ([`Store::guard_packs`]).
     guard: Option<Box<PackGuard>>,
@@ -101,6 +106,12 @@ impl Store {
     }
 
     fn open_with(path: &Path, init: &Init, migrations: &[Migration]) -> Result<Store, StoreError> {
+        let mut store = Store::open_at(path, init, migrations)?;
+        store.state_dir = parent_of(path);
+        Ok(store)
+    }
+
+    fn open_at(path: &Path, init: &Init, migrations: &[Migration]) -> Result<Store, StoreError> {
         if !path.is_file() {
             if let Some(pointer) = pointer::read(path)? {
                 pointer::sweep_stale(path);
@@ -187,6 +198,7 @@ impl Store {
             store.check_workspace(&pointer)?;
         }
         store.migrate(None, MIGRATIONS)?;
+        store.state_dir = parent_of(path);
         Ok(Some(store))
     }
 
@@ -212,7 +224,8 @@ impl Store {
         }
         conn.pragma_update(None, "synchronous", "FULL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
-        let store = Store { conn, path: path.to_path_buf(), hook: None, guard: None };
+        let store =
+            Store { conn, path: path.to_path_buf(), state_dir: parent_of(path), hook: None, guard: None };
         store.check_place();
         Ok(store)
     }
@@ -264,6 +277,25 @@ impl Store {
     /// The file this store lives in.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// The workspace's state directory: the directory of the path the store was opened at, even
+    /// when `store.pointer` there moved the store under the data root.
+    pub fn state_dir(&self) -> &Path {
+        &self.state_dir
+    }
+
+    /// Record `key` as `meta.backup_ref`, the repo a temporary host's backup copy goes to, only
+    /// when none is recorded yet; returns the key it holds afterwards. Bookkeeping, not an
+    /// authored write, so it takes the store-version check alone, never the pack guard.
+    pub fn record_backup_ref(&mut self, key: &str) -> Result<String, StoreError> {
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        commit::check_version(&tx)?;
+        tx.execute("INSERT OR IGNORE INTO meta (key, value) VALUES ('backup_ref', ?1)", [key])?;
+        let held: String =
+            tx.query_row("SELECT value FROM meta WHERE key = 'backup_ref'", [], |r| r.get(0))?;
+        tx.commit()?;
+        Ok(held)
     }
 
     /// One `meta` value.
@@ -350,4 +382,9 @@ impl Store {
             let _ = hook.send(seq);
         }
     }
+}
+
+/// The directory of a store path, `<state dir>/store.db`.
+fn parent_of(path: &Path) -> PathBuf {
+    path.parent().map(Path::to_path_buf).unwrap_or_default()
 }

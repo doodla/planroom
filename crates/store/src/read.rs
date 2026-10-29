@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use planroom_contract::{Event, EventBody, EventId, NodeId, Seq, Timestamp};
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 
+use crate::backup::BackupMark;
 use crate::{Store, StoreError, layouts};
 
 /// Which of the four fact shapes a row holds.
@@ -212,6 +213,28 @@ impl<'a> Snapshot<'a> {
     /// The cached positions (JSON) for `view_key` at `structure_hash`, if any.
     pub fn layout(&self, view_key: &str, structure_hash: &str) -> Result<Option<String>, StoreError> {
         layouts::cached(&self.tx, view_key, structure_hash)
+    }
+
+    /// How far the event backup has come: `meta.backup_seq`, the highest person-authored event
+    /// and `meta.backup_ref`, all from this one version of the store.
+    pub fn backup_mark(&self) -> Result<BackupMark, StoreError> {
+        let backup_seq = self.meta("backup_seq")?.and_then(|v| v.parse().ok()).unwrap_or(0);
+        let last_authored: i64 = self.tx.query_row(
+            "SELECT COALESCE(MAX(seq), 0) FROM events WHERE json_extract(actor, '$.kind') = 'person'",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(BackupMark {
+            backup_seq,
+            last_authored: last_authored as Seq,
+            backup_ref: self.meta("backup_ref")?,
+        })
+    }
+
+    /// How many events this version of the store holds.
+    pub fn event_count(&self) -> Result<u64, StoreError> {
+        let count: i64 = self.tx.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))?;
+        Ok(count as u64)
     }
 }
 

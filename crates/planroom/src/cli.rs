@@ -70,7 +70,7 @@ enum Cmd {
     Share(ShareReq),
     /// Import Artifact inbox rows from stdin, one {path, row} per line; answers read requests.
     Import(ImportReq),
-    /// Check a pack with --pack DIR: validation, its conformance kit and a second run for determinism.
+    /// With no flag, report git, the store, its migrations, the pack set and the event backup; with --pack DIR, check a pack.
     Doctor(DoctorReq),
     /// One hand edit: move, group, rename, hide, pin, relate, unrelate or forbid, or undo a command.
     Edit(EditReq),
@@ -151,6 +151,11 @@ pub fn parse_leaf(command: &str, args: &[String]) -> Result<Command, clap::Error
 pub fn main() -> ExitCode {
     // The store's filesystem check and its migration copies need the data root (DR-1, DR-53).
     app::fs_type::register();
+    // On a host that loses its files with its container, each event backup also goes to a
+    // redacted local ref in one workspace repo (DR-53, DR-75); elsewhere nothing registers.
+    if app::backup::temporary_host() {
+        planroom_store::register_copy(app::backup::copy_to_ref);
+    }
     // The git adapter refuses a repo another user owns before git runs there (DR-78).
     app::owner::register();
     let caller = Caller::from_env();

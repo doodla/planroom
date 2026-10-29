@@ -114,15 +114,24 @@ impl Store {
         assert!(count > 0, "a commit writes at least one event of its own command");
         let many = count > 1;
         let (mut seqs, mut own) = (Vec::with_capacity(count), Vec::new());
+        // The highest person-authored event: a commit with one is backed up after it (DR-53).
+        let mut person: Option<Seq> = None;
         for planned in &events {
-            match planned {
+            let (actor, seq) = match planned {
                 Planned::Command(event) => {
                     let key = if many { format!("{idem}#{}", seqs.len() + 1) } else { idem.to_owned() };
-                    seqs.push(insert_event(snapshot.tx(), event, &key, request_hash)?);
+                    let seq = insert_event(snapshot.tx(), event, &key, request_hash)?;
+                    seqs.push(seq);
+                    (&event.actor, seq)
                 }
                 Planned::Own(keyed) => {
-                    own.push(insert_event(snapshot.tx(), &keyed.event, &keyed.idem, &keyed.request_hash)?);
+                    let seq = insert_event(snapshot.tx(), &keyed.event, &keyed.idem, &keyed.request_hash)?;
+                    own.push(seq);
+                    (&keyed.event.actor, seq)
                 }
+            };
+            if matches!(actor, Actor::Person { .. }) {
+                person = person.max(Some(seq));
             }
         }
         let reply = reply(&seqs);
@@ -136,6 +145,10 @@ impl Store {
         snapshot.commit()?;
         let last = seqs.iter().chain(&own).copied().max().expect("one event at least");
         self.notify(last);
+        // After the live loop hears of the commit, so a frame never waits on the backup's fsync.
+        if let Some(seq) = person {
+            crate::backup::hook(self, seq);
+        }
         Ok(Committed { seqs, own, reply, replayed: false })
     }
 }

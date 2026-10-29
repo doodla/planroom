@@ -164,7 +164,7 @@ var CATALOGUE = [
   {
     "name": "doctor",
     "idea": "setup",
-    "summary": "Check a pack with --pack DIR: validation, its conformance kit and a second run for determinism.",
+    "summary": "With no flag, report git, the store, its migrations, the pack set and the event backup; with --pack DIR, check a pack.",
     "actor": "mixed",
     "class": "read",
     "budget_tokens": 1500,

@@ -370,13 +370,20 @@ const IMPORT: CommandSpec = CommandSpec {
 const DOCTOR: CommandSpec = CommandSpec {
     path: &["doctor"],
     idea: Idea::Setup,
-    summary: "Check a pack with --pack DIR: validation, its conformance kit and a second run for determinism.",
+    summary: "With no flag, report git, the store, its migrations, the pack set and the event backup; with --pack DIR, check a pack.",
     actor: ActorRule::Mixed,
     class: Class::Read,
     budget_tokens: 1_500,
     needs_base: false,
     spends: false,
-    errors: &[ErrorCode::InvalidArgument, ErrorCode::PackInvalid, ErrorCode::Internal],
+    errors: &[
+        ErrorCode::InvalidArgument,
+        ErrorCode::PackInvalid,
+        ErrorCode::GitTooOld,
+        ErrorCode::StoreBusy,
+        ErrorCode::SchemaMismatch,
+        ErrorCode::Internal,
+    ],
     undo: Undo::Query,
     tool: None,
     room: false,
@@ -962,8 +969,9 @@ pub struct ImportReq {
     pub source: String,
 }
 
-/// `planroom doctor --pack DIR [--update]`: one pack's conformance kit (DR-10). `--pack` is the
-/// one check this build has; the backup, restore and general report join it as flags.
+/// `planroom doctor [--pack DIR [--update]]`: with no flag, the general report of git, the
+/// store, its migrations, the pack set and the event backup; with `--pack`, one pack's conformance
+/// kit (DR-10). `--restore` joins them later.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct DoctorReq {
     /// The pack directory to check: validation against the built-in packs, every extractor over
@@ -1005,6 +1013,112 @@ pub struct PackCheck {
     pub check: String,
     /// One engine-authored line on what it found.
     pub line: String,
+}
+
+/// What `doctor` returns: with `--pack DIR`, that pack's conformance report; with no flag, the
+/// general report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum DoctorResult {
+    Pack(PackReport),
+    General(DoctorReport),
+}
+
+/// What `doctor` with no flag returns: git, the store, its migrations, the pack set and the event
+/// backup (DR-53, DR-89). Outside a workspace, or before its first scan, `store`, `migrations` and
+/// `backup` are null. A path longer than 160 characters shows as `…` and its last 159.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DoctorReport {
+    pub summary: String,
+    pub git: DoctorGit,
+    pub store: Option<DoctorStore>,
+    pub migrations: Option<DoctorMigrations>,
+    pub packs: DoctorPacks,
+    pub backup: Option<DoctorBackup>,
+}
+
+/// The git on `PATH`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DoctorGit {
+    /// Its version, such as `2.43.0`.
+    pub version: String,
+    /// The oldest the engine runs on, `2.34.1`.
+    pub minimum: String,
+}
+
+/// The workspace's store.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DoctorStore {
+    /// The store file.
+    #[schemars(extend("x-redact" = true))]
+    pub path: String,
+    pub workspace_id: String,
+    /// The store's head.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
+    pub seq: Seq,
+    /// How many events it holds.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
+    pub events: u64,
+    /// The engine that wrote the store last; none for a store with no record of it.
+    pub engine_version: Option<String>,
+}
+
+/// The store's version and the copies its migrations kept.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DoctorMigrations {
+    /// The store's version.
+    pub store_version: u32,
+    /// The version this engine writes.
+    pub supported: u32,
+    /// The `store-vN.db` copies under `DATA_ROOT/backups/<workspace_id>/`, by file name, newest
+    /// first, at most 3.
+    #[schemars(extend("x-redact" = true))]
+    pub copies: Vec<String>,
+}
+
+/// The pack set.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DoctorPacks {
+    /// The recorded set, in load order, or this engine's built-ins when none is recorded; at
+    /// most 6.
+    pub packs: Vec<crate::PackRecord>,
+    /// How many more packs the set holds than `packs` lists.
+    pub more: u32,
+    /// The recorded set's hash; none before a set is recorded.
+    pub recorded_hash: Option<String>,
+    /// The hash of this engine's set: its built-ins, then the record's out-of-tree packs.
+    pub hash: String,
+    /// Whether `recorded_hash` is `hash`; none before a set is recorded.
+    pub matches: Option<bool>,
+}
+
+/// How far the event backup has come (DR-53).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DoctorBackup {
+    /// `DATA_ROOT/backups/<workspace_id>/events.ndjson`, or `DATA_ROOT/backups` when the
+    /// workspace ID names no directory there, so no backup can exist.
+    #[schemars(extend("x-redact" = true))]
+    pub file: String,
+    /// The store's mark: the `seq` the last append brought the file to.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
+    pub backup_seq: Seq,
+    /// The last `seq` the file holds of this store: its last whole line's, or 0 when the
+    /// write-through would rename it aside (its header names another workspace, `store_version`
+    /// or state directory, or that line is above the store's head) or no backup can exist.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
+    pub file_seq: Seq,
+    /// The `seq` of the last person-authored event.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
+    pub last_authored: Seq,
+    /// Whether the smaller of `backup_seq` and `file_seq` is below `last_authored`, which the
+    /// `backup_behind` warning reports.
+    pub behind: bool,
+    /// Whether this host loses its files with its container, so each backup also goes to a
+    /// redacted ref in one workspace repo.
+    pub temporary_host: bool,
+    /// That repo's path from the workspace root, once the first copy fixed it.
+    #[schemars(extend("x-redact" = true))]
+    pub backup_ref: Option<String>,
 }
 
 /// What `serve` returns once it listens.

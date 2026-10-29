@@ -244,6 +244,21 @@ pub fn value_of<T>(json: &mut Value) {
     value(type_name::<T>(), json);
 }
 
+/// `json`, a whole stored record of type `T` as JSON, with [`value_of`]'s masks and, past them,
+/// every string under each of `T`'s open values (`redact_fields::OPEN`) masked too: the rule for a
+/// record that leaves the machine, such as an event's copy at the backup ref, where an edit's
+/// `fields` and `over` hold repo text no mark can name. Keys, IDs and numbers stay as they are. A
+/// model slice still refuses an open type ([`is_listed`]) rather than masking it this way.
+pub fn value_with_open<T>(json: &mut Value) {
+    value_of::<T>(json);
+    let name = type_name::<T>();
+    for (_, paths) in OPEN.iter().filter(|(open, _)| *open == name) {
+        for path in *paths {
+            visit(json, &segments(path), &mut mask_all);
+        }
+    }
+}
+
 /// Whether [`value_of`] masks every repo-derived string `T` can hold: `T` is a contract type that
 /// [`redact_fields`](crate::redact_fields) lists, because it holds a marked field or an error or a
 /// warning, and it holds no open value that no mark covers (`redact_fields::OPEN`). `value_of`
@@ -773,5 +788,54 @@ mod tests {
         rows[0].doing = Some(SECRET.into());
         presence(&mut rows);
         assert_eq!(rows[0].doing.as_deref(), Some(MASKED));
+    }
+
+    #[test]
+    fn value_with_open_masks_an_events_open_values() {
+        use planroom_contract::Event;
+        const KEY: &str = "sk_live_51PlantedOpenKey0000";
+        const PLANTED: &str = "STRIPE_SECRET_KEY=sk_live_51PlantedOpenKey0000";
+        assert!(!text(PLANTED).contains(KEY), "the planted value is one the text rule masks");
+        let event = |body: Value| {
+            serde_json::json!({
+                "seq": 42,
+                "id": "0192f0c4-0000-7000-8000-000000000001",
+                "idem": "edit-1",
+                "request_hash": "ab12",
+                "at": "2026-10-29T10:00:00Z",
+                "actor": {"type": "person", "id": "person:ann"},
+                "client": {"surface": "cli", "id": "c1"},
+                "project": null,
+                "cause": null,
+                "status": "applied",
+                "body": body,
+            })
+        };
+        let target = serde_json::json!({"node": "api:mod:orders"});
+        let edit = serde_json::json!({
+            "kind": "edit", "op": "set", "target": target, "layer": "person", "base": 41,
+            "fields": {"name": PLANTED, "props": {"note": [PLANTED]}},
+            "over": {"name": PLANTED},
+        });
+
+        let mut only_marks = event(edit.clone());
+        value_of::<Event>(&mut only_marks);
+        assert_eq!(only_marks["body"]["fields"]["name"], PLANTED, "value_of leaves an open value raw");
+
+        let mut json = event(edit);
+        value_with_open::<Event>(&mut json);
+        let masked = text(PLANTED);
+        assert_eq!(json["body"]["fields"]["name"], masked.as_str());
+        assert_eq!(json["body"]["fields"]["props"]["note"][0], masked.as_str());
+        assert_eq!(json["body"]["over"]["name"], masked.as_str());
+        assert_eq!(json["body"]["target"], target);
+        assert_eq!(json["id"], "0192f0c4-0000-7000-8000-000000000001");
+        assert_eq!(json["seq"], 42);
+
+        let mut card = event(serde_json::json!({"kind": "card", "vars": {"name": PLANTED}}));
+        value_with_open::<Event>(&mut card);
+        assert_eq!(card["body"]["vars"]["name"], masked.as_str());
+        assert_eq!(card["seq"], 42);
+        assert!(!json.to_string().contains(KEY) && !card.to_string().contains(KEY));
     }
 }

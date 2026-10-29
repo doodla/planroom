@@ -34,6 +34,9 @@ pub use command::{
     ScanResult, SchemaReq, SchemaSummary, ServeInfo, ServeReq, SessionReq, SessionToken, ShareReq, Tool,
     Undo, VersionInfo, VersionReq, WatchReq, WriteCommon,
 };
+pub use command::{
+    DoctorBackup, DoctorGit, DoctorMigrations, DoctorPacks, DoctorReport, DoctorResult, DoctorStore,
+};
 pub use config::Config;
 pub use decision::{
     Band, BoolCriteria, DecisionBudget, DecisionKind, DecisionRecord, Effect, EffectOp, OptionsFrom, Outcome,
@@ -45,8 +48,8 @@ pub use envelope::{
 };
 pub use errors::{Category, ErrorCode, Retry, WarningCode};
 pub use event::{
-    Actor, Cause, Client, Edit, Event, EventBody, EventId, EventKind, HandoffState, HandoffStep, Op, Rename,
-    ScanStats, Status, Surface, Target, Timestamp, Verdict,
+    Actor, Cause, Client, Edit, Event, EventBody, EventId, EventKind, ExportHeader, HandoffState,
+    HandoffStep, Op, Rename, ScanStats, Status, Surface, Target, Timestamp, Verdict,
 };
 pub use model::{
     CONTAINS_MAX_CHARS, Edge, EdgeId, Evidence, FACTS_FORMAT, FactBatch, Hint, HintRef, Kind, Layer, Level,

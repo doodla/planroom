@@ -69,8 +69,7 @@ pub fn record_of(packs: Vec<PackRecord>, config_read: Option<String>) -> Recorde
 ///   out-of-tree records stay as they are, so trust never gates this.
 pub fn default_verdict(builtins: &[PackRecord], recorded: Option<&RecordedPacks>) -> PackVerdict {
     let identity = engine();
-    let mut set = builtins.to_vec();
-    set.extend(recorded.map(|r| out_of_tree(&r.packs)).unwrap_or_default());
+    let set = engine_set(builtins, recorded);
     let Some(recorded) = recorded else { return PackVerdict::Record(record_of(set, None)) };
     if recorded.hash == set_hash(&set) {
         return PackVerdict::Keep;
@@ -84,6 +83,14 @@ pub fn default_verdict(builtins: &[PackRecord], recorded: Option<&RecordedPacks>
         return PackVerdict::Refuse { recorded: recorded.engine.clone(), resolved: identity };
     }
     PackVerdict::Record(record_of(set, recorded.config_read.clone()))
+}
+
+/// This engine's set, given its built-in records `builtins` and the record `recorded`: the
+/// built-ins, then the record's out-of-tree records in their order.
+pub fn engine_set(builtins: &[PackRecord], recorded: Option<&RecordedPacks>) -> Vec<PackRecord> {
+    let mut set = builtins.to_vec();
+    set.extend(recorded.map(|r| out_of_tree(&r.packs)).unwrap_or_default());
+    set
 }
 
 /// This engine's built-in records, read once per process.

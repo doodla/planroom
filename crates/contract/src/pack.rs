@@ -593,6 +593,7 @@ pub struct PackRecord {
     pub id: String,
     pub version: u32,
     /// `builtin` for a pack embedded in the binary; else the directory it was loaded from.
+    #[schemars(extend("x-redact" = true))]
     pub source: String,
     /// The lowercase hex sha256 over the pack's files, each path and its bytes in path order.
     pub sha256: String,

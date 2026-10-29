@@ -53,7 +53,8 @@ usage: cargo xtask <command>
 
 Every command sets PLANROOM_REPLAY=strict and PLANROOM_SPEND_LOG, the main checkout's
 docs/evidence/spend.jsonl by its absolute path; test, e2e and gen --golden also set a
-temporary PLANROOM_DATA and unset OPENAI_API_KEY and GEMINI_API_KEY.";
+temporary PLANROOM_DATA and unset OPENAI_API_KEY, GEMINI_API_KEY, CLAUDE_CODE_REMOTE, CODESPACES
+and REMOTE_CONTAINERS; live record unsets the same five for its cargo test.";
 
 fn main() -> ExitCode {
     let root = repo_root();

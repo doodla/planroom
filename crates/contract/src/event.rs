@@ -9,6 +9,7 @@ use serde_json::{Map, Value};
 
 use crate::card::Card;
 use crate::decision::DecisionRecord;
+use crate::format::{Document, Extra};
 use crate::model::{EdgeId, Layer, NodeId, Seq};
 use crate::open_set::{self, CODE_PATTERN};
 
@@ -41,6 +42,44 @@ pub struct Event {
     pub cause: Option<Cause>,
     pub status: Status,
     pub body: EventBody,
+}
+
+/// The first line of an event export or of the automatic event backup, `planroom.event/v1`; every
+/// line after it is one `Event`. Readers check `format` with `format::check(…, "event")`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ExportHeader {
+    /// `planroom.event/v1`.
+    pub format: String,
+    /// The workspace the events belong to, which its store's `meta.workspace_id` also holds.
+    pub workspace_id: String,
+    /// The store version that wrote the events.
+    pub store_version: u32,
+    /// Where the workspace's state directory was when a backup wrote this file: its parent made
+    /// absolute, joined with its own name, so it holds while the directory is missing. An export
+    /// names none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-redact" = true))]
+    pub state_dir: Option<String>,
+    /// Fields a later version added, kept and written back unchanged.
+    #[serde(flatten, default, skip_serializing_if = "Extra::is_empty")]
+    pub extra: Extra,
+}
+
+impl Document for ExportHeader {
+    const NAME: &'static str = "event";
+}
+
+impl ExportHeader {
+    /// A header this version writes.
+    pub fn new(workspace_id: String, store_version: u32, state_dir: Option<String>) -> ExportHeader {
+        ExportHeader {
+            format: ExportHeader::format_tag(),
+            workspace_id,
+            store_version,
+            state_dir,
+            extra: Extra::new(),
+        }
+    }
 }
 
 /// Who did it.
@@ -413,5 +452,25 @@ mod tests {
     fn a_malformed_known_kind_is_not_taken_for_an_unknown_one() {
         let raw = json!({"kind": "version", "label": 7});
         assert!(serde_json::from_value::<EventBody>(raw).is_err());
+    }
+
+    #[test]
+    fn an_export_header_carries_the_event_tag_and_keeps_unknown_fields() {
+        use crate::format;
+
+        let header = ExportHeader::new("ws-1".into(), 3, Some("/home/ann/shop/.planroom".into()));
+        let json = serde_json::to_value(&header).unwrap();
+        assert_eq!(json["format"], format::tag("event").as_str());
+        assert_eq!(format::check_document(&json, "event"), Ok(crate::envelope::SCHEMA_VERSION));
+        assert_eq!(json["state_dir"], "/home/ann/shop/.planroom");
+
+        let bare = serde_json::to_value(ExportHeader::new("ws-1".into(), 3, None)).unwrap();
+        assert!(bare.get("state_dir").is_none(), "a header with no state directory omits the key");
+
+        let mut later = bare.clone();
+        later["written_by"] = json!({"engine": "9.9.9"});
+        let read: ExportHeader = serde_json::from_value(later.clone()).unwrap();
+        assert_eq!(read.state_dir, None);
+        assert_eq!(serde_json::to_value(&read).unwrap(), later);
     }
 }

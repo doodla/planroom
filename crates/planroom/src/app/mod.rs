@@ -3,6 +3,7 @@
 
 pub mod actor;
 pub mod ask;
+pub mod backup;
 pub mod cards;
 pub mod confine;
 pub mod data;

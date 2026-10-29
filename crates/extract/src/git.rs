@@ -1,6 +1,8 @@
 //! The git CLI adapter (DR-16): every call runs with hooks, fsmonitor and optional locks off, a
-//! cleared environment and `LC_ALL=C`, so nothing from a scanned repo runs. Every call is a local
-//! read, and no transport may run, each refused by name whatever the repo's own config allows: a
+//! cleared environment and `LC_ALL=C`, so nothing from a scanned repo runs. Every call is local,
+//! and every one is a read but the temporary host's backup ref ([`Git::write_backup_ref`]), whose
+//! plumbing writes objects and one ref under `refs/planroom/` and never a working tree, index or
+//! branch. No transport may run, each refused by name whatever the repo's own config allows: a
 //! partial clone's missing object is never fetched, so the `uploadpack`, `sshCommand` or `ext::`
 //! command a repo's own config names never runs either, on any git version. Every call names the
 //! repo's git directory with `GIT_DIR`, as the engine resolved it after its owner check, so git
@@ -729,6 +731,12 @@ impl TooOld {
 /// environment. A version that doesn't parse counts as too old, so a scan never runs on a git it
 /// can't vouch for (DR-78).
 pub fn check_version() -> Result<(), TooOld> {
+    version().map(|_| ())
+}
+
+/// The version of the `git` on `PATH`, as `major.minor.patch`, when it is at least
+/// [`MIN_VERSION`]; [`check_version`]'s answer otherwise.
+pub fn version() -> Result<String, TooOld> {
     let mut cmd = Command::new("git");
     cmd.env_clear();
     if let Some(path) = std::env::var_os("PATH") {
@@ -743,7 +751,9 @@ pub fn check_version() -> Result<(), TooOld> {
     let reported = text.trim();
     let reported = reported.strip_prefix("git version ").unwrap_or(reported);
     match parse_version(reported) {
-        Some(version) if version >= MIN_VERSION => Ok(()),
+        Some(version @ (major, minor, patch)) if version >= MIN_VERSION => {
+            Ok(format!("{major}.{minor}.{patch}"))
+        }
         Some((major, minor, patch)) => Err(TooOld { found: Some(format!("{major}.{minor}.{patch}")) }),
         None => Err(TooOld { found: Some(reported.chars().take(40).collect()) }),
     }
@@ -775,6 +785,16 @@ pub struct Head {
 #[derive(Debug, Clone)]
 pub struct Git {
     dir: PathBuf,
+}
+
+/// The most segment files one `hash-object` names, so its argv stays bounded.
+const HASH_BATCH: usize = 256;
+
+/// Whether `name` is a backup segment's: `events-` and six or more digits, then `.ndjson`.
+pub fn is_segment(name: &str) -> bool {
+    name.strip_prefix("events-")
+        .and_then(|rest| rest.strip_suffix(".ndjson"))
+        .is_some_and(|n| n.len() >= 6 && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// Whether `dir` is the top of a git working tree (a `.git` directory, or the `.git` file of a
@@ -873,6 +893,124 @@ impl Git {
         }
         args.extend(["--full-tree", tree.as_str()]);
         self.run_bytes(&args)
+    }
+
+    /// Commit the segments in `dir` (each `events-NNNNNN.ndjson`, in name order) as one parentless
+    /// commit, and point `reference` at it with a compare-and-set against the value it held;
+    /// returns the new commit's ID. Nothing else changes: no working tree, index or branch.
+    ///
+    /// `reuse` is `(commit, names)`: a segment in `names` keeps the blob the old tree lists for it,
+    /// unread, when `reference` still names exactly `commit`, so an append hashes only the segments
+    /// it changed. Every other segment is hashed. Each call goes through [`Git::command`], with
+    /// signing off on the command line as well as by flag, since a repo's own config could name a
+    /// `gpg.program`, and with Planroom's own identity, since the cleared environment has none and
+    /// the commit is the engine's, never the person's.
+    pub fn write_backup_ref(
+        &self,
+        reference: &str,
+        dir: &Path,
+        reuse: Option<(&str, &BTreeSet<String>)>,
+    ) -> Result<String, GitError> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .map_err(|e| GitError::new(&["write-backup-ref"], e.to_string()))?
+            .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+            .filter(|name| is_segment(name))
+            .collect();
+        names.sort_unstable();
+
+        let verify = ["rev-parse", "--verify", "-q", reference];
+        let out =
+            self.backup_command(&verify)?.output().map_err(|e| GitError::new(&verify, e.to_string()))?;
+        let old = match out.status.code() {
+            Some(0) => Some(String::from_utf8_lossy(&out.stdout).trim().to_owned()),
+            Some(1) => None,
+            _ => return Err(GitError::new(&verify, String::from_utf8_lossy(&out.stderr).into_owned())),
+        };
+        let mut blobs = std::collections::BTreeMap::new();
+        if let (Some(old), Some((commit, kept))) = (&old, reuse)
+            && old == commit
+        {
+            let listed = self.backup_run(&["ls-tree", old.as_str()], None)?;
+            for line in listed.lines() {
+                let Some((meta, name)) = line.split_once('\t') else { continue };
+                if let Some(oid) = meta.strip_prefix("100644 blob ")
+                    && kept.contains(name)
+                {
+                    blobs.insert(name.to_owned(), oid.to_owned());
+                }
+            }
+        }
+
+        let hashed: Vec<&String> = names.iter().filter(|n| !blobs.contains_key(n.as_str())).collect();
+        for batch in hashed.chunks(HASH_BATCH) {
+            let paths: Vec<String> =
+                batch.iter().map(|n| dir.join(n).to_string_lossy().into_owned()).collect();
+            let mut args = vec!["hash-object", "-w", "--no-filters", "--"];
+            args.extend(paths.iter().map(String::as_str));
+            let out = self.backup_run(&args, None)?;
+            let oids: Vec<&str> = out.lines().collect();
+            if oids.len() != batch.len() {
+                return Err(GitError::new(
+                    &args,
+                    format!("{} objects for {} files", oids.len(), batch.len()),
+                ));
+            }
+            for (name, oid) in batch.iter().zip(oids) {
+                blobs.insert((*name).clone(), oid.to_owned());
+            }
+        }
+
+        let entries: String =
+            names.iter().map(|name| format!("100644 blob {}\t{name}\n", blobs[name])).collect();
+        let tree = self.backup_run(&["mktree"], Some(entries.as_bytes()))?.trim().to_owned();
+        let commit = self
+            .backup_run(
+                &["commit-tree", "--no-gpg-sign", tree.as_str(), "-m", "Planroom event backup"],
+                None,
+            )?
+            .trim()
+            .to_owned();
+        let zero = "0".repeat(commit.len());
+        let previous = old.as_deref().unwrap_or(&zero);
+        self.backup_run(&["update-ref", reference, commit.as_str(), previous], None)?;
+        Ok(commit)
+    }
+
+    /// [`Git::command`] for one of [`Git::write_backup_ref`]'s calls: signing off and Planroom's
+    /// own identity, on this command alone.
+    fn backup_command(&self, args: &[&str]) -> Result<Command, GitError> {
+        let args: Vec<&str> = ["-c", "commit.gpgSign=false"].iter().chain(args).copied().collect();
+        let mut cmd = self.command(&args)?;
+        for (key, value) in [
+            ("GIT_AUTHOR_NAME", "Planroom"),
+            ("GIT_AUTHOR_EMAIL", "planroom@invalid"),
+            ("GIT_COMMITTER_NAME", "Planroom"),
+            ("GIT_COMMITTER_EMAIL", "planroom@invalid"),
+        ] {
+            cmd.env(key, value);
+        }
+        Ok(cmd)
+    }
+
+    /// Run [`Git::backup_command`] with `input` on its stdin; its stdout.
+    fn backup_run(&self, args: &[&str], input: Option<&[u8]>) -> Result<String, GitError> {
+        let fail = |stderr: String| GitError::new(args, stderr);
+        let mut cmd = self.backup_command(args)?;
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        if input.is_some() {
+            cmd.stdin(Stdio::piped());
+        }
+        let mut child = cmd.spawn().map_err(|e| fail(e.to_string()))?;
+        if let Some(input) = input {
+            let mut stdin = child.stdin.take().expect("stdin is piped");
+            stdin.write_all(input).map_err(|e| fail(e.to_string()))?;
+        }
+        let out = child.wait_with_output().map_err(|e| fail(e.to_string()))?;
+        if out.status.success() {
+            Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+        } else {
+            Err(fail(String::from_utf8_lossy(&out.stderr).into_owned()))
+        }
     }
 
     /// This working tree's git directory, as `git rev-parse --absolute-git-dir` names it: `.git`
@@ -1770,6 +1908,27 @@ mod tests {
         assert!(parse_version("3.0.0").unwrap() >= MIN_VERSION);
         // The git that runs these tests is new enough.
         assert_eq!(super::check_version(), Ok(()));
+        // And its version is the one `git --version` reports, as `major.minor.patch`.
+        let reported = Command::new("git").arg("--version").output().unwrap().stdout;
+        let reported = String::from_utf8(reported).unwrap();
+        let (major, minor, patch) =
+            parse_version(reported.trim().trim_start_matches("git version ")).unwrap();
+        assert_eq!(super::version(), Ok(format!("{major}.{minor}.{patch}")));
+    }
+
+    #[test]
+    fn a_segment_name_is_events_and_six_digits() {
+        assert!(super::is_segment("events-000001.ndjson"));
+        assert!(super::is_segment("events-1000000.ndjson"));
+        for name in [
+            "events.ndjson",
+            "events-00001.ndjson",
+            "events-00000a.ndjson",
+            "committed",
+            "events-000001.ndjson.tmp",
+        ] {
+            assert!(!super::is_segment(name), "{name}");
+        }
     }
 
     #[test]

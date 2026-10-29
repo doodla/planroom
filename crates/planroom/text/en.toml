@@ -163,6 +163,9 @@ stale_page = "The map moved on since this page began, so this page reads the cur
 model_request_pending = "Waiting for Claude in your session to answer a model request."
 store_migrated = "The store moved from version {from} to {to}; the old copy is at {backup}."
 temporary_host = "This host loses its files with its container, so a redacted backup is also kept at {ref} in {repo}."
+backup_behind = "The event backup holds events up to {backup_seq} and its file up to {file_seq}, but the last person-authored event is {last_authored}; your next edit tries to catch it up."
+backup_ref_failed = "Planroom couldn't copy the redacted backup to {ref} in {repo}; your next edit tries again."
+temporary_host_copy_out = "This environment is temporary. Your Planroom edits are backed up at {ref} in {repo}. Copy that ref somewhere private before this container goes, such as with git bundle."
 reconcile_paused = "{repo}'s HEAD left {tracked_branch}, so the map follows it and reconciling waits."
 duty_failed = "The background {duty} failed at {at}; its log is {log}."
 unsafe_filesystem_moved = "{path} is on {fs}, which can't share the store between Planroom processes safely, so the store lives at {store} instead."
@@ -403,6 +406,18 @@ left = "Waits in the inbox for a person's /room sync."
 map_label = "The map at the {level} level"
 event_export_not_yet = "Replaying an event export isn't in this build yet."
 
+# What `doctor` with no flag reports (DR-53, DR-89).
+[doctor]
+summary = "Doctor checked git, the store, its migrations, the pack set and the event backup."
+summary_no_workspace = "Doctor checked git and this engine's packs; there is no workspace store here yet."
+git = "git {version}; Planroom needs {minimum} or later."
+store = "Store {path}: workspace {workspace_id}, seq {seq}, {events} events, last written by {engine}."
+migrations = "Store version {store_version}; this engine writes version {supported}; {copies} migration copies kept."
+packs = "Packs in load order: {packs} ({more} more)."
+packs_changed = "Packs in load order: {packs} ({more} more). The recorded set isn't this engine's, so the next edit records this engine's or is refused."
+backup = "Event backup {file}: through seq {file_seq}, marked at {backup_seq}; the last person edit is seq {last_authored}."
+backup_ref = "A redacted copy of the backup goes to refs/planroom/backup in {repo}."
+
 # Why a pack fails to load (DR-9, DR-46, DR-62); `error.pack_invalid` names the file and line.
 [pack]
 unreadable = "Planroom can't read it: {why}"
@@ -514,7 +529,6 @@ check_determinism = "a second run gave the same facts, byte for byte"
 check_evidence = "{count} evidence lines match their input files"
 check_evals = "{count} eval case files read"
 summary = "Pack {id} version {version} passes {count} checks."
-needs_pack = "doctor runs one check in this build, a pack's: pass --pack DIR"
 # The pack set as workspace state (DR-62): pack add, pack remove, the copies and the walk's bounds.
 added = "Added the pack {id} version {version} from {source}: its copy {copy} loads at the next scan."
 replaced = "Replaced the pack {id} with version {version} from {source}: its copy {copy} loads at the next scan."
