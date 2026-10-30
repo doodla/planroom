@@ -5,7 +5,7 @@
 mod support;
 
 use planroom_contract::ErrorCode;
-use planroom_models::claude::{self, Claude};
+use planroom_models::claude::{self, Claude, Reply};
 use planroom_models::replay::ReplayDir;
 use serde_json::json;
 use support::{Fake, call, config, env, recording, spend_log};
@@ -91,8 +91,10 @@ fn a_recorded_call_replays_with_no_network() {
     };
     let first = recorder.call(&asked).unwrap();
     assert_eq!(fake.count(), 1);
-    // Record mode answers a call it has a record for from the record.
-    assert_eq!(recorder.call(&asked).unwrap(), first);
+    assert!(!first.replayed, "a call that crossed the network is no replay");
+    // Record mode answers a call it has a record for from the record, marked as read from it.
+    let from_record = Reply { replayed: true, ..first.clone() };
+    assert_eq!(recorder.call(&asked).unwrap(), from_record);
     assert_eq!(fake.count(), 1);
     let strict = env(&[("PLANROOM_REPLAY", "strict")]);
     let offline = Fake::answering(500, &json!({}));
@@ -106,7 +108,7 @@ fn a_recorded_call_replays_with_no_network() {
         secrets: vec![],
     };
     let replayed = replayer.call(&asked).unwrap();
-    assert_eq!(replayed, first);
+    assert_eq!(replayed, from_record);
     assert_eq!(replayed.text, r#"{"group":"orders"}"#);
     assert_eq!(offline.count(), 0);
 }

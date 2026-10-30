@@ -183,6 +183,8 @@ pub struct Reply {
     /// The gateway's generation ID (the message `id`).
     pub generation_id: Option<String>,
     pub model_reported: Option<String>,
+    /// Read from an existing recording.
+    pub replayed: bool,
 }
 
 /// Why a response is no reply. None of these keeps the provider's message.
@@ -256,6 +258,7 @@ fn decode_message(body: &Value) -> Option<Reply> {
         cost_usd,
         generation_id: body.get("id").and_then(Value::as_str).map(str::to_owned),
         model_reported: body.get("model").and_then(Value::as_str).map(str::to_owned),
+        replayed: false,
     })
 }
 
@@ -283,7 +286,9 @@ impl Claude<'_> {
             Mode::Strict | Mode::Record => self.replay.read(REPLAY_PROVIDER, &call.purpose, &built.key)?,
         };
         if let Some(record) = record {
-            return self.decoded(call, record.response.status, &record.response.body);
+            return self
+                .decoded(call, record.response.status, &record.response.body)
+                .map(|r| Reply { replayed: true, ..r });
         }
         if self.env.mode == Mode::Strict {
             let path = self.replay.path(REPLAY_PROVIDER, &call.purpose, &built.key)?;

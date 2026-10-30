@@ -629,6 +629,7 @@ mod tests {
             cost_usd: None,
             generation_id: None,
             model_reported: None,
+            replayed: false,
         };
         // On the ladder of the set the map was folded with, the name finds the block.
         let (drafted, dropped) =

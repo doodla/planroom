@@ -1,7 +1,8 @@
 //! The docs checks over the committed pages: every Read first link in an area's `AGENTS.md`
 //! resolves, anchor included, and every amended record says so in its Status (repo-layout.md, Read
-//! first, per area; decisions.md, How to read a record; DR-79). They read files only, so they need
-//! no dependency on xtask.
+//! first, per area; decisions.md, How to read a record; DR-79), and every test file under each
+//! `crates/<crate>/tests/` is named in traceability.md's Test inventory (DR-124). They read files only,
+//! so they need no dependency on xtask.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -253,4 +254,72 @@ fn an_amended_record_says_so_in_its_status() {
             "DR-2: Extended by DR-4, which its Status doesn't name",
         ]
     );
+}
+
+const TRACEABILITY: &str = "docs/contributing/traceability.md";
+
+/// The test files the inventory names under `crates/<crate>/tests/`, by crate: a `name.rs` path, a
+/// `{a,b}.rs` list, either one followed by `::` and its test names, and a bare `{a,b}.rs` list after
+/// one of them in the same row.
+fn inventory(text: &str) -> std::collections::BTreeMap<String, BTreeSet<String>> {
+    let mut named = std::collections::BTreeMap::<String, BTreeSet<String>>::new();
+    let section = text.split("## Test inventory").nth(1).unwrap_or_default();
+    let section = section.split("\n## ").next().unwrap_or_default();
+    for row in section.lines().filter(|l| l.starts_with("| ")) {
+        let mut krate: Option<&str> = None;
+        for span in row.split('`').skip(1).step_by(2) {
+            let stem = match span.strip_prefix("crates/").and_then(|p| p.split_once("/tests/")) {
+                Some((k, rest)) => {
+                    krate = Some(k);
+                    rest.split_once("::").map_or(rest, |(file, _)| file)
+                }
+                None if span.starts_with('{') => span,
+                None => continue,
+            };
+            let (Some(k), Some(stem)) = (krate, stem.strip_suffix(".rs")) else { continue };
+            let names = named.entry(k.to_owned()).or_default();
+            match stem.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+                Some(list) => names.extend(list.split(',').map(str::to_owned)),
+                None => {
+                    names.insert(stem.to_owned());
+                }
+            }
+        }
+    }
+    named
+}
+
+#[test]
+fn every_crate_test_file_is_in_the_test_inventory() {
+    let root = repo_root();
+    let text = fs::read_to_string(root.join(TRACEABILITY)).unwrap();
+    let named = inventory(&text);
+    let none = BTreeSet::new();
+    let mut checked = 0;
+    let mut missing = Vec::new();
+    // Every crate with a `tests/` directory, whether or not a row names it. The scenario files
+    // `sNN_*.rs` are named as a range (`s01_first_look.rs` to `s15_surface.rs`), so they are left out.
+    let mut crates: Vec<PathBuf> =
+        fs::read_dir(root.join("crates")).unwrap().flatten().map(|e| e.path()).collect();
+    crates.sort();
+    for dir in crates {
+        let Ok(files) = fs::read_dir(dir.join("tests")) else { continue };
+        let krate = dir.file_name().unwrap().to_string_lossy().into_owned();
+        let names = named.get(&krate).unwrap_or(&none);
+        for entry in files.flatten() {
+            let file = entry.file_name().to_string_lossy().into_owned();
+            let Some(stem) = file.strip_suffix(".rs") else { continue };
+            let scenario = stem.len() > 4
+                && stem.starts_with('s')
+                && stem[1..3].bytes().all(|b| b.is_ascii_digit())
+                && stem.as_bytes()[3] == b'_';
+            checked += 1;
+            if !scenario && !names.contains(stem) {
+                missing.push(format!("crates/{krate}/tests/{file}"));
+            }
+        }
+    }
+    assert!(checked > 0, "no crate test file found under crates/*/tests/");
+    missing.sort();
+    assert!(missing.is_empty(), "{TRACEABILITY}'s Test inventory doesn't name {missing:?}");
 }

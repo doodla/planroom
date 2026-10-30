@@ -15,6 +15,7 @@ pub mod error;
 pub mod find;
 pub mod focus;
 pub mod fs_type;
+pub mod gc;
 pub mod import;
 pub mod intent;
 pub mod map;

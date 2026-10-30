@@ -20,7 +20,7 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 ## Layout
 
 - `src/`: the binary's entry (`main.rs`), the CLI (`cli.rs`), the live loop (`live.rs`), the string catalog's loader (`text.rs`) and the clock.
-- `src/app/`: the app services, orchestration only: one handler per command, actor resolution, workspace trust, confinement to the workspace, and the data root.
+- `src/app/`: the app services, orchestration only: one handler per command, actor resolution, workspace trust, confinement to the workspace, the data root, and `gc` after a scan.
 - `src/app/doctor/`: `doctor`: the general report in `general.rs`, the backup check in `backup.rs` and the pack conformance kit in `pack.rs`.
 - `src/app/map/`: `map`'s reads: the fold read, lenses, paging and focus.
 - `src/config/`: configuration: `defaults.toml`, the one home of every key, and its schema and loading.

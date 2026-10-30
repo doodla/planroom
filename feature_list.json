@@ -1417,7 +1417,7 @@
           "cargo xtask check layout: the state check passes on the clean copy; in a temporary copy, a planted bad commit already pushed fails no later run, a first lock that names a record other than DR-79 fails (DR-81), a lock naming a missing record fails, a duplicate record heading fails, an edited area row or a new package dependency without a record fails, and a dependency version bump needs none; ci_runs_only_xtask, area_contracts_match_repo_layout over every top-level and tests/* directory, and the breaking-change guard (DR-70)",
           "under CI=true, a check that prints skipped fails unless crates/xtask/ci_skips.toml lists it with its reason and record; feature_list_is_complete refuses passing for an entry whose listed test or step was skipped (DR-79)",
           "cargo xtask check layout in a linked worktree with a changed gated surface reports pending ratification and exits 0, and gen --layout-lock refuses there; a workflow_dispatch and a tag-push event payload run the state check only (DR-79)",
-          "every_directory_has_a_purpose over git ls-files; Read first names resolve to headings; generated_headers over every path in the Generated directories table; golden_outputs_equal_engine_output (DR-79)"
+          "every_directory_has_a_purpose over git ls-files; Read first names resolve to headings; every crates/<crate>/tests/*.rs file is named in traceability.md's Test inventory (DR-124); generated_headers over every path in the Generated directories table; golden_outputs_equal_engine_output (DR-79)"
         ],
         "compare": [],
         "asserts": [
@@ -1487,6 +1487,7 @@
         "crates/planroom/tests/golden.rs::golden_outputs_equal_engine_output",
         "crates/planroom/tests/docs.rs::read_first_names_resolve",
         "crates/planroom/tests/docs.rs::an_amended_record_says_so_in_its_status",
+        "crates/planroom/tests/docs.rs::every_crate_test_file_is_in_the_test_inventory",
         "crates/xtask/tests/docs.rs::generated_headers",
         "crates/xtask/tests/gates.rs::a_branch_merge_lists_its_gated_changes",
         "crates/planroom/tests/usage.rs::a_bad_flag_or_value_with_json_is_one_invalid_argument_envelope",
@@ -2086,7 +2087,8 @@
           "a marked prefix that reports no cache write and no cache read fails the budget test with cache_not_applied (DR-65)",
           "every cost figure on a card equals the estimator capped by the config (DR-65)",
           "xtask live record on a prefix_hash the ledger shows written within its TTL: refused before any billable call, naming when the TTL lapses (DR-65)",
-          "docs/evidence/spend.jsonl starts with Phase 1's rows, and docs/art/spend.jsonl holds a drafts row with no image, which the art test allows (DR-65)"
+          "docs/evidence/spend.jsonl starts with Phase 1's rows, and docs/art/spend.jsonl holds a drafts row with no image, which the art test allows (DR-65)",
+          "an answered Claude call writes one row to DATA_ROOT/ledger.db, a replayed one with cost_usd NULL; a ledger whose min_reader_version is above the engine's is schema_mismatch naming ledger.db before the call; a live call outside record mode is refused before the ledger opens, and the data root stays missing (DR-124)"
         ],
         "compare": [],
         "stand_ins": [
@@ -2118,7 +2120,10 @@
         "crates/planroom/tests/live_gate.rs::the_cap_keeps_a_25_cent_margin",
         "crates/planroom/tests/live_gate.rs::a_live_flag_without_a_spend_log_is_refused",
         "crates/planroom/tests/live_gate.rs::intent_next_without_a_record_flag_is_budget_exceeded",
-        "crates/planroom/tests/live_gate.rs::a_relative_replay_dir_is_refused"
+        "crates/planroom/tests/live_gate.rs::a_relative_replay_dir_is_refused",
+        "crates/planroom/src/app/models.rs::a_replayed_call_is_recorded_in_the_ledger_at_no_cost",
+        "crates/planroom/src/app/models.rs::a_newer_ledger_refuses_the_call_before_it_is_sent",
+        "crates/planroom/src/app/models.rs::a_live_call_is_refused_before_the_ledger_opens"
       ],
       "due": {
         "crates/store/tests/ledger.rs::the_daily_cap_spans_workspaces": "M2",
@@ -2195,6 +2200,8 @@
         "crates/store/tests/migrations.rs::an_older_watch_exits_after_a_migration",
         "crates/store/tests/ledger.rs::an_older_engine_reads_a_newer_ledger",
         "crates/store/tests/ledger.rs::a_ledger_migration_keeps_a_copy",
+        "crates/store/tests/ledger.rs::a_raised_min_reader_version_refuses_a_ledger_already_open",
+        "crates/store/tests/ledger.rs::an_existing_data_root_keeps_its_mode",
         "crates/planroom/tests/workspaces.rs::two_engines_recording_at_once_lose_no_entry",
         "crates/planroom/tests/workspaces.rs::unknown_fields_survive_a_serve_detach",
         "crates/planroom/tests/workspaces.rs::an_engine_older_than_the_file_refuses_it_and_leaves_it_as_it_was",
@@ -2207,9 +2214,7 @@
         "crates/planroom/tests/backup.rs::a_restore_is_undone_by_its_pre_restore_copy": "M1",
         "crates/planroom/tests/backup.rs::restore_then_upgrade_replays_set_aside_edits": "M1",
         "crates/planroom/tests/backup.rs::a_replayed_edit_conflicts_with_a_post_restore_edit": "M1",
-        "crates/planroom/tests/backup.rs::a_restore_keeps_done_classes": "M2",
-        "crates/store/tests/ledger.rs::an_older_engine_reads_a_newer_ledger": "M1",
-        "crates/store/tests/ledger.rs::a_ledger_migration_keeps_a_copy": "M1"
+        "crates/planroom/tests/backup.rs::a_restore_keeps_done_classes": "M2"
       },
       "decision": "DR-53, DR-73, DR-74, DR-75, DR-78, DR-85"
     },

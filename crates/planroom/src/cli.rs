@@ -184,6 +184,10 @@ pub fn main() -> ExitCode {
             let name = Command::Scan(req.clone()).name();
             let scan = app::confine::scan(&req, &cwd, cli.workspace.as_deref(), &caller, &mut Tty)
                 .and_then(|()| app::scan::run(&req, &cwd));
+            // The process that scanned runs `gc` before it replies, under its lease (DR-47).
+            if scan.is_ok() {
+                app::gc::after_scan(&req, &cwd);
+            }
             finish_paged(cli.json, &name.0, scan, started)
         }
         Cmd::Map(req) => {

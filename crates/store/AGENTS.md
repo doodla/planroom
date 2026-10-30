@@ -7,7 +7,7 @@ This area's contract, from [Repo layout](../../docs/contributing/repo-layout.md#
 - **Owns:** the tables, `commit` (idempotency, compare-and-set by writer instance, status by actor, a person's field held against automatic writes, the store-version check [DR-73]), the per-blob fact cache, the filesystem check and file modes, `tail` on its own read-only connection, leases, presence, layouts, migrations with their `VACUUM INTO` copies; the user-level ledger and event backups under the data root.
 - **May depend on:** `contract`, and its allow-list in `boundaries.toml`: `rusqlite`, `serde`, `serde_json`, `sha2`, `thiserror` [DR-79].
 - **Must not:** other workspace crates; any other third-party crate; opening a socket [DR-79]; business rules (it calls a kernel function passed in by `app`).
-- **How to test it:** `cargo xtask test -p planroom-store` (`concurrency.rs`, 3 processes × 500 writes; `crash.rs`, `idem.rs`, `commit.rs`, `fs_check.rs`, `ledger.rs` (M1), the writer-interleavings proptest in `interleavings.rs`, and the migration fixtures in `migrations.rs`).
+- **How to test it:** `cargo xtask test -p planroom-store` (`concurrency.rs`, 3 processes × 500 writes; `crash.rs`, `idem.rs`, `commit.rs`, `fs_check.rs`, `ledger.rs`, `lease.rs`, the writer-interleavings proptest in `interleavings.rs`, and the migration fixtures in `migrations.rs`).
 
 Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first-per-area):
 
@@ -19,7 +19,8 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 
 ## Layout
 
-- `src/`: the SQLite store: opening and migrating it, the data-root pointer, reads, `tail`, the card store, layouts, presence, the filesystem check and the event backup's write-through.
+- `src/`: the SQLite store: opening and migrating it, the data-root pointer, reads, `tail`, the card store, layouts, presence, the filesystem check and the event backup's write-through; leases, `gc`, and the user-level ledger.
 - `src/commit/`: the one write path: `write.rs` for events and `scan.rs` for a scan's facts, with idempotency and compare-and-set by writer instance, and the write-through hook after a person-authored commit.
 - `migrations/`: the numbered SQL migrations, applied in order from `0001_init.sql`.
+- `ledger/`: the user-level ledger's numbered SQL migrations, additions only, applied in order from `0001_init.sql`.
 - `tests/`: the store's tests through its API, one file per behavior, the concurrency, crash and migration tests among them.

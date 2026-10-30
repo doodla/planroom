@@ -482,7 +482,12 @@ fn dispatch(name: &str, body: Value, root: &Path, idem: Option<&str>, started: I
                         return Err(AppError::invalid_argument("dir", "argument.http_scan_dir"));
                     }
                 }
-                app::scan::run(&req, root)
+                let ran = app::scan::run(&req, root);
+                // The process that scanned runs `gc` before it replies, under its lease (DR-47).
+                if ran.is_ok() {
+                    app::gc::after_scan(&req, root);
+                }
+                ran
             });
             reply_paged(name, ran, started)
         }

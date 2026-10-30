@@ -454,6 +454,10 @@ pub fn next(
     }
     let folded = live::folded(&snapshot, set.vocabulary())?;
     drop(snapshot);
+    let spender = crate::app::models::Spender {
+        data_root: crate::app::data::root()?,
+        workspace_id: store.meta("workspace_id")?,
+    };
     let project_flag = req.common.project.as_ref().map(|p| p.0.as_str());
     let drafting = crate::app::draft::drafting(&set, &folded, req.stage.as_deref(), project_flag)?;
     let stage = drafting.stage.id.clone();
@@ -470,7 +474,7 @@ pub fn next(
     };
     let call = &drafting.call;
     let key = planroom_models::claude::build(&config.claude, call).key;
-    let reply = crate::app::models::ask_claude(call, &env, &config).map_err(hinted)?;
+    let reply = crate::app::models::ask_claude(call, &env, &config, &spender).map_err(hinted)?;
     let (proposal, dropped) =
         crate::app::draft::proposal(&reply, &call.purpose, &key, &folded, &project, set.vocabulary())
             .map_err(hinted)?;

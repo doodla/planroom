@@ -6,7 +6,7 @@
 //! relative `PLANROOM_SPEND_LOG`, or a `PLANROOM_LIVE_*` flag with no spend log, is
 //! `invalid_argument` before the command does anything.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use planroom_contract::ErrorCode;
@@ -17,6 +17,7 @@ use planroom_models::gate::{self, LiveEnv, Mode, Provider};
 use planroom_models::replay::ReplayDir;
 use planroom_models::transport::Live;
 use planroom_models::{ModelError, canonical};
+use planroom_store::{Ledger, LedgerRow};
 use serde::Serialize;
 
 use crate::app::error::AppError;
@@ -71,6 +72,13 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 /// `PLANROOM_REPLAY_DIR` is set: the checkout's `tests/replay/`.
 const REPLAY_HOME: &str = "tests/replay";
 
+/// Who pays for a model call and where its ledger row goes: the row's workspace, the store's
+/// `meta.workspace_id`, and the data root that holds `ledger.db`.
+pub struct Spender {
+    pub data_root: PathBuf,
+    pub workspace_id: Option<String>,
+}
+
 /// Ask Claude `call` through the gateway adapter, the one place the engine assembles it: the
 /// configuration's `[claude]` settings and `live_tests_total_usd`, the credential and the values no
 /// record may hold from this process's environment, the recordings under `PLANROOM_REPLAY_DIR`,
@@ -80,22 +88,30 @@ const REPLAY_HOME: &str = "tests/replay";
 /// Under strict replay or record mode with no `PLANROOM_REPLAY_DIR`, the call is `replay_missing`
 /// naming where its record would live, and nothing is read: recordings are never looked for
 /// relative to the directory the command runs in, where a workspace could plant one. A live call
-/// outside record mode is the gate's `budget_exceeded`, guard `replay_only`, before anything else.
-pub fn ask_claude(call: &Call, env: &LiveEnv, config: &Config) -> Result<Reply, AppError> {
-    let replay = match (&env.replay_dir, env.mode) {
-        (Some(dir), _) => ReplayDir::new(dir),
-        (None, Mode::Live) => {
-            // Outside record mode the gate refuses every live call.
-            let refused = env.live_call(Provider::Gateway).err().unwrap_or_else(ModelError::internal);
-            return Err(refused.into());
-        }
-        (None, Mode::Strict | Mode::Record) => {
+/// outside record mode is the gate's `budget_exceeded`, guard `replay_only`, before anything else,
+/// whatever `PLANROOM_REPLAY_DIR` is, so it never opens the ledger.
+///
+/// The ledger (`DATA_ROOT/ledger.db`) opens after the gate's refusals and before the credential is
+/// read or the call made, so a ledger that refuses this engine is `schema_mismatch` naming it
+/// before anything is sent. Every answered call, replayed ones included, writes one row: `day`
+/// scope, the built model and `prefix_hash`, the reply's usage, and `cost_usd` NULL when replayed,
+/// else the reported cost or the call's ceiling (architecture.md, Spend guards; DR-51, DR-78). A
+/// refusal or a failed call writes none.
+pub fn ask_claude(call: &Call, env: &LiveEnv, config: &Config, ledger: &Spender) -> Result<Reply, AppError> {
+    if env.mode == Mode::Live {
+        // Outside record mode the gate refuses every live call.
+        return Err(env.live_call(Provider::Gateway).err().unwrap_or_else(ModelError::internal).into());
+    }
+    let replay = match &env.replay_dir {
+        Some(dir) => ReplayDir::new(dir),
+        None => {
             let built = claude::build(&config.claude, call);
             let path =
                 ReplayDir::new(Path::new(REPLAY_HOME)).path(REPLAY_PROVIDER, &call.purpose, &built.key)?;
             return Err(ModelError::replay_missing(&built.key, &path.display().to_string()).into());
         }
     };
+    let mut book = Ledger::open_at(&ledger.data_root, env!("CARGO_PKG_VERSION"))?;
     let var = |name: &str| std::env::var(name).ok();
     let credential = claude::credential(&config.claude, &var)?;
     let secrets = claude::secrets(credential.as_ref(), &var);
@@ -109,7 +125,30 @@ pub fn ask_claude(call: &Call, env: &LiveEnv, config: &Config) -> Result<Reply, 
         credential,
         secrets,
     };
-    Ok(adapter.call(call)?)
+    let reply = adapter.call(call)?;
+    let built = claude::build(&config.claude, call);
+    book.record(&LedgerRow {
+        at: claude::now_rfc3339(),
+        workspace_id: ledger.workspace_id.clone(),
+        provider: Provider::Gateway.as_str().to_owned(),
+        model: built.model,
+        purpose: call.purpose.clone(),
+        scope: "day".to_owned(),
+        uncached_in: Some(count(reply.usage.input)?),
+        cache_read: Some(count(reply.usage.cache_read)?),
+        cache_write: Some(count(reply.usage.cache_write)?),
+        output: Some(count(reply.usage.output)?),
+        cost_usd: if reply.replayed { None } else { reply.cost_usd.or(Some(call.ceiling_usd)) },
+        prefix_hash: Some(built.prefix_hash),
+        generation_id: reply.generation_id.clone(),
+        replayed: reply.replayed,
+    })?;
+    Ok(reply)
+}
+
+/// A token count as the ledger's integer column holds it.
+fn count(n: u64) -> Result<i64, AppError> {
+    i64::try_from(n).map_err(|_| AppError::internal("a token count past i64"))
 }
 
 impl From<ModelError> for AppError {
@@ -149,4 +188,151 @@ impl From<ModelError> for AppError {
 /// `$0.25` from a JSON number of dollars.
 fn dollars(v: &serde_json::Value) -> String {
     format!("${:.2}", v.as_f64().unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use planroom_contract::{
+        CacheTtl, Measured, ModelTier, REPLAY_FORMAT, RecordedRequest, RecordedResponse, ReplayRecord,
+    };
+    use planroom_store::LEDGER_MIGRATIONS;
+    use planroom_store::migrate::Migration;
+    use serde_json::json;
+
+    use super::*;
+
+    fn config() -> Config {
+        let env = |_: &str| None;
+        crate::config::load(&crate::config::Sources { user: None, workspace: None, env: &env })
+            .unwrap()
+            .config
+    }
+
+    fn call() -> Call {
+        Call {
+            purpose: "test.ledger".into(),
+            tier: ModelTier::Cheap,
+            prefix: vec!["You answer with an empty JSON object.".into()],
+            ttl: CacheTtl::H1,
+            tail: vec!["{}".into()],
+            output_schema: None,
+            max_tokens: 64,
+            effort: None,
+            ceiling_usd: 0.10,
+            scenario: "test".into(),
+        }
+    }
+
+    /// Plant `call`'s recording under `dir`, answering `{}` with a usage and a reported cost.
+    fn plant(dir: &Path, config: &Config, call: &Call) {
+        let built = claude::build(&config.claude, call);
+        let body = json!({
+            "type": "message",
+            "id": "gen-1",
+            "model": built.model,
+            "content": [{"type": "text", "text": "{}"}],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 11,
+                "cache_creation_input_tokens": 7,
+                "cache_read_input_tokens": 5,
+                "output_tokens": 3
+            },
+            "provider_metadata": {"gateway": {"cost": 0.0123}}
+        });
+        let record = ReplayRecord {
+            format: REPLAY_FORMAT.into(),
+            key: built.key,
+            purpose: call.purpose.clone(),
+            request: RecordedRequest {
+                method: "POST".into(),
+                url: built.url,
+                headers: built.headers,
+                body: built.body,
+            },
+            response: RecordedResponse { status: 200, headers: vec![], body },
+            measured: Measured {
+                wall_ms: 1,
+                recorded_at: "2026-10-01T00:00:00Z".into(),
+                model_reported: None,
+            },
+        };
+        ReplayDir::new(dir).write(REPLAY_PROVIDER, &record, &[]).unwrap();
+    }
+
+    fn strict(dir: &Path) -> LiveEnv {
+        LiveEnv {
+            mode: Mode::Strict,
+            gateway: false,
+            jev: false,
+            spend_log: None,
+            replay_dir: Some(dir.to_path_buf()),
+        }
+    }
+
+    #[test]
+    fn a_replayed_call_is_recorded_in_the_ledger_at_no_cost() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (replay, data) = (tmp.path().join("replay"), tmp.path().join("data"));
+        let (config, call) = (config(), call());
+        plant(&replay, &config, &call);
+        let spender = Spender { data_root: data.clone(), workspace_id: Some("ws-test".into()) };
+        let reply = ask_claude(&call, &strict(&replay), &config, &spender).unwrap();
+        assert_eq!(reply.text, "{}");
+        let rows = Ledger::open_at(&data, env!("CARGO_PKG_VERSION")).unwrap().rows(0, 10).unwrap();
+        assert_eq!(rows.len(), 1, "one answered call, one row");
+        let row = &rows[0].1;
+        let built = claude::build(&config.claude, &call);
+        assert!(row.replayed);
+        assert_eq!(row.cost_usd, None, "a replayed answer costs nothing, whatever its recording reported");
+        assert_eq!(row.prefix_hash, Some(built.prefix_hash));
+        assert_eq!(row.model, built.model);
+        assert_eq!(row.scope, "day");
+        assert_eq!(row.provider, "gateway");
+        assert_eq!(row.purpose, "test.ledger");
+        assert_eq!(row.workspace_id.as_deref(), Some("ws-test"));
+        assert!(row.at.len() == 20 && row.at.ends_with('Z'), "{}", row.at);
+        assert_eq!(
+            (row.uncached_in, row.cache_write, row.cache_read, row.output),
+            (Some(11), Some(7), Some(5), Some(3))
+        );
+        assert_eq!(row.generation_id.as_deref(), Some("gen-1"));
+    }
+
+    #[test]
+    fn a_newer_ledger_refuses_the_call_before_it_is_sent() {
+        const RAISED: &[Migration] =
+            &[LEDGER_MIGRATIONS[0], (2, "UPDATE meta SET value = '9.0.0' WHERE key = 'min_reader_version'")];
+        let tmp = tempfile::tempdir().unwrap();
+        let (replay, data) = (tmp.path().join("replay"), tmp.path().join("data"));
+        drop(Ledger::open_with_migrations(&data, "9.0.0", RAISED).unwrap());
+        // No recording is planted: a call made before the ledger refuses would be `replay_missing`,
+        // so only a ledger that refuses first answers `schema_mismatch`.
+        let (config, call) = (config(), call());
+        let spender = Spender { data_root: data.clone(), workspace_id: Some("ws-test".into()) };
+        let Err(e) = ask_claude(&call, &strict(&replay), &config, &spender) else {
+            panic!("a ledger this engine may not read answered the call");
+        };
+        assert_eq!(e.code, ErrorCode::SchemaMismatch);
+        let file = e.details["file"].as_str().unwrap_or_default();
+        assert!(file.ends_with("ledger.db"), "{}", e.details);
+        let rows = Ledger::open_with_migrations(&data, "9.0.0", RAISED).unwrap().rows(0, 10).unwrap();
+        assert!(rows.is_empty(), "a refused call writes no row");
+    }
+
+    #[test]
+    fn a_live_call_is_refused_before_the_ledger_opens() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (replay, data) = (tmp.path().join("replay"), tmp.path().join("data"));
+        let (config, call) = (config(), call());
+        plant(&replay, &config, &call);
+        let live = LiveEnv { mode: Mode::Live, ..strict(&replay) };
+        let spender = Spender { data_root: data.clone(), workspace_id: Some("ws-test".into()) };
+        let Err(e) = ask_claude(&call, &live, &config, &spender) else {
+            panic!("a live call outside record mode was answered");
+        };
+        assert_eq!(e.code, ErrorCode::BudgetExceeded);
+        assert_eq!(e.details["guard"], "replay_only", "{}", e.details);
+        assert!(!data.exists(), "the refusal opened the ledger under {}", data.display());
+    }
 }

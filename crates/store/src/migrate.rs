@@ -121,19 +121,32 @@ fn copy(path: &Path, held: &Connection, from: u32) -> Result<PathBuf, StoreError
     })?;
     let dir = env.data_root.join("backups").join(&id);
     private_dir(&dir)?;
-    let dest = dir.join(format!("store-v{from}.db"));
+    let dest = vacuum_copy(path, &dir, &format!("store-v{from}.db"))?;
+    prune_copies(&dir, "store-v", KEPT_COPIES);
+    Ok(dest)
+}
+
+/// Write a checked `VACUUM INTO` copy of the database at `src` to `dir/name`, mode 0600, and
+/// return its path. The copy is written to `.<name>.<unique>.tmp` from a second, read-only
+/// connection, so a caller holding the write lock copies exactly the database it starts from;
+/// it is checked with `PRAGMA integrity_check`, synced and renamed into place. `name` is
+/// `<prefix>N.db`, and before writing, the temporaries of every `<prefix>` copy older than
+/// [`STALE_COPY`] are swept. `dir` must exist.
+pub(crate) fn vacuum_copy(src: &Path, dir: &Path, name: &str) -> Result<PathBuf, StoreError> {
+    let dest = dir.join(name);
+    let prefix = name.strip_suffix(".db").unwrap_or(name).trim_end_matches(|c: char| c.is_ascii_digit());
     // A temporary copy nothing has written to for STALE_COPY is a killed process's: it would stay
-    // there, a whole store, forever. One being written is written to all the while, and another
+    // there, a whole database, forever. One being written is written to all the while, and another
     // store can be writing here when two share a workspace ID, as a copied state directory does,
     // so a fresh one is left alone.
-    sweep(&dir, ".store-v", ".tmp", Some(STALE_COPY));
-    let tmp = dir.join(format!(".store-v{from}.db.{}.tmp", unique()));
+    sweep(dir, &format!(".{prefix}"), ".tmp", Some(STALE_COPY));
+    let tmp = dir.join(format!(".{name}.{}.tmp", unique()));
     let fail = |e: &dyn std::fmt::Display| StoreError::Io(format!("{}: {e}", dest.display()));
     // VACUUM INTO writes into an empty file it finds, so the copy keeps this file's mode 0600.
     OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp).map_err(|e| fail(&e))?;
     let written = (|| {
         let reader = Connection::open_with_flags(
-            path,
+            src,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         reader.busy_timeout(BUSY_TIMEOUT)?;
@@ -156,8 +169,7 @@ fn copy(path: &Path, held: &Connection, from: u32) -> Result<PathBuf, StoreError
         let _ = fs::remove_file(&tmp);
         return Err(fail(&e));
     }
-    sync_dir(Some(&dir));
-    prune(&dir);
+    sync_dir(Some(dir));
     Ok(dest)
 }
 
@@ -185,19 +197,19 @@ pub(crate) fn sweep(dir: &Path, prefix: &str, suffix: &str, older_than: Option<s
     }
 }
 
-/// Keep the [`KEPT_COPIES`] newest `store-vN.db` copies in `dir`, by `N`.
-fn prune(dir: &Path) {
+/// Keep the `keep` newest `<prefix>N.db` copies in `dir`, by `N`, and remove the rest, best effort.
+pub(crate) fn prune_copies(dir: &Path, prefix: &str, keep: usize) {
     let Ok(entries) = fs::read_dir(dir) else { return };
     let mut copies: Vec<(u32, PathBuf)> = entries
         .filter_map(Result::ok)
         .filter_map(|e| {
             let name = e.file_name().into_string().ok()?;
-            let n = name.strip_prefix("store-v")?.strip_suffix(".db")?;
+            let n = name.strip_prefix(prefix)?.strip_suffix(".db")?;
             Some((n.parse().ok()?, e.path()))
         })
         .collect();
     copies.sort_by_key(|c| std::cmp::Reverse(c.0));
-    for (_, old) in copies.into_iter().skip(KEPT_COPIES) {
+    for (_, old) in copies.into_iter().skip(keep) {
         let _ = fs::remove_file(old);
     }
 }
