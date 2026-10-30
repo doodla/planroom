@@ -333,7 +333,7 @@ export const CATALOGUE: readonly CatalogueLeaf[] = [
 ];
 
 /** sha256 of the catalogue as `planroom schema --commands` lists it; `version --json` reports it. */
-export const CATALOGUE_HASH = "991e269663af0875e0a8f678650a44815a3178e10da2cd47588f8b24f5517902";
+export const CATALOGUE_HASH = "55e97a279127d8045d56da01d1ca58779c0dd45817a90ef010dae791c763dc0e";
 
 /** One pane the mod draws before the engine answers `focus` (DR-57). */
 export interface FallbackPane {
@@ -395,7 +395,7 @@ export const FALLBACK_PANES: Readonly<Record<"resolving" | "fetching" | "build_o
  * The mod's own lines, from the `[mod]` table of `en.toml`: templates whose `{name}`s the mod
  * fills with `fill` from `@planroom/ui`, then sanitizes.
  */
-export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band_points_to_pane" | "band_rekey" | "band_shown" | "batch_count" | "block_row" | "blocks_at_level" | "blocks_at_level_one" | "blocks_title" | "build_failed" | "building_line" | "canvas_label" | "compact_focus_line" | "done_line" | "engine_exited" | "engine_no_error" | "engine_no_version" | "engine_not_ready" | "engine_rebuild" | "failed_line" | "first_page_label" | "focus_line" | "focused_block_row" | "guard_too_many_paths" | "guard_unchecked" | "handler_failed" | "lens_line" | "more_decisions" | "more_rows" | "next_page_label" | "next_title" | "no_blocks" | "no_blocks_at_level" | "no_diffs" | "no_project" | "nobody_here" | "outbox_dropped" | "page_line" | "progress_done" | "progress_handoffs" | "progress_handoffs_one" | "progress_no_stage" | "progress_not_scanned" | "progress_scanning" | "project_line" | "prompt_section" | "room_argument_hint" | "room_description" | "room_help_bare" | "room_help_help" | "room_more_warnings" | "room_no_command" | "room_open_quote" | "room_warning" | "selected_row" | "share_context" | "title" | "toast" | "toast_undo" | "toast_undo_pane" | "toast_warned" | "toast_warned_one" | "tool_args_not_strings" | "tool_commands_label" | "tool_no_client" | "tool_no_command" | "tool_no_workspace" | "tool_schema_label" | "who_agent" | "who_doing" | "workspace", string>> = {
+export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band_points_to_pane" | "band_rekey" | "band_shown" | "batch_count" | "block_row" | "blocks_at_level" | "blocks_at_level_one" | "blocks_title" | "build_failed" | "building_line" | "canvas_label" | "compact_focus_line" | "done_line" | "down_label" | "engine_exited" | "engine_no_error" | "engine_no_version" | "engine_not_ready" | "engine_rebuild" | "failed_line" | "first_page_label" | "focus_exited" | "focus_line" | "focused_block_row" | "guard_too_many_paths" | "guard_unchecked" | "handler_failed" | "lens_line" | "lens_picker" | "more_decisions" | "more_rows" | "next_page_label" | "next_title" | "no_blocks" | "no_blocks_at_level" | "no_diffs" | "no_project" | "nobody_here" | "outbox_dropped" | "page_line" | "picker_empty" | "picker_entry" | "picker_more" | "progress_done" | "progress_handoffs" | "progress_handoffs_one" | "progress_no_stage" | "progress_not_scanned" | "progress_scanning" | "project_line" | "project_picker" | "prompt_section" | "room_argument_hint" | "room_description" | "room_help_bare" | "room_help_help" | "room_more_warnings" | "room_no_command" | "room_open_quote" | "room_warning" | "selected_row" | "share_context" | "stage_picker" | "title" | "toast" | "toast_undo" | "toast_undo_pane" | "toast_warned" | "toast_warned_one" | "tool_args_not_strings" | "tool_commands_label" | "tool_no_client" | "tool_no_command" | "tool_no_workspace" | "tool_schema_label" | "up_label" | "who_agent" | "who_doing" | "workspace", string>> = {
   "back_label": "Back to the {level} level",
   "band_fallback": "{headline} {action}",
   "band_points_to_pane": "Next: {label} · /room to open it",
@@ -411,6 +411,7 @@ export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band
   "canvas_label": "Open the canvas",
   "compact_focus_line": "▣ {crumbs} · {level} · {lens}",
   "done_line": "{label}: done",
+  "down_label": "Down",
   "engine_exited": "The engine exited {code} without a reply.",
   "engine_no_error": "The engine failed without an error.",
   "engine_no_version": "The Planroom engine didn't answer version --json: {said}",
@@ -418,12 +419,14 @@ export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band
   "engine_rebuild": "Rebuild the engine: {fix}",
   "failed_line": "{label} failed",
   "first_page_label": "First page",
+  "focus_exited": "focus exited {code}",
   "focus_line": "▣ {crumbs}",
   "focused_block_row": "▣ {name}",
   "guard_too_many_paths": "This call names more paths than the Planroom guard resolves, so it can't check where they all lead.",
   "guard_unchecked": "The Planroom guard couldn't check this call.",
   "handler_failed": "The Planroom mod's tool handler failed.",
   "lens_line": "{level} · lens {lens}",
+  "lens_picker": "Lens",
   "more_decisions": "+{count} more",
   "more_rows": "+{count} more",
   "next_page_label": "Next page",
@@ -435,6 +438,9 @@ export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band
   "nobody_here": "Nobody else is here",
   "outbox_dropped": "A Planroom write from before the reload wasn't sent again; check the pane before you repeat it.",
   "page_line": "{first}–{last} of {total}",
+  "picker_empty": "Nothing to pick here",
+  "picker_entry": "{label} · {detail}",
+  "picker_more": "+{count} more",
   "progress_done": "{done}/{total} done",
   "progress_handoffs": "{count} hand-offs running",
   "progress_handoffs_one": "{count} hand-off running",
@@ -442,6 +448,7 @@ export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band
   "progress_not_scanned": "not scanned",
   "progress_scanning": "scanning",
   "project_line": "{project} · seq {seq}",
+  "project_picker": "Project",
   "prompt_section": "Planroom is this workspace's shared, living map of the software system, which people and agents plan on together. Five ideas: levels (the map's abstraction levels, from the plan's intent down; ask lists them), lenses (which relations you see; ask lists them), intent (projects and their plan items), diffs (what changed against what was meant) and decisions (one card at a time, which a person picks).\nUse mcp__planroom__room_query to read: focus, map, find and ask. Use mcp__planroom__room_change to change: scan, edit, and intent's new, propose, lint and list. Your edits and proposals are ghosts until a person accepts them. Pass base from the meta.seq you read, so a write over a newer one fails instead of overwriting it. A wrong argument returns that command's synopsis.",
   "room_argument_hint": "[help | map | focus | scan …]",
   "room_description": "Planroom: focus the pane, or run a map command (/room help lists them)",
@@ -453,6 +460,7 @@ export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band
   "room_warning": "! {message}",
   "selected_row": "› {label}",
   "share_context": "Publish this as an Artifact with the publish arguments, then make the db writes in order: {json}",
+  "stage_picker": "Stage",
   "title": "Planroom",
   "toast": "{label}: {line}",
   "toast_undo": "{label}: {line} · 1 undoes it",
@@ -465,6 +473,7 @@ export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band
   "tool_no_command": "{tool} has no command {command}.",
   "tool_no_workspace": "Planroom's tools work in this session's workspace only, so --workspace isn't one of their arguments.",
   "tool_schema_label": "The {leaf} command's arguments and result",
+  "up_label": "Up",
   "who_agent": "{role} {session}",
   "who_doing": "{name}: {doing}",
   "workspace": "workspace"
@@ -493,7 +502,9 @@ export const LEAF_OWN_FLAGS: Readonly<Record<string, readonly string[]>> = {
   ],
   "focus": [
     "--session",
-    "--detail"
+    "--detail",
+    "--picker",
+    "--project"
   ],
   "scan": [
     "--base",
@@ -628,7 +639,7 @@ export interface ToolSpecData {
 export const TOOL_SPECS: readonly ToolSpecData[] = [
   {
     "name": "room_query",
-    "description": "Read Planroom's map of this system. Pass base from the meta.seq you read.\nmap [--level LEVEL] [--lens LENS] [--focus FOCUS] [--detail summary|graph] [--cursor CURSOR]\nfind TEXT\nask [QUESTION] [ARGS] [--cursor CURSOR]\nfocus [--session SESSION] [--detail full|summary]",
+    "description": "Read Planroom's map of this system. Pass base from the meta.seq you read.\nmap [--level LEVEL] [--lens LENS] [--focus FOCUS] [--detail summary|graph] [--cursor CURSOR]\nfind TEXT\nask [QUESTION] [ARGS] [--cursor CURSOR]\nfocus [--session SESSION] [--detail full|summary] [--picker lens|project|stage] [--project P]",
     "inputSchema": {
       "type": "object",
       "required": [
@@ -804,7 +815,7 @@ export const ROOM_COMMANDS: readonly RoomCommand[] = [
   {
     "name": "focus",
     "summary": "Where you are, the one open decision and the next action.",
-    "synopsis": "/room focus [--session SESSION] [--detail full|summary]",
+    "synopsis": "/room focus [--session SESSION] [--detail full|summary] [--picker lens|project|stage] [--project P]",
     "subs": [],
     "flags": [
       {
@@ -821,6 +832,22 @@ export const ROOM_COMMANDS: readonly RoomCommand[] = [
           "full",
           "summary"
         ]
+      },
+      {
+        "sub": null,
+        "flag": "--picker",
+        "valueName": "PICKER",
+        "values": [
+          "lens",
+          "project",
+          "stage"
+        ]
+      },
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "P",
+        "values": []
       }
     ]
   },

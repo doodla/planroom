@@ -67,6 +67,9 @@ pub struct State {
     pub frames: broadcast::Sender<StreamFrame>,
     /// The `seq` of the last event the live loop sent, which a dropped client's `reset` names.
     pub latest: Arc<AtomicU64>,
+    /// The last presence frame the live loop sent, which a stream sends after its backlog, so a
+    /// client that connects late has the present set at once.
+    pub present: Arc<Mutex<Option<StreamFrame>>>,
     /// The live streams open now.
     pub clients: AtomicUsize,
     /// Set once the server stops, on a signal or a drain: every live stream ends on it.
@@ -112,7 +115,8 @@ pub struct Hooks {
 }
 
 /// The live loop on its own thread: it polls `data_version` and hears this process's own
-/// commits, and sends each frame to every stream client, keeping the last `seq` in `latest`. When
+/// commits, and sends each frame to every stream client, keeping the last `seq` in `latest` and
+/// the last presence frame in `present`. When
 /// a newer engine migrates the store, the whole server exits with `schema_mismatch`, as an older
 /// `watch` does, after `on_mismatch` removes its records (DR-73, DR-78, DR-82). A server started
 /// before the first scan waits for the store, polling as often as for `data_version`, then sends
@@ -122,6 +126,7 @@ pub fn start_live(
     own: Receiver<Seq>,
     frames: broadcast::Sender<StreamFrame>,
     latest: Arc<AtomicU64>,
+    present: Arc<Mutex<Option<StreamFrame>>>,
     hooks: Hooks,
 ) -> Result<(), AppError> {
     let Hooks { on_mismatch, on_store } = hooks;
@@ -138,8 +143,14 @@ pub fn start_live(
         .name("planroom-live".into())
         .spawn(move || {
             let mut emit = |frame: &StreamFrame| {
-                if let StreamFrame::Event { seq, .. } | StreamFrame::Reset { seq } = frame {
-                    latest.store(*seq, Ordering::SeqCst);
+                match frame {
+                    StreamFrame::Event { seq, .. } | StreamFrame::Reset { seq } => {
+                        latest.store(*seq, Ordering::SeqCst)
+                    }
+                    StreamFrame::Presence { .. } => {
+                        *present.lock().unwrap_or_else(|p| p.into_inner()) = Some(frame.clone())
+                    }
+                    StreamFrame::Ping => {}
                 }
                 let _ = frames.send(frame.clone());
                 true
@@ -504,7 +515,9 @@ fn dispatch(name: &str, body: Value, root: &Path, idem: Option<&str>, started: I
     }
 }
 
-/// `GET /api/v1/stream?since=SEQ`: server-sent events, one per frame, `Last-Event-ID` resuming.
+/// `GET /api/v1/stream?since=SEQ`: server-sent events, one per frame, `Last-Event-ID` resuming: a
+/// `ping`, the events after `since`, the present set when the loop has sent one, then each frame
+/// as the loop sends it.
 async fn stream(
     Shared(state): Shared_,
     headers: HeaderMap,
@@ -530,7 +543,10 @@ async fn stream(
         Ok(Err(e)) => return reply::<()>("watch", Err(e), Instant::now()),
         Err(e) => return reply::<()>("watch", Err(AppError::internal(e)), Instant::now()),
     };
-    let first = std::iter::once(StreamFrame::Ping).chain(backlog);
+    // Read after the subscribe: a set that changes between the two arrives again through the
+    // broadcast, after this one, so the client never ends on a stale set.
+    let present = state.present.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    let first = std::iter::once(StreamFrame::Ping).chain(backlog).chain(present);
     let later = live_after(live, cursor, state.latest.clone());
     let stop = WatchStream::new(stopped).filter(|stop| *stop).map(|_| None);
     let events =
@@ -604,7 +620,7 @@ fn sse(frame: &StreamFrame) -> SseEvent {
     let event = SseEvent::default().event(kind).data(data.to_string());
     match frame {
         StreamFrame::Event { seq, .. } | StreamFrame::Reset { seq } => event.id(seq.to_string()),
-        StreamFrame::Ping => event,
+        StreamFrame::Presence { .. } | StreamFrame::Ping => event,
     }
 }
 

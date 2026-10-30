@@ -3494,9 +3494,40 @@
         "detail": {
           "$ref": "#/$defs/FocusDetail",
           "default": "full"
+        },
+        "picker": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PickerName"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Return this picker in place of the pane.",
+          "default": null
+        },
+        "project": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The project a stage picker is for.",
+          "default": null
         }
       },
-      "description": "`planroom focus [--session ID] [--detail full|summary]`."
+      "description": "`planroom focus [--session ID] [--detail full|summary] [--picker NAME [--project P]]`."
+    },
+    "FocusResult": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PaneModel"
+        },
+        {
+          "$ref": "#/$defs/Picker"
+        }
+      ],
+      "description": "What `focus` returns: the pane, or with `--picker` a picker."
     },
     "Handle": {
       "type": "object",
@@ -6118,6 +6149,127 @@
       ],
       "description": "What `person init` returns: the registered key's fingerprint and when and from where it was\nregistered."
     },
+    "PickEstimate": {
+      "type": "object",
+      "properties": {
+        "tokens": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "A per-pick ceiling: the uncached tail plus the most output a stage's reply takes."
+        },
+        "usd": {
+          "type": "number",
+          "format": "double",
+          "description": "The per-stage dollar ceiling."
+        },
+        "cached": {
+          "type": "boolean",
+          "description": "The shared prefix is cached."
+        }
+      },
+      "required": [
+        "tokens",
+        "usd",
+        "cached"
+      ],
+      "description": "What picking a stage can cost."
+    },
+    "Picker": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/PickerName"
+        },
+        "question": {
+          "type": "string",
+          "description": "The question the picker asks. Holds only counts, levels, stage labels and engine text,\nnever repo text."
+        },
+        "why": {
+          "type": "string",
+          "description": "One line on what the pick changes. Holds only counts, levels, stage labels and engine\ntext, never repo text."
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PickerEntry"
+          }
+        },
+        "more": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Entries left out past the 16 keys reach or past the budget."
+        },
+        "estimate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PickEstimate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What a pick costs, when it spends."
+        }
+      },
+      "required": [
+        "name",
+        "question",
+        "why",
+        "entries",
+        "more"
+      ],
+      "description": "What `focus --picker NAME` returns: a question, why it is asked, and up to 16 entries to pick\nfrom. The pane draws the first four on its card and the rest in a list."
+    },
+    "PickerEntry": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "x-redact": true
+        },
+        "detail": {
+          "type": "string",
+          "description": "Counts, levels, stage labels and engine text only, never repo text."
+        },
+        "handle": {
+          "$ref": "#/$defs/Handle",
+          "description": "What the pick acts on."
+        },
+        "current": {
+          "type": "boolean",
+          "description": "Whether this is the choice in force now."
+        }
+      },
+      "required": [
+        "label",
+        "detail",
+        "handle",
+        "current"
+      ],
+      "description": "One choice in a [`Picker`]."
+    },
+    "PickerName": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "lens",
+          "description": "The lenses the workspace's packs declare."
+        },
+        {
+          "type": "string",
+          "const": "project",
+          "description": "The workspace's plan projects."
+        },
+        {
+          "type": "string",
+          "const": "stage",
+          "description": "The plan stages of a project."
+        }
+      ],
+      "description": "Which picker `focus --picker` returns."
+    },
     "PlanItem": {
       "type": "object",
       "properties": {
@@ -6349,6 +6501,11 @@
         },
         "surface": {
           "$ref": "#/$defs/Surface"
+        },
+        "client_id": {
+          "type": "string",
+          "description": "The writer instance that last touched this row: `mod:<session>` from the mod, or `cli:<pid>`\nfrom a `watch --session` run without `PLANROOM_CLIENT`; an ID.",
+          "default": ""
         },
         "doing": {
           "type": [
@@ -7907,6 +8064,14 @@
           },
           "description": "The IDs of the lint rules the stage runs.",
           "default": []
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The stage's name in the pane's stage picker, at most 20 characters; the ID when absent.",
+          "default": null
         }
       },
       "required": [
@@ -8049,6 +8214,26 @@
             "summary"
           ],
           "description": "One committed event."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "actors": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PresenceRow"
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "presence"
+            }
+          },
+          "required": [
+            "type",
+            "actors"
+          ],
+          "description": "The whole present set, latest first, at most 20 rows; it carries no `seq`."
         },
         {
           "type": "object",

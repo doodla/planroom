@@ -16,6 +16,9 @@ import type {
 import { LEAF_OWN_FLAGS, type PaneModel } from "@planroom/contract";
 
 import focusReply from "../../../tests/golden/cli/focus.json";
+import lensPicker from "../../../tests/golden/cli/focus-picker-lens.json";
+import projectPicker from "../../../tests/golden/cli/focus-picker-project.json";
+import stagePicker from "../../../tests/golden/cli/focus-picker-stage.json";
 import { leafOfArgv } from "../src/catalogue";
 import { overlay, type Overlay } from "./overlays";
 
@@ -183,7 +186,14 @@ function refusedFlag(command: string, flag: string): Answer {
   };
 }
 
-/** An engine that resolves and answers focus with the golden PaneModel. */
+/** The golden picker replies, by the picker's name. */
+const PICKERS: Record<string, unknown> = {
+  lens: lensPicker,
+  project: projectPicker,
+  stage: stagePicker,
+};
+
+/** An engine that resolves and answers focus with the golden PaneModel, and `focus --picker NAME` with that picker. */
 export function readyEngine(argv: readonly string[]): Answer {
   if (isResolver(argv[0]) && argv[1] === "version") {
     return {
@@ -199,7 +209,9 @@ export function readyEngine(argv: readonly string[]): Answer {
     };
   }
   if (argv[0] === ENGINE && argv[1] === "focus") {
-    return { exitCode: 0, stdout: JSON.stringify(focusReply) };
+    const at = argv.indexOf("--picker");
+    const picker = at < 0 ? undefined : PICKERS[argv[at + 1] ?? ""];
+    return { exitCode: 0, stdout: JSON.stringify(picker ?? focusReply) };
   }
   if (argv[0] === ENGINE && argv[1] === "person" && argv[2] === "init") {
     return {
@@ -232,7 +244,7 @@ export function overlaid(
   const golden = (focusReply as unknown as { result: PaneModel }).result;
   const reply = { ...focusReply, result: overlay(golden, ...overlays) };
   return (argv) =>
-    argv[0] === ENGINE && argv[1] === "focus"
+    argv[0] === ENGINE && argv[1] === "focus" && !argv.includes("--picker")
       ? { exitCode: 0, stdout: JSON.stringify(reply) }
       : readyEngine(argv);
 }

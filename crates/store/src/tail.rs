@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use planroom_contract::{Event, Seq};
+use planroom_contract::{Event, PresenceRow, Seq, Timestamp};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
 use crate::{BUSY_TIMEOUT, STORE_VERSION, StoreError, read};
@@ -60,6 +60,11 @@ impl Tail {
     /// the live loop reads to keep its fold (DR-61).
     pub fn snapshot(&self) -> Result<read::Snapshot<'_>, StoreError> {
         read::Snapshot::begin(&self.conn)
+    }
+
+    /// Every presence row seen at or after `since`, the latest first.
+    pub fn presence_since(&self, since: &Timestamp) -> Result<Vec<PresenceRow>, StoreError> {
+        crate::presence::presence_since(&self.conn, since)
     }
 
     /// How many events have `seq > after`.

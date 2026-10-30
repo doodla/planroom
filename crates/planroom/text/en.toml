@@ -339,6 +339,7 @@ show = "Show it on the map"
 inside = "Show the blocks under it"
 
 [frame]
+presence = "{count} here"
 scan = "Scanned {repo} at {commit}."
 scan_unborn = "{repo} has no commits yet; it maps after its first commit."
 version = "Tagged {label}."
@@ -563,6 +564,7 @@ not_utf8 = "its path isn't UTF-8, so no record can name it"
 id_changed = "its source now holds the pack {found}, not {id}: add it with pack add, or remove {id}"
 copy_missing = "the copy of {id} at {copy} is missing, and its source {source} no longer holds the files it was copied from"
 copy_changed = "the copy of {id} at {copy} no longer holds the files it was named for, and its source {source} no longer holds them either"
+label_length = "{id}'s label is longer than {max} characters: the pane shows a stage's label whole"
 
 # The line that names the repos with uncommitted work, which never reaches the map (DR-71, DR-85).
 [dirty]
@@ -680,6 +682,28 @@ Draft the {stage} stage of the plan in the repo-data block above. Its method is 
 Write only these item types, each with only the props listed after it:
 {types}
 Return only the JSON the output schema describes."""
+
+# The pickers `focus --picker` returns: each a question, why it is asked, and entries to pick from
+# (DR-77). A label names an action, never repo text.
+[picker]
+lens_question = "Which lens do you want to see?"
+project_question = "Which project do you want to see?"
+stage_question = "Draft a stage with Claude? At most {tokens} tokens and ${usd} each; the shared prefix is cached"
+lens_why = "A lens changes which relations the map draws."
+project_why = "A project is one plan: its items, their stages and the lint findings."
+stage_why = "A stage drafts its items as ghosts you review; nothing is written until you accept."
+pick_project = "Pick a project with p first"
+lens_detail = "{level} level"
+lens_all_detail = "Every relation at once"
+project_detail = "{items} items · {ghosts} waiting"
+stage_detail = "{items} items · {findings} findings"
+stage_detail_next = "next · {count} items"
+lens_all_label = "All lenses"
+lens_pick_label = "Show this lens"
+project_pick_label = "Show this project's plan"
+stage_pick_label = "Draft this stage"
+lint_pick_label = "Show the lint findings"
+entry = "{label} · {detail}"
 
 # The model boundary's own lines (DR-89).
 [models]
@@ -809,6 +833,15 @@ tool_commands_label = "List every command"
 engine_no_version = "The Planroom engine didn't answer version --json: {said}"
 engine_rebuild = "Rebuild the engine: {fix}"
 engine_exited = "The engine exited {code} without a reply."
+focus_exited = "focus exited {code}"
+down_label = "Down"
+up_label = "Up"
+picker_more = "+{count} more"
+picker_empty = "Nothing to pick here"
+picker_entry = "{label} · {detail}"
+lens_picker = "Lens"
+project_picker = "Project"
+stage_picker = "Stage"
 
 # The mod's tool descriptions: `cargo xtask gen` writes each tool's intro, then one synopsis line
 # per leaf from the catalogue, into catalogue.ts as TOOL_SPECS; `args` and `payload` describe the

@@ -189,16 +189,14 @@ fn an_older_process_writes_no_meta_into_a_newer_store() {
         older.meta_swap("person_pubkey", None, "key", &[]).map(|_| ()),
         older.spend_token("digest", 1, 2).map(|_| ()),
         older.put_layout("map:system:runtime", "h", "{}"),
-        older.touch_presence(
-            &PresenceRow {
-                actor: Actor::Person { id: "person:ann".into(), name: None },
-                surface: Surface::Test,
-                doing: None,
-                focus: None,
-                seen_at: Timestamp("2026-10-26T00:00:00Z".into()),
-            },
-            "tab_1",
-        ),
+        older.touch_presence(&PresenceRow {
+            actor: Actor::Person { id: "person:ann".into(), name: None },
+            surface: Surface::Test,
+            client_id: "tab_1".into(),
+            doing: None,
+            focus: None,
+            seen_at: Timestamp("2026-10-26T00:00:00Z".into()),
+        }),
     ];
     for result in refused {
         assert!(matches!(result, Err(StoreError::SchemaMismatch { .. })), "{result:?}");

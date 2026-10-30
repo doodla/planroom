@@ -13,6 +13,9 @@
   "tool_results": {
     "focus": 390,
     "focus-no-repos": 175,
+    "focus-picker-lens": 233,
+    "focus-picker-project": 109,
+    "focus-picker-stage": 365,
     "invalid-argument": 126,
     "map-container": 728,
     "map-empty": 227,

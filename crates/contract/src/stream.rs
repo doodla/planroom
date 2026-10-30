@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::event::{Actor, EventKind, Status};
 use crate::model::{NodeId, Seq};
+use crate::view::PresenceRow;
 
 /// One frame of the live stream.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -23,6 +24,8 @@ pub enum StreamFrame {
         #[schemars(extend("x-redact" = true))]
         summary: String,
     },
+    /// The whole present set, latest first, at most 20 rows; it carries no `seq`.
+    Presence { actors: Vec<PresenceRow> },
     /// The client is too far behind: refetch every view at `seq`.
     Reset {
         #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]

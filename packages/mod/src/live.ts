@@ -17,12 +17,19 @@ import type {
   ProcessSpawnResult,
   Timer,
 } from "claude-code";
-import type { Envelope, PaneModel, StreamFrame } from "@planroom/contract";
-import { sanitize } from "@planroom/ui";
+import {
+  MOD_STRINGS,
+  type Envelope,
+  type PaneModel,
+  type Picker,
+  type StreamFrame,
+} from "@planroom/contract";
+import { fill, sanitize } from "@planroom/ui";
 
 import { engineAtom, lastSeqAtom, paneAtom } from "./atoms";
 import { parseReply, type RunResult } from "./engine";
 import { UNPLACED } from "./guard";
+import { pickerArgv } from "./pickers";
 import type { EngineState, PaneState } from "./state-types";
 import {
   advanceCursor,
@@ -38,6 +45,7 @@ import {
   stopsTheLoop,
   type Debounce,
   type Step,
+  whoOf,
 } from "./watch";
 
 type $ = EngineInterface;
@@ -163,12 +171,53 @@ export async function refreshPane($: $): Promise<void> {
           error:
             reply?.error?.message ??
             (run.stderr.trim().split("\n")[0] ||
-              `focus exited ${run.exitCode}`),
+              fill(MOD_STRINGS.focus_exited, { code: run.exitCode })),
         };
   await update($, paneAtom, () => pane);
   if (pane.model !== null && hasStore(pane.model)) {
     watchEnsure($);
   }
+}
+
+/** A picker the engine dealt, or why none opened. */
+export interface Asked {
+  picker: Picker | null;
+  /** The engine's one-line refusal; null when it dealt a picker or sent the pane instead. */
+  error: string | null;
+}
+
+/**
+ * Run `focus --picker NAME --json` for this session, as the pane's own focus runs. A `Pane` reply
+ * (the folder isn't a workspace) opens no picker: it replaces the pane's model, as `focus` does.
+ */
+export async function askPicker(
+  $: $,
+  name: string,
+  project: string | null,
+): Promise<Asked> {
+  const bin = binary(await read($, engineAtom));
+  if (bin === null) return { picker: null, error: null };
+  const session = await $.session.id();
+  const run = await runProcess(
+    $,
+    [bin, ...pickerArgv(name, project), "--json", "--session", session],
+    await clientEnv($),
+    30_000,
+  );
+  const reply = parseReply(run.stdout);
+  if (reply?.ok !== true) {
+    return {
+      picker: null,
+      error:
+        reply?.error?.message ??
+        (run.stderr.trim().split("\n")[0] ||
+          fill(MOD_STRINGS.focus_exited, { code: run.exitCode })),
+    };
+  }
+  const result = reply.result as Picker | PaneModel;
+  if ("entries" in result) return { picker: result, error: null };
+  await update($, paneAtom, () => ({ model: result, error: null }));
+  return { picker: null, error: null };
 }
 
 /** The loop's state in this module's life. A start or stop bumps `generation`; an older loop ends. */
@@ -277,6 +326,17 @@ async function readLines(
     await update($, lastSeqAtom, (held) => ({
       seq: advanceCursor(held.seq, frames),
     }));
+  }
+  const present = frames.findLast((f) => f.type === "presence");
+  if (present !== undefined && present.type === "presence") {
+    // The frame carries the whole present set, so the pane's who line follows it without a
+    // `focus` run; it keeps whatever else the last `focus` drew.
+    const session = await $.session.id();
+    await update($, paneAtom, (held) =>
+      held.model === null
+        ? held
+        : { ...held, model: { ...held.model, who: whoOf(present, session) } },
+    );
   }
   if (gen === generation && frames.some(frameRefreshes)) {
     // The frames of one piece arrive at one moment, so they count as one for the schedule.

@@ -6,8 +6,10 @@
  * from the PaneModel, and the mod's lines from `MOD_STRINGS`, which `cargo xtask gen` writes from
  * the engine's `en.toml` (DR-21). So `text` and each Button label pass the display-sanitizing pass
  * before they're cut to fit (DR-64, security-5). Every Button runs something the engine accepts
- * today (DR-85): blocks are plain rows until `map --focus` exists, a row key selects its row and
- * runs nothing (DR-54), and a next action the person ran shows its result in place of the press.
+ * today (DR-85): a block row's key selects it and runs nothing (DR-54), `x` then goes down into
+ * it through `map --focus` and `z` comes back, and a next action the person ran shows its result
+ * in place of the press. A picker `l`, `p` or `i` dealt takes the card's place and owns every
+ * digit and row key until it closes (DR-77).
  */
 
 import {
@@ -17,6 +19,8 @@ import {
   type DiffLine,
   type Handle,
   type PaneModel,
+  type Picker,
+  type PickerName,
 } from "@planroom/contract";
 import {
   BAND_KEYS,
@@ -25,6 +29,7 @@ import {
   keyRows,
   page,
   PAGE_ROWS,
+  ROW_KEYS,
   sanitize,
   truncate,
   width,
@@ -35,6 +40,7 @@ import {
 import { bandMayRun } from "./catalogue";
 import type { Fallback } from "./fallback";
 import { shows, type Shown } from "./room";
+import type { View } from "./views";
 
 /** The narrowest dock, measured at 120x40 [mod-spike]. */
 export const DOCK = { columns: 49, rows: 34 } as const;
@@ -42,12 +48,17 @@ export const DOCK = { columns: 49, rows: 34 } as const;
 /** A fixed choice label holds at most this many columns (DR-54). */
 export const CHOICE_COLUMNS = 20;
 
-/** The rows a row key can select: the top three diff lines, the drift and who lines' top items. */
-export type Selectable = `diff-${0 | 1 | 2}` | "drift-0" | "who-0";
+/**
+ * The rows a row key can select: the top three diff lines, the drift and who lines' top items, and
+ * a block row, named by its node's ID.
+ */
+export type Selectable =
+  `diff-${0 | 1 | 2}` | "drift-0" | "who-0" | `block-${string}`;
 
 /**
  * What pressing a Button does: a command, a fallback's step, putting the next action back,
- * selecting a row for an action key to act on, or turning the list's page.
+ * selecting a row for an action key to act on, turning the list's page, coming back up from a
+ * view, or dealing a picker.
  */
 export type Action =
   | {
@@ -57,11 +68,17 @@ export type Action =
       label: string;
       /** The press takes back the last one: its reply offers no undo of its own. */
       undo?: boolean;
+      /** The press goes down into a block: its result is a view on the pane's stack. */
+      down?: boolean;
+      /** The press is a pick from this picker: its result is a view, and the picker closes. */
+      pick?: PickerName;
     }
   | { kind: "fallback"; run: "retry" | "build" | "rekey" }
   | { kind: "clear" }
   | { kind: "select"; row: Selectable }
-  | { kind: "page"; index: number };
+  | { kind: "page"; index: number }
+  | { kind: "up" }
+  | { kind: "open"; picker: PickerName };
 
 export interface ButtonSpec {
   key: string;
@@ -438,15 +455,32 @@ function whoRow(
   columns: number,
   view: PaneView,
 ): Row {
-  const who = model.who.map((p) => {
+  // One name for an actor however many surfaces it is on; its doings are said once each.
+  const actors = new Map<string, { name: string; doing: string[] }>();
+  for (const p of model.who) {
+    const id =
+      p.actor.kind === "person"
+        ? `person:${p.actor.id}`
+        : p.actor.kind === "agent"
+          ? `agent:${p.actor.session}`
+          : p.actor.kind;
     const name =
       p.actor.kind === "person"
         ? (p.actor.name ?? p.actor.id)
         : p.actor.kind === "agent"
           ? say("who_agent", { role: p.actor.role, session: p.actor.session })
           : p.actor.kind;
-    return p.doing === null ? name : say("who_doing", { name, doing: p.doing });
-  });
+    const held = actors.get(id) ?? { name, doing: [] };
+    if (p.doing !== null && !held.doing.includes(p.doing)) {
+      held.doing.push(p.doing);
+    }
+    actors.set(id, held);
+  }
+  const who = [...actors.values()].map((a) =>
+    a.doing.length === 0
+      ? a.name
+      : say("who_doing", { name: a.name, doing: a.doing.join(", ") }),
+  );
   if (who.length === 0) {
     return text("who", say("nobody_here"), columns, "dim");
   }
@@ -457,55 +491,118 @@ function whoRow(
   };
 }
 
+/** The row keys each section takes; a list row has none while a picker is open. */
+interface ListKeys {
+  diffs: readonly RowKey[];
+  drift: RowKey | undefined;
+  who: RowKey | undefined;
+  list: readonly (RowKey | undefined)[];
+  page?: RowKey;
+}
+
+/** One line of the list: a block, which takes a row key when it has a node ID, or a plain row. */
+interface BlockItem {
+  key: string;
+  name: string;
+  focused: boolean;
+  /** The node `x` goes down into; null for a row that is only text. */
+  id: string | null;
+}
+
+/** What the list draws: its title, its rows, and the line for no rows. */
+interface BlockList {
+  title: string;
+  items: BlockItem[];
+  none: string;
+  /** A pane in an empty state says why on its card, so its empty list draws nothing. */
+  silent: boolean;
+}
+
 /**
- * The list: the pane's blocks, or the blocks the next action showed, as plain rows, a page of at
- * most 7 with one paging line. A block row runs nothing until `map --focus` exists (DR-85), so it
- * takes no row key. With room for one row the list draws only its paging line; past one page a
- * Button turns it, wrapping from the last page to the first, on the next free row key (DR-77).
+ * The list's source, in the order the pane prefers: the top view of the stack, else the map the
+ * next action showed (plain rows: it keeps names only), else the pane's own mini-map.
  */
-function blockRows(
+function blockList(
   model: PaneModel,
-  columns: number,
-  room: number,
   shown: Shown | null,
-  view: PaneView,
-  pageKey: RowKey | undefined,
-): Row[] {
-  if (room <= 0) return [];
+  views: readonly View[],
+): BlockList {
+  const top = views.at(-1);
+  if (top !== undefined) {
+    return {
+      title: top.title,
+      items: top.rows.map((r, i) => ({
+        key: r.id ?? `view-${i}`,
+        name: r.name,
+        focused: false,
+        id: r.id,
+      })),
+      none: say("no_blocks"),
+      silent: false,
+    };
+  }
   const map = shown?.level != null ? shown : null;
   const level = map?.level ?? model.minimap?.level ?? model.focus.level;
-  const blocks =
+  const items: BlockItem[] =
     map !== null
       ? map.blocks.map((name, i) => ({
           key: `shown-${i}`,
           name,
           focused: false,
+          id: null,
         }))
       : (model.minimap?.blocks ?? []).map((b) => ({
           key: b.id,
           name: b.name,
           focused: b.focused,
+          id: b.id,
         }));
+  return {
+    title: say("blocks_title", { level }),
+    items,
+    none: (map === null ? null : map.empty) ?? say("no_blocks"),
+    silent: map === null && model.empty !== null && model.empty !== undefined,
+  };
+}
+
+/** The blocks that take a row key: those with a node ID. */
+function keyedCount(list: BlockList): number {
+  return list.items.filter((i) => i.id !== null).length;
+}
+
+/**
+ * The list: the pane's blocks, a shown map's or the top view's rows, a page of as many as it has
+ * row keys for, with one paging line. A block row is a Button on a row key that selects it; `x`
+ * then goes down into it (DR-54, DR-85). A plain row has no key. With room for one row the list
+ * draws only its paging line; past one page a Button turns it, wrapping from the last page to the
+ * first, on the next free row key (DR-77). The page holds as many rows as `keys` has, never a
+ * fixed count, so the paging Button keeps the key after the last of them.
+ */
+function blockRows(
+  list: BlockList,
+  columns: number,
+  room: number,
+  view: PaneView,
+  keys: readonly (RowKey | undefined)[],
+  pageKey: RowKey | undefined,
+): Row[] {
+  if (room <= 0) return [];
+  const blocks = list.items;
   if (blocks.length === 0) {
-    // A pane in an empty state says why on its card; a shown map with no nodes says its own line.
-    if (map === null && model.empty !== null && model.empty !== undefined) {
-      return [];
-    }
-    const line = (map === null ? null : map.empty) ?? say("no_blocks");
-    const none = text("blocks-none", line, columns, "dim");
+    if (list.silent) return [];
+    const none = text("blocks-none", list.none, columns, "dim");
     return room === 1
       ? [none]
-      : [
-          text("blocks-title", say("blocks_title", { level }), columns, "dim"),
-          none,
-        ];
+      : [text("blocks-title", list.title, columns, "dim"), none];
   }
   const fits = (size: number) => page(blocks, view.page ?? 0, size);
+  // A keyed list pages by the keys it has; a plain one by the pool's page.
+  const most = keyedCount(list) === 0 ? PAGE_ROWS : Math.max(1, keys.length);
   // The title and the paging line, plus the Button when there is more than one page.
-  let size = Math.min(PAGE_ROWS, room - 2);
-  if (size >= 1 && fits(size).pages > 1) size = Math.min(PAGE_ROWS, room - 3);
-  // With no room for a row, the paging line counts the list's own 7-row page behind its key.
-  const shownPage = fits(size < 1 ? PAGE_ROWS : size);
+  let size = Math.min(most, room - 2);
+  if (size >= 1 && fits(size).pages > 1) size = Math.min(most, room - 3);
+  // With no room for a row, the paging line counts the list's own page behind its key.
+  const shownPage = fits(size < 1 ? most : size);
   const pageLine = text(
     "blocks-page",
     say("page_line", {
@@ -518,14 +615,21 @@ function blockRows(
   );
   if (size < 1) return [pageLine];
   const rows: Row[] = [
-    text("blocks-title", say("blocks_title", { level }), columns, "dim"),
-    ...shownPage.rows.map((b) =>
-      text(
-        `block-${b.key}`,
-        say(b.focused ? "focused_block_row" : "block_row", { name: b.name }),
-        columns,
-      ),
-    ),
+    text("blocks-title", list.title, columns, "dim"),
+    ...shownPage.rows.map((b, i): Row => {
+      const line = say(b.focused ? "focused_block_row" : "block_row", {
+        name: b.name,
+      });
+      return b.id === null
+        ? text(`block-${b.key}`, line, columns)
+        : {
+            kind: "buttons",
+            key: `block-row-${b.key}`,
+            buttons: [
+              selectButton(`block-${b.id}`, line, keys[i], columns, view),
+            ],
+          };
+    }),
     pageLine,
   ];
   if (shownPage.pages > 1) {
@@ -544,11 +648,204 @@ function blockRows(
   return rows;
 }
 
+/** The action keys that deal each picker. */
+export const PICKER_OPEN_KEYS: Readonly<Record<PickerName, ActionKey>> = {
+  lens: "l",
+  project: "p",
+  stage: "i",
+};
+
+/**
+ * The key each entry of `picker` takes, entry by entry: the first four the card's `1` to `4`, the
+ * rest the pool's row keys in order, a fixed key per entry whatever else is on screen. An entry
+ * whose command the band may not run (one that spends: a stage's draft) is a label and takes no
+ * key, but keeps its place, so the entries after it keep theirs. A picker with nothing to pick
+ * takes none: no entries, or every entry already in force (DR-86).
+ */
+export function pickerKeys(
+  picker: Picker,
+  leaves: readonly CatalogueLeaf[] = CATALOGUE,
+): (string | null)[] {
+  const pickable = picker.entries.some((e) => !e.current);
+  return picker.entries.map((e, i) =>
+    !pickable || !bandMayRun(e.handle.command, leaves)
+      ? null
+      : ((i < CARD_KEYS.length
+          ? CARD_KEYS[i]
+          : ROW_KEYS[i - CARD_KEYS.length]) ?? null),
+  );
+}
+
+/** One entry as a Button on its key: its press runs the entry's handle as a pick. */
+function pickButton(
+  picker: Picker,
+  n: number,
+  hotkey: string,
+  value: string,
+  current: boolean,
+): ButtonSpec {
+  const entry = picker.entries[n];
+  const handle = entry?.handle;
+  const button: ButtonSpec = {
+    key: `picker-entry-${String(n + 1)}`,
+    label: value,
+    hotkey,
+    action: {
+      kind: "run",
+      command: handle?.command ?? "",
+      args: handle?.args ?? [],
+      label: handle?.label ?? "",
+      pick: picker.name,
+    },
+  };
+  if (current) button.primary = true;
+  return button;
+}
+
+/** An entry's line: its label and what it holds. */
+function entryLine(picker: Picker, n: number): string {
+  const e = picker.entries[n];
+  return say("picker_entry", {
+    label: e?.label ?? "",
+    detail: e?.detail ?? "",
+  });
+}
+
+/**
+ * The picker in the card's place: its question, its why, the first four entries two to a row
+ * (those with a key as Buttons, the rest flat lines) and what the engine left out (DR-77).
+ */
+function pickerCardRows(
+  picker: Picker,
+  columns: number,
+  leaves: readonly CatalogueLeaf[],
+): Row[] {
+  const keys = pickerKeys(picker, leaves);
+  const rows: Row[] = [
+    text("picker-question", picker.question, columns),
+    text("picker-why", picker.why, columns, "dim"),
+  ];
+  if (picker.entries.length === 0) {
+    rows.push(text("picker-empty", say("picker_empty"), columns, "dim"));
+  }
+  const first = Math.min(picker.entries.length, CARD_KEYS.length);
+  for (let i = 0; i < first; i += 2) {
+    const keyed: ButtonSpec[] = [];
+    const flat: Row[] = [];
+    for (const n of [i, i + 1].filter((n) => n < first)) {
+      const hotkey = keys[n];
+      if (hotkey === null || hotkey === undefined) {
+        flat.push(
+          text(`picker-entry-${String(n + 1)}`, entryLine(picker, n), columns),
+        );
+      } else {
+        keyed.push(
+          pickButton(
+            picker,
+            n,
+            hotkey,
+            label(picker.entries[n]?.label ?? "", CHOICE_COLUMNS),
+            picker.entries[n]?.current === true,
+          ),
+        );
+      }
+    }
+    if (keyed.length > 0) {
+      rows.push({
+        kind: "buttons",
+        key: `picker-card-${String(i)}`,
+        buttons: keyed,
+      });
+    }
+    rows.push(...flat);
+  }
+  if (picker.more > 0) {
+    rows.push(
+      text(
+        "picker-more",
+        say("picker_more", { count: picker.more }),
+        columns,
+        "dim",
+      ),
+    );
+  }
+  return rows;
+}
+
+/**
+ * The picker's list: entries 5 to 16, each on its fixed pool key, as one page; nothing else is
+ * keyed while a picker is open, so `PAGE_ROWS` doesn't apply and no Button turns a page. With less
+ * room than entries, the first `room - 1` and one line for those cut.
+ */
+function pickerListRows(
+  picker: Picker,
+  columns: number,
+  room: number,
+  leaves: readonly CatalogueLeaf[],
+): Row[] {
+  const keys = pickerKeys(picker, leaves);
+  const rest = picker.entries.length - CARD_KEYS.length;
+  if (rest <= 0 || room <= 0) return [];
+  const shown = rest <= room ? rest : room - 1;
+  const rows: Row[] = [];
+  for (let i = 0; i < shown; i++) {
+    const n = CARD_KEYS.length + i;
+    const hotkey = keys[n];
+    const line = entryLine(picker, n);
+    rows.push(
+      hotkey === null || hotkey === undefined
+        ? text(`picker-entry-${String(n + 1)}`, line, columns)
+        : {
+            kind: "buttons",
+            key: `picker-row-${String(n + 1)}`,
+            buttons: [
+              pickButton(
+                picker,
+                n,
+                hotkey,
+                label(line, columns - hotkey.length - 2),
+                false,
+              ),
+            ],
+          },
+    );
+  }
+  if (shown < rest) {
+    rows.push(
+      text(
+        "picker-list-more",
+        say("picker_more", { count: rest - shown }),
+        columns,
+        "dim",
+      ),
+    );
+  }
+  return rows;
+}
+
+/** The Buttons that deal the pickers: `l`, `p` and `i`, each cut to a third of `columns` at most. */
+function pickerOpenButtons(columns: number): ButtonSpec[] {
+  const names: [PickerName, string][] = [
+    ["lens", say("lens_picker")],
+    ["project", say("project_picker")],
+    ["stage", say("stage_picker")],
+  ];
+  const fitted = Math.max(1, Math.floor((columns - GAP * 2) / 3) - 3);
+  return names.map(([picker, name]) => ({
+    key: `picker-${picker}`,
+    label: label(name, fitted),
+    hotkey: PICKER_OPEN_KEYS[picker],
+    action: { kind: "open", picker },
+  }));
+}
+
 /**
  * The pane for a PaneModel: the full layout from 49x34, else the compact one (DR-54, DR-77).
  * `shown` is what the next action showed when the person ran it, drawn while the pane still
  * offers it; `view` is the list's page and the row a row key selected; `undo` is the press the
- * pane's `u` takes back, while there is one.
+ * pane's `u` takes back, while there is one; `views` is the stack `x` went down into, whose top
+ * the list draws in place of the blocks; `picker` is the one a key dealt, which takes the card's
+ * place and the digits and row keys, its fifth entry on drawing in the list's place.
  */
 export function paneRows(
   model: PaneModel,
@@ -557,76 +854,174 @@ export function paneRows(
   shown: Shown | null = null,
   view: PaneView = {},
   undo: Handle | null = null,
+  views: readonly View[] = [],
+  picker: Picker | null = null,
+  leaves: readonly CatalogueLeaf[] = CATALOGUE,
 ): Row[] {
   const compact = columns < DOCK.columns || rows < DOCK.rows;
   const result = shownNext(model, shown);
   const out: Row[] = [
     ...focusRows(model, columns, compact),
-    ...cardRows(model, columns, result),
+    ...(picker === null
+      ? cardRows(model, columns, result)
+      : pickerCardRows(picker, columns, leaves)),
   ];
+  const list = blockList(model, result, views);
   const hasTop = model.drift.top !== undefined && model.drift.top !== null;
+  const firstBlock = list.items.find((i) => i.id !== null);
+  const block: Selectable | null =
+    firstBlock?.id == null ? null : `block-${firstBlock.id}`;
   // An action key acts on the selected row: the first keyed row until a row key selects another.
   const first: Selectable | null =
     model.diffs.length > 0
       ? "diff-0"
       : compact
-        ? null
+        ? block
         : hasTop
           ? "drift-0"
           : model.who.length > 0
             ? "who-0"
-            : null;
+            : block;
   const at: PaneView = { ...view, selected: view.selected ?? first };
+  // The block rows take their keys after the diff, drift and who keys. While a picker is open
+  // every digit and row key is its own, so these rows draw without one.
+  const blocks = Math.min(keyedCount(list), PAGE_ROWS);
+  const keyRowsFor = (
+    sections: Parameters<typeof keyRows>[0],
+    page: boolean,
+  ): ListKeys =>
+    picker === null
+      ? keyRows(sections, page)
+      : {
+          diffs: [],
+          drift: undefined,
+          who: undefined,
+          list: Array.from({ length: sections.list }, () => undefined),
+        };
   let pageKey: RowKey | undefined;
+  let listKeys: readonly (RowKey | undefined)[];
   if (compact) {
     // The top pending diff line keeps its row key; the rest move behind their keys.
     const top = model.diffs[0];
-    const keys = keyRows(
-      { diffs: top === undefined ? 0 : 1, drift: false, who: false, list: 0 },
-      true,
-    );
-    pageKey = keys.page;
-    if (top !== undefined)
-      out.push(diffLine(top, 0, keys.diffs[0], columns, at));
-  } else {
-    const keys = keyRows(
+    const keys = keyRowsFor(
       {
-        diffs: model.diffs.length,
-        drift: hasTop,
-        who: model.who.length > 0,
-        // Block rows take no key until `map --focus` exists (DR-85).
-        list: 0,
+        diffs: top === undefined ? 0 : 1,
+        drift: false,
+        who: false,
+        list: blocks,
       },
       true,
     );
     pageKey = keys.page;
+    listKeys = keys.list;
+    if (top !== undefined)
+      out.push(diffLine(top, 0, keys.diffs[0], columns, at));
+  } else {
+    const keys = keyRowsFor(
+      {
+        diffs: model.diffs.length,
+        drift: hasTop,
+        who: model.who.length > 0,
+        list: blocks,
+      },
+      true,
+    );
+    pageKey = keys.page;
+    listKeys = keys.list;
     const hunkLines = rows >= 46 ? 5 : 2;
     out.push(progressRow(model, columns));
     out.push(...diffRows(model.diffs, keys.diffs, columns, hunkLines, at));
     out.push(driftRow(model, keys.drift, columns, at));
     out.push(whoRow(model, keys.who, columns, at));
   }
-  const actions = actionRow(columns, undo);
-  const used = out.reduce((sum, r) => sum + rowHeight(r), 0) + 1;
-  out.push(...blockRows(model, columns, rows - used, result, at, pageKey));
+  // `x` goes down into the selected block, and only a block; `z` only while a view is on the stack.
+  const selected = at.selected ?? null;
+  const down =
+    selected !== null &&
+    list.items.some((i) => i.id !== null && `block-${i.id}` === selected)
+      ? selected.slice("block-".length)
+      : null;
+  // The picker keys share the action row in a short pane, where a row more would cost the list.
+  const together = rows < DOCK.rows;
+  const actions = actionRow(
+    columns,
+    undo,
+    down,
+    views.length > 0,
+    together ? pickerOpenButtons(columns) : [],
+  );
+  const used =
+    out.reduce((sum, r) => sum + rowHeight(r), 0) + (together ? 1 : 2);
+  const room = rows - used;
+  // A picker with entries past the card's four lists them where the blocks go.
+  out.push(
+    ...(picker !== null && picker.entries.length > CARD_KEYS.length
+      ? pickerListRows(picker, columns, room, leaves)
+      : blockRows(list, columns, room, at, listKeys, pageKey)),
+  );
+  if (!together) {
+    out.push({
+      kind: "buttons",
+      key: "pickers",
+      buttons: pickerOpenButtons(columns),
+    });
+  }
   out.push(actions);
   return out;
 }
 
-/** The action key that opens the canvas, and the one that takes back the last press. */
+/** The action keys that go down into the selected block and come back up, and the ones below. */
+const DOWN_KEY: ActionKey = "x";
+const UP_KEY: ActionKey = "z";
 const CANVAS_KEY: ActionKey = "e";
 const UNDO_KEY: ActionKey = "u";
 
 /**
- * The list's action row: `e` opens the canvas as the person's press, and `u` undoes the last press
- * while the pane offers that (DR-54, DR-85). Every other action key waits for its leaf or data.
+ * The list's action row: `x` goes down into the selected block and `z` comes back up from a view,
+ * each only when it has something to do, then the picker keys when they share the row; `e` opens the canvas as the person's press, and `u`
+ * undoes the last press while the pane offers that (DR-54, DR-85). Every other action key waits
+ * for its leaf or data.
  */
-function actionRow(columns: number, undo: Handle | null): Row {
+function actionRow(
+  columns: number,
+  undo: Handle | null,
+  down: string | null,
+  up: boolean,
+  pickers: ButtonSpec[],
+): Row {
   const buttons: ButtonSpec[] = [];
+  if (down !== null) {
+    const name = say("down_label");
+    buttons.push({
+      key: "down",
+      label: name,
+      hotkey: DOWN_KEY,
+      action: {
+        kind: "run",
+        command: "map",
+        args: ["--focus", down],
+        label: name,
+        down: true,
+      },
+    });
+  }
+  if (up) {
+    buttons.push({
+      key: "up",
+      label: say("up_label"),
+      hotkey: UP_KEY,
+      action: { kind: "up" },
+    });
+  }
+  buttons.push(...pickers);
+  const held = buttons.reduce((sum, b) => sum + buttonWidth(b) + GAP, 0);
   if (undo !== null) {
     buttons.push({
       key: "undo",
-      label: label(undo.label, Math.max(1, Math.floor(columns / 2) - 3)),
+      label: label(
+        undo.label,
+        Math.max(1, Math.floor((columns - held) / 2) - 3),
+      ),
       hotkey: UNDO_KEY,
       action: { ...run(undo), undo: true },
     });

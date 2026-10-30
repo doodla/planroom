@@ -12,7 +12,7 @@ import type {
   RenderElement,
   Register,
 } from "claude-code";
-import { MOD_STRINGS, type Handle } from "@planroom/contract";
+import { MOD_STRINGS, type Handle, type Picker } from "@planroom/contract";
 import { fill, sanitize } from "@planroom/ui";
 
 import { engineAtom, outboxAtom, paneAtom, turnSeqAtom } from "./atoms";
@@ -44,11 +44,13 @@ import {
   bandRow,
   fallbackRows,
   paneRows,
+  PICKER_OPEN_KEYS,
   type Action,
   type PaneView,
   type Row,
 } from "./layout";
 import {
+  askPicker,
   binary,
   clientEnv,
   engineEnv,
@@ -88,6 +90,8 @@ import {
   type ToolInput,
 } from "./tools";
 import type { ToolName } from "./catalogue";
+import { closes } from "./pickers";
+import { current, viewFrom, type View } from "./views";
 import { hasStore } from "./watch";
 
 const PANE = "planroom";
@@ -111,6 +115,27 @@ let shown: Shown | null = null;
 let view: PaneView = {};
 let viewOf = "";
 
+/**
+ * The views `x` went down into, the top one drawn in place of the pane's blocks and `z` taking one
+ * off; a pick replaces them with its one view. They belong to one pane, as `shown` does: they clear
+ * when its `seq` moves, and a reload forgets them.
+ */
+let views: View[] = [];
+
+/**
+ * The picker a key dealt, drawn in place of the card until a pick or another action key closes it,
+ * and the last project the person picked, which the stage picker is asked about. A reload forgets
+ * both, as it forgets the pressed result.
+ */
+let picker: Picker | null = null;
+let project: string | null = null;
+
+/** The project a pick named, as `--project` in its arguments; null when it named none. */
+function projectOf(args: readonly string[]): string | null {
+  const at = args.indexOf("--project");
+  return at < 0 ? null : (args[at + 1] ?? null);
+}
+
 /** The view for the pane at `seq` and `level`, reset when either moved on since the last draw. */
 function viewFor(seq: number, level: string): PaneView {
   const at = `${seq}\0${level}`;
@@ -118,6 +143,7 @@ function viewFor(seq: number, level: string): PaneView {
     viewOf = at;
     view = {};
   }
+  views = [...current(views, seq)];
   return view;
 }
 
@@ -377,7 +403,42 @@ async function act(
   $: $,
   action: Action,
   from: "pane" | "band" = "pane",
+  hotkey?: string,
 ): Promise<void> {
+  // Any action key but the picker's own closes it first, then acts; its own deals it again.
+  if (
+    picker !== null &&
+    !(action.kind === "run" && action.pick !== undefined)
+  ) {
+    if (closes(hotkey ?? "", PICKER_OPEN_KEYS[picker.name])) picker = null;
+  }
+  if (action.kind === "open") {
+    const asked = await askPicker($, action.picker, project);
+    picker = asked.picker;
+    if (asked.error !== null) $.ui.toast(asked.error);
+    $.ui.invalidate("ui.render");
+    return;
+  }
+  if (action.kind === "run" && action.pick !== undefined) {
+    // A pick is the person's press: a read, whose result replaces the views with its one view, so
+    // `z` comes back to the pane, not through what was shown before. The picker closes and the
+    // decision returns; a refusal says why.
+    picker = null;
+    const seq = (await read($, paneAtom)).model?.focus.seq;
+    const ran = await personRun($, action.command, action.args);
+    const picked = seq === undefined ? null : viewFrom(action, ran, seq);
+    if (action.pick === "project" && ran.result.ok) {
+      project = projectOf(action.args);
+    }
+    if (picked === null || seq === undefined) {
+      $.ui.toast(lineFor(action.command, action.label, ran));
+    } else {
+      views = [picked];
+      view = {};
+    }
+    $.ui.invalidate("ui.render");
+    return;
+  }
   if (action.kind === "clear") {
     shown = null;
     view = {};
@@ -392,6 +453,28 @@ async function act(
   }
   if (action.kind === "page") {
     view = { ...view, page: action.index };
+    $.ui.invalidate("ui.render");
+    return;
+  }
+  if (action.kind === "up") {
+    // `z` comes back one view; what was selected there is not what the view below draws.
+    views = views.slice(0, -1);
+    view = {};
+    $.ui.invalidate("ui.render");
+    return;
+  }
+  if (action.kind === "run" && action.down === true) {
+    // `x` goes down into the selected block through a read: no toast on success, since the
+    // result draws in the list; a refusal says why.
+    const seq = (await read($, paneAtom)).model?.focus.seq;
+    const ran = await personRun($, action.command, action.args);
+    const pushed = seq === undefined ? null : viewFrom(action, ran, seq);
+    if (pushed === null || seq === undefined) {
+      $.ui.toast(lineFor(action.command, action.label, ran));
+    } else {
+      views = [...current(views, seq), pushed];
+      view = {};
+    }
     $.ui.invalidate("ui.render");
     return;
   }
@@ -513,7 +596,8 @@ function draw(
             return (
               <Box key={row.key} flexDirection="row" gap={2}>
                 {row.buttons.map((b) => {
-                  const press = (): Promise<void> => act($, b.action, from);
+                  const press = (): Promise<void> =>
+                    act($, b.action, from, b.hotkey);
                   return b.hotkey === undefined ? (
                     <Button key={b.key} label={b.label} plain onPress={press} />
                   ) : b.primary === true ? (
@@ -895,6 +979,8 @@ export function register(on: Parameters<Register>[0]): void {
             shown,
             viewFor(pane.model.focus.seq, pane.model.focus.level),
             offer?.handle ?? null,
+            views,
+            picker,
           )
         : fallbackRows(fallbackFor(engine, pane.error), columns);
     return draw($, e, rows);

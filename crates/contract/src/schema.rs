@@ -26,6 +26,7 @@ use crate::{
     EngineState, LastSeq, OutboxEntry, PaneState, ReplayRecord, ResolverStatus, ToolResult, TurnSeq,
     UnavailableReason,
 };
+use crate::{FocusResult, PickEstimate, Picker, PickerEntry, PickerName};
 use crate::{IntentListReq, IntentListResult, IntentNewReq, IntentVersionReq, LintResult, PlanProposal};
 use crate::{PackAddReq, PackRemoveReq, PackSetResult};
 
@@ -133,6 +134,11 @@ pub fn generate(view: View) -> Value {
         LastSeq,
         TurnSeq,
         OutboxEntry,
+        FocusResult,
+        Picker,
+        PickerEntry,
+        PickEstimate,
+        PickerName,
         EditReq,
         EditResult,
         ReviewReq,

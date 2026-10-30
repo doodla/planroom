@@ -73,7 +73,7 @@ export const M2_DRIFT: Overlay = {
 /** One agent at work, as presence through `watch` will report it. */
 export const M1_PRESENCE: Overlay = {
   milestone: "M1",
-  why: "Presence arrives through watch later in M1; the fixture's pane has nobody in it. Until then the who line draws one implementer at work, so its row key stays covered.",
+  why: "A pane has a who line only after a watch has written its session's row, and focus.json's run comes before any watch in the golden runs, so its pane has nobody in it. The who line draws one implementer at work here, so its row key stays covered.",
   patch: {
     who: [
       {
@@ -84,6 +84,7 @@ export const M1_PRESENCE: Overlay = {
           key: null,
         },
         surface: "mod",
+        client_id: "mod:1a2b3c4d",
         doing: "worker-status-via-api",
         focus: null,
         seen_at: "2026-10-26T09:00:00Z",

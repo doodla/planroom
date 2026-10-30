@@ -1,7 +1,15 @@
-import type { PaneModel } from "@planroom/contract";
+import {
+  CATALOGUE,
+  MOD_STRINGS,
+  type PaneModel,
+  type Picker,
+  type PickerEntry,
+  type PickerName,
+} from "@planroom/contract";
 import { expect, test } from "vitest";
 
 import focusReply from "../../../tests/golden/cli/focus.json";
+import stageReply from "../../../tests/golden/cli/focus-picker-stage.json";
 import {
   M1_PRESENCE,
   M2_DECISION_AND_DIFFS,
@@ -17,12 +25,14 @@ import {
   DOCK,
   fallbackRows,
   paneRows,
+  pickerKeys,
   rowHeight,
   rowWidth,
   type Row,
 } from "./layout";
 import type { Shown } from "./room";
 import type { EngineState } from "./state-types";
+import type { View } from "./views";
 
 const golden = (focusReply as unknown as { result: PaneModel }).result;
 
@@ -106,11 +116,41 @@ test("keys: the card's choices take 1 to 4, rows an action targets take the row-
     b.hotkey === undefined ? [] : [b.hotkey],
   );
   expect(hotkeys.slice(0, 4)).toEqual(["1", "2", "3", "4"]);
-  // The two diffs, then the drift line's top item and the who line's top row; blocks run nothing
-  // until `map --focus` exists, so they take no key (ux-1); the page Button takes the next free
-  // row key, and the action row's `e` opens the canvas.
-  expect(hotkeys.slice(4)).toEqual(["5", "6", "7", "8", "9", "e"]);
-  expect(buttons(rows).find((b) => b.key === "page")?.hotkey).toBe("9");
+  // The two diffs, then the drift line's top item and the who line's top row, then the blocks on
+  // the keys left; the page Button takes the next free row key, and the action row's `e` opens the
+  // canvas. The selected row is a diff, so `x` and `z` have nothing to do and draw nothing.
+  const blockKeys = buttons(rows)
+    .filter((b) => b.key.startsWith("block-"))
+    .map((b) => b.hotkey);
+  expect(blockKeys.length).toBeGreaterThanOrEqual(1);
+  expect(hotkeys.slice(4)).toEqual([
+    "5",
+    "6",
+    "7",
+    "8",
+    ...blockKeys,
+    buttons(rows).find((b) => b.key === "page")?.hotkey,
+    "l",
+    "p",
+    "i",
+    "e",
+  ]);
+  expect(blockKeys[0]).toBe("9");
+  expect(buttons(rows).find((b) => b.key === "page")?.hotkey).toBe("v");
+  expect(buttons(rows).some((b) => b.hotkey === "x" || b.hotkey === "z")).toBe(
+    false,
+  );
+  // Selecting a block draws `x`; a view on the stack draws `z`.
+  const down = paneRows(paged, DOCK.columns, DOCK.rows, null, {
+    selected: `block-${goldenMap.blocks[0]?.id ?? ""}`,
+  });
+  const views = [mapView()];
+  const up = paneRows(paged, DOCK.columns, DOCK.rows, null, {}, null, views);
+  const all = [...buttons(down), ...buttons(up)].flatMap((b) =>
+    b.hotkey === undefined ? [] : [b.hotkey],
+  );
+  expect(all).toContain("x");
+  expect(all).toContain("z");
   expect(new Set(hotkeys).size).toBe(hotkeys.length);
 });
 
@@ -128,11 +168,17 @@ test("an action key acts on the selected row: the first keyed row until a row ke
       .filter((b) => b.label.startsWith("› "))
       .map((b) => b.key),
   ).toEqual(["drift-0"]);
-  // With nothing keyed, nothing is marked.
+  // With nothing above the blocks keyed, the first block is the selected row.
   expect(
-    buttons(paneRows(golden, DOCK.columns, DOCK.rows)).some((b) =>
-      b.label.startsWith("› "),
-    ),
+    buttons(paneRows(golden, DOCK.columns, DOCK.rows))
+      .filter((b) => b.label.startsWith("› "))
+      .map((b) => b.key),
+  ).toEqual([`block-${goldenMap.blocks[0]?.id ?? ""}`]);
+  // With no block drawn either, nothing is marked.
+  expect(
+    buttons(
+      paneRows({ ...golden, minimap: { ...goldenMap, blocks: [] } }, 80, 8),
+    ).some((b) => b.label.startsWith("› ")),
   ).toBe(false);
 });
 
@@ -167,24 +213,170 @@ test("e opens the canvas as the person's press, and u undoes the last press whil
   }
 });
 
-test("ux-1: no Button runs map --focus, which the engine refuses until M1", () => {
-  for (const model of [golden, busy]) {
-    for (const [columns, rows] of [
-      [DOCK.columns, DOCK.rows],
-      [80, 8],
-    ] as const) {
-      for (const b of buttons(paneRows(model, columns, rows))) {
-        if (b.action.kind === "run") {
-          expect(b.action.args, b.key).not.toContain("--focus");
-        }
-      }
+/** A view of the blocks under the pane's first block, as `x` on it shows them. */
+function mapView(): View {
+  return {
+    command: "map",
+    args: ["--focus", "orders:repo:orders"],
+    seq: golden.focus.seq,
+    title: "2 blocks at the container level",
+    rows: [
+      { id: "orders:container:api", name: "orders/api" },
+      { id: "orders:container:db", name: "orders/db" },
+    ],
+    level: "container",
+    line: "2 blocks at the container level",
+  };
+}
+
+test("a block row takes a row key, and x runs map --focus on the selected block", () => {
+  for (const [columns, rows] of [
+    [DOCK.columns, DOCK.rows],
+    [80, 8],
+  ] as const) {
+    const laid = paneRows(golden, columns, rows);
+    const blocks = buttons(laid).filter((b) => b.key.startsWith("block-"));
+    expect(blocks.length, `${columns}x${rows}`).toBeGreaterThanOrEqual(1);
+    for (const b of blocks) {
+      expect(b.hotkey, b.key).toMatch(/^[0-9a-z]$/);
+      expect(b.action).toEqual({ kind: "select", row: b.key });
     }
+    // Nothing above them is keyed, so the first block is the selected row and `x` acts on it.
+    const id = goldenMap.blocks[0]?.id ?? "";
+    expect(blocks[0]?.key).toBe(`block-${id}`);
+    expect(buttons(laid).find((b) => b.hotkey === "x")?.action).toMatchObject({
+      kind: "run",
+      command: "map",
+      args: ["--focus", id],
+    });
+    // The engine opens the level below; the pane names none.
+    const downArgs = buttons(laid).find((b) => b.hotkey === "x")?.action;
+    expect(downArgs?.kind === "run" ? downArgs.args : []).toEqual([
+      "--focus",
+      id,
+    ]);
+    expect(height(laid)).toBeLessThanOrEqual(rows);
+    expect(widest(laid)).toBeLessThanOrEqual(columns);
   }
-  // The blocks still show, as plain rows.
-  const rows = paneRows(golden, DOCK.columns, DOCK.rows);
+  // A row key selects another block, and `x` follows it.
+  const other = goldenMap.blocks[2]?.id ?? "";
+  const picked = paneRows(golden, DOCK.columns, DOCK.rows, null, {
+    selected: `block-${other}`,
+  });
+  expect(buttons(picked).find((b) => b.hotkey === "x")?.action).toMatchObject({
+    args: ["--focus", other],
+  });
+  // With a diff selected, `x` has no block to go down into and draws nothing (DR-85).
   expect(
-    rows.some((r) => r.kind === "text" && r.key === "block-worker:repo:worker"),
-  ).toBe(true);
+    buttons(paneRows(busy, DOCK.columns, DOCK.rows)).some(
+      (b) => b.hotkey === "x",
+    ),
+  ).toBe(false);
+  // `z` draws only while a view is on the stack.
+  expect(
+    buttons(paneRows(golden, DOCK.columns, DOCK.rows)).some(
+      (b) => b.hotkey === "z",
+    ),
+  ).toBe(false);
+  const up = buttons(
+    paneRows(golden, DOCK.columns, DOCK.rows, null, {}, null, [mapView()]),
+  ).find((b) => b.hotkey === "z");
+  expect(up?.action).toEqual({ kind: "up" });
+});
+
+test("the top view's title and rows take the place of the blocks, and its mapped rows take keys", () => {
+  const laid = paneRows(golden, DOCK.columns, DOCK.rows, null, {}, null, [
+    mapView(),
+  ]);
+  expect(laid.find((r) => r.key === "blocks-title")).toMatchObject({
+    text: "2 blocks at the container level",
+  });
+  // The first row is the selected one, marked.
+  expect(texts(laid)).toContain("› □ orders/api");
+  expect(texts(laid)).toContain("□ orders/db");
+  expect(texts(laid).some((t) => t.endsWith("□ orders"))).toBe(false);
+  const keyed = buttons(laid).filter((b) => b.key.startsWith("block-"));
+  expect(keyed.map((b) => b.key)).toEqual([
+    "block-orders:container:api",
+    "block-orders:container:db",
+  ]);
+  // Its first row is the selected one, so `x` goes down into it.
+  expect(buttons(laid).find((b) => b.hotkey === "x")?.action).toMatchObject({
+    args: ["--focus", "orders:container:api"],
+  });
+  // A list view's rows have no ID, so they are plain rows and `x` draws nothing.
+  const plain: View = {
+    ...mapView(),
+    command: "intent lint",
+    args: [],
+    rows: [{ id: null, name: "Add retries — Names no outcome" }],
+    level: null,
+  };
+  const flat = paneRows(golden, DOCK.columns, DOCK.rows, null, {}, null, [
+    plain,
+  ]);
+  expect(texts(flat)).toContain("□ Add retries — Names no outcome");
+  expect(buttons(flat).some((b) => b.key.startsWith("block-"))).toBe(false);
+  expect(buttons(flat).some((b) => b.hotkey === "x")).toBe(false);
+  expect(buttons(flat).some((b) => b.hotkey === "z")).toBe(true);
+});
+
+test("the_who_line_merges_one_actors_rows", () => {
+  const you = { kind: "person" as const, id: "you", name: null };
+  const row = (
+    surface: "mod" | "cli",
+    client: string,
+    doing: string | null,
+  ) => ({
+    actor: you,
+    surface,
+    client_id: client,
+    doing,
+    focus: null,
+    seen_at: "2026-01-01T00:00:00.000000Z",
+  });
+  const model: PaneModel = {
+    ...golden,
+    who: [
+      row("mod", "mod:s1", "reading orders"),
+      row("cli", "cli:41", null),
+      row("cli", "cli:42", "reading orders"),
+      {
+        ...row("mod", "mod:s2", null),
+        actor: {
+          kind: "agent",
+          session: "1a2b3c4d",
+          role: "implementer",
+          key: null,
+        },
+      },
+    ],
+  };
+  const who = buttons(paneRows(model, DOCK.columns, DOCK.rows)).find(
+    (b) => b.key === "who-0",
+  );
+  // One name for the actor however many surfaces it is on, with its doings said once.
+  expect(who?.label).toContain("you: reading orders");
+  expect(who?.label.match(/you/g)).toHaveLength(1);
+  expect(who?.label).toContain("implementer 1a2b3c4d");
+});
+
+test("the_first_block_is_selected_when_nothing_above_is_keyed", () => {
+  const marked = (model: PaneModel, columns: number, rows: number) =>
+    buttons(paneRows(model, columns, rows))
+      .filter((b) => b.label.startsWith("› "))
+      .map((b) => b.key);
+  const first = `block-${goldenMap.blocks[0]?.id ?? ""}`;
+  expect(marked(golden, DOCK.columns, DOCK.rows)).toEqual([first]);
+  expect(marked(golden, 80, 8)).toEqual([first]);
+  // A diff, a drift item or a who row above them keeps the selection.
+  expect(marked(busy, DOCK.columns, DOCK.rows)).toEqual(["diff-0"]);
+  const calm = { ...busy, diffs: [] };
+  expect(marked(calm, DOCK.columns, DOCK.rows)).toEqual(["drift-0"]);
+  const present = { ...golden, who: busy.who };
+  expect(marked(present, DOCK.columns, DOCK.rows)).toEqual(["who-0"]);
+  // The compact layout keys no drift or who line, so its first block is selected without a diff.
+  expect(marked(calm, 80, 16)).toEqual([first]);
 });
 
 /** What pressing the golden pane's "Open the containers" showed. */
@@ -447,3 +639,266 @@ function hasRaw(text: string): boolean {
     );
   });
 }
+
+/** One entry of a synthetic picker: a read of the map, so it may press. */
+function entry(n: number, current = false): PickerEntry {
+  return {
+    label: `Entry ${n}`,
+    detail: `${n} items`,
+    handle: { command: "map", args: ["--lens", `e${n}`], label: `Show ${n}` },
+    current,
+  };
+}
+
+/** A picker of `count` entries, the first `current` ones in force. */
+function pickerOf(
+  count: number,
+  more = 0,
+  name: PickerName = "lens",
+  current = 0,
+): Picker {
+  return {
+    name,
+    question: "Which one do you want to see?",
+    why: "It changes what the map draws.",
+    entries: Array.from({ length: count }, (_, i) => entry(i + 1, i < current)),
+    more,
+    estimate: null,
+  };
+}
+
+const POOL = [
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "0",
+  "b",
+  "j",
+  "k",
+  "q",
+  "r",
+  "v",
+];
+
+/** The picker's own Buttons: the ones with a digit or a pool letter, in row order. */
+function keyed(rows: Row[]) {
+  return buttons(rows).filter((b) => POOL.includes(b.hotkey ?? ""));
+}
+
+test("picker_entries_take_1_to_4_then_the_row_pool", () => {
+  const picker = pickerOf(16);
+  expect(pickerKeys(picker)).toEqual(POOL);
+  const laid = paneRows(
+    golden,
+    DOCK.columns,
+    DOCK.rows,
+    null,
+    {},
+    null,
+    [],
+    picker,
+  );
+  expect(keyed(laid).map((b) => b.hotkey)).toEqual(POOL);
+  // Each key runs its own entry's handle as a pick, entry n on key n.
+  expect(keyed(laid).map((b) => b.action)).toEqual(
+    picker.entries.map((e) => ({
+      kind: "run",
+      command: "map",
+      args: e.handle.args,
+      label: e.handle.label,
+      pick: "lens",
+    })),
+  );
+  expect(height(laid)).toBeLessThanOrEqual(DOCK.rows);
+  expect(widest(laid)).toBeLessThanOrEqual(DOCK.columns);
+  // The card's four sit two to a row above the list.
+  const pairs = laid.filter(
+    (r) => r.kind === "buttons" && r.key.startsWith("picker-card-"),
+  );
+  expect(
+    pairs.map((r) => (r.kind === "buttons" ? r.buttons.length : 0)),
+  ).toEqual([2, 2]);
+  // The pane's own keys stay out of the digits and the pool while it is open.
+  expect(buttons(laid).filter((b) => b.key.startsWith("block-"))).toEqual([]);
+  expect(buttons(laid).filter((b) => b.key.startsWith("choice-"))).toEqual([]);
+});
+
+test("an_empty_picker_takes_no_key", () => {
+  const picker = pickerOf(0);
+  expect(pickerKeys(picker)).toEqual([]);
+  const laid = paneRows(
+    golden,
+    DOCK.columns,
+    DOCK.rows,
+    null,
+    {},
+    null,
+    [],
+    picker,
+  );
+  expect(keyed(laid)).toEqual([]);
+  expect(texts(laid).join("\n")).toContain(MOD_STRINGS.picker_empty);
+  expect(texts(laid).join("\n")).toContain(picker.question);
+});
+
+test("a_picker_with_only_the_current_entry_takes_no_key", () => {
+  const picker = pickerOf(1, 0, "project", 1);
+  expect(pickerKeys(picker)).toEqual([null]);
+  const laid = paneRows(
+    golden,
+    DOCK.columns,
+    DOCK.rows,
+    null,
+    {},
+    null,
+    [],
+    picker,
+  );
+  expect(keyed(laid)).toEqual([]);
+  // It still says what is in force, flat.
+  expect(texts(laid).join("\n")).toContain("Entry 1");
+  // With another entry to pick, the one in force keeps its place and its key.
+  expect(pickerKeys(pickerOf(2, 0, "project", 1))).toEqual(["1", "2"]);
+});
+
+test("more_entries_than_keys_show_as_more", () => {
+  // Entries the engine left out past the keys' reach are counted on the card.
+  const picker = pickerOf(16, 3);
+  const laid = paneRows(
+    golden,
+    DOCK.columns,
+    DOCK.rows,
+    null,
+    {},
+    null,
+    [],
+    picker,
+  );
+  expect(texts(laid)).toContain("+3 more");
+  expect(texts(laid).filter((t) => /^\+\d+ more$/.test(t))).toHaveLength(1);
+  // With little room, the list keeps `room - 1` entries and says how many it cut.
+  const tight = paneRows(golden, DOCK.columns, 16, null, {}, null, [], picker);
+  expect(height(tight)).toBeLessThanOrEqual(16);
+  const kept = keyed(tight).length - 4;
+  expect(kept).toBeGreaterThanOrEqual(1);
+  expect(kept).toBeLessThan(12);
+  expect(texts(tight)).toContain(`+${String(12 - kept)} more`);
+  // No page Button turns the picker's list.
+  expect(buttons(tight).some((b) => b.action.kind === "page")).toBe(false);
+});
+
+test("a_picker_list_keys_entries_5_to_16", () => {
+  const picker = pickerOf(16);
+  for (const [columns, rows] of [
+    [DOCK.columns, DOCK.rows],
+    [80, 30],
+  ] as const) {
+    const laid = paneRows(golden, columns, rows, null, {}, null, [], picker);
+    const list = keyed(laid).slice(4);
+    expect(list.map((b) => b.hotkey)).toEqual(POOL.slice(4));
+    expect(list.map((b) => b.key)).toEqual(
+      picker.entries.slice(4).map((_, i) => `picker-entry-${String(i + 5)}`),
+    );
+    // Each row says its entry: label and detail.
+    expect(list[0]?.label).toContain("Entry 5");
+    expect(list[0]?.label).toContain("5 items");
+    expect(height(laid)).toBeLessThanOrEqual(rows);
+    expect(widest(laid)).toBeLessThanOrEqual(columns);
+  }
+});
+
+test("a_stage_entry_is_a_label_and_lint_keeps_its_key", () => {
+  const picker = (stageReply as unknown as { result: Picker }).result;
+  // Seven entries: the stages are labels with no key, lint is the seventh entry on the pool's 7.
+  expect(pickerKeys(picker)).toEqual([null, null, null, null, null, null, "7"]);
+  const laid = paneRows(
+    golden,
+    DOCK.columns,
+    DOCK.rows,
+    null,
+    {},
+    null,
+    [],
+    picker,
+  );
+  const pressable = keyed(laid);
+  expect(pressable.map((b) => b.hotkey)).toEqual(["7"]);
+  expect(pressable[0]?.action).toMatchObject({
+    kind: "run",
+    command: "intent lint",
+    pick: "stage",
+  });
+  for (const label of [
+    "Intent",
+    "Outcome",
+    "Breakdown",
+    "Next actions",
+    "Priorities",
+    "Premortem",
+  ]) {
+    expect(
+      texts(laid).some((t) => t.includes(label)),
+      label,
+    ).toBe(true);
+    expect(
+      buttons(laid).some((b) => b.label.includes(label)),
+      label,
+    ).toBe(false);
+  }
+  // The question carries the cost the engine named.
+  expect(
+    texts(laid).some((t) => t.startsWith("Draft a stage with Claude?")),
+  ).toBe(true);
+});
+
+test("a_picker_never_names_a_spending_leaf_as_a_button", () => {
+  // A leaf that spends may not be pressed from a picker's key, whatever the engine puts there.
+  const spending = {
+    name: "intent next",
+    idea: "intent",
+    summary: "Draft the plan's next stage.",
+    actor: "any",
+    class: "change",
+    budget_tokens: 1500,
+    needs_base: false,
+    spends: true,
+    undo: "edit",
+    tool: "room_change",
+    room: true,
+  } as const;
+  const picker: Picker = {
+    ...pickerOf(3),
+    entries: [
+      entry(1),
+      {
+        ...entry(2),
+        handle: { command: "intent next", args: [], label: "Draft" },
+      },
+      entry(3),
+    ],
+  };
+  const leaves = [...CATALOGUE, spending];
+  expect(pickerKeys(picker, leaves)).toEqual(["1", null, "3"]);
+  const laid = paneRows(
+    golden,
+    DOCK.columns,
+    DOCK.rows,
+    null,
+    {},
+    null,
+    [],
+    picker,
+    leaves,
+  );
+  expect(
+    buttons(laid).some(
+      (b) => b.action.kind === "run" && b.action.command === "intent next",
+    ),
+  ).toBe(false);
+});

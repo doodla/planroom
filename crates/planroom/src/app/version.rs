@@ -59,7 +59,7 @@ const RESULTS: &[(&str, &str)] = &[
     ("map", "MapView"),
     ("find", "FindResult"),
     ("ask", "AskResult"),
-    ("focus", "PaneModel"),
+    ("focus", "FocusResult"),
     ("scan", "ScanResult"),
     ("watch", "StreamFrame"),
     ("schema", "SchemaSummary"),

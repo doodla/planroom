@@ -93,7 +93,9 @@ test.skipIf(run.skipped !== null && !run.required)(
     );
     expect(events.map(frameSeq)).toEqual(want);
     expect(
-      frames.filter((f) => f.type !== "event" && f.type !== "ping"),
+      frames.filter(
+        (f) => f.type !== "event" && f.type !== "ping" && f.type !== "presence",
+      ),
     ).toEqual([]);
     for (const e of events) {
       expect(e).toMatchObject({

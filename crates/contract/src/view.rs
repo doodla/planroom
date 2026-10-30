@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::command::PickerName;
 use crate::envelope::{Empty, Handle};
 use crate::event::{Actor, Surface, Timestamp};
 use crate::model::{EdgeId, Evidence, Kind, LevelId, NodeId, Seq};
@@ -242,10 +243,67 @@ pub struct DriftLine {
 pub struct PresenceRow {
     pub actor: Actor,
     pub surface: Surface,
+    /// The writer instance that last touched this row: `mod:<session>` from the mod, or `cli:<pid>`
+    /// from a `watch --session` run without `PLANROOM_CLIENT`; an ID.
+    #[serde(default)]
+    pub client_id: String,
     #[schemars(extend("x-redact" = true))]
     pub doing: Option<String>,
     pub focus: Option<NodeId>,
     pub seen_at: Timestamp,
+}
+
+/// What `focus --picker NAME` returns: a question, why it is asked, and up to 16 entries to pick
+/// from. The pane draws the first four on its card and the rest in a list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Picker {
+    pub name: PickerName,
+    /// The question the picker asks. Holds only counts, levels, stage labels and engine text,
+    /// never repo text.
+    pub question: String,
+    /// One line on what the pick changes. Holds only counts, levels, stage labels and engine
+    /// text, never repo text.
+    pub why: String,
+    pub entries: Vec<PickerEntry>,
+    /// Entries left out past the 16 keys reach or past the budget.
+    pub more: u32,
+    /// What a pick costs, when it spends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimate: Option<PickEstimate>,
+}
+
+/// One choice in a [`Picker`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PickerEntry {
+    #[schemars(extend("x-redact" = true))]
+    pub label: String,
+    /// Counts, levels, stage labels and engine text only, never repo text.
+    pub detail: String,
+    /// What the pick acts on.
+    pub handle: Handle,
+    /// Whether this is the choice in force now.
+    pub current: bool,
+}
+
+/// What picking a stage can cost.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PickEstimate {
+    /// A per-pick ceiling: the uncached tail plus the most output a stage's reply takes.
+    pub tokens: u32,
+    /// The per-stage dollar ceiling.
+    pub usd: f64,
+    /// The shared prefix is cached.
+    pub cached: bool,
+}
+
+/// What `focus` returns: the pane, or with `--picker` a picker.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+// The pane is the common reply and is never held in bulk, so boxing it would only change the API.
+#[allow(clippy::large_enum_variant)]
+pub enum FocusResult {
+    Pane(PaneModel),
+    Picker(Picker),
 }
 
 /// Up to 60 blocks at the focus level, edges by lens.

@@ -8,6 +8,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use planroom_testkit::fixture;
@@ -38,9 +39,20 @@ impl Drop for Serve {
 
 fn serve() -> Serve {
     let tmp = tempfile::tempdir().unwrap();
+    let root = scanned(&tmp);
+    serve_on(tmp, root)
+}
+
+/// The fixture workspace, scanned, in `tmp`.
+fn scanned(tmp: &tempfile::TempDir) -> PathBuf {
     let root = tmp.path().join("shop");
     fixture(&root);
     assert!(planroom(&root).args(["scan", "--json"]).output().unwrap().status.success());
+    root
+}
+
+/// A foreground `serve` on the scanned workspace at `root`, inside `tmp`.
+fn serve_on(tmp: tempfile::TempDir, root: PathBuf) -> Serve {
     let mut child = planroom(&root).args(["serve", "--json"]).stdout(Stdio::piped()).spawn().unwrap();
     let mut line = String::new();
     BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
@@ -119,10 +131,15 @@ impl Stream {
 
     /// Read until the text so far contains `needle`, for up to 10 s.
     fn wait_for(&mut self, needle: &str) -> bool {
+        self.wait_until(|seen| seen.contains(needle))
+    }
+
+    /// Read until `done` holds for the text so far, for up to 10 s.
+    fn wait_until(&mut self, done: impl Fn(&str) -> bool) -> bool {
         let started = Instant::now();
         let mut buf = [0u8; 4096];
         while started.elapsed() < Duration::from_secs(10) {
-            if self.seen.contains(needle) {
+            if done(&self.seen) {
                 return true;
             }
             self.socket.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
@@ -132,7 +149,7 @@ impl Stream {
                 Err(_) => {}
             }
         }
-        self.seen.contains(needle)
+        done(&self.seen)
     }
 }
 
@@ -233,4 +250,128 @@ fn a_serve_write_then_read_shows_the_write() {
     // And the stream carries the write's frame, naming its target.
     assert!(stream.wait_for(&format!("id: {seq}")), "{}", stream.seen);
     assert!(stream.seen.contains(r#""target":"orders:container:orders""#), "{}", stream.seen);
+}
+
+/// A `watch --json --session SESSION` as `USER=ann`, from `client` (`PLANROOM_CLIENT`, or none for
+/// the CLI's own `cli:<pid>`), with a channel of its stdout lines; killed when dropped.
+struct Watch {
+    child: Child,
+    lines: mpsc::Receiver<String>,
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+fn watch_as(root: &Path, session: &str, client: Option<&str>) -> Watch {
+    let mut cmd = planroom(root);
+    cmd.args(["watch", "--json", "--session", session])
+        .env("USER", "ann")
+        .env("LOGNAME", "ann")
+        .env_remove("PLANROOM_ACTOR")
+        .stdout(Stdio::piped());
+    match client {
+        Some(id) => cmd.env("PLANROOM_CLIENT", id),
+        None => cmd.env_remove("PLANROOM_CLIENT"),
+    };
+    let mut child = cmd.spawn().unwrap();
+    let out = child.stdout.take().unwrap();
+    let (tx, lines) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(out).lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    Watch { child, lines }
+}
+
+impl Watch {
+    /// The rows of the first `presence` frame that `ok` accepts, within a minute.
+    fn presence_until(&self, ok: impl Fn(&[Value]) -> bool) -> Vec<Value> {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let line = self.lines.recv_timeout(left).expect("watch sends the presence frame looked for");
+            let frame: Value = serde_json::from_str(&line).unwrap_or_else(|e| panic!("{e}: {line}"));
+            if frame["type"] != "presence" {
+                continue;
+            }
+            let actors = frame["actors"].as_array().unwrap().clone();
+            if ok(&actors) {
+                return actors;
+            }
+        }
+    }
+}
+
+fn client_ids(rows: &[Value]) -> Vec<String> {
+    let mut ids: Vec<String> = rows.iter().map(|r| r["client_id"].as_str().unwrap().to_owned()).collect();
+    ids.sort();
+    ids
+}
+
+#[test]
+fn presence_keeps_a_row_per_surface() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = scanned(&tmp);
+
+    // One person in two places: the mod's watch and a terminal's.
+    let first = watch_as(&root, "s1", Some("mod:s1"));
+    let second = watch_as(&root, "s1", None);
+    let both = first.presence_until(|rows| rows.len() == 2);
+    assert_eq!(both[0]["actor"], both[1]["actor"], "{both:?}");
+    assert_eq!(both[0]["actor"]["kind"], "person");
+    assert_eq!(both[0]["actor"]["id"], "ann");
+    let mut surfaces: Vec<&str> = both.iter().map(|r| r["surface"].as_str().unwrap()).collect();
+    surfaces.sort();
+    assert_eq!(surfaces, ["cli", "mod"]);
+    let ids = client_ids(&both);
+    assert_ne!(ids[0], ids[1]);
+    assert!(ids.contains(&"mod:s1".to_owned()), "{ids:?}");
+
+    // The mod's own focus leaves out its own row; the CLI's keeps every row.
+    let who = |args: &[&str]| -> Vec<Value> {
+        let out = planroom(&root).args(args).output().unwrap();
+        let env: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(env["ok"], true, "{env}");
+        env["result"]["who"].as_array().unwrap().clone()
+    };
+    let own = who(&["focus", "--session", "s1", "--json"]);
+    assert_eq!(own.len(), 1, "{own:?}");
+    assert_eq!(own[0]["surface"], "cli");
+    assert_eq!(client_ids(&who(&["focus", "--json"])), ids);
+
+    // A second session adds its row and drops none.
+    let third = watch_as(&root, "s2", Some("mod:s2"));
+    let all = first.presence_until(|rows| rows.len() == 3);
+    let mut want = ids.clone();
+    want.push("mod:s2".into());
+    want.sort();
+    assert_eq!(client_ids(&all), want);
+
+    // A serve started after them sends the present set right after its ping.
+    let s = serve_on(tmp, root);
+    let token = sign_in(&s, &s.code.clone());
+    let mut stream = Stream::open(&s, &token);
+    // The first presence event, once its data line is whole.
+    let presence = |seen: &str| -> Option<String> {
+        let rest = &seen[seen.find("event: presence\n")?..];
+        let whole = &rest[..rest.find("\n\n")?];
+        whole.lines().find_map(|l| l.strip_prefix("data: ")).map(str::to_owned)
+    };
+    assert!(stream.wait_until(|seen| presence(seen).is_some()), "{}", stream.seen);
+    let kinds: Vec<&str> = stream.seen.lines().filter_map(|l| l.strip_prefix("event: ")).collect();
+    assert_eq!(kinds[..2], ["ping", "presence"], "{}", stream.seen);
+    let frame: Value = serde_json::from_str(&presence(&stream.seen).unwrap()).unwrap();
+    assert_eq!(client_ids(frame["actors"].as_array().unwrap()), want);
+
+    drop(stream);
+    drop((first, second, third));
+    drop(s);
 }

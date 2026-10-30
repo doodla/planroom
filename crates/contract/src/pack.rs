@@ -599,6 +599,9 @@ pub struct StageDecl {
     /// The IDs of the lint rules the stage runs.
     #[serde(default)]
     pub lint: Vec<String>,
+    /// The stage's name in the pane's stage picker, at most 20 characters; the ID when absent.
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 /// One plan item type a stage writes.

@@ -130,9 +130,10 @@ test("the pane draws the golden focus PaneModel on every surface", async ($, on)
     expect((await ui.find({ key: "next" }))?.text).toContain(
       "Open the containers",
     );
+    // A block is a row on a row key now; the first block is the selected row.
     expect(
-      (await ui.find({ type: "Text", text: /^□ worker$/ }))?.text,
-    ).toContain("worker");
+      (await ui.find({ key: "block-worker:repo:worker" }))?.text,
+    ).toContain("□ worker");
     expect(await ui.find({ type: "Text", text: /^No drift/ })).toBeDefined();
     for (const t of await texts(ui))
       expect(t.length).toBeLessThanOrEqual(DOCK.columns + 3);
@@ -328,10 +329,9 @@ test("drift_and_who_top_rows_carry_row_keys", async ($, on) => {
       .map((b) => b.props["hotkey"])
       .filter((k) => k !== undefined);
     expect(new Set(keys).size).toBe(keys.length);
-    // Blocks run nothing until `map --focus` exists, so no block row takes a key (DR-85).
-    expect(buttons.some((b) => b.key?.startsWith("block-") === true)).toBe(
-      false,
-    );
+    // A block row takes the next row key after the diffs, drift and who, as `x` goes down into it.
+    const block = buttons.find((b) => b.key?.startsWith("block-") === true);
+    expect(block?.props["hotkey"]).toBe("9");
     await ui.unmount();
   }
 

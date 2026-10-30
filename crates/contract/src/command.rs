@@ -314,6 +314,9 @@ const FOCUS: CommandSpec = CommandSpec {
         ErrorCode::WorkspaceNotFound,
         ErrorCode::StoreBusy,
         ErrorCode::SchemaMismatch,
+        ErrorCode::InvalidArgument,
+        ErrorCode::NotFound,
+        ErrorCode::AmbiguousRef,
         ErrorCode::Internal,
     ],
     undo: Undo::Query,
@@ -1013,7 +1016,19 @@ pub enum FocusDetail {
     Summary,
 }
 
-/// `planroom focus [--session ID] [--detail full|summary]`.
+/// Which picker `focus --picker` returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum PickerName {
+    /// The lenses the workspace's packs declare.
+    Lens,
+    /// The workspace's plan projects.
+    Project,
+    /// The plan stages of a project.
+    Stage,
+}
+
+/// `planroom focus [--session ID] [--detail full|summary] [--picker NAME [--project P]]`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct FocusReq {
     /// The Claude Code session whose focus to show.
@@ -1022,6 +1037,14 @@ pub struct FocusReq {
     #[arg(long, value_enum, default_value_t)]
     #[serde(default)]
     pub detail: FocusDetail,
+    /// Return this picker in place of the pane.
+    #[arg(long, value_enum)]
+    #[serde(default)]
+    pub picker: Option<PickerName>,
+    /// The project a stage picker is for.
+    #[arg(long, value_name = "P", requires = "picker")]
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 /// `planroom scan [DIR]`.

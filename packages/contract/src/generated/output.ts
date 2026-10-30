@@ -352,6 +352,13 @@ export type Command =
  */
 export type Level = "intent" | string;
 /**
+ * Which picker `focus --picker` returns.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PickerName".
+ */
+export type PickerName = "lens" | "project" | "stage";
+/**
  * A node ID, `<namespace>:<kind-short>:<key>`, such as `orders:pkg:internal/http`.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -895,6 +902,20 @@ export type Flow = "forward" | "backward";
  */
 export type FocusDetail = "full" | "summary";
 /**
+ * What `focus` returns: the pane, or with `--picker` a picker.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "FocusResult".
+ */
+export type FocusResult = PaneModel | Picker;
+/**
+ * Whether the workspace has been scanned.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ScanState".
+ */
+export type ScanState = "never" | "running" | "done";
+/**
  * The states of a hand-off.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -939,6 +960,10 @@ export type StreamFrame =
       type: "event";
     }
   | {
+      actors: PresenceRow[];
+      type: "presence";
+    }
+  | {
       seq: number;
       type: "reset";
     }
@@ -968,13 +993,6 @@ export type RuleType = "requires_prop" | "requires_edge" | "min_children" | "cov
  * via the `definition` "PromptRole".
  */
 export type PromptRole = "infer" | "propose";
-/**
- * Whether the workspace has been scanned.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "ScanState".
- */
-export type ScanState = "never" | "running" | "done";
 /**
  * The step that resolves the engine, in the order the resolver tries them.
  *
@@ -1377,7 +1395,7 @@ export interface FindReq {
   text: string;
 }
 /**
- * `planroom focus [--session ID] [--detail full|summary]`.
+ * `planroom focus [--session ID] [--detail full|summary] [--picker NAME [--project P]]`.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "FocusReq".
@@ -1391,6 +1409,14 @@ export interface FocusReq {
    * How much `focus` returns.
    */
   detail: "full" | "summary";
+  /**
+   * Return this picker in place of the pane.
+   */
+  picker: PickerName | null;
+  /**
+   * The project a stage picker is for.
+   */
+  project: string | null;
 }
 /**
  * `planroom scan [DIR]`.
@@ -3045,6 +3071,181 @@ export interface Focus {
   seq: number;
 }
 /**
+ * What `focus` returns: the pane, the band and the status line, fit to `focus`'s catalogue budget
+ * on the CLI.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PaneModel".
+ */
+export interface PaneModel {
+  focus: Focus;
+  /**
+   * The one open decision.
+   */
+  decision: DecisionCard | null;
+  more_decisions: number;
+  progress: Progress;
+  /**
+   * The top 3 one-liners; the first with up to 5 hunk lines.
+   */
+  diffs: DiffLine[];
+  drift: DriftLine;
+  who: PresenceRow[];
+  next: Handle5;
+  /**
+   * Omitted with `focus --detail summary` (DR-82).
+   */
+  minimap?: MiniMap | null;
+  empty: Empty | null;
+}
+/**
+ * The plan stage and the work in flight.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Progress".
+ */
+export interface Progress {
+  stage: string | null;
+  done: number;
+  total: number;
+  handoffs_running: number;
+  scan: ScanState;
+}
+/**
+ * Who is working on what.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PresenceRow".
+ */
+export interface PresenceRow {
+  actor: Actor;
+  surface: Surface;
+  /**
+   * The writer instance that last touched this row: `mod:<session>` from the mod, or `cli:<pid>`
+   * from a `watch --session` run without `PLANROOM_CLIENT`; an ID.
+   */
+  client_id: string;
+  doing: string | null;
+  focus: NodeId | null;
+  seen_at: Timestamp;
+}
+/**
+ * An exact invocation a surface can offer, such as a drill-down or the next action.
+ */
+export interface Handle5 {
+  command: CommandName;
+  args: string[];
+  label: string;
+}
+/**
+ * Up to 60 blocks at the focus level, edges by lens.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "MiniMap".
+ */
+export interface MiniMap {
+  level: Level;
+  blocks: MiniBlock[];
+  edges: MiniEdge[];
+}
+/**
+ * One block on the mini-map.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "MiniBlock".
+ */
+export interface MiniBlock {
+  id: NodeId;
+  name: string;
+  focused: boolean;
+}
+/**
+ * One lifted edge on the mini-map.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "MiniEdge".
+ */
+export interface MiniEdge {
+  from: NodeId;
+  to: NodeId;
+  count: number;
+}
+/**
+ * What `focus --picker NAME` returns: a question, why it is asked, and up to 16 entries to pick
+ * from. The pane draws the first four on its card and the rest in a list.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Picker".
+ */
+export interface Picker {
+  name: PickerName;
+  /**
+   * The question the picker asks. Holds only counts, levels, stage labels and engine text,
+   * never repo text.
+   */
+  question: string;
+  /**
+   * One line on what the pick changes. Holds only counts, levels, stage labels and engine
+   * text, never repo text.
+   */
+  why: string;
+  entries: PickerEntry[];
+  /**
+   * Entries left out past the 16 keys reach or past the budget.
+   */
+  more: number;
+  /**
+   * What a pick costs, when it spends.
+   */
+  estimate?: PickEstimate | null;
+}
+/**
+ * One choice in a [`Picker`].
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PickerEntry".
+ */
+export interface PickerEntry {
+  label: string;
+  /**
+   * Counts, levels, stage labels and engine text only, never repo text.
+   */
+  detail: string;
+  handle: Handle6;
+  /**
+   * Whether this is the choice in force now.
+   */
+  current: boolean;
+}
+/**
+ * An exact invocation a surface can offer, such as a drill-down or the next action.
+ */
+export interface Handle6 {
+  command: CommandName;
+  args: string[];
+  label: string;
+}
+/**
+ * What picking a stage can cost.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "PickEstimate".
+ */
+export interface PickEstimate {
+  /**
+   * A per-pick ceiling: the uncached tail plus the most output a stage's reply takes.
+   */
+  tokens: number;
+  /**
+   * The per-stage dollar ceiling.
+   */
+  usd: number;
+  /**
+   * The shared prefix is cached.
+   */
+  cached: boolean;
+}
+/**
  * One step of the hand-off loop.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -3822,39 +4023,6 @@ export interface Measured {
   model_reported: string | null;
 }
 /**
- * One block on the mini-map.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "MiniBlock".
- */
-export interface MiniBlock {
-  id: NodeId;
-  name: string;
-  focused: boolean;
-}
-/**
- * One lifted edge on the mini-map.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "MiniEdge".
- */
-export interface MiniEdge {
-  from: NodeId;
-  to: NodeId;
-  count: number;
-}
-/**
- * Up to 60 blocks at the focus level, edges by lens.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "MiniMap".
- */
-export interface MiniMap {
-  level: Level;
-  blocks: MiniBlock[];
-  edges: MiniEdge[];
-}
-/**
  * What `open` returns: whether a browser was opened. Where none can be seen (no display, an SSH
  * session, or an opener that fails), nothing is opened, and `empty.next` names `share` (DR-29).
  *
@@ -4092,6 +4260,10 @@ export interface StageDecl {
    * The IDs of the lint rules the stage runs.
    */
   lint: string[];
+  /**
+   * The stage's name in the pane's stage picker, at most 20 characters; the ID when absent.
+   */
+  label: string | null;
 }
 /**
  * What `pack add` and `pack remove` return: the pack and its copy, whether the record changed,
@@ -4125,68 +4297,6 @@ export interface PackSetResult {
    * The recorded set's hash afterwards.
    */
   packs_hash: string;
-}
-/**
- * What `focus` returns: the pane, the band and the status line, fit to `focus`'s catalogue budget
- * on the CLI.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "PaneModel".
- */
-export interface PaneModel {
-  focus: Focus;
-  /**
-   * The one open decision.
-   */
-  decision: DecisionCard | null;
-  more_decisions: number;
-  progress: Progress;
-  /**
-   * The top 3 one-liners; the first with up to 5 hunk lines.
-   */
-  diffs: DiffLine[];
-  drift: DriftLine;
-  who: PresenceRow[];
-  next: Handle5;
-  /**
-   * Omitted with `focus --detail summary` (DR-82).
-   */
-  minimap?: MiniMap | null;
-  empty: Empty | null;
-}
-/**
- * The plan stage and the work in flight.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "Progress".
- */
-export interface Progress {
-  stage: string | null;
-  done: number;
-  total: number;
-  handoffs_running: number;
-  scan: ScanState;
-}
-/**
- * Who is working on what.
- *
- * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
- * via the `definition` "PresenceRow".
- */
-export interface PresenceRow {
-  actor: Actor;
-  surface: Surface;
-  doing: string | null;
-  focus: NodeId | null;
-  seen_at: Timestamp;
-}
-/**
- * An exact invocation a surface can offer, such as a drill-down or the next action.
- */
-export interface Handle5 {
-  command: CommandName;
-  args: string[];
-  label: string;
 }
 /**
  * The mod's `pane` atom: the last `focus --json`, its `PaneModel` or the error it returned.

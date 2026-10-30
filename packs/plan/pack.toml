@@ -16,6 +16,7 @@ requires = []
 [[stages]]
 id = "intent"
 method = "Jobs-to-be-Done, laddering"
+label = "Intent"
 lint = ["intent_so_that"]
 prompt = """
 Name the job as when, want and so that: the situation, the change, the outcome it serves.
@@ -31,6 +32,7 @@ props = { type = "object", properties = { when = { type = "string" }, want = { t
 [[stages]]
 id = "outcome"
 method = "SMART, non-goals"
+label = "Outcome"
 lint = ["outcome_metric", "outcome_deadline"]
 prompt = """
 State each outcome as a metric with a target and a deadline.
@@ -49,6 +51,7 @@ props = { type = "object", properties = {} }
 [[stages]]
 id = "breakdown"
 method = "MECE, the WBS 100% rule"
+label = "Breakdown"
 lint = ["work_covers_parent_scope", "work_children_disjoint"]
 prompt = """
 Break the work into a tree of work items, each with its method and its scope tags.
@@ -64,6 +67,7 @@ props = { type = "object", properties = { method = { type = "string" }, scope = 
 [[stages]]
 id = "next_actions"
 method = "GTD, HTN"
+label = "Next actions"
 lint = ["next_action_done_test", "next_action_target"]
 prompt = """
 Under each leaf work item, write the next physical actions, each starting with a verb.
@@ -79,6 +83,7 @@ props = { type = "object", properties = { verb = { type = "string" }, done_test 
 [[stages]]
 id = "priorities"
 method = "MoSCoW"
+label = "Priorities"
 lint = ["item_moscow"]
 prompt = """
 Rate every work item and next action must, should, could or wont.
@@ -97,6 +102,7 @@ props = { type = "object", properties = { moscow = { type = "string", enum = ["m
 [[stages]]
 id = "premortem"
 method = "pre-mortem"
+label = "Premortem"
 lint = ["top_risk_mitigation"]
 prompt = """
 Imagine the plan has failed, and tell each way it failed as a short story.
@@ -111,6 +117,7 @@ props = { type = "object", properties = { story = { type = "string" }, likelihoo
 [[stages]]
 id = "lint"
 method = "lint"
+label = "Lint"
 items = []
 lint = ["intent_so_that", "outcome_metric", "outcome_deadline", "work_covers_parent_scope", "work_children_disjoint", "next_action_done_test", "next_action_target", "item_moscow", "top_risk_mitigation"]
 prompt = """

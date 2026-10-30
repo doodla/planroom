@@ -65,6 +65,18 @@ pub const STAGE_CEILING_USD: f64 = 0.10;
 /// The most output tokens a stage's reply takes: the prompt's working limits keep a reply of 15
 /// items well inside it.
 pub const MAX_TOKENS: u32 = 6_000;
+/// The uncached tail: the slice and its question, about 2,300 tokens (see [`STAGE_CEILING_USD`]).
+pub const TAIL_TOKENS_EST: u32 = 2_300;
+/// What one stage call costs at most, as the stage picker states it before a pick: a per-pick
+/// token ceiling (the uncached tail and the most output a reply takes), the dollar ceiling, and
+/// that the shared prefix is cached.
+pub fn estimate() -> planroom_contract::PickEstimate {
+    planroom_contract::PickEstimate {
+        tokens: TAIL_TOKENS_EST + MAX_TOKENS,
+        usd: STAGE_CEILING_USD,
+        cached: true,
+    }
+}
 /// The slice's canonical JSON, as the fence holds it, at most.
 pub const SLICE_MAX_BYTES: usize = 8_000;
 /// Characters of an item's text prop kept when the slice must be cut.

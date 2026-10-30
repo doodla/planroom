@@ -10,8 +10,8 @@ use std::path::Path;
 
 use planroom_contract::EventBody;
 use planroom_contract::{
-    CommandName, Crumb, DriftLine, Focus, FocusDetail, FocusReq, Handle, MiniBlock, MiniMap, NodeId,
-    PaneModel, Progress, ScanState, Seq, Vocabulary, Warning, WarningCode,
+    CommandName, Crumb, DriftLine, Focus, FocusDetail, FocusReq, FocusResult, Handle, MiniBlock, MiniMap,
+    NodeId, PaneModel, Progress, ScanState, Seq, Vocabulary, Warning, WarningCode,
 };
 use planroom_kernel::ladder::Ladder;
 use planroom_store::{Snapshot, Store};
@@ -19,7 +19,7 @@ use serde_json::json;
 
 use crate::app::dirty::Dirty;
 use crate::app::error::AppError;
-use crate::app::{Paged, Reply, cards, map, workspace};
+use crate::app::{Paged, Reply, cards, map, picker, workspace};
 use crate::packs::state::{self, ReadSet};
 use crate::{clock, live, text};
 
@@ -27,25 +27,48 @@ use crate::{clock, live, text};
 /// catalogue budget, as sent, by dropping blocks with [`drop_block`]; over HTTP and in a share's
 /// snapshot the pane is whole.
 pub const MINIMAP_BLOCKS: usize = 60;
-/// How long a presence row counts as present after its last write.
-const PRESENT_FOR_MICROS: u64 = 30_000_000;
 /// Presence rows the pane carries.
 const WHO_ROWS: usize = 3;
 
 /// The pane, and in a scanned workspace the repos with uncommitted work, which `meta.dirty_repos`
 /// lists and one line of the text names, with no rescan (DR-71, DR-85). `--detail summary` builds
 /// the same pane and text, then leaves the mini-map out of the reply on every path (DR-82), so
-/// text mode still names the blocks.
-pub fn run(req: &FocusReq, cwd: &Path) -> Result<Paged<PaneModel>, AppError> {
-    let mut paged = whole_detail(cwd)?;
-    if req.detail == FocusDetail::Summary {
-        paged.reply.result.minimap = None;
+/// text mode still names the blocks. With `--picker NAME` the reply is that [`Picker`] in place of
+/// the pane (DR-77); outside a workspace, or before its first scan, it is the same empty pane, and
+/// `--detail` is accepted and ignored.
+pub fn run(req: &FocusReq, cwd: &Path) -> Result<Paged<FocusResult>, AppError> {
+    let Some(name) = req.picker else {
+        let mut paged = whole_detail(cwd, req.session.as_deref())?;
+        if req.detail == FocusDetail::Summary {
+            paged.reply.result.minimap = None;
+        }
+        return Ok(as_result(paged));
+    };
+    let Some(root) = workspace::find_root(cwd) else {
+        return not_a_workspace(cwd).map(|reply| as_result(Paged::whole(reply)));
+    };
+    let Some(store) = Store::open_existing(&workspace::store_path(&root))? else {
+        return not_a_workspace(&root).map(|reply| as_result(Paged::whole(reply)));
+    };
+    if store.snapshot()?.active_set()?.repos.is_empty() {
+        return not_a_workspace(&root).map(|reply| as_result(Paged::whole(reply)));
     }
-    Ok(paged)
+    let Reply { text, result, seq, warnings } = picker::run(req, name, &store, &root)?;
+    Ok(Paged::whole(Reply { text, result: FocusResult::Picker(result), seq, warnings }))
 }
 
-/// [`run`] at full detail.
-fn whole_detail(cwd: &Path) -> Result<Paged<PaneModel>, AppError> {
+/// `paged`, its pane the reply's result.
+fn as_result(paged: Paged<PaneModel>) -> Paged<FocusResult> {
+    let Reply { text, result, seq, warnings } = paged.reply;
+    Paged {
+        reply: Reply { text, result: FocusResult::Pane(result), seq, warnings },
+        next: paged.next,
+        dirty: paged.dirty,
+    }
+}
+
+/// [`run`] at full detail, for `session` when the mod asks.
+fn whole_detail(cwd: &Path, session: Option<&str>) -> Result<Paged<PaneModel>, AppError> {
     let Some(root) = workspace::find_root(cwd) else {
         return not_a_workspace(cwd).map(Paged::whole);
     };
@@ -54,7 +77,7 @@ fn whole_detail(cwd: &Path) -> Result<Paged<PaneModel>, AppError> {
     };
     let snapshot = store.snapshot()?;
     let set = state::for_snapshot(&snapshot, &root)?;
-    let mut reply = reply_with(&store, &snapshot, &root, &set)?;
+    let mut reply = reply_with(&store, &snapshot, &root, &set, session)?;
     if reply.result.empty.is_some() {
         return Ok(Paged::whole(reply));
     }
@@ -68,21 +91,23 @@ fn whole_detail(cwd: &Path) -> Result<Paged<PaneModel>, AppError> {
 /// scan didn't cover every file keeps its `partial_scan` warning here, so the pane never shows a
 /// partly mapped repo as whole.
 pub fn reply_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<Reply<PaneModel>, AppError> {
-    reply_with(store, snapshot, root, &state::for_snapshot(snapshot, root)?)
+    reply_with(store, snapshot, root, &state::for_snapshot(snapshot, root)?, None)
 }
 
 /// [`reply_in`] with the pack set the caller resolved from `snapshot`: the pane is folded with it,
-/// and a set that didn't load says so in the reply's warnings.
+/// and a set that didn't load says so in the reply's warnings. `session` is the mod's session,
+/// whose own presence row the pane leaves out.
 fn reply_with(
     store: &Store,
     snapshot: &Snapshot<'_>,
     root: &Path,
     set: &ReadSet,
+    session: Option<&str>,
 ) -> Result<Reply<PaneModel>, AppError> {
     if snapshot.active_set()?.repos.is_empty() {
         return not_a_workspace(root);
     }
-    let pane = pane_in(store, snapshot, root, set.vocabulary())?;
+    let pane = pane_in(store, snapshot, root, set.vocabulary(), session)?;
     let seq = pane.focus.seq;
     let mut warnings = partly_mapped(snapshot)?;
     // While the trust card is open, the workspace's config stays unloaded, and the pane says so
@@ -120,16 +145,19 @@ fn partly_mapped(snapshot: &Snapshot<'_>) -> Result<Vec<Warning>, AppError> {
 pub fn pane(store: &Store, root: &Path) -> Result<PaneModel, AppError> {
     let snapshot = store.snapshot()?;
     let set = state::for_snapshot(&snapshot, root)?;
-    pane_in(store, &snapshot, root, set.vocabulary())
+    pane_in(store, &snapshot, root, set.vocabulary(), None)
 }
 
 /// [`pane`] inside a read transaction on `store`: the pane's seq and its mini-map come from that
-/// one version of the store (DR-73), folded with `vocabulary`.
+/// one version of the store (DR-73), folded with `vocabulary`. With the mod's `session`, `who`
+/// leaves out that session's own row (`mod:<session>`), so the pane shows only the others; without
+/// one, as in share and on the CLI, it keeps every row.
 fn pane_in(
     store: &Store,
     snapshot: &Snapshot<'_>,
     root: &Path,
     vocabulary: &Vocabulary,
+    session: Option<&str>,
 ) -> Result<PaneModel, AppError> {
     let seq = snapshot.seq();
     let view = map::top_in(snapshot, root, None, vocabulary)?;
@@ -137,8 +165,13 @@ fn pane_in(
     let top = Ladder::of(vocabulary).top().clone();
     let folded = live::folded(snapshot, vocabulary)?;
     let (decision, more_decisions) = cards::face_up(snapshot, &folded)?;
-    let since = clock::rfc3339(clock::unix_micros().saturating_sub(PRESENT_FOR_MICROS));
+    let window = live::PRESENT_FOR.as_micros() as u64;
+    let since = clock::rfc3339(clock::unix_micros().saturating_sub(window));
     let mut who = store.presence_since(&planroom_contract::Timestamp(since))?;
+    if let Some(session) = session {
+        let own = format!("mod:{session}");
+        who.retain(|row| row.client_id != own);
+    }
     who.truncate(WHO_ROWS);
     let blocks: Vec<MiniBlock> = view
         .nodes
@@ -182,7 +215,7 @@ fn pane_in(
 /// holds on the model this pane reads (DR-54), its text the button's label. The loader refused
 /// every suggestion that names a leaf the band may not, so this one can be undone, hands nothing
 /// off and never spends. With none that holds, the top of the map.
-fn next_in(snapshot: &Snapshot<'_>, vocabulary: &Vocabulary) -> Result<Handle, AppError> {
+pub(super) fn next_in(snapshot: &Snapshot<'_>, vocabulary: &Vocabulary) -> Result<Handle, AppError> {
     let model = live::model(snapshot, vocabulary)?;
     Ok(match planroom_kernel::next::next(&model, &vocabulary.suggestions) {
         Some(suggestion) => Handle {

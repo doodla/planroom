@@ -2036,6 +2036,24 @@ fn a_duplicate_stage_or_rule_id_is_pack_invalid() {
 }
 
 #[test]
+fn a_stage_label_over_20_characters_is_refused() {
+    let labelled = |label: &str| {
+        stage("breakdown", &[], SCOPE).replacen(
+            "method = \"m\"\n",
+            &format!("method = \"m\"\nlabel = \"{label}\"\n"),
+            1,
+        )
+    };
+    assert!(with_plan(&labelled("Twenty characters!!!"), vec![]).is_ok(), "20 characters is the limit");
+    let (code, message, _) = refused(with_plan(&labelled("Twenty-one characters"), vec![]));
+    assert_eq!(code, "pack_invalid");
+    assert!(
+        message.contains("breakdown's label is longer than 20 characters"),
+        "the stage ID and the limit are named: {message}"
+    );
+}
+
+#[test]
 fn an_item_prop_declared_two_ways_is_pack_invalid() {
     let text = "{ type = \"object\", properties = { scope = { type = \"string\" } } }";
     let same = format!("{}{}", stage("breakdown", &[], SCOPE), stage("priorities", &[], SCOPE));
@@ -3262,6 +3280,13 @@ fn a_missing_or_changed_copy_reads_the_built_ins_and_writes_nothing() {
     assert_eq!(warned.len(), 1, "{focus}");
     assert_eq!(warned[0]["details"]["reason"], "copy_changed", "{focus}");
     assert_eq!(fs::read_to_string(copy.join("pack.toml")).unwrap(), stems_manifest("alias"));
+    // A picker is built from the same set and says so once.
+    let picker = room.ok(&ws, &["focus", "--picker", "lens"]);
+    assert_eq!(picker["result"]["name"], "lens", "{picker}");
+    assert!(!picker["result"]["entries"].as_array().unwrap().is_empty(), "{picker}");
+    let warned = not_loaded(&picker);
+    assert_eq!(warned.len(), 1, "{picker}");
+    assert_eq!(warned[0]["details"]["reason"], "copy_changed", "{picker}");
 
     // A set this engine doesn't load: the built-ins, and the hint checks the copy.
     room.ok(&ws, &["scan"]);

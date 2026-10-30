@@ -11,6 +11,7 @@ import type { PaneModel } from "@planroom/contract";
 import { fill, KEY_MAP } from "@planroom/ui";
 
 import focusReply from "../../../tests/golden/cli/focus.json";
+import projectPicker from "../../../tests/golden/cli/focus-picker-project.json";
 import { bandRow } from "../src/layout";
 import {
   BAND,
@@ -19,6 +20,7 @@ import {
   host,
   PANE,
   readyEngine,
+  SESSION,
   START,
   SURFACES,
   type Answer,
@@ -98,6 +100,20 @@ test("every hotkey the pane and the band draw is in the key map, once a surface"
     for (const k of hotkeys) expect(mapped.has(k), k).toBe(true);
     expect(new Set(hotkeys).size).toBe(hotkeys.length);
     expect(hotkeys.length).toBeLessThanOrEqual(36);
+    // The same holds with the lens picker dealt over the card.
+    const lens = (await ui.findAll({ type: "Button" })).find(
+      (b) => b.props["hotkey"] === "l",
+    );
+    await ui.press({ key: lens?.key ?? "" });
+    await h.clock.settle();
+    await ui.redraw();
+    const dealt = (await ui.findAll({ type: "Button" }))
+      .map((b) => b.props["hotkey"])
+      .filter((k): k is string => typeof k === "string");
+    expect(dealt).toContain("2");
+    for (const k of dealt) expect(mapped.has(k), k).toBe(true);
+    expect(new Set(dealt).size).toBe(dealt.length);
+    expect(dealt.length).toBeLessThanOrEqual(36);
     await ui.unmount();
   }
 });
@@ -327,5 +343,399 @@ test("e_opens_the_canvas_with_a_person_token", async ($, on) => {
   expect(open?.env["PLANROOM_PERSON_TOKEN"]).toBeDefined();
   expect(open?.env["PLANROOM_ACTOR"]).toBeUndefined();
   expect(h.toasts.at(-1)).toContain("Opened the canvas.");
+  await ui.unmount();
+});
+
+/** The engine's answer to `map --focus ID`: the two blocks under it. */
+const UNDER_WORKER = {
+  schema_version: 1,
+  ok: true,
+  command: "map",
+  summary: "2 blocks at the container level",
+  result: {
+    level: "container",
+    lens: "runtime",
+    focus: "worker:repo:worker",
+    nodes: [
+      { id: "worker:container:consumer", name: "consumer" },
+      { id: "worker:container:scheduler", name: "scheduler" },
+    ],
+    edges: [],
+    hidden: 0,
+    empty: null,
+  },
+  meta: { seq: golden.focus.seq },
+};
+
+test("a_block_is_its_row_key_then_x_and_z_comes_back", async ($, on) => {
+  const h = host(on, (argv): Answer =>
+    argv[0] === ENGINE && argv[1] === "map" && argv.includes("--focus")
+      ? { exitCode: 0, stdout: JSON.stringify(UNDER_WORKER) }
+      : readyEngine(argv),
+  );
+  await $.session.start(START);
+  await h.clock.settle();
+
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  // The golden pane has no diff, drift or who row, so its blocks take the row keys from the
+  // first: the third block is `7`.
+  const hotkey = async (key: string) =>
+    (await ui.findAll({ type: "Button" })).find(
+      (b) => b.props["hotkey"] === key,
+    );
+  const third = await hotkey("7");
+  expect(third?.key).toBe("block-worker:repo:worker");
+  expect(await hotkey("x")).toBeDefined();
+  expect(await hotkey("z")).toBeUndefined();
+
+  // The row key selects the block and runs nothing.
+  const before = h.runs.length;
+  await ui.press({ key: third?.key ?? "" });
+  await h.clock.settle();
+  await ui.redraw();
+  expect(h.runs.slice(before).filter((r) => r.argv[1] === "map")).toEqual([]);
+  expect(
+    (await ui.find({ key: "block-worker:repo:worker" }))?.text.startsWith("› "),
+  ).toBe(true);
+
+  // `x` goes down into it through `map --focus`, as the person, naming no level.
+  await ui.press({ key: "down" });
+  await h.clock.settle();
+  await ui.redraw();
+  const down = h.runs.slice(before).find((r) => r.argv[1] === "map");
+  expect(down?.argv).toEqual([
+    ENGINE,
+    "map",
+    "--focus",
+    "worker:repo:worker",
+    "--json",
+  ]);
+  expect(down?.env["PLANROOM_ACTOR"]).toBeUndefined();
+  // The view's rows show in place of the pane's blocks, and `z` comes back.
+  expect(
+    await ui.find({ key: "block-worker:container:consumer" }),
+  ).toBeDefined();
+  expect(await ui.find({ key: "block-orders:repo:orders" })).toBeUndefined();
+  expect((await hotkey("z"))?.key).toBe("up");
+
+  await ui.press({ key: "up" });
+  await h.clock.settle();
+  await ui.redraw();
+  expect(
+    await ui.find({ key: "block-worker:container:consumer" }),
+  ).toBeUndefined();
+  expect(await ui.find({ key: "block-orders:repo:orders" })).toBeDefined();
+  expect(await hotkey("z")).toBeUndefined();
+  await ui.unmount();
+});
+
+/** A map reply for `--lens`, with one block the lens shows. */
+const LENS_MAP = {
+  schema_version: 1,
+  ok: true,
+  command: "map",
+  summary: "1 block at the container level",
+  result: {
+    level: "container",
+    lens: "flow",
+    focus: null,
+    nodes: [{ id: "worker:container:consumer", name: "consumer" }],
+    edges: [],
+    hidden: 0,
+    empty: null,
+  },
+  meta: { seq: golden.focus.seq },
+};
+
+/** The project picker with a second project, so there is something to pick. */
+const TWO_PROJECTS = (() => {
+  const reply = projectPicker as unknown as {
+    result: { entries: Record<string, unknown>[] };
+  };
+  const first = reply.result.entries[0] ?? {};
+  return {
+    ...projectPicker,
+    result: {
+      ...reply.result,
+      entries: [
+        first,
+        {
+          label: "Drop the old queue",
+          detail: "3 items · 0 waiting",
+          handle: {
+            command: "intent list",
+            args: ["--project", "plan:drop-the-old-queue:project"],
+            label: "Show this project's plan",
+          },
+          current: false,
+        },
+      ],
+    },
+  };
+})();
+
+const PLAN_ITEMS = {
+  schema_version: 1,
+  ok: true,
+  command: "intent list",
+  summary: "2 items",
+  result: {
+    items: [{ name: "Remove the producer" }, { name: "Drain the queue" }],
+  },
+  meta: { seq: golden.focus.seq },
+};
+
+/** An engine that deals the pickers above and answers the reads they run. */
+function pickingEngine(): (argv: readonly string[]) => Answer {
+  return (argv) => {
+    if (argv[0] === ENGINE && argv[1] === "focus" && argv[3] === "project") {
+      return { exitCode: 0, stdout: JSON.stringify(TWO_PROJECTS) };
+    }
+    if (argv[0] === ENGINE && argv[1] === "map" && argv.includes("--lens")) {
+      return { exitCode: 0, stdout: JSON.stringify(LENS_MAP) };
+    }
+    if (argv[0] === ENGINE && argv[1] === "intent" && argv[2] === "list") {
+      return { exitCode: 0, stdout: JSON.stringify(PLAN_ITEMS) };
+    }
+    return readyEngine(argv);
+  };
+}
+
+test("a_lens_and_a_project_are_a_key_and_a_digit", async ($, on) => {
+  const h = host(on, pickingEngine());
+  await $.session.start(START);
+  await h.clock.settle();
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  const hotkey = async (key: string) =>
+    (await ui.findAll({ type: "Button" })).find(
+      (b) => b.props["hotkey"] === key,
+    );
+
+  // `l` deals the lens picker, asked as the pane's own focus is.
+  const lens = await hotkey("l");
+  expect(lens).toBeDefined();
+  await ui.press({ key: lens?.key ?? "" });
+  await h.clock.settle();
+  await ui.redraw();
+  const asked = h.runs.find((r) => r.argv.includes("--picker"));
+  expect(asked?.argv).toEqual([
+    ENGINE,
+    "focus",
+    "--picker",
+    "lens",
+    "--json",
+    "--session",
+    SESSION,
+  ]);
+  // The second entry is the digit 2; its pick runs its handle.
+  const second = await hotkey("2");
+  expect(second?.text).toContain("Request and message");
+  const before = h.runs.length;
+  await ui.press({ key: second?.key ?? "" });
+  await h.clock.settle();
+  await ui.redraw();
+  const map = h.runs.slice(before).find((r) => r.argv[1] === "map");
+  expect(map?.argv).toEqual([ENGINE, "map", "--lens", "flow", "--json"]);
+  // Its nodes show as list rows, and the picker is closed.
+  expect(
+    await ui.find({ key: "block-worker:container:consumer" }),
+  ).toBeDefined();
+  expect(await hotkey("2")).toBeUndefined();
+
+  // `p` deals the project picker; its second entry runs that project's items.
+  await ui.press({ key: (await hotkey("p"))?.key ?? "" });
+  await h.clock.settle();
+  await ui.redraw();
+  const projects = h.runs.filter(
+    (r) => r.argv[1] === "focus" && r.argv[3] === "project",
+  );
+  expect(projects).toHaveLength(1);
+  const pickProject = await hotkey("2");
+  const mark = h.runs.length;
+  await ui.press({ key: pickProject?.key ?? "" });
+  await h.clock.settle();
+  await ui.redraw();
+  const items = h.runs.slice(mark).find((r) => r.argv[1] === "intent");
+  expect(items?.argv).toEqual([
+    ENGINE,
+    "intent",
+    "list",
+    "--project",
+    "plan:drop-the-old-queue:project",
+    "--json",
+  ]);
+  expect(
+    await ui.find({ type: "Text", text: /Remove the producer/ }),
+  ).toBeDefined();
+
+  // The project picked is the one the stage picker is asked about.
+  await ui.press({ key: (await hotkey("i"))?.key ?? "" });
+  await h.clock.settle();
+  const stages = h.runs.filter(
+    (r) => r.argv[1] === "focus" && r.argv[3] === "stage",
+  );
+  expect(stages.at(-1)?.argv).toEqual([
+    ENGINE,
+    "focus",
+    "--picker",
+    "stage",
+    "--project",
+    "plan:drop-the-old-queue:project",
+    "--json",
+    "--session",
+    SESSION,
+  ]);
+  await ui.unmount();
+});
+
+test("a_pick_replaces_the_views_so_z_comes_back_to_the_pane", async ($, on) => {
+  const picking = pickingEngine();
+  const h = host(on, (argv): Answer =>
+    argv[0] === ENGINE && argv[1] === "map" && argv.includes("--focus")
+      ? { exitCode: 0, stdout: JSON.stringify(UNDER_WORKER) }
+      : picking(argv),
+  );
+  await $.session.start(START);
+  await h.clock.settle();
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  const hotkey = async (key: string) =>
+    (await ui.findAll({ type: "Button" })).find(
+      (b) => b.props["hotkey"] === key,
+    );
+  const press = async (key: string | undefined) => {
+    await ui.press({ key: key ?? "" });
+    await h.clock.settle();
+    await ui.redraw();
+  };
+
+  // `x` goes down into the worker: its two blocks are a view.
+  await press((await hotkey("7"))?.key);
+  await press("down");
+  expect(
+    await ui.find({ key: "block-worker:container:scheduler" }),
+  ).toBeDefined();
+
+  // A lens pick shows its map as the one view, in place of the view `x` went down into.
+  await press((await hotkey("l"))?.key);
+  await press((await hotkey("2"))?.key);
+  expect(
+    await ui.find({ key: "block-worker:container:consumer" }),
+  ).toBeDefined();
+  expect(
+    await ui.find({ key: "block-worker:container:scheduler" }),
+  ).toBeUndefined();
+
+  // `z` comes back to the pane's own blocks, not to the worker's, and has nowhere further to go.
+  expect((await hotkey("z"))?.key).toBe("up");
+  await press("up");
+  expect(
+    await ui.find({ key: "block-worker:container:scheduler" }),
+  ).toBeUndefined();
+  expect(await ui.find({ key: "block-orders:repo:orders" })).toBeDefined();
+  expect(await hotkey("z")).toBeUndefined();
+  await ui.unmount();
+});
+
+test("a_picker_owns_the_digits_until_it_closes", async ($, on) => {
+  const reply = {
+    ...focusReply,
+    result: overlay(golden, M2_DECISION_AND_DIFFS),
+  };
+  const h = host(on, (argv) =>
+    argv[0] === ENGINE && argv[1] === "focus" && !argv.includes("--picker")
+      ? { exitCode: 0, stdout: JSON.stringify(reply) }
+      : argv[0] === ENGINE && argv[1] === "open"
+        ? {
+            exitCode: 0,
+            stdout:
+              '{"schema_version":1,"ok":true,"command":"open","summary":"Opened the canvas.","result":{"opened":true},"meta":{"seq":412}}',
+          }
+        : pickingEngine()(argv),
+  );
+  await $.session.start(START);
+  await h.clock.settle();
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  const hotkey = async (key: string) =>
+    (await ui.findAll({ type: "Button" })).find(
+      (b) => b.props["hotkey"] === key,
+    );
+  // The card's first choice is `1` until a picker is dealt.
+  expect((await hotkey("1"))?.key).toBe("choice-accept");
+
+  await ui.press({ key: (await hotkey("l"))?.key ?? "" });
+  await h.clock.settle();
+  await ui.redraw();
+  expect(await ui.find({ key: "choice-accept" })).toBeUndefined();
+  const mark = h.runs.length;
+  await ui.press({ key: (await hotkey("1"))?.key ?? "" });
+  await h.clock.settle();
+  const ran = h.runs.slice(mark).map((r) => r.argv[1]);
+  expect(ran).toContain("map");
+  expect(ran).not.toContain("decide");
+
+  // Deal it again; any other action key closes it, then acts, and the card returns.
+  await ui.redraw();
+  await ui.press({ key: (await hotkey("l"))?.key ?? "" });
+  await h.clock.settle();
+  await ui.redraw();
+  expect(await ui.find({ key: "choice-accept" })).toBeUndefined();
+  const next = h.runs.length;
+  await ui.press({ key: "canvas" });
+  await h.clock.settle();
+  await ui.redraw();
+  expect(h.runs.slice(next).some((r) => r.argv[1] === "open")).toBe(true);
+  expect((await hotkey("1"))?.key).toBe("choice-accept");
+  await ui.unmount();
+});
+
+test("the_stage_picker_draws_stages_as_labels_and_runs_lint", async ($, on) => {
+  const h = host(on, (argv) =>
+    argv[0] === ENGINE && argv[1] === "intent" && argv[2] === "lint"
+      ? {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            schema_version: 1,
+            ok: true,
+            command: "intent lint",
+            summary: "1 finding",
+            result: {
+              findings: [{ name: "premortem", message: "no risks named" }],
+            },
+            meta: { seq: golden.focus.seq },
+          }),
+        }
+      : readyEngine(argv),
+  );
+  await $.session.start(START);
+  await h.clock.settle();
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  const buttons = async () => await ui.findAll({ type: "Button" });
+  await ui.press({
+    key: (await buttons()).find((b) => b.props["hotkey"] === "i")?.key ?? "",
+  });
+  await h.clock.settle();
+  await ui.redraw();
+  const open = await buttons();
+  // No stage is a Button; the labels draw as text.
+  for (const stage of ["Intent", "Outcome", "Breakdown", "Next actions"]) {
+    expect(
+      open.some((b) => b.text.includes(stage)),
+      stage,
+    ).toBe(false);
+  }
+  expect(await ui.find({ type: "Text", text: /Outcome/ })).toBeDefined();
+  // Lint keeps the key of its place, and runs.
+  const lint = open.find((b) => b.props["hotkey"] === "7");
+  expect(lint?.text).toContain("Lint");
+  const mark = h.runs.length;
+  await ui.press({ key: lint?.key ?? "" });
+  await h.clock.settle();
+  await ui.redraw();
+  const run = h.runs.slice(mark).find((r) => r.argv[1] === "intent");
+  expect(run?.argv.slice(0, 3)).toEqual([ENGINE, "intent", "lint"]);
+  expect(run?.argv.at(-1)).toBe("--json");
+  expect(
+    await ui.find({ type: "Text", text: /premortem — no risks named/ }),
+  ).toBeDefined();
   await ui.unmount();
 });

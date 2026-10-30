@@ -567,6 +567,7 @@ fn serve(prepared: Prepared) -> Result<(), AppError> {
     let record = record_path(&prepared.data_root, prepared.port);
     let records = vec![serve_json_path(&prepared.root), record.clone()];
     let latest = Arc::new(AtomicU64::new(0));
+    let present = Arc::new(Mutex::new(None));
     let on_mismatch = {
         let records = records.clone();
         move || remove_own_records(&records, pid)
@@ -581,7 +582,7 @@ fn serve(prepared: Prepared) -> Result<(), AppError> {
         }
     };
     let live = routes::Hooks { on_mismatch: Box::new(on_mismatch), on_store: Box::new(on_store) };
-    routes::start_live(&prepared.store_path, own_rx, frames.clone(), latest.clone(), live)?;
+    routes::start_live(&prepared.store_path, own_rx, frames.clone(), latest.clone(), present.clone(), live)?;
     let (stop, stopped) = tokio::sync::watch::channel(false);
     let state = Arc::new(routes::State {
         root: prepared.root.clone(),
@@ -591,6 +592,7 @@ fn serve(prepared: Prepared) -> Result<(), AppError> {
         store: Mutex::new(store),
         frames,
         latest,
+        present,
         clients: AtomicUsize::new(0),
         stop,
         login_page: Mutex::new(Some((prepared.page_code.clone(), prepared.page.clone()))),

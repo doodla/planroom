@@ -11,6 +11,9 @@ import { expect, test } from "vitest";
 
 import focus from "../../../tests/golden/cli/focus.json";
 import focusNoRepos from "../../../tests/golden/cli/focus-no-repos.json";
+import focusPickerLens from "../../../tests/golden/cli/focus-picker-lens.json";
+import focusPickerProject from "../../../tests/golden/cli/focus-picker-project.json";
+import focusPickerStage from "../../../tests/golden/cli/focus-picker-stage.json";
 import invalidArgument from "../../../tests/golden/cli/invalid-argument.json";
 import mapContainer from "../../../tests/golden/cli/map-container.json";
 import mapEmpty from "../../../tests/golden/cli/map-empty.json";
@@ -32,6 +35,9 @@ import {
 const GOLDENS: Record<string, unknown> = {
   focus,
   "focus-no-repos": focusNoRepos,
+  "focus-picker-lens": focusPickerLens,
+  "focus-picker-project": focusPickerProject,
+  "focus-picker-stage": focusPickerStage,
   "invalid-argument": invalidArgument,
   "map-container": mapContainer,
   "map-empty": mapEmpty,

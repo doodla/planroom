@@ -27,6 +27,7 @@ pub mod view;
 pub mod vocab;
 
 pub use card::{Card, CardKind};
+pub use command::PickerName;
 pub use command::{
     ActorRule, Class, CodeReq, Command, CommandList, CommandSpec, DefSchema, Detail, DoctorReq, DrainReq,
     FocusDetail, FocusReq, Idea, ImportReq, LayoutPut, LeafFlag, LeafListing, LeafSchema, MapReq, OpenReq,
@@ -81,8 +82,9 @@ pub use resolver::{ResolverStatus, ResolverStep, UnavailableReason};
 pub use store::{STORE_POINTER_FILE, StorePointer};
 pub use stream::StreamFrame;
 pub use view::{
-    BatchInfo, Choice, Crumb, DecisionCard, DiffLine, DriftLine, EngineState, EngineStatus, Focus, LastSeq,
-    LayoutKey, LiftedEdge, MapNode, MapView, MiniBlock, MiniEdge, MiniMap, OutboxEntry, PaneModel, PaneState,
-    Position, PresenceRow, Progress, ScanState, Stakes, Tone, TurnSeq, Yarn,
+    BatchInfo, Choice, Crumb, DecisionCard, DiffLine, DriftLine, EngineState, EngineStatus, Focus,
+    FocusResult, LastSeq, LayoutKey, LiftedEdge, MapNode, MapView, MiniBlock, MiniEdge, MiniMap, OutboxEntry,
+    PaneModel, PaneState, PickEstimate, Picker, PickerEntry, Position, PresenceRow, Progress, ScanState,
+    Stakes, Tone, TurnSeq, Yarn,
 };
 pub use vocab::{KindVocab, LensVocab, LevelVocab, RelationVocab, Vocabulary};

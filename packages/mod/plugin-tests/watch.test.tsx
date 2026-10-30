@@ -11,6 +11,7 @@ import {
   focusRuns,
   host,
   NO_STORE,
+  PANE,
   readyEngine,
   SESSION,
   START,
@@ -158,5 +159,41 @@ test(
     expect(runs.length).toBeGreaterThanOrEqual(5);
     expect(runs.length).toBeLessThan(10);
     expect(runs.at(-1)).toBe(2_100 + 250);
+  },
+);
+
+test(
+  "a_presence_frame_sets_the_who_line_and_runs_no_focus",
+  SLOW,
+  async ($, on) => {
+    const row = (id: string, client: string) => ({
+      actor: { kind: "person", id, name: null },
+      surface: "mod",
+      client_id: client,
+      doing: null,
+      focus: null,
+      seen_at: "2026-01-01T00:00:00.000000Z",
+    });
+    const frame =
+      JSON.stringify({
+        type: "presence",
+        actors: [row("you", `mod:${SESSION}`), row("ada", "mod:other")],
+      }) + "\n";
+    const h = host(on, readyEngine, {
+      watch: () => [{ after: 100, text: frame }],
+    });
+    await $.session.start(START);
+    await h.clock.settle();
+    const before = focusRuns(h).length;
+    await h.clock.advance(100);
+    await h.clock.settle();
+    // The frame carries the whole set, so no focus ran; the pane's who line names the other
+    // person and leaves out this session's own row.
+    expect(focusRuns(h).length).toBe(before);
+    const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+    const who = await ui.find({ key: "who-0" });
+    expect(who?.text).toContain("ada");
+    expect(who?.text).not.toContain("you");
+    await ui.unmount();
   },
 );

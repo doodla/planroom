@@ -15,6 +15,7 @@ import {
   QUIET_MS,
   restartDelay,
   stopsTheLoop,
+  whoOf,
   type Debounce,
 } from "./watch";
 
@@ -27,7 +28,10 @@ test("pieces of NDJSON become whole lines, a partial line waits", () => {
   expect(r.flush()).toEqual([]);
 });
 
-/** The golden lines, as `watch --json --since 3` printed them: a ping, the replay, a rescan. */
+/**
+ * The golden lines, as `watch --json --since 3 --session 5e55i0n1` printed them: a ping, the
+ * replay, the session's own presence, a rescan.
+ */
 const golden: StreamFrame[] = frames.map((f) => {
   const p = parseLine(JSON.stringify(f));
   if (p.kind !== "frame") throw new Error(`not a frame: ${JSON.stringify(f)}`);
@@ -39,12 +43,73 @@ test("the golden frames parse, and each moves the cursor as its kind says", () =
   const ping = golden[0] as StreamFrame;
   expect(frameSeq(ping)).toBeNull();
   expect(frameRefreshes(ping)).toBe(false);
-  // The rest are the engine's events, in seq order with no gap, each refreshing the pane.
-  const seqs = golden.slice(1).map(frameSeq);
+  // The events are the engine's, in seq order with no gap, each refreshing the pane.
+  const events = golden.filter((f) => f.type === "event");
+  const seqs = events.map(frameSeq);
   expect(seqs).toEqual(seqs.map((_, i) => 4 + i));
-  expect(golden.slice(1).every(frameRefreshes)).toBe(true);
+  expect(events.every(frameRefreshes)).toBe(true);
+  // The rest is the one presence frame, the watch's own row, which moves no cursor and runs no
+  // focus.
+  const rest = golden.slice(1).filter((f) => f.type !== "event");
+  expect(rest.map((f) => f.type)).toEqual(["presence"]);
+  expect(frameSeq(rest[0] as StreamFrame)).toBeNull();
+  expect(frameRefreshes(rest[0] as StreamFrame)).toBe(false);
   // The loop started at --since 3 ends at the last event's seq, which a restart passes on.
   expect(advanceCursor(3, golden)).toBe(seqs.at(-1));
+});
+
+test("a_presence_frame_moves_no_cursor_and_runs_no_focus", () => {
+  const presence: StreamFrame = {
+    type: "presence",
+    actors: [
+      {
+        actor: { kind: "person", id: "you", name: null },
+        surface: "mod",
+        client_id: "mod:5e55i0n1",
+        doing: null,
+        focus: null,
+        seen_at: "2026-01-01T00:00:00.000000Z",
+      },
+    ],
+  };
+  expect(frameSeq(presence)).toBeNull();
+  expect(frameRefreshes(presence)).toBe(false);
+  expect(advanceCursor(6, [presence])).toBe(6);
+  expect(advanceCursor(null, [presence])).toBeNull();
+});
+
+test("presence_leaves_out_this_session_and_keeps_three", () => {
+  const row = (id: string, client: string, surface: "mod" | "cli" = "mod") => ({
+    actor: { kind: "person" as const, id, name: null },
+    surface,
+    client_id: client,
+    doing: null,
+    focus: null,
+    seen_at: "2026-01-01T00:00:00.000000Z",
+  });
+  const frame = {
+    type: "presence" as const,
+    actors: [
+      row("you", "mod:5e55i0n1"),
+      row("you", "cli:41", "cli"),
+      row("ada", "mod:other"),
+      row("bo", "mod:third"),
+      row("cy", "mod:fourth"),
+    ],
+  };
+  // This session's own row goes, then the latest three of the rest stay, in the frame's order.
+  expect(whoOf(frame, "5e55i0n1").map((r) => r.client_id)).toEqual([
+    "cli:41",
+    "mod:other",
+    "mod:third",
+  ]);
+  // A different session keeps its own row and loses the one it isn't.
+  expect(whoOf(frame, "other").map((r) => r.client_id)).toEqual([
+    "mod:5e55i0n1",
+    "cli:41",
+    "mod:third",
+  ]);
+  expect(whoOf({ type: "presence", actors: [] }, "5e55i0n1")).toEqual([]);
 });
 
 /**

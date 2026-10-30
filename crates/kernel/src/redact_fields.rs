@@ -121,6 +121,18 @@ pub const PATHS: &[(&str, &[&str])] = &[
     ("Focus", &[
         "breadcrumb[].name",
     ]),
+    ("FocusResult", &[
+        "decision.question",
+        "decision.why",
+        "diffs[].hunk",
+        "diffs[].summary",
+        "drift.summary",
+        "empty.line",
+        "entries[].label",
+        "focus.breadcrumb[].name",
+        "minimap.blocks[].name",
+        "who[].doing",
+    ]),
     ("HandoffStep", &[
         "note",
     ]),
@@ -158,6 +170,7 @@ pub const PATHS: &[(&str, &[&str])] = &[
     ("LiveHead", &[
         "cards[].question",
         "cards[].why",
+        "changes[].actors[].doing",
         "changes[].summary",
     ]),
     ("MapNode", &[
@@ -212,6 +225,12 @@ pub const PATHS: &[(&str, &[&str])] = &[
         "model.minimap.blocks[].name",
         "model.who[].doing",
     ]),
+    ("Picker", &[
+        "entries[].label",
+    ]),
+    ("PickerEntry", &[
+        "label",
+    ]),
     ("PlanItem", &[
         "name",
     ]),
@@ -260,6 +279,7 @@ pub const PATHS: &[(&str, &[&str])] = &[
         "targets[].name",
     ]),
     ("StreamFrame", &[
+        "actors[].doing",
         "summary",
     ]),
     ("ToolError", &[

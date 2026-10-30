@@ -1297,6 +1297,9 @@ fn holds(src: &Source, dir: &str, path: &str) -> bool {
 /// none is ever cut short (DR-94).
 pub const ID_MAX: usize = 64;
 
+/// The longest stage label, in characters: the pane's stage picker shows a label whole.
+pub const STAGE_LABEL_MAX: usize = 20;
+
 /// A declared ID or prefix at `at`: lowercase letters, digits and `_`, at most [`ID_MAX`] long.
 fn syntax(src: &Source, at: &KeyPath, id: &str) -> Result<(), AppError> {
     let ok = !id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
@@ -1380,6 +1383,10 @@ fn stages(ctx: &Ctx<'_>, rules: &BTreeSet<&str>) -> Result<(), AppError> {
         syntax(src, &at.key("id"), &stage.id)?;
         if !seen.insert(stage.id.as_str()) {
             return Err(twice(ctx, &at.key("id"), "stages", &stage.id));
+        }
+        if let Some(label) = stage.label.as_deref().filter(|l| l.chars().count() > STAGE_LABEL_MAX) {
+            let vars: &Vars<'_> = &[("id", &stage.id), ("max", &STAGE_LABEL_MAX)];
+            return Err(src.invalid_at(&at.key("label"), At::Value, label, "label_length", vars));
         }
         for (j, rule) in stage.lint.iter().enumerate() {
             if !rules.contains(rule.as_str()) {

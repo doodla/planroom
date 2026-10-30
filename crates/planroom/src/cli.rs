@@ -14,8 +14,8 @@ use clap::{CommandFactory, Parser, Subcommand};
 use planroom_contract::{
     AskReq, Class, Command, CommandName, DoctorReq, EditReq, Envelope, ErrorCode, FindReq, FocusReq, Handle,
     ImportReq, IntentListReq, IntentNewReq, IntentVersionReq, LintReq, MapReq, Meta, OpenReq, PackAddReq,
-    PackRemoveReq, PersonInitReq, ProposeReq, ReviewReq, SCHEMA_VERSION, ScanReq, SchemaReq, Seq, ServeReq,
-    ShareReq, Size, StreamFrame, VersionReq, Warning, WarningCode, WatchReq,
+    PackRemoveReq, PersonInitReq, PresenceRow, ProposeReq, ReviewReq, SCHEMA_VERSION, ScanReq, SchemaReq,
+    Seq, ServeReq, ShareReq, Size, StreamFrame, VersionReq, Warning, WarningCode, WatchReq,
 };
 use planroom_kernel::display::{sanitize, sanitize_lines};
 use planroom_kernel::redact;
@@ -208,9 +208,9 @@ pub fn main() -> ExitCode {
         }
         Cmd::Focus(req) => {
             let name = Command::Focus(req.clone()).name();
-            finish_fitted(cli.json, &name.0, app::focus::run(&req, &cwd), started, app::focus::drop_block)
+            finish_fitted(cli.json, &name.0, app::focus::run(&req, &cwd), started, app::picker::fit)
         }
-        Cmd::Watch(req) => watch(cli.json, &req, &cwd),
+        Cmd::Watch(req) => watch(cli.json, &req, &cwd, &caller),
         Cmd::Schema(req) => {
             let name = Command::Schema(req.clone()).name();
             finish_paged(cli.json, &name.0, app::version::schema(&req), started)
@@ -623,19 +623,25 @@ fn left_out(left: &[&Warning], budget: u32, over: bool) -> Warning {
 }
 
 /// `planroom watch`: frames until stdout closes, or one error envelope when the stream can't
-/// start or a newer engine migrates the store under it (`schema_mismatch`, DR-78).
-fn watch(json: bool, req: &WatchReq, cwd: &Path) -> ExitCode {
+/// start or a newer engine migrates the store under it (`schema_mismatch`, DR-78). With
+/// `--session ID` it also keeps this writer instance's presence row: the `PLANROOM_ACTOR` agent,
+/// else this OS user, from `PLANROOM_CLIENT`'s surface and client ID.
+fn watch(json: bool, req: &WatchReq, cwd: &Path, caller: &Caller) -> ExitCode {
     let started = Instant::now();
-    let opened = workspace::find_root(cwd)
-        .ok_or_else(|| AppError::workspace_not_found(cwd))
-        .and_then(|root| {
+    let opened =
+        workspace::find_root(cwd).ok_or_else(|| AppError::workspace_not_found(cwd)).and_then(|root| {
             let path = workspace::store_path(&root);
             // Opening the store migrates an older one and refuses a newer one, as every command
-            // does at open; the stream itself reads only through its read-only connection.
-            drop(Store::open_existing(&path)?.ok_or_else(|| AppError::workspace_not_found(&root))?);
-            Tail::open(&path)?.ok_or_else(|| AppError::workspace_not_found(&root))
-        })
-        .and_then(|tail| Ok(Live::new(tail, req.since, None)?));
+            // does at open; the stream itself reads only through its read-only connection, and
+            // only a watch for a session keeps this one, to write its presence row.
+            let store = Store::open_existing(&path)?.ok_or_else(|| AppError::workspace_not_found(&root))?;
+            let tail = Tail::open(&path)?.ok_or_else(|| AppError::workspace_not_found(&root))?;
+            let live = Live::new(tail, req.since, None)?;
+            Ok(match &req.session {
+                Some(_) => live.with_presence(store, presence_row(caller)),
+                None => live,
+            })
+        });
     let mut live = match opened {
         Ok(live) => live,
         Err(e) => return finish::<()>(json, "watch", Err(e), started),
@@ -653,9 +659,25 @@ fn watch(json: bool, req: &WatchReq, cwd: &Path) -> ExitCode {
     }
 }
 
+/// The presence row a `watch --session` keeps: who the caller is, and where it writes from.
+fn presence_row(caller: &Caller) -> PresenceRow {
+    let client = caller.client();
+    PresenceRow {
+        actor: caller.actor.as_deref().and_then(app::actor::agent).unwrap_or_else(app::actor::os_person),
+        surface: client.surface,
+        client_id: client.id,
+        doing: None,
+        focus: None,
+        seen_at: crate::clock::now(),
+    }
+}
+
 fn frame_text(frame: &StreamFrame) -> String {
     match frame {
         StreamFrame::Event { seq, summary, .. } => format!("{seq} {}", sanitize(summary)),
+        StreamFrame::Presence { actors } => {
+            sanitize(&text::get("frame.presence", &[("count", &actors.len())]))
+        }
         StreamFrame::Reset { seq } => format!("{seq} reset"),
         StreamFrame::Ping => "ping".into(),
     }

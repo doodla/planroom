@@ -139,6 +139,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 123 | A lens's yarn is pack data, the canvas's stream opens from the oldest seq it read, and the first look runs on the real engine | DR-46, DR-66, DR-82, DR-89, DR-111, DR-114, DR-121 | extended, amends DR-82 and DR-121 | the merge of M1's map view |
 | 124 | The user-level ledger records every answered Claude call, refusing before the call, and `gc` prunes after a scan, before its reply | DR-24, DR-47, DR-51, DR-65, DR-78, DR-96, DR-113 | extended, amends DR-24, DR-47 and DR-113 | the merge of M1's ledger and `gc` |
 | 125 | The boundary scan's exception for the theme preference, ratified after DR-124 | DR-79, DR-81, DR-122 | extended | the merge of M1's themes |
+| 126 | Pickers on `l`, `p` and `i`, presence from `watch`'s session row, and block rows that `x` goes down into and `z` comes back from | DR-54, DR-77, DR-82, DR-85, DR-86, DR-89, DR-95, DR-105, DR-106, DR-111, DR-114, DR-121 | extended, amends DR-77, DR-82, DR-85, DR-89, DR-105, DR-106 and DR-121 | the merge of M1's pickers, presence and block rows |
 
 ## Where the design reviews disagreed
 
@@ -1858,7 +1859,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-77: Every pane action within two keys, and an Artifact that serves a cloud session
 
-- **Status:** accepted (decided in review round 3, F9 and F10); verify A-22 in WS5. Amended by DR-118, DR-119 and DR-121.
+- **Status:** accepted (decided in review round 3, F9 and F10); verify A-22 in WS5. Amended by DR-118, DR-119, DR-121 and DR-126.
 - **Starting point:** none for the pane, which implements R13, S9 and principle 1; kept and refined "Remote mode: ... the Artifact shows cached decisions and queues new ones" for the Artifact.
 - **Origin:** review round 3: ux-1, ux-2, ux-3 and principles-2; the minor findings ux-5, ux-6, ux-7, ux-10 and part of ux-9.
 - **Context:**
@@ -1891,6 +1892,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended by DR-118:** under a live ratification, a POC fail's redraft runs under the ratify press, whose card named its cost, and `h` deals the run's card, whose Stop takes a second key.
 - **Amended by DR-119:** `p` deals the board picker.
 - **Amended by DR-121:** the key tests live in `packages/mod/plugin-tests/keys.test.tsx`. The list's page Button takes the next free row key, and when the pool would be spent the list holds one row fewer, so every shown row keeps its key.
+- **Amended by DR-126:** M1 deals three pickers, `l` (lenses), `p` (projects) and `i` (plan stages); `h` and `t` deal theirs when the hand-off and remote leaves land. A picker holds at most 16 entries, `CARD_KEYS` then `ROW_KEYS`, and counts the rest in `more`. Until M2's consent card lets a live `intent next` run, a stage entry is a label, so `i` and a digit don't yet run a stage; `lint` is a press. The cost card reads "Draft a stage with Claude? At most 8,300 tokens and $0.10 each; the shared prefix is cached". A pick's result replaces the pane's view stack with its one view.
 - **Sources (checked 2026-10-26):** KICKOFF R13, R14, S9, S11 and principle 1; [mod-api §2] (36 one-key actions per pane), [mod-api §3] (`immediate`); [mod-spike]; [artifact §2]; review round 3 ux-1 to ux-10 and principles-2, and owner decisions F9 and F10.
 
 ## DR-78: Releases users install, detached work in its own session, a canvas port that never moves, and machine-wide files across versions
@@ -2054,7 +2056,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-82: What the walking skeleton's serve, canvas and mod work settled
 
-- **Status:** accepted (decided at the merges of the serve, canvas and mod work and the integration step after them, 2026-10-26). Amended by DR-123.
+- **Status:** accepted (decided at the merges of the serve, canvas and mod work and the integration step after them, 2026-10-26). Amended by DR-123 and DR-126.
 - **Starting point:** extended "Actors: person actions are signed", "Surfaces: the canvas and the mod read one contract", and Repo layout's gated package dependencies.
 - **Origin:** the walking skeleton's serve, canvas and mod work, from their merge notes in `progress.md`, plus what the integration found when the three met.
 - **Context:**
@@ -2104,6 +2106,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It changes a gated surface: the mod's dependency names.
   - It amends DR-58, DR-64, DR-70, DR-72 and DR-75.
 - **Amended by DR-123:** the palette holds one yarn token per name in the contract's `Yarn` (`teal`, `indigo`, `ochre`, `plum`, `berry`, `copper`), not one per lens: a lens names its yarn in its pack, two lenses may share one, and surfaces read it from `MapView.yarn`.
+- **Amended by DR-126:** `PresenceRow.client_id` and `StreamFrame::Presence` arrived with presence through `watch --session` in M1, which closes that item. Presence from SSE clients, from agent CLI calls and for the agents in `$.agent.list()` is M2's.
 - **Sources (checked 2026-10-26):** `progress.md`, the 2026-10-26 entries for the serve, canvas and mod merges; `crates/kernel/src/keys.rs`; `crates/planroom/src/app/{actor,person,version}.rs`; `packages/mod/src/{actor,person,atoms}.ts`; `packages/canvas/src/layout/elk.ts`; `crates/planroom/tests/golden.rs`; `docs/contributing/research/ts-stack.md` §8.
 
 ## DR-83: What the walking skeleton's gates, remote slice and platform checks settled
@@ -2203,7 +2206,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-85: What the walking skeleton's review settled
 
-- **Status:** accepted (decided at the merge of the review's fixes, 2026-10-26). Amended by DR-86, DR-87, DR-111, DR-115 and DR-121.
+- **Status:** accepted (decided at the merge of the review's fixes, 2026-10-26). Amended by DR-86, DR-87, DR-111, DR-115, DR-121 and DR-126.
 - **Starting point:** extended "Extractors read the repo", "One contract source", "Surfaces read one contract" and the release model.
 - **Origin:** the walking skeleton's review, round 1. Eight reviewers, one per focus and each checked by a separate verifier, found 18 material findings ([the review's index](research/skeleton-review/README.md)). Four fix branches fixed them (the scan, contract, engine and surfaces fixes), and the resolver and `check` items were fixed directly. This record settles each doc conflict the fixes raised.
 - **Context:** The skeleton's slice worked end to end, live. Its review still found that a dirty first scan froze a wrong map, persisted documents dropped unknown fields, surfaces offered buttons that failed, the guard missed everyday shell forms, and some documented gates and checks had no milestone. Each fix met a place where the docs were silent or said something else.
@@ -2242,6 +2245,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended by DR-111:** blocks nesting like boxes, and a lid lifting on a level zoom, are how the table draws an abstraction level; every user-facing word speaks of abstraction levels, and no surface names a level.
 - **Amended by DR-115:** `no_repos`'s next action is `schema --command "intent new"`, "Start a plan here".
 - **Amended by DR-121:** a mod tool's own refusal of a call carries `field`, `synopsis` and `schema` as every CLI `invalid_argument` does, its `synopsis` the leaf's line in the tool's description. A leaf's synopsis is `CommandSpec::synopsis`, read off its request's clap arguments, and a leaf's own flags are global to its subcommands.
+- **Amended by DR-126:** `map --focus` has landed, so a block row takes a row key, `x` goes down into the selected block and `z` comes back. A stage entry in the stage picker is a label, not a press, until M2's consent card, since M1 refuses every live `intent next`.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/` (round 1's findings and verdicts); the four fix branches' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
 
 ## DR-86: What the walking skeleton's review settled in round 2
@@ -2353,7 +2357,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-89: What M1 builds, compares and leaves to later milestones
 
-- **Status:** accepted (decided before M1's first change, 2026-10-26). Amended by DR-91, DR-95, DR-108, DR-109, DR-110 and DR-121.
+- **Status:** accepted (decided before M1's first change, 2026-10-26). Amended by DR-91, DR-95, DR-108, DR-109, DR-110, DR-121 and DR-126.
 - **Starting point:** none; it amends [Milestones](architecture.md#milestones) and serves S1, S3 and S15, and the feature list's gate (DR-59).
 - **Origin:** milestone planning: M1's scope, read against the tree after DR-88.
 - **Context:** M1's row in the Milestones table says it closes S1, S15 (most) and S3's deterministic part. Read against the code and `feature_list.json`, several things don't hold:
@@ -2469,6 +2473,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended by DR-109:** `scan`, not a freshness check, deals the changed-source card, with its pack's ID, changed file count and the copy's and source's short hashes as vars, and an accept takes the source as it reads at the pick.
 - **Amended by DR-110:** M1 also builds the plain `doctor`, which reports git, the store, its migrations, the pack set and the backup; `doctor --restore` and the restore card land with the restore, still in M1. The write-through's tests leave the feature list's due map for its tests.
 - **Amended by DR-121:** the `keys.test.tsx` tests live in `packages/mod/plugin-tests/keys.test.tsx`. `tool_results`, `surface.tools`, `surface.section` and `room_text` enter `budgets.json` as new keys, not raises.
+- **Amended by DR-126:** `keys.test.tsx::any_stage_runs_in_two_keys_through_its_cost_card` is due M2, since a stage pick is a live `intent next`, which M1 refuses with `budget_exceeded`. `layout.test.ts`'s keyless block-row test is renamed `a block row takes a row key, and x runs map --focus on the selected block`, with its check inverted.
 - **Sources (checked 2026-10-26):** `architecture.md` ([Milestones](architecture.md#milestones), trust in [Where the workspace lives](architecture.md#where-the-workspace-lives), [Ruby through the extractor contract](architecture.md#ruby-through-the-extractor-contract), `budgets.json` in [Token budgets](architecture.md#token-budgets-s7), [Spend guards](architecture.md#spend-guards), `intent next` in [Planning](architecture.md#planning-stages-ghosts-and-lint-r5), the server's exposure in [Security and privacy](architecture.md#security-and-privacy), the fold benchmark in [Performance budgets](architecture.md#performance-budgets), [Found by dogfooding](architecture.md#found-by-dogfooding)); `contracts.md` (open sets in [Versioning rules](contracts.md#versioning-rules), the Feature list row in [Every public contract](contracts.md#every-public-contract), `review` in [Command catalogue](contracts.md#command-catalogue), [Event model](contracts.md#event-model)); `feature_list.json` (S1, S3, C15); `examples/TRUTH.json` (`containers`, `relations`); `crates/contract/src/event.rs`; `crates/store/migrations/0001_init.sql`; `crates/planroom/tests/server_auth.rs`; `crates/planroom/src/server/auth.rs` (`CODE_LIFE`).
 
 ## DR-90: The guard lets everyday work through, and closes three more doors
@@ -2880,7 +2885,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-105: Pane sections with row keys and a 7-row page, the mod's lines from the string catalog, and one budget for `focus`
 
-- **Status:** accepted (decided at the merge of M1's pane sections, 2026-10-28). Amended by DR-116 and DR-121.
+- **Status:** accepted (decided at the merge of M1's pane sections, 2026-10-28). Amended by DR-116, DR-121 and DR-126.
 - **Starting point:** extended DR-54, DR-57, DR-65, DR-77 and DR-82; amends DR-54 and DR-57.
 - **Origin:** the merge of M1's pane sections and fallback panes, read against the docs by an independent check.
 - **Context:**
@@ -2905,11 +2910,12 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `packages/ui/src/rows.test.ts`; `packages/mod/plugin-tests/surfaces.test.tsx` (`no_decision_shows_next_on_every_surface`, `drift_and_who_top_rows_carry_row_keys`, `compact_keeps_the_top_diff_line`, `pane_shows_the_engines_summary_line`, `a_check_again_press_refreshes_the_pane_with_no_way_back`, `a_running_source_build_offers_no_second_build`); `crates/planroom/tests/budgets.rs::focus_keeps_to_one_budget`; `crates/planroom/tests/focus.rs::focus_detail_summary_drops_the_minimap_and_keeps_the_rest`; the goldens `focus-no-repos.json` and `map-container.json`.
 - **Amended by DR-116:** the list takes the row keys left in the pool, at most 7, so it pages at 6 when every keyed section shows.
 - **Amended by DR-121:** the list's page Button takes the next free row key, and the list holds one row fewer when the pool would be spent; the first keyed row is selected from the start; the tools pass `focus` `--detail summary`; the tool descriptions, `room-args.ts`'s usage line and `/room`'s "+N more" come from `catalogue.ts` and en.toml. The key tests are in `packages/mod/plugin-tests/keys.test.tsx`.
+- **Amended by DR-126:** block rows take row keys after the diff, drift and who keys, from `keyRows`. A picker's list is one page of up to 12 rows, each entry on its own fixed key, not a 7-row page. `live.ts`'s "focus exited" line comes from `[mod] focus_exited`, which closes that gap.
 - **Sources (checked 2026-10-28):** `packages/mod/src/{layout, register, engine, fallback}.ts`; `packages/ui/src/{rows, text}.ts`; `crates/planroom/src/app/focus.rs`; `crates/xtask/src/generate.rs`; `crates/planroom/text/en.toml`; [The mod](architecture.md#the-mod); [Contracts](contracts.md).
 
 ## DR-106: The plan pack's stages and lint, the deterministic `intent` leaves, and `ask stage`
 
-- **Status:** accepted (decided at the merge of M1's plan pack, 2026-10-28). Amended by DR-114, DR-115, DR-116, DR-118 and DR-120.
+- **Status:** accepted (decided at the merge of M1's plan pack, 2026-10-28). Amended by DR-114, DR-115, DR-116, DR-118, DR-120 and DR-126.
 - **Starting point:** extended DR-15, DR-23, DR-52, DR-66, DR-89 and DR-101; amends DR-5, DR-23, DR-66, DR-92 and DR-94.
 - **Origin:** the merge of M1's plan pack, lint, the deterministic `intent` leaves and `ask stage`, read against the docs by independent checks over two rounds.
 - **Context:**
@@ -2938,6 +2944,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended by DR-116:** the plan pack gains the `question` item type, its checklist line and its rules; `answer` is settable through `intent propose`.
 - **Amended by DR-118:** an eighth stage, `derisk`, a stage's `needed_when`, the `poc` item type, `risk`'s `stakes` and `rests_on`, and the rule type `max_descendants`.
 - **Amended by DR-120:** the rule type `ordered`; `[[items]]` entries' `concept`, `summary`, `stages` and `checklist`; and the plan pack's `moscow_order`.
+- **Amended by DR-126:** a stage may carry a `label` of at most 20 characters, which the stage picker shows; the plan pack labels its seven stages.
 - **Sources (checked 2026-10-28):** `packs/plan/`; `crates/kernel/src/{plan, lint}.rs`; `crates/planroom/src/app/{intent, ask, confine, edit}.rs`; `crates/contract/src/plan.rs`; [Planning](architecture.md#planning-stages-ghosts-and-lint-r5); [Contracts](contracts.md).
 
 ## DR-107: The link snapshot and `runtime_wiring`, with test code kept out of every runtime join
@@ -4368,7 +4375,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-121: The band offers undo, the pane's key map, and `/room` and the tools from one synopsis per leaf
 
-- **Status:** accepted (decided at the merge of M1's band, keys, `/room` and tools, 2026-10-29). Amended by DR-123.
+- **Status:** accepted (decided at the merge of M1's band, keys, `/room` and tools, 2026-10-29). Amended by DR-123 and DR-126.
 - **Starting point:** extends DR-14, DR-21, DR-54, DR-65 and DR-66; amends DR-8, DR-54, DR-66, DR-77, DR-85, DR-89 and DR-105, and the contract's area row. Builds on DR-111, the levels record, and DR-113, which pages `schema --commands`.
 - **Origin:** the merge of M1's band, keys, `/room` and tools, read against the docs at the merge.
 - **Context:**
@@ -4406,6 +4413,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `crates/contract/src/command.rs::a_leafs_own_flags_parse_after_its_subcommand`; `crates/planroom/tests/usage.rs::{a_leafs_synopsis_is_the_one_schema_commands_lists, a_leafs_own_flags_run_after_its_subcommand}`; `crates/planroom/tests/golden.rs::{every_golden_handle_runs_ok, an_edit_and_its_undo_handle_run_as_the_round_trip_runs_them, an_ok_reply_with_a_nonzero_exit_is_no_successful_run}`; `packages/mod/src/tools.test.ts::{tool_schemas_equal_catalogue, tool_results_within_budget, a_wrong_argument_returns_the_leaf_synopsis, a_tool_refuses_client}`; `packages/mod/src/room.test.ts::{room_text_within_budget, room_commands_snapshot, room_shows_per_repo_warnings}`; `packages/mod/src/room-args.test.ts`; `packages/mod/src/prompt.test.ts::section_is_byte_identical_across_states`; `packages/mod/plugin-tests/keys.test.tsx::{key_map_snapshot, band_never_names_a_spending_leaf, a_band_press_from_the_prompt_offers_undo, e_opens_the_canvas_with_a_person_token}`; `packages/mod/src/outbox.test.ts::reload_mid_write_makes_one_event`; `packages/mod/plugin-tests/tools.test.tsx`; `packages/ui/src/rows.test.ts::the_page_button_takes_the_next_free_row_key`.
   - Users: an agent reads each leaf's arguments in its tool's description and gets the same line back from a wrong argument; a person types `/room` with typeahead, undoes a band press with one key, and keeps a write across a reload.
 - **Amended by DR-123:** `tool_results.map-container` is 728 and `tool_results.map-graph` 885 tokens, the measured cost of the map's `yarn` in its tool result.
+- **Amended by DR-126:** `x`, `z`, `l`, `p` and `i` are wired: the known gaps "pickers, presence, the block row keys and `x` and `z` land with MD3" and "`live.ts`'s line" are closed.
 - **Sources (checked 2026-10-29):** `crates/contract/src/{command, requests, view}.rs`; `crates/planroom/src/cli.rs` (`with_usage`); `crates/xtask/src/{generate, modgen}.rs`; `packages/mod/src/{tools, room, room-args, prompt, catalogue, layout}.ts` and `register.tsx`; `packages/mod/plugin-tests/host.ts`; `packages/ui/src/{keys, rows}.ts`; `crates/planroom/text/en.toml`; `budgets.json`; `vitest.config.js`; [The mod](architecture.md#the-mod); [Contracts](contracts.md#mod-tool-schemas-state-and-the-room-family).
 
 ## DR-122: Themes follow the viewer: system, light and dark on the canvas, claude.ai's theme on the Artifact, the host's on the mod, and every theme held to contrast and distinctness bars
@@ -4651,3 +4659,52 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Docs: DR-122's Layout consequence names DR-125 as the ratifying record.
   - Users: none.
 - **Sources (checked 2026-10-30):** `crates/xtask/src/layout.rs` (the lock's order check); [Repo layout](repo-layout.md#decision-record-gate); DR-122's Layout consequence.
+
+## DR-126: Pickers on `l`, `p` and `i`, presence from `watch`'s session row, and block rows that `x` goes down into and `z` comes back from
+
+- **Status:** accepted (decided at the merge of M1's pickers, presence and block rows, 2026-10-30).
+- **Starting point:** extends DR-54, DR-77, DR-82, DR-85, DR-86, DR-105 and DR-121; amends DR-77, DR-82, DR-85, DR-89, DR-105, DR-106 and DR-121. Builds on DR-111, whose levels the pane takes from the view model, and DR-114, whose recorded pack set a picker reads.
+- **Origin:** the merge of M1's pickers, presence and block rows, read against the docs by an independent check.
+- **Context:**
+  - DR-77 dealt pickers on `l`, `p`, `i`, `h` and `t` from `focus --picker NAME`, and the stage picker was the stage run's cost card, so `i` and a digit ran any stage. But DR-89 refuses every live `intent next` in M1, DR-85 lets a surface offer only what works, and M1 has no hand-off or remote leaf.
+  - DR-82 promised `PresenceRow.client_id` and `StreamFrame::Presence` with presence through `watch` in M1. No engine code wrote presence, so the pane's who line could only show test rows, and once the mod's own watch wrote its row, "Nobody else is here" would never be true.
+  - DR-85 left block rows without a row key until `map --focus` existed. The engine has it, but the pane had no way down into a block or back.
+  - DR-105 paged every list at 7 rows and kept `live.ts`'s "focus exited" line in the mod; DR-121 named pickers, presence, the block row keys, `x` and `z` as MD3's and `live.ts`'s line as a gap.
+  - `[[stages]]` had only IDs, which the pane would have to show as labels.
+- **Decision:**
+  - **The picker card.** `focus --picker lens|project|stage [--project P]` returns a `Picker` through the untagged `FocusResult = Pane(PaneModel) | Picker(Picker)`, in that order, as `DoctorResult` is; plain `focus` and `share` keep returning the pane. A picker holds at most 16 entries, one for each key the pane gives it: `@planroom/ui`'s `CARD_KEYS`, then its `ROW_KEYS`, each entry on its own fixed key. The rest, and whatever `focus`'s 1,000 tokens can't hold, are counted in `more` and drawn as "+N more". Entries 5 to 16 fill the list as one page of up to 12 rows with no paging, since nothing else is keyed while a picker is open. `handoff` and `remote` join `PickerName` as added values when their leaves land. `--detail` is accepted and ignored with `--picker`, because the tools add `--detail summary` to every `focus`.
+  - **Entries.** Lenses come from the recorded set's vocabulary, the default lens first and marked `current`, then `all`; a lens's detail is its level's own label. Projects are `kernel::plan::projects`, ghost-only ones included and counted as one waiting. Stages are in pack order with the next stage first. The entry whose handle is the pane's `next` comes first. Labels are cut to 20 characters and a project's name keeps its mark (`PickerEntry.label` is marked). The engine picks the lint entry by its stage writing no items, never by its ID.
+  - **A pick runs as the person.** Every pick, a read included, runs its handle through `personRun` with a person token, as `e` does, and is the confirming press; the picker then closes and the decision returns. Any other action key, or a press with no hotkey, closes the picker and then acts. A picker isn't closed when the pane's `seq` moves; a reload forgets it and the last picked project, which `i` passes as `--project`.
+  - **Stage labels.** `StageDecl` gains an optional `label`, and the plan pack labels its seven stages. A label over 20 characters (`chars().count()`) is refused as `label_length`, the last key of en.toml's `[pack]` table; a stage with no label shows its ID. A label never enters `intent next`'s request, so the recordings in `tests/replay` stay valid.
+  - **Stage entries are labels until M2, and lint is a press.** A stage entry's handle is `intent next --stage S [--project ID]`, a leaf that spends, so the pane gives it no key (`bandMayRun` refuses it) until M2's consent card lets a live `intent next` run. The entry keeps its place, so `lint`'s `intent lint`, which spends nothing, stays a press on its key and lists its findings as rows. The question is still the stage run's cost card: "Draft a stage with Claude? At most 8,300 tokens and $0.10 each; the shared prefix is cached", from `draft::estimate()` (`TAIL_TOKENS_EST` 2,300 plus `MAX_TOKENS`, `STAGE_CEILING_USD`, cached). `every_golden_handle_runs_ok` parses a spending handle with its spec's arguments and never runs it.
+  - **Presence rows and client IDs.** `PresenceRow.client_id` names the writer instance, defaulting to an empty string for a row an older engine wrote; it is an ID and carries no mark. Only `watch --session ID` writes presence in M1: its row's actor is the `PLANROOM_ACTOR` agent or the OS person, and its surface and `client_id` come from `PLANROOM_CLIENT`, `mod:<session>` for the mod, else `cli:<pid>`. It touches the row after its ping and `--since` replay, then every 10 s on the loop's own thread, through `touch_presence(&PresenceRow)`; a busy store skips the touch, bounded by `BUSY_TIMEOUT`, and any other error ends the loop. Presence from SSE clients, agent CLI calls and `$.agent.list()` agents is M2's.
+  - **The presence frame.** `StreamFrame::Presence { actors }` carries the whole present set: rows seen in the last 30 s, latest first, at most 20, through `redact::output`. A live loop re-reads the set when `data_version` moves and every 5 s, and sends a frame only when the set differs, compared as a set over `(actor, surface, client_id, doing, focus)`, so a touch that moves only `seen_at`, or two writers swapping order, sends nothing. The first comparison is against an empty set, so when anyone is present the set comes first: right after `watch`'s replay, and after the backlog for an SSE client, from the frame serve last sent, however late it connects. A client that gets none starts from an empty set. The frame has no `seq` and no SSE `id`, so it moves no cursor, and the mod's `frameRefreshes` is false for it.
+  - **`focus` leaves its own session out.** With `--session S`, `focus` drops the rows whose `client_id` is `mod:S` before it keeps the top 3, so the pane's who line names only the others; without `--session`, as in `share` and the CLI, it keeps every row. The mod's `whoOf` applies the same rule to a presence frame, and the who line merges one actor's rows into one name.
+  - **Block row keys, `x` and `z`, and the view stack.** Block rows, the mini-map's or the top view's nodes, take row keys from `keyRows` after the diff, drift and who keys, and the first block is selected when nothing above it is keyed. `x` runs `map --focus ID` on the selected block, with no `--level`, as the person's press, and pushes its view; `z` pops one and draws only while the stack isn't empty. A lens, project or lint pick replaces the stack with its one view, so `z` after a pick comes back to the pane, not through the views before it. The stack clears when the pane's `seq` moves, and a reload forgets it. `views.ts` holds the stack's pure parts and draws nothing.
+  - **What the build decided, ratified here.**
+    - (a) The stage entry's detail key is `picker.stage_detail_next` ("next · {count} items"): it keeps the `_next` suffix, so text.rs's rule lists it in `LABELS` and its template names only `{count}`.
+    - (b) Stage entries draw as labels by giving no key to an entry whose leaf `bandMayRun` refuses; `any_stage_runs_in_two_keys_through_its_cost_card` moves to M2, and `keys.test.tsx::the_stage_picker_draws_stages_as_labels_and_runs_lint` keeps the lint press tested.
+    - (c) `pickers.test.ts` tests `pick` and `closes` as `a_pick_is_the_handle_its_key_names` and `any_other_action_key_closes_the_picker`. It also tests `pickerArgv`, the module's third function, which builds the argv `live.ts` sends, so its test stays beside it. `projectOf`, whose one caller is `register.tsx`, moved there, so `pickers.ts` exports only `pickerArgv`, `pick` and `closes`.
+    - (d) `layout.test.ts::a_stage_entry_is_a_label_and_lint_keeps_its_key` joins the layout tests, and the stage details' wording is the build's.
+  - **Other choices.** `l`, `p` and `i` are Buttons on their own row in a pane at least 34 rows tall, and share the action row after `x` and `z` below that. A picker with more than 4 entries draws entries 5 to 16 in the list's place; with 4 or fewer the blocks still draw, keyless. en.toml gains a `[picker]` table, `[frame] presence`, `[pack] label_length`, and `[mod]`'s `focus_exited`, `down_label`, `up_label`, `picker_more`, `picker_empty`, `picker_entry`, `lens_picker`, `project_picker` and `stage_picker`; `picker.lens_all_detail` is the `all` entry's detail. `FocusResult` carries `#[allow(clippy::large_enum_variant)]`: the pane is the common reply and is never held in bulk, so boxing it would only change the API.
+- **Alternatives rejected:**
+  - Stage entries as presses that M1 refuses with `budget_exceeded`: a press that always fails breaks DR-85's "surfaces offer only what works".
+  - A pick that pushes its view on the stack: `z` would then walk back through views the person left by picking.
+  - A presence frame on every touch: a 10 s heartbeat per watch would wake every client for nothing.
+  - An in-order set comparison: two writers touching in turn swap places every 10 s and would send a frame each time.
+  - A first presence frame even when nobody is present: it carries nothing a client doesn't already assume.
+  - Paging a picker's list at 7 rows: the pool holds exactly 12 keys and nothing else is keyed while a picker is open, so every entry keeps one key.
+  - Hiding `--project` from `focus`'s synopsis: the always-on tool specs measure 414 tokens against `surface.tools`' 900, so it stays listed.
+- **Consequences:**
+  - Behaviour: `watch --session` now writes a presence row every 10 s, and every live stream sends presence frames; the canvas's `store.ts` still refetches on any frame but a ping, a presence frame included, until the canvas shell changes it. `focus --session S` leaves `mod:S` out of `who`.
+  - Contracts, all additive, so `schema_version` stays 1: `PickerName`, `Picker`, `PickerEntry`, `PickEstimate`, `FocusResult`, `FocusReq.picker` and `.project`, `PresenceRow.client_id`, `StreamFrame::Presence`, `StageDecl.label`; `FOCUS.errors` gains `invalid_argument`, `not_found` and `ambiguous_ref`; `version`'s `RESULTS` names `FocusResult` for `focus`. The catalogue hash moves from `991e2696…` to `55e97a27…`; `room_commands_snapshot` doesn't change.
+  - Goldens: `tests/golden/cli/focus-picker-{lens,project,stage}.json` are new, and `watch-frames.json` gains one presence frame right after the replay, the run's own `mod:5e55i0n1` row with `seen_at` normalized to `2026-01-01T00:00:00.000000Z`.
+  - Budgets: `tool_results` gains `focus-picker-lens` 233, `focus-picker-project` 109 and `focus-picker-stage` 365 tokens, measured with no slack; they are new keys, not raises (DR-95), and no existing number moves.
+  - Changed expectations: `redact.rs::the_views_mask_the_fields_their_marks_name` lists `actors[].doing` for `StreamFrame` and `label` for `PickerEntry`; `layout.test.ts`'s keys test adds the block keys `9`, `0`, `b`, `j`, `k`, `q`, `r`, page key `v`, and `l`, `p`, `i` before `e`, and its "nothing keyed" case marks the first block; `surfaces.test.tsx`'s block rows are keyed Buttons; `overlays.ts`'s `M1_PRESENCE` rows carry `client_id`; the block-row test is renamed `layout.test.ts::a block row takes a row key, and x runs map --focus on the selected block`.
+  - Gated: none. `cargo xtask check layout` reports the lock's state unchanged on the merged tree, and `@planroom/contract`'s export list, `@planroom/ui`'s exports and `boundaries.toml` don't change.
+  - Docs: [Contracts](contracts.md)' marked fields, the `focus` leaf, the presence frame and `client_id`, `Picker` and `PickerEntry`, `StageDecl` and the round-trip rule; [Architecture](architecture.md)'s `watch` row, presence, `[[stages]]`, the stage picker, the `focus` row and the Pane's Only what works, Pickers and Paid steps; [Traceability](traceability.md) R10, R13, S8 and S9; `packages/mod/AGENTS.md`, `packs/plan/README.md` and `tests/golden/AGENTS.md`.
+  - Feature list: S8 loses `presence_keeps_a_row_per_surface`'s `due` and gains the presence tests; S9 loses the `due` of `a_lens_and_a_project_are_a_key_and_a_digit` and `a_picker_owns_the_digits_until_it_closes`, gains the picker, view and block-key tests, and `any_stage_runs_in_two_keys_through_its_cost_card` is due M2.
+  - Known gaps: the selected row first in a picker; a lens choice that persists, since `focus` has no `--lens`; `x` acts on the selected block in a compact pane too short to draw the list; a `Pane` reply to `focus --picker` outside a workspace is untested in the mod; with more than 20 present rows, which 20 go out can change without a frame; architecture.md's consent card still reads "About 4,500 tokens", M2's to change; `main_flows_within_two_keys` is MD4's; the hand-off and remote pickers, the merge confirm and `h`, `t` and `g` stay unwired until M2 and M5.
+  - Tests: `crates/planroom/tests/focus.rs::{the_lens_picker_lists_every_lens_with_the_current_marked, the_stage_picker_is_the_stage_runs_cost_card, the_project_picker_lists_ghost_projects, a_picker_with_nothing_to_pick_has_no_entries, the_stage_picker_with_several_projects_asks_for_one, a_picker_outside_a_workspace_is_the_empty_pane, a_picker_keeps_to_focus_budget, a_project_name_in_a_picker_is_masked, focus_leaves_out_its_own_session}`; `crates/planroom/tests/stream.rs::presence_keeps_a_row_per_surface`; `crates/planroom/tests/watch.rs::a_watch_without_a_session_writes_no_presence`; `crates/planroom/src/live.rs::a_touch_that_changes_only_seen_at_sends_no_frame`; `crates/planroom/tests/packs.rs::a_stage_label_over_20_characters_is_refused`, and `a_missing_or_changed_copy_reads_the_built_ins_and_writes_nothing` extended to a picker; `packages/mod/plugin-tests/keys.test.tsx::{a_lens_and_a_project_are_a_key_and_a_digit, a_picker_owns_the_digits_until_it_closes, a_block_is_its_row_key_then_x_and_z_comes_back, the_stage_picker_draws_stages_as_labels_and_runs_lint, a_pick_replaces_the_views_so_z_comes_back_to_the_pane}`; `packages/mod/src/{layout, views, pickers, watch}.test.ts`.
+  - Users: a lens, a project or the lint findings are a key and a digit from the pane; a person sees who else is working without seeing their own session; a block is a row key, `x` goes into it and `z` comes back.
+- **Sources (checked 2026-10-30):** `crates/contract/src/{view, stream, command, pack}.rs`; `crates/planroom/src/app/{picker, focus, draft, version}.rs`; `crates/planroom/src/{live, cli}.rs` and `server/{mod, routes}.rs`; `crates/store/src/{presence, tail}.rs`; `crates/planroom/src/packs/validate.rs`; `packs/plan/pack.toml`; `packages/mod/src/{pickers, views, layout, live, watch}.ts` and `register.tsx`; `budgets.json`; [The mod](architecture.md#the-mod); [Contracts](contracts.md).

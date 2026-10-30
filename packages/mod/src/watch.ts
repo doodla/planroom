@@ -9,6 +9,7 @@ import type {
   Envelope,
   ErrorCode,
   PaneModel,
+  PresenceRow,
   StreamFrame,
 } from "@planroom/contract";
 
@@ -93,9 +94,29 @@ export function advanceCursor(
   }, held);
 }
 
-/** Whether a frame changes what `focus` would draw; a ping only says the stream is alive. */
+/**
+ * Whether a frame changes what `focus` would draw. A ping only says the stream is alive, and a
+ * presence frame carries the whole present set itself, so neither runs `focus`.
+ */
 export function frameRefreshes(frame: StreamFrame): boolean {
-  return frame.type !== "ping";
+  return frame.type !== "ping" && frame.type !== "presence";
+}
+
+/** The pane's who line holds the present set's top rows, as the engine's `focus` keeps them. */
+const WHO_ROWS = 3;
+
+/**
+ * The who line for a presence frame: everyone present but this session's own row, which `watch`
+ * writes as `mod:<session>`, so the line stays true to "Nobody else is here". The top three stay,
+ * in the frame's order.
+ */
+export function whoOf(
+  frame: Extract<StreamFrame, { type: "presence" }>,
+  sessionId: string,
+): PresenceRow[] {
+  return frame.actors
+    .filter((row) => row.client_id !== `mod:${sessionId}`)
+    .slice(0, WHO_ROWS);
 }
 
 /** The refetch schedule's state: when the last frame came, when focus last ran, and whether a run is owed. */

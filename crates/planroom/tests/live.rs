@@ -132,6 +132,7 @@ fn watch_frames_every_commit_of_three_writers_and_a_rescan_within_1_s() {
                 let Ok(line) = line else { break };
                 let at = unix_micros();
                 match serde_json::from_str::<StreamFrame>(&line).unwrap() {
+                    StreamFrame::Presence { .. } => {}
                     StreamFrame::Ping => {
                         let _ = ready_tx.send(());
                     }

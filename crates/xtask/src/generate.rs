@@ -62,6 +62,9 @@ pub const GOLDEN_TESTS: &[(&str, &str, &[&str])] = &[(
         "tests/golden/cli/map-empty.json",
         "tests/golden/cli/watch-frames.json",
         "tests/golden/cli/invalid-argument.json",
+        "tests/golden/cli/focus-picker-lens.json",
+        "tests/golden/cli/focus-picker-project.json",
+        "tests/golden/cli/focus-picker-stage.json",
     ],
 )];
 

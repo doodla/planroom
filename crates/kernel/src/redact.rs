@@ -417,6 +417,10 @@ mod tests {
     fn only_a_listed_contract_type_is_listed() {
         use planroom_contract::{FactBatch, Node, Seq};
         assert!(is_listed::<FactBatch>() && is_listed::<Node>() && is_listed::<planroom_contract::MapView>());
+        assert!(
+            is_listed::<planroom_contract::FocusResult>(),
+            "a picker's entry labels are masked on every output"
+        );
         // A list, an option, a contract type with nothing to mask, and a type of another crate
         // that shares a listed type's name all pass `value_of` unmasked.
         #[allow(dead_code)]
@@ -729,7 +733,8 @@ mod tests {
             paths("Envelope"),
             ["error.message", "meta.dirty_repos[].repo", "meta.warnings[].message", "summary"]
         );
-        assert_eq!(paths("StreamFrame"), ["summary"]);
+        assert_eq!(paths("StreamFrame"), ["actors[].doing", "summary"]);
+        assert_eq!(paths("PickerEntry"), ["label"]);
     }
 
     #[test]

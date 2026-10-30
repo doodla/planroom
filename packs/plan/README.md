@@ -8,7 +8,7 @@ Planroom embeds it in the binary, so every workspace loads it.
 
 | Table | What the plan pack puts there |
 |---|---|
-| `[[stages]]` | `intent`, `outcome`, `breakdown`, `next_actions`, `priorities`, `premortem` and `lint`, each with its method, the item types it writes and their props, its checklist and the lint rules it runs |
+| `[[stages]]` | `intent`, `outcome`, `breakdown`, `next_actions`, `priorities`, `premortem` and `lint`, each with a `label` the pane's stage picker shows, its method, the item types it writes and their props, its checklist and the lint rules it runs |
 | `[[rules]]` | the nine structural lint rules below |
 | `[[prompts]]` | `stage`, the Claude prefix every engine-run stage shares, in `prompts/plan.md` |
 

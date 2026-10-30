@@ -2,7 +2,10 @@
 //! read (DR-6, DR-79): `tests/golden/cli/focus.json`, `tests/golden/cli/focus-no-repos.json`,
 //! `tests/golden/cli/map-container.json`, `tests/golden/cli/map-graph.json`,
 //! `tests/golden/cli/map-empty.json`, `tests/golden/cli/watch-frames.json` and
-//! `tests/golden/cli/invalid-argument.json`, a wrong `--detail` with its synopsis and schema handle.
+//! `tests/golden/cli/invalid-argument.json`, a wrong `--detail` with its synopsis and schema handle,
+//! and the three pickers `focus --picker lens|project|stage` returns: `focus-picker-lens.json`,
+//! `focus-picker-project.json` and `focus-picker-stage.json`, the last two over a plan project an
+//! agent started.
 //! `focus-no-repos.json` is `focus` in an empty directory, not yet a workspace, whose next action
 //! is `focus` again; `map-container.json` is the scanned fixture's container level, which the
 //! pane's next action opens.
@@ -12,7 +15,10 @@
 //! can't repeat, `meta.took_ms`, is left out, and `meta.size` is measured again without it.
 //! `watch-frames.json` keeps the lines `watch --json` printed as one JSON array, one frame per
 //! NDJSON line in order, so the mod's tests can import it; the commits the run makes carry a
-//! fixed author and date, as the fixture's own do, so the commit each frame names repeats.
+//! fixed author and date, as the fixture's own do, so the commit each frame names repeats. The
+//! run watches as the mod does, for a session from `PLANROOM_CLIENT=mod:5e55i0n1` as the OS user
+//! `you`, so its own presence frame follows the replay; that frame's `seen_at`, the other value a
+//! run can't repeat, is written as `2026-01-01T00:00:00.000000Z`.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader};
@@ -178,6 +184,15 @@ fn an_ok_reply_with_a_nonzero_exit_is_no_successful_run() {
 fn run_handle(cwd: &Path, command: &str, args: &[String], idem: &str) -> (Value, bool) {
     let spec = planroom_contract::Command::SPECS.iter().find(|s| s.name() == command);
     let spec = spec.unwrap_or_else(|| panic!("{command} is no catalogue leaf"));
+    if spec.spends {
+        // A leaf that can spend isn't run: its arguments must parse, as the picker's stage handles
+        // do, and that is all a free, offline test may check.
+        let word = command.rsplit(' ').next().unwrap_or(command);
+        let parsed =
+            spec.command().try_get_matches_from(std::iter::once(word.to_owned()).chain(args.iter().cloned()));
+        assert!(parsed.is_ok(), "{command} {args:?} doesn't parse: {:?}", parsed.err());
+        return (serde_json::json!({"ok": true}), true);
+    }
     let mut argv: Vec<String> = command.split(' ').map(str::to_owned).collect();
     let mut vars = vec![];
     if spec.class != planroom_contract::Class::Read {
@@ -270,6 +285,21 @@ fn golden_runs(tmp: &Path) -> Vec<Golden> {
 
     let frames = watch_frames(&root, scanned);
     keep("watch-frames.json", &root, Value::Null, frames);
+
+    // The pickers: the lens picker on the scanned workspace; an agent starts a plan project, which
+    // waits as a ghost; then the project and stage pickers over it.
+    let lens = run(&root, &["focus", "--picker", "lens", "--json"]);
+    keep("focus-picker-lens.json", &root, lens.clone(), normalized(lens));
+    let (started, ok) = run_as(
+        &root,
+        &["intent", "new", "Add retries to the worker", "--idem", "golden-project", "--json"],
+        &[("PLANROOM_ACTOR", "agent:5e55i0n1:chat")],
+    );
+    assert!(ok, "{started}");
+    let project = run(&root, &["focus", "--picker", "project", "--json"]);
+    keep("focus-picker-project.json", &root, project.clone(), normalized(project));
+    let stage = run(&root, &["focus", "--picker", "stage", "--json"]);
+    keep("focus-picker-stage.json", &root, stage.clone(), normalized(stage));
     goldens
 }
 
@@ -304,7 +334,10 @@ fn watch_frames(root: &Path, scanned: u64) -> String {
         .args(["watch", "--json", "--since", &since.to_string(), "--session", "5e55i0n1"])
         .current_dir(root)
         .env("PLANROOM_DATA", root.join(".data"))
-        .env_remove("PLANROOM_CLIENT")
+        .env("PLANROOM_CLIENT", "mod:5e55i0n1")
+        .env("USER", "you")
+        .env("LOGNAME", "you")
+        .env_remove("PLANROOM_ACTOR")
         .stdout(Stdio::piped())
         .spawn()
         .expect("watch runs");
@@ -346,6 +379,9 @@ fn watch_frames(root: &Path, scanned: u64) -> String {
     let _ = child.wait();
     drop(rx);
     reader.join().unwrap();
-    let frames: Vec<Value> = lines.iter().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let mut frames: Vec<Value> = lines.iter().map(|l| serde_json::from_str(l).unwrap()).collect();
+    for row in frames.iter_mut().filter_map(|f| f.get_mut("actors")?.as_array_mut()).flatten() {
+        row["seen_at"] = Value::from("2026-01-01T00:00:00.000000Z");
+    }
     serde_json::to_string(&rooted(Value::Array(frames), root)).unwrap() + "\n"
 }

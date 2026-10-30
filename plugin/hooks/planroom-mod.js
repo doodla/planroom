@@ -381,6 +381,7 @@ var MOD_STRINGS = {
   "canvas_label": "Open the canvas",
   "compact_focus_line": "▣ {crumbs} · {level} · {lens}",
   "done_line": "{label}: done",
+  "down_label": "Down",
   "engine_exited": "The engine exited {code} without a reply.",
   "engine_no_error": "The engine failed without an error.",
   "engine_no_version": "The Planroom engine didn't answer version --json: {said}",
@@ -388,12 +389,14 @@ var MOD_STRINGS = {
   "engine_rebuild": "Rebuild the engine: {fix}",
   "failed_line": "{label} failed",
   "first_page_label": "First page",
+  "focus_exited": "focus exited {code}",
   "focus_line": "▣ {crumbs}",
   "focused_block_row": "▣ {name}",
   "guard_too_many_paths": "This call names more paths than the Planroom guard resolves, so it can't check where they all lead.",
   "guard_unchecked": "The Planroom guard couldn't check this call.",
   "handler_failed": "The Planroom mod's tool handler failed.",
   "lens_line": "{level} · lens {lens}",
+  "lens_picker": "Lens",
   "more_decisions": "+{count} more",
   "more_rows": "+{count} more",
   "next_page_label": "Next page",
@@ -405,6 +408,9 @@ var MOD_STRINGS = {
   "nobody_here": "Nobody else is here",
   "outbox_dropped": "A Planroom write from before the reload wasn't sent again; check the pane before you repeat it.",
   "page_line": "{first}–{last} of {total}",
+  "picker_empty": "Nothing to pick here",
+  "picker_entry": "{label} · {detail}",
+  "picker_more": "+{count} more",
   "progress_done": "{done}/{total} done",
   "progress_handoffs": "{count} hand-offs running",
   "progress_handoffs_one": "{count} hand-off running",
@@ -412,6 +418,7 @@ var MOD_STRINGS = {
   "progress_not_scanned": "not scanned",
   "progress_scanning": "scanning",
   "project_line": "{project} · seq {seq}",
+  "project_picker": "Project",
   "prompt_section": "Planroom is this workspace's shared, living map of the software system, which people and agents plan on together. Five ideas: levels (the map's abstraction levels, from the plan's intent down; ask lists them), lenses (which relations you see; ask lists them), intent (projects and their plan items), diffs (what changed against what was meant) and decisions (one card at a time, which a person picks).\nUse mcp__planroom__room_query to read: focus, map, find and ask. Use mcp__planroom__room_change to change: scan, edit, and intent's new, propose, lint and list. Your edits and proposals are ghosts until a person accepts them. Pass base from the meta.seq you read, so a write over a newer one fails instead of overwriting it. A wrong argument returns that command's synopsis.",
   "room_argument_hint": "[help | map | focus | scan …]",
   "room_description": "Planroom: focus the pane, or run a map command (/room help lists them)",
@@ -423,6 +430,7 @@ var MOD_STRINGS = {
   "room_warning": "! {message}",
   "selected_row": "› {label}",
   "share_context": "Publish this as an Artifact with the publish arguments, then make the db writes in order: {json}",
+  "stage_picker": "Stage",
   "title": "Planroom",
   "toast": "{label}: {line}",
   "toast_undo": "{label}: {line} · 1 undoes it",
@@ -435,6 +443,7 @@ var MOD_STRINGS = {
   "tool_no_command": "{tool} has no command {command}.",
   "tool_no_workspace": "Planroom's tools work in this session's workspace only, so --workspace isn't one of their arguments.",
   "tool_schema_label": "The {leaf} command's arguments and result",
+  "up_label": "Up",
   "who_agent": "{role} {session}",
   "who_doing": "{name}: {doing}",
   "workspace": "workspace"
@@ -453,7 +462,9 @@ var LEAF_OWN_FLAGS = {
   ],
   "focus": [
     "--session",
-    "--detail"
+    "--detail",
+    "--picker",
+    "--project"
   ],
   "scan": [
     "--base",
@@ -555,7 +566,7 @@ var LEAF_OWN_FLAGS = {
 var TOOL_SPECS = [
   {
     "name": "room_query",
-    "description": "Read Planroom's map of this system. Pass base from the meta.seq you read.\nmap [--level LEVEL] [--lens LENS] [--focus FOCUS] [--detail summary|graph] [--cursor CURSOR]\nfind TEXT\nask [QUESTION] [ARGS] [--cursor CURSOR]\nfocus [--session SESSION] [--detail full|summary]",
+    "description": "Read Planroom's map of this system. Pass base from the meta.seq you read.\nmap [--level LEVEL] [--lens LENS] [--focus FOCUS] [--detail summary|graph] [--cursor CURSOR]\nfind TEXT\nask [QUESTION] [ARGS] [--cursor CURSOR]\nfocus [--session SESSION] [--detail full|summary] [--picker lens|project|stage] [--project P]",
     "inputSchema": {
       "type": "object",
       "required": [
@@ -729,7 +740,7 @@ var ROOM_COMMANDS = [
   {
     "name": "focus",
     "summary": "Where you are, the one open decision and the next action.",
-    "synopsis": "/room focus [--session SESSION] [--detail full|summary]",
+    "synopsis": "/room focus [--session SESSION] [--detail full|summary] [--picker lens|project|stage] [--project P]",
     "subs": [],
     "flags": [
       {
@@ -746,6 +757,22 @@ var ROOM_COMMANDS = [
           "full",
           "summary"
         ]
+      },
+      {
+        "sub": null,
+        "flag": "--picker",
+        "valueName": "PICKER",
+        "values": [
+          "lens",
+          "project",
+          "stage"
+        ]
+      },
+      {
+        "sub": null,
+        "flag": "--project",
+        "valueName": "P",
+        "values": []
       }
     ]
   },
@@ -4367,7 +4394,7 @@ function cutHunk(hunk, body) {
 }
 function focusRows(model, columns, compact) {
   const crumbs = model.focus.breadcrumb.map((c) => c.name).join(" › ") || say("workspace");
-  const { level, lens, project, seq } = model.focus;
+  const { level, lens, project: project2, seq } = model.focus;
   if (compact) {
     return [
       text(
@@ -4383,7 +4410,7 @@ function focusRows(model, columns, compact) {
     text("focus-lens", say("lens_line", { level, lens }), columns, "dim"),
     text(
       "focus-project",
-      say("project_line", { project: project ?? say("no_project"), seq }),
+      say("project_line", { project: project2 ?? say("no_project"), seq }),
       columns,
       "dim"
     )
@@ -4528,10 +4555,19 @@ function driftRow(model, hotkey, columns, view2) {
   );
 }
 function whoRow(model, hotkey, columns, view2) {
-  const who = model.who.map((p) => {
+  const actors = /* @__PURE__ */ new Map();
+  for (const p of model.who) {
+    const id = p.actor.kind === "person" ? `person:${p.actor.id}` : p.actor.kind === "agent" ? `agent:${p.actor.session}` : p.actor.kind;
     const name = p.actor.kind === "person" ? p.actor.name ?? p.actor.id : p.actor.kind === "agent" ? say("who_agent", { role: p.actor.role, session: p.actor.session }) : p.actor.kind;
-    return p.doing === null ? name : say("who_doing", { name, doing: p.doing });
-  });
+    const held = actors.get(id) ?? { name, doing: [] };
+    if (p.doing !== null && !held.doing.includes(p.doing)) {
+      held.doing.push(p.doing);
+    }
+    actors.set(id, held);
+  }
+  const who = [...actors.values()].map(
+    (a) => a.doing.length === 0 ? a.name : say("who_doing", { name: a.name, doing: a.doing.join(", ") })
+  );
   if (who.length === 0) {
     return text("who", say("nobody_here"), columns, "dim");
   }
@@ -4541,34 +4577,57 @@ function whoRow(model, hotkey, columns, view2) {
     buttons: [selectButton("who-0", who.join(" · "), hotkey, columns, view2)]
   };
 }
-function blockRows(model, columns, room, shown2, view2, pageKey) {
-  if (room <= 0) return [];
+function blockList(model, shown2, views2) {
+  const top = views2.at(-1);
+  if (top !== void 0) {
+    return {
+      title: top.title,
+      items: top.rows.map((r, i) => ({
+        key: r.id ?? `view-${i}`,
+        name: r.name,
+        focused: false,
+        id: r.id
+      })),
+      none: say("no_blocks"),
+      silent: false
+    };
+  }
   const map = shown2?.level != null ? shown2 : null;
   const level = map?.level ?? model.minimap?.level ?? model.focus.level;
-  const blocks = map !== null ? map.blocks.map((name, i) => ({
+  const items = map !== null ? map.blocks.map((name, i) => ({
     key: `shown-${i}`,
     name,
-    focused: false
+    focused: false,
+    id: null
   })) : (model.minimap?.blocks ?? []).map((b) => ({
     key: b.id,
     name: b.name,
-    focused: b.focused
+    focused: b.focused,
+    id: b.id
   }));
+  return {
+    title: say("blocks_title", { level }),
+    items,
+    none: (map === null ? null : map.empty) ?? say("no_blocks"),
+    silent: map === null && model.empty !== null && model.empty !== void 0
+  };
+}
+function keyedCount(list) {
+  return list.items.filter((i) => i.id !== null).length;
+}
+function blockRows(list, columns, room, view2, keys, pageKey) {
+  if (room <= 0) return [];
+  const blocks = list.items;
   if (blocks.length === 0) {
-    if (map === null && model.empty !== null && model.empty !== void 0) {
-      return [];
-    }
-    const line = (map === null ? null : map.empty) ?? say("no_blocks");
-    const none = text("blocks-none", line, columns, "dim");
-    return room === 1 ? [none] : [
-      text("blocks-title", say("blocks_title", { level }), columns, "dim"),
-      none
-    ];
+    if (list.silent) return [];
+    const none = text("blocks-none", list.none, columns, "dim");
+    return room === 1 ? [none] : [text("blocks-title", list.title, columns, "dim"), none];
   }
   const fits = (size2) => page(blocks, view2.page ?? 0, size2);
-  let size = Math.min(PAGE_ROWS, room - 2);
-  if (size >= 1 && fits(size).pages > 1) size = Math.min(PAGE_ROWS, room - 3);
-  const shownPage = fits(size < 1 ? PAGE_ROWS : size);
+  const most = keyedCount(list) === 0 ? PAGE_ROWS : Math.max(1, keys.length);
+  let size = Math.min(most, room - 2);
+  if (size >= 1 && fits(size).pages > 1) size = Math.min(most, room - 3);
+  const shownPage = fits(size < 1 ? most : size);
   const pageLine = text(
     "blocks-page",
     say("page_line", {
@@ -4581,14 +4640,19 @@ function blockRows(model, columns, room, shown2, view2, pageKey) {
   );
   if (size < 1) return [pageLine];
   const rows = [
-    text("blocks-title", say("blocks_title", { level }), columns, "dim"),
-    ...shownPage.rows.map(
-      (b) => text(
-        `block-${b.key}`,
-        say(b.focused ? "focused_block_row" : "block_row", { name: b.name }),
-        columns
-      )
-    ),
+    text("blocks-title", list.title, columns, "dim"),
+    ...shownPage.rows.map((b, i) => {
+      const line = say(b.focused ? "focused_block_row" : "block_row", {
+        name: b.name
+      });
+      return b.id === null ? text(`block-${b.key}`, line, columns) : {
+        kind: "buttons",
+        key: `block-row-${b.key}`,
+        buttons: [
+          selectButton(`block-${b.id}`, line, keys[i], columns, view2)
+        ]
+      };
+    }),
     pageLine
   ];
   if (shownPage.pages > 1) {
@@ -4606,58 +4670,264 @@ function blockRows(model, columns, room, shown2, view2, pageKey) {
   }
   return rows;
 }
-function paneRows(model, columns, rows, shown2 = null, view2 = {}, undo = null) {
+var PICKER_OPEN_KEYS = {
+  lens: "l",
+  project: "p",
+  stage: "i"
+};
+function pickerKeys(picker2, leaves = CATALOGUE) {
+  const pickable = picker2.entries.some((e) => !e.current);
+  return picker2.entries.map(
+    (e, i) => !pickable || !bandMayRun(e.handle.command, leaves) ? null : (i < CARD_KEYS.length ? CARD_KEYS[i] : ROW_KEYS[i - CARD_KEYS.length]) ?? null
+  );
+}
+function pickButton(picker2, n, hotkey, value, current2) {
+  const entry = picker2.entries[n];
+  const handle = entry?.handle;
+  const button = {
+    key: `picker-entry-${String(n + 1)}`,
+    label: value,
+    hotkey,
+    action: {
+      kind: "run",
+      command: handle?.command ?? "",
+      args: handle?.args ?? [],
+      label: handle?.label ?? "",
+      pick: picker2.name
+    }
+  };
+  if (current2) button.primary = true;
+  return button;
+}
+function entryLine(picker2, n) {
+  const e = picker2.entries[n];
+  return say("picker_entry", {
+    label: e?.label ?? "",
+    detail: e?.detail ?? ""
+  });
+}
+function pickerCardRows(picker2, columns, leaves) {
+  const keys = pickerKeys(picker2, leaves);
+  const rows = [
+    text("picker-question", picker2.question, columns),
+    text("picker-why", picker2.why, columns, "dim")
+  ];
+  if (picker2.entries.length === 0) {
+    rows.push(text("picker-empty", say("picker_empty"), columns, "dim"));
+  }
+  const first = Math.min(picker2.entries.length, CARD_KEYS.length);
+  for (let i = 0; i < first; i += 2) {
+    const keyed = [];
+    const flat = [];
+    for (const n of [i, i + 1].filter((n2) => n2 < first)) {
+      const hotkey = keys[n];
+      if (hotkey === null || hotkey === void 0) {
+        flat.push(
+          text(`picker-entry-${String(n + 1)}`, entryLine(picker2, n), columns)
+        );
+      } else {
+        keyed.push(
+          pickButton(
+            picker2,
+            n,
+            hotkey,
+            label(picker2.entries[n]?.label ?? "", CHOICE_COLUMNS),
+            picker2.entries[n]?.current === true
+          )
+        );
+      }
+    }
+    if (keyed.length > 0) {
+      rows.push({
+        kind: "buttons",
+        key: `picker-card-${String(i)}`,
+        buttons: keyed
+      });
+    }
+    rows.push(...flat);
+  }
+  if (picker2.more > 0) {
+    rows.push(
+      text(
+        "picker-more",
+        say("picker_more", { count: picker2.more }),
+        columns,
+        "dim"
+      )
+    );
+  }
+  return rows;
+}
+function pickerListRows(picker2, columns, room, leaves) {
+  const keys = pickerKeys(picker2, leaves);
+  const rest = picker2.entries.length - CARD_KEYS.length;
+  if (rest <= 0 || room <= 0) return [];
+  const shown2 = rest <= room ? rest : room - 1;
+  const rows = [];
+  for (let i = 0; i < shown2; i++) {
+    const n = CARD_KEYS.length + i;
+    const hotkey = keys[n];
+    const line = entryLine(picker2, n);
+    rows.push(
+      hotkey === null || hotkey === void 0 ? text(`picker-entry-${String(n + 1)}`, line, columns) : {
+        kind: "buttons",
+        key: `picker-row-${String(n + 1)}`,
+        buttons: [
+          pickButton(
+            picker2,
+            n,
+            hotkey,
+            label(line, columns - hotkey.length - 2),
+            false
+          )
+        ]
+      }
+    );
+  }
+  if (shown2 < rest) {
+    rows.push(
+      text(
+        "picker-list-more",
+        say("picker_more", { count: rest - shown2 }),
+        columns,
+        "dim"
+      )
+    );
+  }
+  return rows;
+}
+function pickerOpenButtons(columns) {
+  const names = [
+    ["lens", say("lens_picker")],
+    ["project", say("project_picker")],
+    ["stage", say("stage_picker")]
+  ];
+  const fitted = Math.max(1, Math.floor((columns - GAP * 2) / 3) - 3);
+  return names.map(([picker2, name]) => ({
+    key: `picker-${picker2}`,
+    label: label(name, fitted),
+    hotkey: PICKER_OPEN_KEYS[picker2],
+    action: { kind: "open", picker: picker2 }
+  }));
+}
+function paneRows(model, columns, rows, shown2 = null, view2 = {}, undo = null, views2 = [], picker2 = null, leaves = CATALOGUE) {
   const compact = columns < DOCK.columns || rows < DOCK.rows;
   const result = shownNext(model, shown2);
   const out = [
     ...focusRows(model, columns, compact),
-    ...cardRows(model, columns, result)
+    ...picker2 === null ? cardRows(model, columns, result) : pickerCardRows(picker2, columns, leaves)
   ];
+  const list = blockList(model, result, views2);
   const hasTop = model.drift.top !== void 0 && model.drift.top !== null;
-  const first = model.diffs.length > 0 ? "diff-0" : compact ? null : hasTop ? "drift-0" : model.who.length > 0 ? "who-0" : null;
+  const firstBlock = list.items.find((i) => i.id !== null);
+  const block = firstBlock?.id == null ? null : `block-${firstBlock.id}`;
+  const first = model.diffs.length > 0 ? "diff-0" : compact ? block : hasTop ? "drift-0" : model.who.length > 0 ? "who-0" : block;
   const at = { ...view2, selected: view2.selected ?? first };
+  const blocks = Math.min(keyedCount(list), PAGE_ROWS);
+  const keyRowsFor = (sections, page2) => picker2 === null ? keyRows(sections, page2) : {
+    diffs: [],
+    drift: void 0,
+    who: void 0,
+    list: Array.from({ length: sections.list }, () => void 0)
+  };
   let pageKey;
+  let listKeys;
   if (compact) {
     const top = model.diffs[0];
-    const keys = keyRows(
-      { diffs: top === void 0 ? 0 : 1, drift: false, who: false, list: 0 },
-      true
-    );
-    pageKey = keys.page;
-    if (top !== void 0)
-      out.push(diffLine(top, 0, keys.diffs[0], columns, at));
-  } else {
-    const keys = keyRows(
+    const keys = keyRowsFor(
       {
-        diffs: model.diffs.length,
-        drift: hasTop,
-        who: model.who.length > 0,
-        // Block rows take no key until `map --focus` exists (DR-85).
-        list: 0
+        diffs: top === void 0 ? 0 : 1,
+        drift: false,
+        who: false,
+        list: blocks
       },
       true
     );
     pageKey = keys.page;
+    listKeys = keys.list;
+    if (top !== void 0)
+      out.push(diffLine(top, 0, keys.diffs[0], columns, at));
+  } else {
+    const keys = keyRowsFor(
+      {
+        diffs: model.diffs.length,
+        drift: hasTop,
+        who: model.who.length > 0,
+        list: blocks
+      },
+      true
+    );
+    pageKey = keys.page;
+    listKeys = keys.list;
     const hunkLines = rows >= 46 ? 5 : 2;
     out.push(progressRow(model, columns));
     out.push(...diffRows(model.diffs, keys.diffs, columns, hunkLines, at));
     out.push(driftRow(model, keys.drift, columns, at));
     out.push(whoRow(model, keys.who, columns, at));
   }
-  const actions = actionRow(columns, undo);
-  const used = out.reduce((sum, r) => sum + rowHeight(r), 0) + 1;
-  out.push(...blockRows(model, columns, rows - used, result, at, pageKey));
+  const selected = at.selected ?? null;
+  const down = selected !== null && list.items.some((i) => i.id !== null && `block-${i.id}` === selected) ? selected.slice("block-".length) : null;
+  const together = rows < DOCK.rows;
+  const actions = actionRow(
+    columns,
+    undo,
+    down,
+    views2.length > 0,
+    together ? pickerOpenButtons(columns) : []
+  );
+  const used = out.reduce((sum, r) => sum + rowHeight(r), 0) + (together ? 1 : 2);
+  const room = rows - used;
+  out.push(
+    ...picker2 !== null && picker2.entries.length > CARD_KEYS.length ? pickerListRows(picker2, columns, room, leaves) : blockRows(list, columns, room, at, listKeys, pageKey)
+  );
+  if (!together) {
+    out.push({
+      kind: "buttons",
+      key: "pickers",
+      buttons: pickerOpenButtons(columns)
+    });
+  }
   out.push(actions);
   return out;
 }
+var DOWN_KEY = "x";
+var UP_KEY = "z";
 var CANVAS_KEY = "e";
 var UNDO_KEY = "u";
-function actionRow(columns, undo) {
+function actionRow(columns, undo, down, up, pickers) {
   const buttons = [];
+  if (down !== null) {
+    const name = say("down_label");
+    buttons.push({
+      key: "down",
+      label: name,
+      hotkey: DOWN_KEY,
+      action: {
+        kind: "run",
+        command: "map",
+        args: ["--focus", down],
+        label: name,
+        down: true
+      }
+    });
+  }
+  if (up) {
+    buttons.push({
+      key: "up",
+      label: say("up_label"),
+      hotkey: UP_KEY,
+      action: { kind: "up" }
+    });
+  }
+  buttons.push(...pickers);
+  const held = buttons.reduce((sum, b) => sum + buttonWidth(b) + GAP, 0);
   if (undo !== null) {
     buttons.push({
       key: "undo",
-      label: label(undo.label, Math.max(1, Math.floor(columns / 2) - 3)),
+      label: label(
+        undo.label,
+        Math.max(1, Math.floor((columns - held) / 2) - 3)
+      ),
       hotkey: UNDO_KEY,
       action: { ...run(undo), undo: true }
     });
@@ -4778,6 +5048,19 @@ function bandRow(source, columns, shown2 = null, undo = null, leaves = CATALOGUE
 // src/live.ts
 import { read, update } from "claude-code";
 
+// src/pickers.ts
+function pickerArgv(name, project2) {
+  return [
+    "focus",
+    "--picker",
+    name,
+    ...project2 === null || project2 === "" ? [] : ["--project", project2]
+  ];
+}
+function closes(key, own) {
+  return key !== own;
+}
+
 // src/watch.ts
 var QUIET_MS = 250;
 var MAX_WAIT_MS = 500;
@@ -4833,7 +5116,11 @@ function advanceCursor(held, frames) {
   }, held);
 }
 function frameRefreshes(frame) {
-  return frame.type !== "ping";
+  return frame.type !== "ping" && frame.type !== "presence";
+}
+var WHO_ROWS = 3;
+function whoOf(frame, sessionId) {
+  return frame.actors.filter((row) => row.client_id !== `mod:${sessionId}`).slice(0, WHO_ROWS);
 }
 var IDLE = {
   lastFrame: null,
@@ -4936,12 +5223,34 @@ async function refreshPane($) {
   const reply = parseReply(run2.stdout);
   const pane2 = reply?.ok === true ? { model: reply.result, error: null } : {
     model: null,
-    error: reply?.error?.message ?? (run2.stderr.trim().split("\n")[0] || `focus exited ${run2.exitCode}`)
+    error: reply?.error?.message ?? (run2.stderr.trim().split("\n")[0] || fill(MOD_STRINGS.focus_exited, { code: run2.exitCode }))
   };
   await update($, paneAtom, () => pane2);
   if (pane2.model !== null && hasStore(pane2.model)) {
     watchEnsure($);
   }
+}
+async function askPicker($, name, project2) {
+  const bin = binary(await read($, engineAtom));
+  if (bin === null) return { picker: null, error: null };
+  const session = await $.session.id();
+  const run2 = await runProcess(
+    $,
+    [bin, ...pickerArgv(name, project2), "--json", "--session", session],
+    await clientEnv($),
+    3e4
+  );
+  const reply = parseReply(run2.stdout);
+  if (reply?.ok !== true) {
+    return {
+      picker: null,
+      error: reply?.error?.message ?? (run2.stderr.trim().split("\n")[0] || fill(MOD_STRINGS.focus_exited, { code: run2.exitCode }))
+    };
+  }
+  const result = reply.result;
+  if ("entries" in result) return { picker: result, error: null };
+  await update($, paneAtom, () => ({ model: result, error: null }));
+  return { picker: null, error: null };
 }
 var generation = 0;
 var running = false;
@@ -5030,6 +5339,15 @@ async function readLines($, gen, lines) {
     await update($, lastSeqAtom, (held) => ({
       seq: advanceCursor(held.seq, frames)
     }));
+  }
+  const present = frames.findLast((f) => f.type === "presence");
+  if (present !== void 0 && present.type === "presence") {
+    const session = await $.session.id();
+    await update(
+      $,
+      paneAtom,
+      (held) => held.model === null ? held : { ...held, model: { ...held.model, who: whoOf(present, session) } }
+    );
   }
   if (gen === generation && frames.some(frameRefreshes)) {
     const now = await $.clock.now();
@@ -5862,9 +6180,9 @@ function validateObject(object, fields = {}, optFields = {}, title = "object") {
     }
     if (isOpt && val === void 0)
       return;
-    const current = typeof val;
-    if (current !== expectedType || val === null)
-      throw new TypeError(`${label2} is invalid: expected ${expectedType}, got ${current}`);
+    const current2 = typeof val;
+    if (current2 !== expectedType || val === null)
+      throw new TypeError(`${label2} is invalid: expected ${expectedType}, got ${current2}`);
   }
   const iter = (f, isOpt) => Object.entries(f).forEach(([k, v]) => checkField(k, v, isOpt));
   iter(fields, false);
@@ -7912,6 +8230,63 @@ function composeSections(sections) {
   return [...sections.filter((s) => s.id !== SECTION_ID), promptSection()];
 }
 
+// src/views.ts
+function isRecord(value) {
+  return value !== null && typeof value === "object";
+}
+function listOf(value) {
+  return Array.isArray(value) && value.every(isRecord) ? value : null;
+}
+function viewFrom(handle, ran, seq) {
+  if (!ran.result.ok) return null;
+  const result = ran.result.result;
+  if (!isRecord(result)) return null;
+  const rows = (() => {
+    const nodes = listOf(result["nodes"]);
+    if (nodes !== null && typeof result["level"] === "string") {
+      return {
+        level: sanitize(result["level"]),
+        rows: nodes.flatMap(
+          (n) => typeof n["id"] === "string" && typeof n["name"] === "string" ? [{ id: n["id"], name: oneLine(n["name"]) }] : []
+        )
+      };
+    }
+    const findings = listOf(result["findings"]);
+    if (findings !== null) {
+      return {
+        level: null,
+        rows: findings.flatMap(
+          (f) => typeof f["name"] === "string" && typeof f["message"] === "string" ? [{ id: null, name: oneLine(`${f["name"]} — ${f["message"]}`) }] : []
+        )
+      };
+    }
+    const items = listOf(result["items"]);
+    if (items !== null) {
+      return {
+        level: null,
+        rows: items.flatMap(
+          (i) => typeof i["name"] === "string" ? [{ id: null, name: oneLine(i["name"]) }] : []
+        )
+      };
+    }
+    return null;
+  })();
+  if (rows === null) return null;
+  const line = lineFor(handle.command, handle.label, ran);
+  return {
+    command: handle.command,
+    args: [...handle.args],
+    seq,
+    title: line,
+    rows: rows.rows,
+    level: rows.level,
+    line
+  };
+}
+function current(views2, seq) {
+  return views2.at(-1)?.seq === seq ? views2 : [];
+}
+
 // src/register.tsx
 var PANE = "planroom";
 var TITLE = MOD_STRINGS.title;
@@ -7919,12 +8294,20 @@ var workspace = "";
 var shown = null;
 var view = {};
 var viewOf = "";
+var views = [];
+var picker = null;
+var project = null;
+function projectOf(args) {
+  const at = args.indexOf("--project");
+  return at < 0 ? null : args[at + 1] ?? null;
+}
 function viewFor(seq, level) {
   const at = `${seq}\0${level}`;
   if (at !== viewOf) {
     viewOf = at;
     view = {};
   }
+  views = [...current(views, seq)];
   return view;
 }
 var building = false;
@@ -8084,7 +8467,34 @@ async function personRun($, command, args) {
   if (ran.result.error?.code === "person_required") checked.delete(workspace);
   return ran;
 }
-async function act($, action, from = "pane") {
+async function act($, action, from = "pane", hotkey) {
+  if (picker !== null && !(action.kind === "run" && action.pick !== void 0)) {
+    if (closes(hotkey ?? "", PICKER_OPEN_KEYS[picker.name])) picker = null;
+  }
+  if (action.kind === "open") {
+    const asked = await askPicker($, action.picker, project);
+    picker = asked.picker;
+    if (asked.error !== null) $.ui.toast(asked.error);
+    $.ui.invalidate("ui.render");
+    return;
+  }
+  if (action.kind === "run" && action.pick !== void 0) {
+    picker = null;
+    const seq2 = (await read2($, paneAtom)).model?.focus.seq;
+    const ran2 = await personRun($, action.command, action.args);
+    const picked = seq2 === void 0 ? null : viewFrom(action, ran2, seq2);
+    if (action.pick === "project" && ran2.result.ok) {
+      project = projectOf(action.args);
+    }
+    if (picked === null || seq2 === void 0) {
+      $.ui.toast(lineFor(action.command, action.label, ran2));
+    } else {
+      views = [picked];
+      view = {};
+    }
+    $.ui.invalidate("ui.render");
+    return;
+  }
   if (action.kind === "clear") {
     shown = null;
     view = {};
@@ -8098,6 +8508,25 @@ async function act($, action, from = "pane") {
   }
   if (action.kind === "page") {
     view = { ...view, page: action.index };
+    $.ui.invalidate("ui.render");
+    return;
+  }
+  if (action.kind === "up") {
+    views = views.slice(0, -1);
+    view = {};
+    $.ui.invalidate("ui.render");
+    return;
+  }
+  if (action.kind === "run" && action.down === true) {
+    const seq2 = (await read2($, paneAtom)).model?.focus.seq;
+    const ran2 = await personRun($, action.command, action.args);
+    const pushed = seq2 === void 0 ? null : viewFrom(action, ran2, seq2);
+    if (pushed === null || seq2 === void 0) {
+      $.ui.toast(lineFor(action.command, action.label, ran2));
+    } else {
+      views = [...current(views, seq2), pushed];
+      view = {};
+    }
     $.ui.invalidate("ui.render");
     return;
   }
@@ -8178,7 +8607,7 @@ function draw($, e, rows, from = "pane") {
         return row.tone === "dim" ? /* @__PURE__ */ h(Text, { key: row.key, dimColor: true, wrap: "truncate-end" }, row.text) : row.tone === "warn" ? /* @__PURE__ */ h(Text, { key: row.key, color: "warning", wrap: "truncate-end" }, row.text) : row.tone === "accent" ? /* @__PURE__ */ h(Text, { key: row.key, weight: "bold", wrap: "truncate-end" }, row.text) : /* @__PURE__ */ h(Text, { key: row.key, wrap: "truncate-end" }, row.text);
       case "buttons":
         return /* @__PURE__ */ h(Box, { key: row.key, flexDirection: "row", gap: 2 }, row.buttons.map((b) => {
-          const press = () => act($, b.action, from);
+          const press = () => act($, b.action, from, b.hotkey);
           return b.hotkey === void 0 ? /* @__PURE__ */ h(Button, { key: b.key, label: b.label, plain: true, onPress: press }) : b.primary === true ? /* @__PURE__ */ h(
             Button,
             {
@@ -8427,7 +8856,9 @@ export function register(on) {
       e.props.scroll.bodyRows,
       shown,
       viewFor(pane2.model.focus.seq, pane2.model.focus.level),
-      offer?.handle ?? null
+      offer?.handle ?? null,
+      views,
+      picker
     ) : fallbackRows(fallbackFor(engine, pane2.error), columns);
     return draw($, e, rows);
   });

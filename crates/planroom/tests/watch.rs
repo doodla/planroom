@@ -71,15 +71,21 @@ fn watch(root: &Path, args: &[&str]) -> (Child, mpsc::Receiver<(String, Instant)
     (child, rx)
 }
 
+/// The next frame that isn't a presence frame, which these tests don't follow.
 fn frame(rx: &mpsc::Receiver<(String, Instant)>) -> StreamFrame {
-    let (line, _) = rx.recv_timeout(Duration::from_secs(10)).expect("a frame within 10 s");
-    serde_json::from_str(&line).unwrap_or_else(|e| panic!("{line}: {e}"))
+    loop {
+        let (line, _) = rx.recv_timeout(Duration::from_secs(10)).expect("a frame within 10 s");
+        match serde_json::from_str(&line).unwrap_or_else(|e| panic!("{line}: {e}")) {
+            StreamFrame::Presence { .. } => continue,
+            other => return other,
+        }
+    }
 }
 
 fn seq(frame: &StreamFrame) -> Option<u64> {
     match frame {
         StreamFrame::Event { seq, .. } | StreamFrame::Reset { seq } => Some(*seq),
-        StreamFrame::Ping => None,
+        StreamFrame::Ping | StreamFrame::Presence { .. } => None,
     }
 }
 
@@ -117,6 +123,34 @@ fn a_client_ahead_of_the_store_gets_one_reset_at_the_stores_seq() {
     let mut store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
     commit(&mut store, 2);
     assert_eq!(seq(&frame(&rx)), Some(3), "after the reset, the stream goes on from the store's seq");
+    child.kill().unwrap();
+    let _ = child.wait();
+}
+
+#[test]
+fn a_watch_without_a_session_writes_no_presence() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = workspace(dir.path(), 1);
+    let (mut child, rx) = watch(&root, &[]);
+    let mut store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
+    // Every line up to the frame of a commit made after the stream opened: a row the watch wrote
+    // would have sent its presence frame before that commit's.
+    let mut lines = Vec::new();
+    loop {
+        let (line, _) = rx.recv_timeout(Duration::from_secs(10)).expect("a frame within 10 s");
+        let frame: StreamFrame = serde_json::from_str(&line).unwrap_or_else(|e| panic!("{line}: {e}"));
+        lines.push(line);
+        match frame {
+            StreamFrame::Ping if lines.len() == 1 => {
+                commit(&mut store, 1);
+            }
+            StreamFrame::Event { seq: 2, .. } => break,
+            _ => {}
+        }
+    }
+    assert!(lines.iter().all(|l| !l.contains(r#""type":"presence""#)), "{lines:?}");
+    let epoch = Timestamp("1970-01-01T00:00:00.000000Z".into());
+    assert_eq!(store.presence_since(&epoch).unwrap(), vec![], "the watch wrote a presence row");
     child.kill().unwrap();
     let _ = child.wait();
 }

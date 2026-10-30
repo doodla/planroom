@@ -24,6 +24,7 @@ pub mod open;
 pub mod owner;
 pub mod pack;
 pub mod person;
+pub mod picker;
 pub mod review;
 pub mod scan;
 pub mod share;
