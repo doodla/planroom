@@ -2220,6 +2220,15 @@
         "crates/planroom/tests/backup.rs::restore_then_upgrade_replays_set_aside_edits",
         "crates/planroom/tests/backup.rs::git_clean_leaves_a_single_repos_state_alone",
         "crates/planroom/tests/backup.rs::a_replayed_edit_conflicts_with_a_post_restore_edit",
+        "crates/planroom/tests/backup.rs::accepting_the_restore_card_restores",
+        "crates/planroom/tests/backup.rs::doctor_restore_of_the_event_backup_resolves_the_card",
+        "crates/planroom/tests/backup.rs::a_restore_beside_a_presence_writer_restores_no_presence",
+        "crates/planroom/tests/backup.rs::a_temporary_host_offers_the_backup_ref_when_the_data_root_lost_its_backup",
+        "crates/planroom/tests/backup.rs::a_copy_restore_fences_a_held_gc_lease",
+        "crates/planroom/tests/backup.rs::a_linked_event_backup_deals_no_restore_card",
+        "crates/planroom/tests/backup.rs::accepting_a_restore_card_never_reads_a_linked_backup",
+        "crates/planroom/tests/backup.rs::a_store_copy_of_another_workspace_or_a_damaged_one_is_a_bad_argument",
+        "crates/planroom/tests/backup.rs::the_event_form_restores_the_backup_it_is_given",
         "crates/planroom/tests/backup.rs::a_restore_keeps_done_classes",
         "crates/store/tests/migrations.rs::an_older_writer_refuses_after_a_concurrent_migration",
         "crates/planroom/tests/state_dir.rs::a_single_repo_workspace_keeps_its_state_in_the_git_dir",
@@ -2238,12 +2247,6 @@
         "crates/planroom/tests/workspaces.rs::a_file_from_before_min_reader_version_loads_and_gains_it"
       ],
       "due": {
-        "crates/planroom/tests/backup.rs::a_lost_state_directory_then_scan_offers_one_restore_card": "M1",
-        "crates/planroom/tests/backup.rs::doctor_restore_is_person_only": "M1",
-        "crates/planroom/tests/backup.rs::scan_restores_from_the_backup_ref": "M1",
-        "crates/planroom/tests/backup.rs::a_restore_is_undone_by_its_pre_restore_copy": "M1",
-        "crates/planroom/tests/backup.rs::restore_then_upgrade_replays_set_aside_edits": "M1",
-        "crates/planroom/tests/backup.rs::a_replayed_edit_conflicts_with_a_post_restore_edit": "M1",
         "crates/planroom/tests/backup.rs::a_restore_keeps_done_classes": "M2"
       },
       "decision": "DR-53, DR-73, DR-74, DR-75, DR-78, DR-85"

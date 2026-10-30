@@ -499,7 +499,7 @@ const IMPORT: CommandSpec = CommandSpec {
 const DOCTOR: CommandSpec = CommandSpec {
     path: &["doctor"],
     idea: Idea::Setup,
-    summary: "With no flag, report git, the store, its migrations, the pack set and the event backup; with --pack DIR, check a pack.",
+    summary: "With no flag, report git, the store, its migrations, the pack set and the event backup; with --pack DIR, check a pack; with --restore BACKUP, put a backup back (person).",
     actor: ActorRule::Mixed,
     class: Class::Read,
     budget_tokens: 1_500,
@@ -511,6 +511,11 @@ const DOCTOR: CommandSpec = CommandSpec {
         ErrorCode::GitTooOld,
         ErrorCode::StoreBusy,
         ErrorCode::SchemaMismatch,
+        ErrorCode::PersonRequired,
+        ErrorCode::NotFound,
+        ErrorCode::WorkspaceNotFound,
+        ErrorCode::AlreadyResolved,
+        ErrorCode::PacksMismatch,
         ErrorCode::Internal,
     ],
     undo: Undo::Query,
@@ -1178,9 +1183,9 @@ pub struct ImportReq {
     pub source: String,
 }
 
-/// `planroom doctor [--pack DIR [--update]]`: with no flag, the general report of git, the
-/// store, its migrations, the pack set and the event backup; with `--pack`, one pack's conformance
-/// kit (DR-10). `--restore` joins them later.
+/// `planroom doctor [--pack DIR [--update] | --restore BACKUP]`: with no flag, the general report
+/// of git, the store, its migrations, the pack set and the event backup; with `--pack`, one pack's
+/// conformance kit (DR-10); with `--restore BACKUP`, put a backup back.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, clap::Args)]
 pub struct DoctorReq {
     /// The pack directory to check: validation against the built-in packs, every extractor over
@@ -1192,6 +1197,11 @@ pub struct DoctorReq {
     #[arg(long, requires = "pack")]
     #[serde(default)]
     pub update: bool,
+    /// Put a backup back: an event backup (events.ndjson) or a store copy (store-v<N>.db,
+    /// store-pre-restore-<secs>.db) in the data root's backups/<workspace_id>/; a person's.
+    #[arg(long, value_name = "BACKUP", conflicts_with = "pack")]
+    #[serde(default)]
+    pub restore: Option<String>,
 }
 
 /// What `doctor --pack DIR` returns: the pack, what it declares, and each conformance check.
@@ -1224,12 +1234,13 @@ pub struct PackCheck {
     pub line: String,
 }
 
-/// What `doctor` returns: with `--pack DIR`, that pack's conformance report; with no flag, the
-/// general report.
+/// What `doctor` returns: with `--pack DIR`, that pack's conformance report; with
+/// `--restore BACKUP`, what was put back; with no flag, the general report.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum DoctorResult {
     Pack(PackReport),
+    Restore(RestoreReport),
     General(DoctorReport),
 }
 
@@ -1244,6 +1255,49 @@ pub struct DoctorReport {
     pub migrations: Option<DoctorMigrations>,
     pub packs: DoctorPacks,
     pub backup: Option<DoctorBackup>,
+}
+
+/// What a backup puts back: a store copy, or the person-authored events of an event backup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RestoreKind {
+    /// A store copy (`store-v<N>.db`, `store-pre-restore-<secs>.db`) replaced the store.
+    Copy,
+    /// An event backup's person-authored events were replayed into the store.
+    Events,
+}
+
+/// What `doctor --restore BACKUP` returns: what was put back and where it left the old state.
+/// `from`, `pre_restore` and `replay_set` are file names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RestoreReport {
+    pub summary: String,
+    pub restored: RestoreKind,
+    /// The backup file put back.
+    #[schemars(extend("x-redact" = true))]
+    pub from: String,
+    /// The store's head after the restore.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
+    pub seq: Seq,
+    /// How many person-authored events the restore brought back.
+    #[schemars(range(max = crate::model::MAX_SAFE_INTEGER))]
+    pub events: u64,
+    /// The copy of the store taken just before a store copy replaced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-redact" = true))]
+    pub pre_restore: Option<String>,
+    /// How many person-authored edits the copy didn't hold were set aside.
+    pub set_aside: u32,
+    /// The file that holds them, replayed at the next open under the engine that wrote them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-redact" = true))]
+    pub replay_set: Option<String>,
+    /// The engine version those edits were made on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub made_on: Option<String>,
+    /// The restore card this closed, when a card's pick asked for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<String>,
 }
 
 /// The git on `PATH`.

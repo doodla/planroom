@@ -1211,6 +1211,54 @@ impl Git {
         Ok(names.collect())
     }
 
+    /// Every backup ref (`refs/planroom/backup/<workspace_id>`) with the commit it names, sorted.
+    pub fn backup_refs(&self) -> Result<Vec<(String, String)>, GitError> {
+        let out = self.run_bytes(&[
+            "for-each-ref",
+            "--format=%(refname)%00%(objectname)",
+            "refs/planroom/backup/",
+        ])?;
+        let mut fields = out.split(|b| *b == b'\n' || *b == 0).filter(|f| !f.is_empty());
+        let mut refs = Vec::new();
+        while let (Some(name), Some(oid)) = (fields.next(), fields.next()) {
+            refs.push((
+                String::from_utf8_lossy(name).into_owned(),
+                String::from_utf8_lossy(oid).into_owned(),
+            ));
+        }
+        refs.sort();
+        Ok(refs)
+    }
+
+    /// The backup segments `reference`'s tree holds, each as `(name, blob, size)` and sorted by
+    /// name: only blobs directly named like a segment ([`is_segment`]), whatever else the tree
+    /// holds.
+    pub fn backup_segments(&self, reference: &str) -> Result<Vec<(String, String, u64)>, GitError> {
+        let listing = self.ls_tree(reference, true)?;
+        let mut segments = Vec::new();
+        for record in listing.split(|b| *b == 0).filter(|r| !r.is_empty()) {
+            let Some(tab) = record.iter().position(|b| *b == b'\t') else { continue };
+            let (meta, path) = (&record[..tab], &record[tab + 1..]);
+            let Ok(name) = std::str::from_utf8(path) else { continue };
+            let mut parts = meta.split(|b| *b == b' ').filter(|p| !p.is_empty());
+            let (_mode, kind, oid, size) = (parts.next(), parts.next(), parts.next(), parts.next());
+            if kind != Some(b"blob".as_slice()) || !is_segment(name) {
+                continue;
+            }
+            let (Some(oid), Some(size)) = (oid, size) else { continue };
+            let (Ok(oid), Ok(size)) = (std::str::from_utf8(oid), std::str::from_utf8(size)) else { continue };
+            let Ok(size) = size.parse::<u64>() else { continue };
+            segments.push((name.to_owned(), oid.to_owned(), size));
+        }
+        segments.sort();
+        Ok(segments)
+    }
+
+    /// The content of the blob `oid`.
+    pub fn blob(&self, oid: &str) -> Result<Vec<u8>, GitError> {
+        self.run_bytes(&["cat-file", "blob", oid])
+    }
+
     /// Every ref name.
     pub fn refs(&self) -> Result<BTreeSet<String>, GitError> {
         Ok(self.run(&["for-each-ref", "--format=%(refname)"])?.lines().map(str::to_owned).collect())
@@ -2528,5 +2576,33 @@ mod tests {
         assert!(!Git::new(&inner).tracks_any(Path::new(".planroom")).unwrap());
         git(&repo, &["add", "."]);
         assert!(Git::new(&inner).tracks_any(Path::new(".planroom")).unwrap());
+    }
+
+    #[test]
+    fn backup_segments_lists_only_segment_blobs() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        let backup = dir.path().join("backup");
+        std::fs::create_dir_all(&backup).unwrap();
+        std::fs::write(backup.join("events-000002.ndjson"), "two\n").unwrap();
+        std::fs::write(backup.join("events-000001.ndjson"), "one\n").unwrap();
+        std::fs::write(backup.join("events.ndjson"), "whole\n").unwrap();
+        std::fs::write(backup.join("notes.txt"), "stray\n").unwrap();
+        let reference = "refs/planroom/backup/ws-1";
+        let git_repo = Git::new(&repo);
+        git_repo.write_backup_ref(reference, &backup, None).unwrap();
+        // Another ref outside the backup namespace is not a backup.
+        git(&repo, &["update-ref", "refs/heads/other", reference]);
+
+        let refs = git_repo.backup_refs().unwrap();
+        assert_eq!(refs.len(), 1, "{refs:?}");
+        assert_eq!(refs[0].0, reference);
+        let segments = git_repo.backup_segments(reference).unwrap();
+        let names: Vec<&str> = segments.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert_eq!(names, ["events-000001.ndjson", "events-000002.ndjson"]);
+        assert_eq!(segments[0].2, 4);
+        assert_eq!(git_repo.blob(&segments[1].1).unwrap(), b"two\n");
     }
 }

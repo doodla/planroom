@@ -20,7 +20,7 @@ use crate::{
     ServeInfo, ServeReq, SessionReq, SessionToken, StreamFrame, VersionInfo, VersionReq, Warning,
     WarningCode, WatchReq,
 };
-use crate::{DoctorReport, DoctorResult};
+use crate::{DoctorReport, DoctorResult, RestoreReport};
 use crate::{DraftReply, StageSlice};
 use crate::{
     EngineState, LastSeq, OutboxEntry, PaneState, ReplayRecord, ResolverStatus, ToolResult, TurnSeq,
@@ -168,6 +168,7 @@ pub fn generate(view: View) -> Value {
         ReplayRecord,
         DoctorResult,
         DoctorReport,
+        RestoreReport,
     );
     // Planroom reads a configuration file and never emits one.
     if view == View::Input {

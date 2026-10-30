@@ -37,6 +37,7 @@ pub use command::{
 };
 pub use command::{
     DoctorBackup, DoctorGit, DoctorMigrations, DoctorPacks, DoctorReport, DoctorResult, DoctorStore,
+    RestoreKind, RestoreReport,
 };
 pub use config::Config;
 pub use decision::{

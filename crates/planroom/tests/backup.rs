@@ -30,6 +30,7 @@ fn setup() -> (&'static Path, MutexGuard<'static, ()>) {
     let guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let data = DATA.get_or_init(|| {
         let data = tempfile::tempdir().unwrap();
+        planroom_store::restore::register_replay(planroom::app::doctor::restore::replay);
         planroom_store::register(Environment {
             data_root: data.path().to_path_buf(),
             fs_type: planroom::app::fs_type::fs_type,
@@ -327,6 +328,11 @@ fn token(command: &str, args: &[&str], base: &str) -> String {
 fn person_init(root: &Path, data: &Path) {
     let (code, env) = run(root, data, &["scan"], &[], "");
     assert_eq!(code, 0, "{env}");
+    register_key(root, data);
+}
+
+/// Register the test person's key in the workspace's store, which a scan made.
+fn register_key(root: &Path, data: &Path) {
     let public = b64url(&key().verifying_key().to_sec1_point(false).to_bytes());
     let (code, env) = run(
         root,
@@ -1026,4 +1032,879 @@ fn no_envelope_suggests_pushing_the_backup() {
         }
     }
     assert!(checked >= 3 + 9, "the three warnings and doctor's nine lines: {checked}");
+}
+
+/// The UTC date, `YYYY-MM-DD`, of `secs` after the epoch.
+fn utc_date(secs: u64) -> String {
+    let days = (secs / 86_400) as i64 + 719_468;
+    let era = days.div_euclid(146_097);
+    let doe = days.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// Every restore card the store at `state` holds, as it was dealt, with the event that dealt it.
+fn restore_cards(state: &Path) -> Vec<(planroom_contract::Event, planroom_contract::Card)> {
+    open(state)
+        .events_after(0, 1_000_000)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match &e.body {
+            EventBody::Card(card) if card.kind.0 == "restore" => Some((e.clone(), card.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_lost_state_directory_then_scan_offers_one_restore_card() {
+    let (_tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let ids = node_ids(&root, &data, 3);
+    let mut base = head(&root, &data);
+    for (id, name) in ids.iter().zip(["one", "two", "three"]) {
+        base = edit(&root, &data, base, &["rename", id.as_str(), name]);
+    }
+    let file = backup_file(&state, &data);
+    let original = file.parent().unwrap().to_path_buf();
+    let (header, events) = backed_up(&file);
+    assert_eq!(events.iter().filter(|e| matches!(e.actor, Actor::Person { .. })).count(), 3);
+
+    // Two directories that are no backup of this workspace: an ID no directory can have, and a
+    // file that isn't an export.
+    let backups = data.join("backups");
+    std::fs::create_dir_all(backups.join("x..y")).unwrap();
+    std::fs::write(backups.join("x..y/events.ndjson"), "any text\n").unwrap();
+    std::fs::create_dir_all(backups.join("garbage_id")).unwrap();
+    std::fs::write(backups.join("garbage_id/events.ndjson"), "not json\n").unwrap();
+
+    std::fs::remove_dir_all(&state).unwrap();
+    let (code, env) = run(&root, &data, &["scan"], &[], "");
+    assert_eq!(code, 0, "{env}");
+
+    let cards = restore_cards(&state);
+    assert_eq!(cards.len(), 1, "one restore card");
+    let (_, card) = &cards[0];
+    assert_eq!(card.subject, header.workspace_id);
+    assert_eq!(card.vars.get("edits").map(String::as_str), Some("3"));
+    assert_eq!(card.vars.get("date"), Some(&utc_date(now())));
+    assert_eq!(card.vars.get("source").map(String::as_str), Some("backup"));
+    assert_eq!(card.default, "reject", "a card nobody picks leaves the result as it is");
+    let preselected: Vec<&str> =
+        card.choices.iter().filter(|c| c.preselected).map(|c| c.id.as_str()).collect();
+    assert_eq!(preselected, ["accept"], "Restore is the preselected pick");
+    assert!(
+        open(&state)
+            .events_after(0, 1_000_000)
+            .unwrap()
+            .iter()
+            .all(|e| !matches!(e.actor, Actor::Person { .. })),
+        "a card nobody picks restores nothing"
+    );
+
+    let (code, env) = run(&root, &data, &["focus"], &[], "");
+    assert_eq!(code, 0, "{env}");
+    let decision = &env["result"]["decision"];
+    assert!(decision["question"].as_str().unwrap().starts_with("Restore 3 edits from "), "{env}");
+    let picked: Vec<(&str, &str)> = decision["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["preselected"] == true)
+        .map(|c| (c["id"].as_str().unwrap(), c["label"].as_str().unwrap()))
+        .collect();
+    assert_eq!(picked, [("accept", "Restore")], "{env}");
+
+    // A second scan deals none.
+    let (code, env) = run(&root, &data, &["scan"], &[], "");
+    assert_eq!(code, 0, "{env}");
+    assert_eq!(restore_cards(&state).len(), 1);
+
+    // A later backup of another workspace for this state directory: the card stays the one.
+    let later = backups.join("zz_later");
+    std::fs::create_dir_all(&later).unwrap();
+    let text = std::fs::read_to_string(original.join("events.ndjson")).unwrap();
+    let (first, rest) = text.split_once('\n').unwrap();
+    let mut head_line: Value = serde_json::from_str(first).unwrap();
+    head_line["workspace_id"] = json!("zz_later");
+    let mut last: Value = serde_json::from_str(rest.lines().last().unwrap()).unwrap();
+    last["id"] = json!("later-person-edit");
+    last["seq"] = json!(base + 100);
+    last["at"] = json!("2999-01-01T00:00:00Z");
+    std::fs::write(later.join("events.ndjson"), format!("{head_line}\n{rest}{last}\n")).unwrap();
+    let (code, env) = run(&root, &data, &["scan"], &[], "");
+    assert_eq!(code, 0, "{env}");
+    let cards = restore_cards(&state);
+    assert_eq!(cards.len(), 1, "still one restore card");
+    let focus = run(&root, &data, &["focus"], &[], "").1;
+    assert!(
+        focus["result"]["decision"]["question"].as_str().unwrap().starts_with("Restore 3 edits"),
+        "{focus}"
+    );
+}
+
+#[test]
+fn a_linked_event_backup_deals_no_restore_card() {
+    let (tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let base = head(&root, &data);
+    edit(&root, &data, base, &["rename", "storefront:container:storefront", "shop"]);
+    // The backup file moves outside the data root, and a link to it takes its place.
+    let file = backup_file(&state, &data);
+    let outside = tmp.path().join("outside-events.ndjson");
+    std::fs::rename(&file, &outside).unwrap();
+    std::os::unix::fs::symlink(&outside, &file).unwrap();
+
+    std::fs::remove_dir_all(&state).unwrap();
+    let (code, env) = run(&root, &data, &["scan"], &[], "");
+    assert_eq!(code, 0, "{env}");
+    assert!(restore_cards(&state).is_empty(), "a link is no backup, so it deals no card");
+}
+
+#[test]
+fn accepting_a_restore_card_never_reads_a_linked_backup() {
+    let (tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let (backup, _, card) = lost_with_a_card(&root, &data);
+    // After the card was dealt, a link to a file outside the data root takes the backup's place.
+    let outside = tmp.path().join("outside-events.ndjson");
+    std::fs::rename(&backup, &outside).unwrap();
+    std::os::unix::fs::symlink(&outside, &backup).unwrap();
+
+    let (code, env) = as_person(&root, &data, "review", head(&root, &data), &[&card, "accept"], &[]);
+    assert_eq!(env["error"]["code"], "not_found", "{env}");
+    assert_ne!(code, 0, "{env}");
+    assert!(
+        open(&state)
+            .events_after(0, 1_000_000)
+            .unwrap()
+            .iter()
+            .all(|e| !matches!(e.actor, Actor::Person { .. })),
+        "nothing was restored"
+    );
+}
+
+#[test]
+fn a_temporary_host_offers_the_backup_ref_when_the_data_root_lost_its_backup() {
+    let (_tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let old_id = open(&state).meta("workspace_id").unwrap().unwrap();
+    let first = recorded_repos(&state).into_values().min().unwrap();
+    let mut base = head(&root, &data);
+    for name in ["one", "two"] {
+        let op = ["rename", "storefront:container:storefront", name];
+        base = signed_edit(&root, &data, base, &op, &[TEMPORARY_HOST])["meta"]["seq"].as_u64().unwrap();
+    }
+
+    // The container lost the data root's backup along with the state directory; the ref in the
+    // repo is what is left.
+    std::fs::remove_dir_all(data.join("backups")).unwrap();
+    std::fs::remove_dir_all(&state).unwrap();
+    let (code, env) = run(&root, &data, &["scan"], &[TEMPORARY_HOST], "");
+    assert_eq!(code, 0, "{env}");
+    let cards = restore_cards(&state);
+    assert_eq!(cards.len(), 1, "one restore card");
+    let card = &cards[0].1;
+    assert_eq!(card.subject, old_id);
+    assert_eq!(card.vars.get("source").map(String::as_str), Some("ref"));
+    assert_eq!(card.vars.get("edits").map(String::as_str), Some("2"));
+    assert_eq!(card.vars.get("repo"), Some(&first));
+    assert_eq!(card.why, "card.restore_why_ref");
+    assert_eq!(card.vars.get("ref"), Some(&format!("refs/planroom/backup/{old_id}")));
+    assert_eq!(card.default, "reject");
+}
+
+/// An agent session's actor, as `PLANROOM_ACTOR` names it.
+const AGENT: &str = "agent:aaaaaaaa:chat";
+
+/// `planroom COMMAND --base BASE ARGS` as the person, with a token over the argv after the
+/// command; the exit code and the envelope.
+fn as_person(
+    root: &Path,
+    data: &Path,
+    command: &str,
+    base: u64,
+    rest: &[&str],
+    env: &[(&str, &str)],
+) -> (i32, Value) {
+    let base = base.to_string();
+    let args: Vec<&str> = ["--base", base.as_str()].into_iter().chain(rest.iter().copied()).collect();
+    let signed = token(command, &args, &base);
+    let argv: Vec<&str> = std::iter::once(command).chain(args.iter().copied()).collect();
+    let vars: Vec<(&str, &str)> =
+        env.iter().copied().chain([("PLANROOM_PERSON_TOKEN", signed.as_str())]).collect();
+    run(root, data, &argv, &vars, "")
+}
+
+/// An agent's `edit --base BASE OP`, which waits for a person as a ghost; its envelope.
+fn agent_edit(root: &Path, data: &Path, base: u64, op: &[&str]) -> Value {
+    let base = base.to_string();
+    let argv: Vec<&str> = ["edit", "--base", base.as_str()].into_iter().chain(op.iter().copied()).collect();
+    let (code, env) = run(root, data, &argv, &[("PLANROOM_ACTOR", AGENT)], "");
+    assert_eq!(code, 0, "{env}");
+    assert_eq!(env["result"]["status"], "ghost", "{env}");
+    env
+}
+
+/// The name `map --level container` shows for the node `id`.
+fn container_name(root: &Path, data: &Path, id: &str) -> Value {
+    let (code, map) = run(root, data, &["map", "--level", "container"], &[], "");
+    assert_eq!(code, 0, "{map}");
+    map["result"]["nodes"].as_array().unwrap().iter().find(|n| n["id"] == id).unwrap()["name"].clone()
+}
+
+/// Every event but a scan, by ID, with its stored status.
+fn held(state: &Path) -> std::collections::BTreeMap<String, Status> {
+    open(state)
+        .events_after(0, 1_000_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| !matches!(e.body, EventBody::Scan { .. }))
+        .map(|e| (e.id.0, e.status))
+        .collect()
+}
+
+/// The pre-restore copies in the backup directory of the workspace `id`.
+fn pre_restore_copies(data: &Path, id: &str) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(data.join("backups").join(id)) else { return vec![] };
+    let mut copies: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.file_name().unwrap().to_str().unwrap().starts_with("store-pre-restore-"))
+        .collect();
+    copies.sort();
+    copies
+}
+
+#[test]
+fn accepting_the_restore_card_restores() {
+    let (_tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let node = "storefront:container:storefront";
+    let first = head(&root, &data);
+    let renamed = edit(&root, &data, first, &["rename", node, "shop"]);
+    let ghost = agent_edit(&root, &data, renamed, &["rename", "storefront:dir:src/cart", "basket"]);
+    // The person's stale rename of the same node, from the older base: stored as a conflict.
+    let (code, env) = as_person(&root, &data, "edit", first, &["rename", node, "store"], &[]);
+    assert_eq!((code, env["error"]["code"].as_str()), (4, Some("stale_write")), "{env}");
+    let conflict = env["error"]["details"]["event"].as_str().unwrap().to_owned();
+    let recorded = held(&state);
+    let ghost = ghost["result"]["event"].as_str().unwrap();
+    assert_eq!(recorded.get(ghost), Some(&Status::Ghost));
+    assert_eq!(recorded.get(&conflict), Some(&Status::Conflict));
+    assert!(recorded.values().any(|s| *s == Status::Applied));
+
+    std::fs::remove_dir_all(&state).unwrap();
+    let (code, env) = run(&root, &data, &["scan"], &[], "");
+    assert_eq!(code, 0, "{env}");
+    register_key(&root, &data);
+    let new_id = open(&state).meta("workspace_id").unwrap().unwrap();
+    // An agent's ghost written after the scan is no person's edit, and doesn't stop the accept.
+    agent_edit(&root, &data, head(&root, &data), &["rename", "storefront:dir:src/cart", "trolley"]);
+    let cards = restore_cards(&state);
+    assert_eq!(cards.len(), 1, "one restore card");
+    let card = cards[0].0.id.0.clone();
+
+    let (code, env) = as_person(&root, &data, "review", head(&root, &data), &[&card, "accept"], &[]);
+    assert_eq!(code, 0, "{env}");
+    assert!(env["summary"].as_str().unwrap().contains("Restored 2 edits from "), "{env}");
+    let now_held = held(&state);
+    for (id, status) in &recorded {
+        assert_eq!(now_held.get(id), Some(status), "{id} comes back as it was stored");
+    }
+    assert_eq!(container_name(&root, &data, node), "shop");
+    let (code, focus) = run(&root, &data, &["focus"], &[], "");
+    assert_eq!(code, 0, "{focus}");
+    assert!(
+        !focus["result"]["decision"]["question"].as_str().unwrap_or_default().starts_with("Restore "),
+        "no restore card is open: {focus}"
+    );
+    let copies = pre_restore_copies(&data, &new_id);
+    assert_eq!(copies.len(), 1, "the accept wrote one pre-restore copy");
+    // The restored events are person-authored, so the new store's own backup holds them.
+    let (_, backed) = backed_up(&data.join("backups").join(&new_id).join("events.ndjson"));
+    for id in recorded.keys() {
+        assert!(backed.iter().any(|e| &e.id.0 == id), "{id} is in the new store's backup");
+    }
+
+    // An undo can't take the restore back; restoring the copy taken before it does.
+    let review = env["result"]["event"].as_str().unwrap().to_owned();
+    let (code, env) = as_person(&root, &data, "edit", head(&root, &data), &["undo", &review], &[]);
+    assert_eq!((code, env["error"]["code"].as_str()), (2, Some("invalid_argument")), "{env}");
+    assert_eq!(env["error"]["details"]["field"], "event", "{env}");
+    let hint = env["error"]["hint"].as_str().unwrap();
+    assert!(hint.starts_with("planroom doctor --restore "), "{env}");
+    assert!(hint.contains(copies[0].file_name().unwrap().to_str().unwrap()), "{env}");
+    assert_eq!(held(&state), now_held, "the refused undo wrote nothing");
+    // Its hint, run by the person, takes the restore back: the card is open again, and the
+    // restore's own events are no edit to bring back at the next upgrade.
+    let copy = copies[0].to_str().unwrap();
+    let (code, env) = restore_as_person(&root, &data, copy, &[]);
+    assert_eq!(code, 0, "{env}");
+    assert_eq!(env["result"]["restored"], "copy", "{env}");
+    assert_ne!(container_name(&root, &data, node), "shop", "the restored rename is gone");
+    let (code, focus) = run(&root, &data, &["focus"], &[], "");
+    assert_eq!(code, 0, "{focus}");
+    assert!(
+        focus["result"]["decision"]["question"].as_str().unwrap_or_default().starts_with("Restore "),
+        "the restore card is open again: {focus}"
+    );
+    assert_eq!(open(&state).meta("replay_set").unwrap(), None, "the card restore's events stay out");
+
+    // A second loss: a reject starts empty, and the next scan deals no card.
+    std::fs::remove_dir_all(&state).unwrap();
+    let (code, env) = run(&root, &data, &["scan"], &[], "");
+    assert_eq!(code, 0, "{env}");
+    register_key(&root, &data);
+    let cards = restore_cards(&state);
+    assert_eq!(cards.len(), 1, "one restore card");
+    let card = cards[0].0.id.0.clone();
+    let (code, env) = as_person(&root, &data, "review", head(&root, &data), &[&card, "reject"], &[]);
+    assert_eq!(code, 0, "{env}");
+    assert!(env["summary"].as_str().unwrap().contains("Started empty"), "{env}");
+    let persons: Vec<EventBody> = open(&state)
+        .events_after(0, 1_000_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| matches!(e.actor, Actor::Person { .. }))
+        .map(|e| e.body)
+        .collect();
+    assert!(matches!(persons.as_slice(), [EventBody::Review { .. }]), "only the reject: {persons:?}");
+    let (code, env) = run(&root, &data, &["scan"], &[], "");
+    assert_eq!(code, 0, "{env}");
+    assert_eq!(restore_cards(&state).len(), 1, "the next scan deals none");
+}
+
+#[test]
+fn scan_restores_from_the_backup_ref() {
+    let (tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let secret = "sk_live_51PlantedRestoreKey00";
+    let planted = format!("STRIPE_SECRET_KEY={secret}");
+    let node = "storefront:container:storefront";
+    let base = head(&root, &data);
+    let base = signed_edit(&root, &data, base, &["rename", node, "shop"], &[TEMPORARY_HOST])["meta"]["seq"]
+        .as_u64()
+        .unwrap();
+    signed_edit(&root, &data, base, &["rename", "storefront:dir:src/cart", &planted], &[TEMPORARY_HOST]);
+    let recorded = held(&state);
+
+    // The container lost the state directory and the data root; the ref is what is left.
+    std::fs::remove_dir_all(&state).unwrap();
+    let data = tmp.path().join("data2");
+    let (code, env) = run(&root, &data, &["scan"], &[], "");
+    assert_eq!(code, 0, "{env}");
+    assert!(restore_cards(&state).is_empty(), "off a temporary host the ref deals no card");
+    let (code, env) = run(&root, &data, &["scan"], &[TEMPORARY_HOST], "");
+    assert_eq!(code, 0, "{env}");
+    let cards = restore_cards(&state);
+    assert_eq!(cards.len(), 1, "one restore card");
+    let (event, card) = &cards[0];
+    assert_eq!(card.vars.get("source").map(String::as_str), Some("ref"));
+    assert!(card.vars.get("repo").is_some_and(|r| !r.is_empty()));
+    assert!(card.vars.get("ref").is_some_and(|r| r.starts_with("refs/planroom/backup/")));
+
+    register_key(&root, &data);
+    let (code, env) =
+        as_person(&root, &data, "review", head(&root, &data), &[&event.id.0, "accept"], &[TEMPORARY_HOST]);
+    assert_eq!(code, 0, "{env}");
+    let now_held = held(&state);
+    for (id, status) in &recorded {
+        assert_eq!(now_held.get(id), Some(status), "{id} comes back as it was stored");
+    }
+    assert_eq!(container_name(&root, &data, node), "shop");
+    let bodies = sql(&state.join("store.db"), "SELECT group_concat(body, char(10)) FROM events");
+    assert!(!bodies.contains(secret), "the planted value comes back masked");
+    assert!(bodies.contains(planroom_kernel::redact::MASK), "{bodies}");
+}
+
+/// `planroom doctor --restore BACKUP` as the person, with a token over `--restore BACKUP`.
+fn restore_as_person(root: &Path, data: &Path, backup: &str, env: &[(&str, &str)]) -> (i32, Value) {
+    let signed = token("doctor", &["--restore", backup], "");
+    restore_with(root, data, backup, &signed, env)
+}
+
+/// `planroom doctor --restore BACKUP` with the token `signed`.
+fn restore_with(root: &Path, data: &Path, backup: &str, signed: &str, env: &[(&str, &str)]) -> (i32, Value) {
+    let vars: Vec<(&str, &str)> = env.iter().copied().chain([("PLANROOM_PERSON_TOKEN", signed)]).collect();
+    run(root, data, &["doctor", "--restore", backup], &vars, "")
+}
+
+/// The workspace ID of the store at `state`.
+fn workspace_id(state: &Path) -> String {
+    open(state).meta("workspace_id").unwrap().unwrap()
+}
+
+/// A copy of the store at `state` made with `VACUUM INTO`, as `name` in its backup directory.
+fn store_copy(state: &Path, data: &Path, name: &str) -> PathBuf {
+    let dir = data.join("backups").join(workspace_id(state));
+    std::fs::create_dir_all(&dir).unwrap();
+    let copy = dir.join(name);
+    sql_exec(&state.join("store.db"), "VACUUM INTO ?", &[copy.to_str().unwrap()]);
+    copy
+}
+
+/// Plant a presence row from another session in the store copy at `copy`.
+fn plant_presence(copy: &Path) {
+    sql_exec(
+        copy,
+        "INSERT INTO presence (actor, surface, client_id, doing, focus, seen_at) VALUES (?, 'cli', 'planted', NULL, NULL, '2026-10-26T00:00:00Z')",
+        &[r#"{"kind":"person","id":"planted"}"#],
+    );
+}
+
+/// A workspace whose person edits a backup holds, whose state directory was then lost, and whose
+/// next scan dealt a restore card: the path to its old event backup, its recorded events, and the
+/// card's ID.
+fn lost_with_a_card(
+    root: &Path,
+    data: &Path,
+) -> (PathBuf, std::collections::BTreeMap<String, Status>, String) {
+    let state = root.join(".planroom");
+    let node = "storefront:container:storefront";
+    let first = head(root, data);
+    let renamed = edit(root, data, first, &["rename", node, "shop"]);
+    edit(root, data, renamed, &["rename", "storefront:dir:src/cart", "basket"]);
+    let recorded = held(&state);
+    let backup = data.join("backups").join(workspace_id(&state)).join("events.ndjson");
+    std::fs::remove_dir_all(&state).unwrap();
+    let (code, env) = run(root, data, &["scan"], &[], "");
+    assert_eq!(code, 0, "{env}");
+    register_key(root, data);
+    let cards = restore_cards(&state);
+    assert_eq!(cards.len(), 1, "one restore card");
+    (backup, recorded, cards[0].0.id.0.clone())
+}
+
+#[test]
+fn doctor_restore_of_the_event_backup_resolves_the_card() {
+    let (_tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let (backup, recorded, card) = lost_with_a_card(&root, &data);
+    let backup = backup.to_str().unwrap();
+
+    let (code, env) = restore_as_person(&root, &data, backup, &[]);
+    assert_eq!(code, 0, "{env}");
+    let result = &env["result"];
+    assert_eq!(result["restored"], "events", "{env}");
+    assert_eq!(result["card"], card.as_str(), "{env}");
+    assert_eq!(result["events"], 2, "{env}");
+    assert!(result["pre_restore"].as_str().is_some_and(|f| f.starts_with("store-pre-restore-")), "{env}");
+    assert_eq!(container_name(&root, &data, "storefront:container:storefront"), "shop");
+    // The card resolves in the restore's own commit: its review sits among the restored events.
+    let events = open(&state).events_after(0, 1_000_000).unwrap();
+    let restored: Vec<u64> =
+        events.iter().filter(|e| recorded.contains_key(&e.id.0)).map(|e| e.seq).collect();
+    assert_eq!(restored.len(), recorded.len(), "every recorded event came back");
+    let review = events
+        .iter()
+        .find(|e| matches!(&e.body, EventBody::Review { of, .. } if of.0 == card))
+        .expect("the card's review");
+    let (lo, hi) = (*restored.iter().min().unwrap(), *restored.iter().max().unwrap());
+    assert!(review.seq >= lo && review.seq <= hi + 1, "review {} within {lo}..={}", review.seq, hi + 1);
+
+    let (code, env) = restore_as_person(&root, &data, backup, &[]);
+    assert_ne!(code, 0, "{env}");
+    assert_eq!(env["error"]["code"], "already_resolved", "{env}");
+}
+
+#[test]
+fn doctor_restore_is_person_only() {
+    let (_tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let (backup, _, _) = lost_with_a_card(&root, &data);
+    let id = workspace_id(&state);
+    // A copy of the new store, so the copy form has one of this workspace's to put back.
+    let copy = store_copy(&state, &data, "store-v1.db");
+    let store = state.join("store.db");
+    let before = std::fs::read(&store).unwrap();
+    for given in [copy.to_str().unwrap(), backup.to_str().unwrap()] {
+        let (code, env) = restore_as_person(&root, &data, given, &[("PLANROOM_ACTOR", AGENT)]);
+        assert_eq!((code, env["error"]["code"].as_str()), (5, Some("person_required")), "{env}");
+        let hint = env["error"]["hint"].as_str().unwrap();
+        let line = format!("planroom doctor --restore {given}");
+        assert!(hint.contains(&line), "the hint names {line}: {env}");
+    }
+    // A token signed for another command is no token for this one.
+    let signed = token("edit", &["--restore", copy.to_str().unwrap()], "");
+    let (code, env) = restore_with(&root, &data, copy.to_str().unwrap(), &signed, &[]);
+    assert_eq!((code, env["error"]["code"].as_str()), (5, Some("person_required")), "{env}");
+    assert_eq!(std::fs::read(&store).unwrap(), before, "the store is unchanged");
+    assert!(pre_restore_copies(&data, &id).is_empty(), "no pre-restore copy was written");
+}
+
+#[test]
+fn a_restore_is_undone_by_its_pre_restore_copy() {
+    let (_tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let node = "storefront:container:storefront";
+    let id = workspace_id(&state);
+    let mut base = head(&root, &data);
+    for n in 1..=5 {
+        base = edit(&root, &data, base, &["rename", node, &format!("n{n}")]);
+    }
+    let copy = store_copy(&state, &data, "store-v1.db");
+    plant_presence(&copy);
+    for n in 6..=8 {
+        base = edit(&root, &data, base, &["rename", node, &format!("n{n}")]);
+    }
+    let original = held(&state);
+
+    let copy = copy.to_str().unwrap().to_owned();
+    let first_token = token("doctor", &["--restore", &copy], "");
+    let (code, env) = restore_with(&root, &data, &copy, &first_token, &[]);
+    assert_eq!(code, 0, "{env}");
+    let result = &env["result"];
+    assert_eq!(result["restored"], "copy", "{env}");
+    assert_eq!(result["set_aside"], 3, "{env}");
+    assert_eq!(result["from"], "store-v1.db", "{env}");
+    let pre_restore = result["pre_restore"].as_str().expect("a pre-restore copy").to_owned();
+    let copy_head = result["seq"].as_u64().unwrap();
+    assert_eq!(container_name(&root, &data, node), "n5");
+
+    let after = edit(&root, &data, head(&root, &data), &["rename", node, "n9"]);
+    assert_eq!(after, copy_head + 1, "the next seq follows the copy's last");
+
+    let pre = data.join("backups").join(&id).join(&pre_restore);
+    let (code, env) = restore_as_person(&root, &data, pre.to_str().unwrap(), &[]);
+    assert_eq!(code, 0, "{env}");
+    assert_eq!(env["result"]["set_aside"], 1, "the edit after the restore: {env}");
+    assert_eq!(held(&state), original, "exactly the original events");
+    assert_eq!(container_name(&root, &data, node), "n8");
+
+    let (code, env) = restore_with(&root, &data, &copy, &first_token, &[]);
+    assert_eq!((code, env["error"]["code"].as_str()), (5, Some("person_required")), "{env}");
+    assert_eq!(env["error"]["details"]["reason"], "spent", "{env}");
+    let planted = sql(&state.join("store.db"), "SELECT COUNT(*) FROM presence WHERE client_id = 'planted'");
+    assert_eq!(planted, "0", "a copy's presence row never comes back");
+}
+
+#[test]
+fn a_store_copy_of_another_workspace_or_a_damaged_one_is_a_bad_argument() {
+    let (_tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let node = "storefront:container:storefront";
+    let base = edit(&root, &data, head(&root, &data), &["rename", node, "shop"]);
+    let other = store_copy(&state, &data, "store-v1.db");
+    sql_exec(&other, "UPDATE meta SET value = ? WHERE key = 'workspace_id'", &["another-workspace"]);
+    let damaged = store_copy(&state, &data, "store-v2.db");
+    std::fs::write(&damaged, "not a store\n").unwrap();
+    edit(&root, &data, base, &["rename", node, "store"]);
+    let before = held(&state);
+
+    for copy in [&other, &damaged] {
+        let (code, env) = restore_as_person(&root, &data, copy.to_str().unwrap(), &[]);
+        assert_eq!((code, env["error"]["code"].as_str()), (2, Some("invalid_argument")), "{env}");
+        assert_eq!(env["error"]["details"]["field"], "restore", "{env}");
+    }
+    assert_eq!(held(&state), before, "the live store is as it was");
+    assert_eq!(container_name(&root, &data, node), "store");
+}
+
+#[test]
+fn the_event_form_restores_the_backup_it_is_given() {
+    let (tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let secret = "sk_live_51PlantedRestoreKey00";
+    let planted = format!("STRIPE_SECRET_KEY={secret}");
+    let base = head(&root, &data);
+    signed_edit(&root, &data, base, &["rename", "storefront:dir:src/cart", &planted], &[TEMPORARY_HOST]);
+    let id = workspace_id(&state);
+    let kept = std::fs::read(backup_file(&state, &data)).unwrap();
+
+    // A new data root deals the card from the ref; then the data root's backup comes back.
+    std::fs::remove_dir_all(&state).unwrap();
+    let data = tmp.path().join("data2");
+    let (code, env) = run(&root, &data, &["scan"], &[TEMPORARY_HOST], "");
+    assert_eq!(code, 0, "{env}");
+    let cards = restore_cards(&state);
+    assert_eq!(cards[0].1.vars.get("source").map(String::as_str), Some("ref"));
+    register_key(&root, &data);
+    let file = data.join("backups").join(&id).join("events.ndjson");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, kept).unwrap();
+
+    let (code, env) = restore_as_person(&root, &data, file.to_str().unwrap(), &[TEMPORARY_HOST]);
+    assert_eq!(code, 0, "{env}");
+    assert_eq!(env["result"]["from"], "events.ndjson", "{env}");
+    let bodies = sql(&state.join("store.db"), "SELECT group_concat(body, char(10)) FROM events");
+    assert!(bodies.contains(secret), "the file given, not the masked ref, was restored");
+}
+
+#[test]
+fn a_copy_restore_fences_a_held_gc_lease() {
+    let (_tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let node = "storefront:container:storefront";
+    let base = edit(&root, &data, head(&root, &data), &["rename", node, "shop"]);
+    let copy = store_copy(&state, &data, "store-v1.db");
+    edit(&root, &data, base, &["rename", node, "store"]);
+    let lease = open(&state).take_lease(planroom_store::GC_LEASE, "holder-a").unwrap().expect("the lease");
+
+    let (code, env) = restore_as_person(&root, &data, copy.to_str().unwrap(), &[]);
+    assert_eq!(code, 0, "{env}");
+    let store = state.join("store.db");
+    let epoch = sql(&store, "SELECT epoch FROM leases WHERE name = 'gc'");
+    assert_eq!(epoch, (lease.epoch + 1).to_string(), "the lease's epoch moved on");
+    open(&state).release_lease(&lease).unwrap();
+    assert_eq!(
+        sql(&store, "SELECT COUNT(*) FROM leases WHERE name = 'gc'"),
+        "1",
+        "the fenced holder freed nothing"
+    );
+}
+
+#[test]
+fn a_restore_beside_a_presence_writer_restores_no_presence() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    let (_tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let (_, _, card) = lost_with_a_card(&root, &data);
+    let store = state.join("store.db");
+
+    let phase = Arc::new(AtomicUsize::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    // Each presence write: the restores done before it, and what it returned.
+    type Touches = Mutex<Vec<(usize, Result<(), String>)>>;
+    let results: Arc<Touches> = Arc::default();
+    let thread = {
+        let (phase, stop, results, store) = (phase.clone(), stop.clone(), results.clone(), store.clone());
+        std::thread::spawn(move || {
+            let writer = Store::open_existing(&store).unwrap().expect("a store");
+            let row = planroom_contract::PresenceRow {
+                actor: Actor::Person { id: "watcher".into(), name: None },
+                surface: Surface::Cli,
+                client_id: "presence-thread".into(),
+                doing: None,
+                focus: None,
+                seen_at: Timestamp("2026-10-30T00:00:00Z".into()),
+            };
+            while !stop.load(Ordering::SeqCst) {
+                let at = phase.load(Ordering::SeqCst);
+                let outcome = match writer.touch_presence(&row) {
+                    Ok(()) => Ok(()),
+                    Err(planroom_store::StoreError::Busy) => Err("busy".to_owned()),
+                    Err(e) => Err(format!("unexpected: {e}")),
+                };
+                results.lock().unwrap().push((at, outcome));
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        })
+    };
+    let wait_for_ok = |at: usize| {
+        for _ in 0..100 {
+            if results.lock().unwrap().iter().any(|(p, r)| *p == at && r.is_ok()) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        panic!("no presence write landed after restore {at}");
+    };
+    wait_for_ok(0);
+
+    let (code, env) = as_person(&root, &data, "review", head(&root, &data), &[&card, "accept"], &[]);
+    assert_eq!(code, 0, "{env}");
+    phase.store(1, Ordering::SeqCst);
+    wait_for_ok(1);
+
+    let copies = pre_restore_copies(&data, &workspace_id(&state));
+    let copy = copies.last().expect("the accept's pre-restore copy");
+    plant_presence(copy);
+    let (code, env) = restore_as_person(&root, &data, copy.to_str().unwrap(), &[]);
+    assert_eq!(code, 0, "{env}");
+    assert_eq!(env["result"]["restored"], "copy", "{env}");
+    phase.store(2, Ordering::SeqCst);
+    wait_for_ok(2);
+    stop.store(true, Ordering::SeqCst);
+    thread.join().unwrap();
+
+    for (at, outcome) in results.lock().unwrap().iter() {
+        assert!(outcome.as_ref().is_ok() || outcome.as_ref().unwrap_err() == "busy", "{at}: {outcome:?}");
+    }
+    assert_eq!(sql(&store, "SELECT COUNT(*) FROM presence"), "1", "only the thread's row");
+    assert_eq!(sql(&store, "SELECT client_id FROM presence"), "presence-thread");
+}
+
+/// A workspace whose store copy holds five person edits and whose live store, migrated past it,
+/// holds `n` person renames after them, put back to the copy by `doctor --restore`: the scratch
+/// directory, the root, the data root, the IDs of the set-aside edits in order, the renamed node
+/// IDs in the same order, and the restore's reply. The live store is then this build's version
+/// again, with `meta.replay_set` naming the edits set aside.
+fn restored_with_a_set(n: usize) -> (tempfile::TempDir, PathBuf, PathBuf, Vec<String>, Vec<String>, Value) {
+    let (tmp, root, data) = fixture_workspace();
+    let state = root.join(".planroom");
+    let store = state.join("store.db");
+    let container = "storefront:container:storefront";
+    let mut base = head(&root, &data);
+    for i in 1..=5 {
+        base = edit(&root, &data, base, &["rename", container, &format!("early{i}")]);
+    }
+    let early = tmp.path().join("early.db");
+    sql_exec(&store, "VACUUM INTO ?", &[early.to_str().unwrap()]);
+    let nodes = node_ids(&root, &data, n);
+    let mut set_aside = Vec::with_capacity(n);
+    for (i, node) in nodes.iter().enumerate() {
+        let before = held(&state);
+        base = edit(&root, &data, base, &["rename", node, &format!("late{i}")]);
+        let new: Vec<String> = held(&state).into_keys().filter(|id| !before.contains_key(id)).collect();
+        assert_eq!(new.len(), 1, "one event per rename: {new:?}");
+        set_aside.extend(new);
+    }
+    let id = workspace_id(&state);
+    drop(Store::open_with_migrations(&store, &init(&id), grown(1)).unwrap());
+    let dir = data.join("backups").join(&id);
+    std::fs::create_dir_all(&dir).unwrap();
+    let copy = dir.join("store-v1.db");
+    std::fs::copy(&early, &copy).unwrap();
+
+    let (code, env) = restore_as_person(&root, &data, copy.to_str().unwrap(), &[]);
+    assert_eq!(code, 0, "{env}");
+    assert_eq!(env["result"]["restored"], "copy", "{env}");
+    assert_eq!(env["result"]["set_aside"], n, "{env}");
+    assert_eq!(env["result"]["made_on"], "0.2.0", "{env}");
+    assert_eq!(sql(&store, "PRAGMA user_version"), "1");
+    assert_eq!(sql(&store, "SELECT COUNT(*) FROM meta WHERE key = 'replay_set'"), "1");
+    (tmp, root, data, set_aside, nodes, env)
+}
+
+/// The workspace's replay set, as `meta.replay_set` holds it.
+fn replay_set(state: &Path) -> Value {
+    serde_json::from_str(&sql(&state.join("store.db"), "SELECT value FROM meta WHERE key = 'replay_set'"))
+        .unwrap()
+}
+
+/// Mark the replay set as made on a store older than this build's, as a migration past the
+/// restored copy leaves it, and put its file where this process's data root keeps backups; the
+/// set's JSON.
+fn await_replay(state: &Path, data: &Path, this_data: &Path) -> Value {
+    let store = state.join("store.db");
+    sql_exec(
+        &store,
+        "UPDATE meta SET value = json_set(value, '$.store_version', 0) WHERE key = 'replay_set'",
+        &[],
+    );
+    let set = replay_set(state);
+    let id = workspace_id_raw(&store);
+    let file = set["file"].as_str().unwrap();
+    let here = this_data.join("backups").join(&id);
+    std::fs::create_dir_all(&here).unwrap();
+    std::fs::copy(data.join("backups").join(&id).join(file), here.join(file)).unwrap();
+    set
+}
+
+/// The workspace ID of the store at `store`, read without opening it in this process.
+fn workspace_id_raw(store: &Path) -> String {
+    sql(store, "SELECT value FROM meta WHERE key = 'workspace_id'")
+}
+
+/// Every event the store at `state` holds, opened in this process.
+fn all_events(state: &Path) -> Vec<planroom_contract::Event> {
+    open(state).events_after(0, 1_000_000).unwrap()
+}
+
+/// The name `map --level code` shows for the node `id`, paging until it's found.
+fn code_name(root: &Path, data: &Path, id: &str) -> Value {
+    let mut cursor: Option<String> = None;
+    for _ in 0..50 {
+        let mut args = vec!["map", "--level", "code"];
+        if let Some(c) = &cursor {
+            args.extend(["--cursor", c.as_str()]);
+        }
+        let (code, env) = run(root, data, &args, &[], "");
+        assert_eq!(code, 0, "{env}");
+        if let Some(node) = env["result"]["nodes"].as_array().unwrap().iter().find(|n| n["id"] == id) {
+            return node["name"].clone();
+        }
+        match env["meta"]["next"].as_str() {
+            Some(next) => cursor = Some(next.to_owned()),
+            None => break,
+        }
+    }
+    panic!("the map holds no node {id}");
+}
+
+#[test]
+fn restore_then_upgrade_replays_set_aside_edits() {
+    let (this_data, _guard) = setup();
+    let (_tmp, root, data, set_aside, _, env) = restored_with_a_set(40);
+    let state = root.join(".planroom");
+    let copy_head = env["result"]["seq"].as_u64().unwrap();
+    let restored = held(&state);
+    assert!(set_aside.iter().all(|id| !restored.contains_key(id)), "the restore set every edit aside");
+    let set = await_replay(&state, &data, this_data);
+    assert_eq!(set["base"], copy_head, "{set}");
+    assert_eq!(set["count"], 40, "{set}");
+
+    // The open that finds the store past the set's version replays it.
+    let events = all_events(&state);
+    for id in &set_aside {
+        let event = events.iter().find(|e| &e.id.0 == id).unwrap_or_else(|| panic!("{id} came back"));
+        assert_eq!(event.status, Status::Applied, "{id}");
+        assert!(event.seq > copy_head, "{id} is written after the restored head");
+        assert_eq!(event.client.id, format!("restore:{}", set["file"].as_str().unwrap()));
+        let EventBody::Edit(edit) = &event.body else { panic!("{id} is an edit") };
+        assert_eq!(edit.base, copy_head, "{id} is checked at the copy's head");
+    }
+    let replayed = events.len();
+    assert_eq!(sql(&state.join("store.db"), "SELECT COUNT(*) FROM meta WHERE key = 'replay_set'"), "0");
+
+    assert_eq!(all_events(&state).len(), replayed, "a second open adds none");
+    sql_exec(
+        &state.join("store.db"),
+        "INSERT INTO meta (key, value) VALUES ('replay_set', ?)",
+        &[&set.to_string()],
+    );
+    assert_eq!(all_events(&state).len(), replayed, "a replanted set adds none");
+    assert_eq!(sql(&state.join("store.db"), "SELECT COUNT(*) FROM meta WHERE key = 'replay_set'"), "0");
+
+    // A line whose ID the store already holds is skipped, and the rest still replay.
+    let (_tmp, root, data, set_aside, _, _) = restored_with_a_set(3);
+    let state = root.join(".planroom");
+    let held_before = held(&state);
+    let set = await_replay(&state, &data, this_data);
+    let id = workspace_id_raw(&state.join("store.db"));
+    let (_, backed) = backed_up(&data.join("backups").join(&id).join("events.ndjson"));
+    let mut planted = backed
+        .into_iter()
+        .find(|e| held_before.contains_key(&e.id.0) && matches!(e.body, EventBody::Edit(_)))
+        .expect("an edit the copy holds");
+    planted.idem = "planted-replay-line".into();
+    let file = this_data.join("backups").join(&id).join(set["file"].as_str().unwrap());
+    let mut text = std::fs::read_to_string(&file).unwrap();
+    text.push_str(&serde_json::to_string(&planted).unwrap());
+    text.push('\n');
+    std::fs::write(&file, text).unwrap();
+    let events = all_events(&state);
+    for id in &set_aside {
+        let event = events.iter().find(|e| &e.id.0 == id).unwrap_or_else(|| panic!("{id} came back"));
+        assert_eq!(event.status, Status::Applied, "{id}");
+    }
+    assert_eq!(events.iter().filter(|e| e.id == planted.id).count(), 1, "the held ID is skipped");
+    assert!(events.iter().all(|e| e.idem != "planted-replay-line"), "nothing is written for it");
+    assert_eq!(sql(&state.join("store.db"), "SELECT COUNT(*) FROM meta WHERE key = 'replay_set'"), "0");
+}
+
+#[test]
+fn a_replayed_edit_conflicts_with_a_post_restore_edit() {
+    let (this_data, _guard) = setup();
+    let (_tmp, root, data, set_aside, nodes, _) = restored_with_a_set(4);
+    let state = root.join(".planroom");
+    let contested = &nodes[1];
+    edit(&root, &data, head(&root, &data), &["rename", contested, "after-restore"]);
+    await_replay(&state, &data, this_data);
+
+    let events = all_events(&state);
+    for (i, id) in set_aside.iter().enumerate() {
+        let event = events.iter().find(|e| &e.id.0 == id).unwrap_or_else(|| panic!("{id} came back"));
+        let wanted = if i == 1 { Status::Conflict } else { Status::Applied };
+        assert_eq!(event.status, wanted, "{id} renamed {}", nodes[i]);
+    }
+    assert_eq!(code_name(&root, &data, contested), "after-restore", "the post-restore name holds");
+    assert_eq!(code_name(&root, &data, &nodes[2]), "late2", "the others apply");
 }

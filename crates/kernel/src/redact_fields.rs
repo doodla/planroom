@@ -59,8 +59,11 @@ pub const PATHS: &[(&str, &[&str])] = &[
     ("DoctorResult", &[
         "backup.backup_ref",
         "backup.file",
+        "from",
         "migrations.copies",
         "packs.packs[].source",
+        "pre_restore",
+        "replay_set",
         "store.path",
     ]),
     ("DoctorStore", &[
@@ -239,6 +242,11 @@ pub const PATHS: &[(&str, &[&str])] = &[
     ]),
     ("PresenceRow", &[
         "doing",
+    ]),
+    ("RestoreReport", &[
+        "from",
+        "pre_restore",
+        "replay_set",
     ]),
     ("ScanResult", &[
         "map.edges[].evidence_sample[].contains",

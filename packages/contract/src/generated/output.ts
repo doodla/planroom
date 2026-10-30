@@ -595,13 +595,20 @@ export type Outcome = "acted" | "card" | "escalated" | "picked" | "overridden";
  */
 export type Detail = "summary" | "graph";
 /**
- * What `doctor` returns: with `--pack DIR`, that pack's conformance report; with no flag, the
- * general report.
+ * What `doctor` returns: with `--pack DIR`, that pack's conformance report; with
+ * `--restore BACKUP`, what was put back; with no flag, the general report.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "DoctorResult".
  */
-export type DoctorResult = PackReport | DoctorReport;
+export type DoctorResult = PackReport | RestoreReport | DoctorReport;
+/**
+ * What a backup puts back: a store copy, or the person-authored events of an event backup.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "RestoreKind".
+ */
+export type RestoreKind = "copy" | "events";
 /**
  * A prop's value: text, or a list of text.
  *
@@ -1580,9 +1587,9 @@ export interface ImportReq {
   source: string;
 }
 /**
- * `planroom doctor [--pack DIR [--update]]`: with no flag, the general report of git, the
- * store, its migrations, the pack set and the event backup; with `--pack`, one pack's conformance
- * kit (DR-10). `--restore` joins them later.
+ * `planroom doctor [--pack DIR [--update] | --restore BACKUP]`: with no flag, the general report
+ * of git, the store, its migrations, the pack set and the event backup; with `--pack`, one pack's
+ * conformance kit (DR-10); with `--restore BACKUP`, put a backup back.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
  * via the `definition` "DoctorReq".
@@ -1597,6 +1604,11 @@ export interface DoctorReq {
    * Rewrite the pack's `tests/expected.jsonl` from this run instead of comparing with it.
    */
   update: boolean;
+  /**
+   * Put a backup back: an event backup (events.ndjson) or a store copy (store-v<N>.db,
+   * store-pre-restore-<secs>.db) in the data root's backups/<workspace_id>/; a person's.
+   */
+  restore: string | null;
 }
 /**
  * `planroom open`: the canvas in the browser, through a login page under the data root, so the
@@ -2395,6 +2407,49 @@ export interface PackCheck {
    * One engine-authored line on what it found.
    */
   line: string;
+}
+/**
+ * What `doctor --restore BACKUP` returns: what was put back and where it left the old state.
+ * `from`, `pre_restore` and `replay_set` are file names.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "RestoreReport".
+ */
+export interface RestoreReport {
+  summary: string;
+  restored: RestoreKind;
+  /**
+   * The backup file put back.
+   */
+  from: string;
+  /**
+   * The store's head after the restore.
+   */
+  seq: number;
+  /**
+   * How many person-authored events the restore brought back.
+   */
+  events: number;
+  /**
+   * The copy of the store taken just before a store copy replaced it.
+   */
+  pre_restore?: string | null;
+  /**
+   * How many person-authored edits the copy didn't hold were set aside.
+   */
+  set_aside: number;
+  /**
+   * The file that holds them, replayed at the next open under the engine that wrote them.
+   */
+  replay_set?: string | null;
+  /**
+   * The engine version those edits were made on.
+   */
+  made_on?: string | null;
+  /**
+   * The restore card this closed, when a card's pick asked for it.
+   */
+  card?: string | null;
 }
 /**
  * One drafted item.

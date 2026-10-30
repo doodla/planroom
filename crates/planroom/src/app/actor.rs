@@ -153,14 +153,36 @@ pub fn registered_keys(
     caller: &Caller,
     command: &str,
 ) -> Result<Vec<VerifyingKey>, AppError> {
-    let Some(text) = store.meta("person_pubkey")? else { return Ok(vec![]) };
-    let Some(key) = parse_key(&text) else { return Ok(vec![]) };
+    let text = store.meta("person_pubkey")?;
+    // No press can serve until the workspace is trusted: the trust card's accept, at a terminal,
+    // is the way on.
+    let trust_line = || -> Result<Option<String>, AppError> {
+        let snapshot = store.snapshot()?;
+        Ok(crate::app::cards::open_trust(&snapshot)?.map(|card| {
+            format!("planroom review --base {} {} accept", snapshot.seq(), text::shell_word(&card.event.id.0))
+        }))
+    };
+    keys_from(text.as_deref(), root, caller, command, &trust_line)
+}
+
+/// [`registered_keys`] for a registered key read some other way, `text`, such as raw from a store
+/// no engine opens (`doctor --restore`). `trust_line` names the trust card's accept, when one is
+/// open, for a caller refused where no terminal serves.
+pub fn keys_from(
+    text: Option<&str>,
+    root: &Path,
+    caller: &Caller,
+    command: &str,
+    trust_line: &dyn Fn() -> Result<Option<String>, AppError>,
+) -> Result<Vec<VerifyingKey>, AppError> {
+    let Some(text) = text else { return Ok(vec![]) };
+    let Some(key) = parse_key(text) else { return Ok(vec![]) };
     let root = trust::canonical(root);
     let pinned = data::root()
         .and_then(|data| data::person_key(&data, &root.display().to_string()))
         .map(|pin| pin.map(|p| p.fingerprint));
     let counts = match pinned {
-        Ok(Some(fingerprint)) => fingerprint == pin_fingerprint(&text),
+        Ok(Some(fingerprint)) => fingerprint == pin_fingerprint(text),
         Ok(None) => trust::at(&root) == Trust::Trusted,
         Err(_) => false,
     };
@@ -171,18 +193,10 @@ pub fn registered_keys(
     if caller.token.is_some() && !agent {
         let path = terminal_path(command, true);
         let refused = person_required(command, Refused::KeyNotPinned, path);
-        if path == TerminalPath::Refused {
-            // No press can serve until the workspace is trusted: the trust card's accept, at a
-            // terminal, is the way on.
-            let snapshot = store.snapshot()?;
-            if let Some(card) = crate::app::cards::open_trust(&snapshot)? {
-                let line = format!(
-                    "planroom review --base {} {} accept",
-                    snapshot.seq(),
-                    text::shell_word(&card.event.id.0)
-                );
-                return Err(refused.with_hint(text::get("hint.person_required_terminal", &[("line", &line)])));
-            }
+        if path == TerminalPath::Refused
+            && let Some(line) = trust_line()?
+        {
+            return Err(refused.with_hint(text::get("hint.person_required_terminal", &[("line", &line)])));
         }
         return Err(naming_line(refused, command, path, &terminal_line(command)));
     }
@@ -374,6 +388,23 @@ pub fn person(
     path: TerminalPath,
     terminal: &mut dyn Terminal,
 ) -> Result<Acting, AppError> {
+    let asked = question(&spec.name());
+    person_asking(caller, spec, bound, keys_allowed, now, path, terminal, &asked)
+}
+
+/// [`person`], where a terminal confirmation asks `question`: for an action whose question says
+/// what it would do, such as how many edits a restore sets aside.
+#[allow(clippy::too_many_arguments)]
+pub fn person_asking(
+    caller: &Caller,
+    spec: &CommandSpec,
+    bound: &Bound<'_>,
+    keys_allowed: &[&VerifyingKey],
+    now: u64,
+    path: TerminalPath,
+    terminal: &mut dyn Terminal,
+    question: &str,
+) -> Result<Acting, AppError> {
     let command = spec.name();
     if caller.actor.as_deref().is_some_and(|a| !a.starts_with("person:")) {
         return Err(person_required(&command, Refused::NotAPerson, path));
@@ -390,7 +421,7 @@ pub fn person(
         let why = if terminal.present() { Refused::TerminalRefused } else { Refused::Missing };
         return Err(person_required(&command, why, path));
     }
-    match terminal.confirm(&question(&command)) {
+    match terminal.confirm(question) {
         None => Err(person_required(&command, Refused::Missing, path)),
         Some(false) => Err(person_required(&command, Refused::NotConfirmed, path)),
         Some(true) => Ok(Acting { actor: os_person(), digest: None }),

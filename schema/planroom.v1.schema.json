@@ -1662,13 +1662,22 @@
           "type": "boolean",
           "description": "Rewrite the pack's `tests/expected.jsonl` from this run instead of comparing with it.",
           "default": false
+        },
+        "restore": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Put a backup back: an event backup (events.ndjson) or a store copy (store-v<N>.db,\nstore-pre-restore-<secs>.db) in the data root's backups/<workspace_id>/; a person's.",
+          "default": null
         }
       },
       "required": [
         "pack",
-        "update"
+        "update",
+        "restore"
       ],
-      "description": "`planroom doctor [--pack DIR [--update]]`: with no flag, the general report of git, the\nstore, its migrations, the pack set and the event backup; with `--pack`, one pack's conformance\nkit (DR-10). `--restore` joins them later."
+      "description": "`planroom doctor [--pack DIR [--update] | --restore BACKUP]`: with no flag, the general report\nof git, the store, its migrations, the pack set and the event backup; with `--pack`, one pack's\nconformance kit (DR-10); with `--restore BACKUP`, put a backup back."
     },
     "DoctorResult": {
       "anyOf": [
@@ -1676,10 +1685,13 @@
           "$ref": "#/$defs/PackReport"
         },
         {
+          "$ref": "#/$defs/RestoreReport"
+        },
+        {
           "$ref": "#/$defs/DoctorReport"
         }
       ],
-      "description": "What `doctor` returns: with `--pack DIR`, that pack's conformance report; with no flag, the\ngeneral report."
+      "description": "What `doctor` returns: with `--pack DIR`, that pack's conformance report; with\n`--restore BACKUP`, what was put back; with no flag, the general report."
     },
     "DoctorStore": {
       "type": "object",
@@ -7337,6 +7349,96 @@
         }
       ],
       "description": "The step that resolves the engine, in the order the resolver tries them."
+    },
+    "RestoreKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "copy",
+          "description": "A store copy (`store-v<N>.db`, `store-pre-restore-<secs>.db`) replaced the store."
+        },
+        {
+          "type": "string",
+          "const": "events",
+          "description": "An event backup's person-authored events were replayed into the store."
+        }
+      ],
+      "description": "What a backup puts back: a store copy, or the person-authored events of an event backup."
+    },
+    "RestoreReport": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "restored": {
+          "$ref": "#/$defs/RestoreKind"
+        },
+        "from": {
+          "type": "string",
+          "description": "The backup file put back.",
+          "x-redact": true
+        },
+        "seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The store's head after the restore.",
+          "maximum": 9007199254740991
+        },
+        "events": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "How many person-authored events the restore brought back.",
+          "maximum": 9007199254740991
+        },
+        "pre_restore": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The copy of the store taken just before a store copy replaced it.",
+          "x-redact": true
+        },
+        "set_aside": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "How many person-authored edits the copy didn't hold were set aside."
+        },
+        "replay_set": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The file that holds them, replayed at the next open under the engine that wrote them.",
+          "x-redact": true
+        },
+        "made_on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The engine version those edits were made on."
+        },
+        "card": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The restore card this closed, when a card's pick asked for it."
+        }
+      },
+      "required": [
+        "summary",
+        "restored",
+        "from",
+        "seq",
+        "events",
+        "set_aside"
+      ],
+      "description": "What `doctor --restore BACKUP` returns: what was put back and where it left the old state.\n`from`, `pre_restore` and `replay_set` are file names."
     },
     "Retry": {
       "oneOf": [

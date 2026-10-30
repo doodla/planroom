@@ -25,11 +25,11 @@
 //! review closed (`edit`'s undo plan).
 
 use std::cell::RefCell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use planroom_contract::{
     Actor, Cause, Client, Command, Edit, ErrorCode, Event, EventBody, EventId, ReviewReq, ReviewResult, Seq,
-    Status, Surface, Verdict, Vocabulary,
+    Status, Surface, Verdict, Vocabulary, WriteCommon,
 };
 use planroom_kernel::cas::{self, Authority, Check, Proposed};
 use planroom_kernel::fold::{Folded, Writer, actor_key};
@@ -39,7 +39,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::app::actor::{self, Bound, Caller, Refused, Terminal, TerminalPath};
-use crate::app::cards::{self, APPLY, BATCH_ITEMS};
+use crate::app::cards::{self, APPLY, BATCH_ITEMS, RESTORE};
+use crate::app::doctor::restore::{self, Restoring};
 use crate::app::edit::{self, Written};
 use crate::app::error::AppError;
 use crate::app::{Reply, import, new_event_id, workspace};
@@ -80,11 +81,69 @@ pub fn run(
     // reads now, before the commit, so a pack that no longer loads refuses the pick with nothing
     // committed.
     let update = crate::app::pack::update_for_card(&store, &root, &req.id, req.verdict)?;
-    let mut written = write(req, &mut store, writer, base, set.vocabulary())?;
+    // An accept of a restore card reads its backup again, and copies the store as it is, before
+    // the commit: a backup that is gone, or a copy that fails, refuses the pick with nothing
+    // committed (DR-53).
+    let restoring = cards::restoring(&store, &root, &req.id, req.verdict)?;
+    if restoring.is_some() {
+        pre_restore_copy(&store)?;
+    }
+    let mut written = write(req, &mut store, writer, base, set.vocabulary(), restoring.as_ref())?;
     // A trust card's pick records or removes the workspace's trust where it ran, and a
     // changed-source card's accept records the copy just made (DR-89).
     cards::picked(&store, &mut written, &root)?;
     cards::picked_pack(&mut store, &mut written, update.as_ref())?;
+    warn(&set, &mut written);
+    Ok(written)
+}
+
+/// A person's accept of the open restore card `card`, whose backup `restoring` read, written by
+/// `writer` at the head as `review` writes it, after the pre-restore copy: the card resolves in
+/// the restore's own transaction. For a caller that resolved its writer itself; with the
+/// pre-restore copy's path.
+pub fn accept_restore(
+    store: &mut Store,
+    root: &Path,
+    writer: Writer,
+    card: &EventId,
+    restoring: &Restoring,
+) -> Result<(Written<ReviewResult>, PathBuf), AppError> {
+    let set = state::for_read(root, store.recorded_packs()?.as_ref())?;
+    let copy = pre_restore_copy(store)?;
+    let head = store.snapshot()?.seq();
+    let req = ReviewReq {
+        id: card.0.clone(),
+        verdict: Verdict::Accept,
+        common: WriteCommon { base: Some(head), ..WriteCommon::default() },
+    };
+    let mut written = write(&req, store, writer, head, set.vocabulary(), Some(restoring))?;
+    warn(&set, &mut written);
+    Ok((written, copy))
+}
+
+/// Why the card `card` can't be picked: `already_resolved`, naming the pick that stands, or
+/// withdrawn by an undo; or the error that kept the store from saying.
+pub fn not_open(store: &Store, card: &EventId, vocabulary: &Vocabulary) -> AppError {
+    let read = || -> Result<AppError, AppError> {
+        let snapshot = store.snapshot()?;
+        let events = snapshot.events_after(0)?;
+        let folded = live::folded(&snapshot, vocabulary)?;
+        let of = edit::find_event(&events, &card.0)?;
+        Ok(closed(of, &events, &folded))
+    };
+    match read() {
+        Ok(refusal) | Err(refusal) => refusal,
+    }
+}
+
+/// The copy of the store a restore writes first, so restoring that copy takes the restore back.
+fn pre_restore_copy(store: &Store) -> Result<PathBuf, AppError> {
+    let workspace_id = store.meta("workspace_id")?.unwrap_or_default();
+    Ok(planroom_store::restore::pre_restore_copy(store.path(), &workspace_id)?)
+}
+
+/// The pack set's warning, if it has one, on the reply and its text.
+fn warn(set: &state::ReadSet, written: &mut Written<ReviewResult>) {
     let reply = &mut written.reply;
     let from = reply.warnings.len();
     set.warn(&mut reply.warnings);
@@ -92,7 +151,6 @@ pub fn run(
         reply.text.push('\n');
         reply.text.push_str(&warning.message);
     }
-    Ok(written)
 }
 
 fn is_agent(writer: &Writer) -> bool {
@@ -222,6 +280,7 @@ fn write(
     writer: Writer,
     base: Seq,
     vocabulary: &Vocabulary,
+    restoring: Option<&Restoring>,
 ) -> Result<Written<ReviewResult>, AppError> {
     let args = json!({"id": req.id, "verdict": req.verdict});
     let project = req.common.project.clone();
@@ -244,7 +303,27 @@ fn write(
                 event.at = at.clone();
                 event.project = project.clone();
             }
-            let mut events: Vec<Appended> = plan.events.iter().cloned().map(Appended::Command).collect();
+            let mut events: Vec<Appended> = Vec::new();
+            // A restore's events come first, each under its own keys, after whatever the new
+            // store already holds; one this store already holds, by key or ID, is left out.
+            if let Some(restoring) = restoring.filter(|r| plan.result.card_resolved.as_ref() == Some(&r.card))
+            {
+                if snapshot.person_authored()? {
+                    return Err(AppError::invalid_argument("id", "review.restore_mixed")
+                        .with_hint(restore::reject_line(&restoring.card, snapshot.seq())));
+                }
+                for dealt in &restoring.events {
+                    if !snapshot.holds_key(&dealt.idem)? && !snapshot.holds_event(&dealt.event.id.0)? {
+                        events.push(Appended::Own(dealt.clone()));
+                    }
+                }
+                plan.line.push(' ');
+                plan.line.push_str(&text::get(
+                    "review.restored",
+                    &[("edits", &restoring.edits), ("date", &restoring.date)],
+                ));
+            }
+            events.extend(plan.events.iter().cloned().map(Appended::Command));
             if let Some((card, verdict)) = &plan.closes {
                 events.push(Appended::Own(cards::card_review(
                     card,
@@ -427,7 +506,11 @@ fn pick_card(
         edit: None,
         card_resolved: Some(of.id.clone()),
     };
-    let line = text::get("review.picked", &[("verdict", &verdict_word(req.verdict)), ("card", &of.id.0)]);
+    let mut line = text::get("review.picked", &[("verdict", &verdict_word(req.verdict)), ("card", &of.id.0)]);
+    if card.kind.0 == RESTORE && req.verdict == Verdict::Reject {
+        line.push(' ');
+        line.push_str(&text::get("review.restore_declined", &[]));
+    }
     Ok(Planned { events: vec![review], closes: None, result, line, conflict: None })
 }
 

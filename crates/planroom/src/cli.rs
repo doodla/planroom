@@ -70,7 +70,7 @@ enum Cmd {
     Share(ShareReq),
     /// Import Artifact inbox rows from stdin, one {path, row} per line; answers read requests.
     Import(ImportReq),
-    /// With no flag, report git, the store, its migrations, the pack set and the event backup; with --pack DIR, check a pack.
+    /// With no flag, report git, the store, its migrations, the pack set and the event backup; with --pack DIR, check a pack; with --restore BACKUP, put a backup back (person).
     Doctor(DoctorReq),
     /// One hand edit: move, group, rename, hide, pin, relate, unrelate or forbid, or undo a command.
     Edit(EditReq),
@@ -154,6 +154,8 @@ pub fn parse_leaf(command: &str, args: &[String]) -> Result<Command, clap::Error
 pub fn main() -> ExitCode {
     // The store's filesystem check and its migration copies need the data root (DR-1, DR-53).
     app::fs_type::register();
+    // A copy restore's set-aside edits replay at the open that finds the store migrated past them.
+    planroom_store::restore::register_replay(app::doctor::restore::replay);
     // On a host that loses its files with its container, each event backup also goes to a
     // redacted local ref in one workspace repo (DR-53, DR-75); elsewhere nothing registers.
     if app::backup::temporary_host() {
@@ -232,9 +234,14 @@ pub fn main() -> ExitCode {
         }
         Cmd::Doctor(req) => {
             let name = Command::Doctor(req.clone()).name();
-            let reply = app::doctor::git()
-                .and_then(|()| app::doctor::Check::of(&req, &cwd))
-                .and_then(|check| app::doctor::run(check, &cwd));
+            // A restore needs no git: a host whose git is below the floor can still put a backup
+            // back.
+            let reply = app::doctor::Check::of(&req, &cwd)
+                .and_then(|check| match check {
+                    app::doctor::Check::Restore { .. } => Ok(check),
+                    _ => app::doctor::git().map(|()| check),
+                })
+                .and_then(|check| app::doctor::run(check, &cwd, &caller, &mut Tty));
             finish(cli.json, &name.0, reply, started)
         }
         Cmd::Version(req) => {

@@ -686,6 +686,12 @@ fn plan_undo(
     if matches!(of.body, EventBody::Scan { .. }) {
         return Err(AppError::invalid_argument("event", "edit.undo_scan"));
     }
+    // A restore's accept is taken back by restoring the copy written before it, not by an undo.
+    let workspace_id = snapshot.meta("workspace_id")?.unwrap_or_default();
+    let data_root = crate::app::data::root().ok();
+    if let Some(refusal) = crate::app::cards::undo_refused(&events, of, data_root.as_deref(), &workspace_id) {
+        return Err(refusal);
+    }
     // A card is picked, or resolves with its ghosts; undoing it would leave what waits on it on no
     // card, and no later card would count it.
     if matches!(of.body, EventBody::Card(_)) {

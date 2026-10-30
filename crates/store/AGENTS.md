@@ -19,7 +19,7 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 
 ## Layout
 
-- `src/`: the SQLite store: opening and migrating it, the data-root pointer, reads, `tail`, the card store, layouts, presence, the filesystem check and the event backup's write-through; leases, `gc`, and the user-level ledger.
+- `src/`: the SQLite store: opening and migrating it, the data-root pointer, reads, `tail`, the card store, layouts, presence, the filesystem check and the event backup's write-through; leases, `gc`, and the user-level ledger; the restore: reading backups, the put-back of a copy and the replay set.
 - `src/commit/`: the one write path: `write.rs` for events and `scan.rs` for a scan's facts, with idempotency and compare-and-set by writer instance, and the write-through hook after a person-authored commit.
 - `migrations/`: the numbered SQL migrations, applied in order from `0001_init.sql`.
 - `ledger/`: the user-level ledger's numbered SQL migrations, additions only, applied in order from `0001_init.sql`.

@@ -164,7 +164,7 @@ var CATALOGUE = [
   {
     "name": "doctor",
     "idea": "setup",
-    "summary": "With no flag, report git, the store, its migrations, the pack set and the event backup; with --pack DIR, check a pack.",
+    "summary": "With no flag, report git, the store, its migrations, the pack set and the event backup; with --pack DIR, check a pack; with --restore BACKUP, put a backup back (person).",
     "actor": "mixed",
     "class": "read",
     "budget_tokens": 1500,
@@ -502,7 +502,8 @@ var LEAF_OWN_FLAGS = {
   "import": [],
   "doctor": [
     "--pack",
-    "--update"
+    "--update",
+    "--restore"
   ],
   "edit": [
     "--base",

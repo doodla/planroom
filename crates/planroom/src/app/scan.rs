@@ -27,6 +27,7 @@ use planroom_store::{FactRow, Init, RepoOutcome, RepoScan, ScanKey, ScanRules, S
 use serde_json::{Value, json};
 
 use crate::app::dirty::Dirty;
+use crate::app::doctor::restore::{Source, source_for};
 use crate::app::error::AppError;
 use crate::app::workspace::{self, Repo, Workspace};
 use crate::app::{Paged, Reply, map, models, new_event_id};
@@ -56,6 +57,9 @@ pub struct Prepared {
     /// The recorded packs whose source changed since their copy was made, each read before the
     /// commit: what the changed-source dealer deals for.
     changed: Vec<Changed>,
+    /// The backup of this workspace's lost state directory, found before the commit, when the
+    /// store holds none of a person's edits: what the restore dealer offers.
+    restore: Option<Source>,
 }
 
 /// A scan, with the repos whose uncommitted work it didn't map: it reads `HEAD`'s tree, never the
@@ -92,13 +96,22 @@ fn prepare_inner(req: &ScanReq, cwd: &Path, given: Option<Loaded>) -> Result<Pre
     }
     // Read before any repo, so a scan that commits meanwhile is newer than this one; with it, the
     // commit each repo's active snapshot was read at, which its renames are reported from.
-    let (started, mapped, recorded) = match Store::open_existing(&ws.store_path())? {
+    let (started, mapped, recorded, current_id, authored) = match Store::open_existing(&ws.store_path())? {
         Some(store) => {
             let snapshot = store.snapshot()?;
-            (snapshot.seq(), mapped_commits(&snapshot)?, store.recorded_packs()?)
+            (
+                snapshot.seq(),
+                mapped_commits(&snapshot)?,
+                store.recorded_packs()?,
+                snapshot.meta("workspace_id")?,
+                snapshot.person_authored()?,
+            )
         }
-        None => (0, BTreeMap::new(), None),
+        None => (0, BTreeMap::new(), None, None, false),
     };
+    // A store that holds no person's edits, or none yet, may be a fresh one over a lost state
+    // directory: look for the backup of the one it replaced.
+    let restore = if authored { None } else { source_for(&ws.root, &ws.state_dir(), current_id.as_deref()) };
     let mut warnings = ws.warnings.clone();
     // A workspace's own config loads only from a state directory the data root records as
     // trusted (DR-48); otherwise only the user-level file and the variables apply.
@@ -136,7 +149,7 @@ fn prepare_inner(req: &ScanReq, cwd: &Path, given: Option<Loaded>) -> Result<Pre
             Err(RepoError::App(e)) => return Err(e),
         }
     }
-    Ok(Prepared { ws, packs, started, repos, warnings, read_packs, config_packs, changed })
+    Ok(Prepared { ws, packs, started, repos, warnings, read_packs, config_packs, changed, restore })
 }
 
 /// Commit a prepared scan. A repo stays where it is when its `HEAD` moved on since it was read, or
@@ -145,7 +158,8 @@ fn prepare_inner(req: &ScanReq, cwd: &Path, given: Option<Loaded>) -> Result<Pre
 /// moves no repo back either: the join across repos is the link snapshot's, built here from the
 /// active set the commit finds (DR-12, DR-86).
 pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
-    let Prepared { ws, packs, started, repos, mut warnings, read_packs, config_packs, changed } = prepared;
+    let Prepared { ws, packs, started, repos, mut warnings, read_packs, config_packs, changed, restore } =
+        prepared;
     // With nothing to write, a workspace with no store stays without one: a repo with no commit
     // yet writes nothing (DR-86).
     let store = if repos.iter().all(|r| r.commit.is_empty()) {
@@ -218,8 +232,13 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     };
     let mut deal = |snapshot: &planroom_store::Snapshot<'_>| {
         let trust = crate::app::trust::check(&ws);
-        let cx =
-            crate::app::cards::ScanCx { root: &ws.root, state_dir: &state_dir, trust, changed: &changed };
+        let cx = crate::app::cards::ScanCx {
+            root: &ws.root,
+            state_dir: &state_dir,
+            trust,
+            changed: &changed,
+            restore: restore.as_ref(),
+        };
         let dealt = crate::app::cards::deal_for_scan(snapshot, &cx, &dealt_at)?;
         warnings.retain(|w| w.code != WarningCode::WorkspaceUntrusted);
         let card = dealt.iter().find_map(|d| match &d.event.body {

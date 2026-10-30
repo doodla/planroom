@@ -36,6 +36,7 @@ use planroom_store::{Dealt, NewEvent, RecordedPacks, Snapshot, Store};
 use serde_json::json;
 
 use crate::app::data::TrustedBy;
+use crate::app::doctor::restore::Restoring;
 use crate::app::edit::Written;
 use crate::app::error::AppError;
 use crate::app::new_event_id;
@@ -55,6 +56,9 @@ pub const TRUST: &str = "trust";
 /// The changed-source card's kind: a recorded pack whose source differs from its copy (DR-62,
 /// DR-89).
 pub const PACK_SOURCE: &str = "pack_source";
+/// The restore card's kind: a backup of this workspace's lost state directory offers to put its
+/// person-authored edits back (DR-53).
+pub const RESTORE: &str = "restore";
 /// The hex characters of a pack's hash the changed-source card names.
 pub const HASH_CHARS: usize = 12;
 
@@ -67,6 +71,8 @@ pub struct ScanCx<'a> {
     pub state_dir: &'a Path,
     pub trust: Trust,
     pub changed: &'a [Changed],
+    /// The backup of this workspace's lost state, found before the commit.
+    pub restore: Option<&'a crate::app::doctor::restore::Source>,
 }
 
 /// One dealer of the cards a scan deals: what it would deal, read from the store as the scan's
@@ -77,9 +83,12 @@ pub struct Dealer {
     pub deal: fn(&Snapshot<'_>, &ScanCx<'_>) -> Result<Vec<Card>, AppError>,
 }
 
-/// The dealers `scan` asks, in order. The restore card joins here.
-pub const SCAN_DEALERS: &[Dealer] =
-    &[Dealer { kind: TRUST, deal: deal_trust }, Dealer { kind: PACK_SOURCE, deal: deal_pack_source }];
+/// The dealers `scan` asks, in order.
+pub const SCAN_DEALERS: &[Dealer] = &[
+    Dealer { kind: TRUST, deal: deal_trust },
+    Dealer { kind: PACK_SOURCE, deal: deal_pack_source },
+    Dealer { kind: RESTORE, deal: deal_restore },
+];
 
 /// The trust card, for a workspace whose state directory is untrusted, unless a pick of an earlier
 /// one still stands as a reject: the reject keeps the config unloaded until an undo reopens it.
@@ -158,6 +167,86 @@ fn deal_pack_source(snapshot: &Snapshot<'_>, cx: &ScanCx<'_>) -> Result<Vec<Card
         });
     }
     Ok(cards)
+}
+
+/// The restore card, when the scan found a backup of this workspace's lost state: dealt while the
+/// store holds no person-authored event, no restore card is open and no standing reject names that
+/// backup. The card's default is Start empty, so a card nobody picks restores nothing.
+fn deal_restore(snapshot: &Snapshot<'_>, cx: &ScanCx<'_>) -> Result<Vec<Card>, AppError> {
+    let Some(source) = cx.restore else { return Ok(vec![]) };
+    if snapshot.person_authored()? || snapshot.meta("workspace_id")?.as_deref() == Some(&source.workspace_id)
+    {
+        return Ok(vec![]);
+    }
+    if open(snapshot)?.iter().any(|c| c.card.kind.0 == RESTORE) {
+        return Ok(vec![]);
+    }
+    if standing(snapshot, RESTORE, &source.workspace_id)?.is_some() {
+        return Ok(vec![]);
+    }
+    Ok(vec![crate::app::doctor::restore::card_of(source)])
+}
+
+/// What a person's accept of the open restore card `id` writes, read again from its backup before
+/// the review's transaction opens. `None` for a reject, and for anything but an open restore
+/// card, which `review` picks as it picks any card. `id` resolves as `review` resolves it: an
+/// event ID, or the one ID that ends with it.
+pub fn restoring(
+    store: &Store,
+    root: &Path,
+    id: &str,
+    verdict: Verdict,
+) -> Result<Option<Restoring>, AppError> {
+    if verdict != Verdict::Accept {
+        return Ok(None);
+    }
+    let snapshot = store.snapshot()?;
+    let events = snapshot.card_events()?;
+    let Ok(event) = crate::app::edit::find_event(&events, id) else { return Ok(None) };
+    let EventBody::Card(card) = &event.body else { return Ok(None) };
+    if card.kind.0 != RESTORE || !planroom_kernel::fold::open_cards(&events).contains(&event.id) {
+        return Ok(None);
+    }
+    let (card_id, card, head) = (event.id.clone(), card.clone(), snapshot.seq());
+    drop(snapshot);
+    crate::app::doctor::restore::read_source(&card_id, &card, root, head).map(Some)
+}
+
+/// The refusal of an undo of `of` when it is a person's accept of a restore card: the restored
+/// events keep their own keys, so an undo would reopen a card no second accept could serve. Its
+/// hint restores the copy taken just before that accept, the newest pre-restore copy of the
+/// workspace `workspace_id` below the accept's `seq`; with none left, it has none. An undo of a
+/// reject reopens the card as any pick's undo does, since it restored nothing.
+pub fn undo_refused(
+    events: &[Event],
+    of: &Event,
+    data_root: Option<&Path>,
+    workspace_id: &str,
+) -> Option<AppError> {
+    let EventBody::Review { of: card, verdict: Verdict::Accept } = &of.body else { return None };
+    let restore =
+        events.iter().any(|e| &e.id == card && matches!(&e.body, EventBody::Card(c) if c.kind.0 == RESTORE));
+    if !restore {
+        return None;
+    }
+    let refusal = AppError::invalid_argument("event", "edit.undo_restore");
+    let copy = data_root.and_then(|d| planroom_store::restore::pre_restore_before(d, workspace_id, of.seq));
+    // The copy to restore is the command to run instead: `next`, whose exact command the hint
+    // keeps in place of the leaf's schema handle.
+    Some(match copy {
+        Some(copy) => {
+            let copy = copy.to_string_lossy().into_owned();
+            let next = Handle {
+                command: CommandName("doctor".into()),
+                args: vec!["--restore".into(), copy.clone()],
+                label: text::label("edit.undo_restore_label", &[]),
+            };
+            refusal
+                .details(json!({"field": "event", "next": next}))
+                .with_hint(format!("planroom doctor --restore {}", text::shell_word(&copy)))
+        }
+        None => refusal.without_hint(),
+    })
 }
 
 /// The first [`HASH_CHARS`] hex characters of a pack's hash, as the changed-source card names it.

@@ -19,6 +19,7 @@ pub mod migrate;
 mod pointer;
 mod presence;
 mod read;
+pub mod restore;
 mod tail;
 
 use std::fs::OpenOptions;
@@ -42,6 +43,9 @@ pub use lease::{Lease, process_holder};
 pub use ledger::{LEDGER_MIGRATIONS, Ledger, LedgerRow};
 pub use meta::{PackGuard, PackVerdict, RecordedPacks};
 pub use read::{ActiveSet, FactRow, Shape, Snapshot, SnapshotKey};
+pub use restore::{
+    BackupHeader, BackupKind, PutBack, PutBackReport, ReplayCount, ReplayHook, ReplaySet, Spend, Summary,
+};
 pub use tail::Tail;
 
 use crate::fs_check::{check_dir, notify};
@@ -114,6 +118,7 @@ impl Store {
     fn open_with(path: &Path, init: &Init, migrations: &[Migration]) -> Result<Store, StoreError> {
         let mut store = Store::open_at(path, init, migrations)?;
         store.state_dir = parent_of(path);
+        restore::replay_if_set(&mut store)?;
         Ok(store)
     }
 
@@ -205,6 +210,7 @@ impl Store {
         }
         store.migrate(None, MIGRATIONS)?;
         store.state_dir = parent_of(path);
+        restore::replay_if_set(&mut store)?;
         Ok(Some(store))
     }
 
@@ -354,11 +360,7 @@ impl Store {
         meta::check_writer(self.guard.as_deref(), &tx)?;
         let held: Option<String> =
             tx.query_row("SELECT value FROM meta WHERE key = 'spent_tokens'", [], |r| r.get(0)).optional()?;
-        let mut spent: serde_json::Map<String, serde_json::Value> = match held {
-            Some(text) => serde_json::from_str(&text)?,
-            None => serde_json::Map::new(),
-        };
-        spent.retain(|_, until| until.as_u64().is_some_and(|u| u > now));
+        let mut spent = restore::merge_spent(held.as_deref(), now)?;
         if spent.contains_key(digest) {
             return Ok(false);
         }
