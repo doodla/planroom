@@ -10,8 +10,10 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -38,8 +40,11 @@ export interface Engine {
   readonly root: string;
   /** A fresh one-time login code, as the address `planroom open` would open. */
   loginUrl(): Promise<string>;
-  /** Run one CLI command in the workspace and return its envelope. */
-  cli(args: readonly string[]): Envelope;
+  /**
+   * Run one CLI command in the workspace and return its envelope. `actor` is the `PLANROOM_ACTOR`
+   * a write needs (`intent new`); a read sets none.
+   */
+  cli(args: readonly string[], actor?: string): Envelope;
   /** Write `files` into one of the workspace's repos and commit them there. */
   commit(repo: string, files: Record<string, string>, message: string): void;
   close(): void;
@@ -48,6 +53,40 @@ export interface Engine {
 export interface EngineOptions {
   /** Scan the workspace before serving it; an unscanned one maps empty. */
   scanned?: boolean;
+  /** Changes the workspace copy at `root` before anything scans or serves it. */
+  prepare?: (root: string) => void;
+}
+
+/** Remove every repo the fixture holds, leaving the workspace directory with none. */
+export function removeRepos(root: string): void {
+  for (const name of readdirSync(root)) {
+    if (existsSync(join(root, name, ".git"))) {
+      rmSync(join(root, name), { recursive: true, force: true });
+    }
+  }
+}
+
+/** A new repo `name` in the workspace with no commit, as `git init -b main` leaves it. */
+export function initRepo(root: string, name: string): void {
+  const out = spawnSync("git", ["init", "--quiet", "-b", "main", name], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  if (out.status !== 0) {
+    throw new Error(`git init ${name}: ${out.stderr}`);
+  }
+}
+
+/**
+ * A repo git refuses to read: a config it can't parse stands in for any per-repo git failure,
+ * as `crates/planroom/tests/scan.rs` makes one.
+ */
+export function breakRepo(root: string, name: string): void {
+  initRepo(root, name);
+  writeFileSync(
+    join(root, name, ".git/config"),
+    "[core\nthis is not a config\n",
+  );
 }
 
 export async function startEngine(
@@ -56,6 +95,7 @@ export async function startEngine(
   const tmp = mkdtempSync(join(tmpdir(), "planroom-e2e-"));
   const root = join(tmp, "shop");
   cpSync(FIXTURE, root, { recursive: true, verbatimSymlinks: true });
+  options.prepare?.(root);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     PLANROOM_DATA: join(tmp, "data"),
@@ -65,10 +105,10 @@ export async function startEngine(
   delete env.PLANROOM_CLIENT;
   delete env.PLANROOM_ACTOR;
 
-  const cli = (args: readonly string[]): Envelope => {
+  const cli = (args: readonly string[], actor?: string): Envelope => {
     const out = spawnSync(BIN, [...args, "--json"], {
       cwd: root,
-      env,
+      env: actor === undefined ? env : { ...env, PLANROOM_ACTOR: actor },
       encoding: "utf8",
     });
     if (out.error) {

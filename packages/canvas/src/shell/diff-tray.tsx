@@ -6,7 +6,7 @@
 import { sanitize } from "@planroom/ui";
 
 import emptyDiffs from "../assets/empty-diffs.webp";
-import { STRINGS } from "../strings";
+import { CANVAS_STRINGS } from "@planroom/contract";
 import { useCanvas } from "../use-canvas";
 import { EmptyState } from "../views/empty-state";
 import { useNextAction } from "./next-action";
@@ -27,7 +27,7 @@ export function TrayBadge({
       aria-expanded={open}
       onClick={onPress}
     >
-      <span>{STRINGS.diffs}</span>
+      <span>{CANVAS_STRINGS.diffs}</span>
       <span className="badge" aria-label={`${count}`}>
         {count}
       </span>
@@ -50,10 +50,16 @@ export function TrayList() {
     return null;
   }
   if (pane.diffs.length === 0) {
-    return <EmptyState art={emptyDiffs} {...(next ? { action: next } : {})} />;
+    return (
+      <EmptyState
+        art={emptyDiffs}
+        concept="diffs"
+        {...(next ? { action: next } : {})}
+      />
+    );
   }
   return (
-    <ul className="tray-list" aria-label={STRINGS.diffs}>
+    <ul className="tray-list" aria-label={CANVAS_STRINGS.diffs}>
       {pane.diffs.map((d, i) => (
         <li key={i} className="tray-row">
           <span className="tape" aria-hidden="true" />

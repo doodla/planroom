@@ -96,7 +96,12 @@
         "crates/extract/tests/link.rs::imports_emit_depends_on_package",
         "crates/extract/tests/link.rs::a_non_literal_base_takes_its_host_from_the_containers_env_reads",
         "crates/extract/tests/link.rs::a_wrapper_binds_at_most_its_cap_of_call_sites",
-        "crates/extract/tests/link.rs::a_queue_key_resolves_through_an_imported_constant"
+        "crates/extract/tests/link.rs::a_queue_key_resolves_through_an_imported_constant",
+        "tests/e2e/src/surface.spec.ts::a_dive_into_a_block_uses_map_focus",
+        "tests/e2e/src/surface.spec.ts::an_edge_opens_its_evidence_from_ask_why",
+        "tests/e2e/src/surface.spec.ts::per_repo_warnings_show",
+        "tests/e2e/src/surface.spec.ts::the_rails_first_step_is_the_top_and_the_apart_level_sits_apart",
+        "tests/e2e/src/first-look.spec.ts::picking_a_lens_draws_its_edges_in_its_yarn"
       ],
       "due": {
         "crates/planroom/tests/s01_first_look.rs::every_truth_container_component_and_relation_with_evidence": "M3",
@@ -666,7 +671,8 @@
         "crates/store/tests/idem.rs::a_retry_after_a_kill_after_commit_returns_the_stored_reply",
         "crates/planroom/tests/scan.rs::a_scan_that_read_an_older_head_never_moves_the_repo_back",
         "crates/store/tests/commit.rs::a_scan_whose_commit_is_no_longer_head_never_moves_a_repo_back",
-        "crates/store/tests/commit.rs::a_first_scan_records_its_commit_even_when_head_moved_since"
+        "crates/store/tests/commit.rs::a_first_scan_records_its_commit_even_when_head_moved_since",
+        "packages/canvas/src/store.test.ts::only_event_and_reset_frames_refetch_the_views"
       ],
       "due": {
         "crates/planroom/tests/s08_concurrency.rs::no_lost_writes": "M2",
@@ -1310,7 +1316,9 @@
         "tests/e2e/src/quality.spec.ts::keyboard_reaches_every_block_and_action",
         "tests/e2e/src/quality.spec.ts::axe_finds_no_serious_violation",
         "tests/e2e/src/surface.spec.ts::the_phone_always_goes_back_up_through_the_ancestors_lid",
-        "tests/e2e/src/surface.spec.ts::the_top_row_holds_four_targets_at_most_every_target_is_44px_and_nothing_overflows"
+        "tests/e2e/src/surface.spec.ts::the_top_row_holds_four_targets_at_most_every_target_is_44px_and_nothing_overflows",
+        "tests/e2e/src/surface.spec.ts::the_phone_reaches_every_level",
+        "tests/e2e/src/surface.spec.ts::a_picker_with_nothing_to_pick_is_flat"
       ],
       "due": {
         "tests/e2e/src/quality.spec.ts::no_overflow_at_390x844": "M5",
@@ -1321,7 +1329,6 @@
         "tests/e2e/src/quality.spec.ts::reduced_motion_swaps_to_crossfades": "M5",
         "tests/e2e/src/quality.spec.ts::no_console_errors": "M5",
         "tests/e2e/src/quality.spec.ts::live_update_renders_within_1_s": "M5",
-        "tests/e2e/src/quality.spec.ts::top_row_fits_at_the_deepest_level": "M1",
         "tests/e2e/src/quality.spec.ts::keyboard_reaches_every_block_and_action": "M5",
         "tests/e2e/src/quality.spec.ts::axe_finds_no_serious_violation": "M5"
       }
@@ -1535,13 +1542,16 @@
         "crates/planroom/tests/budgets.rs::a_scan_past_the_file_bound_keeps_its_reply_to_its_budget",
         "crates/planroom/tests/budgets.rs::focus_keeps_to_one_budget",
         "tests/e2e/src/surface.spec.ts::the_lens_switcher_and_the_project_shelf_offer_only_what_works",
-        "tests/e2e/src/surface.spec.ts::the_lens_switcher_and_the_project_shelf_offer_only_what_works_on_the_phone"
+        "tests/e2e/src/surface.spec.ts::the_lens_switcher_and_the_project_shelf_offer_only_what_works_on_the_phone",
+        "tests/e2e/src/surface.spec.ts::an_unborn_only_workspace_says_to_commit",
+        "tests/e2e/src/surface.spec.ts::an_engine_refusal_keeps_the_map_and_shows_its_hint",
+        "crates/planroom/tests/server_auth.rs::the_ask_and_intent_list_routes_answer_as_the_cli_does",
+        "tests/e2e/src/canvas-lines.test.ts::every_spec_reads_the_canvas_lines_from_canvas_strings"
       ],
       "due": {
         "crates/planroom/tests/s15_surface.rs::one_binary_one_family": "M1",
         "crates/planroom/tests/s15_surface.rs::help_snapshot": "M1",
         "crates/planroom/tests/s15_surface.rs::skills_are_not_user_invocable": "M1",
-        "tests/e2e/src/surface.spec.ts::empty_state_audit": "M1",
         "tests/plugin/surface_tokens.sh": "M1",
         "crates/planroom/tests/catalogue.rs::every_leaf_has_a_budget_or_streams": "M1",
         "crates/planroom/tests/s15_surface.rs::help_shows_five_ideas": "M5"
@@ -2510,6 +2520,7 @@
         "packages/canvas/src/theme.test.ts::a_choice_in_another_tab_applies_here",
         "packages/canvas/src/theme.test.ts::with_storage_blocked_a_choice_holds_for_this_page",
         "packages/canvas/src/shell/picker.test.ts::the_sheet_focuses_its_own_current_entry_before_the_extra",
+        "packages/canvas/src/shell/picker.test.ts::the_focus_moves_to_the_current_lens_when_the_lenses_arrive_after_the_sheet_opened",
         "crates/planroom/src/app/share.rs::the_theme_script_is_neither_in_the_fragment_nor_published",
         "tests/e2e/src/theme.spec.ts::the_canvas_follows_the_system_theme_by_default",
         "tests/e2e/src/theme.spec.ts::a_pin_wins_over_the_system_and_applies_before_first_paint",

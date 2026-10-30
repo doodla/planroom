@@ -109,25 +109,25 @@ The phone layout at 390 px puts the breadcrumb, the lens switcher and the projec
 The top row never wraps or shrinks a target. On the phone it holds four targets at most:
 
 - the current level's lid, with search inside it;
-- a `⋯` lid that opens the ancestors as a list, shown below the top level;
+- a `⋯` lid, shown at every level, that opens a list of the lids above the current one and then every level;
 - the lens switcher as one swatch of the current lens, which opens a sheet of the lenses and, on the local canvas, the theme choice;
 - the project shelf as one chip, which opens a sheet of the projects.
 
-The swatch and the chip open a sheet only once there is something to pick. A picker with nothing to pick, such as a switcher with one lens or a shelf with no project to change to, isn't a button. It shows what it holds, flat on the felt. A project shelf with nothing to pick is a dashed chalk outline, whether or not it holds a project. Until M1 brings more lenses and `intent new`, both show what they hold [DR-86].
+The swatch and the chip open a sheet only once there is something to pick. A picker with nothing to pick, such as a switcher with one lens or a shelf with no project to change to, isn't a button. It shows what it holds, flat on the felt. A project shelf with nothing to pick is a dashed chalk outline, whether or not it holds a project. The switcher lists the lenses `ask` reports as loaded and the shelf lists `intent list`'s projects, so each becomes a button once it holds a second entry. On the phone the pickers yield to search: the shelf's chip shrinks to its 44 px target first, so the current lid shows its level whole, and only a label too long for the row is cut, whole in its `title` [DR-86].
 
 The exception is the swatch on the local canvas. Its sheet holds the theme choice, so it always opens. With one lens, the sheet shows that lens flat above the choice. On the Artifact the rule stands as written, and the shelf's rule doesn't change [DR-86, DR-122].
 
 The current lid stacks over the last 10 px of the lid before it. So each ancestor lid, the `⋯` lid among them, is that much wider than a target, and the part a press reaches stays at least 44 px [DR-86].
 
-`tests/e2e/surface.spec.ts::the_top_row_holds_four_targets_at_most_every_target_is_44px_and_nothing_overflows` checks the row at the top and one level down. It measures what a press reaches with `elementFromPoint`, since a box can't show what a neighbor paints over. `the_lens_switcher_and_the_project_shelf_offer_only_what_works` and `the_lens_switcher_and_the_project_shelf_offer_only_what_works_on_the_phone` check the pickers at both sizes. `tests/e2e/theme.spec.ts::the_theme_choice_is_three_44px_radios_on_the_phone` measures the theme radios the same way. `tests/e2e/quality.spec.ts::top_row_fits_at_the_deepest_level`, planned for M1, will check the row at code level with several projects and every lens.
+`tests/e2e/surface.spec.ts::the_top_row_holds_four_targets_at_most_every_target_is_44px_and_nothing_overflows` checks the row at the top and one level down. It measures what a press reaches with `elementFromPoint`, since a box can't show what a neighbor paints over. `the_lens_switcher_and_the_project_shelf_offer_only_what_works` and `the_lens_switcher_and_the_project_shelf_offer_only_what_works_on_the_phone` check the pickers at both sizes. `tests/e2e/theme.spec.ts::the_theme_choice_is_three_44px_radios_on_the_phone` measures the theme radios the same way. `a_picker_with_nothing_to_pick_is_flat` checks the flat state at both sizes, `the_phone_reaches_every_level` checks the `⋯` lid's list and that each lid shows its level whole, and `tests/e2e/quality.spec.ts::top_row_fits_at_the_deepest_level` checks the row at the deepest level with several projects and every lens.
 
 | Gesture | Does |
 |---|---|
 | Pinch, or drag with two fingers | zooms and pans the map geometrically; it never changes level |
 | Drag with one finger on the felt | pans |
 | Tap a block | selects and focuses it: the ego view of its neighbors |
-| Double tap a block, or tap the open lid the breadcrumb shows for the selected block | dives one level into the block, with the lid-lift motion |
-| Tap the `⋯` lid, then an ancestor in its list | goes back up to that level, the top-level map included |
+| Double tap a block, or on the desktop press the open lid the breadcrumb shows for the selected block | dives one level into the block, with the lid-lift motion |
+| Tap the `⋯` lid, then a level in its list | goes to that level, the top-level map included |
 | Long press a block or an edge | opens the bottom sheet with its evidence and the action tray (see [Edit by hand](#edit-by-hand)) |
 | Tap a card's choice | picks it, in one tap |
 

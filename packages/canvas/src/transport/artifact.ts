@@ -12,6 +12,7 @@
  */
 
 import {
+  CANVAS_STRINGS,
   checkFormat,
   formatTag,
   type Answer,
@@ -23,12 +24,12 @@ import {
   type StreamFrame,
 } from "@planroom/contract";
 
-import { STRINGS } from "../strings";
 import { requestOf } from "./request";
 import {
   TransportError,
   type Capabilities,
   type PartialViews,
+  type Reply,
   type Requested,
   type Transport,
 } from "./types";
@@ -108,6 +109,9 @@ export function viewKey(
 }
 
 const INBOX_FORMAT = formatTag("inbox");
+
+/** A view the page holds, as a reply: the snapshot carries no warnings and no pages. */
+const held = <T>(result: T): Reply<T> => ({ result, warnings: [], next: null });
 
 export function artifactTransport(env: ArtifactEnv): Transport {
   let snapshot: Snapshot | null = null;
@@ -227,23 +231,23 @@ export function artifactTransport(env: ArtifactEnv): Transport {
       if (unreadable.has(key)) {
         return {
           state: "refused",
-          line: STRINGS.refused,
-          problem: STRINGS.newerDocument,
+          line: CANVAS_STRINGS.refused,
+          problem: CANVAS_STRINGS.newer_document,
         };
       }
       if (answer?.error) {
         return {
           state: "refused",
-          line: STRINGS.refused,
+          line: CANVAS_STRINGS.refused,
           problem: answer.error.message,
         };
       }
       if (asked.has(key)) {
-        return { state: "asked", line: STRINGS.asked, problem: null };
+        return { state: "asked", line: CANVAS_STRINGS.asked, problem: null };
       }
       return {
         state: "unavailable",
-        line: snapshot?.unavailable.next.label ?? STRINGS.snapshotOnly,
+        line: snapshot?.unavailable.next.label ?? CANVAS_STRINGS.snapshot_only,
         problem: null,
       };
     },
@@ -283,7 +287,7 @@ export function artifactTransport(env: ArtifactEnv): Transport {
       if (!settled) {
         return null;
       }
-      return db === null || uid === null ? STRINGS.snapshotOnly : null;
+      return db === null || uid === null ? CANVAS_STRINGS.snapshot_only : null;
     },
   };
 
@@ -306,7 +310,10 @@ export function artifactTransport(env: ArtifactEnv): Transport {
         throw new TransportError("unreachable", String(e));
       }
       if (!response.ok) {
-        throw new TransportError("unreachable", STRINGS.snapshotMissing);
+        throw new TransportError(
+          "unreachable",
+          CANVAS_STRINGS.snapshot_missing,
+        );
       }
       const doc: unknown = await response.json();
       const format = checkFormat(doc, "snapshot");
@@ -314,8 +321,8 @@ export function artifactTransport(env: ArtifactEnv): Transport {
         throw new TransportError(
           "unreachable",
           format.code === "other"
-            ? STRINGS.snapshotMissing
-            : STRINGS.newerDocument,
+            ? CANVAS_STRINGS.snapshot_missing
+            : CANVAS_STRINGS.newer_document,
         );
       }
       snapshot = doc as Snapshot;
@@ -327,18 +334,18 @@ export function artifactTransport(env: ArtifactEnv): Transport {
       return true;
     },
 
-    query<T>(command: string, request: object): Promise<T> {
+    query<T>(command: string, request: object): Promise<Reply<T>> {
       if (snapshot === null) {
         return Promise.reject(
-          new TransportError("unreachable", STRINGS.snapshotMissing),
+          new TransportError("unreachable", CANVAS_STRINGS.snapshot_missing),
         );
       }
       if (command === "focus") {
-        return Promise.resolve(snapshot.pane as T);
+        return Promise.resolve(held(snapshot.pane as T));
       }
       const map = command === "map" ? mapOf(keyOf(command, request)) : null;
       if (map !== null) {
-        return Promise.resolve(map as T);
+        return Promise.resolve(held(map as T));
       }
       return Promise.reject(
         new TransportError("unreachable", `${command}: not in this snapshot`),

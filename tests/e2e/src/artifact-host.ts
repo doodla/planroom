@@ -13,6 +13,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 
+import type { Page } from "@playwright/test";
 import type {
   DbBatch,
   Envelope,
@@ -20,7 +21,8 @@ import type {
   ShareResult,
 } from "@planroom/contract";
 
-import type { SessionWrite } from "../shims/artifact-db";
+import { installArtifactDb, type SessionWrite } from "../shims/artifact-db";
+import { installClaude } from "../shims/claude";
 import { BIN, FIXTURE } from "./engine";
 
 /** The CSP the host serves the page under: its own files, inline styles, Google Fonts. */
@@ -211,4 +213,29 @@ export function importRows(
     throw new Error(`import failed: ${JSON.stringify(out.error)}`);
   }
   return out.result as ImportResult;
+}
+
+/**
+ * Open the Artifact as a contributor, with `live/head` as the session's first batch left it, and
+ * wait for its map. `db` is whether the page has a `window.claude.db` to ask through.
+ */
+export async function openArtifact(
+  page: Page,
+  ws: SharedWorkspace,
+  host: ArtifactHostServer,
+  db: boolean,
+): Promise<void> {
+  const uid = "u_test";
+  const seeded: Record<string, Record<string, unknown>> = {};
+  for (const w of inline(ws.share.db[0]!)) {
+    seeded[`${w.collection}/${w.doc_id}`] = w.data!;
+  }
+  await page.addInitScript(installArtifactDb, {
+    uid,
+    level: "interact" as const,
+    docs: seeded,
+  });
+  await page.addInitScript(installClaude, { db, uid, owner: false });
+  await page.goto(host.url);
+  await page.locator(".map[data-ready]").waitFor();
 }

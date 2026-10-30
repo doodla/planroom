@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import { firstFocus, type FocusScope } from "./picker";
+import { firstFocus, refocusOnEntries, type FocusScope } from "./picker";
 
 /** A scope whose `querySelector` answers the named selectors with a stand-in element each. */
 function scope(found: Record<string, string>): FocusScope {
@@ -32,4 +32,35 @@ test("the_sheet_focuses_its_own_current_entry_before_the_extra", () => {
     "the first theme radio",
   );
   expect(firstFocus(null, null)).toBeNull();
+});
+
+test("the_focus_moves_to_the_current_lens_when_the_lenses_arrive_after_the_sheet_opened", () => {
+  const lenses = scope({
+    "button[aria-current]": "the current lens",
+    button: "the first lens",
+  });
+  // The sheet opened before the listing answered, so the focus landed on the checked radio.
+  expect(
+    refocusOnEntries(
+      lenses,
+      radios,
+      "the checked theme radio",
+      "the checked theme radio",
+    ),
+  ).toBe("the current lens");
+  // The person moved the focus since: it stays where they put it.
+  expect(
+    refocusOnEntries(
+      lenses,
+      radios,
+      "the first theme radio",
+      "the checked theme radio",
+    ),
+  ).toBeNull();
+  // Already on the current lens: nothing moves.
+  expect(
+    refocusOnEntries(lenses, radios, "the current lens", "the current lens"),
+  ).toBeNull();
+  // The sheet put the focus nowhere: nothing to follow.
+  expect(refocusOnEntries(lenses, radios, null, null)).toBeNull();
 });

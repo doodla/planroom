@@ -1,13 +1,13 @@
-import type {
-  Answer,
-  MapView,
-  PaneModel,
-  Snapshot,
-  StreamFrame,
+import {
+  CANVAS_STRINGS,
+  type Answer,
+  type MapView,
+  type PaneModel,
+  type Snapshot,
+  type StreamFrame,
 } from "@planroom/contract";
 import { describe, expect, test } from "vitest";
 
-import { STRINGS } from "../strings";
 import {
   artifactTransport,
   viewKey,
@@ -163,8 +163,8 @@ describe("the artifact transport", () => {
     expect(fetched).toEqual(["./data/snapshot.json"]);
     expect(
       await t.query<MapView>("map", { detail: "graph", level: null }),
-    ).toEqual(snapshot.maps[0]);
-    expect(await t.query<PaneModel>("focus", {})).toEqual(pane);
+    ).toEqual({ result: snapshot.maps[0], warnings: [], next: null });
+    expect((await t.query<PaneModel>("focus", {})).result).toEqual(pane);
     expect(t.capabilities).toMatchObject({
       views: ["map:system:all", "pane"],
       layoutWriteBack: false,
@@ -176,7 +176,7 @@ describe("the artifact transport", () => {
     await t.login();
     await settle();
     const p = t.partial!;
-    expect(p.note()).toBe(STRINGS.snapshotOnly);
+    expect(p.note()).toBe(CANVAS_STRINGS.snapshot_only);
     expect(p.canAsk()).toBe(false);
     expect(p.serves("map", container)).toBe(false);
     expect(p.requested("map", container)).toEqual({
@@ -206,7 +206,7 @@ describe("the artifact transport", () => {
     const { t } = transport(null);
     await t.login();
     await settle();
-    expect(t.partial!.note()).toBe(STRINGS.snapshotOnly);
+    expect(t.partial!.note()).toBe(CANVAS_STRINGS.snapshot_only);
   });
 
   test("asking writes one read request row under the viewer's own inbox and bumps it", async () => {
@@ -265,7 +265,7 @@ describe("the artifact transport", () => {
     f.sessionSet(`answers/${docId}`, answer);
     expect(frames.length).toBe(before + 1);
     expect(t.partial!.serves("map", container)).toBe(true);
-    expect(await t.query<MapView>("map", container)).toEqual(answered);
+    expect((await t.query<MapView>("map", container)).result).toEqual(answered);
     expect(f.watchers.get(`answers/${docId}`)?.size).toBe(0);
   });
 
@@ -288,7 +288,7 @@ describe("the artifact transport", () => {
     });
     expect(t.partial!.requested("map", container)).toEqual({
       state: "refused",
-      line: STRINGS.refused,
+      line: CANVAS_STRINGS.refused,
       problem: "No such level.",
     });
   });
@@ -314,14 +314,14 @@ describe("the artifact transport", () => {
     const later = { ...snapshot, added_later: { kept: true } };
     const { t } = transport(host(null), later);
     expect(await t.login()).toBe(true);
-    expect(await t.query<PaneModel>("focus", {})).toEqual(pane);
+    expect((await t.query<PaneModel>("focus", {})).result).toEqual(pane);
     const newer = { ...snapshot, format: "planroom.snapshot/v2" };
     await expect(transport(host(null), newer).t.login()).rejects.toThrow(
-      STRINGS.newerDocument,
+      CANVAS_STRINGS.newer_document,
     );
     const other = { ...snapshot, format: "planroom.live-head/v1" };
     await expect(transport(host(null), other).t.login()).rejects.toThrow(
-      STRINGS.snapshotMissing,
+      CANVAS_STRINGS.snapshot_missing,
     );
   });
 
@@ -367,8 +367,8 @@ describe("the artifact transport", () => {
     });
     expect(t.partial!.requested("map", container)).toEqual({
       state: "refused",
-      line: STRINGS.refused,
-      problem: STRINGS.newerDocument,
+      line: CANVAS_STRINGS.refused,
+      problem: CANVAS_STRINGS.newer_document,
     });
     expect(t.partial!.serves("map", container)).toBe(false);
   });
@@ -379,7 +379,7 @@ describe("the artifact transport", () => {
     await t.login();
     await settle();
     expect(t.partial!.canAsk()).toBe(false);
-    expect(t.partial!.note()).toBe(STRINGS.snapshotOnly);
+    expect(t.partial!.note()).toBe(CANVAS_STRINGS.snapshot_only);
   });
 });
 

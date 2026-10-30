@@ -11,15 +11,20 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Page } from "@playwright/test";
-import type { InboxRow, MapView, Snapshot } from "@planroom/contract";
+import {
+  CANVAS_STRINGS,
+  type InboxRow,
+  type MapView,
+  type Snapshot,
+} from "@planroom/contract";
 
-import { installArtifactDb, type StoredDoc } from "../shims/artifact-db";
-import { installClaude } from "../shims/claude";
+import type { StoredDoc } from "../shims/artifact-db";
 import {
   batchesOf,
   hostArtifact,
   importRows,
   inline,
+  openArtifact,
   shareFixture,
   type ArtifactHostServer,
   type SharedWorkspace,
@@ -43,19 +48,8 @@ test.afterAll(async () => {
 });
 
 /** Open the Artifact as a contributor, with `live/head` as the session's first batch left it. */
-async function open(page: Page, db: boolean): Promise<void> {
-  const seeded: Record<string, Record<string, unknown>> = {};
-  for (const w of inline(ws.share.db[0]!)) {
-    seeded[`${w.collection}/${w.doc_id}`] = w.data!;
-  }
-  await page.addInitScript(installArtifactDb, {
-    uid: UID,
-    level: "interact" as const,
-    docs: seeded,
-  });
-  await page.addInitScript(installClaude, { db, uid: UID, owner: false });
-  await page.goto(host.url);
-  await page.locator(".map[data-ready]").waitFor();
+function open(page: Page, db: boolean): Promise<void> {
+  return openArtifact(page, ws, host, db);
 }
 
 const session = {
@@ -88,9 +82,9 @@ test.describe("at 1440x900", () => {
     await expect(request).toHaveAttribute("data-request", "unavailable");
     await page.getByRole("button", { name: ASK }).click();
     await expect(request).toHaveAttribute("data-request", "asked");
-    await expect(request).toContainText("Asked · it arrives at the next sync");
+    await expect(request).toContainText(CANVAS_STRINGS.asked);
     await expect(
-      page.getByRole("button", { name: "Back to the map" }),
+      page.getByRole("button", { name: CANVAS_STRINGS.back_to_map }),
     ).toBeVisible();
 
     // The row sits in the viewer's own inbox, and its head was bumped.
@@ -151,7 +145,7 @@ test.describe("at 1440x900", () => {
       snapshot().maps[0]!.nodes.length,
     );
     await expect(page.locator(".transport-note")).toHaveText(
-      "Snapshot only: this view can't reach live updates or ask your computer.",
+      CANVAS_STRINGS.snapshot_only,
     );
     const concepts = await page
       .locator("[data-concept]")
@@ -163,7 +157,9 @@ test.describe("at 1440x900", () => {
     await page.locator(".rail-step", { hasText: "container" }).click();
     await expect(page.locator(".request-state")).toContainText(ASK);
     await expect(page.getByRole("button", { name: ASK })).toHaveCount(0);
-    await page.getByRole("button", { name: "Back to the map" }).click();
+    await page
+      .getByRole("button", { name: CANVAS_STRINGS.back_to_map })
+      .click();
     await page.locator(".map[data-ready]").waitFor();
     await expect(page.locator(".block")).toHaveCount(
       snapshot().maps[0]!.nodes.length,
@@ -229,7 +225,7 @@ test.describe("at 390x844", () => {
       "asked",
     );
     expect(await session.list(page, `inbox/${UID}/events`)).toHaveLength(1);
-    await page.getByRole("button", { name: "Back to the map" }).tap();
+    await page.getByRole("button", { name: CANVAS_STRINGS.back_to_map }).tap();
     await page.locator(".map[data-ready]").waitFor();
   });
 });

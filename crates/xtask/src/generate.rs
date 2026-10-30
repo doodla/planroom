@@ -42,6 +42,7 @@ const GENERATORS: &[Generator] = &[
     contract_sh,
     configuration_reference,
     area_contracts,
+    canvas_strings,
     modgen::bundle,
     crate::docs::generated_marks,
     plugin_version,
@@ -281,6 +282,33 @@ fn mod_strings(root: &Path) -> Result<(Vec<String>, String), String> {
     }
     let keys = strings.keys().cloned().collect();
     Ok((keys, serde_json::to_string_pretty(&strings).map_err(|e| e.to_string())?))
+}
+
+/// The `[canvas]` table of `en.toml` as `CANVAS_STRINGS`: every value a string, keys sorted.
+fn canvas_strings(root: &Path) -> Result<Group, String> {
+    let path = root.join("crates/planroom/text/en.toml");
+    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let catalog: toml::Table = text.parse().map_err(|e| format!("{}: {e}", path.display()))?;
+    let table = catalog.get("canvas").and_then(|t| t.as_table()).ok_or("en.toml has no [canvas] table")?;
+    let mut strings = std::collections::BTreeMap::new();
+    for (key, value) in table {
+        let value = value.as_str().ok_or(format!("en.toml's canvas.{key} isn't a string"))?;
+        strings.insert(key.clone(), value.to_owned());
+    }
+    let keys = strings.keys().cloned().collect::<Vec<_>>().join("\" | \"");
+    let body = serde_json::to_string_pretty(&strings).map_err(|e| e.to_string())?;
+    let path = "packages/contract/src/generated/canvas-strings.ts";
+    let contents = format!(
+        "// {GENERATED_HEADER}
+
+/**
+ * The canvas's own lines, from the `[canvas]` table of `crates/planroom/text/en.toml`: templates whose
+ * `{{name}}`s the canvas fills with `fill` from `@planroom/ui`, then sanitizes.
+ */
+export const CANVAS_STRINGS: Readonly<Record<\"{keys}\", string>> = {body};
+"
+    );
+    Ok(Group { name: path, files: vec![Generated { path: path.into(), contents }] })
 }
 
 /// sha256 of the compact JSON of `Command::listing()`, as the engine's `version --json` reports it.
@@ -776,4 +804,47 @@ A workspace's file wins over yours, and a variable wins over both. A list variab
         rows.join("\n")
     );
     Ok(Group { name: CONFIG_REFERENCE, files: vec![Generated { path: CONFIG_REFERENCE.into(), contents }] })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A temporary root holding only an `en.toml` with `en`; removed when dropped.
+    struct Root(std::path::PathBuf);
+
+    impl Root {
+        fn with(name: &str, en: &str) -> Root {
+            let dir = std::env::temp_dir().join(format!("planroom-xtask-{}-{name}", std::process::id()));
+            fs::create_dir_all(dir.join("crates/planroom/text")).unwrap();
+            fs::write(dir.join("crates/planroom/text/en.toml"), en).unwrap();
+            Root(dir)
+        }
+    }
+
+    impl Drop for Root {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn canvas_strings_writes_every_canvas_line_sorted() {
+        let root = Root::with("sorted", "[canvas]\nb = \"B\"\na = \"A {x}\"\n");
+        let group = canvas_strings(&root.0).ok().unwrap();
+        assert_eq!(group.files.len(), 1);
+        assert_eq!(group.files[0].path, "packages/contract/src/generated/canvas-strings.ts");
+        let text = &group.files[0].contents;
+        assert!(text.contains("Record<\"a\" | \"b\", string>"), "{text}");
+        let (a, b) = (text.find("\"a\": \"A {x}\"").unwrap(), text.find("\"b\": \"B\"").unwrap());
+        assert!(a < b, "{text}");
+    }
+
+    #[test]
+    fn canvas_strings_refuses_a_table_that_is_missing_or_not_strings() {
+        let missing = Root::with("missing", "[mod]\na = \"A\"\n");
+        assert!(canvas_strings(&missing.0).err().unwrap().contains("no [canvas] table"));
+        let number = Root::with("number", "[canvas]\na = 1\n");
+        assert!(canvas_strings(&number.0).err().unwrap().contains("canvas.a isn't a string"));
+    }
 }

@@ -1,17 +1,18 @@
 /**
- * The card stack (Decisions): one card face up, the pick already made. With no open decision the
- * face-up card is the pane's next action (DR-54). Every choice is one tap.
+ * The card stack (Decisions): one card face up, the pick already made. In M1 its choices are
+ * labels, the pre-selected one marked, since `decide` is not a command yet and the pane picks a
+ * card (DR-85: a surface offers only what works). With no open decision the face-up card is the
+ * pane's next action (DR-54), one tap.
  */
 
 import { sanitize } from "@planroom/ui";
 
-import { STRINGS } from "../strings";
+import { CANVAS_STRINGS } from "@planroom/contract";
 import { useCanvas } from "../use-canvas";
 import { useNextAction } from "./next-action";
 
 export function CardStack() {
   const pane = useCanvas((s) => s.pane);
-  const run = useCanvas((s) => s.run);
   const next = useNextAction();
   if (pane === null) {
     return null;
@@ -22,7 +23,7 @@ export function CardStack() {
     <section
       className="cards"
       data-concept="decisions"
-      aria-label={STRINGS.decisions}
+      aria-label={CANVAS_STRINGS.decisions}
     >
       <div className="card-stack" style={{ paddingBottom: behind * 6 }}>
         {Array.from({ length: behind }, (_, i) => (
@@ -40,25 +41,20 @@ export function CardStack() {
             <>
               <h2 className="card-question">{sanitize(card.question)}</h2>
               <p className="card-why">{sanitize(card.why)}</p>
-              <div className="card-choices">
+              <ul className="card-choices">
                 {card.choices.map((c) => (
-                  <button
+                  <li
                     key={c.id}
-                    type="button"
-                    className={c.preselected ? "button primary" : "button"}
-                    aria-pressed={c.preselected}
-                    onClick={() =>
-                      void run({
-                        command: "decide",
-                        args: [card.id, c.id],
-                        label: c.label,
-                      })
+                    className={
+                      c.preselected ? "card-choice picked" : "card-choice"
                     }
+                    {...(c.preselected ? { "aria-current": "true" } : {})}
                   >
                     {sanitize(c.label)}
-                  </button>
+                  </li>
                 ))}
-              </div>
+              </ul>
+              <p className="card-in-pane">{CANVAS_STRINGS.card_in_pane}</p>
             </>
           ) : next !== null ? (
             <div className="card-choices">

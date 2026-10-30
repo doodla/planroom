@@ -4,7 +4,14 @@
  * the Artifact `db`. Each declares what it can serve.
  */
 
-import type { Envelope, Handle, Input, StreamFrame } from "@planroom/contract";
+import type {
+  Cursor,
+  Envelope,
+  Handle,
+  Input,
+  StreamFrame,
+  Warning,
+} from "@planroom/contract";
 
 /** What a transport can serve. `local` serves every view and query. */
 export interface Capabilities {
@@ -66,6 +73,16 @@ export interface PartialViews {
   note(): string | null;
 }
 
+/**
+ * A read or a press as the engine answered it: the result, the warnings its envelope carried
+ * (`meta.warnings`) and the cursor of the next page (`meta.next`). The Artifact has neither.
+ */
+export interface Reply<T> {
+  readonly result: T;
+  readonly warnings: readonly Warning[];
+  readonly next: Cursor | null;
+}
+
 export interface Transport {
   readonly capabilities: Capabilities;
   /** Views the transport holds only some of; null when it serves every view. */
@@ -75,12 +92,12 @@ export interface Transport {
    * the tab's token. False when the tab has neither and needs a fresh link.
    */
   login(): Promise<boolean>;
-  /** A read command's result. */
-  query<T>(command: string, request: object): Promise<T>;
+  /** A read command's reply. */
+  query<T>(command: string, request: object): Promise<Reply<T>>;
   /** A write command's result. */
   write<T>(command: string, request: object): Promise<T>;
   /** Run an engine-authored handle, such as an empty state's next action. */
-  run(handle: Handle): Promise<unknown>;
+  run(handle: Handle): Promise<Reply<unknown>>;
   /** Store a computed layout. */
   saveLayout(layout: LayoutPut): Promise<void>;
   /** Live frames until the returned function stops them; `onEnd` hears why the stream closed. */

@@ -7,26 +7,34 @@
 
 import { useState } from "react";
 
-import { STRINGS } from "../strings";
+import { CANVAS_STRINGS } from "@planroom/contract";
 import { PHONE, useCanvas, useMedia } from "../use-canvas";
 import { MapCanvas } from "../views/map-view";
 import { RequestState, TransportNote } from "../views/request-state";
 import { CardStack } from "./card-stack";
 import { TrayBadge, TrayList, TrayPeek } from "./diff-tray";
+import { Evidence } from "./evidence";
 import { ChevronIcon } from "./icons";
+import { Notices } from "./notices";
 import { TopRow } from "./top-row";
 import { ZoomRail } from "./zoom-rail";
 
 function BottomSheet() {
   const [half, setHalf] = useState(false);
+  // The evidence sheet opens the bottom sheet to half; its own state comes back when it closes.
+  const evidence = useCanvas((s) => s.evidence !== null);
+  const shown = half || evidence;
   return (
-    <section className="sheet panel" data-detent={half ? "half" : "peek"}>
+    <section className="sheet panel" data-detent={shown ? "half" : "peek"}>
       <div className="sheet-head">
         <TrayBadge open={half} onPress={() => setHalf(!half)} />
         <button
           type="button"
           className="icon-button sheet-toggle"
-          aria-label={half ? STRINGS.sheetPeek : STRINGS.sheetHalf}
+          data-concept="diffs"
+          aria-label={
+            half ? CANVAS_STRINGS.sheet_peek : CANVAS_STRINGS.sheet_half
+          }
           aria-expanded={half}
           onClick={() => setHalf(!half)}
         >
@@ -34,6 +42,7 @@ function BottomSheet() {
         </button>
       </div>
       <div className="sheet-body">
+        <Evidence />
         <CardStack />
         {half && <TrayList />}
       </div>
@@ -51,6 +60,7 @@ export function Shell() {
         <TopRow />
         <main className="stage">
           <TransportNote />
+          <Notices />
           {requesting ? <RequestState /> : <MapCanvas />}
         </main>
         <BottomSheet />
@@ -63,7 +73,9 @@ export function Shell() {
       <ZoomRail />
       <main className="stage">
         <TransportNote />
+        <Notices />
         {requesting ? <RequestState /> : <MapCanvas />}
+        <Evidence />
       </main>
       <aside className="side">
         <CardStack />

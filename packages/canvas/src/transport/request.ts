@@ -8,6 +8,8 @@
 
 import type { Handle } from "@planroom/contract";
 
+import type { PartialViews } from "./types";
+
 /**
  * Each command's positional fields, in order, as its request struct names them. `decide ID
  * CHOICE` (contracts.md) has no request struct until M2; its fields are named as its synopsis
@@ -48,4 +50,21 @@ export function requestOf(handle: Handle): Record<string, unknown> {
     request[field] = arg;
   }
   return request;
+}
+
+/**
+ * Whether the transport can run `handle`, so a button for it is drawn only when pressing it
+ * works (DR-85). A transport that serves every view runs every handle. A partial one turns any
+ * `map` handle into a request state, except one with a `--focus`: the snapshot holds the top map
+ * alone. Any other handle runs when the transport serves its request.
+ */
+export function canRun(partial: PartialViews | null, handle: Handle): boolean {
+  if (partial === null) {
+    return true;
+  }
+  const request = requestOf(handle);
+  if (handle.command === "map") {
+    return !("focus" in request);
+  }
+  return partial.serves(handle.command, request);
 }

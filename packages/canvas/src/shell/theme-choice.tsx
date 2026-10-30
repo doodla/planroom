@@ -7,7 +7,7 @@
 import { THEME_PREFERENCES, type ThemePreference } from "@planroom/ui";
 import { useId, useRef, type KeyboardEvent } from "react";
 
-import { STRINGS } from "../strings";
+import { CANVAS_STRINGS } from "@planroom/contract";
 import { useThemeChoice } from "../theme";
 
 export function ThemeChoice() {
@@ -18,9 +18,9 @@ export function ThemeChoice() {
     return null;
   }
   const labels: Record<ThemePreference, string> = {
-    system: STRINGS.themeSystem,
-    light: STRINGS.themeLight,
-    dark: STRINGS.themeDark,
+    system: CANVAS_STRINGS.theme_system,
+    light: CANVAS_STRINGS.theme_light,
+    dark: CANVAS_STRINGS.theme_dark,
   };
   // Arrows move focus only: a choice closes the sheet, so choosing as the focus moved would shut
   // it on the first press. Enter, Space or a press chooses.
@@ -57,7 +57,7 @@ export function ThemeChoice() {
   return (
     <div className="theme-choice">
       <p className="theme-choice-label" id={id}>
-        {STRINGS.theme}
+        {CANVAS_STRINGS.theme}
       </p>
       <div
         role="radiogroup"

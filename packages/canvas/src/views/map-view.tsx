@@ -13,13 +13,7 @@ import {
   type Edge,
   type NodeChange,
 } from "@xyflow/react";
-import {
-  blocksOf,
-  edgesOf,
-  matchBlocks,
-  sanitize,
-  yarnVar,
-} from "@planroom/ui";
+import { blocksOf, edgesOf, fill, matchBlocks, yarnVar } from "@planroom/ui";
 import {
   useCallback,
   useEffect,
@@ -32,7 +26,7 @@ import {
 import emptyMap from "../assets/empty-map.webp";
 import { BLOCK } from "../layout/graph";
 import { useTopName } from "../shell/next-action";
-import { STRINGS } from "../strings";
+import { CANVAS_STRINGS } from "@planroom/contract";
 import { PHONE, useCanvas, useMedia } from "../use-canvas";
 import { BlockNodeComponent, type BlockNode } from "./block-node";
 import { EmptyState } from "./empty-state";
@@ -59,15 +53,26 @@ function Revealer() {
 
 type Moment = "dive" | "rise" | undefined;
 
+/** Two presses on one block this close together, in milliseconds, are a dive. */
+const DIVE_WINDOW_MS = 300;
+
 function MapFlow({ moment }: { moment: Moment }) {
   const map = useCanvas((s) => s.map);
   const positions = useCanvas((s) => s.positions);
   const selected = useCanvas((s) => s.selected);
   const query = useCanvas((s) => s.query);
   const select = useCanvas((s) => s.select);
+  const dive = useCanvas((s) => s.dive);
+  const canOpenEvidence = useCanvas((s) => s.canOpenEvidence);
+  const openEvidence = useCanvas((s) => s.openEvidence);
+  const closeEvidence = useCanvas((s) => s.closeEvidence);
   const phone = useMedia(PHONE);
   const [ready, setReady] = useState(false);
-  const measured = useRef(new Set<string>());
+  // Each block's measured size. A controlled flow draws a node it has no size for hidden until it
+  // measures it again, so a block rebuilt on a selection would vanish for a frame and a second
+  // press of a dive would land on the felt.
+  const measured = useRef(new Map<string, { width: number; height: number }>());
+  const lastPress = useRef<{ id: string; at: number } | null>(null);
 
   const rows = useMemo(() => (map ? blocksOf(map) : []), [map]);
   const lifted = useMemo(() => (map ? edgesOf(map) : []), [map]);
@@ -97,6 +102,7 @@ function MapFlow({ moment }: { moment: Moment }) {
             dim: !matches.has(row.id) || (near !== null && !near.has(row.id)),
           },
           selected: row.id === selected,
+          measured: measured.current.get(row.id),
           draggable: false,
           connectable: false,
           ariaLabel: `${row.name}, ${row.kindLabel}`,
@@ -108,17 +114,17 @@ function MapFlow({ moment }: { moment: Moment }) {
     () =>
       lifted.map((e) => {
         const dim = near !== null && e.from !== selected && e.to !== selected;
+        const openable = canOpenEvidence(e.from, e.to);
         return {
           id: e.id,
           source: e.from,
           target: e.to,
           label: e.count > 1 ? String(e.count) : undefined,
           ariaLabel: `${e.kindLabel} ×${e.count}`,
-          className: dim
-            ? "lifted dim"
-            : near !== null
-              ? "lifted near"
-              : "lifted",
+          className:
+            (dim ? "lifted dim" : near !== null ? "lifted near" : "lifted") +
+            (openable ? " openable" : ""),
+          interactionWidth: 24,
           markerEnd: {
             type: MarkerType.ArrowClosed,
             width: 18,
@@ -131,7 +137,36 @@ function MapFlow({ moment }: { moment: Moment }) {
           labelBgBorderRadius: 6,
         };
       }),
-    [lifted, near, selected],
+    [lifted, near, selected, canOpenEvidence],
+  );
+
+  // Two presses on one block within the window go into it; one only selects. A tap and a click
+  // both arrive here.
+  const onNodeClick = useCallback(
+    (_: unknown, node: { id: string }) => {
+      const now = performance.now();
+      const last = lastPress.current;
+      if (
+        last !== null &&
+        last.id === node.id &&
+        now - last.at <= DIVE_WINDOW_MS
+      ) {
+        lastPress.current = null;
+        void dive(node.id);
+        return;
+      }
+      lastPress.current = { id: node.id, at: now };
+      select(node.id);
+    },
+    [dive, select],
+  );
+
+  // A press on an edge asks the engine why its two blocks are related (architecture.md, A14).
+  const onEdgeClick = useCallback(
+    (_: unknown, edge: Edge) => {
+      void openEvidence(edge.source, edge.target);
+    },
+    [openEvidence],
   );
 
   // A controlled flow learns each block's size from its dimension changes.
@@ -139,7 +174,7 @@ function MapFlow({ moment }: { moment: Moment }) {
     (changes: NodeChange<BlockNode>[]) => {
       for (const c of changes) {
         if (c.type === "dimensions" && c.dimensions) {
-          measured.current.add(c.id);
+          measured.current.set(c.id, c.dimensions);
         }
       }
       if (
@@ -162,7 +197,7 @@ function MapFlow({ moment }: { moment: Moment }) {
       style={{ "--yarn": yarnVar(map?.yarn ?? null) } as CSSProperties}
       data-ready={ready || undefined}
       data-moment={moment}
-      aria-label={STRINGS.map}
+      aria-label={CANVAS_STRINGS.map}
     >
       <ReactFlow<BlockNode, Edge>
         nodes={nodes}
@@ -181,13 +216,21 @@ function MapFlow({ moment }: { moment: Moment }) {
         nodesConnectable={false}
         elementsSelectable
         zoomOnDoubleClick={false}
-        onNodeClick={(_, node) => select(node.id)}
-        onPaneClick={() => select(null)}
+        onNodeClick={onNodeClick}
+        onEdgeClick={
+          lifted.some((e) => canOpenEvidence(e.from, e.to))
+            ? onEdgeClick
+            : undefined
+        }
+        onPaneClick={() => {
+          select(null);
+          closeEvidence();
+        }}
         proOptions={{ hideAttribution: true }}
       >
         <Revealer />
       </ReactFlow>
-      <Outline rows={rows} edges={lifted} />
+      <Outline levels={map?.levels ?? []} rows={rows} edges={lifted} />
     </div>
   );
 }
@@ -212,11 +255,14 @@ function LevelEmpty() {
       <EmptyState
         art={emptyMap}
         concept="levels"
-        line={words?.line ?? STRINGS.emptyLevel(sanitize(map.level))}
+        line={words?.line}
         action={
           next !== null && words !== null
             ? { label: words.label, onPress: () => void run(next) }
-            : { label: STRINGS.backTo(top), onPress: () => void back() }
+            : {
+                label: fill(CANVAS_STRINGS.back_to, { place: top }),
+                onPress: () => void back(),
+              }
         }
       />
     </div>
@@ -232,21 +278,36 @@ export function MapCanvas() {
   return <LevelMap />;
 }
 
+/** Where the map is, as the lids and the rail say it: what a new view is compared with. */
+interface Seen {
+  readonly key: string;
+  readonly rank: number;
+  readonly depth: number;
+}
+
 function LevelMap() {
   const level = useCanvas((s) => s.map?.level ?? null);
+  const focus = useCanvas((s) => s.map?.focus ?? null);
+  const lens = useCanvas((s) => s.map?.lens ?? null);
+  const depth = useCanvas((s) => s.trail.length);
   const levels = useCanvas((s) => s.map?.levels) ?? [];
-  const [shown, setShown] = useState(level);
+  const key = `${level ?? ""}|${focus ?? ""}|${lens ?? ""}`;
+  const rank = level === null ? -1 : levels.findIndex((e) => e.id === level);
+  const [shown, setShown] = useState<Seen>({ key, rank, depth });
   const [moment, setMoment] = useState<Moment>(undefined);
-  if (level !== shown) {
-    // The lid lifts going down a level and drops back going up (design-language.md, "Motion"),
-    // down being later in the shown map's levels.
-    const rank = (l: typeof level) =>
-      l === null ? -1 : levels.findIndex((e) => e.id === l);
-    setMoment(rank(level) > rank(shown) ? "dive" : "rise");
-    setShown(level);
+  if (key !== shown.key || depth !== shown.depth) {
+    // The lid lifts going down and drops back going up (design-language.md, "Motion"): down is a
+    // block pushed on the trail or a later level of the shown map, up a pop or an earlier one. A
+    // new lens alone moves neither.
+    const down =
+      depth !== shown.depth ? depth > shown.depth : rank > shown.rank;
+    const up = depth !== shown.depth ? depth < shown.depth : rank < shown.rank;
+    setMoment(down ? "dive" : up ? "rise" : undefined);
+    setShown({ key, rank, depth });
   }
+  // Every new view gets its own flow, so `fitView` fits it, not only a new level.
   return (
-    <ReactFlowProvider key={level ?? ""}>
+    <ReactFlowProvider key={key}>
       <MapFlow moment={moment} />
     </ReactFlowProvider>
   );

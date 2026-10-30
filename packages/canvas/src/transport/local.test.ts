@@ -98,12 +98,27 @@ describe("login", () => {
     expect(await transport.login()).toBe(true);
     expect(t.replaced).toEqual(["/"]);
     expect(t.storage.items.get(TOKEN_KEY)).toBe("tok-1");
-    expect(await transport.query("map", { detail: "graph" })).toEqual({
+    expect((await transport.query("map", { detail: "graph" })).result).toEqual({
       nodes: [],
     });
     const map = t.calls.at(-1)!;
     expect(map.headers.Authorization).toBe("Bearer tok-1");
     expect(map.body).toEqual({ detail: "graph" });
+  });
+
+  test("signing in again after the code was spent keeps the token and spends nothing", async () => {
+    const t = env({
+      "POST /api/v1/session": () =>
+        json(envelope({ token: "tok-1" }, true, "serve")),
+    });
+    const transport = localTransport(t.env);
+    expect(await transport.login()).toBe(true);
+    // The page's address was read once, so its fragment still holds the spent code; a retry after
+    // the engine stopped answering signs in again with the token the tab already has.
+    expect(await transport.login()).toBe(true);
+    expect(
+      t.calls.filter((c) => c.url.endsWith("/api/v1/session")),
+    ).toHaveLength(1);
   });
 
   test("a reload keeps the tab signed in with the token from sessionStorage", async () => {
@@ -153,7 +168,7 @@ describe("login", () => {
     });
     const transport = localTransport({ ...t.env, storage: throwing });
     expect(await transport.login()).toBe(true);
-    expect(await transport.query("focus", {})).toEqual({ ok: 1 });
+    expect((await transport.query("focus", {})).result).toEqual({ ok: 1 });
   });
 });
 
@@ -224,6 +239,54 @@ describe("requests", () => {
       url: "http://127.0.0.1:41873/api/v1/scan",
       body: { dir: "/home/you/shop" },
     });
+  });
+
+  test("a_reply_carries_the_envelopes_warnings_and_next", async () => {
+    const warning = {
+      code: "partial_scan",
+      message: "Repo a was skipped.",
+      details: null,
+    };
+    const { transport } = await signedIn({
+      "POST /api/v1/ask": () =>
+        json({
+          ...envelope({ items: [] }, true, "ask"),
+          meta: {
+            seq: 1,
+            size: { bytes: 0, tokens_est: 0 },
+            warnings: [warning],
+            next: "page-2",
+          },
+        }),
+      "POST /api/v1/focus": () => json(envelope({ ok: 1 }, true, "focus")),
+      "POST /api/v1/scan": () =>
+        json({
+          ...envelope({ scanned: true }, true, "scan"),
+          meta: {
+            seq: 2,
+            size: { bytes: 0, tokens_est: 0 },
+            warnings: [warning],
+          },
+        }),
+    });
+    expect(await transport.query("ask", {})).toEqual({
+      result: { items: [] },
+      warnings: [warning],
+      next: "page-2",
+    });
+    // An envelope that carries neither has none.
+    expect(await transport.query("focus", {})).toEqual({
+      result: { ok: 1 },
+      warnings: [],
+      next: null,
+    });
+    // A press carries the warnings of its reply too.
+    const press = await transport.run({
+      command: "scan",
+      args: ["/x"],
+      label: "",
+    });
+    expect(press.warnings).toEqual([warning]);
   });
 
   test("a layout is stored with PUT", async () => {

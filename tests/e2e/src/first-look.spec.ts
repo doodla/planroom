@@ -6,11 +6,24 @@
 
 import { readFileSync } from "node:fs";
 
-import type { LiftedEdge, MapNode, MapView } from "@planroom/contract";
+import {
+  CANVAS_STRINGS,
+  type LiftedEdge,
+  type MapNode,
+  type MapView,
+} from "@planroom/contract";
 import type { Locator, Page } from "@playwright/test";
 
 import type { Engine } from "./engine";
-import { DESKTOP, PHONE, expect, openMap, test } from "./fixtures";
+import {
+  DESKTOP,
+  PHONE,
+  expect,
+  lensItems,
+  openMap,
+  test,
+  tokenColor,
+} from "./fixtures";
 
 /**
  * The engine's whole map of the default lens (or `lens`) at the top level (or `level`), as the
@@ -89,25 +102,6 @@ function packDefaultLens(): { id: string; yarn: string } {
 function onMap(view: MapView): LiftedEdge[] {
   const ids = new Set(view.nodes.map((n) => n.id));
   return view.edges.filter((e) => ids.has(e.from) && ids.has(e.to));
-}
-
-/** What `token` (such as `block-service`) resolves to on the page, as a computed color. */
-function tokenColor(
-  page: Page,
-  token: string,
-  property: "color" | "backgroundColor" = "color",
-): Promise<string> {
-  return page.evaluate(
-    ([name, prop]) => {
-      const probe = document.createElement("div");
-      probe.style[prop as "color"] = `var(--${name})`;
-      document.body.append(probe);
-      const color = getComputedStyle(probe)[prop as "color"];
-      probe.remove();
-      return color;
-    },
-    [token, property] as const,
-  );
 }
 
 /** Open `level` of the default lens through the rail, and wait for its blocks to be drawn. */
@@ -258,6 +252,49 @@ test.describe("at 1440x900", () => {
     test.info().annotations.push({ type: "labels", description: line });
   });
 
+  test("picking_a_lens_draws_its_edges_in_its_yarn", async ({
+    page,
+    engine,
+  }) => {
+    const view = engineMap(engine);
+    const levels = (view.levels ?? []).filter((l) => !l.apart);
+    await openMap(page, await engine.loginUrl());
+    const items = lensItems(engine);
+    expect(items.length, "the listing's lenses").toBeGreaterThan(1);
+    for (const item of items) {
+      await page.getByRole("button", { name: CANVAS_STRINGS.lenses }).click();
+      await page
+        .locator(".picker-sheet")
+        .getByRole("button", { name: item.name, exact: true })
+        .click();
+      // Step down the rail until the lens has an edge to draw.
+      let found: { level: string; edges: number; yarn: string } | undefined;
+      for (const level of levels) {
+        const lensView = engineMap(engine, { lens: item.id, level: level.id });
+        const edges = onMap(lensView).length;
+        if (edges > 0) {
+          found = { level: level.id, edges, yarn: lensView.yarn! };
+          break;
+        }
+      }
+      expect(found, `${item.id} has an edge at some level`).toBeDefined();
+      const label = view.levels!.find((l) => l.id === found!.level)!.label;
+      await page
+        .locator(".rail")
+        .getByRole("button", { name: label, exact: true })
+        .click();
+      const yarn = await tokenColor(page, `yarn-${found!.yarn}`);
+      const strokes = () =>
+        page
+          .locator(".react-flow__edge-path")
+          .evaluateAll((els) => [
+            ...new Set(els.map((e) => getComputedStyle(e).stroke)),
+          ]);
+      await expect.poll(strokes, `${item.id}'s edges`).toEqual([yarn]);
+      await expect(page.locator(".react-flow__edge")).toHaveCount(found!.edges);
+    }
+  });
+
   test("a_blocks_counts_drop_whole_levels_from_the_bottom", async ({
     page,
     engine,
@@ -274,6 +311,10 @@ test.describe("at 1440x900", () => {
           id: e.getAttribute("data-id") ?? "",
           name: e.querySelector(".block-name")?.textContent ?? "",
           area: area ? { top: area.top, bottom: area.bottom } : null,
+          // What each count's `::before` draws; the first has none.
+          separators: [...e.querySelectorAll(".block-count")].map((s) =>
+            getComputedStyle(s, "::before").content.replace(/^"|"$/g, ""),
+          ),
           spans: [...e.querySelectorAll(".block-count")].map((s) => {
             const box = s.getBoundingClientRect();
             return {
@@ -299,6 +340,12 @@ test.describe("at 1440x900", () => {
         continue;
       }
       withCounts += 1;
+      for (const separator of block.separators.slice(1)) {
+        expect(
+          separator.startsWith("\u00a0"),
+          `${block.name}: a later count's separator starts with a no-break space`,
+        ).toBe(true);
+      }
       const area = block.area!;
       const visible: string[] = [];
       for (const span of block.spans) {

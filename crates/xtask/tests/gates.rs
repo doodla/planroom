@@ -742,7 +742,13 @@ fn check_names_no_m1_gap() {
     // `check` names nothing M1 builds as not built; the gates M1 built run instead.
     let m1: Vec<_> = NOT_BUILT.iter().filter(|(cmd, _, m)| *cmd == "check" && *m == "M1").collect();
     assert!(m1.is_empty(), "{m1:?}");
-    for built in ["breaking-change guard", "secret scan", "release_pins", "feature_list_is_complete"] {
+    for built in [
+        "breaking-change guard",
+        "secret scan",
+        "release_pins",
+        "feature_list_is_complete",
+        "empty-state audit",
+    ] {
         assert!(!NOT_BUILT.iter().any(|(_, name, _)| name.contains(built)), "{built} is built");
     }
     let mut r = Report::with(true, CiSkips::default());

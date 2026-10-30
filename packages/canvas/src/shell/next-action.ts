@@ -4,10 +4,10 @@
  * becomes the way back up instead (ux-4).
  */
 
-import { sanitize } from "@planroom/ui";
+import { fill, sanitize } from "@planroom/ui";
 
-import { alreadyShown } from "../levels";
-import { STRINGS } from "../strings";
+import { alreadyShown, atTop, topOf } from "../levels";
+import { CANVAS_STRINGS } from "@planroom/contract";
 import { useCanvas } from "../use-canvas";
 
 /**
@@ -19,7 +19,7 @@ export function useTopName(): string {
   const topLevel = useCanvas(
     (s) => s.map?.levels?.find((l) => !l.apart)?.label,
   );
-  return sanitize(name ?? topLevel ?? STRINGS.levels);
+  return sanitize(name ?? topLevel ?? CANVAS_STRINGS.levels);
 }
 
 export interface NextPress {
@@ -30,8 +30,7 @@ export interface NextPress {
 /** The next action's press, the way back up once its level shows, or null when neither applies. */
 export function useNextAction(): NextPress | null {
   const pane = useCanvas((s) => s.pane);
-  const level = useCanvas((s) => s.level);
-  const levels = useCanvas((s) => s.map?.levels);
+  const map = useCanvas((s) => s.map);
   const run = useCanvas((s) => s.run);
   const back = useCanvas((s) => s.back);
   const top = useTopName();
@@ -39,10 +38,21 @@ export function useNextAction(): NextPress | null {
     return null;
   }
   const next = pane.next;
-  if (alreadyShown(levels ?? [], next, level)) {
-    return level === null
+  const levels = map?.levels ?? [];
+  // Where you are is the shown map's view, not the asked one (the asked view counts only while a
+  // request state stands).
+  const shown = {
+    level: map?.level ?? null,
+    lens: map?.lens ?? null,
+    focus: map?.focus ?? null,
+  };
+  if (alreadyShown(levels, next, shown)) {
+    return atTop(shown.level, shown.focus, topOf(levels)?.id ?? "")
       ? null
-      : { label: STRINGS.backTo(top), onPress: () => void back() };
+      : {
+          label: fill(CANVAS_STRINGS.back_to, { place: top }),
+          onPress: () => void back(),
+        };
   }
   return { label: sanitize(next.label), onPress: () => void run(next) };
 }

@@ -29,3 +29,6 @@ export {
   type ToolName,
   type ToolSpecData,
 } from "./generated/catalogue";
+
+/** The canvas's own lines, from en.toml's [canvas]. */
+export { CANVAS_STRINGS } from "./generated/canvas-strings";

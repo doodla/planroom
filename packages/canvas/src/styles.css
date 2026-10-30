@@ -112,7 +112,7 @@ input {
 }
 
 .shell.desk {
-  grid-template-columns: 112px minmax(0, 1fr) 360px;
+  grid-template-columns: fit-content(200px) minmax(0, 1fr) 360px;
   grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas:
     "top top top"
@@ -240,9 +240,12 @@ button.lid-ancestor:hover {
   font-size: 19px;
 }
 
+/* The levels sheet scrolls when its entries pass the half detent. */
 .lid-more .picker-sheet {
   right: auto;
   left: 0;
+  max-height: 50dvh;
+  overflow-y: auto;
 }
 
 .lid-current {
@@ -298,11 +301,19 @@ button.lid-ancestor:hover {
 }
 
 .phone .lid-current[data-searching] .lid-search {
+  height: var(--target);
   margin-left: 0;
+}
+
+/* The breadcrumb gives up width last: the shelf's chip shrinks first, and only a label longer than
+   the row ellipsizes. */
+.phone .breadcrumb {
+  flex-shrink: 0.01;
 }
 
 .rail {
   grid-area: rail;
+  min-width: 112px;
 }
 
 .rail ol {
@@ -315,12 +326,18 @@ button.lid-ancestor:hover {
   list-style: none;
 }
 
-.rail ol::before {
+.rail li {
+  position: relative;
+}
+
+/* The ladder's dashed connector runs from each step of the chain to the next, so it never runs
+   through the level set apart from the chain. */
+.rail li:not([data-apart]) + li:not([data-apart])::before {
   content: "";
   position: absolute;
-  top: 26px;
-  bottom: 26px;
-  left: 21px;
+  top: -19px;
+  height: 34px;
+  left: calc(var(--border) + 21px - var(--border) / 2);
   border-left: var(--border) dashed var(--muted);
 }
 
@@ -366,8 +383,8 @@ button.lid-ancestor:hover {
   background: currentColor;
 }
 
-/* A level's label is pack data of any length: it ellipsizes in the 112 px column, whole in the
-   step's title. */
+/* A level's label is pack data of any length: the rail's column sizes to the labels up to 200 px,
+   and a longer one ellipsizes there, whole in the step's title. */
 .rail-label {
   min-width: 0;
   overflow: hidden;
@@ -395,12 +412,27 @@ button.lid-ancestor:hover {
   text-overflow: ellipsis;
 }
 
+/* On the phone the shelf yields first: its chip shrinks to an ellipsis down to its 44 px target,
+   so the current lid keeps each level's whole label. */
+.phone .project-shelf {
+  flex: 0 20 auto;
+  min-width: var(--target);
+}
+
+.phone .project-shelf .picker-button,
+.phone .project-shelf .picker-face {
+  max-width: 100%;
+  min-width: var(--target);
+  overflow: hidden;
+}
+
 .phone .chip-label {
-  max-width: 84px;
+  max-width: none;
+  min-width: 0;
 }
 
 .lens-switcher .yarn {
-  color: var(--muted);
+  color: var(--yarn, var(--muted));
   stroke-width: 2.5;
 }
 
@@ -421,9 +453,20 @@ button.lid-ancestor:hover {
   padding: 0 11px;
 }
 
+/* The lens switcher with no button (the Artifact's) is flat on the felt: no border, background or
+   shadow, and nothing to press. A shelf with no project to pick is a chalk outline with the radius
+   of the block that will sit there. */
+.lens-switcher.picker-static .picker-face {
+  border: none;
+  background: none;
+  box-shadow: none;
+  cursor: default;
+}
+
 .project-shelf .picker-face {
   border-style: dashed;
   border-color: var(--chalk);
+  border-radius: var(--radius-block);
 }
 
 .picker-sheet {
@@ -465,6 +508,25 @@ button.lid-ancestor:hover {
 
 .lens-switcher .picker-sheet {
   min-width: 240px;
+}
+
+/* A level set apart from the chain sits apart in the sheet too. */
+.picker-sheet li[data-apart] {
+  margin-bottom: 8px;
+}
+
+/* On the desktop an open top-row sheet ends before the side column, so it never covers the card
+   stack: the row is its anchor and the sheet's right edge is the side column's left. */
+.shell.desk .top-row {
+  position: relative;
+}
+
+.shell.desk .top-row .picker {
+  position: static;
+}
+
+.shell.desk .top-row .picker-sheet {
+  right: calc(360px + 16px);
 }
 
 .picker-sheet ul + .picker-extra {
@@ -548,6 +610,10 @@ button.lid-ancestor:hover {
 
 .react-flow__edge.near .react-flow__edge-path {
   stroke-width: 3.5;
+}
+
+.react-flow__edge.openable {
+  cursor: pointer;
 }
 
 .react-flow__edge.dim {
@@ -657,7 +723,7 @@ button.lid-ancestor:hover {
 }
 
 .block-count + .block-count::before {
-  content: "· ";
+  content: "\a0· ";
 }
 
 .block[data-ghost] {
@@ -730,6 +796,33 @@ button.lid-ancestor:hover {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px 10px;
+}
+
+/* M1's choices are labels, not buttons: the pane picks a card. */
+ul.card-choices {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card-choice {
+  padding: 6px 10px;
+  border: var(--border) solid var(--muted);
+  border-radius: var(--radius-button);
+  text-align: center;
+  color: var(--muted);
+}
+
+.card-choice.picked {
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.card-in-pane {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 14px;
 }
 
 .card-choices > .button {
@@ -817,6 +910,73 @@ button.lid-ancestor:hover {
   min-height: 0;
   overflow: auto;
   padding: 2px 2px 6px;
+}
+
+/* The evidence sheet: top right of the map on the desktop, above the card in the phone's sheet. */
+
+.evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stage > .evidence {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  box-sizing: border-box;
+  width: min(380px, calc(100% - 16px));
+  max-height: calc(100% - 16px);
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+
+.evidence-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.evidence-title {
+  margin: 0;
+  font: 800 16px var(--font-display);
+  overflow-wrap: anywhere;
+}
+
+.evidence-summary,
+.evidence-why,
+.evidence-reading,
+.evidence-note,
+.evidence-empty p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.evidence-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.evidence-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.evidence-note {
+  color: var(--muted);
+}
+
+.lid-open {
+  margin-left: 10px;
+  white-space: nowrap;
 }
 
 .sheet .card {
@@ -926,6 +1086,36 @@ button.lid-ancestor:hover {
 
 .request-state .empty-art {
   width: min(320px, 70vw);
+}
+
+/* What the engine said about the last load or press, over the map's top left. */
+.notices {
+  position: absolute;
+  z-index: 5;
+  top: 8px;
+  left: 8px;
+  box-sizing: border-box;
+  max-width: min(420px, calc(100% - 16px));
+  margin: 0;
+  padding: 8px 12px;
+  list-style: none;
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  border: var(--border) solid var(--muted);
+  font-size: 14px;
+}
+
+.notices li + li {
+  margin-top: 6px;
+}
+
+.empty-hint {
+  display: block;
+  margin-top: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 /* A line about what this view can't do, such as having no live store, over the stage. */

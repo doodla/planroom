@@ -46,6 +46,7 @@ contract::Command (catalogue) ──xtask──▶ packages/contract/src/generat
                               ──clap───▶ docs/reference/cli.md
 contract::ErrorCode::ALL, WarningCode::ALL ──xtask──▶ docs/reference/errors.md (tables)
 crates/planroom/text/en.toml (the fallback panes and the mod's strings) ──xtask──▶ catalogue.ts FALLBACK_PANES, MOD_STRINGS
+crates/planroom/text/en.toml ([canvas])                                 ──xtask──▶ packages/contract/src/generated/canvas-strings.ts CANVAS_STRINGS
 contract::format ──xtask──▶ packages/contract/src/generated/format.ts (checkFormat)
 contract::ErrorCode and contract::resolver ──xtask──▶ plugin/scripts/contract.sh (the resolver's codes, reasons, steps and templates)
 contract::PaneModel and the atom types (EngineState, PaneState, LastSeq, TurnSeq, OutboxEntry) ──xtask──▶ plugin/types/index.d.ts

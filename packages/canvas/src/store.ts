@@ -2,17 +2,26 @@
  * The canvas's one store (zustand), fed by one `Transport` (DR-56): the map from
  * `map --detail graph`, the pane from `focus`, the block positions, and what the person has
  * selected or searched. Live frames refetch what they touch.
+ *
+ * The view the person asks for is always the arguments of one `map` handle (DR-119): a level, a
+ * lens and a trail of blocks whose last is the focus. Every way to a view (the rail, a lid, a
+ * dive, a lens or project pick, an engine handle) sets those three and loads. The engine's
+ * refusals and warnings stay beside the drawn map instead of replacing it.
  */
 
 import type {
+  AskItem,
+  AskResult,
   Handle,
+  IntentListResult,
   Level,
   MapView,
   NodeId,
   PaneModel,
   Position,
+  Warning,
 } from "@planroom/contract";
-import { blocksOf, edgesOf } from "@planroom/ui";
+import { blocksOf, edgesOf, sanitize } from "@planroom/ui";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 import {
@@ -23,10 +32,15 @@ import {
   type ElkGraphIn,
   type ElkGraphOut,
 } from "./layout/graph";
-import { handleLevel } from "./levels";
+import { isLensItem } from "./lens-switcher";
+import { atTop, diveOf, mapRequest, topOf, viewOf } from "./levels";
+import { noticesOf, type Notice } from "./notices";
+import { canRun } from "./transport/request";
+import { beforeAScan } from "./views/engine-empty";
 import {
   CommandError,
   TransportError,
+  type Reply,
   type Requested,
   type Transport,
 } from "./transport/types";
@@ -41,10 +55,30 @@ export interface RequestView extends Requested {
   readonly canAsk: boolean;
 }
 
+/** One block the person went into: where the trail's lids come from. */
+export interface TrailEntry {
+  readonly id: NodeId;
+  /** The block's name, sanitized. */
+  readonly name: string;
+  /** The level asked when it was entered; null lets the engine open the level below. */
+  readonly level: Level | null;
+}
+
+/** The evidence sheet: what `ask why` says between two blocks. */
+export interface Evidence {
+  readonly from: NodeId;
+  readonly to: NodeId;
+  readonly state: "reading" | "ready";
+  readonly result: AskResult | null;
+  readonly warnings: readonly Warning[];
+}
+
 export interface CanvasState {
   phase: Phase;
   /** The engine's message when it couldn't answer, if it sent one. */
   problem: string | null;
+  /** The command that clears `problem`, when the engine named one; sanitized. */
+  hint: string | null;
   map: MapView | null;
   pane: PaneModel | null;
   positions: Record<NodeId, Position>;
@@ -54,8 +88,24 @@ export interface CanvasState {
   query: string;
   /** The block search last brought into view; a new object each time, so the map recenters. */
   revealed: { id: NodeId } | null;
-  /** The level the person asked for; the top level when null. */
+  /**
+   * The level the person asked for. Null is the top level or, under a focus, the level the
+   * engine opens below it. What is drawn is `map.level`.
+   */
   level: Level | null;
+  /** The lens the person picked; null is the engine's default. It stays until another pick. */
+  lens: string | null;
+  /** The blocks the person went into, outermost first; the focus is the last. */
+  trail: readonly TrailEntry[];
+  /** What the engine said that the person should see: an error, a press's warnings, the view's. */
+  notices: readonly Notice[];
+  /** The `ask` listing's lenses, as the lens switcher lists them. */
+  lenses: readonly AskItem[];
+  /** `intent list`'s projects, as the shelf lists them. */
+  projects: readonly { id: NodeId; name: string }[];
+  /** The last project picked from the shelf. */
+  pickedProject: NodeId | null;
+  evidence: Evidence | null;
   /** The view asked for when the transport doesn't hold it; null while the map shows. */
   request: RequestView | null;
   /** The transport's line about what this view can't do, such as having no live store. */
@@ -67,10 +117,23 @@ export interface CanvasState {
   reveal: (id: NodeId) => void;
   search: (query: string) => void;
   showLevel: (level: Level) => Promise<void>;
+  /** Go back up to the lid at `index` of the trail. */
+  popTo: (index: number) => Promise<void>;
+  /** Go into a block; false (and only a selection) when it has nothing at the level below. */
+  dive: (id: NodeId) => Promise<boolean>;
+  /** Whether a dive into the block would go anywhere: the transport runs it and it holds blocks below. */
+  canDive: (id: NodeId) => boolean;
+  pickLens: (id: string) => Promise<void>;
+  pickProject: (id: NodeId) => Promise<void>;
   run: (handle: Handle) => Promise<void>;
+  /** Whether this transport can run `handle`; a button for one it can't isn't drawn. */
+  canRun: (handle: Handle) => boolean;
+  openEvidence: (from: NodeId, to: NodeId) => Promise<void>;
+  closeEvidence: () => void;
+  canOpenEvidence: (from: NodeId, to: NodeId) => boolean;
   /** Ask for the view the transport doesn't hold, as a read request. */
   ask: () => Promise<void>;
-  /** Leave a request state for the top-level map. */
+  /** Leave a request state, or a level or focus, for the top-level map. */
   back: () => Promise<void>;
   stop: () => void;
 }
@@ -81,6 +144,22 @@ export type CanvasStore = StoreApi<CanvasState>;
 const QUIET_MS = 100;
 const MAX_MS = 300;
 
+/** How many pages of a listing the canvas follows: a bound on a loop over the engine's replies. */
+const CHOICE_PAGES = 10;
+
+/**
+ * The code pack's evidence question (architecture.md A14); the engine finds it by its shape
+ * (app/ask.rs `why_question`).
+ */
+const WHY = "why";
+
+/** The view as asked or as last drawn: the arguments of one `map` handle. */
+interface Asked {
+  readonly level: Level | null;
+  readonly lens: string | null;
+  readonly trail: readonly TrailEntry[];
+}
+
 export function createCanvasStore(
   transport: Transport,
   layout: (graph: ElkGraphIn) => Promise<ElkGraphOut>,
@@ -90,51 +169,160 @@ export function createCanvasStore(
   let lastFetch = 0;
   /** Counts loads; a load that a newer one overtook drops its result. */
   let loads = 0;
+  /** Counts choice reads; only the newest sets the lists. */
+  let choiceReads = 0;
+  /** The asked view of the last successful load. */
+  let shown: Asked = { level: null, lens: null, trail: [] };
+  /** The parts of `notices`, in the engine's order: error, press, view. */
+  let errorNotice: Notice | null = null;
+  let pressWarnings: readonly Warning[] = [];
+  let viewWarnings: readonly Warning[] = [];
 
   return createStore<CanvasState>()((set, get) => {
+    const derived = () => noticesOf(errorNotice, pressWarnings, viewWarnings);
+
+    /** Take the page: the engine can't be asked at all, or nothing has drawn yet. */
     const fail = (e: unknown) => {
       if (e instanceof TransportError && e.kind === "needs_login") {
-        set({ phase: "needs_login", problem: null });
+        set({ phase: "needs_login", problem: null, hint: null });
       } else if (e instanceof CommandError) {
-        set({ phase: "unreachable", problem: e.message });
+        const hint = e.envelope.error?.hint;
+        set({
+          phase: "unreachable",
+          problem: e.message,
+          hint: hint ? sanitize(hint) : null,
+        });
       } else {
-        set({ phase: "unreachable", problem: null });
+        set({ phase: "unreachable", problem: null, hint: null });
       }
     };
 
-    async function load(): Promise<void> {
-      // A load awaits the transport and the layout worker, and the level can change meanwhile:
+    /**
+     * The level a dive into `id` opens, or null when it opens nothing. The Artifact holds the top
+     * map alone: there a double press only selects.
+     */
+    const diveTarget = (id: NodeId): Level | null => {
+      const { map } = get();
+      const node = map?.nodes.find((n) => n.id === id);
+      return map == null || node === undefined || transport.partial !== null
+        ? null
+        : diveOf(map.levels ?? [], map.level, node);
+    };
+
+    /**
+     * What a failure does. Before the first view has drawn it takes the page. After, a refusal
+     * keeps the drawn map and says so in place, with the asked view put back to the shown one so
+     * no live refresh retries it; a transport failure still takes the page, since nothing on it
+     * can work.
+     */
+    const refused = (e: unknown, source: "load" | "press" | "evidence") => {
+      const drawn = get().map !== null || get().request !== null;
+      if (!(e instanceof CommandError) || !drawn) {
+        fail(e);
+        return;
+      }
+      errorNotice = {
+        line: e.message,
+        hint: e.envelope.error?.hint ?? null,
+      };
+      set({
+        ...(source === "evidence"
+          ? { evidence: null }
+          : { level: shown.level, lens: shown.lens, trail: shown.trail }),
+        notices: derived(),
+      });
+    };
+
+    /** Read every page of a listing, or null when it can't be read (the list then stays). */
+    async function pages<T>(command: string): Promise<T[] | null> {
+      const partial = transport.partial;
+      const out: T[] = [];
+      let request: object = {};
+      try {
+        for (let i = 0; i < CHOICE_PAGES; i++) {
+          if (partial !== null && !partial.serves(command, request)) {
+            return null;
+          }
+          const reply: Reply<T> = await transport.query<T>(command, request);
+          if (reply.result === null || typeof reply.result !== "object") {
+            return null;
+          }
+          out.push(reply.result);
+          if (reply.next === null) {
+            break;
+          }
+          request = { cursor: reply.next };
+        }
+      } catch {
+        return null;
+      }
+      return out;
+    }
+
+    /** The lens and project lists, read beside a load and never awaited by it. */
+    async function loadChoices(scanned: boolean): Promise<void> {
+      const read = ++choiceReads;
+      // Nothing is planned in a workspace no scan has made, and its store answers `intent list`
+      // with an error.
+      const [asked, intents] = await Promise.all([
+        pages<AskResult>("ask"),
+        scanned ? pages<IntentListResult>("intent list") : null,
+      ]);
+      if (read !== choiceReads) {
+        return;
+      }
+      if (asked !== null) {
+        set({ lenses: asked.flatMap((r) => r.items).filter(isLensItem) });
+      }
+      if (intents !== null) {
+        set({
+          projects: intents
+            .flatMap((r) => r.projects)
+            .map((p) => ({ id: p.id, name: p.name })),
+        });
+      }
+    }
+
+    async function loadMap(
+      generation: number,
+      keepError: boolean,
+    ): Promise<void> {
+      // A load awaits the transport and the layout worker, and the view can change meanwhile:
       // only the newest load writes, so an older one never puts back a view the person left.
-      const generation = ++loads;
       const stale = () => generation !== loads;
-      const level = get().level;
-      const mapRequest = { detail: "graph", level };
+      const { level, lens, trail } = get();
+      const asked: Asked = { level, lens, trail };
+      const mapAsk = mapRequest(
+        asked,
+        topOf(get().map?.levels ?? [])?.id ?? null,
+      );
       const partial = transport.partial;
       const note = partial?.note() ?? null;
       // A view checks what the transport serves before it queries (DR-56).
-      if (partial && !partial.serves("map", mapRequest)) {
+      if (partial && !partial.serves("map", mapAsk)) {
         const pane = partial.serves("focus", {})
-          ? await transport.query<PaneModel>("focus", {})
+          ? (await transport.query<PaneModel>("focus", {})).result
           : null;
         if (stale()) {
           return;
         }
         set({
           request: {
-            ...partial.requested("map", mapRequest),
+            ...partial.requested("map", mapAsk),
             command: "map",
-            request: mapRequest,
+            request: mapAsk,
             canAsk: partial.canAsk(),
           },
           pane,
           note,
           phase: "ready",
           problem: null,
+          hint: null,
         });
         return;
       }
-      const [map, pane] = await Promise.all([
-        transport.query<MapView>("map", mapRequest),
+      const [mapReply, paneReply] = await Promise.all([
+        transport.query<MapView>("map", mapAsk),
         transport.query<PaneModel>("focus", {}).catch((e: unknown) => {
           // The map stands without the pane; only a signed-out tab stops both.
           if (e instanceof TransportError && e.kind === "needs_login") {
@@ -143,6 +331,7 @@ export function createCanvasStore(
           return null;
         }),
       ]);
+      const map = mapReply.result;
       const blocks = blocksOf(map);
       let positions = placed(blocks, {});
       let laidOut = false;
@@ -167,25 +356,47 @@ export function createCanvasStore(
       if (stale()) {
         return;
       }
+      shown = asked;
+      // The view's own warnings are `map`'s and then `focus`'s, replaced on each load. A
+      // refresh the stream started leaves the error on screen until a person's press clears it.
+      viewWarnings = [...mapReply.warnings, ...(paneReply?.warnings ?? [])];
+      if (!keepError) {
+        errorNotice = null;
+      }
       const selected = get().selected;
       set({
         map,
-        pane,
+        pane: paneReply?.result ?? null,
         positions,
         laidOut,
         phase: "ready",
         problem: null,
+        hint: null,
         request: null,
         note,
+        notices: derived(),
         selected: selected !== null && positions[selected] ? selected : null,
       });
+      void loadChoices(!beforeAScan(map.empty));
+    }
+
+    async function load(keepError = false): Promise<void> {
+      const generation = ++loads;
+      try {
+        await loadMap(generation, keepError);
+      } catch (e) {
+        // A load a newer one overtook drops its error as it drops its result.
+        if (generation === loads) {
+          refused(e, "load");
+        }
+      }
     }
 
     const scheduleRefresh = () => {
       const now = Date.now();
       if (timer === null && now - lastFetch > MAX_MS) {
         lastFetch = now;
-        void get().refresh();
+        void load(true);
         return;
       }
       if (timer !== null) {
@@ -195,13 +406,23 @@ export function createCanvasStore(
       timer = setTimeout(() => {
         timer = null;
         lastFetch = Date.now();
-        void get().refresh();
+        void load(true);
       }, wait);
     };
+
+    /** Ask for a view: set it, drop the selection and load. */
+    const show = (view: Partial<Asked>) => {
+      set({ ...view, selected: null });
+      return get().refresh();
+    };
+
+    const topId = (): Level | null =>
+      topOf(get().map?.levels ?? [])?.id ?? null;
 
     return {
       phase: "starting",
       problem: null,
+      hint: null,
       map: null,
       pane: null,
       positions: {},
@@ -210,6 +431,13 @@ export function createCanvasStore(
       query: "",
       revealed: null,
       level: null,
+      lens: null,
+      trail: [],
+      notices: [],
+      lenses: [],
+      projects: [],
+      pickedProject: null,
+      evidence: null,
       request: null,
       note: null,
       async start() {
@@ -222,7 +450,9 @@ export function createCanvasStore(
           await load();
           unsubscribe ??= transport.subscribe(
             (frame) => {
-              if (frame.type !== "ping") {
+              // Only a change to the store or a gap in the stream says a view may be stale; a
+              // ping or who else is here says nothing about it.
+              if (frame.type === "event" || frame.type === "reset") {
                 scheduleRefresh();
               }
             },
@@ -233,11 +463,7 @@ export function createCanvasStore(
         }
       },
       async refresh() {
-        try {
-          await load();
-        } catch (e) {
-          fail(e);
-        }
+        await load();
       },
       select(id) {
         set({ selected: id });
@@ -249,23 +475,158 @@ export function createCanvasStore(
         set({ query });
       },
       async showLevel(level) {
-        set({ level, selected: null });
-        await get().refresh();
+        if (level === topId()) {
+          await get().back();
+          return;
+        }
+        await show({ level, trail: [] });
+      },
+      async popTo(index) {
+        const trail = get().trail.slice(0, index + 1);
+        const entry = trail[index];
+        if (entry === undefined) {
+          return;
+        }
+        await show({ level: entry.level, trail });
+      },
+      canDive(id) {
+        return diveTarget(id) !== null;
+      },
+      async dive(id) {
+        const { map } = get();
+        const node = map?.nodes.find((n) => n.id === id);
+        const next = diveTarget(id);
+        if (map === null || node === undefined || next === null) {
+          get().select(id);
+          return false;
+        }
+        // From a chain level the request names no level and the engine opens the one below; a
+        // level apart is named, since the engine would open the top under one of its blocks.
+        const apart =
+          (map.levels ?? []).find((l) => l.id === map.level)?.apart ?? false;
+        const level = apart ? next : null;
+        await show({
+          level,
+          trail: [...get().trail, { id, name: sanitize(node.name), level }],
+        });
+        return true;
+      },
+      async pickLens(id) {
+        const { map, trail, level } = get();
+        if (map === null) {
+          return;
+        }
+        // A lens is which relationships you see, not where you are: the level and focus stay.
+        // (The listing's own handle, `map --lens ID` alone, would jump to the lens's level.)
+        const asked = atTop(map.level, map.focus, topId() ?? "")
+          ? null
+          : trail.length > 0
+            ? level
+            : map.level;
+        await show({ lens: id, level: asked });
+      },
+      async pickProject(id) {
+        const { map, projects } = get();
+        const project = projects.find((p) => p.id === id);
+        const apart = map?.levels?.find((l) => l.apart)?.id;
+        if (project === undefined || apart === undefined) {
+          return;
+        }
+        set({ pickedProject: id });
+        await show({
+          level: apart,
+          trail: [{ id, name: sanitize(project.name), level: apart }],
+        });
       },
       async run(handle) {
-        // A map handle, such as the pane's "Open the containers", is a level to show; one with
-        // no level, such as an empty level's way back, is the top-level map.
-        const level = handleLevel(get().map?.levels ?? [], handle);
-        if (level !== undefined) {
-          await (level === null ? get().back() : get().showLevel(level));
+        if (!get().canRun(handle)) {
+          return;
+        }
+        // A map handle, such as the pane's "Open the containers" or a dive's `--focus`, is a
+        // view: its level, lens and focus become the asked view together.
+        const { map, trail: current } = get();
+        const view = viewOf(map?.levels ?? [], handle);
+        if (view !== undefined) {
+          const level = view.level ?? null;
+          const lens = view.lens ?? get().lens;
+          const focus = view.focus;
+          let trail: readonly TrailEntry[] = [];
+          if (focus !== undefined) {
+            const at = current.findIndex((t) => t.id === focus);
+            const name = map?.nodes.find((n) => n.id === focus)?.name;
+            trail =
+              at >= 0
+                ? current.slice(0, at + 1)
+                : [
+                    {
+                      id: focus,
+                      name: sanitize(name ?? focus.split(":").at(-1) ?? focus),
+                      level,
+                    },
+                  ];
+          }
+          // At the top the result is `back()`: the level the top names is no level asked.
+          const top = topId();
+          const asked =
+            top !== null && atTop(level, focus ?? null, top) ? null : level;
+          await show({ level: asked, lens, trail });
           return;
         }
         try {
-          await transport.run(handle);
-          await load();
+          const reply = await transport.run(handle);
+          pressWarnings = reply.warnings;
+          errorNotice = null;
+          set({ notices: derived() });
         } catch (e) {
-          fail(e);
+          refused(e, "press");
+          return;
         }
+        await load();
+      },
+      canRun(handle) {
+        return canRun(transport.partial, handle);
+      },
+      async openEvidence(from, to) {
+        if (!get().canOpenEvidence(from, to)) {
+          return;
+        }
+        const request = { question: WHY, args: [from, to] };
+        set({
+          evidence: { from, to, state: "reading", result: null, warnings: [] },
+        });
+        const current = () => {
+          const e = get().evidence;
+          return e !== null && e.from === from && e.to === to;
+        };
+        try {
+          const reply = await transport.query<AskResult>("ask", request);
+          if (current()) {
+            set({
+              evidence: {
+                from,
+                to,
+                state: "ready",
+                result: reply.result,
+                warnings: reply.warnings,
+              },
+            });
+          }
+        } catch (e) {
+          // The sheet moved on to other blocks, or closed: its answer, or its refusal, is moot.
+          if (current() || !(e instanceof CommandError)) {
+            refused(e, "evidence");
+          }
+        }
+      },
+      closeEvidence() {
+        set({ evidence: null });
+      },
+      canOpenEvidence(from, to) {
+        const partial = transport.partial;
+        return (
+          partial === null ||
+          partial.serves("ask", { question: WHY, args: [from, to] })
+        );
       },
       async ask() {
         const request = get().request;
@@ -274,14 +635,15 @@ export function createCanvasStore(
         }
         try {
           await transport.partial.ask(request.command, request.request);
-          await load();
         } catch (e) {
-          fail(e);
+          refused(e, "press");
+          return;
         }
+        await load();
       },
       async back() {
-        set({ level: null, selected: null, request: null });
-        await get().refresh();
+        set({ request: null });
+        await show({ level: null, trail: [] });
       },
       stop() {
         unsubscribe?.();

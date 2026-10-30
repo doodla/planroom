@@ -5,8 +5,10 @@
  * "Back to the map" stays on every state, and nothing here names `/room open`.
  */
 
+import { sanitize } from "@planroom/ui";
+
 import emptyMap from "../assets/empty-map.webp";
-import { STRINGS } from "../strings";
+import { CANVAS_STRINGS } from "@planroom/contract";
 import { useCanvas } from "../use-canvas";
 
 export function RequestState() {
@@ -32,16 +34,16 @@ export function RequestState() {
           className="button primary"
           onClick={() => void ask()}
         >
-          {request.line}
+          {sanitize(request.line)}
         </button>
       ) : (
-        <p className="empty-line">{request.line}</p>
+        <p className="empty-line">{sanitize(request.line)}</p>
       )}
       {request.problem !== null && (
-        <p className="empty-line">{request.problem}</p>
+        <p className="empty-line">{sanitize(request.problem)}</p>
       )}
       <button type="button" className="button" onClick={() => void back()}>
-        {STRINGS.backToMap}
+        {CANVAS_STRINGS.back_to_map}
       </button>
     </section>
   );
@@ -55,7 +57,7 @@ export function TransportNote() {
   }
   return (
     <p className="transport-note" role="status">
-      {note}
+      {sanitize(note)}
     </p>
   );
 }

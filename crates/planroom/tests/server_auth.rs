@@ -128,6 +128,33 @@ fn requests_without_a_token_or_from_another_origin_or_host_are_refused() {
 }
 
 #[test]
+fn the_ask_and_intent_list_routes_answer_as_the_cli_does() {
+    let (_tmp, root) = workspace();
+    let (s, _) = serve(&root);
+    let token = login(&s);
+    let cli = |args: &[&str]| -> Value {
+        let out = planroom(&root).args(args).arg("--json").output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    let map = cli(&["map", "--detail", "graph", "--level", "container"]);
+    let edge = &map["result"]["edges"][0];
+    let (from, to) = (edge["from"].as_str().unwrap(), edge["to"].as_str().unwrap());
+
+    let cases: [(&str, Value, Vec<&str>); 3] = [
+        ("/api/v1/ask", json!({"question": "why", "args": [from, to]}), vec!["ask", "why", from, to]),
+        ("/api/v1/ask", json!({}), vec!["ask"]),
+        ("/api/v1/intent/list", json!({}), vec!["intent", "list"]),
+    ];
+    for (path, body, args) in cases {
+        let (status, reply) = api(&s, &token, "POST", path, &body.to_string());
+        assert_eq!(status, 200, "{path} {body}: {reply}");
+        let served: Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(served["result"], cli(&args)["result"], "{path} {body}");
+    }
+}
+
+#[test]
 fn a_login_code_works_once_and_a_second_try_revokes_its_token() {
     let (_tmp, root) = workspace();
     let (s, env) = serve(&root);

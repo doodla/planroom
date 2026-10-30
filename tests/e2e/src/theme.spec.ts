@@ -6,6 +6,7 @@
  */
 
 import type { Page } from "@playwright/test";
+import { CANVAS_STRINGS } from "@planroom/contract";
 
 import { installArtifactDb } from "../shims/artifact-db";
 import { installClaude } from "../shims/claude";
@@ -92,7 +93,7 @@ const root = (p: Page) =>
 
 const switcher = (p: Page) =>
   p.locator(".top-row [data-concept=lenses]").getByRole("button", {
-    name: "Lenses",
+    name: CANVAS_STRINGS.lenses,
   });
 
 test("the_canvas_follows_the_system_theme_by_default", async ({
@@ -117,27 +118,49 @@ test("a_pin_wins_over_the_system_and_applies_before_first_paint", async ({
   engine,
 }) => {
   await page.emulateMedia({ colorScheme: "light" });
+  // The lens listing answers only once the sheet is open: the focus that fell back to the theme
+  // choice moves to the current lens when the lenses arrive.
+  let answer = () => {};
+  const listed = new Promise<void>((resolve) => (answer = resolve));
+  await page.route("**/api/v1/ask", async (route) => {
+    await listed;
+    await route.continue();
+  });
   await openMap(page, await engine.loginUrl());
 
-  // Keyboard first: Enter opens the sheet on the checked choice, arrows only move focus, and
-  // Escape gives the focus back to the switcher.
+  // Keyboard first: Enter opens the sheet on the current lens, Tab reaches the checked choice,
+  // arrows only move focus, and Escape gives the focus back to the switcher.
   const sheet = page.locator(".picker-sheet");
   await switcher(page).focus();
   await page.keyboard.press("Enter");
   await expect(sheet).toBeVisible();
-  await expect(page.getByRole("radio", { name: "System" })).toBeFocused();
+  answer();
+  await expect(sheet.locator(".picker-entry[aria-current]")).toBeFocused();
+  await page.unroute("**/api/v1/ask");
+  // Each lens entry after the current one is a stop of its own before the theme choice.
+  const entries = await sheet.locator(".picker-entry").all();
+  const at = await sheet
+    .locator(".picker-entry")
+    .evaluateAll((els) => els.findIndex((e) => e.hasAttribute("aria-current")));
+  for (let i = at; i < entries.length; i++) {
+    await page.keyboard.press("Tab");
+  }
+  await expect(
+    page.getByRole("radio", { name: CANVAS_STRINGS.theme_system }),
+  ).toBeFocused();
   await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("radio", { name: "Light" })).toBeFocused();
-  await expect(page.getByRole("radio", { name: "System" })).toHaveAttribute(
-    "aria-checked",
-    "true",
-  );
+  await expect(
+    page.getByRole("radio", { name: CANVAS_STRINGS.theme_light }),
+  ).toBeFocused();
+  await expect(
+    page.getByRole("radio", { name: CANVAS_STRINGS.theme_system }),
+  ).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("Escape");
   await expect(sheet).toHaveCount(0);
   await expect(switcher(page)).toBeFocused();
 
   await switcher(page).click();
-  await page.getByRole("radio", { name: "Dark" }).click();
+  await page.getByRole("radio", { name: CANVAS_STRINGS.theme_dark }).click();
   await expect(sheet).toHaveCount(0);
   expect(await root(page)).toMatchObject({ attr: "dark", scheme: "dark" });
 
@@ -158,7 +181,7 @@ test("a_pin_wins_over_the_system_and_applies_before_first_paint", async ({
   expect((await root(page)).attr).toBe("dark");
 
   await switcher(page).click();
-  await page.getByRole("radio", { name: "System" }).click();
+  await page.getByRole("radio", { name: CANVAS_STRINGS.theme_system }).click();
   expect(await root(page)).toMatchObject({ attr: null, scheme: "light" });
 });
 
@@ -168,7 +191,7 @@ test("a_choice_in_one_tab_reaches_another", async ({ page, engine }) => {
   await openMap(second, await engine.loginUrl());
 
   await switcher(page).click();
-  await page.getByRole("radio", { name: "Dark" }).click();
+  await page.getByRole("radio", { name: CANVAS_STRINGS.theme_dark }).click();
   await expect
     .poll(() =>
       second.evaluate(() =>

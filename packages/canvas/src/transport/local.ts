@@ -19,6 +19,7 @@ import {
   TransportError,
   type Capabilities,
   type LayoutPut,
+  type Reply,
   type Transport,
 } from "./types";
 
@@ -82,6 +83,9 @@ export function localTransport(env: LocalEnv): Transport {
     }
   };
   let token = read();
+  // The code this page already exchanged. `env.href` is read once, so its fragment keeps naming
+  // the spent code; a second `login` (Retry after the engine stopped answering) must not send it.
+  let exchanged: string | null = null;
   // The lowest seq any loaded view was read at, until the stream has delivered an id. `map` and
   // `focus` load in parallel, so a commit between their reads must still refetch the older one.
   let floor: number | null = null;
@@ -139,6 +143,12 @@ export function localTransport(env: LocalEnv): Transport {
     return (await call(name, body)).result as T;
   }
 
+  const replyOf = <T>(envelope: Envelope): Reply<T> => ({
+    result: envelope.result as T,
+    warnings: envelope.meta?.warnings ?? [],
+    next: envelope.meta?.next ?? null,
+  });
+
   const capabilities: Capabilities = { views: "all", layoutWriteBack: true };
 
   return {
@@ -148,7 +158,7 @@ export function localTransport(env: LocalEnv): Transport {
     async login() {
       const url = new URL(env.href);
       const code = new URLSearchParams(url.hash.slice(1)).get("code");
-      if (code === null) {
+      if (code === null || code === exchanged) {
         return token !== null;
       }
       // The code works once: drop it from the address before anything can reuse it.
@@ -164,6 +174,7 @@ export function localTransport(env: LocalEnv): Transport {
       } catch (e) {
         throw new TransportError("unreachable", String(e));
       }
+      exchanged = code;
       if (!response.ok) {
         token = null;
         keep(null);
@@ -186,10 +197,11 @@ export function localTransport(env: LocalEnv): Transport {
         const seq = envelope.meta.seq;
         floor = floor === null ? seq : Math.min(floor, seq);
       }
-      return envelope.result as never;
+      return replyOf(envelope);
     },
     write: (name, request) => command(name, request),
-    run: (handle: Handle) => command(handle.command, requestOf(handle)),
+    run: async (handle: Handle) =>
+      replyOf(await call(handle.command, requestOf(handle))),
 
     async saveLayout(layout: LayoutPut) {
       const response = await send("PUT", "layout", layout);

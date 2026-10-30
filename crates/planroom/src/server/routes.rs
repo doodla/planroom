@@ -21,8 +21,8 @@ use axum::response::sse::{Event as SseEvent, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use planroom_contract::{
-    Category, CodeReq, DrainReq, EditReq, ErrorCode, FocusReq, LayoutPut, MapReq, Meta, ScanReq, Seq,
-    SessionReq, SessionToken, StreamFrame,
+    AskReq, Category, CodeReq, DrainReq, EditReq, ErrorCode, FocusReq, IntentListReq, LayoutPut, MapReq,
+    Meta, ScanReq, Seq, SessionReq, SessionToken, StreamFrame,
 };
 use planroom_store::{Store, StoreError, Tail};
 use serde::Serialize;
@@ -469,10 +469,11 @@ async fn command(
     }
 }
 
-/// The read commands this server runs; `scan`, whose commit reaches every stream through the
-/// process's own live loop; and `edit`, a signed-in tab's write, which honours `Idempotency-Key`
-/// and the request's `client` (DR-73). `scan` over HTTP always scans the workspace root; a `dir`
-/// may only name that root, as the empty map's next action does.
+/// The read commands this server runs, `ask` and `intent list` among them; `scan`, whose commit
+/// reaches every stream through the process's own live loop; and `edit`, a signed-in tab's
+/// write, which honours `Idempotency-Key` and the request's `client` (DR-73). `scan` over HTTP
+/// always scans the workspace root; a `dir` may only name that root, as the empty map's next
+/// action does.
 fn dispatch(name: &str, body: Value, root: &Path, idem: Option<&str>, started: Instant) -> Response {
     fn parse<T: serde::de::DeserializeOwned>(body: Value) -> Result<T, AppError> {
         serde_json::from_value(body).map_err(|e| bad_body(&e))
@@ -506,6 +507,12 @@ fn dispatch(name: &str, body: Value, root: &Path, idem: Option<&str>, started: I
             let written = parse::<EditReq>(body).and_then(|req| app::edit::run_http(&req, root, idem));
             reply_written(name, written, started)
         }
+        "ask" => reply_paged(name, parse::<AskReq>(body).and_then(|req| app::ask::run(&req, root)), started),
+        "intent list" => reply_paged(
+            name,
+            parse::<IntentListReq>(body).and_then(|req| app::intent::list(&req, root)),
+            started,
+        ),
         other => {
             let what = text::get("argument.http_command", &[("command", &other)]);
             let error =

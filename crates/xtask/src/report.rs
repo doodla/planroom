@@ -87,7 +87,6 @@ pub const NOT_BUILT: &[(&str, &str, &str)] = &[
     ("check", "scripts/check-tag-version.sh", "M5"),
     ("test", "the tests/plugin/ scripts", "M1"),
     ("test", "eval recompute (cargo xtask eval)", "M2"),
-    ("e2e", "the empty-state audit through both transports", "M1"),
     ("e2e", "the plugin install smoke in an isolated HOME, with mods on and off", "M5"),
 ];
 

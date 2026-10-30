@@ -23,7 +23,7 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 - `src/transport/`: the `Transport` interface, the local transport (login code, bearer token, the stream read through `fetch`) and its SSE parser, and the artifact transport (`./data/snapshot.json`, the `db` document `live/head`, read request rows to `inbox/{self}` and their `answers/{docId}`), which `main.tsx` picks when `share`'s page marks the root `data-transport="artifact"`.
 - `src/layout/`: the `MapView` to ELK mapping and ELK in its Web Worker.
 - `src/views/`: `MapView` and its blocks, the screen-reader outline, empty states, and the Artifact's request state for a view the snapshot doesn't hold.
-- `src/shell/`: the five concepts around the map: the top row (breadcrumb and search, lenses, projects), the zoom rail, the card stack, the diff tray, and the phone's bottom sheet.
+- `src/shell/`: the five concepts around the map: the top row (breadcrumb and search, lenses, projects), the zoom rail, the card stack, the diff tray, the phone's bottom sheet, the evidence sheet an edge opens, and the notices that show what the engine said in place.
 - `src/assets/`: the Iris empty-state art from `docs/art/`, cropped and converted to WebP.
 
-`src/strings.ts` holds the lines the canvas shows before an engine answers; the needs-login line belongs in `en.toml`, generated into the build, once the engine generates it.
+The canvas's own lines are `CANVAS_STRINGS` from `@planroom/contract`, generated from the `[canvas]` table of `crates/planroom/text/en.toml`; fill a template with `fill` from `@planroom/ui` and pass the result through `sanitize`.

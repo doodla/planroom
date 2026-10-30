@@ -7,6 +7,7 @@
  */
 
 import { mergeTests, test as base } from "@playwright/test";
+import { CANVAS_STRINGS } from "@planroom/contract";
 
 import { DESKTOP, PHONE, expect, openMap, test } from "./fixtures";
 import { standIn, type StandIn } from "./standin";
@@ -32,23 +33,26 @@ test.describe("M2 stand-in: a decision card and diffs", () => {
     t.use({ viewport: DESKTOP });
 
     t(
-      "the_card_and_its_preselected_pick_take_one_tap",
+      "the_card_shows_its_choices_as_labels_with_the_preselected_one_marked",
       async ({ page, standin }) => {
         await openMap(page, standin.loginUrl());
         const card = page.locator("[data-concept=decisions] .face-up");
         await expect(card.getByRole("heading")).toHaveText(
           "Apply Claude's 2 edits to the worker group?",
         );
-        const accept = card.getByRole("button", { name: "Accept both" });
-        await expect(accept).toHaveAttribute("aria-pressed", "true");
-        await accept.click();
-        await expect
-          .poll(() => standin.runs.map((r) => r.path))
-          .toContain("/api/v1/decide");
-        expect(standin.runs.at(-1)?.body).toEqual({
-          id: "card_01JB7Q",
-          choice: "accept",
-        });
+        // `decide` is no command in M1: the pane picks, so a choice is a label, not a button.
+        await expect(card.getByRole("button")).toHaveCount(0);
+        await expect(
+          card.locator(".card-choice[aria-current=true]"),
+        ).toHaveText("Accept both");
+        await expect(card.locator(".card-choice")).toHaveText([
+          "Accept both",
+          "Only the first",
+          "Reject",
+          "Later",
+        ]);
+        await expect(card).toContainText(CANVAS_STRINGS.card_in_pane);
+        expect(standin.runs.map((r) => r.path)).not.toContain("/api/v1/decide");
       },
     );
 
@@ -77,9 +81,9 @@ test.describe("M2 stand-in: a decision card and diffs", () => {
         const sheet = page.locator(".sheet");
         await expect(sheet).toHaveAttribute("data-detent", "peek");
         await expect(
-          sheet.getByRole("button", { name: "Accept both" }),
-        ).toBeVisible();
-        await sheet.locator("[data-concept=diffs]").tap();
+          sheet.locator(".card-choice[aria-current=true]"),
+        ).toHaveText("Accept both");
+        await sheet.locator(".tray-badge").tap();
         await expect(sheet).toHaveAttribute("data-detent", "half");
         await expect(sheet.locator(".tray-row")).toHaveCount(2);
       },

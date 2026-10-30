@@ -938,6 +938,20 @@ fn a_planted_repo_secret_reaches_no_request_or_tool_output() {
     ids.check_masked("POST /api/v1/map", &map);
     let focus = tab.post("focus", &json!({}));
     ids.check_masked("POST /api/v1/focus", &focus);
+    // `ask why` over HTTP, between the two ends of each edge of the container map; and the project
+    // listing. No edge touches a block with a planted name and the answers quote only the evidence
+    // lines they cite, so these are checked for planted text outside IDs, not for a mask. The
+    // fixture holds no project, so the listing holds none either.
+    let deeper = tab.post("map", &json!({"detail": "graph", "lens": "all", "level": "container"}));
+    let drawn: Value = serde_json::from_str(&deeper).unwrap();
+    let edges = drawn["result"]["edges"].as_array().unwrap();
+    assert!(!edges.is_empty(), "the container map has edges: {deeper}");
+    for edge in edges {
+        let asked = tab.post("ask", &json!({"question": "why", "args": [edge["from"], edge["to"]]}));
+        ids.check("POST /api/v1/ask", &asked);
+    }
+    let listed = tab.post("intent/list", &json!({}));
+    ids.check("POST /api/v1/intent/list", &listed);
     let last_scan: Value = serde_json::from_str(&scanned).unwrap();
     let last_seq = last_scan["meta"]["seq"].as_u64().unwrap();
 

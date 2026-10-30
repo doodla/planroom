@@ -24,3 +24,19 @@ export function emptyWords(empty: Empty): EmptyWords {
     label: sanitize(empty.next.label),
   };
 }
+
+/**
+ * The reasons the engine gives for an empty map when no scan can have made one yet: the
+ * workspace's repos aren't mapped, or can't be, so nothing is planned there either.
+ */
+const BEFORE_A_SCAN: ReadonlySet<string> = new Set([
+  "not_scanned",
+  "no_repos",
+  "repos_unborn",
+  "repos_unreadable",
+]);
+
+/** Whether `empty` says the workspace has no scan to read yet. */
+export function beforeAScan(empty: Empty | null | undefined): boolean {
+  return empty != null && BEFORE_A_SCAN.has(empty.reason);
+}
