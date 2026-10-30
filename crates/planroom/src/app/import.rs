@@ -41,7 +41,7 @@ use planroom_contract::remote::{
 use planroom_contract::{
     Ack, AckStatus, Actor, Answer, Cause, Client, Command, CommandName, DbBatch, DbOp, DbWrite, Detail,
     EditOp, EditReq, ErrorCode, Event, EventBody, Handle, ImportCounts, ImportLine, ImportReq, ImportResult,
-    ImportedRow, InboxRow, LiveHead, MapReq, Seq, Status, Surface,
+    ImportedRow, InboxRow, LiveHead, MapReq, Seq, Status, Surface, Vocabulary,
 };
 use planroom_kernel::cas::{self, Authority, Check, Proposed};
 use planroom_kernel::fold::Writer;
@@ -56,6 +56,7 @@ use crate::app::actor::{self, Bound, Caller, Refused, Terminal, TerminalPath};
 use crate::app::error::AppError;
 use crate::app::share::SNAPSHOT_SEQ_META;
 use crate::app::{Paged, Reply, cards, data, edit, map, new_event_id, workspace};
+use crate::packs::state::{self, ReadSet};
 use crate::{clock, live, text};
 
 /// The commands a row may name that only read; any sync answers them (DR-77).
@@ -101,6 +102,8 @@ pub fn run(
     let mut store = Store::open_existing(&workspace::store_path(&root))?
         .ok_or_else(|| AppError::workspace_not_found(&root))?;
     crate::app::hook(&mut store);
+    // The workspace's recorded pack set, which every row's fold and handle read.
+    let set = state::for_read(&root, store.recorded_packs()?.as_ref())?;
 
     // A token, or a person's claim, makes this a person's import, checked before anything is read;
     // a tokenless sync only answers reads and leaves the rest (DR-77). An agent is never a person,
@@ -208,7 +211,7 @@ pub fn run(
         (&a.row.instance, a.row.counter, &a.doc_id).cmp(&(&b.row.instance, b.row.counter, &b.doc_id))
     });
     for p in pending {
-        outcomes.push(apply(&root, &mut store, p, person)?);
+        outcomes.push(apply(&root, &mut store, p, person, &set)?);
     }
 
     let seq = store.seq()?;
@@ -250,17 +253,32 @@ pub fn run(
         root: dir.display().to_string(),
         batch_files,
     };
-    Ok(Reply { result, seq, warnings: vec![], text: summary })
+    let mut warnings = vec![];
+    set.warn(&mut warnings);
+    let mut text = summary;
+    for warning in &warnings {
+        text.push('\n');
+        text.push_str(&warning.message);
+    }
+    Ok(Reply { result, seq, warnings, text })
 }
 
 /// Apply one valid row: answer a read, hold an unsigned edit as ghosts on the Apply card, refuse
 /// what a row may not name, and leave or refuse any other change, which arrives later.
-fn apply(root: &Path, store: &mut Store, p: Pending, person: bool) -> Result<Outcome, AppError> {
+fn apply(
+    root: &Path,
+    store: &mut Store,
+    p: Pending,
+    person: bool,
+    set: &ReadSet,
+) -> Result<Outcome, AppError> {
     let name = p.row.command.0.clone();
     if person && name == "edit" && !signed(&p.row) {
         let req: Result<EditReq, _> = serde_json::from_value(p.row.request.clone());
         match req {
-            Ok(req) if !matches!(req.op, EditOp::Undo { .. }) => return held(store, p, &req),
+            Ok(req) if !matches!(req.op, EditOp::Undo { .. }) => {
+                return held(store, p, &req, set.vocabulary());
+            }
             Ok(_) => {}
             Err(e) => {
                 let mut out = outcome(&p, AckStatus::Refused);
@@ -280,7 +298,7 @@ fn apply(root: &Path, store: &mut Store, p: Pending, person: bool) -> Result<Out
         answer: None,
     };
     if READS.contains(&name.as_str()) {
-        let answer = read(root, &name, p.row.request);
+        let answer = read(root, &name, p.row.request, set);
         out.status = Some(if answer.error.is_none() { AckStatus::Imported } else { AckStatus::Refused });
         out.reason = answer.error.as_ref().map(|e| e.message.clone());
         out.answer = Some(answer);
@@ -328,8 +346,7 @@ pub(crate) fn is_viewer_row(event: &Event) -> bool {
 /// stored as ghosts on the open Apply card, which this row's write deals first when none is open;
 /// or, stale against that base, stored as a conflict. A row whose edit can't be planned, such as
 /// one naming a block that isn't on the map, is refused with why (DR-83).
-fn held(store: &mut Store, p: Pending, req: &EditReq) -> Result<Outcome, AppError> {
-    let vocabulary = crate::packs::vocabulary()?;
+fn held(store: &mut Store, p: Pending, req: &EditReq, vocabulary: &Vocabulary) -> Result<Outcome, AppError> {
     let writer = Writer {
         actor: Actor::Person { id: format!("person:artifact:{}", p.uid), name: None },
         client: Client { surface: Surface::Artifact, id: format!("artifact:{}:{}", p.uid, p.row.instance) },
@@ -422,14 +439,14 @@ fn held(store: &mut Store, p: Pending, req: &EditReq) -> Result<Outcome, AppErro
 /// A read request's answer, redacted as every output is: whether it succeeded or failed, its
 /// error's and warnings' lines and their repo-text `details` are masked here, its result by its
 /// own type where it is made.
-fn read(root: &Path, command: &str, request: Value) -> Answer {
-    let mut answer = answer(root, command, request);
+fn read(root: &Path, command: &str, request: Value, set: &ReadSet) -> Answer {
+    let mut answer = answer(root, command, request, set);
     redact::answer(&mut answer);
     answer
 }
 
 /// A read request's answer: its result, redacted and within one `db` document, or why it failed.
-fn answer(root: &Path, command: &str, request: Value) -> Answer {
+fn answer(root: &Path, command: &str, request: Value, set: &ReadSet) -> Answer {
     let failed = |handle: Handle, e: AppError| Answer {
         format: ANSWER_FORMAT.into(),
         handle,
@@ -458,11 +475,7 @@ fn answer(root: &Path, command: &str, request: Value) -> Answer {
             return failed(handle, e);
         }
     };
-    let vocabulary = match crate::packs::vocabulary() {
-        Ok(vocabulary) => vocabulary,
-        Err(e) => return failed(bare(), e),
-    };
-    let handle = map_handle(&req, &Ladder::of(vocabulary));
+    let handle = map_handle(&req, &Ladder::of(set.vocabulary()));
     // The answer is the map's page, as the CLI gives it: within the leaf's budget, with the cursor
     // of the page after it, which a read request passes back as its `cursor`, and the reply's
     // warnings, such as `stale_page` for a cursor from a map that has moved on.

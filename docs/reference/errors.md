@@ -76,6 +76,7 @@ A warning never changes the exit code.
 | `workspace_untrusted` | the state directory is untrusted, so its config wasn't loaded; details name the trust card | `card` |
 | `trust_not_recorded` | a person's pick of the trust card stands, but the workspace's trust couldn't be recorded, so the next scan deals a fresh card; details name the card | `card` |
 | `pack_not_updated` | a person's accept of the changed-source card stands, but the pack's new copy couldn't be recorded, so the next scan deals a fresh card; details name the card and the pack | `card`, `pack` |
+| `packs_not_loaded` | a pack the workspace records didn't load from its copy, or doesn't load with this engine, so the reply reads the built-in packs alone; details name the pack and the reason | `pack`, `reason` |
 | `config_key_ignored` | a user-level key in a workspace's config, or api_key in a user-level config that isn't mode 0600 | `file`, `key` |
 | `inferred_unconfirmed` | the result includes inferred facts no person confirmed | none |
 | `cache_regression` | an unchanged Claude prefix wrote the cache again inside its TTL | none |

@@ -127,6 +127,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 111 | Levels are abstraction levels that packs declare, under the kernel's intent | DR-42, DR-45, DR-46, DR-59, DR-85, DR-109 | extended, amends DR-42, DR-45, DR-46, DR-59, DR-85 and DR-109 | the owner's request of 2026-10-29 |
 | 112 | Diagrams for people and agents: pictures the engine derives from its views, and diagrams agents draw that stay ghosts until a person accepts them | DR-3, DR-4, DR-5, DR-11, DR-22, DR-54, DR-111 | extended, amends DR-5 | the owner's request of 2026-10-29 |
 | 113 | `intent next` drafts a plan stage from replay, as the model's ghosts, and `schema --commands` pages | DR-18, DR-23, DR-49, DR-65, DR-93, DR-106, DR-109, DR-111 | extended, amends DR-18, DR-23, DR-93 and DR-109 | the merge of M1's `intent next` from replay |
+| 114 | Every read and write loads the workspace's recorded pack set | DR-48, DR-62, DR-73, DR-106, DR-109, DR-111, DR-113 | extended, amends DR-106, DR-109 and DR-111 | the merge of M1's recorded-set reads |
 | 115 | Starting from nothing: a plan-only workspace, intended blocks that next actions target and that resolve when code lands, and a hand-off that starts a new repo | DR-23, DR-25, DR-48, DR-57, DR-64, DR-73, DR-74, DR-75, DR-80, DR-85, DR-86, DR-87, DR-101, DR-106, DR-110, DR-113 | extended, amends DR-25, DR-57, DR-74, DR-85, DR-87 and DR-106 | the owner's request of 2026-10-29 |
 | 116 | Questions on a sticky line, assumptions you can see, a one-line read-back, and corrections that feed the next draft | DR-23, DR-50, DR-54, DR-73, DR-106, DR-111, DR-112, DR-113 | extended, amends DR-4, DR-23, DR-54, DR-64, DR-75, DR-105 and DR-106 | the owner's request of 2026-10-29 |
 | 117 | Context packs: the map as a ranked, budgeted reading list for a plan item or a block, built into every hand-off | DR-4, DR-15, DR-27, DR-52, DR-64, DR-75, DR-112, DR-115, DR-116 | extended, amends DR-4 and DR-27 | the owner's request of 2026-10-29 |
@@ -2900,7 +2901,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-106: The plan pack's stages and lint, the deterministic `intent` leaves, and `ask stage`
 
-- **Status:** accepted (decided at the merge of M1's plan pack, 2026-10-28). Amended by DR-115, DR-116, DR-118 and DR-120.
+- **Status:** accepted (decided at the merge of M1's plan pack, 2026-10-28). Amended by DR-114, DR-115, DR-116, DR-118 and DR-120.
 - **Starting point:** extended DR-15, DR-23, DR-52, DR-66, DR-89 and DR-101; amends DR-5, DR-23, DR-66, DR-92 and DR-94.
 - **Origin:** the merge of M1's plan pack, lint, the deterministic `intent` leaves and `ask stage`, read against the docs by independent checks over two rounds.
 - **Context:**
@@ -2924,6 +2925,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Contracts: `IntentNewReq`, `IntentVersionReq`, `IntentListReq`, `PlanProposal`, `ProposedItem`, `IntentListResult`, `PlanItem`, `LintResult`, `LintFinding`; `RuleType::Covers` and `Disjoint`; `StageDecl.prompt`; the empty states `no_intent`, `no_plan_items` and `no_findings`; `truncated`'s `entries_cut` for `intent list`; `path_refused`'s proposal-file reach.
   - Known gaps: `ask stage` and `intent lint` read the built-in packs only, as other reads do until the pack set loads a workspace's; the four M2 stage checks; an automatic version 1.
   - Tests: `crates/planroom/tests/s03_plan.rs`; `crates/planroom/tests/intent.rs`; `crates/planroom/tests/packs.rs`'s plan-pack validation tests; `budgets.rs::an_intent_list_page_keeps_to_its_budget_however_long_its_touch_ids`; the kernel's plan and lint unit tests.
+- **Amended by DR-114:** `ask stage`, `intent lint` and every other `intent` leaf read the workspace's recorded pack set, so that known gap is closed.
 - **Amended by DR-115:** a proposal may put intended blocks, and a next action may target one.
 - **Amended by DR-116:** the plan pack gains the `question` item type, its checklist line and its rules; `answer` is settable through `intent propose`.
 - **Amended by DR-118:** an eighth stage, `derisk`, a stage's `needed_when`, the `poc` item type, `risk`'s `stakes` and `rests_on`, and the rule type `max_descendants`.
@@ -2985,7 +2987,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-109: The pack set as workspace state, the changed-source card, and the Ruby pack
 
-- **Status:** accepted (decided at the merge of M1's pack set, 2026-10-29). Amended by DR-111, DR-113 and DR-120.
+- **Status:** accepted (decided at the merge of M1's pack set, 2026-10-29). Amended by DR-111, DR-113, DR-114 and DR-120.
 - **Starting point:** extends DR-62; amends DR-62, DR-89 and DR-101.
 - **Origin:** the merge of M1's pack set, read against the docs and the truth by independent checks over two rounds.
 - **Context:**
@@ -3008,6 +3010,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `crates/store/tests/pack_record.rs`; `crates/planroom/tests/packs.rs`'s pack-set cases; `trust.rs::{an_agent_cannot_add_a_pack, planroom_packs_loads_nothing_outside_doctor, an_out_of_tree_pack_loads_without_a_card}`; `s10_extensibility.rs::{ruby_absent_without_pack, healthcheck_edges_through_the_ruby_pack}`; `s01_first_look.rs::{search_finds_every_truth_entity, repo_languages_match_truth}`.
 - **Amended by DR-111:** the known read gap covers every read, `map` and `find` among them: until reads load the workspace's recorded pack set, `map --level` refuses an out-of-tree pack's level with `invalid_argument` naming the built-in levels, and that level's blocks count at the finest.
 - **Amended by DR-113:** the decided-at-the-merge hand-off is `Command`'s alone: `schema --def Command` keeps every variant and its `$ref` and hands off the leaf request types it leaves out behind one `schema --commands` handle, while every other type keeps its per-type `schema --def` handles. `schema --commands` itself pages, with an opaque cursor bound to the catalogue.
+- **Amended by DR-114:** the known read gap is closed. Every read and write of a workspace loads its recorded set from the copies, read-only; a copy that is missing or changed, or a set that doesn't load, gives the built-ins and `packs_not_loaded`. A process keeps one set by its hash for scans and reads alike.
 - **Amended by DR-120:** a pack's recorded source may be the room's library, `DATA_ROOT/ontologies/<id>/`.
 - **Sources (checked 2026-10-29):** `crates/planroom/src/{packs, app/pack.rs}`; `crates/store/src/meta.rs`; `examples/packs/ruby/`; [What a pack is](architecture.md#what-a-pack-is); [Contracts](contracts.md).
 
@@ -3036,7 +3039,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-111: Levels are abstraction levels that packs declare, under the kernel's intent
 
-- **Status:** accepted (decided on the owner's request of 2026-10-29; recorded at the merge of M1's levels change).
+- **Status:** accepted (decided on the owner's request of 2026-10-29; recorded at the merge of M1's levels change). Amended by DR-114.
 - **Starting point:** kept KICKOFF's "Packs. Declarative files that add kinds, levels, roll-up rules, extractors, lenses, decision kinds and a default view" (KICKOFF.md:383). "Levels. C4 (System, Container, Component, Code) with Intent on top" (:384) stops being a closed set in the contract: C4 becomes the code pack's ladder under the kernel's `intent`, and every stored spelling stays. Amends DR-42 (five fixed levels), DR-45 (the domain-free scan), DR-46 (the container prefix, image roles and tones), DR-59 (the breaking-change guard), DR-85's wording of the lid and DR-109's known read gap.
 - **Origin:** the owner, 2026-10-29: "I consider the box metaphor to be abstraction levels essentially. I don't really want it hardcoded everywhere like that."
 - **Context:**
@@ -3119,6 +3122,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
     - `feature_list.json` C18, "Levels are pack data".
   - **Users:** the same map, words and links as before. A pack can add a level, and the zoom rail, the breadcrumb and the phone's levels sheet follow the loaded ladder.
   - **Milestones:** M1 gains the slice "Levels as pack data" (8 h), taking it from 122 h to 130 h.
+- **Amended by DR-114:** the read gap is closed: `map --level` takes a recorded pack's level and its blocks count there, and `ask` and the graph's ladder list it. The S10 test `a_packs_level_sits_on_the_ladder_and_the_fold_places_its_blocks` is now `a_packs_level_sits_on_the_ladder_and_every_read_shows_it`.
 - **Sources (checked 2026-10-29):** KICKOFF.md:58, :383-384; `crates/contract/src/{model, pack, vocab, view, requests, command, errors, open_set, card}.rs`; `crates/kernel/src/{tree, rollup, resolve, find, plan}.rs`, `query/{mod, lookup, forest}.rs`, `fold/state.rs`; `crates/planroom/src/app/{map/*, focus, scan, edit, intent, ask, find, import, share}.rs`; `crates/planroom/src/packs/{mod, validate}.rs`; `crates/planroom/src/cli.rs`; `crates/planroom/tests/usage.rs`; `crates/extract/src/{lib, link/mod, link/runtime, declarative/mod}.rs`; `crates/testkit/src/truth.rs`; `crates/xtask/src/{boundaries, rustlex, schema_guard, bench}.rs`; `boundaries.toml`; `packs/code/pack.toml`; `packages/ui/src/map.ts`; `packages/canvas/src/{levels, strings}.ts`, `shell/zoom-rail.tsx`, `views/map-view.tsx`, `transport/artifact.ts`; `examples/TRUTH.json`; [Levels and roll-ups](architecture.md#levels-and-roll-ups); [Versioning rules](contracts.md#versioning-rules).
 
 ## DR-112: Diagrams for people and agents: pictures the engine derives from its views, and diagrams agents draw that stay ghosts until a person accepts them
@@ -3272,6 +3276,65 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `crates/planroom/tests/s03_plan.rs::{stages_produce_ghosts_until_accepted, a_stage_that_drafts_nothing_is_refused_before_any_call}`; `budgets.rs::{s3_cache_hit_rate_at_least_0_6_after_the_first_stage, every_built_leafs_reply_on_the_fixture_keeps_to_its_budget}`; `live_gate.rs::{intent_next_without_a_record_flag_is_budget_exceeded, a_relative_replay_dir_is_refused, the_proxy_alone_makes_no_model_request}`; `privacy.rs::a_planted_repo_secret_reaches_no_request_or_tool_output`; `crates/planroom/src/app/draft.rs`'s unit tests (the shared prefix, the prop cut, the slice's marks, a fifty-item draft); `crates/contract/src/plan.rs::the_draft_schema_is_strict_and_order_free`; `crates/models/src/gate.rs::a_relative_replay_dir_is_refused`; `version.rs::{schema_commands_pages_join_to_the_whole_catalogue, a_schema_commands_cursor_no_page_gave_is_refused}`; `crates/planroom/src/app/version.rs::{schema_def_command_hands_its_leaf_requests_off_by_one_handle, a_schema_commands_cursor_from_another_catalogue_or_off_a_page_edge_is_refused}`; `catalogue.rs::undo_classes_snapshot`.
   - Users: with no chat, a person or a CI job drafts a plan's next stage with one command and reviews the model's ghosts. An agent reads the command list a page at a time.
 - **Sources (checked 2026-10-29):** `crates/planroom/src/app/{draft, intent, models, version}.rs`; `crates/planroom/src/cli.rs` (`with_usage`); `crates/contract/src/{plan, command, errors, requests}.rs`; `crates/models/src/gate.rs`; `packs/plan/{pack.toml, prompts/plan.md}`; `tests/replay/claude/plan.stage.*/`; `budgets.json`; `docs/evidence/spend.jsonl`; [Claude](architecture.md#claude); [Live spend plan](architecture.md#live-spend-plan); [Contracts](contracts.md#error-codes).
+
+## DR-114: Every read and write loads the workspace's recorded pack set
+
+- **Status:** accepted (decided at the merge of M1's recorded-set reads, 2026-10-29).
+- **Starting point:** extends DR-62 and DR-109; amends DR-106, DR-109 and DR-111. Builds on DR-48 (an untrusted workspace's packs) and DR-73 (a read in one transaction).
+- **Origin:** a gap found while levels and `intent next` were built: scans and the write guard used the workspace's recorded pack set, while every read still ran on the built-ins alone.
+- **Context:**
+  - DR-109 made the pack set workspace state. Scans extract with the recorded set, and every authored write checks its record. Its known gaps said reads (`focus`, `ask`) use the built-ins, and DR-106's said the same of `ask stage` and `intent lint`.
+  - DR-111 widened the gap. `map --level` refused an out-of-tree pack's level with `invalid_argument` naming the built-in levels, and that level's blocks counted at the finest.
+  - So a workspace that recorded a pack held blocks extracted with it, yet `map`, `find`, `ask` and `focus` couldn't name its kinds, levels or relations, and a person's `edit relate --kind` with the pack's relation was refused.
+  - Two sites in `app/draft.rs` were outside the change while `intent next` was being built there: `proposal`, which reads a stage's reply back, and `stage_call`, the seam the privacy test reads. Both still loaded the built-ins.
+- **Decision:**
+  - **The read set.** `packs::state::for_read(root, record)` is the one place a command of a workspace gets its pack set:
+    - no record, or no out-of-tree pack in it: the built-ins, with no I/O and no trust check;
+    - an untrusted workspace: the built-ins with no warning, as its scans (DR-48);
+    - otherwise this engine's built-ins, then each recorded out-of-tree pack from its copy, in record order, whatever engine recorded it.
+    - It is read-only: it never copies, sets aside or reads a source, and it compiles no query.
+  - **One transaction.** A read resolves the set from the record its own snapshot reads (`Snapshot::recorded_packs`), so a reply folds with the set its snapshot records (DR-73). A write resolves its set before its transaction opens, so trust's git call never runs under the write lock.
+  - **The sites.** `map`, `find`, `focus`, `ask` (its listing, its stages, its questions and its budget), `intent lint`, `list`, `propose` and `next`, `edit`, `review`, `import`, the live overlay, and scan's own summary, which reads the set the scan extracted with. Outside a workspace, before a store, `schema`, `version` and the live loop's repo kind read the built-ins.
+  - **`intent next`'s draft (decided at this merge).** `draft::proposal` looks up the reply's touches on the ladder of the set the map was folded with, and `draft::stage_call` folds and drafts with the recorded set. Before, a touch that named a block at a pack's own level by its name was dropped, because the built-in ladder's lookup order never reaches that level. A full ID was found either way, and `is_apart` agreed, since only `intent` is apart in any set.
+  - **The fallback.** A copy that is missing (`copy_missing`), one that no longer hashes to its name (`copy_changed`), or a set this engine can't load (`invalid`) gives the built-ins alone and the warning `packs_not_loaded {pack, reason}`. For `invalid`, the message names `planroom doctor --pack` on the copy. Every reply of a workspace's read or write carries it once, and text mode prints it as a line. Only `scan` stops instead, with `pack_invalid`. A failed set is never kept.
+  - **The error envelope (decided at this merge).** A command that fails after its set fell back, such as `map --level zone` when the pack that declares `zone` lost its copy, has no reply to carry the warning. `for_read` notes the warning in a process-wide list, each once and at most 16, and the CLI puts the list in its error envelope's `meta.warnings` after the store's notices. Text mode prints it after the error. This is the store notices' pattern (`planroom_store::take_notices`), and it uses the existing warning code. `serve`'s error replies carry no warnings, as they carry no store notices. The canvas asks only for levels its replies listed, so it doesn't meet this refusal.
+  - **One load per process.** A process keeps one recorded set, by its hash, shared by scans and reads, so `watch`, `serve` and a scan load it once. A scan compiles the queries of a set a read kept.
+  - **What a read costs (decided at this merge).** In a debug build, each one-shot read of a workspace that records any out-of-tree pack costs about 70 to 100 ms more than a read of the built-ins:
+    - median of 10 runs, the fixture, which records Ruby: `map --json` 313.0 ms and `focus --json` 297.7 ms; with no out-of-tree pack (`fixture --no-packs`), 211.8 ms and 206.2 ms;
+    - the same workspace trusted against untrusted: `map` 321 ms against 232.5 ms, `focus` 300.5 ms against 229 ms;
+    - the S10 workspace (the fixture plus a pack with a level) differs from the plain fixture by 3 to 26 ms.
+    - No budget gates a one-shot read's wall-clock. The fold's 50 ms ([Performance budgets](architecture.md#performance-budgets)) times the kernel's fold alone, which this change doesn't touch.
+    - The bar it bears on is commit to rendered (p99 under 1 s): the pane runs `focus --json` once per burst of frames, and `serve` loads the set once. That bar's gates, `tests/e2e/src/s08-tab.spec.ts::rendered_within_1_s` and `packages/mod/src/refresh.test.ts::pane_within_1_s_under_s8_frames`, arrive in M2. The canvas's interactive gate measured 406 to 435 ms over 5 cold loads on this tree.
+    - Nothing changes now. The cost is the built-ins resolved a second time in one process: once for `builtin_records`, through `packs::loaded()`, and again inside `checked`. Building the read set from the built-ins the process already parsed is the cheap fix. It lands with M2's S8 harness if that harness shows the pane near its bound. A cache of the resolved set on disk, keyed by the recorded hash, follows only if that isn't enough.
+  - **The fold benchmark (checked at this merge).** `cargo xtask bench fold` misses its budgets in this container on the base too, so the miss isn't this change's. Measured alternately in one container, two runs each, while another build ran:
+    - the base: `fold.20k` 78.54, 86.91 and 79.95 ms; `fold.50k` 580.06, 573.52 and 578.01 ms;
+    - this change before the merge: 82.86 and 92.79 ms; 595.46 and 566.68 ms;
+    - after the merge: 88.16 and 85.45 ms; 601.0 and 586.4 ms.
+    - The change touches nothing the benchmark builds but one `WarningCode` variant. DR-111's merge measured 116 and 106 ms here, and CI's runners time `fold.20k` between 38 and 61 ms. `budgets.json` is unchanged.
+- **Alternatives rejected:**
+  - Reading a recorded source when its copy is missing, as a scan does: a read would follow a path outside the workspace and write a copy.
+  - Refusing a read when the set doesn't load, as a scan does: the whole map would go dark over one copy that the next scan restores.
+  - Resolving the set inside a write's transaction: trust's git call would run under the write lock.
+  - An `AppError` that carries warnings through every handler: a wider change than one drain point in the CLI, for the same envelope.
+  - A new error code for a request refused after the fallback: the request's own refusal is right, and the warning says why it was made.
+  - Leaving `app/draft.rs` on the built-ins as a known gap: the fix is one parameter, one call and a test.
+  - A cache on disk now: a format to keep before the gate that would need it exists.
+- **Consequences:**
+  - Contracts: the warning `packs_not_loaded` (`details {pack, reason}`), now also in a CLI error envelope's `meta.warnings`; the store's `Snapshot::recorded_packs`. Both are additive, so `schema_version` stays 1.
+  - Behaviour: a recorded pack's levels, kinds, relations, lenses and questions show in every read and write of a trusted workspace. `ask` with no question now opens the store when there is one, so a store that fails to open fails it too.
+  - Known gaps:
+    - a write resolves its set before its lock, so a `pack add` or `pack remove` that commits in between leaves that write on the previous set;
+    - `serve`'s error replies carry no warnings;
+    - the per-process cost above, until M2's S8 harness measures the pane.
+  - Tests:
+    - `crates/planroom/src/packs/state.rs::{no_record_or_a_built_in_record_reads_the_built_ins, a_read_set_compiles_no_query}`;
+    - `crates/planroom/src/app/draft.rs::a_drafted_touch_names_a_block_at_a_packs_own_level`;
+    - `crates/planroom/tests/packs.rs::{every_read_and_write_loads_the_recorded_set, a_missing_or_changed_copy_reads_the_built_ins_and_writes_nothing, an_older_engine_reads_the_recorded_copies_with_its_own_built_ins, a_request_refused_after_the_fallback_says_which_pack_didnt_load}`;
+    - `trust.rs::an_untrusted_workspace_reads_with_the_built_ins_as_it_scans`;
+    - `s10_extensibility.rs::a_packs_level_sits_on_the_ladder_and_every_read_shows_it`, renamed from `a_packs_level_sits_on_the_ladder_and_the_fold_places_its_blocks`.
+  - `feature_list.json`: C18, "Levels are pack data", passes.
+  - Users: a pack a person adds shows everywhere: its level on the map, its kinds in `find`, its questions in `ask`, its relations in `edit`.
+- **Sources (checked 2026-10-29):** `crates/planroom/src/packs/{mod, state}.rs`; `crates/planroom/src/app/{map/mod, map/read, focus, find, ask, scan, edit, review, import, intent, draft}.rs`; `crates/planroom/src/cli.rs` (`finish_shrunk`); `crates/store/src/{meta, fs_check}.rs`; `crates/contract/src/errors.rs`; `crates/planroom/text/en.toml`; [What a pack is](architecture.md#what-a-pack-is); [Performance budgets](architecture.md#performance-budgets); [Contracts](contracts.md#error-codes).
 
 ## DR-115: Starting from nothing: a plan-only workspace, intended blocks that next actions target and that resolve when code lands, and a hand-off that starts a new repo
 

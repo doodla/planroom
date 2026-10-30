@@ -39,6 +39,7 @@ use serde_json::json;
 
 use crate::app::error::AppError;
 use crate::app::{Paged, Reply, intent, map, workspace};
+use crate::packs::state::{self, ReadSet};
 use crate::packs::{self, Loaded};
 use crate::{live, text};
 
@@ -73,12 +74,17 @@ const SUMMARY_CHARS: usize = 160;
 /// Characters of the last entry's ID a listing cursor keeps, beside the entry's place.
 const MARK_CHARS: usize = 32;
 
-/// The budget a reply to `req` keeps to: its question's, or the leaf's.
-pub fn budget(req: &AskReq) -> Option<u32> {
+/// The budget a reply to `req` from `cwd` keeps to: its question's, as the set the workspace
+/// records declares it (the built-in packs' outside a workspace), or the leaf's.
+pub fn budget(req: &AskReq, cwd: &Path) -> Option<u32> {
     let leaf = leaf_budget();
-    let question = req.question.as_deref().filter(|q| *q != KINDS);
-    let decl = question.and_then(|q| packs::loaded().ok().and_then(|l| find_question(l, q)).map(|(_, d)| d));
-    Some(decl.map_or(leaf, question_budget))
+    let Some(question) = req.question.as_deref().filter(|q| *q != KINDS) else { return Some(leaf) };
+    let of = |loaded: &Loaded| find_question(loaded, question).map(|(_, d)| question_budget(d));
+    let asked = match workspace::find_root(cwd) {
+        Some(root) => state::for_root(&root).ok().and_then(|set| of(&set)),
+        None => packs::loaded().ok().and_then(of),
+    };
+    Some(asked.unwrap_or(leaf))
 }
 
 fn leaf_budget() -> u32 {
@@ -91,7 +97,30 @@ fn question_budget(decl: &QuestionDecl) -> u32 {
 }
 
 pub fn run(req: &AskReq, cwd: &Path) -> Result<Paged<AskResult>, AppError> {
-    let loaded = packs::loaded()?;
+    // The workspace and its store, opened once: the set the store records answers the listing, a
+    // stage and a question alike, and one that didn't load says so in the reply.
+    let root = workspace::find_root(cwd);
+    let store = match &root {
+        Some(root) => Store::open_existing(&workspace::store_path(root))?,
+        None => None,
+    };
+    let set = match (&root, &store) {
+        (Some(root), Some(store)) => state::for_read(root, store.recorded_packs()?.as_ref())?,
+        _ => ReadSet { loaded: packs::builtin_set()?, warning: None },
+    };
+    let mut paged = reply(req, cwd, &set, root.as_deref(), store.as_ref())?;
+    set.warn(&mut paged.reply.warnings);
+    Ok(paged)
+}
+
+/// [`run`]'s reply with the set `loaded`, and the workspace's root and store when there are.
+fn reply(
+    req: &AskReq,
+    cwd: &Path,
+    loaded: &Loaded,
+    root: Option<&Path>,
+    store: Option<&Store>,
+) -> Result<Paged<AskResult>, AppError> {
     let Some(question) = req.question.as_deref().filter(|q| *q != KINDS) else {
         if !req.args.is_empty() {
             return Err(AppError::invalid_argument("args", "ask.kinds_args"));
@@ -102,7 +131,7 @@ pub fn run(req: &AskReq, cwd: &Path) -> Result<Paged<AskResult>, AppError> {
         return Err(AppError::invalid_argument("cursor", "ask.cursor_question"));
     }
     if question == STAGE && !intent::stages(loaded).is_empty() {
-        return stage(loaded, &req.args, cwd);
+        return stage(loaded, &req.args, store);
     }
     let Some((_, decl)) = find_question(loaded, question) else {
         return Err(unknown(loaded, question));
@@ -122,16 +151,16 @@ pub fn run(req: &AskReq, cwd: &Path) -> Result<Paged<AskResult>, AppError> {
         );
     }
     let asked = asked(decl, &req.args);
-    let Some(root) = workspace::find_root(cwd) else {
+    let Some(root) = root else {
         return Ok(Paged::whole(not_scanned(decl, cwd, 0)));
     };
-    let Some(store) = Store::open_existing(&workspace::store_path(&root))? else {
-        return Ok(Paged::whole(not_scanned(decl, &root, 0)));
+    let Some(store) = store else {
+        return Ok(Paged::whole(not_scanned(decl, root, 0)));
     };
     let snapshot = store.snapshot()?;
     let seq = snapshot.seq();
     if snapshot.active_set()?.repos.is_empty() {
-        return Ok(Paged::whole(not_scanned(decl, &root, seq)));
+        return Ok(Paged::whole(not_scanned(decl, root, seq)));
     }
     let vocabulary = &loaded.vocabulary;
     let model = live::model(&snapshot, vocabulary)?;
@@ -517,7 +546,7 @@ fn empty_reply(decl: &QuestionDecl, empty: Empty, seq: Seq) -> Reply<AskResult> 
 /// `ask stage S [PROJECT]`: the stage's checklist and item types, then, for the named or only
 /// project, its items of those types with their status, the stage's lint findings and the blocks
 /// the plan touches, within `stage`'s budget.
-fn stage(loaded: &Loaded, args: &[String], cwd: &Path) -> Result<Paged<AskResult>, AppError> {
+fn stage(loaded: &Loaded, args: &[String], store: Option<&Store>) -> Result<Paged<AskResult>, AppError> {
     let stages = intent::stages(loaded);
     let arity = || {
         let what = text::get(
@@ -572,10 +601,6 @@ fn stage(loaded: &Loaded, args: &[String], cwd: &Path) -> Result<Paged<AskResult
     let (mut count, mut waiting, mut findings) = (0, 0, 0);
     let mut empty = Some(intent::no_intent());
     let mut seq = 0;
-    let store = workspace::find_root(cwd)
-        .map(|root| Store::open_existing(&workspace::store_path(&root)))
-        .transpose()?
-        .flatten();
     if let Some(store) = store {
         let snapshot = store.snapshot()?;
         seq = snapshot.seq();

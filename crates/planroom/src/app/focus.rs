@@ -20,6 +20,7 @@ use serde_json::json;
 use crate::app::dirty::Dirty;
 use crate::app::error::AppError;
 use crate::app::{Paged, Reply, cards, map, workspace};
+use crate::packs::state::{self, ReadSet};
 use crate::{clock, live, text};
 
 /// Blocks the mini-map holds at most: the pane's cap. On the CLI the reply then keeps to `focus`'s
@@ -51,12 +52,14 @@ fn whole_detail(cwd: &Path) -> Result<Paged<PaneModel>, AppError> {
     let Some(store) = Store::open_existing(&workspace::store_path(&root))? else {
         return not_a_workspace(&root).map(Paged::whole);
     };
-    let mut reply = reply_in(&store, &store.snapshot()?, &root)?;
+    let snapshot = store.snapshot()?;
+    let set = state::for_snapshot(&snapshot, &root)?;
+    let mut reply = reply_with(&store, &snapshot, &root, &set)?;
     if reply.result.empty.is_some() {
         return Ok(Paged::whole(reply));
     }
     let dirty = Dirty::of_root(&root);
-    reply.text = text_of(&reply.result, dirty.line(), crate::packs::vocabulary()?);
+    reply.text = text_of(&reply.result, dirty.line(), set.vocabulary());
     Ok(Paged { dirty, ..Paged::whole(reply) })
 }
 
@@ -65,10 +68,21 @@ fn whole_detail(cwd: &Path) -> Result<Paged<PaneModel>, AppError> {
 /// scan didn't cover every file keeps its `partial_scan` warning here, so the pane never shows a
 /// partly mapped repo as whole.
 pub fn reply_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<Reply<PaneModel>, AppError> {
+    reply_with(store, snapshot, root, &state::for_snapshot(snapshot, root)?)
+}
+
+/// [`reply_in`] with the pack set the caller resolved from `snapshot`: the pane is folded with it,
+/// and a set that didn't load says so in the reply's warnings.
+fn reply_with(
+    store: &Store,
+    snapshot: &Snapshot<'_>,
+    root: &Path,
+    set: &ReadSet,
+) -> Result<Reply<PaneModel>, AppError> {
     if snapshot.active_set()?.repos.is_empty() {
         return not_a_workspace(root);
     }
-    let pane = pane_in(store, snapshot, root)?;
+    let pane = pane_in(store, snapshot, root, set.vocabulary())?;
     let seq = pane.focus.seq;
     let mut warnings = partly_mapped(snapshot)?;
     // While the trust card is open, the workspace's config stays unloaded, and the pane says so
@@ -76,7 +90,8 @@ pub fn reply_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<R
     if let Some(open) = cards::open_trust(snapshot)? {
         warnings.push(cards::untrusted_warning(&open.event.id, &open.card));
     }
-    Ok(Reply { text: text_of(&pane, None, crate::packs::vocabulary()?), result: pane, seq, warnings })
+    set.warn(&mut warnings);
+    Ok(Reply { text: text_of(&pane, None, set.vocabulary()), result: pane, seq, warnings })
 }
 
 /// A `partial_scan` warning for each repo whose active snapshot's scan left files uncovered: the
@@ -103,16 +118,22 @@ fn partly_mapped(snapshot: &Snapshot<'_>) -> Result<Vec<Warning>, AppError> {
 
 /// The pane of a scanned workspace.
 pub fn pane(store: &Store, root: &Path) -> Result<PaneModel, AppError> {
-    pane_in(store, &store.snapshot()?, root)
+    let snapshot = store.snapshot()?;
+    let set = state::for_snapshot(&snapshot, root)?;
+    pane_in(store, &snapshot, root, set.vocabulary())
 }
 
 /// [`pane`] inside a read transaction on `store`: the pane's seq and its mini-map come from that
-/// one version of the store (DR-73).
-fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneModel, AppError> {
+/// one version of the store (DR-73), folded with `vocabulary`.
+fn pane_in(
+    store: &Store,
+    snapshot: &Snapshot<'_>,
+    root: &Path,
+    vocabulary: &Vocabulary,
+) -> Result<PaneModel, AppError> {
     let seq = snapshot.seq();
-    let view = map::top_in(snapshot, root, None)?;
-    let next = next_in(snapshot)?;
-    let vocabulary = crate::packs::vocabulary()?;
+    let view = map::top_in(snapshot, root, None, vocabulary)?;
+    let next = next_in(snapshot, vocabulary)?;
     let top = Ladder::of(vocabulary).top().clone();
     let folded = live::folded(snapshot, vocabulary)?;
     let (decision, more_decisions) = cards::face_up(snapshot, &folded)?;
@@ -161,8 +182,7 @@ fn pane_in(store: &Store, snapshot: &Snapshot<'_>, root: &Path) -> Result<PaneMo
 /// holds on the model this pane reads (DR-54), its text the button's label. The loader refused
 /// every suggestion that names a leaf the band may not, so this one can be undone, hands nothing
 /// off and never spends. With none that holds, the top of the map.
-fn next_in(snapshot: &Snapshot<'_>) -> Result<Handle, AppError> {
-    let vocabulary = crate::packs::vocabulary()?;
+fn next_in(snapshot: &Snapshot<'_>, vocabulary: &Vocabulary) -> Result<Handle, AppError> {
     let model = live::model(snapshot, vocabulary)?;
     Ok(match planroom_kernel::next::next(&model, &vocabulary.suggestions) {
         Some(suggestion) => Handle {

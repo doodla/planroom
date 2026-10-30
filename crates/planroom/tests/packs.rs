@@ -2660,6 +2660,47 @@ emit = [{{ node = "code.tooling", key = "$1", name = "$1", parent = "@id:code.re
     )
 }
 
+/// A pack that reads the stems language's `name:` lines as tooling, each with a zone under it
+/// named `z<name>`, at its own `zone` level below `container`, and a `feeds` relation between
+/// zones.
+fn zoned_manifest() -> String {
+    manifest(
+        "zoned",
+        &["code"],
+        r##"[[languages]]
+id = "stemlang"
+extensions = ["stm"]
+line_comment = "#"
+
+[[levels]]
+id = "zone"
+label = "service area"
+one = "{count} service area"
+many = "{count} service areas"
+below = "container"
+
+[[kinds]]
+id = "zone"
+id_prefix = "zone"
+level = "zone"
+label = "Zone"
+
+[[relations]]
+id = "feeds"
+from = ["zoned.zone"]
+to = ["zoned.zone"]
+label = "feeds"
+
+[[extractors]]
+id = "zone-names"
+files = ["**/*.stm"]
+regex = "(?m)^name: (\\w+)"
+emit = [{ node = "code.tooling", key = "$1", name = "$1", parent = "@id:code.repo:$repo" },
+        { node = "zoned.zone", key = "$1", name = "z$1", parent = "@id:code.tooling:$1" }]
+"##,
+    )
+}
+
 /// One test's machine: its data root, config home and home, apart from every other test's.
 struct Room {
     tmp: tempfile::TempDir,
@@ -3047,6 +3088,188 @@ fn a_process_with_another_pack_set_refuses_writes() {
     room.ok(&ws, &["map"]);
     room.ok(&ws, &["focus"]);
     assert_eq!(store_of(&ws).meta("packs_hash").unwrap().unwrap(), "0".repeat(64), "nothing was written");
+}
+
+#[test]
+fn an_older_engine_reads_the_recorded_copies_with_its_own_built_ins() {
+    let (room, ws, _key, _pack) = stems_added();
+    let mut store = store_of(&ws);
+    let held = store.meta("packs_engine").unwrap();
+    store.meta_swap("packs_engine", held.as_deref(), "999.0.0", &[("packs_hash", &"0".repeat(64))]).unwrap();
+    drop(store);
+    // A newer engine recorded the set; this one reads that set's out-of-tree packs from their
+    // copies beside its own built-ins, and checks nothing a write would.
+    let listed = room.ok(&ws, &["ask"]);
+    let summary = listed["result"]["summary"].as_str().unwrap();
+    assert!(summary.contains("stems"), "{summary}");
+    let map = room.ok(&ws, &["map", "--level", "container"]);
+    let names: Vec<&str> =
+        map["result"]["nodes"].as_array().unwrap().iter().map(|n| n["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"alpha"), "{map}");
+    let warnings = map["meta"]["warnings"].as_array().cloned().unwrap_or_default();
+    assert!(warnings.is_empty(), "{map}");
+    assert_eq!(store_of(&ws).meta("packs_hash").unwrap().unwrap(), "0".repeat(64), "nothing was written");
+}
+
+/// `ask`'s listing summary in `ws`.
+fn ask_summary(room: &Room, ws: &Path) -> String {
+    room.ok(ws, &["ask"])["result"]["summary"].as_str().unwrap().to_owned()
+}
+
+/// The `packs_not_loaded` warnings `env` carries, wherever its reply puts them.
+fn not_loaded(env: &Value) -> Vec<Value> {
+    let meta = env["meta"]["warnings"].as_array().cloned().unwrap_or_default();
+    let reply = env["result"]["warnings"].as_array().cloned().unwrap_or_default();
+    meta.into_iter().chain(reply).filter(|w| w["code"] == "packs_not_loaded").collect()
+}
+
+/// A workspace with one repo whose `tools/` files name `alpha` and `gamma`, scanned, with the
+/// zoned pack a person added and a scan with it, and the person's key.
+fn zoned_added() -> (Room, PathBuf, SigningKey) {
+    let room = Room::new();
+    let ws = room.path("ws");
+    planroom_testkit::git_repo(
+        &ws.join("app"),
+        &[
+            ("tools/a.stm".into(), b"name: alpha\n".to_vec()),
+            ("tools/b.stm".into(), b"name: gamma\n".to_vec()),
+        ],
+    );
+    let ws = ws.canonicalize().unwrap();
+    let pack = room.path("src/zoned");
+    fs::create_dir_all(&pack).unwrap();
+    fs::write(pack.join("pack.toml"), zoned_manifest()).unwrap();
+    let pack = pack.canonicalize().unwrap();
+    assert_eq!(doctor(&pack)["ok"], true, "the pack checks on its own");
+    room.ok(&ws, &["scan"]);
+    let key = key(7);
+    room.register(&ws, &key);
+    room.add(&ws, &key, &pack);
+    room.ok(&ws, &["scan"]);
+    (room, ws, key)
+}
+
+#[test]
+fn every_read_and_write_loads_the_recorded_set() {
+    let (room, ws, key) = zoned_added();
+
+    // map takes the pack's level and shows its blocks there.
+    let map = room.ok(&ws, &["map", "--level", "zone"]);
+    let zones: BTreeMap<String, String> = map["result"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| (n["name"].as_str().unwrap().to_owned(), n["id"].as_str().unwrap().to_owned()))
+        .collect();
+    assert!(zones.contains_key("zalpha") && zones.contains_key("zgamma"), "{map}");
+    // find places a zone at its pack's level.
+    let found = room.ok(&ws, &["find", "zalpha"]);
+    let first = &found["result"]["items"][0];
+    assert_eq!(first["level"], "zone", "{found}");
+    assert_eq!(first["kind"], "zoned.zone", "{found}");
+    // ask lists the pack's questions and levels with the built-ins'.
+    let summary = ask_summary(&room, &ws);
+    assert!(summary.contains("zoned"), "{summary}");
+    // A person's edit relates two zones by the pack's relation.
+    let base = room.seq(&ws);
+    let (code, related) = room.person(
+        &ws,
+        &key,
+        "edit",
+        &["--base", &base, "relate", &zones["zalpha"], &zones["zgamma"], "--kind", "feeds"],
+        &base,
+    );
+    assert_eq!(code, 0, "{related}");
+    assert_eq!(related["result"]["status"], "applied", "{related}");
+}
+
+#[test]
+fn a_request_refused_after_the_fallback_says_which_pack_didnt_load() {
+    let (room, ws, _key) = zoned_added();
+    room.ok(&ws, &["map", "--level", "zone"]);
+    let sha = recorded(&ws).into_iter().find(|r| r.id == "zoned").unwrap().sha256;
+    fs::remove_dir_all(ws.join(".planroom/packs").join(sha)).unwrap();
+    // The built-ins hold no `zone` level, so the request is refused, and the error envelope says
+    // which pack didn't load and why.
+    let (code, refused) = room.run(&ws, &["map", "--level", "zone"], &[]);
+    assert_ne!(code, 0, "{refused}");
+    assert_eq!(refused["error"]["code"], "invalid_argument", "{refused}");
+    let warned = not_loaded(&refused);
+    assert_eq!(warned.len(), 1, "{refused}");
+    assert_eq!(
+        warned[0]["details"],
+        serde_json::json!({"pack": "zoned", "reason": "copy_missing"}),
+        "{refused}"
+    );
+}
+
+#[test]
+fn a_missing_or_changed_copy_reads_the_built_ins_and_writes_nothing() {
+    let (room, ws, key, _pack) = stems_added();
+    let summary = ask_summary(&room, &ws);
+    assert!(summary.contains("stems"), "{summary}");
+    let sha = recorded(&ws)[0].sha256.clone();
+    let packs_dir = ws.join(".planroom/packs");
+    let copy = packs_dir.join(&sha);
+
+    // A missing copy: the built-ins, one warning, and nothing written.
+    let seq = room.seq(&ws);
+    fs::remove_dir_all(&copy).unwrap();
+    let map = room.ok(&ws, &["map"]);
+    let warned = not_loaded(&map);
+    assert_eq!(warned.len(), 1, "{map}");
+    assert_eq!(warned[0]["details"], serde_json::json!({"pack": "stems", "reason": "copy_missing"}), "{map}");
+    let summary = ask_summary(&room, &ws);
+    assert!(!summary.contains("stems"), "{summary}");
+    assert!(!copy.exists(), "a read never copies");
+    let leftovers: Vec<String> = fs::read_dir(&packs_dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().into_string().unwrap())
+        .filter(|n| n.ends_with(".stale") || n.ends_with(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "a read sets nothing aside: {leftovers:?}");
+    assert_eq!(room.seq(&ws), seq, "a read writes no event");
+    // A write still applies, and says what it folded with.
+    let (code, edited) = room.edit(&ws, &key, "renamed");
+    assert_eq!(code, 0, "{edited}");
+    assert_eq!(not_loaded(&edited), warned, "{edited}");
+
+    // scan copies it again, and reads load it.
+    room.ok(&ws, &["scan"]);
+    let map = room.ok(&ws, &["map"]);
+    assert!(not_loaded(&map).is_empty(), "{map}");
+
+    // A changed copy: the built-ins, and the copy left as it is.
+    fs::write(copy.join("pack.toml"), stems_manifest("alias")).unwrap();
+    let focus = room.ok(&ws, &["focus"]);
+    let warned = not_loaded(&focus);
+    assert_eq!(warned.len(), 1, "{focus}");
+    assert_eq!(warned[0]["details"]["reason"], "copy_changed", "{focus}");
+    assert_eq!(fs::read_to_string(copy.join("pack.toml")).unwrap(), stems_manifest("alias"));
+
+    // A set this engine doesn't load: the built-ins, and the hint checks the copy.
+    room.ok(&ws, &["scan"]);
+    let orphan = room.path("hand/orphan");
+    fs::create_dir_all(&orphan).unwrap();
+    fs::write(orphan.join("pack.toml"), manifest("orphan", &["nonesuch"], "")).unwrap();
+    let orphan_sha = packs::read_dir(&orphan).unwrap().sha256();
+    let orphan_copy = packs_dir.join(&orphan_sha);
+    fs::create_dir_all(&orphan_copy).unwrap();
+    fs::copy(orphan.join("pack.toml"), orphan_copy.join("pack.toml")).unwrap();
+    let mut record = store_of(&ws).recorded_packs().unwrap().unwrap();
+    record.packs.push(planroom_contract::PackRecord {
+        id: "orphan".into(),
+        version: 1,
+        source: orphan.display().to_string(),
+        sha256: orphan_sha,
+    });
+    plant(&ws, planroom::packs::state::record_of(record.packs, record.config_read));
+    let found = room.ok(&ws, &["find", "alpha"]);
+    let warned = not_loaded(&found);
+    assert_eq!(warned.len(), 1, "{found}");
+    assert_eq!(warned[0]["details"]["reason"], "invalid", "{found}");
+    assert!(warned[0]["message"].as_str().unwrap().contains("planroom doctor --pack"), "{found}");
 }
 
 #[test]

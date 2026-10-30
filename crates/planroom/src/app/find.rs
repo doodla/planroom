@@ -26,6 +26,7 @@ use serde_json::json;
 
 use crate::app::error::AppError;
 use crate::app::{Reply, map, workspace};
+use crate::packs::state;
 use crate::{live, text};
 
 /// Matches a reply lists at most, best first; the summary counts every match.
@@ -54,18 +55,23 @@ pub fn run(req: &FindReq, cwd: &Path) -> Result<Reply<FindResult>, AppError> {
     if snapshot.active_set()?.repos.is_empty() {
         return Ok(not_scanned(&root, seq));
     }
-    let vocabulary = crate::packs::vocabulary()?;
+    // The set the workspace records, read in this transaction; one that didn't load says so.
+    let set = state::for_snapshot(&snapshot, &root)?;
+    let vocabulary = set.vocabulary();
     let model = live::model(&snapshot, vocabulary)?;
     let hits = find::find(&model.nodes, &Ladder::of(vocabulary), &req.text);
     if hits.is_empty() {
-        return Ok(no_match(&req.text, seq));
+        let mut reply = no_match(&req.text, seq);
+        set.warn(&mut reply.warnings);
+        return Ok(reply);
     }
     let present: HashSet<&str> = model.nodes.iter().map(|n| n.id.0.as_str()).collect();
     let parents: HashSet<&str> =
         model.nodes.iter().filter_map(|n| n.parent.as_ref()).map(|p| p.0.as_str()).collect();
     let items: Vec<FindItem> =
         hits.iter().take(MAX_ITEMS).map(|hit| item(hit.node, &present, &parents)).collect();
-    let (result, warnings) = fit(items, hits.len(), &req.text);
+    let (result, mut warnings) = fit(items, hits.len(), &req.text);
+    set.warn(&mut warnings);
     let mut text = result.summary.clone();
     for warning in &warnings {
         text.push('\n');

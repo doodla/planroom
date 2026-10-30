@@ -29,7 +29,7 @@ use std::path::Path;
 
 use planroom_contract::{
     Actor, Cause, Client, Command, Edit, ErrorCode, Event, EventBody, EventId, ReviewReq, ReviewResult, Seq,
-    Status, Surface, Verdict,
+    Status, Surface, Verdict, Vocabulary,
 };
 use planroom_kernel::cas::{self, Authority, Check, Proposed};
 use planroom_kernel::fold::{Folded, Writer, actor_key};
@@ -43,6 +43,7 @@ use crate::app::cards::{self, APPLY, BATCH_ITEMS};
 use crate::app::edit::{self, Written};
 use crate::app::error::AppError;
 use crate::app::{Reply, import, new_event_id, workspace};
+use crate::packs::state;
 use crate::{clock, live, text};
 
 /// `planroom review` from the CLI, as the actor rules resolve its caller (`actor::writer`).
@@ -56,6 +57,8 @@ pub fn run(
     let mut store = Store::open_existing(&workspace::store_path(&root))?
         .ok_or_else(|| AppError::workspace_not_found(&root))?;
     crate::app::hook(&mut store);
+    // The workspace's recorded pack set, resolved before any transaction opens.
+    let set = state::for_read(&root, store.recorded_packs()?.as_ref())?;
     // An agent's call that isn't the reject of its own ghost is refused before anything else, a
     // missing base included, and checked again inside the write, which reads the store as its
     // commit finds it. Its hint reviews at the base the call gave, or else at the head.
@@ -63,7 +66,7 @@ pub fn run(
         let writer = Writer { actor: agent, client: caller.client() };
         let snapshot = store.snapshot()?;
         let events = snapshot.events_after(0)?;
-        let folded = live::folded(&snapshot, crate::packs::vocabulary()?)?;
+        let folded = live::folded(&snapshot, set.vocabulary())?;
         let head = snapshot.seq();
         let base = req.common.base.unwrap_or(head).min(head);
         if let Some(refusal) = agent_refusal(req, &events, &folded, &writer, base) {
@@ -77,11 +80,18 @@ pub fn run(
     // reads now, before the commit, so a pack that no longer loads refuses the pick with nothing
     // committed.
     let update = crate::app::pack::update_for_card(&store, &root, &req.id, req.verdict)?;
-    let mut written = write(req, &mut store, writer, base)?;
+    let mut written = write(req, &mut store, writer, base, set.vocabulary())?;
     // A trust card's pick records or removes the workspace's trust where it ran, and a
     // changed-source card's accept records the copy just made (DR-89).
     cards::picked(&store, &mut written, &root)?;
     cards::picked_pack(&mut store, &mut written, update.as_ref())?;
+    let reply = &mut written.reply;
+    let from = reply.warnings.len();
+    set.warn(&mut reply.warnings);
+    for warning in &reply.warnings[from..] {
+        reply.text.push('\n');
+        reply.text.push_str(&warning.message);
+    }
     Ok(written)
 }
 
@@ -211,8 +221,8 @@ fn write(
     store: &mut Store,
     writer: Writer,
     base: Seq,
+    vocabulary: &Vocabulary,
 ) -> Result<Written<ReviewResult>, AppError> {
-    let vocabulary = crate::packs::vocabulary()?;
     let args = json!({"id": req.id, "verdict": req.verdict});
     let project = req.common.project.clone();
     let who = actor_key(&writer.actor);

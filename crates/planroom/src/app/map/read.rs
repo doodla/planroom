@@ -28,13 +28,20 @@ use crate::{live, text};
 /// The map of the store's active snapshots at the top of the tree, or at `level`, read in one
 /// read transaction. A level with no blocks is an `Empty` whose next action works today.
 pub fn top(store: &Store, root: &Path, level: Option<LevelId>) -> Result<MapView, AppError> {
-    top_in(&store.snapshot()?, root, level)
+    let snapshot = store.snapshot()?;
+    let set = crate::packs::state::for_snapshot(&snapshot, root)?;
+    top_in(&snapshot, root, level, set.vocabulary())
 }
 
 /// [`top`] inside a read transaction the caller holds, so the rest of its reply, such as the
-/// pane's `seq`, comes from the same version of the store.
-pub fn top_in(snapshot: &Snapshot<'_>, root: &Path, level: Option<LevelId>) -> Result<MapView, AppError> {
-    let vocabulary = crate::packs::vocabulary()?;
+/// pane's `seq`, comes from the same version of the store, folded with `vocabulary`, the set the
+/// caller resolved.
+pub fn top_in(
+    snapshot: &Snapshot<'_>,
+    root: &Path,
+    level: Option<LevelId>,
+    vocabulary: &Vocabulary,
+) -> Result<MapView, AppError> {
     let mut view = view(snapshot, root, level, None, vocabulary)?.0;
     view.lens = lens::default_id(vocabulary);
     let lens = view.lens.clone();
@@ -169,7 +176,11 @@ fn top_empty(root: &Path) -> Empty {
 
 /// `--detail graph`: the view's layout key, and each block's position from the layout cache
 /// when one is cached for this structure, read in the same snapshot as the view.
-pub(super) fn place(snapshot: &Snapshot<'_>, view: &mut MapView) -> Result<(), AppError> {
+pub(super) fn place(
+    snapshot: &Snapshot<'_>,
+    view: &mut MapView,
+    vocabulary: &Vocabulary,
+) -> Result<(), AppError> {
     let key = LayoutKey {
         view_key: view_key(view),
         structure_hash: tree::structure_hash(&view.nodes, &view.edges),
@@ -182,7 +193,7 @@ pub(super) fn place(snapshot: &Snapshot<'_>, view: &mut MapView) -> Result<(), A
         }
     }
     // A position a person pinned in this view (`edit pin`) wins over the cached auto-layout.
-    let overlay = live::overlay(snapshot, crate::packs::vocabulary()?)?;
+    let overlay = live::overlay(snapshot, vocabulary)?;
     for node in &mut view.nodes {
         if let Some(pinned) = overlay.positions.get(&(key.view_key.clone(), node.id.clone())) {
             node.position = serde_json::from_value(pinned.clone()).ok().or(node.position);
@@ -222,8 +233,7 @@ pub(super) fn not_scanned(
 
 /// The top of the map of a workspace a scan wrote nothing for, since git could read none of its
 /// repos: the same empty state `map` returns there.
-pub(crate) fn not_scanned_view(root: &Path) -> Result<MapView, AppError> {
-    let vocabulary = crate::packs::vocabulary()?;
+pub(crate) fn not_scanned_view(root: &Path, vocabulary: &Vocabulary) -> Result<MapView, AppError> {
     Ok(not_scanned(root, lens::default_id(vocabulary), None, 0, vocabulary)?.result)
 }
 

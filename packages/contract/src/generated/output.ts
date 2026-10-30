@@ -155,6 +155,7 @@ export type WarningCode =
       | "workspace_untrusted"
       | "trust_not_recorded"
       | "pack_not_updated"
+      | "packs_not_loaded"
       | "config_key_ignored"
       | "inferred_unconfirmed"
       | "cache_regression"

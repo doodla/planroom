@@ -10,7 +10,7 @@ use planroom_contract::PackRecord;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::commit::check_version;
-use crate::{Store, StoreError};
+use crate::{Snapshot, Store, StoreError};
 
 /// The `meta` keys the pack record spans.
 pub const META_PACKS: &str = "packs";
@@ -103,6 +103,14 @@ pub(crate) fn check_writer(guard: Option<&PackGuard>, conn: &Connection) -> Resu
         PackVerdict::Keep => Ok(()),
         PackVerdict::Record(record) => write(conn, &record),
         PackVerdict::Refuse { recorded, resolved } => Err(StoreError::PacksMismatch { recorded, resolved }),
+    }
+}
+
+impl Snapshot<'_> {
+    /// The pack record, read in this read transaction, so a reply folds with the set its own
+    /// snapshot records.
+    pub fn recorded_packs(&self) -> Result<Option<RecordedPacks>, StoreError> {
+        read(self.tx())
     }
 }
 

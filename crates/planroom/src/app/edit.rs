@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 use crate::app::actor::{self, Bound, Caller, Terminal};
 use crate::app::error::AppError;
 use crate::app::{Reply, cards, new_event_id, workspace};
+use crate::packs::state;
 use crate::{clock, live, text};
 
 /// The kind of a group made by hand (architecture.md, IDs and aliases).
@@ -233,7 +234,9 @@ fn write(
     writer: Writer,
     base: Seq,
 ) -> Result<Written<EditResult>, AppError> {
-    let vocabulary = crate::packs::vocabulary()?;
+    // The set `commit` folds with: a cache hit there, whose warning `commit` carries.
+    let set = state::for_read(root, store.recorded_packs()?.as_ref())?;
+    let vocabulary = set.vocabulary();
     let args = serde_json::to_value(&req.op).map_err(AppError::internal)?;
     let writing = Writing {
         spec: planroom_contract::Command::Edit(req.clone()).spec(),
@@ -274,7 +277,10 @@ pub(crate) fn commit(
     writing: Writing<'_>,
     plan: impl FnOnce(&Snapshot<'_>, &Folded, Seq) -> Result<Plan, AppError>,
 ) -> Result<Written<EditResult>, AppError> {
-    let vocabulary = crate::packs::vocabulary()?;
+    // The workspace's recorded pack set, resolved before the write's transaction opens, so its
+    // trust check never runs under the write lock.
+    let set = state::for_read(root, store.recorded_packs()?.as_ref())?;
+    let vocabulary = set.vocabulary();
     let Writing { spec, args, idem, project, writer, base } = writing;
     let who = actor_key(&writer.actor);
     let request = json!({
@@ -353,8 +359,14 @@ pub(crate) fn commit(
                 text.push('\n');
                 text.push_str(&text::get("edit.replayed", &[]));
             }
+            let mut warnings = vec![];
+            set.warn(&mut warnings);
+            for warning in &warnings {
+                text.push('\n');
+                text.push_str(&warning.message);
+            }
             Ok(Written {
-                reply: Reply { result, seq: last, warnings: vec![], text },
+                reply: Reply { result, seq: last, warnings, text },
                 replayed: committed.replayed,
                 replayed_from,
             })

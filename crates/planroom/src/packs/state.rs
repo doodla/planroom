@@ -11,6 +11,9 @@
 //!   built-ins and each recorded copy, in record order ([`for_scan`]). Its first trusted scan
 //!   copies the packs the config lists; after that the config counts only through `pack add` and
 //!   `pack remove`.
+//! - Every read and write of a workspace loads the same set from the copies, read-only, and the
+//!   built-ins alone when a copy is missing or changed or the set doesn't load, with a warning
+//!   ([`for_read`]).
 //! - Every authored write runs [`default_verdict`] on the record under the write lock: only an
 //!   older engine than the one that recorded the set is refused, and any other engine records its
 //!   own built-ins with the record's out-of-tree packs unchanged.
@@ -20,15 +23,17 @@ use std::fs::{self, DirBuilder, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use planroom_contract::format::compare_versions;
-use planroom_contract::{ErrorCode, PackRecord};
-use planroom_store::{PackGuard, PackVerdict, RecordedPacks};
+use planroom_contract::{ErrorCode, PackRecord, Vocabulary, Warning, WarningCode};
+use planroom_store::{PackGuard, PackVerdict, RecordedPacks, Snapshot, Store};
+use serde_json::json;
 
-use super::{Loaded, Source, embed, engine, read_dir, resolve, set_hash};
+use super::{Loaded, Origin, Source, builtin_set, embed, engine, read_dir, resolve, set_hash};
 use crate::app::error::AppError;
-use crate::app::trust::Trust;
+use crate::app::trust::{self, Trust};
+use crate::app::workspace;
 use crate::text;
 
 /// The state directory's subdirectory that holds the copies.
@@ -146,8 +151,8 @@ pub struct ForScan {
 /// - trusted, before the config's list was read: the built-ins and each pack `config_packs`
 ///   lists, each placed from the root, validated, compiled and copied;
 /// - trusted after that: the built-ins and each recorded copy in record order, cached
-///   process-wide by the set's hash, so a `watch` or `serve` that scans again compiles nothing
-///   new.
+///   process-wide by the set's hash in the one entry reads share ([`for_read`]), so `watch`,
+///   `serve` and a scan in one process load a set once and compile its queries once.
 pub fn for_scan(
     state_dir: &Path,
     root: &Path,
@@ -179,43 +184,227 @@ pub fn for_scan(
     if oot.is_empty() {
         return Ok(ForScan { loaded: builtins.clone(), config: None });
     }
-    let mut set = builtin_records()?.to_vec();
-    set.extend(oot.iter().cloned());
-    let key = set_hash(&set);
-    static CACHE: Mutex<Option<(String, Loaded)>> = Mutex::new(None);
-    if let Some((hash, loaded)) = CACHE.lock().map_err(AppError::internal)?.as_ref()
-        && *hash == key
-    {
-        return Ok(ForScan { loaded: loaded.clone(), config: None });
+    let key = set_hash(&engine_set(builtin_records()?, recorded));
+    if let Some(loaded) = cached(&key)? {
+        // A read may have cached it, which compiles no query: a scan compiles them, once per set.
+        let dirs = dirs_of(loaded.packs.iter().filter(|p| p.origin == Origin::OutOfTree).map(|p| &p.source));
+        loaded.programs().map_err(|e| hinted(e, &dirs))?;
+        return Ok(ForScan { loaded: (*loaded).clone(), config: None });
     }
     let copies = oot.iter().map(|r| load_copy(state_dir, r)).collect::<Result<Vec<_>, _>>()?;
-    let loaded = validated(copies)?;
-    *CACHE.lock().map_err(AppError::internal)? = Some((key, loaded.clone()));
-    Ok(ForScan { loaded, config: None })
+    let loaded = Arc::new(validated(copies)?);
+    keep(key, Arc::clone(&loaded))?;
+    Ok(ForScan { loaded: (*loaded).clone(), config: None })
 }
 
-/// The built-ins and `sources`, out-of-tree, checked as one set and with every declarative
-/// extractor compiled, so a pack whose query doesn't compile is `pack_invalid` before it is
-/// copied or recorded (DR-103).
-/// A failure in one of them takes the hint that checks that pack ([`checked_by`]).
-pub fn validated(sources: Vec<Source>) -> Result<Loaded, AppError> {
-    let dirs: Vec<(String, PathBuf)> =
-        sources.iter().filter_map(|s| Some((s.label.clone(), s.dir.clone()?))).collect();
-    let check = |e: AppError| {
-        let file = e.details["file"].as_str().unwrap_or_default();
-        let ours = |label: &str| {
-            file.strip_prefix(label).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
-        };
-        match dirs.iter().find(|(label, _)| ours(label)) {
-            Some((_, dir)) => checked_by(e, dir),
-            None => e,
+/// The one recorded set a process keeps loaded, by its hash: shared by scans ([`for_scan`]) and
+/// reads ([`for_read`]). Only a set that loaded is kept.
+static SETS: Mutex<Option<(String, Arc<Loaded>)>> = Mutex::new(None);
+
+/// The kept set whose hash is `key`, if it is the one kept.
+fn cached(key: &str) -> Result<Option<Arc<Loaded>>, AppError> {
+    let sets = SETS.lock().map_err(AppError::internal)?;
+    Ok(sets.as_ref().filter(|(hash, _)| hash == key).map(|(_, loaded)| Arc::clone(loaded)))
+}
+
+/// Keep `loaded`, whose hash is `key`, in place of the set kept before.
+fn keep(key: String, loaded: Arc<Loaded>) -> Result<(), AppError> {
+    *SETS.lock().map_err(AppError::internal)? = Some((key, loaded));
+    Ok(())
+}
+
+/// The pack set a read or a write of a workspace loads ([`for_read`]), and the warning its reply
+/// carries when the recorded set didn't load and it reads the built-ins alone.
+#[derive(Debug, Clone)]
+pub struct ReadSet {
+    pub loaded: Arc<Loaded>,
+    pub warning: Option<Warning>,
+}
+
+impl std::ops::Deref for ReadSet {
+    type Target = Loaded;
+
+    fn deref(&self) -> &Loaded {
+        &self.loaded
+    }
+}
+
+impl ReadSet {
+    /// The built-in packs alone, with no warning.
+    fn builtins() -> Result<ReadSet, AppError> {
+        Ok(ReadSet { loaded: builtin_set()?, warning: None })
+    }
+
+    pub fn vocabulary(&self) -> &Vocabulary {
+        &self.loaded.vocabulary
+    }
+
+    /// Push this set's warning, if it has one, onto `into`.
+    pub fn warn(&self, into: &mut Vec<Warning>) {
+        into.extend(self.warning.clone());
+    }
+}
+
+/// The pack set a read or a write of the workspace at `root` loads, given the record `recorded`
+/// its store holds (architecture.md, The pack set is workspace state):
+///
+/// - no record, or one with no out-of-tree pack: the built-ins, as this process loaded them,
+///   with no trust check and no file I/O;
+/// - an untrusted workspace: the built-ins alone, as its scans extract with them;
+/// - otherwise this engine's built-ins, then each recorded out-of-tree pack from its copy in
+///   record order ([`engine_set`]), whatever engine recorded it, checked as one set but with no
+///   query compiled, and kept in the cache scans share;
+/// - a copy missing or changed, or a set this engine doesn't load: the built-ins alone and
+///   `packs_not_loaded`, naming the first pack that failed. Never an error, and never a write: a
+///   read never copies, sets aside or reads a pack's source.
+pub fn for_read(root: &Path, recorded: Option<&RecordedPacks>) -> Result<ReadSet, AppError> {
+    let oot = recorded.map(|r| out_of_tree(&r.packs)).unwrap_or_default();
+    if oot.is_empty() || trust::at(root) != Trust::Trusted {
+        return ReadSet::builtins();
+    }
+    let key = set_hash(&engine_set(builtin_records()?, recorded));
+    if let Some(loaded) = cached(&key)? {
+        return Ok(ReadSet { loaded, warning: None });
+    }
+    let state_dir = workspace::state_dir(root);
+    let mut copies = Vec::with_capacity(oot.len());
+    let mut labels = Vec::with_capacity(oot.len());
+    for record in &oot {
+        match read_copy(&state_dir, record) {
+            Ok(source) => {
+                labels.push((source.label.clone(), record));
+                copies.push(source);
+            }
+            Err(reason) => return not_loaded(&state_dir, record, reason),
         }
+    }
+    match checked(copies) {
+        Ok(loaded) => {
+            let loaded = Arc::new(loaded);
+            keep(key, Arc::clone(&loaded))?;
+            Ok(ReadSet { loaded, warning: None })
+        }
+        Err(e) => {
+            let file = e.details["file"].as_str().unwrap_or_default();
+            let failed =
+                labels.iter().find(|(label, _)| names_pack(file, label)).map_or(&oot[0], |(_, r)| *r);
+            not_loaded(&state_dir, failed, "invalid")
+        }
+    }
+}
+
+/// [`for_read`] with the record `snapshot` reads in its own transaction, so a reply folds with
+/// the set its snapshot records.
+pub fn for_snapshot(snapshot: &Snapshot<'_>, root: &Path) -> Result<ReadSet, AppError> {
+    for_read(root, snapshot.recorded_packs()?.as_ref())
+}
+
+/// [`for_read`] for the workspace at `root`, opening its store to read the record: the built-ins
+/// when it has no store yet.
+pub fn for_root(root: &Path) -> Result<ReadSet, AppError> {
+    match Store::open_existing(&workspace::store_path(root))? {
+        Some(store) => for_read(root, store.recorded_packs()?.as_ref()),
+        None => ReadSet::builtins(),
+    }
+}
+
+/// The built-ins alone, with the warning that the pack `record` didn't load for `reason`:
+/// `copy_missing`, `copy_changed` or `invalid`.
+fn not_loaded(state_dir: &Path, record: &PackRecord, reason: &str) -> Result<ReadSet, AppError> {
+    let message = if reason == "invalid" {
+        let copy = text::shell_word(&copy_path(state_dir, &record.sha256).display().to_string());
+        text::get("warning.packs_not_loaded_invalid", &[("pack", &record.id), ("copy", &copy)])
+    } else {
+        text::get("warning.packs_not_loaded_copy", &[("pack", &record.id)])
     };
+    let warning = Warning {
+        code: WarningCode::PacksNotLoaded,
+        message,
+        details: json!({"pack": record.id, "reason": reason}),
+    };
+    note(&warning);
+    Ok(ReadSet { warning: Some(warning), ..ReadSet::builtins()? })
+}
+
+/// The most distinct fallback warnings a process keeps for [`take_not_loaded`]; a process that
+/// never takes them, such as `serve`, stops adding past it.
+const MAX_NOT_LOADED: usize = 16;
+
+/// The `packs_not_loaded` warnings of the sets this process fell back from since the last
+/// [`take_not_loaded`], each once.
+static NOT_LOADED: Mutex<Vec<Warning>> = Mutex::new(Vec::new());
+
+/// Keep `warning` for [`take_not_loaded`], once.
+fn note(warning: &Warning) {
+    let mut kept = NOT_LOADED.lock().unwrap_or_else(|e| e.into_inner());
+    if !kept.contains(warning) && kept.len() < MAX_NOT_LOADED {
+        kept.push(warning.clone());
+    }
+}
+
+/// The fallback warnings since the last call, in order, emptying the list. A reply carries its
+/// set's warning itself ([`ReadSet::warn`]); a command that fails once its set fell back has no
+/// reply, so the CLI puts these in its error envelope's `meta.warnings`, and a request the
+/// built-ins refuse, such as a pack's level, still says which pack didn't load.
+pub fn take_not_loaded() -> Vec<Warning> {
+    std::mem::take(&mut *NOT_LOADED.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+/// The copy `record` names, read from `STATE_DIR/packs/<sha256>/` and checked against its name,
+/// read-only: `copy_missing` when it isn't there, `copy_changed` when it doesn't read or its files
+/// no longer hash to its name. It never copies, sets a copy aside or reads the record's source.
+fn read_copy(state_dir: &Path, record: &PackRecord) -> Result<Source, &'static str> {
+    let path = copy_path(state_dir, &record.sha256);
+    if !path.exists() {
+        return Err("copy_missing");
+    }
+    match read_dir(&path) {
+        Ok(mut source) if source.sha256() == record.sha256 => {
+            source.recorded = Some(record.source.clone());
+            Ok(source)
+        }
+        _ => Err("copy_changed"),
+    }
+}
+
+/// The built-ins and `sources`, out-of-tree, checked as one set, with no query compiled: what a
+/// read loads ([`for_read`]). A failure in one of them takes the hint that checks that pack
+/// ([`checked_by`]).
+pub fn checked(sources: Vec<Source>) -> Result<Loaded, AppError> {
+    let dirs = dirs_of(&sources);
     let mut all = embed::sources();
     all.extend(sources);
-    let loaded = resolve(all).map_err(check)?;
-    loaded.programs().map_err(check)?;
+    resolve(all).map_err(|e| hinted(e, &dirs))
+}
+
+/// [`checked`], then with every declarative extractor compiled, so a pack whose query doesn't
+/// compile is `pack_invalid` before it is copied or recorded (DR-103). A failure in one of them
+/// takes the hint that checks that pack ([`checked_by`]).
+pub fn validated(sources: Vec<Source>) -> Result<Loaded, AppError> {
+    let dirs = dirs_of(&sources);
+    let loaded = checked(sources)?;
+    loaded.programs().map_err(|e| hinted(e, &dirs))?;
     Ok(loaded)
+}
+
+/// Each of `sources` read from a directory: its label and that directory.
+fn dirs_of<'a>(sources: impl IntoIterator<Item = &'a Source>) -> Vec<(String, PathBuf)> {
+    sources.into_iter().filter_map(|s| Some((s.label.clone(), s.dir.clone()?))).collect()
+}
+
+/// Whether `file`, as an error names it, is a file of the pack labelled `label`.
+fn names_pack(file: &str, label: &str) -> bool {
+    file.strip_prefix(label).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// `e` with the hint that checks the pack of `dirs` whose file it names ([`checked_by`]), or as
+/// it is when it names none of them.
+fn hinted(e: AppError, dirs: &[(String, PathBuf)]) -> AppError {
+    let file = e.details["file"].as_str().unwrap_or_default();
+    match dirs.iter().find(|(label, _)| names_pack(file, label)) {
+        Some((_, dir)) => checked_by(e, dir),
+        None => e,
+    }
 }
 
 /// `e` with the exact line that checks the pack in `dir`, `planroom doctor --pack DIR` with `DIR`
@@ -384,4 +573,65 @@ pub fn changed(loaded: &Loaded, recorded: &RecordedPacks) -> Vec<Changed> {
         out.push(Changed { id: record.id, from: record.sha256, to, files: files as u32 });
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::packs::{Origin, builtin_set};
+
+    #[test]
+    fn no_record_or_a_built_in_record_reads_the_built_ins() {
+        let root = tempfile::tempdir().unwrap();
+        let builtins = builtin_set().unwrap();
+        let only_builtins = record_of(builtin_records().unwrap().to_vec(), None);
+        for recorded in [None, Some(&only_builtins)] {
+            let set = for_read(root.path(), recorded).unwrap();
+            assert!(Arc::ptr_eq(&set.loaded, &builtins), "{recorded:?}: the process's built-ins");
+            assert!(set.warning.is_none(), "{recorded:?}: {:?}", set.warning);
+        }
+    }
+
+    #[test]
+    fn a_read_set_compiles_no_query() {
+        let manifest = r#"format = "planroom.pack/v1"
+id = "calls"
+version = 1
+title = "calls"
+requires = ["code"]
+
+[[kinds]]
+id = "call"
+id_prefix = "call"
+level = "code"
+label = "Call"
+parents = ["code.file"]
+
+[[extractors]]
+id = "calls"
+files = ["**/*.js"]
+language = "javascript"
+query = "queries/calls.scm"
+emit = [{ node = "calls.call", key = "@name", parent = "@id:code.file:$file" }]
+"#;
+        let calls = Source {
+            origin: Origin::OutOfTree,
+            label: "mem/calls".into(),
+            dir: None,
+            recorded: None,
+            files: BTreeMap::from([
+                ("pack.toml".to_owned(), manifest.as_bytes().to_vec()),
+                (
+                    "queries/calls.scm".to_owned(),
+                    b"(call_expression function: (identifier) @name)\n".to_vec(),
+                ),
+            ]),
+        };
+        let loaded = checked(vec![calls]).expect("the set loads");
+        assert!(loaded.packs.iter().any(|p| p.id() == "calls"), "the out-of-tree pack is in the set");
+        assert!(!loaded.compiled(), "a read set compiles no query");
+    }
 }

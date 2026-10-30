@@ -228,21 +228,32 @@ pub fn builtins() -> Result<Loaded, AppError> {
     resolve(embed::sources())
 }
 
-/// The vocabulary the views read: the built-in packs', loaded once per process. A workspace's
-/// own packs come from its config, which loads only once the workspace is trusted, so none
-/// loads yet, as in `scan`.
+/// The built-in packs' vocabulary, loaded once per process ([`builtin_set`]). It is what a read
+/// with no workspace or no store, `schema`, `version`, the pack set's own records and the live
+/// loop's repo kind read; a workspace's reads load the set its store records through
+/// [`state::for_read`].
 pub fn vocabulary() -> Result<&'static Vocabulary, AppError> {
     Ok(&loaded()?.vocabulary)
 }
 
-/// The pack set the views and questions read: the built-in packs, loaded once per process, as
-/// [`vocabulary`] reads them.
+/// The built-in packs alone, loaded once per process ([`builtin_set`]): what [`vocabulary`]
+/// reads. A workspace's reads load the set its store records through [`state::for_read`].
 pub fn loaded() -> Result<&'static Loaded, AppError> {
-    static LOADED: std::sync::OnceLock<Loaded> = std::sync::OnceLock::new();
+    Ok(&**builtin_cell()?)
+}
+
+/// The built-in packs alone, loaded once per process: the same `Arc` on every call, so a read set
+/// that falls back to the built-ins shares their compiled queries.
+pub fn builtin_set() -> Result<Arc<Loaded>, AppError> {
+    builtin_cell().cloned()
+}
+
+fn builtin_cell() -> Result<&'static Arc<Loaded>, AppError> {
+    static LOADED: OnceLock<Arc<Loaded>> = OnceLock::new();
     if let Some(loaded) = LOADED.get() {
         return Ok(loaded);
     }
-    let loaded = builtins()?;
+    let loaded = Arc::new(builtins()?);
     Ok(LOADED.get_or_init(|| loaded))
 }
 

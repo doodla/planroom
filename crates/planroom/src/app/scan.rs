@@ -172,12 +172,13 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
         started,
         namespaces,
     };
-    // The summary counts the blocks at the default lens's level, else at the ladder's top.
-    let vocabulary = crate::packs::vocabulary()?;
+    // The summary counts the blocks at the default lens's level, else at the ladder's top, with
+    // the set this scan extracted with.
+    let vocabulary = &packs.vocabulary;
     let ladder = Ladder::of(vocabulary);
     let counted = vocabulary.lenses.iter().find(|l| l.default).map_or_else(|| ladder.top(), |l| &l.level);
     let Some(mut store) = store else {
-        let view = map::not_scanned_view(&ws.root)?;
+        let view = map::not_scanned_view(&ws.root, vocabulary)?;
         let summary = summary(&write, &map::count_words(&ladder, counted.as_str(), 0), 0);
         return Ok(Reply { result: ScanResult { map: view, next: next() }, seq: 0, warnings, text: summary });
     };
@@ -290,8 +291,8 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     // map never holds an event past the reply's `meta.seq`.
     let snapshot = store.snapshot()?;
     let seq = snapshot.seq();
-    let mut view = map::top_in(&snapshot, &ws.root, None)?;
-    let counted_blocks = map::top_in(&snapshot, &ws.root, Some(counted.clone()))?.nodes.len();
+    let mut view = map::top_in(&snapshot, &ws.root, None, vocabulary)?;
+    let counted_blocks = map::top_in(&snapshot, &ws.root, Some(counted.clone()), vocabulary)?.nodes.len();
     let units = map::count_words(&ladder, counted.as_str(), counted_blocks as u64);
     drop(snapshot);
     // The top-level map an agent reads in scan's reply keeps to scan's budget, as map's does.

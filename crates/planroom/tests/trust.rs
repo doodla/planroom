@@ -580,3 +580,37 @@ fn an_out_of_tree_pack_loads_without_a_card() {
     assert_eq!(untrusted(&scanned), None);
     assert_eq!(m.focus(&ws)["result"]["decision"], Value::Null, "no card for a pack a person added");
 }
+
+/// `ask`'s listing summary in `ws`: the packs it read, among the rest.
+fn ask_summary(m: &Machine, ws: &Path) -> String {
+    m.ok(ws, &["ask"], &[])["result"]["summary"].as_str().unwrap().to_owned()
+}
+
+#[test]
+fn an_untrusted_workspace_reads_with_the_built_ins_as_it_scans() {
+    let m = Machine::new();
+    let person = key(7);
+    let ws = repos(&m.path("ws"));
+    git_repo(&ws.join("tools"), &[("a.stm".into(), b"name: alpha\n".to_vec())]);
+    trusted_with_key(&m, &ws, &person);
+    let pack = stems_pack(&m);
+    let (code, added) = pack_add(&m, &ws, &person, &pack);
+    assert_eq!(code, 0, "{added}");
+    m.scan(&ws);
+    assert!(ask_summary(&m, &ws).contains("stems"), "a trusted workspace reads its recorded pack");
+
+    // A state directory the engine didn't make is untrusted: reads load the built-ins alone, as
+    // its scans do, and the facts the trusted scan wrote still show.
+    replace_state_dir(&ws);
+    let summary = ask_summary(&m, &ws);
+    assert!(!summary.contains("stems"), "{summary}");
+    assert!(m.containers(&ws).contains(&"alpha".to_owned()), "the trusted scan's facts");
+
+    // The scan deals the trust card; a person's accept trusts it, and reads load the pack again.
+    let card = untrusted(&m.scan(&ws)).expect("a replaced state directory asks");
+    assert!(untrusted(&m.focus(&ws)).is_some(), "focus carries workspace_untrusted");
+    let (code, accepted) = m.review(&ws, &person, &card, "accept");
+    assert_eq!(code, 0, "{accepted}");
+    let summary = ask_summary(&m, &ws);
+    assert!(summary.contains("stems"), "{summary}");
+}

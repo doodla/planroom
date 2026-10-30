@@ -452,8 +452,8 @@ fn healthcheck_edges_through_the_ruby_pack() {
 // ---------------------------------------------------------------------------------------------
 // Levels are pack data (architecture.md, Levels and roll-ups): `ask` alone lists them first, in
 // ladder order, and a pack added after the build puts a level into the ladder its set resolves
-// to, with no change to the engine. Reads still load the built-in set alone (DR-109's known
-// gap), so through the CLI that level isn't on the ladder yet.
+// to, with no change to the engine. Every read of the workspace loads the set its store records
+// (DR-114), so through the CLI `map`, its graph's ladder and `ask` show that level too.
 
 #[test]
 fn ask_alone_lists_the_levels_in_ladder_order() {
@@ -525,7 +525,7 @@ fn blocks(ws: &Path, data: &Path, args: &[&str]) -> BTreeMap<String, Value> {
 }
 
 #[test]
-fn a_packs_level_sits_on_the_ladder_and_the_fold_places_its_blocks() {
+fn a_packs_level_sits_on_the_ladder_and_every_read_shows_it() {
     use planroom_contract::LevelId;
     use planroom_kernel::ladder::Ladder;
 
@@ -612,29 +612,37 @@ fn a_packs_level_sits_on_the_ladder_and_the_fold_places_its_blocks() {
     assert_eq!(kind.why, "A kind at the service area level, from the zones pack.");
     assert_eq!(kind.handles[0].args, ["--level", "zone"]);
 
-    // Through the CLI, a read loads the built-in set alone (DR-109's known gap), so its ladder has
-    // no `zone`: `map --level zone` is refused, naming the built-in levels, and each zone block
-    // counts at the finest level, under its container.
-    let refused = envelope(&ws, &data, &["map", "--level", "zone"], &[]);
-    assert_eq!(refused["ok"], false, "{refused}");
-    assert_eq!(refused["error"]["code"], "invalid_argument", "{refused}");
-    assert_eq!(
-        refused["error"]["details"]["levels"],
-        serde_json::json!(["intent", "system", "container", "component", "code"]),
-        "{refused}"
-    );
+    // Through the CLI, every read loads the set the workspace records, so it shows the same level
+    // with the same blocks and counts as the engine's own fold over that set.
+    let shown = blocks(&ws, &data, &["map", "--level", "zone"]);
+    assert_eq!(shown.keys().collect::<Vec<_>>(), zones.keys().collect::<Vec<_>>(), "the zone blocks");
+    for (id, node) in &shown {
+        assert_eq!(node["kind"], "zones.zone", "{id}: {node}");
+    }
     let shown = blocks(&ws, &data, &["map", "--level", "container"]);
     assert_eq!(shown.keys().collect::<Vec<_>>(), before.keys().collect::<Vec<_>>(), "the same blocks");
     for (id, node) in &shown {
-        let under = zones.values().filter(|z| z.parent.as_ref().is_some_and(|p| p.0 == *id)).count();
-        let mut counts: BTreeMap<String, u64> = serde_json::from_value(node["counts"].clone()).unwrap();
-        let mut old: BTreeMap<String, u64> = serde_json::from_value(before[id]["counts"].clone()).unwrap();
-        assert!(!counts.contains_key("zone"), "{id}: {node}");
-        let code = counts.remove("code").unwrap_or(0);
-        let old_code = old.remove("code").unwrap_or(0);
-        assert_eq!(code, old_code + under as u64, "{id}'s zones count at the finest level");
-        assert_eq!(counts, old, "{id}'s other counts");
+        let counts: BTreeMap<String, u64> = serde_json::from_value(node["counts"].clone()).unwrap();
+        let folded: BTreeMap<String, u64> =
+            after[id].counts.iter().map(|(level, n)| (level.clone(), u64::from(*n))).collect();
+        assert_eq!(counts, folded, "{id}'s counts, `zone` included");
     }
+    let graph = run(&ws, &data, &["map", "--level", "zone", "--detail", "graph"], &[]);
+    let levels: Vec<&str> =
+        graph["result"]["levels"].as_array().unwrap().iter().map(|l| l["id"].as_str().unwrap()).collect();
+    assert_eq!(levels, ["intent", "system", "container", "zone", "component", "code"], "{graph}");
+    let listed = run(&ws, &data, &["ask"], &[]);
+    let ids: Vec<&str> = listed["result"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .take(6)
+        .map(|i| i["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["intent", "system", "container", "zone", "component", "code"], "{listed}");
+    let summary = listed["result"]["summary"].as_str().unwrap();
+    assert!(summary.starts_with("6 levels, "), "{summary}");
+    assert!(summary.contains("zones"), "{summary}");
 }
 
 /// Every item `ask` alone lists over `loaded`, page after page.

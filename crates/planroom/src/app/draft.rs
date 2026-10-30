@@ -29,7 +29,7 @@ use std::path::Path;
 
 use planroom_contract::{
     CommandName, DraftReply, DraftValue, ErrorCode, Handle, Node, NodeId, PlanProposal, PromptDecl,
-    PromptRole, ProposedItem, RuleType, SliceItem, SliceTarget, StageDecl, StageSlice, Status,
+    PromptRole, ProposedItem, RuleType, SliceItem, SliceTarget, StageDecl, StageSlice, Status, Vocabulary,
     draft_reply_schema,
 };
 use planroom_kernel::fold::Folded;
@@ -45,7 +45,7 @@ use serde_json::{Value, json};
 use crate::app::error::AppError;
 use crate::app::intent::{self, key_of};
 use crate::app::{models, workspace};
-use crate::packs::{self, Loaded};
+use crate::packs::{Loaded, state};
 use crate::{live, text};
 
 /// The `[[prompts]]` ID of the plan pack's stage prompt.
@@ -87,8 +87,8 @@ pub struct Drafting {
 }
 
 /// The call `intent next` would make for `stage` (or the next one the plan lacks) of `project`
-/// (or the only one), in the workspace at `root`, read in one transaction: the request exactly
-/// as the adapter would build it, and its slice.
+/// (or the only one), in the workspace at `root`, read in one transaction with the pack set it
+/// records: the request exactly as the adapter would build it, and its slice.
 pub fn stage_call(
     root: &Path,
     stage: Option<&str>,
@@ -97,9 +97,9 @@ pub fn stage_call(
     let store = Store::open_existing(&workspace::store_path(root))?
         .ok_or_else(|| AppError::workspace_not_found(root))?;
     let snapshot = store.snapshot()?;
-    let loaded = packs::loaded()?;
-    let folded = live::folded(&snapshot, &loaded.vocabulary)?;
-    let drafting = drafting(loaded, &folded, stage, project)?;
+    let set = state::for_snapshot(&snapshot, root)?;
+    let folded = live::folded(&snapshot, set.vocabulary())?;
+    let drafting = drafting(&set, &folded, stage, project)?;
     Ok((drafting.call, drafting.slice))
 }
 
@@ -459,12 +459,15 @@ pub fn unusable(purpose: &str, key: &str, why: Unusable, field: Option<&str>) ->
 /// A stage's reply read back as a proposal into `project`, and how many touch targets it named
 /// that aren't one block each on the map. A parent that is no key of the reply, no item of the
 /// project and not `project` is left out, so the item goes under the project or keeps its place.
+/// A target is looked up on the ladder of `vocabulary`, the set `folded` was folded with, so a
+/// block at a pack's own level is found by its name too.
 pub fn proposal(
     reply: &Reply,
     purpose: &str,
     key: &str,
     folded: &Folded,
     project: &Project,
+    vocabulary: &Vocabulary,
 ) -> Result<(PlanProposal, usize), AppError> {
     if reply.stop_reason.as_deref() != Some("end_turn") {
         return Err(unusable(purpose, key, Unusable::StopReason, None));
@@ -479,7 +482,7 @@ pub fn proposal(
             || given == project.id.0
             || existing.iter().any(|id| id.0 == given || key_of(id) == given)
     };
-    let ladder = Ladder::of(packs::vocabulary()?);
+    let ladder = Ladder::of(vocabulary);
     let pool: Vec<Node> = folded.model.nodes.iter().filter(|n| !ladder.is_apart(&n.level)).cloned().collect();
     let mut dropped = 0;
     let mut items = Vec::with_capacity(draft.items.len());
@@ -529,6 +532,7 @@ mod tests {
 
     use super::*;
     use crate::app::edit::{TARGETS_MAX_BYTES, q, within};
+    use crate::packs;
 
     fn config() -> planroom_contract::config::Config {
         let env = |_: &str| None;
@@ -565,6 +569,77 @@ mod tests {
         assert_eq!(prefixes.len(), 1, "one prefix for every stage: {prefixes:?}");
         let (hash, bytes) = prefixes.into_iter().next().unwrap();
         println!("the stage prefix: {bytes} bytes, prefix_hash {hash}");
+    }
+
+    #[test]
+    fn a_drafted_touch_names_a_block_at_a_packs_own_level() {
+        // A set that adds a level below `container`, and one block at it, which the reply names
+        // by its name alone.
+        let builtins = packs::vocabulary().unwrap();
+        let mut vocabulary = builtins.clone();
+        let at = vocabulary.levels.iter().position(|l| l.id.as_str() == "container").unwrap();
+        let zone = planroom_contract::LevelId::from("zone");
+        vocabulary.levels.insert(
+            at + 1,
+            planroom_contract::LevelVocab {
+                id: zone.clone(),
+                label: "zone".into(),
+                one: "{count} zone".into(),
+                many: "{count} zones".into(),
+                apart: false,
+                pack: "zoned".into(),
+            },
+        );
+        vocabulary.kinds.push(planroom_contract::KindVocab {
+            kind: planroom_contract::Kind("zoned.zone".into()),
+            level: zone.clone(),
+            id_prefix: "zone".into(),
+            label: "Zone".into(),
+            props: json!({}),
+            tone: None,
+        });
+        let block = Node {
+            id: NodeId("app:zone:alpha".into()),
+            kind: planroom_contract::Kind("zoned.zone".into()),
+            level: zone,
+            parent: None,
+            name: "zalpha".into(),
+            aliases: vec![],
+            props: Default::default(),
+            layer: planroom_contract::Layer::Actual,
+            provenance: planroom_contract::Provenance::Extracted {
+                extractor: "zoned/zones".into(),
+                tier: planroom_contract::Tier::Universal,
+            },
+            evidence: vec![],
+        };
+        let facts = planroom_kernel::model::Facts { nodes: vec![block], edges: vec![], hints: vec![] };
+        let folded = planroom_kernel::fold::fold_full(&facts, &[], &vocabulary, 0);
+        assert!(folded.model.nodes.iter().any(|n| n.name == "zalpha"), "the fold keeps the block");
+        let project =
+            Project { id: plan::project_id("zones"), name: "Zones".into(), live: true, pending: vec![] };
+        let draft = json!({"items": [{
+            "key": "k1", "type": "task", "name": "Split the zone", "parent": null,
+            "touches": ["zalpha"], "props": [],
+        }]});
+        let reply = Reply {
+            text: draft.to_string(),
+            stop_reason: Some("end_turn".into()),
+            usage: Default::default(),
+            cost_usd: None,
+            generation_id: None,
+            model_reported: None,
+        };
+        // On the ladder of the set the map was folded with, the name finds the block.
+        let (drafted, dropped) =
+            proposal(&reply, "plan.stage.next_actions", "k", &folded, &project, &vocabulary).unwrap();
+        assert_eq!(dropped, 0);
+        assert_eq!(drafted.items[0].touches, vec!["app:zone:alpha".to_owned()]);
+        // On the built-ins' ladder, which lacks the level, the same name finds nothing.
+        let (drafted, dropped) =
+            proposal(&reply, "plan.stage.next_actions", "k", &folded, &project, builtins).unwrap();
+        assert_eq!(dropped, 1);
+        assert!(drafted.items[0].touches.is_empty());
     }
 
     #[test]

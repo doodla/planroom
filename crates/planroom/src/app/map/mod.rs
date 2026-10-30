@@ -66,21 +66,24 @@ fn budget_tokens() -> u32 {
 }
 
 fn run_within(req: &MapReq, cwd: &Path, budget: Option<u32>) -> Result<Paged<MapView>, AppError> {
-    let vocabulary = crate::packs::vocabulary()?;
-    let lens_id = lens::asked(vocabulary, req.lens.as_deref())?;
-    asked_level(vocabulary, req.level.as_ref())?;
-    let level = level_of(req, vocabulary);
-    // The empty state carries the ladder too, so a surface can name the levels before a scan.
-    let whole = |mut reply: Reply<MapView>| {
+    // With no workspace or no store yet there is no recorded set: the built-in packs check the
+    // request, and the empty state carries their ladder, so a surface can name the levels before
+    // a scan.
+    let not_scanned = |dir: &Path| {
+        let vocabulary = crate::packs::vocabulary()?;
+        let lens_id = lens::asked(vocabulary, req.lens.as_deref())?;
+        asked_level(vocabulary, req.level.as_ref())?;
+        let level = level_of(req, vocabulary);
+        let mut reply = read::not_scanned(dir, lens_id, level, 0, vocabulary)?;
         with_ladder(&mut reply.result, req.detail, vocabulary);
-        Paged::whole(reply)
+        Ok(Paged::whole(reply))
     };
     // Outside a workspace, the same empty state `focus` shows (DR-57).
     let Some(root) = workspace::find_root(cwd) else {
-        return read::not_scanned(cwd, lens_id, level, 0, vocabulary).map(whole);
+        return not_scanned(cwd);
     };
     let Some(store) = Store::open_existing(&workspace::store_path(&root))? else {
-        return read::not_scanned(&root, lens_id, level, 0, vocabulary).map(whole);
+        return not_scanned(&root);
     };
     reply_in(&store.snapshot()?, &root, req, budget)
 }
@@ -92,7 +95,9 @@ fn reply_in(
     req: &MapReq,
     budget: Option<u32>,
 ) -> Result<Paged<MapView>, AppError> {
-    let vocabulary = crate::packs::vocabulary()?;
+    // The set the workspace records, read in this transaction, checks the request and folds it.
+    let set = crate::packs::state::for_snapshot(snapshot, root)?;
+    let vocabulary = set.vocabulary();
     let lens_id = lens::asked(vocabulary, req.lens.as_deref())?;
     asked_level(vocabulary, req.level.as_ref())?;
     let level = level_of(req, vocabulary);
@@ -103,7 +108,7 @@ fn reply_in(
     if view.empty.is_none() {
         match req.detail {
             // Positions come from the whole map's layout, whichever page shows them.
-            Detail::Graph => read::place(snapshot, &mut view)?,
+            Detail::Graph => read::place(snapshot, &mut view, vocabulary)?,
             // Agents get the counts and the lifted edges; evidence is a `show` away.
             Detail::Summary => view.edges.iter_mut().for_each(|e| e.evidence_sample.clear()),
         }
@@ -113,7 +118,8 @@ fn reply_in(
     // level the lens defaults to is the level the page, its cursor and its drill-down name.
     let req = MapReq { level: level.clone(), ..req.clone() };
     let ladder = Ladder::of(vocabulary);
-    let page = page::cut(view, &req, seq, budget, lens::kinds(vocabulary, &lens_id), &ladder)?;
+    let mut page = page::cut(view, &req, seq, budget, lens::kinds(vocabulary, &lens_id), &ladder)?;
+    set.warn(&mut page.warnings);
     let mut text = text_of(&page.view, page.total, level.as_ref(), under.as_deref(), &ladder);
     for warning in &page.warnings {
         text.push('\n');

@@ -27,7 +27,7 @@ use planroom_contract::{
     Actor, Command, CommandName, Cursor, EditResult, Empty, EmptyReason, ErrorCode, EventBody, EventId,
     Handle, IntentListReq, IntentListResult, IntentNewReq, IntentNextReq, IntentVersionReq, LevelId,
     LintFinding, LintReq, LintResult, ModelTier, ModelUse, Node, NodeId, PlanItem, PlanProject, PlanProposal,
-    PlanVersion, ProposeReq, RuleDecl, Seq, StageDecl, Status, Usage, Warning, WarningCode,
+    PlanVersion, ProposeReq, RuleDecl, Seq, StageDecl, Status, Usage, Vocabulary, Warning, WarningCode,
 };
 use planroom_kernel::cas::{self, Authority, Check, Proposed};
 use planroom_kernel::fold::{Folded, Writer};
@@ -42,7 +42,7 @@ use crate::app::actor::{Caller, Terminal};
 use crate::app::edit::{self, Plan, Writing, Written, q};
 use crate::app::error::AppError;
 use crate::app::{Paged, Reply, confine, workspace};
-use crate::packs::{self, Loaded};
+use crate::packs::{Loaded, state};
 use crate::{live, text};
 
 /// A project's text, at most.
@@ -358,8 +358,8 @@ pub fn propose(
         read_file(&path)?
     };
     let proposal = parse(&bytes)?;
-    let loaded = packs::loaded()?;
-    let stages = stages(loaded);
+    let set = state::for_read(&root, store.recorded_packs()?.as_ref())?;
+    let stages = stages(&set);
     check_items(&proposal, &stages)?;
     // The key and the request hash read the proposal itself, never the file it came in, so two
     // proposals at one base never share a derived key and a retry of one replays.
@@ -372,7 +372,15 @@ pub fn propose(
         base: Some(base),
     };
     edit::commit(&mut store, &root, writing, |snapshot, folded, base| {
-        plan_proposal(&proposal, req.common.project.as_ref(), snapshot, folded, &writer, base)
+        plan_proposal(
+            &proposal,
+            req.common.project.as_ref(),
+            snapshot,
+            folded,
+            &writer,
+            base,
+            set.vocabulary(),
+        )
     })
     .map_err(|e| cycle_field(e, &proposal))
 }
@@ -419,8 +427,8 @@ pub fn next(
     let line = line("intent next", req.common.base, req.common.project.as_ref(), stage_flag.as_slice(), None);
     let caller_writer =
         edit::writer_for(spec, &req.common, &line, caller, &mut store, &root, req.common.base, terminal)?;
-    let loaded = packs::loaded()?;
-    let model = match crate::app::draft::stage_tier(loaded)? {
+    let set = state::for_read(&root, store.recorded_packs()?.as_ref())?;
+    let model = match crate::app::draft::stage_tier(&set)? {
         ModelTier::Cheap => config.claude.model_cheap.clone(),
         ModelTier::Capable => config.claude.model_capable.clone(),
     };
@@ -444,10 +452,10 @@ pub fn next(
         })?;
         return Ok(Drafted { written, models: None });
     }
-    let folded = live::folded(&snapshot, &loaded.vocabulary)?;
+    let folded = live::folded(&snapshot, set.vocabulary())?;
     drop(snapshot);
     let project_flag = req.common.project.as_ref().map(|p| p.0.as_str());
-    let drafting = crate::app::draft::drafting(loaded, &folded, req.stage.as_deref(), project_flag)?;
+    let drafting = crate::app::draft::drafting(&set, &folded, req.stage.as_deref(), project_flag)?;
     let stage = drafting.stage.id.clone();
     let project = drafting.project.clone();
     // Once the stage and the project are known, a model refusal names the chat route instead.
@@ -464,7 +472,8 @@ pub fn next(
     let key = planroom_models::claude::build(&config.claude, call).key;
     let reply = crate::app::models::ask_claude(call, &env, &config).map_err(hinted)?;
     let (proposal, dropped) =
-        crate::app::draft::proposal(&reply, &call.purpose, &key, &folded, &project).map_err(hinted)?;
+        crate::app::draft::proposal(&reply, &call.purpose, &key, &folded, &project, set.vocabulary())
+            .map_err(hinted)?;
     let invalid = |e: AppError| {
         if e.code != ErrorCode::InvalidArgument {
             return e;
@@ -477,7 +486,7 @@ pub fn next(
             field.as_deref(),
         ))
     };
-    check_items(&proposal, &stages(loaded)).map_err(invalid)?;
+    check_items(&proposal, &stages(&set)).map_err(invalid)?;
     let count = proposal.items.len();
     let nothing_new = |e: AppError| {
         // The only `items` refusal a plan makes once its items are checked: nothing differs.
@@ -489,8 +498,8 @@ pub fn next(
         }
     };
     let mut written = edit::commit(&mut store, &root, writing(), |snapshot, folded, base| {
-        let mut plan =
-            plan_proposal(&proposal, None, snapshot, folded, &writer, base).map_err(nothing_new)?;
+        let mut plan = plan_proposal(&proposal, None, snapshot, folded, &writer, base, set.vocabulary())
+            .map_err(nothing_new)?;
         let shown: Vec<String> = plan.targets.iter().take(3).map(|id| q(id)).collect();
         let key = if count == 1 { "intent.drafted_one" } else { "intent.drafted" };
         let vars: &[(&str, &dyn std::fmt::Display)] = &[
@@ -755,6 +764,7 @@ fn plan_proposal(
     folded: &Folded,
     writer: &Writer,
     base: Seq,
+    vocabulary: &Vocabulary,
 ) -> Result<Plan, AppError> {
     let projects = plan::projects(folded);
     let project = match (&proposal.project, flag) {
@@ -813,7 +823,6 @@ fn plan_proposal(
     }
     // Touch targets are blocks of the map, never plan items: nothing at a level apart from the
     // ladder.
-    let vocabulary = crate::packs::vocabulary()?;
     let ladder = Ladder::of(vocabulary);
     let pool: Vec<Node> = folded.model.nodes.iter().filter(|n| !ladder.is_apart(&n.level)).cloned().collect();
     let mut touches: BTreeMap<String, Vec<NodeId>> = BTreeMap::new();
@@ -857,10 +866,10 @@ fn plan_proposal(
 // ---------------------------------------------------------------------------------------------
 // Reads
 
-/// The store at the workspace `cwd` is in, to read; `None` before the first scan.
-fn open_read(cwd: &Path) -> Result<Option<Store>, AppError> {
+/// The root of the workspace `cwd` is in and its store, to read; `None` before the first scan.
+fn open_read(cwd: &Path) -> Result<Option<(PathBuf, Store)>, AppError> {
     let root = workspace::find_root(cwd).ok_or_else(|| AppError::workspace_not_found(cwd))?;
-    Ok(Store::open_existing(&workspace::store_path(&root))?)
+    Ok(Store::open_existing(&workspace::store_path(&root))?.map(|store| (root, store)))
 }
 
 /// No plan yet: the line gives `intent new`'s usage, and the handle shows how to start one.
@@ -952,21 +961,26 @@ fn budget(command: Command) -> usize {
 
 /// `planroom intent lint [--project P]`: the project's findings, within the leaf's budget.
 pub fn lint(req: &LintReq, cwd: &Path) -> Result<Reply<LintResult>, AppError> {
-    let loaded = packs::loaded()?;
     let empty = |empty: Empty, project: Option<NodeId>, seq: Seq| {
         let summary = empty.line.clone().unwrap_or_default();
         let result = LintResult { project, summary: summary.clone(), findings: vec![], empty: Some(empty) };
         Reply { result, seq, warnings: vec![], text: summary }
     };
-    let Some(store) = open_read(cwd)? else { return Ok(empty(no_intent(), None, 0)) };
+    let Some((root, store)) = open_read(cwd)? else { return Ok(empty(no_intent(), None, 0)) };
     let snapshot = store.snapshot()?;
     let seq = snapshot.seq();
-    let folded = live::folded(&snapshot, &loaded.vocabulary)?;
+    let set = state::for_snapshot(&snapshot, &root)?;
+    let empty = |e: Empty, project: Option<NodeId>, seq: Seq| {
+        let mut reply = empty(e, project, seq);
+        set.warn(&mut reply.warnings);
+        reply
+    };
+    let folded = live::folded(&snapshot, set.vocabulary())?;
     let projects = plan::projects(&folded);
     let Some(project) = current(&projects, req.project.as_deref())? else {
         return Ok(empty(no_intent(), None, seq));
     };
-    let all = findings(loaded, &folded, &project.id, |_| true);
+    let all = findings(&set, &folded, &project.id, |_| true);
     if all.is_empty() {
         let none = Empty {
             reason: EmptyReason("no_findings".into()),
@@ -992,7 +1006,7 @@ pub fn lint(req: &LintReq, cwd: &Path) -> Result<Reply<LintResult>, AppError> {
     };
     let budget = budget(Command::IntentLint(LintReq::default()));
     let whole = result(&all);
-    let (result, warnings) = if sent_tokens(&whole, &whole.summary) <= budget {
+    let (result, mut warnings) = if sent_tokens(&whole, &whole.summary) <= budget {
         (whole, vec![])
     } else {
         let room = budget.saturating_sub(WARNING_TOKENS);
@@ -1011,6 +1025,7 @@ pub fn lint(req: &LintReq, cwd: &Path) -> Result<Reply<LintResult>, AppError> {
     for f in &result.findings {
         text.push_str(&format!("\n  {} · {} · {}", f.subject.0, f.rule, f.message));
     }
+    set.warn(&mut warnings);
     Ok(Reply { result, seq, warnings, text })
 }
 
@@ -1085,17 +1100,22 @@ fn after(mark: &Mark, entries: &[Entry]) -> usize {
 /// `planroom intent list [--project P] [--cursor C]`: every project, then the named or only
 /// project's items, paged within the leaf's budget.
 pub fn list(req: &IntentListReq, cwd: &Path) -> Result<Paged<IntentListResult>, AppError> {
-    let loaded = packs::loaded()?;
     let empty_reply = |empty: Empty, projects: Vec<PlanProject>, seq: Seq| {
         let summary = empty.line.clone().unwrap_or_default();
         let result =
             IntentListResult { summary: summary.clone(), projects, items: vec![], empty: Some(empty) };
         Paged::whole(Reply { result, seq, warnings: vec![], text: summary })
     };
-    let Some(store) = open_read(cwd)? else { return Ok(empty_reply(no_intent(), vec![], 0)) };
+    let Some((root, store)) = open_read(cwd)? else { return Ok(empty_reply(no_intent(), vec![], 0)) };
     let snapshot = store.snapshot()?;
     let seq = snapshot.seq();
-    let folded = live::folded(&snapshot, &loaded.vocabulary)?;
+    let set = state::for_snapshot(&snapshot, &root)?;
+    let empty_reply = |empty: Empty, projects: Vec<PlanProject>, seq: Seq| {
+        let mut paged = empty_reply(empty, projects, seq);
+        set.warn(&mut paged.reply.warnings);
+        paged
+    };
+    let folded = live::folded(&snapshot, set.vocabulary())?;
     let projects = plan::projects(&folded);
     if projects.is_empty() {
         return Ok(empty_reply(no_intent(), vec![], seq));
@@ -1105,7 +1125,7 @@ pub fn list(req: &IntentListReq, cwd: &Path) -> Result<Paged<IntentListResult>, 
         None if projects.len() == 1 => projects.first(),
         None => None,
     };
-    let stages = stages(loaded);
+    let stages = stages(&set);
     let listed: Vec<PlanProject> = projects.iter().map(|p| plan_project(p, &folded)).collect();
     let mut items: Vec<Item> = chosen.map(|p| plan::items_of(&folded, &p.id)).unwrap_or_default();
     plan::order(&mut items, &stages);
@@ -1182,7 +1202,7 @@ pub fn list(req: &IntentListReq, cwd: &Path) -> Result<Paged<IntentListResult>, 
     // The page says how many of its entries it cut, as `ask`'s listing counts what it leaves out,
     // so a cut item is never read as touching fewer blocks than it does.
     let entries_cut = cut[..kept].iter().filter(|c| **c).count();
-    let warnings = match &next {
+    let mut warnings = match &next {
         Some(cursor) => {
             // The project by its resolved ID, never the text the caller named it by: a handle's
             // args are never masked, and a name may hold what redaction masks.
@@ -1235,6 +1255,7 @@ pub fn list(req: &IntentListReq, cwd: &Path) -> Result<Paged<IntentListResult>, 
         let status = if i.status == Status::Ghost { "ghost" } else { "live" };
         text.push_str(&format!("\n  {} · {} · {} · {status}", i.id.0, i.item_type, i.name));
     }
+    set.warn(&mut warnings);
     Ok(Paged { reply: Reply { result: page, seq, warnings, text }, next, dirty: Default::default() })
 }
 

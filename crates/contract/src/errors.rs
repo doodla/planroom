@@ -301,6 +301,9 @@ warning_codes! {
     PackNotUpdated = "pack_not_updated",
         "a person's accept of the changed-source card stands, but the pack's new copy couldn't be recorded, so the next scan deals a fresh card; details name the card and the pack",
         ["card", "pack"];
+    PacksNotLoaded = "packs_not_loaded",
+        "a pack the workspace records didn't load from its copy, or doesn't load with this engine, so the reply reads the built-in packs alone; details name the pack and the reason",
+        ["pack", "reason"];
     ConfigKeyIgnored = "config_key_ignored",
         "a user-level key in a workspace's config, or api_key in a user-level config that isn't mode 0600",
         ["file", "key"];

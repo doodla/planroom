@@ -1017,7 +1017,14 @@
         "crates/planroom/tests/packs.rs::editing_a_packs_source_deals_one_card_and_refuses_no_write",
         "crates/planroom/tests/packs.rs::deleting_a_packs_source_changes_nothing",
         "crates/planroom/tests/packs.rs::an_unconsumed_hint_kind_is_pack_invalid",
-        "crates/planroom/tests/packs.rs::accepting_the_changed_source_card_updates_the_copy"
+        "crates/planroom/tests/packs.rs::accepting_the_changed_source_card_updates_the_copy",
+        "crates/planroom/tests/packs.rs::every_read_and_write_loads_the_recorded_set",
+        "crates/planroom/tests/packs.rs::a_missing_or_changed_copy_reads_the_built_ins_and_writes_nothing",
+        "crates/planroom/tests/packs.rs::an_older_engine_reads_the_recorded_copies_with_its_own_built_ins",
+        "crates/planroom/tests/packs.rs::a_request_refused_after_the_fallback_says_which_pack_didnt_load",
+        "crates/planroom/src/packs/state.rs::no_record_or_a_built_in_record_reads_the_built_ins",
+        "crates/planroom/src/packs/state.rs::a_read_set_compiles_no_query",
+        "crates/planroom/src/app/draft.rs::a_drafted_touch_names_a_block_at_a_packs_own_level"
       ],
       "due": {
         "crates/planroom/tests/s10_extensibility.rs::toy_pack_adds_kinds_lens_and_decision": "M5",
@@ -1938,7 +1945,8 @@
         "crates/planroom/tests/trust.rs::planroom_packs_loads_nothing_outside_doctor",
         "crates/planroom/tests/trust.rs::accepting_the_trust_card_loads_the_config",
         "crates/planroom/tests/trust.rs::a_recorded_workspace_is_trusted",
-        "crates/planroom/tests/trust.rs::rejecting_the_trust_card_keeps_the_config_unloaded"
+        "crates/planroom/tests/trust.rs::rejecting_the_trust_card_keeps_the_config_unloaded",
+        "crates/planroom/tests/trust.rs::an_untrusted_workspace_reads_with_the_built_ins_as_it_scans"
       ],
       "due": {
         "crates/planroom/tests/trust.rs::an_out_of_tree_pack_cannot_enable_its_own_auto_action": "M2"
@@ -2361,7 +2369,7 @@
       "id": "C18",
       "title": "Levels are pack data",
       "tier": "C",
-      "status": "failing",
+      "status": "passing",
       "requirements": [
         "R1",
         "R11",
@@ -2371,7 +2379,7 @@
         "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13); state: every repo at main unless a step says otherwise",
         "steps": [
           "planroom ask lists intent, then system, container, component and code, each with map --level ID; map --level nope is invalid_argument whose details.levels are those five",
-          "an out-of-tree pack that puts zone below container, with a kind at it, is checked at load and sits on its set's ladder directly below container, and the fold over that set places each zone block under a container with a faithful zone count; reads load only the built-in set until they load the workspace's recorded pack set (DR-109's known gap), so through the CLI map --level zone is invalid_argument whose details.levels are the five built-in levels, and each zone block counts at code under its container",
+          "an out-of-tree pack that puts zone below container, with a kind at it, is checked at load and sits on its set's ladder directly below container; once a person adds it and a scan records it, every read loads that set: through the CLI map --level zone lists each zone block under its container, map --level container counts each container's zones at zone, faithfully, and ask lists zone between container and component",
           "a pack that declares intent, a pack that puts a level below code, two packs that each put a level below container, one pack that puts two levels below container, and a pack that takes the ladder past 8 levels below intent are each pack_invalid at the line that declares it"
         ],
         "compare": [],
@@ -2417,7 +2425,7 @@
         "crates/planroom/src/app/map/mod.rs::level_strings_take_labels_and_handles_keep_ids",
         "crates/planroom/tests/map_graph.rs::graph_detail_carries_the_ladder_and_summary_does_not",
         "crates/planroom/tests/s10_extensibility.rs::ask_alone_lists_the_levels_in_ladder_order",
-        "crates/planroom/tests/s10_extensibility.rs::a_packs_level_sits_on_the_ladder_and_the_fold_places_its_blocks",
+        "crates/planroom/tests/s10_extensibility.rs::a_packs_level_sits_on_the_ladder_and_every_read_shows_it",
         "packages/ui/src/map.test.ts::block_counts_follow_the_ladder",
         "packages/canvas/src/levels.test.ts::crumbs_come_from_the_ladder_with_the_apart_level_beside"
       ],
