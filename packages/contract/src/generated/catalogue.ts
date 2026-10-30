@@ -395,7 +395,7 @@ export const FALLBACK_PANES: Readonly<Record<"resolving" | "fetching" | "build_o
  * The mod's own lines, from the `[mod]` table of `en.toml`: templates whose `{name}`s the mod
  * fills with `fill` from `@planroom/ui`, then sanitizes.
  */
-export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band_points_to_pane" | "band_rekey" | "band_shown" | "batch_count" | "block_row" | "blocks_at_level" | "blocks_at_level_one" | "blocks_title" | "build_failed" | "building_line" | "canvas_label" | "compact_focus_line" | "done_line" | "down_label" | "engine_exited" | "engine_no_error" | "engine_no_version" | "engine_not_ready" | "engine_rebuild" | "failed_line" | "first_page_label" | "focus_exited" | "focus_line" | "focused_block_row" | "guard_too_many_paths" | "guard_unchecked" | "handler_failed" | "lens_line" | "lens_picker" | "more_decisions" | "more_rows" | "next_page_label" | "next_title" | "no_blocks" | "no_blocks_at_level" | "no_diffs" | "no_project" | "nobody_here" | "outbox_dropped" | "page_line" | "picker_empty" | "picker_entry" | "picker_more" | "progress_done" | "progress_handoffs" | "progress_handoffs_one" | "progress_no_stage" | "progress_not_scanned" | "progress_scanning" | "project_line" | "project_picker" | "prompt_section" | "room_argument_hint" | "room_description" | "room_help_bare" | "room_help_help" | "room_more_warnings" | "room_no_command" | "room_open_quote" | "room_warning" | "selected_row" | "share_context" | "stage_picker" | "title" | "toast" | "toast_undo" | "toast_undo_pane" | "toast_warned" | "toast_warned_one" | "tool_args_not_strings" | "tool_commands_label" | "tool_no_client" | "tool_no_command" | "tool_no_workspace" | "tool_schema_label" | "up_label" | "who_agent" | "who_doing" | "workspace", string>> = {
+export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band_points_to_pane" | "band_rekey" | "band_shown" | "batch_count" | "block_row" | "blocks_at_level" | "blocks_at_level_one" | "blocks_title" | "build_failed" | "building_line" | "canvas_label" | "compact_focus_line" | "done_line" | "down_label" | "engine_catalogue_mismatch" | "engine_exited" | "engine_gone" | "engine_no_error" | "engine_no_version" | "engine_not_ready" | "engine_rebuild" | "failed_line" | "first_page_label" | "focus_exited" | "focus_line" | "focused_block_row" | "guard_too_many_paths" | "guard_unchecked" | "handler_failed" | "host_changed" | "host_refused" | "host_refused_pane" | "host_too_old" | "host_unknown_version" | "lens_line" | "lens_picker" | "more_decisions" | "more_rows" | "next_page_label" | "next_title" | "no_blocks" | "no_blocks_at_level" | "no_diffs" | "no_project" | "nobody_here" | "outbox_dropped" | "page_line" | "picker_empty" | "picker_entry" | "picker_more" | "progress_done" | "progress_handoffs" | "progress_handoffs_one" | "progress_no_stage" | "progress_not_scanned" | "progress_scanning" | "project_line" | "project_picker" | "prompt_section" | "room_argument_hint" | "room_description" | "room_help_bare" | "room_help_help" | "room_more_warnings" | "room_no_command" | "room_open_quote" | "room_warning" | "schema_mismatch_dev" | "selected_row" | "share_context" | "stage_picker" | "temporary_host_copy_out" | "title" | "toast" | "toast_undo" | "toast_undo_pane" | "toast_warned" | "toast_warned_one" | "tool_args_not_strings" | "tool_commands_label" | "tool_no_client" | "tool_no_command" | "tool_no_workspace" | "tool_schema_label" | "up_label" | "who_agent" | "who_doing" | "workspace", string>> = {
   "back_label": "Back to the {level} level",
   "band_fallback": "{headline} {action}",
   "band_points_to_pane": "Next: {label} · /room to open it",
@@ -412,7 +412,9 @@ export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band
   "compact_focus_line": "▣ {crumbs} · {level} · {lens}",
   "done_line": "{label}: done",
   "down_label": "Down",
+  "engine_catalogue_mismatch": "This Planroom engine doesn't match the plugin. Run /reload-plugins.",
   "engine_exited": "The engine exited {code} without a reply.",
+  "engine_gone": "The Planroom engine at {path} is gone, and resolving it again found none.",
   "engine_no_error": "The engine failed without an error.",
   "engine_no_version": "The Planroom engine didn't answer version --json: {said}",
   "engine_not_ready": "The Planroom engine isn't ready yet.",
@@ -425,6 +427,11 @@ export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band
   "guard_too_many_paths": "This call names more paths than the Planroom guard resolves, so it can't check where they all lead.",
   "guard_unchecked": "The Planroom guard couldn't check this call.",
   "handler_failed": "The Planroom mod's tool handler failed.",
+  "host_changed": "This Claude Code ({version}) changed the mod API Planroom uses. The skills and the CLI still work; update Planroom.",
+  "host_refused": "Claude Code refused Planroom's {what}: {reason}. The rest of the mod still works.",
+  "host_refused_pane": "pane",
+  "host_too_old": "This Claude Code ({version}) is older than {minimum}, the oldest Planroom's mod runs on. The skills and the CLI still work; update Claude Code.",
+  "host_unknown_version": "of an unknown version",
   "lens_line": "{level} · lens {lens}",
   "lens_picker": "Lens",
   "more_decisions": "+{count} more",
@@ -458,9 +465,11 @@ export const MOD_STRINGS: Readonly<Record<"back_label" | "band_fallback" | "band
   "room_no_command": "/room has no command \"{word}\". /room help lists them.",
   "room_open_quote": "A {quote} quote isn't closed.",
   "room_warning": "! {message}",
+  "schema_mismatch_dev": "A development build ({writer}) migrated this store past this engine. Run planroom doctor to list the store's copies, then planroom doctor --restore with the one from before.",
   "selected_row": "› {label}",
   "share_context": "Publish this as an Artifact with the publish arguments, then make the db writes in order: {json}",
   "stage_picker": "Stage",
+  "temporary_host_copy_out": "This environment is temporary. Your Planroom edits are backed up at {ref} in {repo}. Copy that ref somewhere private before this container goes, such as with git bundle.",
   "title": "Planroom",
   "toast": "{label}: {line}",
   "toast_undo": "{label}: {line} · 1 undoes it",

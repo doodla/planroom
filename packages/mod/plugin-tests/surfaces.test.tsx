@@ -4,9 +4,13 @@
  * can't fill yet draw the milestone overlays from `overlays.ts`, laid over the golden `focus.json`.
  */
 
-import { expect, test } from "claude-code/testing";
-import type { PaneModel } from "@planroom/contract";
-import { sanitize, truncate } from "@planroom/ui";
+import { expect, test, type TestBody } from "claude-code/testing";
+import {
+  FALLBACK_PANES,
+  MOD_STRINGS,
+  type PaneModel,
+} from "@planroom/contract";
+import { fill, sanitize, truncate } from "@planroom/ui";
 
 import focusReply from "../../../tests/golden/cli/focus.json";
 import noRepos from "../../../tests/golden/cli/focus-no-repos.json";
@@ -98,6 +102,176 @@ test("no_blank_pane: before the engine exists the pane offers the source build, 
   }
   // No engine, so no watch.
   expect(h.children).toHaveLength(0);
+});
+
+test("a_host_that_fails_the_check_registers_nothing_and_shows_one_line", async ($, on) => {
+  const h = host(on, readyEngine, {
+    version: { version: "2.1.300", base: "2.1.300" },
+  });
+  // The host's own composition, which has no sections of its own here.
+  on("prompt.compose", () => ({ sections: [] }));
+  await $.session.start(START);
+  await h.clock.settle();
+
+  expect(h.commands).toEqual([]);
+  expect(h.tools).toEqual([]);
+  expect(h.opened).toBe(0);
+  expect(h.runs).toEqual([]);
+  expect(h.children).toEqual([]);
+  expect(h.statuses).toEqual([
+    fill(MOD_STRINGS.host_too_old, { version: "2.1.300", minimum: "2.1.310" }),
+  ]);
+
+  // Nothing draws: the mod's render hooks pass through, so the host has no band or pane to mount.
+  for (const mount of [BAND, PANE]) {
+    let drawn = true;
+    try {
+      await $.ui.mount({ ...mount, surface: "terminal" });
+    } catch (err) {
+      drawn = !String(err).includes("no implementation for ui.render");
+    }
+    expect(drawn).toBe(false);
+  }
+
+  // The system prompt has no Planroom section.
+  const facts = {
+    model: "claude-opus-4-5",
+    promptModel: "claude-opus-4-5",
+    surfaces: ["terminal"],
+    tools: [],
+    outputStyle: null,
+    traits: [],
+  } as const;
+  const ids = (await $.prompt.compose(facts)).sections.map((s) => s.id);
+  expect(ids).not.toContain("planroom:map");
+  expect(h.opened).toBe(0);
+});
+
+/**
+ * A registration or a pane that a hook beneath the mod refuses: a refusal, not a missing member, so
+ * the mod stays on. Only what was refused is skipped; the guard, the pane, the band and what did
+ * register run as usual, and one status line names what was refused: the first refusal's, kept
+ * while the engine is ready, as the copy-out line is, never the failed host's. (A host that lacks a member
+ * fails as with mods off; `src/register.test.ts` checks that on a `$` without it, which the kit
+ * can't stand in for.)
+ */
+async function refusedYetOn(
+  $: Parameters<TestBody>[0],
+  on: Parameters<TestBody>[1],
+  c: {
+    refuse: "command.register" | "ui.open";
+    /** What the line names as refused. */
+    what: string;
+  },
+): Promise<void> {
+  const reason = "a hook of another plugin said no";
+  const changed = fill(MOD_STRINGS.host_changed, { version: "2.1.310" });
+  const line = fill(MOD_STRINGS.host_refused, { what: c.what, reason });
+  const anyRefused = MOD_STRINGS.host_refused.split("{")[0] ?? "";
+  /** The status line is the refused line, and no other refused line was ever shown. */
+  const oneLine = (): void => {
+    expect(h.statuses).toContain(line);
+    expect(h.statuses.at(-1)).toBe(line);
+    expect(
+      h.statuses.filter((l) => l !== line && l?.startsWith(anyRefused)),
+    ).toEqual([]);
+    expect(h.statuses).not.toContain(changed);
+  };
+  const h = host(on, readyEngine, { refuse: { [c.refuse]: reason } });
+  // The session's own hooks beneath the mod, so a hook that passes through has an answer.
+  on("tool.check", () => ({ decision: "allow" as const }));
+  on("command.run", () => ({ text: "beneath" }));
+  on("session.attach", (_$, e) => ({ clientId: e.clientId }));
+  const attach = { surface: "terminal", clientId: "terminal:default" } as const;
+  await $.session.start(START);
+  await h.clock.settle();
+  await $.session.attach(attach);
+  await h.clock.settle();
+
+  // Only what was refused is skipped: the rest registered, and the engine and its loop run.
+  expect(h.commands).toEqual(c.refuse === "command.register" ? [] : ["room"]);
+  expect(h.tools).toHaveLength(3);
+  expect(focusRuns(h).length).toBeGreaterThan(0);
+  // The golden focus answers from a store, so the watch loop started.
+  expect(h.children.length).toBeGreaterThan(0);
+  // Asked at start and at attach; a refused pane stays closed.
+  expect(h.asked).toBe(2);
+  expect(h.opened).toBe(c.refuse === "ui.open" ? 0 : 2);
+  // One line, its own; never the failed host's.
+  oneLine();
+
+  // The guard runs: an agent's read of the store is denied.
+  const read = await $.tool.check({
+    tool: "Read",
+    input: { file_path: ".planroom/store.db" },
+  });
+  expect(read.decision).toBe("deny");
+  // The tools work.
+  const called = await $.tool.call({
+    tool: "mcp__planroom__room_query",
+    command: "map",
+    args: ["--level", "system"],
+  });
+  expect(JSON.parse(called.result as string)).toMatchObject({ ok: true });
+  // The pane and the band draw.
+  const pane = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect(await pane.find({ type: "Text", text: /^▣ shop/ })).toBeDefined();
+  await pane.unmount();
+  const band = await $.ui.mount({ ...BAND, surface: "terminal" });
+  expect(await band.find({ key: "band-primary" })).toBeDefined();
+  await band.unmount();
+  // A refused /room passes through to what lies beneath; one that registered opens the pane.
+  const room = await $.command.run({
+    command: "room",
+    args: "",
+    origin: { kind: "composer" },
+    presentation: { isFullscreen: true, columns: 120 },
+  });
+  if (c.refuse === "command.register") {
+    expect(room).toEqual({ text: "beneath" });
+  } else {
+    expect(room).toEqual({});
+    expect(h.opened).toBe(1);
+  }
+  await h.clock.settle();
+  oneLine();
+}
+
+test("a_refused_registration_leaves_the_mod_and_the_guard_on: a refused command.register", async ($, on) => {
+  await refusedYetOn($, on, { refuse: "command.register", what: "/room" });
+});
+
+test("a_refused_registration_leaves_the_mod_and_the_guard_on: a refused ui.open", async ($, on) => {
+  await refusedYetOn($, on, {
+    refuse: "ui.open",
+    what: MOD_STRINGS.host_refused_pane,
+  });
+});
+
+test("a_failed_hosts_tool_handlers_pass_a_rejection_through_untouched", async ($, on) => {
+  // A host the check fails, so every hook passes through; nothing beneath answers a tool call.
+  const h = host(on, readyEngine, {
+    version: { version: "2.1.300", base: "2.1.300" },
+  });
+  await $.session.start(START);
+  await h.clock.settle();
+  for (const tool of [
+    "mcp__planroom__room_query",
+    "mcp__planroom__room_change",
+    "mcp__planroom__room_handoff",
+  ] as const) {
+    let answered: unknown = undefined;
+    let rejected: unknown = undefined;
+    try {
+      answered = await $.tool.call({ tool, command: "map", args: [] });
+    } catch (err) {
+      rejected = err;
+    }
+    // The rejection beneath reaches the caller; the mod's own handler-failed answer never does.
+    expect(answered, tool).toBeUndefined();
+    expect(String(rejected), tool).toContain("tool.call");
+  }
+  expect(h.runs).toEqual([]);
 });
 
 test("the mod finds its resolver under $.plugin.root, with no CLAUDE_PLUGIN_ROOT in its environment", async ($, on) => {
@@ -512,3 +686,133 @@ function hasRaw(text: string): boolean {
     );
   });
 }
+
+const ENGINE2 = "/repo/target/release/planroom";
+
+test("a_pruned_binary_resolves_once_then_runs: a press on a gone binary resolves again and runs once on the new one", async ($, on) => {
+  let statuses = 0;
+  const h = host(on, (argv): Answer => {
+    if (isResolver(argv[0]) && argv[1] === "status") {
+      // The first resolve names the checkout's build; a later one finds the release build.
+      const path = statuses++ === 0 ? ENGINE : ENGINE2;
+      return {
+        exitCode: 0,
+        stdout: `{"ok":true,"step":"checkout","path":"${path}","version":"0.1.0"}`,
+      };
+    }
+    return argv[0] === ENGINE2
+      ? readyEngine([ENGINE, ...argv.slice(1)])
+      : readyEngine(argv);
+  });
+  await $.session.start(START);
+  await h.clock.settle();
+  const band = await $.ui.mount({ ...BAND, surface: "terminal" });
+
+  h.gone.add(ENGINE);
+  const mark = h.runs.length;
+  await band.press({ key: "band-primary" });
+  await h.clock.settle();
+  await band.redraw();
+  const after = h.runs.slice(mark);
+  const maps = after.filter((r) => r.argv[1] === "map");
+  expect(maps.map((r) => r.argv[0])).toEqual([ENGINE, ENGINE2]);
+  // The same request twice: the same argv after the binary, so the same `--idem`, and the person's
+  // one token for the line.
+  expect(maps[1]?.argv.slice(1)).toEqual(maps[0]?.argv.slice(1));
+  expect(maps[1]?.env).toEqual(maps[0]?.env);
+  expect(
+    h.runs.filter((r) => isResolver(r.argv[0]) && r.argv[1] === "version"),
+  ).toHaveLength(2);
+  // The press ran, so the band shows its result and stops offering the next action.
+  expect(await band.find({ key: "band-primary" })).toBeUndefined();
+  await band.unmount();
+
+  // The new binary goes too, and the resolver still names it: one more resolve, then the line.
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  await ui.press({ key: "back" });
+  await h.clock.settle();
+  await ui.redraw();
+  h.gone.add(ENGINE2);
+  await ui.press({ key: "next" });
+  await h.clock.settle();
+  await ui.redraw();
+  // The pane's one line is cut to the dock's width, as every line there is.
+  const line = truncate(
+    sanitize(fill(MOD_STRINGS.engine_gone, { path: ENGINE2 })),
+    DOCK.columns,
+  );
+  expect((await ui.find({ type: "Text", text: line }))?.text).toBe(line);
+  expect(
+    (await ui.find({ type: "Text", text: FALLBACK_PANES.failed.headline }))
+      ?.text,
+  ).toBe(FALLBACK_PANES.failed.headline);
+  await ui.unmount();
+});
+
+test("a_temporary_host_shows_its_copy_out_line_once: the first temporary_host warning sets the status line, a later one changes nothing, and a line about the engine takes its place", async ($, on) => {
+  const warned = (repo: string, ref: string): string =>
+    JSON.stringify({
+      ...mapContainer,
+      meta: {
+        ...mapContainer.meta,
+        warnings: [
+          {
+            code: "temporary_host",
+            message: "This host loses its files with its container.",
+            details: { repo, ref },
+          },
+        ],
+      },
+    });
+  const lineFor = (repo: string, ref: string): string =>
+    sanitize(fill(MOD_STRINGS.temporary_host_copy_out, { repo, ref }));
+  let maps = 0;
+  const h = host(on, (argv): Answer => {
+    if (argv[0] === ENGINE && argv[1] === "map") {
+      const first = maps++ === 0;
+      return {
+        exitCode: 0,
+        stdout: first
+          ? warned("/work/a", "refs/planroom/backup/a")
+          : warned("/work/b", "refs/planroom/backup/b"),
+      };
+    }
+    return readyEngine(argv);
+  });
+  await $.session.start(START);
+  await h.clock.settle();
+
+  // The golden band's primary runs `map`; its reply carries the warning for repo A.
+  const band = await $.ui.mount({ ...BAND, surface: "terminal" });
+  await band.press({ key: "band-primary" });
+  await h.clock.settle();
+  await band.unmount();
+  const first = lineFor("/work/a", "refs/planroom/backup/a");
+  expect(h.statuses.at(-1)).toBe(first);
+  expect(first).toContain("/work/a");
+  expect(first).toContain("refs/planroom/backup/a");
+
+  // A second run answers repo B: no status holds B, and the last is still A's.
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  await ui.press({ key: "back" });
+  await h.clock.settle();
+  await ui.redraw();
+  await ui.press({ key: "next" });
+  await h.clock.settle();
+  await ui.redraw();
+  expect(maps).toBe(2);
+  expect(h.statuses.some((s) => s?.includes("/work/b"))).toBe(false);
+  expect(h.statuses.at(-1)).toBe(first);
+
+  // The engine's own line takes the status over the copy-out line.
+  h.gone.add(ENGINE);
+  await ui.press({ key: "back" });
+  await h.clock.settle();
+  await ui.redraw();
+  await ui.press({ key: "next" });
+  await h.clock.settle();
+  expect(h.statuses.at(-1)).toBe(
+    sanitize(fill(MOD_STRINGS.engine_gone, { path: ENGINE })),
+  );
+  await ui.unmount();
+});

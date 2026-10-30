@@ -318,6 +318,7 @@ var CATALOGUE = [
     "room": true
   }
 ];
+var CATALOGUE_HASH = "25eda105042763f8a01c6a89c14863fc311bc5c98bf2614d604767397ff60594";
 var FALLBACK_PANES = {
   "resolving": {
     "headline": "Looking for the Planroom engine…",
@@ -382,7 +383,9 @@ var MOD_STRINGS = {
   "compact_focus_line": "▣ {crumbs} · {level} · {lens}",
   "done_line": "{label}: done",
   "down_label": "Down",
+  "engine_catalogue_mismatch": "This Planroom engine doesn't match the plugin. Run /reload-plugins.",
   "engine_exited": "The engine exited {code} without a reply.",
+  "engine_gone": "The Planroom engine at {path} is gone, and resolving it again found none.",
   "engine_no_error": "The engine failed without an error.",
   "engine_no_version": "The Planroom engine didn't answer version --json: {said}",
   "engine_not_ready": "The Planroom engine isn't ready yet.",
@@ -395,6 +398,11 @@ var MOD_STRINGS = {
   "guard_too_many_paths": "This call names more paths than the Planroom guard resolves, so it can't check where they all lead.",
   "guard_unchecked": "The Planroom guard couldn't check this call.",
   "handler_failed": "The Planroom mod's tool handler failed.",
+  "host_changed": "This Claude Code ({version}) changed the mod API Planroom uses. The skills and the CLI still work; update Planroom.",
+  "host_refused": "Claude Code refused Planroom's {what}: {reason}. The rest of the mod still works.",
+  "host_refused_pane": "pane",
+  "host_too_old": "This Claude Code ({version}) is older than {minimum}, the oldest Planroom's mod runs on. The skills and the CLI still work; update Claude Code.",
+  "host_unknown_version": "of an unknown version",
   "lens_line": "{level} · lens {lens}",
   "lens_picker": "Lens",
   "more_decisions": "+{count} more",
@@ -428,9 +436,11 @@ var MOD_STRINGS = {
   "room_no_command": '/room has no command "{word}". /room help lists them.',
   "room_open_quote": "A {quote} quote isn't closed.",
   "room_warning": "! {message}",
+  "schema_mismatch_dev": "A development build ({writer}) migrated this store past this engine. Run planroom doctor to list the store's copies, then planroom doctor --restore with the one from before.",
   "selected_row": "› {label}",
   "share_context": "Publish this as an Artifact with the publish arguments, then make the db writes in order: {json}",
   "stage_picker": "Stage",
+  "temporary_host_copy_out": "This environment is temporary. Your Planroom edits are backed up at {ref} in {repo}. Copy that ref somewhere private before this container goes, such as with git bundle.",
   "title": "Planroom",
   "toast": "{label}: {line}",
   "toast_undo": "{label}: {line} · 1 undoes it",
@@ -1283,7 +1293,7 @@ function unsupportedPlatform() {
 function unknownReason(_reason, base, line, fix) {
   return { ...base, status: "failed", line, fix };
 }
-function engineFromVersion(resolver, run2) {
+function engineFromVersion(resolver, run2, bundled = CATALOGUE_HASH) {
   const base = { ...INITIAL_ENGINE, resolver };
   const reply = parseReply(run2.stdout);
   if (reply === null) {
@@ -1296,6 +1306,16 @@ function engineFromVersion(resolver, run2) {
   }
   if (reply.ok) {
     const info = reply.result;
+    if (info?.catalogue_hash !== bundled) {
+      return {
+        ...base,
+        status: "version_mismatch",
+        version: info?.version ?? null,
+        catalogue_hash: info?.catalogue_hash ?? null,
+        line: MOD_STRINGS.engine_catalogue_mismatch,
+        fix: "/reload-plugins"
+      };
+    }
     return {
       ...base,
       status: "ready",
@@ -1334,6 +1354,35 @@ function engineFromVersion(resolver, run2) {
     }
   }
   return { ...base, status: "failed", line: error.message, fix };
+}
+function mismatchLine(error) {
+  const details = error.details;
+  const writer = details?.writer_version;
+  if (typeof writer === "string" && writer.includes("-")) {
+    return sanitize(fill(MOD_STRINGS.schema_mismatch_dev, { writer }));
+  }
+  return sanitize(error.hint ?? error.message);
+}
+function afterNoReply(binaryExists, resolvedAgain) {
+  return !binaryExists && !resolvedAgain ? "resolve_again" : "report";
+}
+function engineGone(engine, path) {
+  return {
+    ...engine,
+    status: "failed",
+    line: sanitize(fill(MOD_STRINGS.engine_gone, { path })),
+    fix: null
+  };
+}
+function copyOutLine(warnings) {
+  const warning = warnings?.find((w) => w.code === "temporary_host");
+  const details = warning?.details;
+  return typeof details?.repo === "string" && typeof details.ref === "string" ? sanitize(
+    fill(MOD_STRINGS.temporary_host_copy_out, {
+      repo: details.repo,
+      ref: details.ref
+    })
+  ) : null;
 }
 function pathFromStatus(run2) {
   try {
@@ -3772,9 +3821,9 @@ function localVerdict(tool, input, resolved, places2, readOnly) {
     const p = segmentsOf(f);
     return isGlobstar(p.at(-1) ?? "") ? f : `/${p.slice(0, -1).join("/")}`;
   };
-  const below = (f) => tool === "Glob" ? [folderOf(anchored(f))] : [anchored(f), .../^(\/|~)/.test(f) ? [] : [anchored(`**/${f}`)]];
+  const below2 = (f) => tool === "Glob" ? [folderOf(anchored(f))] : [anchored(f), .../^(\/|~)/.test(f) ? [] : [anchored(`**/${f}`)]];
   if ((tool === "Grep" || tool === "Glob") && typeof filter === "string" && (segmentsOf(filter).some(namesStateFile) || // ripgrep matches a filter's folders wherever they sit below its root.
-  tool === "Grep" && stateDirEnds(segmentsOf(filter), segmentMay).length > 0 || below(filter).some((f) => mayBeInStateDir(f, places2)))) {
+  tool === "Grep" && stateDirEnds(segmentsOf(filter), segmentMay).length > 0 || below2(filter).some((f) => mayBeInStateDir(f, places2)))) {
     return deny(
       "Planroom's store is read through the planroom CLI, never directly."
     );
@@ -5224,7 +5273,7 @@ async function refreshPane($) {
   const reply = parseReply(run2.stdout);
   const pane2 = reply?.ok === true ? { model: reply.result, error: null } : {
     model: null,
-    error: reply?.error?.message ?? (run2.stderr.trim().split("\n")[0] || fill(MOD_STRINGS.focus_exited, { code: run2.exitCode }))
+    error: (reply?.error?.code === "schema_mismatch" ? mismatchLine(reply.error) : reply?.error?.message) ?? (run2.stderr.trim().split("\n")[0] || fill(MOD_STRINGS.focus_exited, { code: run2.exitCode }))
   };
   await update($, paneAtom, () => pane2);
   if (pane2.model !== null && hasStore(pane2.model)) {
@@ -5260,8 +5309,10 @@ var debounce = IDLE;
 var timer = null;
 var refreshing = false;
 var owed = false;
+var halted = false;
 function watchStart($) {
   watchStop();
+  if (halted) return;
   const gen = generation;
   running = true;
   void watchLoop($, gen).catch(() => void 0).finally(() => {
@@ -5269,7 +5320,14 @@ function watchStart($) {
   });
 }
 function watchEnsure($) {
-  if (!running) watchStart($);
+  if (!running && !halted) watchStart($);
+}
+function watchHalt() {
+  halted = true;
+  watchStop();
+}
+function watchResume() {
+  halted = false;
 }
 function watchStop() {
   generation += 1;
@@ -5319,7 +5377,8 @@ async function watchLoop($, gen) {
     const code = refusal2?.error?.code;
     if (refusal2 !== null && code !== void 0 && stopsTheLoop(code)) {
       if (code !== "workspace_not_found") {
-        const said = refusal2.error?.hint ?? refusal2.error?.message;
+        const error = refusal2.error;
+        const said = error ? code === "schema_mismatch" ? mismatchLine(error) : error.hint ?? error.message : void 0;
         $.ui.status(said === void 0 ? void 0 : sanitize(said));
       }
       return;
@@ -8231,6 +8290,157 @@ function composeSections(sections) {
   return [...sections.filter((s) => s.id !== SECTION_ID), promptSection()];
 }
 
+// src/host.ts
+var MIN_HOST = "2.1.310";
+var MEMBERS = [
+  "clock.after",
+  "clock.now",
+  "clock.sleep",
+  "command.register",
+  "env.get",
+  "fs.stat",
+  "plugin.root",
+  "process.run",
+  "process.spawn",
+  "session.cwd",
+  "session.id",
+  "session.root",
+  "session.version",
+  "store.get",
+  "store.set",
+  "tool.register",
+  "ui.invalidate",
+  "ui.open",
+  "ui.resolve",
+  "ui.status",
+  "ui.toast"
+];
+function missingMembers(api) {
+  const missing = [];
+  for (const member of MEMBERS) {
+    const [noun = "", name = ""] = member.split(".");
+    let value;
+    try {
+      const group = api?.[noun];
+      value = group?.[name];
+    } catch {
+      value = void 0;
+    }
+    const present = member === "plugin.root" ? typeof value === "string" : typeof value === "function";
+    if (!present) missing.push(member);
+  }
+  return missing;
+}
+function core(version) {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version ?? "");
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+function below(a, b) {
+  for (let i = 0; i < 3; i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+function hostLine(version, missing) {
+  const read3 = version === null ? null : core(version.base ?? version.version);
+  const minimum = core(MIN_HOST) ?? [0, 0, 0];
+  if (version !== null && read3 !== null && below(read3, minimum)) {
+    return sanitize(
+      fill(MOD_STRINGS.host_too_old, {
+        version: version.version,
+        minimum: MIN_HOST
+      })
+    );
+  }
+  if (missing.length > 0) {
+    const shown2 = version !== null && read3 !== null ? version.version : MOD_STRINGS.host_unknown_version;
+    return sanitize(fill(MOD_STRINGS.host_changed, { version: shown2 }));
+  }
+  return null;
+}
+async function seenOn($) {
+  const gone = /* @__PURE__ */ new Set();
+  const called = async (member, call) => {
+    try {
+      await call();
+    } catch (err) {
+      if (isMissing(err)) gone.add(member);
+    }
+  };
+  let version = null;
+  await called("session.version", async () => {
+    version = await $.session.version();
+  });
+  await called("clock.now", () => $.clock.now());
+  await called("clock.sleep", () => {
+    void Promise.resolve($.clock.sleep(0)).catch(() => void 0);
+  });
+  let timer2;
+  await called("clock.after", () => {
+    timer2 = $.clock.after(0, () => void 0);
+  });
+  try {
+    timer2?.cancel();
+  } catch {
+  }
+  await called("session.cwd", () => $.session.cwd());
+  await called("session.id", () => $.session.id());
+  await called("session.root", () => $.session.root());
+  await called("env.get", () => $.env.get("HOME"));
+  await called("store.get", () => $.store.get(HOST_CHECK_KEY));
+  await called("fs.stat", () => $.fs.stat("/"));
+  await called("ui.invalidate", () => $.ui.invalidate("ui.render"));
+  let root;
+  try {
+    root = $.plugin.root;
+  } catch {
+    root = void 0;
+  }
+  const seen = {};
+  for (const member of MEMBERS) {
+    const [noun = "", name = ""] = member.split(".");
+    const group = seen[noun] ?? {};
+    group[name] = member === "plugin.root" ? root : gone.has(member) ? void 0 : () => void 0;
+    seen[noun] = group;
+  }
+  return { seen, version };
+}
+function isMissing(err) {
+  return err instanceof TypeError || typeof err === "object" && err !== null && err.name === "TypeError";
+}
+var REASON_CHARS = 200;
+function refusedLine(what, err) {
+  const said = err instanceof Error ? err.message : typeof err === "string" ? err : String(err);
+  const first = (said.split("\n")[0] ?? "").replace(/^\S+: \$\.[\w.]+: /, "").trim();
+  return sanitize(
+    fill(MOD_STRINGS.host_refused, {
+      what,
+      reason: truncate(first, REASON_CHARS)
+    })
+  );
+}
+var HOST_CHECK_KEY = "planroom.host-check";
+async function checkHost($) {
+  const { seen, version } = await seenOn($);
+  const missing = missingMembers(seen);
+  return { line: hostLine(version, missing), missing, version };
+}
+function changedLine(version, member) {
+  return hostLine(version, [member]) ?? sanitize(
+    fill(MOD_STRINGS.host_changed, {
+      version: MOD_STRINGS.host_unknown_version
+    })
+  );
+}
+function showHostLine($, line) {
+  try {
+    $.ui.status(line);
+  } catch {
+  }
+}
+
 // src/views.ts
 function isRecord(value) {
   return value !== null && typeof value === "object";
@@ -8316,10 +8526,15 @@ var UNDO_MS = 1e4;
 var offer = null;
 var drawn = /* @__PURE__ */ new Map();
 var DRAWN = 16;
+var copyOut = null;
 async function setEngine($, state) {
+  if (hostFailed) return;
   await update2($, engineAtom, () => state);
+  showStatus($, state);
+}
+function showStatus($, state) {
   $.ui.status(
-    state.status === "ready" || state.line === null ? void 0 : sanitize(state.line)
+    state.status !== "ready" && state.line !== null ? sanitize(state.line) : copyOut ?? refusedNote ?? void 0
   );
 }
 var checked = /* @__PURE__ */ new Set();
@@ -8347,6 +8562,7 @@ async function startEngine($) {
   if (building) return;
   watchStop();
   await personKey($);
+  if (hostFailed) return;
   const root = $.plugin.root;
   if (isWindowsRoot(root)) {
     await setEngine($, unsupportedPlatform());
@@ -8355,10 +8571,12 @@ async function startEngine($) {
   const resolver = `${root}/scripts/planroom`;
   await setEngine($, { ...INITIAL_ENGINE, resolver });
   const env = await clientEnv($);
+  if (hostFailed) return;
   let state = engineFromVersion(
     resolver,
     await runProcess($, [resolver, "version", "--json"], env, 6e5)
   );
+  if (hostFailed) return;
   if (state.status === "ready") {
     state = {
       ...state,
@@ -8368,11 +8586,12 @@ async function startEngine($) {
     };
   }
   await setEngine($, state);
+  if (hostFailed) return;
   const bin = binary(state);
   if (state.status === "ready" && bin !== null) {
     await resendOutbox($, bin);
   }
-  if (state.status === "ready") {
+  if (state.status === "ready" && !hostFailed) {
     await refreshPane($);
     await registerOnce($);
   }
@@ -8405,17 +8624,54 @@ async function runCommand($, line, env, stdin) {
     await update2($, outboxAtom, (outbox) => add(outbox, held));
   }
   try {
-    const run2 = await runProcess(
-      $,
-      [bin, ...argv],
-      env,
-      timeoutFor(argv),
-      stdin
-    );
-    return {
-      result: toolResult(run2),
-      summary: replySummary(parseReply(run2.stdout))
-    };
+    let ran = bin;
+    let resolvedAgain = false;
+    for (; ; ) {
+      const run2 = await runProcess(
+        $,
+        [ran, ...argv],
+        env,
+        timeoutFor(argv),
+        stdin
+      );
+      const reply = parseReply(run2.stdout);
+      if (reply !== null) {
+        if (copyOut === null) {
+          const line2 = copyOutLine(reply.meta?.warnings);
+          if (line2 !== null) {
+            copyOut = line2;
+            if (!hostFailed && (await read2($, engineAtom)).status === "ready") {
+              $.ui.status(copyOut);
+            }
+          }
+        }
+        return { result: toolResult(run2), summary: replySummary(reply) };
+      }
+      const exists = await $.fs.stat(ran).then(
+        () => true,
+        () => false
+      );
+      if (afterNoReply(exists, resolvedAgain) === "resolve_again") {
+        resolvedAgain = true;
+        starting = startEngine($).catch(() => void 0);
+        await starting;
+        const next = binary(await read2($, engineAtom));
+        if (next !== null) {
+          ran = next;
+          continue;
+        }
+        return {
+          result: engineMissing(await read2($, engineAtom)),
+          summary: null
+        };
+      }
+      if (!exists) {
+        const gone = engineGone(await read2($, engineAtom), ran);
+        await setEngine($, gone);
+        return { result: engineMissing(gone), summary: null };
+      }
+      return { result: toolResult(run2), summary: replySummary(null) };
+    }
   } finally {
     if (entry !== null) {
       const idem = entry.idem;
@@ -8452,7 +8708,7 @@ async function resendOutbox($, bin) {
     await update2($, outboxAtom, (outbox) => clear(outbox, entry.idem));
     running2.delete(entry.idem);
   }
-  if (dropped) $.ui.status(MOD_STRINGS.outbox_dropped);
+  if (dropped && !hostFailed) $.ui.status(MOD_STRINGS.outbox_dropped);
 }
 async function personRun($, command, args) {
   const path = command.split(" ");
@@ -8743,33 +8999,96 @@ async function guardVerdict($, tool, input, readOnly) {
   }
   return guardCall(tool, input, (p) => real.get(p) ?? [], at, readOnly);
 }
+var hostFailed = false;
+var hostVersion = null;
+function hostChanged($, member) {
+  if (hostFailed) return;
+  hostFailed = true;
+  watchHalt();
+  showHostLine($, changedLine(hostVersion, member));
+  void starting.finally(watchStop).catch(() => void 0);
+}
+var refusedNote = null;
+var roomRefused = false;
+async function refused($, what, err) {
+  if (hostFailed || refusedNote !== null) return;
+  refusedNote = refusedLine(what, err);
+  const engine = await read2($, engineAtom);
+  if (!hostFailed) showStatus($, engine);
+}
+async function openPane($, focus = false) {
+  try {
+    await $.ui.open(
+      focus ? { id: PANE, title: TITLE, focus: true } : { id: PANE, title: TITLE }
+    );
+  } catch (err) {
+    if (isMissing(err)) hostChanged($, "ui.open");
+    else await refused($, MOD_STRINGS.host_refused_pane, err);
+  }
+}
 export function register(on) {
   checked = /* @__PURE__ */ new Set();
   on("session.start", async ($, e, next) => {
+    const host = await checkHost($);
+    if (host.line !== null) {
+      hostFailed = true;
+      watchHalt();
+      showHostLine($, host.line);
+      return next(e);
+    }
+    hostFailed = false;
+    hostVersion = host.version;
+    watchResume();
+    refusedNote = null;
+    roomRefused = false;
     workspace = e.cwd;
     places = null;
     startEnv = null;
     gitFiles = /* @__PURE__ */ new Map();
     pinDataRoot(placeEnv($).then(pinnedDataRoot));
-    await $.command.register(ROOM_COMMAND);
+    const refusals = [];
+    let reason;
+    const use = async (member, what, call) => {
+      try {
+        await call();
+        return true;
+      } catch (err) {
+        if (isMissing(err)) {
+          hostChanged($, member);
+        } else {
+          refusals.push(what);
+          reason ??= err;
+        }
+        return false;
+      }
+    };
+    roomRefused = !await use(
+      "command.register",
+      `/${ROOM_COMMAND.name}`,
+      () => $.command.register(ROOM_COMMAND)
+    );
+    if (hostFailed) return next(e);
     for (const spec of toolSpecs()) {
-      await $.tool.register(spec);
+      await use("tool.register", spec.name, () => $.tool.register(spec));
+      if (hostFailed) return next(e);
     }
-    if (e.surface !== null) {
-      void $.ui.open({ id: PANE, title: TITLE });
-    }
+    if (refusals.length > 0) await refused($, refusals.join(", "), reason);
+    if (e.surface !== null) void openPane($);
+    if (hostFailed) return next(e);
     starting = startEngine($).catch(() => void 0);
     return next(e);
   });
   on("session.attach", async ($, e, next) => {
-    void $.ui.open({ id: PANE, title: TITLE });
+    if (hostFailed) return next(e);
+    void openPane($);
     return next(e);
   });
-  on("command.run", { command: "room" }, async ($, e) => {
+  on("command.run", { command: "room" }, async ($, e, next) => {
+    if (hostFailed || roomRefused) return next(e);
     const plan = roomPlan(e.args, roomCommands());
     if (plan.open) {
-      await $.ui.open({ id: PANE, title: TITLE, focus: true });
-      return {};
+      await openPane($, true);
+      return hostFailed ? next(e) : {};
     }
     if (plan.run === void 0) {
       return plan.text === void 0 ? {} : { text: plan.text };
@@ -8797,36 +9116,40 @@ export function register(on) {
     return context === void 0 ? { text: text2 } : { text: text2, context };
   });
   on("prompt.compose", async ($, e, next) => {
+    if (hostFailed) return next(e);
     const composed = await next(e);
     return { sections: composeSections(composed.sections) };
   });
   on("turn.start", async ($, e, next) => {
+    if (hostFailed) return next(e);
     if (e.agentId === void 0) {
       await update2($, turnSeqAtom, () => ({ turnId: e.turnId, seq: null }));
     }
     return next(e);
   });
   on("prompt.autocomplete", async ($, e, next) => {
-    const mine = completions(e.text, e.cursor, roomCommands());
-    const below = await next(e);
-    return mine.length === 0 ? below : { suggestions: [...below.suggestions, ...mine] };
+    if (hostFailed) return next(e);
+    const mine = roomRefused ? [] : completions(e.text, e.cursor, roomCommands());
+    const below2 = await next(e);
+    return mine.length === 0 ? below2 : { suggestions: [...below2.suggestions, ...mine] };
   });
   on(
     "tool.call",
     { tool: "mcp__planroom__room_query" },
-    ($, e) => handleTool($, "room_query", e)
-  ).catch(() => ({ result: HANDLER_FAILED }));
+    ($, e, next) => hostFailed ? next(e) : handleTool($, "room_query", e)
+  ).catch(($, e, next) => hostFailed ? next(e) : { result: HANDLER_FAILED });
   on(
     "tool.call",
     { tool: "mcp__planroom__room_change" },
-    ($, e) => handleTool($, "room_change", e)
-  ).catch(() => ({ result: HANDLER_FAILED }));
+    ($, e, next) => hostFailed ? next(e) : handleTool($, "room_change", e)
+  ).catch(($, e, next) => hostFailed ? next(e) : { result: HANDLER_FAILED });
   on(
     "tool.call",
     { tool: "mcp__planroom__room_handoff" },
-    ($, e) => handleTool($, "room_handoff", e)
-  ).catch(() => ({ result: HANDLER_FAILED }));
+    ($, e, next) => hostFailed ? next(e) : handleTool($, "room_handoff", e)
+  ).catch(($, e, next) => hostFailed ? next(e) : { result: HANDLER_FAILED });
   on("tool.check", async ($, e, next) => {
+    if (hostFailed) return next(e);
     if (e.tool === "mcp__planroom__room_query") {
       return { decision: "allow" };
     }
@@ -8847,31 +9170,38 @@ export function register(on) {
       reason: MOD_STRINGS.guard_unchecked
     }
   );
-  on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
-    const engine = await read2($, engineAtom);
-    const pane2 = await read2($, paneAtom);
-    const columns = e.props.bodyColumns;
-    const rows = engine.status === "ready" && pane2.model !== null ? paneRows(
-      pane2.model,
-      columns,
-      e.props.scroll.bodyRows,
-      shown,
-      viewFor(pane2.model.focus.seq, pane2.model.focus.level),
-      offer?.handle ?? null,
-      views,
-      picker
-    ) : fallbackRows(fallbackFor(engine, pane2.error), columns);
-    return draw($, e, rows);
-  });
+  on(
+    "ui.render",
+    { component: "Pane", requestId: PANE },
+    async ($, e, next) => {
+      if (hostFailed) return next(e);
+      const engine = await read2($, engineAtom);
+      const pane2 = await read2($, paneAtom);
+      const columns = e.props.bodyColumns;
+      const rows = engine.status === "ready" && pane2.model !== null ? paneRows(
+        pane2.model,
+        columns,
+        e.props.scroll.bodyRows,
+        shown,
+        viewFor(pane2.model.focus.seq, pane2.model.focus.level),
+        offer?.handle ?? null,
+        views,
+        picker
+      ) : fallbackRows(fallbackFor(engine, pane2.error), columns);
+      return draw($, e, rows);
+    }
+  );
   on(
     "ui.render",
     { component: "CommandOutput", props: { command: "room" } },
     ($, e, next) => {
+      if (hostFailed) return next(e);
       const held = drawn.get(e.props.text);
       return held === void 0 ? next(e) : drawRoom($, e, roomRows(held.command, held.ran));
     }
   );
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
+    if (hostFailed) return next(e);
     if (e.props.hasSurvey) {
       return next(e);
     }

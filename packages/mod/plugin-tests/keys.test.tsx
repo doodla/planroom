@@ -739,3 +739,159 @@ test("the_stage_picker_draws_stages_as_labels_and_runs_lint", async ($, on) => {
   ).toBeDefined();
   await ui.unmount();
 });
+
+/**
+ * S9's key counts for the flows M1 draws, measured by real presses from the pane with no list or
+ * picker open (DR-54, DR-77). The flow names are feature_list.json's `key_counts`. M2 adds the
+ * rest: the two typed `/room` lines, `ask` (each question) and `intent` (state the intent), which
+ * no press starts, and the flows that wait on a key or a card M1 doesn't draw yet: search (`s`),
+ * evidence (`o`), running a stage, the next or a jump to any other (`i`, then its digit, runs that
+ * stage's draft), the accepts (`a`, `y`), the version card, diffs, S4's regroup, the hand-off,
+ * merge and sync.
+ */
+const KEY_COUNTS = [
+  {
+    flow: "S1: see the map at the top level, its default lens and the next action",
+    count: 0,
+  },
+  { flow: "S1: zoom into a block", count: 2 },
+  { flow: "S1: back up a level", count: 1 },
+  { flow: "S1 and S2: switch to any lens, the last entry included", count: 2 },
+  { flow: "S3: see the lint findings", count: 2 },
+];
+
+test("main_flows_within_two_keys: each flow M1 draws takes the counted presses from the pane, and the band's next action takes one", async ($, on) => {
+  const lint = {
+    schema_version: 1,
+    ok: true,
+    command: "intent lint",
+    summary: "1 finding",
+    result: { findings: [{ name: "premortem", message: "no risks named" }] },
+    meta: { seq: golden.focus.seq },
+  };
+  const picking = pickingEngine();
+  const h = host(on, (argv): Answer => {
+    if (argv[0] === ENGINE && argv[1] === "map" && argv.includes("--focus")) {
+      return { exitCode: 0, stdout: JSON.stringify(UNDER_WORKER) };
+    }
+    if (argv[0] === ENGINE && argv[1] === "intent" && argv[2] === "lint") {
+      return { exitCode: 0, stdout: JSON.stringify(lint) };
+    }
+    return picking(argv);
+  });
+  await $.session.start(START);
+  await h.clock.settle();
+
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  const hotkey = async (key: string) =>
+    (await ui.findAll({ type: "Button" })).find(
+      (b) => b.props["hotkey"] === key,
+    );
+  const pickerOpen = async () =>
+    (await ui.findAll({ type: "Button" })).some((b) =>
+      /^picker-(entry|card|row)-/.test(b.key ?? ""),
+    );
+  const measured = new Map<string, number>();
+  let presses = 0;
+  const press = async (key: string): Promise<void> => {
+    const button = await hotkey(key);
+    expect(button, `a Button with hotkey ${key}`).toBeDefined();
+    await ui.press({ key: button?.key ?? "" });
+    await h.clock.settle();
+    await ui.redraw();
+    presses++;
+  };
+  /** Starts a flow from the pane (no list, no picker) unless it begins inside the list. */
+  const start = async (inList = false): Promise<void> => {
+    expect((await hotkey("z")) !== undefined).toBe(inList);
+    expect(await pickerOpen()).toBe(false);
+    presses = 0;
+  };
+  const done = (flow: string): void => {
+    measured.set(flow, presses);
+  };
+  const ran = (from: number, command: string): string[][] =>
+    h.runs
+      .slice(from)
+      .filter((r) => r.argv[1] === command)
+      .map((r) => r.argv.slice(1));
+
+  // S1: the map, its default lens and the next action are drawn with no press.
+  await start();
+  expect(await ui.find({ type: "Text", text: /^▣ / })).toBeDefined();
+  expect(
+    await ui.find({
+      type: "Text",
+      text: fill(MOD_STRINGS.lens_line, {
+        level: golden.focus.level,
+        lens: golden.focus.lens,
+      }),
+    }),
+  ).toBeDefined();
+  expect((await ui.find({ key: "next" }))?.text).toContain(golden.next.label);
+  done(KEY_COUNTS[0]?.flow ?? "");
+
+  // S1: zoom into a block: its row key, then `x`.
+  await start();
+  let mark = h.runs.length;
+  await press("7");
+  await press("x");
+  expect(ran(mark, "map")).toEqual([
+    ["map", "--focus", "worker:repo:worker", "--json"],
+  ]);
+  done(KEY_COUNTS[1]?.flow ?? "");
+
+  // S1: back up a level: `z`.
+  await start(true);
+  await press("z");
+  expect(await ui.find({ key: "block-orders:repo:orders" })).toBeDefined();
+  done(KEY_COUNTS[2]?.flow ?? "");
+
+  // S1 and S2: any lens, the last entry included: `l`, then that entry's digit.
+  await start();
+  mark = h.runs.length;
+  await press("l");
+  const entries = (await ui.findAll({ type: "Button" })).filter((b) =>
+    /^picker-entry-/.test(b.key ?? ""),
+  );
+  const last = entries.at(-1);
+  expect(last?.text).toContain("All lenses");
+  await press(String(last?.props["hotkey"]));
+  expect(ran(mark, "map")).toEqual([["map", "--lens", "all", "--json"]]);
+  done(KEY_COUNTS[3]?.flow ?? "");
+  // Back to the pane, which the next flow starts from; not counted.
+  await ui.press({ key: (await hotkey("z"))?.key ?? "" });
+  await h.clock.settle();
+  await ui.redraw();
+
+  // S3: the lint findings: `i`, then lint's digit.
+  await start();
+  mark = h.runs.length;
+  await press("i");
+  await press("7");
+  expect(ran(mark, "intent")).toEqual([["intent", "lint", "--json"]]);
+  done(KEY_COUNTS[4]?.flow ?? "");
+
+  for (const { flow, count } of KEY_COUNTS) {
+    expect(measured.get(flow), flow).toBe(count);
+    expect(count, flow).toBeLessThanOrEqual(2);
+  }
+  await ui.unmount();
+
+  // The band: the next action is one press of its primary, hotkey `1`, from the empty prompt.
+  const band = await $.ui.mount({ ...BAND, surface: "terminal" });
+  const primary = (await band.findAll({ type: "Button" })).find(
+    (b) => b.props["hotkey"] === "1",
+  );
+  expect(primary?.key).toBe("band-primary");
+  const before = h.runs.length;
+  await band.press({ key: "band-primary" });
+  await h.clock.settle();
+  const next = golden.next;
+  expect(ran(before, next.command)[0]).toEqual([
+    next.command,
+    ...next.args,
+    "--json",
+  ]);
+  await band.unmount();
+});

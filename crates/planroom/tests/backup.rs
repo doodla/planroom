@@ -1018,20 +1018,25 @@ fn no_envelope_suggests_pushing_the_backup() {
         std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("text/en.toml")).unwrap();
     let mut section = "";
     let mut checked = 0;
+    let mut copy_out_checked = false;
     for line in catalog.lines() {
         if line.starts_with('[') {
             section = line;
             continue;
         }
         let key = line.split('=').next().unwrap_or("").trim();
-        let warned = section == "[warning]"
-            && ["temporary_host", "temporary_host_copy_out", "backup_ref_failed"].contains(&key);
+        // The copy-out line lives with the mod's strings: only the mod's bundle shows it.
+        let copy_out = section == "[mod]" && key == "temporary_host_copy_out";
+        copy_out_checked |= copy_out;
+        let warned =
+            copy_out || (section == "[warning]" && ["temporary_host", "backup_ref_failed"].contains(&key));
         if warned || (section == "[doctor]" && !key.is_empty()) {
             assert!(!says_push(line), "{section} {line}");
             checked += 1;
         }
     }
     assert!(checked >= 3 + 9, "the three warnings and doctor's nine lines: {checked}");
+    assert!(copy_out_checked, "the copy-out line was not found in the catalogue's [mod] section");
 }
 
 /// The UTC date, `YYYY-MM-DD`, of `secs` after the epoch.

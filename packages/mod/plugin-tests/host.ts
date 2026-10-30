@@ -11,9 +11,14 @@ import type {
   On,
   ProcessSpawnChunk,
   ProcessSpawnResult,
+  SessionVersion,
 } from "claude-code";
 
-import { LEAF_OWN_FLAGS, type PaneModel } from "@planroom/contract";
+import {
+  CATALOGUE_HASH,
+  LEAF_OWN_FLAGS,
+  type PaneModel,
+} from "@planroom/contract";
 
 import focusReply from "../../../tests/golden/cli/focus.json";
 import lensPicker from "../../../tests/golden/cli/focus-picker-lens.json";
@@ -138,12 +143,25 @@ export interface Host {
   children: Child[];
   /** The slash commands the mod registered, in order. */
   commands: string[];
+  /** The tools the mod registered, by name, in order. */
+  tools: string[];
+  /** The text of each status line the mod set, in order. */
+  statuses: (string | undefined)[];
+  /** How many times the mod opened its pane. */
+  readonly opened: number;
+  /** How many times the mod asked for its pane, opened or refused. */
+  readonly asked: number;
   /** The toasts the mod showed, in order. */
   toasts: string[];
   /** The shell's directory, as `$.session.cwd()` reports it: a test moves it the way a Bash `cd` does. */
   shell: { cwd: string };
   /** The session's environment, as `$.env.get` reads it now. */
   env: Record<string, string>;
+  /**
+   * The paths the stand-in treats as deleted, as after a `cargo clean`: `fs.stat` refuses each,
+   * and a run of one is recorded and then fails as a spawn of a missing file does. Empty at first.
+   */
+  gone: Set<string>;
 }
 
 /**
@@ -198,8 +216,18 @@ export function readyEngine(argv: readonly string[]): Answer {
   if (isResolver(argv[0]) && argv[1] === "version") {
     return {
       exitCode: 0,
-      stdout:
-        '{"schema_version":1,"ok":true,"command":"version","result":{"version":"0.1.0","git_commit":"abc1234","schema_version":1,"catalogue_hash":"ab12"},"meta":{"seq":0}}',
+      stdout: JSON.stringify({
+        schema_version: 1,
+        ok: true,
+        command: "version",
+        result: {
+          version: "0.1.0",
+          git_commit: "abc1234",
+          schema_version: 1,
+          catalogue_hash: CATALOGUE_HASH,
+        },
+        meta: { seq: 0 },
+      }),
     };
   }
   if (isResolver(argv[0]) && argv[1] === "status") {
@@ -268,6 +296,23 @@ export function host(
     files?: Record<string, string>;
     /** What the session start beneath the mod does, as another plugin's start would. */
     start?: ($: EngineInterface) => Promise<void>;
+    /** The Claude Code version the session reports; left out, the pinned minimum. */
+    version?: SessionVersion;
+    /**
+     * Registrations a hook beneath the mod refuses, each with the reason its deny gives, as the
+     * host refuses a command named like a built-in and a `ui.open` hook may refuse a pane. A
+     * refused `ui.open` refuses only an open nobody asked for, one without `focus`, so `/room`
+     * still opens the pane. A refusal rejects the mod's call with the host's error, never a
+     * TypeError, so the mod stays on (DR-129).
+     *
+     * There is no option for a member the host lacks: the kit's `$` has every member, and a
+     * stand-in hook that throws is skipped, so the mod would see the kit's own "no implementation"
+     * refusal, never the TypeError a real host without the member throws. `src/register.test.ts`
+     * runs the mod on a `$` that lacks one instead.
+     */
+    refuse?: Partial<
+      Record<"command.register" | "tool.register" | "ui.open", string>
+    >;
   } = {},
 ): Host {
   const clock = mock.clock(on, { now: 1_800_000_000_000 });
@@ -282,23 +327,55 @@ export function host(
   on("env.get", (_$, e) => ({ value: env[e.name] }));
   const runs: Run[] = [];
   const children: Child[] = [];
+  const gone = new Set<string>();
   const shell = { cwd: START.cwd as string };
   on("session.cwd", () => ({ value: shell.cwd }));
   const commands: string[] = [];
-  // The host refuses a mod command named like one of its own plugin's skills, and the refusal
-  // skips the mod's whole session.start (DR-84), so the stand-in refuses it too.
+  // The host refuses a mod command named like one of its own plugin's skills (DR-84), so the
+  // stand-in refuses it too; the mod takes a refused registration as a refusal, not a failed host
+  // (DR-129).
+  const refuse = options.refuse ?? {};
   on("command.register", (_$, e) => {
+    if (refuse["command.register"] !== undefined) {
+      return { deny: refuse["command.register"] };
+    }
     if (__PLANROOM_SKILLS__.includes(e.name)) {
       return { deny: `a skill of this plugin is already named ${e.name}` };
     }
     commands.push(e.name);
     return { value: { command: e.name } };
   });
-  on("tool.register", (_$, e) => ({
-    value: { tool: `mcp__planroom__${e.name}` },
+  const tools: string[] = [];
+  on("tool.register", (_$, e) => {
+    if (refuse["tool.register"] !== undefined) {
+      return { deny: refuse["tool.register"] };
+    }
+    tools.push(e.name);
+    return { value: { tool: `mcp__planroom__${e.name}` } };
+  });
+  let opened = 0;
+  let asked = 0;
+  on("ui.open", (_$, e) => {
+    asked += 1;
+    if (refuse["ui.open"] !== undefined && e.focus !== true) {
+      return { deny: refuse["ui.open"] };
+    }
+    opened += 1;
+    return { value: { isPlaced: true } };
+  });
+  // The kit's own `$` has no version to ask, so the stand-in answers it whatever the kit would.
+  on("session.version", () => ({
+    value: options.version ?? {
+      version: "2.1.310",
+      base: "2.1.310",
+      builtAt: "2026-10-23T17:43:32Z",
+    },
   }));
-  on("ui.open", () => ({ value: { isPlaced: true } }));
-  on("ui.status", () => ({ value: undefined }));
+  const statuses: (string | undefined)[] = [];
+  on("ui.status", (_$, e) => {
+    statuses.push(e.text);
+    return { value: undefined };
+  });
   const toasts: string[] = [];
   on("ui.toast", (_$, e) => {
     toasts.push(e.text);
@@ -316,6 +393,9 @@ export function host(
       stdin: e.init?.stdin,
       at: clock.now(),
     });
+    if (e.argv[0] !== undefined && gone.has(e.argv[0])) {
+      return { deny: `spawn ${e.argv[0]} ENOENT` };
+    }
     const line = e.argv[0] === ENGINE ? e.argv.slice(1) : [];
     const unread = unreadFlag(line);
     const a =
@@ -333,6 +413,7 @@ export function host(
     };
   });
   on("fs.stat", (_$, e) => {
+    if (gone.has(e.path)) return { deny: `ENOENT: ${e.path}` };
     const realPath = options.links?.[e.path] ?? e.path;
     return {
       value: {
@@ -357,7 +438,24 @@ export function host(
     children.push(child);
     return { value: yield* child.run(next.signal) };
   });
-  return { clock, runs, children, commands, toasts, shell, env };
+  return {
+    clock,
+    runs,
+    children,
+    commands,
+    tools,
+    statuses,
+    gone,
+    get opened() {
+      return opened;
+    },
+    get asked() {
+      return asked;
+    },
+    toasts,
+    shell,
+    env,
+  };
 }
 
 /** The focus runs so far, as the clock read when each started. */

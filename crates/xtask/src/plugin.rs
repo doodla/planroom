@@ -313,4 +313,14 @@ mod tests {
         assert!(!is_semver("not a version!"));
         assert!(!is_semver("01.1.0"));
     }
+
+    #[test]
+    fn the_host_check_names_the_pinned_claude_code() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let host =
+            fs::read_to_string(root.join("packages/mod/src/host.ts")).expect("packages/mod/src/host.ts");
+        let want = format!("export const MIN_HOST = \"{CLAUDE_CODE_VERSION}\";");
+        let found = host.lines().filter(|line| *line == want).count();
+        assert_eq!(found, 1, "host.ts holds exactly one line `{want}`");
+    }
 }

@@ -23,7 +23,7 @@ The first time Planroom runs, it needs its engine. Until the first release, it o
 
 ## Mods
 
-The pane, the band above the prompt and `/room` come from Planroom's mod. Turn mods on when Claude Code asks; with mods off, Claude still reaches Planroom through its skills.
+The pane, the band above the prompt and `/room` come from Planroom's mod. Turn mods on when Claude Code asks; with mods off, Claude still reaches Planroom through its skills. The mod is tested on Claude Code 2.1.310; on a Claude Code whose mod API changed it shows one line, and the skills keep working.
 
 ## Links
 

@@ -3,8 +3,12 @@
  * Pure: the hooks in register.tsx run the processes and write the atoms.
  */
 
-import { FALLBACK_PANES, MOD_STRINGS } from "@planroom/contract";
-import { fill } from "@planroom/ui";
+import {
+  CATALOGUE_HASH,
+  FALLBACK_PANES,
+  MOD_STRINGS,
+} from "@planroom/contract";
+import { fill, sanitize } from "@planroom/ui";
 import type {
   Envelope,
   ErrorObject,
@@ -14,6 +18,7 @@ import type {
   ToolResult,
   UnavailableReason,
   VersionInfo,
+  Warning,
 } from "@planroom/contract";
 
 import type { EngineState } from "./state-types";
@@ -86,10 +91,14 @@ function unknownReason(
   return { ...base, status: "failed", line, fix };
 }
 
-/** The engine's state after `scripts/planroom version --json`. */
+/**
+ * The engine's state after `scripts/planroom version --json`. An engine whose catalogue differs
+ * from the one this bundle was generated with is a mismatch, whatever its version says (DR-58).
+ */
 export function engineFromVersion(
   resolver: string,
   run: RunResult,
+  bundled: string = CATALOGUE_HASH,
 ): EngineState {
   const base = { ...INITIAL_ENGINE, resolver };
   const reply = parseReply(run.stdout);
@@ -104,6 +113,16 @@ export function engineFromVersion(
   }
   if (reply.ok) {
     const info = reply.result as Partial<VersionInfo> | null | undefined;
+    if (info?.catalogue_hash !== bundled) {
+      return {
+        ...base,
+        status: "version_mismatch",
+        version: info?.version ?? null,
+        catalogue_hash: info?.catalogue_hash ?? null,
+        line: MOD_STRINGS.engine_catalogue_mismatch,
+        fix: "/reload-plugins",
+      };
+    }
     return {
       ...base,
       status: "ready",
@@ -146,6 +165,66 @@ export function engineFromVersion(
     }
   }
   return { ...base, status: "failed", line: error.message, fix };
+}
+
+/**
+ * The one line for a `schema_mismatch`. A store a development build migrated needs `doctor
+ * --restore`, not the update commands the engine's own hint names (DR-53, DR-69).
+ */
+export function mismatchLine(error: ToolError | ErrorObject): string {
+  const details = error.details as
+    { writer_version?: unknown } | null | undefined;
+  const writer = details?.writer_version;
+  if (typeof writer === "string" && writer.includes("-")) {
+    return sanitize(fill(MOD_STRINGS.schema_mismatch_dev, { writer }));
+  }
+  return sanitize(error.hint ?? error.message);
+}
+
+/**
+ * What a run that printed no envelope leads to. A binary that is gone, as after a `cargo clean` or
+ * a removed release, resolves once more before the press fails; a binary that exists, or one this
+ * run already resolved again, reports what the run said (DR-69).
+ */
+export function afterNoReply(
+  binaryExists: boolean,
+  resolvedAgain: boolean,
+): "resolve_again" | "report" {
+  return !binaryExists && !resolvedAgain ? "resolve_again" : "report";
+}
+
+/**
+ * The engine once resolving again found no binary at `path`: failed, with the one line. Its
+ * fallback is the `failed` pane, whose "Try again" runs the start-up once more.
+ */
+export function engineGone(engine: EngineState, path: string): EngineState {
+  return {
+    ...engine,
+    status: "failed",
+    line: sanitize(fill(MOD_STRINGS.engine_gone, { path })),
+    fix: null,
+  };
+}
+
+/**
+ * The copy-out line for a temporary host (DR-53, DR-75): filled from the first `temporary_host`
+ * warning that names its repo and ref, else null. The text lives only in the mod's bundle, so the
+ * engine's own output never carries it.
+ */
+export function copyOutLine(
+  warnings: readonly Warning[] | undefined,
+): string | null {
+  const warning = warnings?.find((w) => w.code === "temporary_host");
+  const details = warning?.details as
+    { repo?: unknown; ref?: unknown } | null | undefined;
+  return typeof details?.repo === "string" && typeof details.ref === "string"
+    ? sanitize(
+        fill(MOD_STRINGS.temporary_host_copy_out, {
+          repo: details.repo,
+          ref: details.ref,
+        }),
+      )
+    : null;
 }
 
 /** The binary path from `scripts/planroom status --json`, or null. */

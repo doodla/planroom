@@ -11,6 +11,7 @@ import type {
   RenderInput,
   RenderElement,
   Register,
+  SessionVersion,
 } from "claude-code";
 import { MOD_STRINGS, type Handle, type Picker } from "@planroom/contract";
 import { fill, sanitize } from "@planroom/ui";
@@ -18,7 +19,10 @@ import { fill, sanitize } from "@planroom/ui";
 import { engineAtom, outboxAtom, paneAtom, turnSeqAtom } from "./atoms";
 import { leaf, leafOfArgv, roomCommands } from "./catalogue";
 import {
+  afterNoReply,
+  copyOutLine,
   engineFromVersion,
+  engineGone,
   engineMissing,
   INITIAL_ENGINE,
   isWindowsRoot,
@@ -57,6 +61,8 @@ import {
   pinDataRoot,
   refreshPane,
   runProcess,
+  watchHalt,
+  watchResume,
   watchStop,
 } from "./live";
 import { add, byPerson, clear, entryFor, resend, stale } from "./outbox";
@@ -77,6 +83,13 @@ import {
   type Shown,
   undoOf,
 } from "./room";
+import {
+  changedLine,
+  checkHost,
+  isMissing,
+  refusedLine,
+  showHostLine,
+} from "./host";
 import { completions } from "./room-args";
 import type { EngineState } from "./state-types";
 import {
@@ -170,12 +183,28 @@ let offer: { handle: Handle; until: number } | null = null;
 const drawn = new Map<string, { command: string; ran: Ran }>();
 const DRAWN = 16;
 
+/**
+ * The temporary host's copy-out line (DR-53, DR-75), set from the first `temporary_host` warning a
+ * run's reply carries and shown once: later warnings change nothing, and a reload forgets it.
+ */
+let copyOut: string | null = null;
+
 async function setEngine($: $, state: EngineState): Promise<void> {
+  // A host that failed keeps its one line, and nothing draws the engine.
+  if (hostFailed) return;
   await update($, engineAtom, () => state);
+  showStatus($, state);
+}
+
+/**
+ * The status line for `state`: the engine's own line while it isn't ready, else the copy-out line,
+ * else the line a refusal set, else none.
+ */
+function showStatus($: $, state: EngineState): void {
   $.ui.status(
-    state.status === "ready" || state.line === null
-      ? undefined
-      : sanitize(state.line),
+    state.status !== "ready" && state.line !== null
+      ? sanitize(state.line)
+      : (copyOut ?? refusedNote ?? undefined),
   );
 }
 
@@ -226,6 +255,8 @@ async function startEngine($: $): Promise<void> {
   watchStop();
   // The person key is made on the first start and kept in $.store across sessions (DR-72).
   await personKey($);
+  // A host that failed at a first use while this ran stops its start-up here and at each step.
+  if (hostFailed) return;
   // The host hands a mod its own directory; it doesn't set CLAUDE_PLUGIN_ROOT for mods (A-14, WS8).
   const root = $.plugin.root;
   if (isWindowsRoot(root)) {
@@ -235,11 +266,13 @@ async function startEngine($: $): Promise<void> {
   const resolver = `${root}/scripts/planroom`;
   await setEngine($, { ...INITIAL_ENGINE, resolver });
   const env = await clientEnv($);
+  if (hostFailed) return;
   // A first resolve may download the engine, so it gets process.run's longest wait.
   let state = engineFromVersion(
     resolver,
     await runProcess($, [resolver, "version", "--json"], env, 600_000),
   );
+  if (hostFailed) return;
   if (state.status === "ready") {
     state = {
       ...state,
@@ -249,12 +282,13 @@ async function startEngine($: $): Promise<void> {
     };
   }
   await setEngine($, state);
+  if (hostFailed) return;
   const bin = binary(state);
   if (state.status === "ready" && bin !== null) {
     // Writes a reload cut off go again first, so the pane the loop draws holds them.
     await resendOutbox($, bin);
   }
-  if (state.status === "ready") {
+  if (state.status === "ready" && !hostFailed) {
     await refreshPane($);
     await registerOnce($);
   }
@@ -305,17 +339,61 @@ async function runCommand(
     await update($, outboxAtom, (outbox) => add(outbox, held));
   }
   try {
-    const run = await runProcess(
-      $,
-      [bin, ...argv],
-      env,
-      timeoutFor(argv),
-      stdin,
-    );
-    return {
-      result: toolResult(run),
-      summary: replySummary(parseReply(run.stdout)),
-    };
+    let ran = bin;
+    let resolvedAgain = false;
+    for (;;) {
+      const run = await runProcess(
+        $,
+        [ran, ...argv],
+        env,
+        timeoutFor(argv),
+        stdin,
+      );
+      const reply = parseReply(run.stdout);
+      if (reply !== null) {
+        if (copyOut === null) {
+          const line = copyOutLine(reply.meta?.warnings);
+          if (line !== null) {
+            copyOut = line;
+            // A host that failed while this ran keeps its one line.
+            if (!hostFailed && (await read($, engineAtom)).status === "ready") {
+              $.ui.status(copyOut);
+            }
+          }
+        }
+        return { result: toolResult(run), summary: replySummary(reply) };
+      }
+      // No envelope: the binary may be gone (a `cargo clean`, a removed release). Resolve again
+      // once and run the line again on what that finds (DR-69).
+      const exists = await $.fs.stat(ran).then(
+        () => true,
+        () => false,
+      );
+      if (afterNoReply(exists, resolvedAgain) === "resolve_again") {
+        resolvedAgain = true;
+        // The start-up resends no write of this module life that is in `running`, and this line's
+        // entry is, so the second run below is the only one that sends it.
+        starting = startEngine($).catch(() => undefined);
+        await starting;
+        const next = binary(await read($, engineAtom));
+        // The same argv, so the same `--idem`, and the same env: the person's token was minted
+        // for this line, not for the binary, and the entry stays in the outbox across both runs.
+        if (next !== null) {
+          ran = next;
+          continue;
+        }
+        return {
+          result: engineMissing(await read($, engineAtom)),
+          summary: null,
+        };
+      }
+      if (!exists) {
+        const gone = engineGone(await read($, engineAtom), ran);
+        await setEngine($, gone);
+        return { result: engineMissing(gone), summary: null };
+      }
+      return { result: toolResult(run), summary: replySummary(null) };
+    }
   } finally {
     if (entry !== null) {
       const idem = entry.idem;
@@ -363,7 +441,8 @@ async function resendOutbox($: $, bin: string): Promise<void> {
     await update($, outboxAtom, (outbox) => clear(outbox, entry.idem));
     running.delete(entry.idem);
   }
-  if (dropped) $.ui.status(MOD_STRINGS.outbox_dropped);
+  // A host that failed while these ran keeps its one line.
+  if (dropped && !hostFailed) $.ui.status(MOD_STRINGS.outbox_dropped);
 }
 
 /**
@@ -832,11 +911,91 @@ async function guardVerdict(
   return guardCall(tool, input, (p) => real.get(p) ?? [], at, readOnly);
 }
 
+/**
+ * Set by `session.start`'s host check, or by a member the check can't call missing at its first use
+ * (`hostChanged`). While true every hook passes straight through, so the session is as with mods
+ * off (DR-76, DR-129).
+ */
+let hostFailed = false;
+
+/** The version the host check read, for the line a failure at a first use shows. */
+let hostVersion: SessionVersion | null = null;
+
+/**
+ * A member the check took as present (`UNPROBED`) is missing at its first use, its call throwing a
+ * TypeError: the host fails as a failed check does. Its one line shows once and every hook passes
+ * through from now on. The watch loop ends and none starts again, so a `focus`, a tool call or a
+ * `/room` run in flight ends without one, and a start-up under way stops at its next step.
+ */
+function hostChanged($: $, member: string): void {
+  if (hostFailed) return;
+  hostFailed = true;
+  watchHalt();
+  showHostLine($, changedLine(hostVersion, member));
+  void starting.finally(watchStop).catch(() => undefined);
+}
+
+/**
+ * The line the first refusal in this session start set (`refusedLine`): the status line while the
+ * engine is ready, after the copy-out line, as the copy-out line is; null when nothing was refused.
+ */
+let refusedNote: string | null = null;
+
+/**
+ * Whether the host refused `/room`'s registration: its `command.run` hook then passes through, so a
+ * command of that name, such as a built-in's, stays the host's.
+ */
+let roomRefused = false;
+
+/**
+ * A registration or a pane the host refused, with the error it rejected with: a refusal, not a
+ * missing member, so the mod stays on and only what was refused is skipped (DR-129). The first in
+ * a session start sets `host_refused`, naming what was refused and why, as the status line; later
+ * ones change nothing.
+ */
+async function refused($: $, what: string, err: unknown): Promise<void> {
+  if (hostFailed || refusedNote !== null) return;
+  refusedNote = refusedLine(what, err);
+  const engine = await read($, engineAtom);
+  if (!hostFailed) showStatus($, engine);
+}
+
+/**
+ * Asks for the pane: unasked at a start or an attach, never waiting for it to be placed, or focused
+ * for a bare `/room`. A host without `ui.open` throws a TypeError, at the call or as the rejection,
+ * which fails the host; any other rejection is a refusal, such as a `ui.open` hook's deny, which
+ * leaves the pane closed and the mod on, and `/room` can open it later.
+ */
+async function openPane($: $, focus = false): Promise<void> {
+  try {
+    await $.ui.open(
+      focus
+        ? { id: PANE, title: TITLE, focus: true }
+        : { id: PANE, title: TITLE },
+    );
+  } catch (err) {
+    if (isMissing(err)) hostChanged($, "ui.open");
+    else await refused($, MOD_STRINGS.host_refused_pane, err);
+  }
+}
+
 // The host reads `register` off the bundle's source: a function declared and exported at the top
 // level, its parameter spelled `on`. The bundle step keeps it that way (crates/xtask/src/modgen.rs).
 export function register(on: Parameters<Register>[0]): void {
   checked = new Set();
   on("session.start", async ($, e, next) => {
+    const host = await checkHost($);
+    if (host.line !== null) {
+      hostFailed = true;
+      watchHalt();
+      showHostLine($, host.line);
+      return next(e);
+    }
+    hostFailed = false;
+    hostVersion = host.version;
+    watchResume();
+    refusedNote = null;
+    roomRefused = false;
     workspace = e.cwd;
     places = null;
     startEnv = null;
@@ -844,16 +1003,44 @@ export function register(on: Parameters<Register>[0]): void {
     // First, before any run can start: each names the data root the session starts with, the one
     // the guard holds, and waits for it to be read.
     pinDataRoot(placeEnv($).then(pinnedDataRoot));
+    // The members the check can't call are probed by their first use here (DR-129). A TypeError
+    // is a missing member: the host fails as a failed check does, and the session starts as with
+    // mods off. Any other rejection is a refusal: only what was refused is skipped, the guard and
+    // every other hook stay on, and one line names what was refused.
+    const refusals: string[] = [];
+    let reason: unknown;
+    const use = async (
+      member: string,
+      what: string,
+      call: () => Promise<unknown>,
+    ): Promise<boolean> => {
+      try {
+        await call();
+        return true;
+      } catch (err) {
+        if (isMissing(err)) {
+          hostChanged($, member);
+        } else {
+          refusals.push(what);
+          reason ??= err;
+        }
+        return false;
+      }
+    };
     // Immediate, so /room focuses the pane mid-turn, while the model is still working (A-22).
-    await $.command.register(ROOM_COMMAND);
+    roomRefused = !(await use("command.register", `/${ROOM_COMMAND.name}`, () =>
+      $.command.register(ROOM_COMMAND),
+    ));
+    if (hostFailed) return next(e);
     // Awaited, so the tools are listed from turn one and the list never changes later (DR-20).
     for (const spec of toolSpecs()) {
-      await $.tool.register(spec);
+      await use("tool.register", spec.name, () => $.tool.register(spec));
+      if (hostFailed) return next(e);
     }
+    if (refusals.length > 0) await refused($, refusals.join(", "), reason);
     // A cloud session can start with no surface; session.attach opens the pane then (A-11).
-    if (e.surface !== null) {
-      void $.ui.open({ id: PANE, title: TITLE });
-    }
+    if (e.surface !== null) void openPane($);
+    if (hostFailed) return next(e);
     // The first prompt doesn't wait for the engine; commands and tools do. startEngine reports its
     // own failures through the engine atom, so a rejection here means the module was unloaded.
     starting = startEngine($).catch(() => undefined);
@@ -861,17 +1048,21 @@ export function register(on: Parameters<Register>[0]): void {
   });
 
   on("session.attach", async ($, e, next) => {
-    void $.ui.open({ id: PANE, title: TITLE });
+    if (hostFailed) return next(e);
+    void openPane($);
     return next(e);
   });
 
-  on("command.run", { command: "room" }, async ($, e) => {
+  on("command.run", { command: "room" }, async ($, e, next) => {
+    // Registered before a later registration found a member missing, it passes through, as every
+    // hook does then; and a /room the host refused is the host's, such as a built-in's.
+    if (hostFailed || roomRefused) return next(e);
     const plan = roomPlan(e.args, roomCommands());
     if (plan.open) {
       // Bare /room focuses the pane and returns no text, so it costs the model nothing, and starts
       // no sync (DR-77).
-      await $.ui.open({ id: PANE, title: TITLE, focus: true });
-      return {};
+      await openPane($, true);
+      return hostFailed ? next(e) : {};
     }
     if (plan.run === undefined) {
       return plan.text === undefined ? {} : { text: plan.text };
@@ -906,12 +1097,14 @@ export function register(on: Parameters<Register>[0]): void {
 
   // One stable section, the same bytes in every state, appended last (DR-20).
   on("prompt.compose", async ($, e, next) => {
+    if (hostFailed) return next(e);
     const composed = await next(e);
     return { sections: composeSections(composed.sections) };
   });
 
   // The main loop's turn: its id is each tool write's cause, and the base resets with it.
   on("turn.start", async ($, e, next) => {
+    if (hostFailed) return next(e);
     if (e.agentId === undefined) {
       await update($, turnSeqAtom, () => ({ turnId: e.turnId, seq: null }));
     }
@@ -919,28 +1112,41 @@ export function register(on: Parameters<Register>[0]): void {
   });
 
   on("prompt.autocomplete", async ($, e, next) => {
-    const mine = completions(e.text, e.cursor, roomCommands());
+    if (hostFailed) return next(e);
+    // A refused /room isn't the mod's, so it completes nothing for it.
+    const mine = roomRefused
+      ? []
+      : completions(e.text, e.cursor, roomCommands());
     const below = await next(e);
     return mine.length === 0
       ? below
       : { suggestions: [...below.suggestions, ...mine] };
   });
 
-  // A handler that throws still answers with the one tool-result shape, never a bare failure.
-  on("tool.call", { tool: "mcp__planroom__room_query" }, ($, e) =>
-    handleTool($, "room_query", e as unknown as ToolInput),
-  ).catch(() => ({ result: HANDLER_FAILED }));
-  on("tool.call", { tool: "mcp__planroom__room_change" }, ($, e) =>
-    handleTool($, "room_change", e as unknown as ToolInput),
-  ).catch(() => ({ result: HANDLER_FAILED }));
-  on("tool.call", { tool: "mcp__planroom__room_handoff" }, ($, e) =>
-    handleTool($, "room_handoff", e as unknown as ToolInput),
-  ).catch(() => ({ result: HANDLER_FAILED }));
+  // A handler that throws still answers with the one tool-result shape, never a bare failure. On a
+  // failed host the hook only passes through, so what lies beneath answers, its rejection
+  // included: `next` replays it, and the handler's own answer never takes its place.
+  on("tool.call", { tool: "mcp__planroom__room_query" }, ($, e, next) =>
+    hostFailed
+      ? next(e)
+      : handleTool($, "room_query", e as unknown as ToolInput),
+  ).catch(($, e, next) => (hostFailed ? next(e) : { result: HANDLER_FAILED }));
+  on("tool.call", { tool: "mcp__planroom__room_change" }, ($, e, next) =>
+    hostFailed
+      ? next(e)
+      : handleTool($, "room_change", e as unknown as ToolInput),
+  ).catch(($, e, next) => (hostFailed ? next(e) : { result: HANDLER_FAILED }));
+  on("tool.call", { tool: "mcp__planroom__room_handoff" }, ($, e, next) =>
+    hostFailed
+      ? next(e)
+      : handleTool($, "room_handoff", e as unknown as ToolInput),
+  ).catch(($, e, next) => (hostFailed ? next(e) : { result: HANDLER_FAILED }));
 
   // The guard, for every tool call of every agent. Planroom's reads are confined to the workspace,
   // and an agent's edit, intent, claim and curate writes are ghosts or proposals, so those need no
   // prompt (DR-52); everything else the guard lets through goes on to the session's own rules.
   on("tool.check", async ($, e, next) => {
+    if (hostFailed) return next(e);
     if (e.tool === "mcp__planroom__room_query") {
       return { decision: "allow" as const };
     }
@@ -966,31 +1172,37 @@ export function register(on: Parameters<Register>[0]): void {
         },
   );
 
-  on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
-    const engine = await read($, engineAtom);
-    const pane = await read($, paneAtom);
-    const columns = e.props.bodyColumns;
-    const rows =
-      engine.status === "ready" && pane.model !== null
-        ? paneRows(
-            pane.model,
-            columns,
-            e.props.scroll.bodyRows,
-            shown,
-            viewFor(pane.model.focus.seq, pane.model.focus.level),
-            offer?.handle ?? null,
-            views,
-            picker,
-          )
-        : fallbackRows(fallbackFor(engine, pane.error), columns);
-    return draw($, e, rows);
-  });
+  on(
+    "ui.render",
+    { component: "Pane", requestId: PANE },
+    async ($, e, next) => {
+      if (hostFailed) return next(e);
+      const engine = await read($, engineAtom);
+      const pane = await read($, paneAtom);
+      const columns = e.props.bodyColumns;
+      const rows =
+        engine.status === "ready" && pane.model !== null
+          ? paneRows(
+              pane.model,
+              columns,
+              e.props.scroll.bodyRows,
+              shown,
+              viewFor(pane.model.focus.seq, pane.model.focus.level),
+              offer?.handle ?? null,
+              views,
+              picker,
+            )
+          : fallbackRows(fallbackFor(engine, pane.error), columns);
+      return draw($, e, rows);
+    },
+  );
 
   // A `/room` run's row draws its whole result in place of the text the model reads (DR-65).
   on(
     "ui.render",
     { component: "CommandOutput", props: { command: "room" } },
     ($, e, next) => {
+      if (hostFailed) return next(e);
       const held = drawn.get(e.props.text);
       return held === undefined
         ? next(e)
@@ -999,6 +1211,7 @@ export function register(on: Parameters<Register>[0]): void {
   );
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
+    if (hostFailed) return next(e);
     if (e.props.hasSurvey) {
       return next(e);
     }

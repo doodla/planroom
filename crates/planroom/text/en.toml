@@ -174,7 +174,6 @@ store_migrated = "The store moved from version {from} to {to}; the old copy is a
 temporary_host = "This host loses its files with its container, so a redacted backup is also kept at {ref} in {repo}."
 backup_behind = "The event backup holds events up to {backup_seq} and its file up to {file_seq}, but the last person-authored event is {last_authored}; your next edit tries to catch it up."
 backup_ref_failed = "Planroom couldn't copy the redacted backup to {ref} in {repo}; your next edit tries again."
-temporary_host_copy_out = "This environment is temporary. Your Planroom edits are backed up at {ref} in {repo}. Copy that ref somewhere private before this container goes, such as with git bundle."
 reconcile_paused = "{repo}'s HEAD left {tracked_branch}, so the map follows it and reconciling waits."
 duty_failed = "The background {duty} failed at {at}; its log is {log}."
 unsafe_filesystem_moved = "{path} is on {fs}, which can't share the store between Planroom processes safely, so the store lives at {store} instead."
@@ -903,6 +902,15 @@ picker_entry = "{label} · {detail}"
 lens_picker = "Lens"
 project_picker = "Project"
 stage_picker = "Stage"
+host_too_old = "This Claude Code ({version}) is older than {minimum}, the oldest Planroom's mod runs on. The skills and the CLI still work; update Claude Code."
+host_changed = "This Claude Code ({version}) changed the mod API Planroom uses. The skills and the CLI still work; update Planroom."
+host_unknown_version = "of an unknown version"
+host_refused = "Claude Code refused Planroom's {what}: {reason}. The rest of the mod still works."
+host_refused_pane = "pane"
+engine_catalogue_mismatch = "This Planroom engine doesn't match the plugin. Run /reload-plugins."
+schema_mismatch_dev = "A development build ({writer}) migrated this store past this engine. Run planroom doctor to list the store's copies, then planroom doctor --restore with the one from before."
+engine_gone = "The Planroom engine at {path} is gone, and resolving it again found none."
+temporary_host_copy_out = "This environment is temporary. Your Planroom edits are backed up at {ref} in {repo}. Copy that ref somewhere private before this container goes, such as with git bundle."
 
 # The mod's tool descriptions: `cargo xtask gen` writes each tool's intro, then one synopsis line
 # per leaf from the catalogue, into catalogue.ts as TOOL_SPECS; `args` and `payload` describe the

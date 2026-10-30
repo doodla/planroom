@@ -288,7 +288,7 @@ Each pin has one home and a `release_pins` test that fails when another file nam
 | Node 22.22.0 | `.node-version` |
 | pnpm 10.28.2, exactly, with `minimumReleaseAge: 10080`; CI gets it through corepack | `package.json` `packageManager`, `pnpm-workspace.yaml` |
 | Dependabot cooldown of 14 days, the direct-pin age in [`AGENTS.md`](../../AGENTS.md#dependencies); `minimumReleaseAge` stays 7 days for transitive packages [DR-70] | `.github/dependabot.yml`; `release_pins.rs::dependabot_cooldown_matches_the_pin_age` |
-| Claude Code 2.1.310 | an `xtask` constant; `xtask` installs that exact version with `DISABLE_AUTOUPDATER=1`; `packages/mod/vendor/claude-code.d.ts` holds that version's mod API types [DR-81] |
+| Claude Code 2.1.310 | an `xtask` constant; `xtask` installs that exact version with `DISABLE_AUTOUPDATER=1`; `packages/mod/vendor/claude-code.d.ts` holds that version's mod API types; the mod's host check names it, checked against the constant [DR-81] |
 | Python 3.11 or later (guardrails, `build-fixture`, `check-fixture`) | `xtask` check, CI setup |
 | git 2.34.1 or later, Ubuntu 22.04's; the engine checks repo ownership itself [DR-78] | `planroom doctor` and `scan` (`git_too_old`), CI setup |
 | `cargo-about 0.9.2` | a sha256-pinned download in `xtask` |

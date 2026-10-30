@@ -27,7 +27,7 @@ import {
 import { fill, sanitize } from "@planroom/ui";
 
 import { engineAtom, lastSeqAtom, paneAtom } from "./atoms";
-import { parseReply, type RunResult } from "./engine";
+import { mismatchLine, parseReply, type RunResult } from "./engine";
 import { UNPLACED } from "./guard";
 import { pickerArgv } from "./pickers";
 import type { EngineState, PaneState } from "./state-types";
@@ -169,7 +169,9 @@ export async function refreshPane($: $): Promise<void> {
       : {
           model: null,
           error:
-            reply?.error?.message ??
+            (reply?.error?.code === "schema_mismatch"
+              ? mismatchLine(reply.error)
+              : reply?.error?.message) ??
             (run.stderr.trim().split("\n")[0] ||
               fill(MOD_STRINGS.focus_exited, { code: run.exitCode })),
         };
@@ -229,9 +231,17 @@ let timer: Timer | null = null;
 let refreshing = false;
 let owed = false;
 
-/** Start the loop, ending any loop this module already runs. */
+/**
+ * Set when the host failed at a first use (DR-129): no loop starts again, whoever asks, until the
+ * next `session.start` whose check passes clears it. A `focus`, a tool call or a `/room` run in
+ * flight when the host failed ends with `refreshPane`, which would otherwise start a new loop.
+ */
+let halted = false;
+
+/** Start the loop, ending any loop this module already runs; nothing while halted. */
 export function watchStart($: $): void {
   watchStop();
+  if (halted) return;
   const gen = generation;
   running = true;
   void watchLoop($, gen)
@@ -241,9 +251,20 @@ export function watchStart($: $): void {
     });
 }
 
-/** Start the loop unless one runs. */
+/** Start the loop unless one runs, or the loop is halted. */
 export function watchEnsure($: $): void {
-  if (!running) watchStart($);
+  if (!running && !halted) watchStart($);
+}
+
+/** End the loop and its child, and start none again until `watchResume`: the host failed. */
+export function watchHalt(): void {
+  halted = true;
+  watchStop();
+}
+
+/** Let the loop start again: a `session.start` whose host check passed. */
+export function watchResume(): void {
+  halted = false;
 }
 
 /** End the loop and its child. */
@@ -299,7 +320,12 @@ async function watchLoop($: $, gen: number): Promise<void> {
       // No store yet stays silent: the pane shows focus's not-yet-a-workspace state, and the first
       // scan starts the loop. Anything else is one status line, never a restart (DR-53).
       if (code !== "workspace_not_found") {
-        const said = refusal.error?.hint ?? refusal.error?.message;
+        const error = refusal.error;
+        const said = error
+          ? code === "schema_mismatch"
+            ? mismatchLine(error)
+            : (error.hint ?? error.message)
+          : undefined;
         $.ui.status(said === undefined ? undefined : sanitize(said));
       }
       return;

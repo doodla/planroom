@@ -1,12 +1,26 @@
+import {
+  CATALOGUE_HASH,
+  FALLBACK_PANES,
+  MOD_STRINGS,
+} from "@planroom/contract";
+import type { ErrorObject, PaneModel, Warning } from "@planroom/contract";
 import { expect, test } from "vitest";
 
+import focusReply from "../../../tests/golden/cli/focus.json";
+import focusNoRepos from "../../../tests/golden/cli/focus-no-repos.json";
 import {
+  afterNoReply,
+  copyOutLine,
   engineFromVersion,
+  engineGone,
   engineMissing,
   isWindowsRoot,
+  mismatchLine,
   pathFromStatus,
   toolResult,
 } from "./engine";
+import { fallbackFor } from "./fallback";
+import { hasStore, stopsTheLoop } from "./watch";
 
 const R = "/p/scripts/planroom";
 
@@ -39,15 +53,91 @@ test("a version reply makes the engine ready", () => {
   const run = {
     exitCode: 0,
     stderr: "",
-    stdout:
-      '{"ok":true,"command":"version","result":{"version":"0.1.0","catalogue_hash":"ab12"},"meta":{"seq":0}}\n',
+    stdout: `{"ok":true,"command":"version","result":{"version":"0.1.0","catalogue_hash":"${CATALOGUE_HASH}"},"meta":{"seq":0}}\n`,
   };
   expect(engineFromVersion(R, run)).toMatchObject({
     status: "ready",
     resolver: R,
     version: "0.1.0",
-    catalogue_hash: "ab12",
+    catalogue_hash: CATALOGUE_HASH,
   });
+});
+
+function versionReply(result: Record<string, unknown>) {
+  return {
+    exitCode: 0,
+    stderr: "",
+    stdout: JSON.stringify({
+      schema_version: 1,
+      ok: true,
+      command: "version",
+      result,
+      meta: { seq: 0 },
+    }),
+  };
+}
+
+test("a_catalogue_mismatch_shows_one_line: an engine whose catalogue differs is a version mismatch", () => {
+  const mismatch = {
+    status: "version_mismatch",
+    line: MOD_STRINGS.engine_catalogue_mismatch,
+    fix: "/reload-plugins",
+  };
+  expect(
+    engineFromVersion(
+      R,
+      versionReply({ version: "0.1.0", catalogue_hash: "other" }),
+    ),
+  ).toMatchObject({ ...mismatch, version: "0.1.0", catalogue_hash: "other" });
+  expect(
+    engineFromVersion(R, versionReply({ version: "0.1.0" })),
+  ).toMatchObject({ ...mismatch, version: "0.1.0", catalogue_hash: null });
+  expect(
+    engineFromVersion(
+      R,
+      versionReply({ version: "0.1.0", catalogue_hash: CATALOGUE_HASH }),
+    ),
+  ).toMatchObject({ status: "ready" });
+  const state = engineFromVersion(R, versionReply({ version: "0.1.0" }));
+  expect(fallbackFor(state, null).detail).toBe(
+    MOD_STRINGS.engine_catalogue_mismatch,
+  );
+  expect(fallbackFor(state, null).headline).toBe(
+    FALLBACK_PANES.version_mismatch.headline,
+  );
+});
+
+test("no_watch_until_a_store_exists: no store, no watch; the first scan starts it", () => {
+  expect(hasStore(focusNoRepos.result as unknown as PaneModel)).toBe(false);
+  expect(hasStore(focusReply.result as unknown as PaneModel)).toBe(true);
+  expect(stopsTheLoop("workspace_not_found")).toBe(true);
+});
+
+const SCHEMA_HINT =
+  "/plugin marketplace update planroom, then /plugin update planroom@planroom, typed in Claude Code; then restart this session";
+
+function schemaMismatch(
+  hint: string | null,
+  writer: string | null,
+): ErrorObject {
+  return {
+    code: "schema_mismatch",
+    category: "conflict",
+    retry: "never",
+    message: "This store is version 3, newer than this engine reads (2).",
+    hint,
+    details: { writer_version: writer },
+  };
+}
+
+test("schema_mismatch_names_the_right_action: a development build's store needs doctor, not the update commands", () => {
+  expect(mismatchLine(schemaMismatch(SCHEMA_HINT, "0.2.0"))).toBe(SCHEMA_HINT);
+  expect(mismatchLine(schemaMismatch(SCHEMA_HINT, "0.2.0-dev.gf7573900"))).toBe(
+    MOD_STRINGS.schema_mismatch_dev.replace("{writer}", "0.2.0-dev.gf7573900"),
+  );
+  expect(mismatchLine(schemaMismatch(null, null))).toBe(
+    "This store is version 3, newer than this engine reads (2).",
+  );
 });
 
 test("the resolver's reasons pick the fallback pane", () => {
@@ -234,4 +324,55 @@ test("with no engine a tool says why, as an engine error", () => {
     },
     meta: {},
   });
+});
+
+test("a_missing_binary_resolves_once_more: only a gone binary not yet resolved again resolves again", () => {
+  expect(afterNoReply(false, false)).toBe("resolve_again");
+  expect(afterNoReply(false, true)).toBe("report");
+  expect(afterNoReply(true, false)).toBe("report");
+  expect(afterNoReply(true, true)).toBe("report");
+
+  const ready = engineFromVersion(
+    R,
+    versionReply({ version: "0.1.0", catalogue_hash: CATALOGUE_HASH }),
+  );
+  const gone = engineGone(ready, "/x/planroom");
+  expect(gone.status).toBe("failed");
+  expect(gone.line).toBe(
+    MOD_STRINGS.engine_gone.replace("{path}", "/x/planroom"),
+  );
+  expect(gone.fix).toBeNull();
+  expect(fallbackFor(gone, null).detail).toBe(gone.line);
+  expect(fallbackFor(gone, null).headline).toBe(FALLBACK_PANES.failed.headline);
+});
+
+test("the_copy_out_line_fills_from_the_temporary_host_warning: the first such warning gives the line, nothing else does", () => {
+  const warning = (code: Warning["code"], details: unknown): Warning => ({
+    code,
+    message: "m",
+    details,
+  });
+  const host = warning("temporary_host", {
+    repo: "/work/shop",
+    ref: "refs/planroom/backup/w1",
+  });
+  const line = copyOutLine([
+    warning("backup_ref_failed", { repo: "/x", ref: "refs/x" }),
+    host,
+  ]);
+  expect(line).toBe(
+    MOD_STRINGS.temporary_host_copy_out
+      .replace("{ref}", "refs/planroom/backup/w1")
+      .replace("{repo}", "/work/shop"),
+  );
+  expect(line).toContain("/work/shop");
+  expect(line).toContain("refs/planroom/backup/w1");
+  expect(line).not.toMatch(/push/i);
+
+  expect(copyOutLine([])).toBeNull();
+  expect(copyOutLine(undefined)).toBeNull();
+  expect(
+    copyOutLine([warning("backup_ref_failed", { repo: "/x", ref: "refs/x" })]),
+  ).toBeNull();
+  expect(copyOutLine([warning("temporary_host", { repo: "/x" })])).toBeNull();
 });
