@@ -537,6 +537,7 @@ fn merge(packs: Vec<Pack>) -> Loaded {
             kinds: l.kinds.iter().cloned().map(Kind).collect(),
             level: l.level.clone(),
             default: l.default && (validate::is_base(pack) || !base_default),
+            yarn: l.yarn,
         }));
         vocabulary.suggestions.extend(file.suggestions.iter().cloned());
         languages.extend(file.languages.iter().cloned());

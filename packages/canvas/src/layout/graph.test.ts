@@ -19,6 +19,7 @@ function block(id: string, position: BlockRow["position"] = null): BlockRow {
     tone: null,
     level: "container",
     counts: [],
+    countWords: [],
     holds: false,
     position,
     ghost: false,

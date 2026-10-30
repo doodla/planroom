@@ -606,6 +606,21 @@ fn two_default_lenses_are_pack_invalid() {
     assert_invalid(&doctor(&dir), "two", "both the default");
 }
 
+/// A lens names its yarn in its pack, and the yarn reaches the vocabulary whichever set loads it:
+/// the built-ins alone, or the built-ins with a recorded out-of-tree pack, as a read loads them.
+#[test]
+fn a_lens_keeps_its_yarn_in_every_pack_set() {
+    let builtins = packs::builtins().unwrap();
+    let runtime = builtins.vocabulary.lenses.iter().find(|l| l.default).expect("a default lens");
+    assert!(runtime.yarn.is_some(), "the code pack's default lens names its yarn");
+    let lens = "[[lenses]]\nid = \"ops\"\nlabel = \"Ops\"\nrelations = [\"code.http\"]\nlevel = \"container\"\nyarn = \"berry\"\n";
+    let read = packs::state::checked(vec![source(Origin::OutOfTree, "ops", &["code"], lens)]).unwrap();
+    let ops = read.vocabulary.lenses.iter().find(|l| l.id == "ops").expect("the recorded pack's lens");
+    assert_eq!(ops.yarn, Some(planroom_contract::Yarn::Berry));
+    let same = read.vocabulary.lenses.iter().find(|l| l.id == runtime.id).unwrap();
+    assert_eq!(same.yarn, runtime.yarn, "a built-in lens keeps its yarn in a recorded set");
+}
+
 /// A `[[linkers]]` entry's options are read through the table the linker's registry entry
 /// declares, as a built-in extractor's are: every kind and relation they name must be in scope,
 /// every role named, and nothing else.

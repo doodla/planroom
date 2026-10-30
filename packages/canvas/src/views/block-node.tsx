@@ -35,9 +35,13 @@ function BlockNodeView({ data, selected }: NodeProps<BlockNode>) {
       <div className="block-plate">
         <div className="block-name">{row.name}</div>
         <div className="block-kind">{row.kindLabel}</div>
-        {row.counts.length > 0 && (
+        {row.countWords.length > 0 && (
           <div className="block-counts">
-            {row.counts.map((c) => `${c.count} ${c.level}`).join(" · ")}
+            {row.countWords.map((word, i) => (
+              <span key={i} className="block-count">
+                {word}
+              </span>
+            ))}
           </div>
         )}
       </div>

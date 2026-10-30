@@ -61,6 +61,18 @@ fn code_lenses() -> (String, BTreeMap<String, String>) {
     (default["id"].as_str().unwrap().to_owned(), levels)
 }
 
+/// The yarn each code lens declares.
+fn code_lens_yarns() -> BTreeMap<String, String> {
+    let text = std::fs::read_to_string(repo_root().join("packs/code/pack.toml")).unwrap();
+    let pack: toml::Value = toml::from_str(&text).unwrap();
+    pack["lenses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| (l["id"].as_str().unwrap().to_owned(), l["yarn"].as_str().unwrap().to_owned()))
+        .collect()
+}
+
 /// The kinds of the scanned nodes at each level, read from the store's active snapshots.
 fn stored_kinds(root: &Path) -> BTreeMap<String, BTreeSet<String>> {
     let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
@@ -74,6 +86,25 @@ fn stored_kinds(root: &Path) -> BTreeMap<String, BTreeSet<String>> {
         }
     }
     kinds
+}
+
+#[test]
+fn each_lens_map_carries_its_own_yarn_and_lens_all_carries_none() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("shop");
+    fixture(&root);
+    ok(&root, &["scan"]);
+    let declared = code_lens_yarns();
+    assert_eq!(declared.len(), 4, "{declared:?}");
+    let distinct: BTreeSet<&String> = declared.values().collect();
+    assert_eq!(distinct.len(), 4, "the four lenses draw in four yarns: {declared:?}");
+
+    for (lens, yarn) in &declared {
+        let env = ok(&root, &["map", "--lens", lens]);
+        assert_eq!(env["result"]["yarn"], yarn.as_str(), "{lens}: {env}");
+    }
+    let all = ok(&root, &["map", "--lens", "all"]);
+    assert!(all["result"].get("yarn").is_none(), "{all}");
 }
 
 #[test]

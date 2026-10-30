@@ -29,6 +29,10 @@ pub struct MapView {
     /// to finest, so a surface names and steps through levels without naming one itself.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub levels: Vec<LevelVocab>,
+    /// The shown lens's yarn; none under `--lens all` or for a lens that names none, which draws
+    /// in the muted token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub yarn: Option<Yarn>,
 }
 
 /// Where a view's layout is cached: the view and the hash of its structure.
@@ -70,6 +74,19 @@ pub enum Tone {
     Library,
     Store,
     Infra,
+}
+
+/// A lens's edge color, a palette name its pack declares: a surface draws the lens's lifted
+/// edges from it, never from a lens ID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Yarn {
+    Teal,
+    Indigo,
+    Ochre,
+    Plum,
+    Berry,
+    Copper,
 }
 
 /// A layout position.

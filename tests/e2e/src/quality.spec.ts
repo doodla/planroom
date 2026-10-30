@@ -41,10 +41,7 @@ async function coldLoad(page: Page, url: string): Promise<number> {
   return interactiveAt(page);
 }
 
-test("interactive_in_under_1s_on_each_of_5_cold_loads", async ({
-  browser,
-  engine,
-}) => {
+test("interactive_under_1_s", async ({ browser, engine }) => {
   // The first look lays the structure out in the worker and stores it, as `serve` then keeps it.
   const first = await browser.newContext({ viewport: DESKTOP });
   const page = await first.newPage();

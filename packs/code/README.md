@@ -16,7 +16,7 @@ Planroom embeds it in the binary, so every workspace loads it first.
 | `[[hints]]` | `url`, `env_read`, `env_set`, `depends_on`, `route_serve`, `route_call`, `queue_op`, `db_open`, `sql`, `def`, `call`, `compose_service`, `const`, `test_scope`, `import` (the specifier as written, with Python's `.` or Rust's `::` as its `separator`) |
 | `[[extractors]]` | the `files`, `compose`, `manifest` and `openapi` built-ins; `urls` and `sql`, regexes over the code of the five languages; and in each language's file, a query for its imports (as `import` hints), definitions and calls and one for the hints a deployment joins, from `queries/` |
 | `[[linkers]]` | the `runtime_wiring` built-in, which joins the hints of every repo into containers, endpoints and the `http`, `queue_publish`, `queue_consume` and `db` edges between them, binding a wrapper's method and path at its call sites; and the `imports` built-in, which joins each import of another workspace package to that package as an `imports` edge, and gives the importing manifest's `depends_on_package` edge the import lines that use it. Relative and same-package imports join nothing yet |
-| `[[lenses]]` | `runtime` (the default), `flow`, `dependencies`, `history` |
+| `[[lenses]]` | `runtime` (the default, teal), `flow` (indigo), `dependencies` (ochre), `history` (plum) |
 | `[[questions]]` | `path A B`, a shortest path over `flow`; `why A B`, every edge between the two with its evidence and confidence; `impact X`, what depends on X and what it depends on, over `runtime` and `dependencies`. `planroom ask` lists them with every loaded kind and lens |
 | `[[suggestions]]` | the pane's next action: open the containers when the map has any, else the components, else the files |
 

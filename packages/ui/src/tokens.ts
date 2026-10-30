@@ -6,7 +6,7 @@
  * block from the view model's `tone`, never from a kind ID (DR-46).
  */
 
-import type { Tone } from "@planroom/contract";
+import type { Tone, Yarn } from "@planroom/contract";
 
 /** The two themes. */
 export type Theme = "light" | "dark";
@@ -32,6 +32,12 @@ const LIGHT = {
   "block-library-border": { hex: "#1f43a8", alpha: 1 },
   "block-store-border": { hex: "#835c08", alpha: 1 },
   "block-infra-border": { hex: "#4f6953", alpha: 1 },
+  "yarn-teal": { hex: "#0b6b70", alpha: 1 },
+  "yarn-indigo": { hex: "#4b3fb8", alpha: 1 },
+  "yarn-ochre": { hex: "#7a5200", alpha: 1 },
+  "yarn-plum": { hex: "#7d2f8f", alpha: 1 },
+  "yarn-berry": { hex: "#b0175f", alpha: 1 },
+  "yarn-copper": { hex: "#a3360f", alpha: 1 },
   pass: { hex: "#1a6b43", alpha: 1 },
   fail: { hex: "#b3261e", alpha: 1 },
   wait: { hex: "#6b5c0c", alpha: 1 },
@@ -52,6 +58,12 @@ const DARK = {
   "block-library-border": { hex: "#aabdff", alpha: 1 },
   "block-store-border": { hex: "#f8dc96", alpha: 1 },
   "block-infra-border": { hex: "#b4cfb8", alpha: 1 },
+  "yarn-teal": { hex: "#5fd6d6", alpha: 1 },
+  "yarn-indigo": { hex: "#b0a8ff", alpha: 1 },
+  "yarn-ochre": { hex: "#f0b860", alpha: 1 },
+  "yarn-plum": { hex: "#e09cf0", alpha: 1 },
+  "yarn-berry": { hex: "#ff8fc0", alpha: 1 },
+  "yarn-copper": { hex: "#ff9d6e", alpha: 1 },
   pass: { hex: "#5fd39a", alpha: 1 },
   fail: { hex: "#ff8a80", alpha: 1 },
   wait: { hex: "#e6cf6a", alpha: 1 },
@@ -87,6 +99,12 @@ export const MARK_TOKENS = [
   "block-library-border",
   "block-store-border",
   "block-infra-border",
+  "yarn-teal",
+  "yarn-indigo",
+  "yarn-ochre",
+  "yarn-plum",
+  "yarn-berry",
+  "yarn-copper",
   "pass",
   "fail",
   "wait",
@@ -114,6 +132,24 @@ export function toneVars(tone: Tone | null): { fill: string; border: string } {
   }
   const { fill, border } = TONE_TOKENS[tone];
   return { fill: `var(--${fill})`, border: `var(--${border})` };
+}
+
+/**
+ * The palette token each yarn a lens may name draws its edges in. Typed against the contract's
+ * `Yarn`, so a yarn the contract adds fails to type-check until it has a token here.
+ */
+export const YARN_TOKENS = {
+  teal: "yarn-teal",
+  indigo: "yarn-indigo",
+  ochre: "yarn-ochre",
+  plum: "yarn-plum",
+  berry: "yarn-berry",
+  copper: "yarn-copper",
+} as const satisfies Record<Yarn, ColorToken>;
+
+/** The CSS color a lens's edges draw in: its yarn's token, or the muted token with none (`--lens all`). */
+export function yarnVar(yarn: Yarn | null): string {
+  return yarn === null ? "var(--muted)" : `var(--${YARN_TOKENS[yarn]})`;
 }
 
 /** The three faces; each is OFL-1.1 and self-hosted by the canvas. */

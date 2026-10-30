@@ -32,11 +32,12 @@ pub fn tone(vocabulary: &Vocabulary, kind: &Kind) -> Option<Tone> {
 /// `view` through `lens`, or through every relation and kind when `lens` is `None`: the lifted
 /// edges of the lens's relations only; with kinds, only their blocks and the blocks those edges
 /// touch, each with the ancestors the view holds; the nodes of its kinds first, then by the
-/// lifted edges each carries; and every block with its kind's tone.
+/// lifted edges each carries; every block with its kind's tone; and the lens's yarn, none with no lens.
 pub fn apply(mut view: MapView, vocabulary: &Vocabulary, lens: Option<&LensVocab>) -> MapView {
     for node in &mut view.nodes {
         node.tone = tone(vocabulary, &node.kind);
     }
+    view.yarn = lens.and_then(|l| l.yarn);
     if let Some(lens) = lens {
         view.edges.retain(|e| lens.relations.contains(&e.kind));
         if !lens.kinds.is_empty() {
@@ -95,7 +96,7 @@ mod tests {
     use crate::ladder::testing::*;
     use std::collections::BTreeMap;
 
-    use planroom_contract::{KindVocab, LevelId, LiftedEdge, MapNode, NodeId};
+    use planroom_contract::{KindVocab, LevelId, LiftedEdge, MapNode, NodeId, Yarn};
 
     use super::*;
 
@@ -119,6 +120,7 @@ mod tests {
             kinds: kinds.iter().map(|k| Kind((*k).into())).collect(),
             level: region(),
             default,
+            yarn: None,
         }
     }
 
@@ -180,6 +182,7 @@ mod tests {
             empty: None,
             layout: None,
             levels: vec![],
+            yarn: None,
         }
     }
 
@@ -263,5 +266,21 @@ mod tests {
         // A lens whose `kinds` is empty hides no block.
         let calls = apply(nested.clone(), &vocabulary, default(&vocabulary));
         assert_eq!(calls.nodes.len(), nested.nodes.len());
+    }
+
+    #[test]
+    fn a_lens_puts_its_yarn_on_the_view_and_no_lens_puts_none() {
+        let vocabulary = vocabulary();
+        let mut dyed = lens("dyed", &["p.call"], &[], false);
+        dyed.yarn = Some(Yarn::Plum);
+        let shown = apply(view(), &vocabulary, Some(&dyed));
+        assert_eq!(shown.yarn, Some(Yarn::Plum));
+
+        // A lens that names none draws none, and so does no lens, whatever the input held.
+        let plain = lens("plain", &["p.call"], &[], false);
+        let mut held = view();
+        held.yarn = Some(Yarn::Teal);
+        assert_eq!(apply(held.clone(), &vocabulary, Some(&plain)).yarn, None);
+        assert_eq!(apply(held, &vocabulary, None).yarn, None);
     }
 }

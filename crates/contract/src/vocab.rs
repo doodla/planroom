@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::model::{Kind, LevelId};
 use crate::pack::{Flow, SuggestionDecl};
-use crate::view::Tone;
+use crate::view::{Tone, Yarn};
 
 /// Everything the loaded packs declare that the fold, resolution and the views read.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
@@ -83,4 +83,6 @@ pub struct LensVocab {
     pub level: LevelId,
     /// The one default lens.
     pub default: bool,
+    /// The lens's edge color, from its pack.
+    pub yarn: Option<Yarn>,
 }

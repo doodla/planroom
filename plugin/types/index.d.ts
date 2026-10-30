@@ -912,6 +912,14 @@ export type HandoffState =
  */
 export type Tone = "service" | "library" | "store" | "infra";
 /**
+ * A lens's edge color, a palette name its pack declares: a surface draws the lens's lifted
+ * edges from it, never from a lens ID.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "Yarn".
+ */
+export type Yarn = "teal" | "indigo" | "ochre" | "plum" | "berry" | "copper";
+/**
  * One frame of the live stream.
  *
  * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
@@ -3552,6 +3560,10 @@ export interface LensDecl {
   kinds: string[];
   level: Level;
   /**
+   * The palette name the lens's edges draw in; two lenses may share one.
+   */
+  yarn: Yarn | null;
+  /**
    * Two defaults are `pack_invalid`, unless one is the code pack's, which wins.
    */
   default: boolean;
@@ -3787,6 +3799,11 @@ export interface MapView {
    * to finest, so a surface names and steps through levels without naming one itself.
    */
   levels?: LevelVocab[];
+  /**
+   * The shown lens's yarn; none under `--lens all` or for a lens that names none, which draws
+   * in the muted token.
+   */
+  yarn?: Yarn | null;
 }
 /**
  * What the recording run measured; never part of the key.

@@ -101,5 +101,6 @@ pub fn empty_view(level: LevelId, lens: String) -> MapView {
         empty: None,
         layout: None,
         levels: vec![],
+        yarn: None,
     }
 }

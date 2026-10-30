@@ -13,8 +13,21 @@ import {
   type Edge,
   type NodeChange,
 } from "@xyflow/react";
-import { blocksOf, edgesOf, matchBlocks, sanitize } from "@planroom/ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  blocksOf,
+  edgesOf,
+  matchBlocks,
+  sanitize,
+  yarnVar,
+} from "@planroom/ui";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import emptyMap from "../assets/empty-map.webp";
 import { BLOCK } from "../layout/graph";
@@ -110,7 +123,7 @@ function MapFlow({ moment }: { moment: Moment }) {
             type: MarkerType.ArrowClosed,
             width: 18,
             height: 18,
-            color: "var(--muted)",
+            color: "var(--yarn)",
           },
           focusable: false,
           selectable: false,
@@ -146,6 +159,7 @@ function MapFlow({ moment }: { moment: Moment }) {
   return (
     <div
       className="map"
+      style={{ "--yarn": yarnVar(map?.yarn ?? null) } as CSSProperties}
       data-ready={ready || undefined}
       data-moment={moment}
       aria-label={STRINGS.map}

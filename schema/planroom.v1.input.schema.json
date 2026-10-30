@@ -4482,6 +4482,18 @@
         "level": {
           "$ref": "#/$defs/Level"
         },
+        "yarn": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Yarn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The palette name the lens's edges draw in; two lenses may share one.",
+          "default": null
+        },
         "default": {
           "type": "boolean",
           "description": "Two defaults are `pack_invalid`, unless one is the code pack's, which wins.",
@@ -5017,6 +5029,17 @@
             "$ref": "#/$defs/LevelVocab"
           },
           "description": "With `--detail graph`: the vocabulary's levels, `intent` first and then the ladder top\nto finest, so a surface names and steps through levels without naming one itself."
+        },
+        "yarn": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Yarn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The shown lens's yarn; none under `--lens all` or for a lens that names none, which draws\nin the muted token."
         }
       },
       "required": [
@@ -8527,6 +8550,18 @@
         }
       },
       "description": "`planroom watch [--since SEQ] [--session ID]`: one `StreamFrame` per line on stdout until\nstopped."
+    },
+    "Yarn": {
+      "type": "string",
+      "enum": [
+        "teal",
+        "indigo",
+        "ochre",
+        "plum",
+        "berry",
+        "copper"
+      ],
+      "description": "A lens's edge color, a palette name its pack declares: a surface draws the lens's lifted\nedges from it, never from a lens ID."
     }
   }
 }

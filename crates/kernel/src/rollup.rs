@@ -191,6 +191,7 @@ mod tests {
             kinds: vec![],
             level: realm(),
             default: false,
+            yarn: None,
         };
         let vocabulary = vocabulary();
         let ladder = Ladder::of(&vocabulary);

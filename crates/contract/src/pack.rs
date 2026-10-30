@@ -13,7 +13,7 @@ use serde_json::Value;
 use crate::decision::{DecisionKind, EffectOp, Predicate};
 use crate::envelope::CommandName;
 use crate::model::LevelId;
-use crate::view::Tone;
+use crate::view::{Tone, Yarn};
 
 /// One pack's `pack.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -263,6 +263,9 @@ pub struct LensDecl {
     #[serde(default)]
     pub kinds: Vec<String>,
     pub level: LevelId,
+    /// The palette name the lens's edges draw in; two lenses may share one.
+    #[serde(default)]
+    pub yarn: Option<Yarn>,
     /// Two defaults are `pack_invalid`, unless one is the code pack's, which wins.
     #[serde(default)]
     pub default: bool,

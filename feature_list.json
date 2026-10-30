@@ -101,7 +101,6 @@
       "due": {
         "crates/planroom/tests/s01_first_look.rs::every_truth_container_component_and_relation_with_evidence": "M3",
         "crates/planroom/tests/s01_first_look.rs::deterministic_with_models_off": "M1",
-        "tests/e2e/src/first-look.spec.ts": "M1",
         "crates/planroom/tests/first_run.rs::first_scan_deals_at_most_three_cards": "M2",
         "crates/planroom/tests/s01_first_look.rs::every_truth_item_the_loaded_packs_declare_matches_with_evidence": "M1"
       }
@@ -1284,7 +1283,6 @@
         "tests/e2e/src/surface.spec.ts::the_top_row_holds_four_targets_at_most_every_target_is_44px_and_nothing_overflows"
       ],
       "due": {
-        "tests/e2e/src/quality.spec.ts::interactive_under_1_s": "M1",
         "tests/e2e/src/quality.spec.ts::no_overflow_at_390x844": "M5",
         "tests/e2e/src/quality.spec.ts::tap_targets_at_least_44_px": "M5",
         "tests/e2e/src/quality.spec.ts::pinch_and_tap_to_focus": "M5",

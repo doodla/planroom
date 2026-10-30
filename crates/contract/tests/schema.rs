@@ -118,6 +118,7 @@ fn sample_envelope() -> Envelope<MapView> {
             empty: None,
             layout: None,
             levels: vec![],
+            yarn: None,
         }),
         error: None,
         meta: Meta {

@@ -500,13 +500,12 @@ button.lid-ancestor:hover {
 }
 
 .react-flow__edge-path {
-  stroke: var(--muted);
+  stroke: var(--yarn, var(--muted));
   stroke-width: 2;
 }
 
 .react-flow__edge.near .react-flow__edge-path {
-  stroke: var(--ink);
-  stroke-width: 2.5;
+  stroke-width: 3.5;
 }
 
 .react-flow__edge.dim {
@@ -515,7 +514,7 @@ button.lid-ancestor:hover {
 
 .react-flow__edge-textbg {
   fill: var(--card);
-  stroke: var(--muted);
+  stroke: var(--yarn, var(--muted));
   stroke-width: 1.5;
 }
 
@@ -574,8 +573,7 @@ button.lid-ancestor:hover {
 }
 
 .block-name,
-.block-kind,
-.block-counts {
+.block-kind {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -593,6 +591,31 @@ button.lid-ancestor:hover {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.3;
+}
+
+/* Counts drop whole levels from the bottom: an entry that doesn't fit wraps out of sight, and only
+   the first entry shrinks, with an ellipsis. The separator is layout, not prose. */
+.block-counts {
+  display: flex;
+  flex-wrap: wrap;
+  height: 1.3em;
+  overflow: hidden;
+}
+
+.block-count {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.block-count:first-child {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.block-count + .block-count::before {
+  content: "· ";
 }
 
 .block[data-ghost] {

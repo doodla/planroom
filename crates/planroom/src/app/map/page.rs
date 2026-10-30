@@ -915,6 +915,7 @@ mod tests {
                 kinds: kinds.iter().map(|k| Kind((*k).into())).collect(),
                 level: LevelId::from("code"),
                 default: false,
+                yarn: None,
             }],
             suggestions: vec![],
             levels: vec![],

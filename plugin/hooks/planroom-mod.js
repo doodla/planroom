@@ -1135,6 +1135,43 @@ var KEY_MAP = [
   }))
 ];
 
+// ../ui/src/text.ts
+var ELLIPSIS = "…";
+function truncate(text2, columns) {
+  const points = Array.from(text2);
+  if (points.length <= columns) {
+    return text2;
+  }
+  if (columns <= 0) {
+    return "";
+  }
+  return points.slice(0, columns - 1).join("") + ELLIPSIS;
+}
+function fill(template, vars) {
+  let out = "";
+  let rest = template;
+  for (; ; ) {
+    const open = rest.indexOf("{");
+    if (open < 0) break;
+    out += rest.slice(0, open);
+    const after = rest.slice(open + 1);
+    const close = after.indexOf("}");
+    const name = close < 0 ? null : after.slice(0, close);
+    const value = name !== null && Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : void 0;
+    if (value === void 0) {
+      out += "{";
+      rest = after;
+    } else {
+      out += String(value);
+      rest = after.slice(close + 1);
+    }
+  }
+  return out + rest;
+}
+function width(text2) {
+  return Array.from(text2).length;
+}
+
 // ../ui/src/rows.ts
 var PAGE_ROWS = 7;
 var DIFF_ROWS = 3;
@@ -1176,43 +1213,6 @@ function page(items, index, size = PAGE_ROWS) {
     last: start + shown2.length,
     total
   };
-}
-
-// ../ui/src/text.ts
-var ELLIPSIS = "…";
-function truncate(text2, columns) {
-  const points = Array.from(text2);
-  if (points.length <= columns) {
-    return text2;
-  }
-  if (columns <= 0) {
-    return "";
-  }
-  return points.slice(0, columns - 1).join("") + ELLIPSIS;
-}
-function fill(template, vars) {
-  let out = "";
-  let rest = template;
-  for (; ; ) {
-    const open = rest.indexOf("{");
-    if (open < 0) break;
-    out += rest.slice(0, open);
-    const after = rest.slice(open + 1);
-    const close = after.indexOf("}");
-    const name = close < 0 ? null : after.slice(0, close);
-    const value = name !== null && Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : void 0;
-    if (value === void 0) {
-      out += "{";
-      rest = after;
-    } else {
-      out += String(value);
-      rest = after.slice(close + 1);
-    }
-  }
-  return out + rest;
-}
-function width(text2) {
-  return Array.from(text2).length;
 }
 
 // src/atoms.ts

@@ -809,6 +809,8 @@ pub struct MapView {
     pub empty: Option<Empty>,
     pub levels: Vec<LevelVocab>,             // with --detail graph: intent, then the ladder top to finest, so a surface
                                              // names and steps through levels without naming one itself
+    pub layout: Option<LayoutKey>,           // with --detail graph: the key its layout is cached under, which PUT /api/v1/layout takes back
+    pub yarn: Option<Yarn>,                  // the shown lens's edge color, from its pack; none under --lens all, which draws muted
 }
 pub struct LiftedEdge { pub kind: Kind, pub from: NodeId, pub to: NodeId, pub count: u32,
                         pub evidence_sample: Vec<Evidence>, pub children: Vec<EdgeId> }
@@ -910,6 +912,8 @@ pub struct LensDecl { pub id: String, pub label: String, pub relations: Vec<Stri
                       pub kinds: Vec<String> /* the node kinds the lens is about: its map shows their nodes first, edges
                                                 or none, and `map --lens` alone takes the lens's level (DR-15) */,
                       pub level: LevelId,
+                      pub yarn: Option<Yarn> /* Teal | Indigo | Ochre | Plum | Berry | Copper: the palette name a surface draws the
+                                                lens's edges in; never a lens ID */,
                       pub default: bool /* two defaults are pack_invalid unless one is the code pack's, which wins */,
                       /* id: never "all", which --lens all takes for every relation of every loaded pack */
                       pub empty_text: Option<String>, pub empty_action: Option<String> }
@@ -961,7 +965,7 @@ pub struct KindVocab { pub kind: Kind, pub level: LevelId, pub id_prefix: String
 pub struct RelationVocab { pub kind: Kind, pub label: String, pub from: Vec<Kind>, pub to: Vec<Kind>, pub props: Value,
                            pub inferred: bool }
 pub struct LensVocab { pub id: String, pub label: String, pub relations: Vec<Kind>, pub flow: BTreeMap<Kind, Flow>,
-                       pub kinds: Vec<Kind>, pub level: LevelId, pub default: bool }
+                       pub kinds: Vec<Kind>, pub level: LevelId, pub yarn: Option<Yarn>, pub default: bool }
 ```
 
 ### Pack test layout

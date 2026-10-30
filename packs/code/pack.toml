@@ -408,6 +408,7 @@ label = "Runtime"
 relations = ["code.http", "code.queue_publish", "code.queue_consume", "code.db"]
 flow = { "code.queue_consume" = "backward" }
 level = "container"
+yarn = "teal"
 default = true
 
 [[lenses]]
@@ -416,18 +417,21 @@ label = "Request and message flow"
 relations = ["code.http", "code.queue_publish", "code.queue_consume"]
 flow = { "code.queue_consume" = "backward" }
 level = "container"
+yarn = "indigo"
 
 [[lenses]]
 id = "dependencies"
 label = "Dependencies"
 relations = ["code.imports", "code.depends_on_package"]
 level = "component"
+yarn = "ochre"
 
 [[lenses]]
 id = "history"
 label = "History"
 relations = ["code.co_change", "code.owned_by"]
 level = "component"
+yarn = "plum"
 
 # Questions: named pipelines of query shapes, which ask runs (DR-15). A name resolves at the
 # level of the first lens a question names, so path's ends are containers first.

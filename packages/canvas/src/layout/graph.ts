@@ -95,7 +95,8 @@ export function hasLayout(blocks: readonly BlockRow[]): boolean {
 
 /**
  * Each block's position: its stored one when it has one, which a person may have pinned, and the
- * computed one otherwise.
+ * computed one otherwise. ELK doesn't know pins, so a pin on a structure with no cached layout can
+ * overlap a computed block.
  */
 export function placed(
   blocks: readonly BlockRow[],

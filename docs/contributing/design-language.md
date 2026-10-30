@@ -9,7 +9,7 @@ Planroom is a tabletop where your system is laid out as toy blocks. You look dow
 | Idea | On the table | Canvas | Mod (terminal) |
 |---|---|---|---|
 | Levels | Abstraction levels, from the plan's intent down to the finest level the loaded packs declare. Blocks nest like boxes: lift a block's lid to see the level below. | Zoom dives into a block; the breadcrumb is a row of stacked lids. | Indented block glyphs (`▣`) with the level name in the focus header. |
-| Lenses | Colored yarn strung between pegs, one color per relationship kind. | Edge color and style per lens; one lens on by default. | Colored arrows in the mini-map; the lens name in the focus header. |
+| Lenses | Colored yarn strung between pegs, one color per lens. | Edge color per lens, drawn solid, since a dash is the intended layer's; one lens on by default. | Colored arrows in the mini-map; the lens name in the focus header. |
 | Intent | Chalk outlines drawn on the felt where blocks should sit. Plans are index cards pinned beside the table. | Intended layer drawn as dashed chalk outlines; drift is a block outside its outline. | `intended` and `actual` columns in diffs; drift marked with `≠`. |
 | Diffs | Ghost blocks (translucent, proposed) and strips of tape (green added, red removed, amber changed). | Ghosts render translucent until accepted; tape marks on changed edges. | `Code format="diff"` previews; ghosts listed with a dim style. |
 | Decisions | A card dealt to you, with the pick already face up. | A card with the pre-selected choice and one-tap buttons. | The decision card in the pane, choices on hotkeys. |
@@ -37,11 +37,12 @@ Colors are CSS variables in `packages/ui`, with a designed dark mode, not an inv
 | `--block-store` | `#f2b632` sunflower | `#f5c95c` | Datastores and queues |
 | `--block-infra` | `#6b8f71` sage | `#8fb596` | Tooling and observability |
 | `--block-service-border`, `--block-library-border`, `--block-store-border`, `--block-infra-border` | `#bc2f14`, `#1f43a8`, `#835c08`, `#4f6953` | `#ffa48e`, `#aabdff`, `#f8dc96`, `#b4cfb8` | Block borders: a darker shade in light mode and a lighter one in dark mode, at least 4.5:1 on the felt [DR-77] |
+| `--yarn-teal`, `--yarn-indigo`, `--yarn-ochre`, `--yarn-plum`, `--yarn-berry`, `--yarn-copper` | `#0b6b70`, `#4b3fb8`, `#7a5200`, `#7d2f8f`, `#b0175f`, `#a3360f` | `#5fd6d6`, `#b0a8ff`, `#f0b860`, `#e09cf0`, `#ff8fc0`, `#ff9d6e` | Lens yarn: the lifted edges of the lens shown, solid; `--lens all` draws in `--muted` |
 | `--pass`, `--fail`, `--wait` | `#1a6b43`, `#b3261e`, `#6b5c0c` | `#5fd39a`, `#ff8a80`, `#e6cf6a` | Semantic states and diff tape, separate from block colors |
 
 Block colors encode a kind's `tone`, which its pack declares as `service`, `library`, `store` or `infra`, one per block token above. A kind with no tone draws as `--card` with its label. Surfaces read the tone from the view model and never switch on a kind ID [DR-46]. Block colors are never the only signal: each block also carries its kind as a label or icon. Tape isn't told by color alone either: added tape carries `+`, removed tape `−` and changed tape `~`.
 
-Lens yarn has no tokens yet. Until packs bring lenses in M1, every edge draws in `--muted`. M1 adds one yarn token per lens to this table, each held to the 3:1 mark bar below [DR-82].
+A lens names its yarn in its pack, surfaces read it from `MapView.yarn`, and each yarn is held to the 3:1 mark bar below [DR-82, DR-123].
 
 Every token meets a contrast bar against `--table` and `--card` in both themes: 4.5:1 for text, and 3:1 for marks such as chalk outlines, tape and edges. A block's fill leans on its border and its label, so the border is the mark that counts. The bar checks the border tokens for blocks, since the fills alone measure as low as 1.39:1 on the light felt. `packages/ui/src/tokens.test.ts::contrast_meets_the_bar` checks every pair [DR-77]. White chalk on the light felt measured 1.24:1, which is why light mode draws dark chalk.
 

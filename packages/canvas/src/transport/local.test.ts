@@ -65,7 +65,7 @@ const json = (body: unknown, status = 200) =>
     headers: { "Content-Type": "application/json" },
   });
 
-const envelope = (result: unknown, ok = true, command = "map") => ({
+const envelope = (result: unknown, ok = true, command = "map", seq = 1) => ({
   schema_version: 1,
   ok,
   command,
@@ -73,7 +73,7 @@ const envelope = (result: unknown, ok = true, command = "map") => ({
   error: ok
     ? null
     : { code: "not_found", message: "No such block.", retry: "never" },
-  meta: { seq: 1, size: { bytes: 0, tokens_est: 0 } },
+  meta: { seq, size: { bytes: 0, tokens_est: 0 } },
 });
 
 describe("login", () => {
@@ -283,6 +283,51 @@ describe("the stream", () => {
     expect(frames).toEqual([{ type: "reset", seq: 5 }, { type: "ping" }]);
     expect(seen[0]?.Authorization).toBe("Bearer tok");
     expect(seen[1]?.["Last-Event-ID"]).toBe("5");
+  });
+
+  test("the stream opens from the oldest seq the loaded views were read at", async () => {
+    const seen: Call[] = [];
+    const t = env({
+      "POST /api/v1/session": () =>
+        json(envelope({ token: "tok" }, true, "serve")),
+      "POST /api/v1/map": () => json(envelope({}, true, "map", 7)),
+      "POST /api/v1/focus": () => json(envelope({}, true, "focus", 5)),
+      "GET /api/v1/stream": (c) => {
+        seen.push(c);
+        switch (seen.length) {
+          case 1:
+            return new Response("down", { status: 503 });
+          case 2:
+            return sse([
+              'id: 9\nevent: event\ndata: {"type":"reset","seq":9}\n\n',
+            ]);
+          case 3:
+            return sse(['event: ping\ndata: {"type":"ping"}\n\n']);
+          default:
+            return sse(['event: ping\ndata: {"type":"ping"}\n\n'], false);
+        }
+      },
+    });
+    const transport = localTransport(t.env);
+    await transport.login();
+    await Promise.all([
+      transport.query("map", {}),
+      transport.query("focus", {}),
+    ]);
+    const stop = transport.subscribe(
+      () => undefined,
+      () => undefined,
+    );
+    await expect.poll(() => seen.length).toBeGreaterThanOrEqual(4);
+    stop();
+    expect(seen[0]?.url.endsWith("/stream?since=5")).toBe(true);
+    expect(seen[1]?.url.endsWith("/stream?since=5")).toBe(true);
+    expect(seen[0]?.headers["Last-Event-ID"]).toBeUndefined();
+    expect(seen[1]?.headers["Last-Event-ID"]).toBeUndefined();
+    for (const c of seen.slice(2, 4)) {
+      expect(c.url.endsWith("/stream")).toBe(true);
+      expect(c.headers["Last-Event-ID"]).toBe("9");
+    }
   });
 
   test("a refused token ends the stream as needs-login", async () => {

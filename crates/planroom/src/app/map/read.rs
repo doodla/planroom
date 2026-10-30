@@ -110,6 +110,7 @@ pub(super) fn view(
         empty,
         layout: None,
         levels: vec![],
+        yarn: None,
     };
     Ok((view, under.map(|n| n.name.clone())))
 }

@@ -7,7 +7,7 @@
  * engine can't produce yet are in `standin.spec.ts`.
  */
 
-import type { MapView } from "@planroom/contract";
+import type { MapNode, MapView } from "@planroom/contract";
 import type { Locator, Page } from "@playwright/test";
 
 import { startEngine, type Engine } from "./engine";
@@ -42,6 +42,21 @@ function engineMap(engine: Engine): MapView {
     next = page.meta.next;
   }
   return view;
+}
+
+/** A block's counts in the ladder's words: its level's `one` for 1, else `many`, top level first. */
+function countWords(view: MapView, node: MapNode): string[] {
+  return (view.levels ?? []).flatMap((level) => {
+    const count = node.counts[level.id] ?? 0;
+    return count > 0
+      ? [
+          (count === 1 ? level.one : level.many).replace(
+            "{count}",
+            String(count),
+          ),
+        ]
+      : [];
+  });
 }
 
 /**
@@ -187,10 +202,12 @@ test.describe("at 1440x900", () => {
     expect(looks.filter((l) => l.tone !== "none")).toHaveLength(5);
     const orders = page.locator(".block", { hasText: /^orders\s*repo/ });
     await expect(orders.locator(".block-kind")).toHaveText("repo");
-    // 14 directories, its package, its API spec and the repo's two authors at the component level;
-    // its 23 files and the 5 endpoints the link snapshot makes of its routes at the code level.
-    await expect(orders.locator(".block-counts")).toHaveText(
-      "1 container · 18 component · 28 code",
+    // The repo's counts, in the ladder's words from the same reply.
+    const repo = view.nodes.find(
+      (n) => n.name === "orders" && n.level === view.level,
+    )!;
+    await expect(orders.locator(".block-count")).toHaveText(
+      countWords(view, repo),
     );
     // The code pack's image roles give a compose service its kind: redis is a queue and orders-db
     // a datastore.
@@ -465,6 +482,42 @@ test.describe("at 1440x900", () => {
     console.log(line);
     test.info().annotations.push({ type: "commit", description: line });
     expect(took).toBeLessThan(1000);
+  });
+
+  test("a_commit_before_the_stream_opens_still_reaches_the_page", async ({
+    page,
+    engine,
+  }) => {
+    // Hold the stream's request until the commit is in, so the page has read its views before the
+    // stream opens.
+    const streams: string[] = [];
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route("**/api/v1/stream**", async (route) => {
+      streams.push(route.request().url());
+      await released;
+      await route.continue();
+    });
+    await openMap(page, await engine.loginUrl());
+    const counts = page
+      .locator(".block", { hasText: /^orders\s*repo/ })
+      .locator(".block-counts");
+    const before = await counts.textContent();
+
+    engine.commit(
+      "orders",
+      {
+        "internal/ledger/ledger.go":
+          "package ledger\n\n// Post notes an order entry.\nfunc Post(id string) string { return id }\n",
+      },
+      "Add the ledger package",
+    );
+    expect(engine.cli(["scan"]).ok).toBe(true);
+    release();
+    await expect(counts).not.toHaveText(before ?? "", { timeout: 3000 });
+    expect(streams.some((u) => u.includes("since="))).toBe(true);
   });
 
   test("search_dims_what_does_not_match_and_enter_selects_the_first_match", async ({

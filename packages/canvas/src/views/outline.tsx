@@ -21,12 +21,7 @@ export function Outline({
         const out = edges.filter((e) => e.from === row.id);
         return (
           <li key={row.id} role="treeitem" aria-level={1} aria-selected={false}>
-            {[
-              row.name,
-              row.kindLabel,
-              row.level,
-              ...row.counts.map((c) => `${c.count} ${c.level}`),
-            ].join(", ")}
+            {[row.name, row.kindLabel, row.level, ...row.countWords].join(", ")}
             {out.length > 0 && (
               <ul role="group">
                 {out.map((e) => (

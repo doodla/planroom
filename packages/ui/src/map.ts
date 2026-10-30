@@ -12,6 +12,7 @@ import type {
 } from "@planroom/contract";
 
 import { sanitize } from "./display";
+import { fill } from "./text";
 
 /** One block on the map. */
 export interface BlockRow {
@@ -31,6 +32,12 @@ export interface BlockRow {
     readonly level: string;
     readonly count: number;
   }[];
+  /**
+   * `counts` as the ladder's own words, top level first: one entry per count whose level the
+   * view's `levels` lists, each its level's `one` for 1 and `many` otherwise. None for a view
+   * with no `levels`.
+   */
+  readonly countWords: readonly string[];
   readonly holds: boolean;
   readonly position: Position | null;
   readonly ghost: boolean;
@@ -58,6 +65,7 @@ export function blocksOf(view: MapView): BlockRow[] {
     const i = ladder.indexOf(level);
     return i < 0 ? ladder.length : i;
   };
+  const words = new Map((view.levels ?? []).map((l) => [l.id, l]));
   return view.nodes.map((node) => {
     const counts = Object.entries(node.counts)
       .filter(([, count]) => count > 0)
@@ -70,6 +78,12 @@ export function blocksOf(view: MapView): BlockRow[] {
       tone: node.tone ?? null,
       level: node.level,
       counts,
+      countWords: counts.flatMap(({ level, count }) => {
+        const l = words.get(level);
+        return l
+          ? [sanitize(fill(count === 1 ? l.one : l.many, { count }))]
+          : [];
+      }),
       holds: counts.length > 0,
       position: node.position,
       ghost: node.ghost,

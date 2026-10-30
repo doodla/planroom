@@ -1,4 +1,4 @@
-import type { Tone } from "@planroom/contract";
+import type { Tone, Yarn } from "@planroom/contract";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -9,10 +9,12 @@ import {
   SURFACES,
   TEXT_TOKENS,
   TONE_TOKENS,
+  YARN_TOKENS,
   contrast,
   over,
   tokensCss,
   toneVars,
+  yarnVar,
   type Theme,
 } from "./tokens";
 
@@ -119,5 +121,38 @@ test("a block takes its tone's fill and border, and no tone draws as a card", ()
   expect(toneVars(null)).toEqual({
     fill: "var(--card)",
     border: "var(--muted)",
+  });
+});
+
+describe("every_yarn_has_a_token", () => {
+  // Every yarn the contract lets a lens name, spelled out here so the type checker refuses a list
+  // that misses one or names one the contract doesn't have.
+  const yarns = {
+    teal: true,
+    indigo: true,
+    ochre: true,
+    plum: true,
+    berry: true,
+    copper: true,
+  } as const satisfies Record<Yarn, true>;
+
+  test("the yarn table names exactly the contract's yarns", () => {
+    expect(Object.keys(YARN_TOKENS).sort()).toEqual(Object.keys(yarns).sort());
+  });
+
+  for (const theme of THEMES) {
+    test.each(Object.keys(yarns) as Yarn[])(
+      `${theme}: %s has a mark token`,
+      (yarn) => {
+        const token = YARN_TOKENS[yarn];
+        expect(PALETTE[theme][token].hex).toMatch(/^#[0-9a-f]{6}$/);
+        expect(MARK_TOKENS).toContain(token);
+        expect(yarnVar(yarn)).toBe(`var(--${token})`);
+      },
+    );
+  }
+
+  test("a lens with no yarn draws its edges muted", () => {
+    expect(yarnVar(null)).toBe("var(--muted)");
   });
 });

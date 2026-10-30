@@ -82,6 +82,12 @@ export function localTransport(env: LocalEnv): Transport {
     }
   };
   let token = read();
+  // The lowest seq any loaded view was read at, until the stream has delivered an id. `map` and
+  // `focus` load in parallel, so a commit between their reads must still refetch the older one.
+  let floor: number | null = null;
+  // The last stream id seen, kept across connections: a connection whose first frame is an id-less
+  // ping must not make the next reconnect forget where it was.
+  let lastId: string | null = null;
 
   async function send(
     method: string,
@@ -112,7 +118,7 @@ export function localTransport(env: LocalEnv): Transport {
     return response;
   }
 
-  async function command<T>(name: string, body: unknown): Promise<T> {
+  async function call(name: string, body: unknown): Promise<Envelope> {
     const response = await send("POST", name.split(" ").join("/"), body);
     let envelope: Envelope;
     try {
@@ -126,7 +132,11 @@ export function localTransport(env: LocalEnv): Transport {
     if (!envelope.ok) {
       throw new CommandError(envelope);
     }
-    return envelope.result as T;
+    return envelope;
+  }
+
+  async function command<T>(name: string, body: unknown): Promise<T> {
+    return (await call(name, body)).result as T;
   }
 
   const capabilities: Capabilities = { views: "all", layoutWriteBack: true };
@@ -170,7 +180,14 @@ export function localTransport(env: LocalEnv): Transport {
       return true;
     },
 
-    query: (name, request) => command(name, request),
+    query: async (name, request) => {
+      const envelope = await call(name, request);
+      if (lastId === null) {
+        const seq = envelope.meta.seq;
+        floor = floor === null ? seq : Math.min(floor, seq);
+      }
+      return envelope.result as never;
+    },
     write: (name, request) => command(name, request),
     run: (handle: Handle) => command(handle.command, requestOf(handle)),
 
@@ -186,7 +203,6 @@ export function localTransport(env: LocalEnv): Transport {
       onEnd: (error: TransportError) => void,
     ) {
       const abort = new AbortController();
-      let lastId: string | null = null;
       void (async () => {
         for (let attempt = 0; !abort.signal.aborted; attempt++) {
           try {
@@ -199,7 +215,11 @@ export function localTransport(env: LocalEnv): Transport {
             if (lastId !== null) {
               headers["Last-Event-ID"] = lastId;
             }
-            const response = await env.fetch(api("stream"), {
+            const url =
+              lastId === null && floor !== null
+                ? api(`stream?since=${floor}`)
+                : api("stream");
+            const response = await env.fetch(url, {
               headers,
               signal: abort.signal,
             });
@@ -225,7 +245,7 @@ export function localTransport(env: LocalEnv): Transport {
                 break;
               }
               for (const message of parser.push(value)) {
-                lastId = parser.lastEventId;
+                lastId = parser.lastEventId ?? lastId;
                 try {
                   onFrame(JSON.parse(message.data) as StreamFrame);
                 } catch {

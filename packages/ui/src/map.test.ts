@@ -9,6 +9,7 @@ import {
   structureHash,
   viewKey,
 } from "./map";
+import { fill } from "./text";
 
 function node(id: string, over: Partial<MapNode> = {}): MapNode {
   return {
@@ -178,4 +179,44 @@ test("block_counts_follow_the_ladder", () => {
     { level: "zzz", count: 1 },
   ]);
   expect(block?.level).toBe("planet");
+});
+
+test("block counts read one or many from the ladder, top level first", () => {
+  // Invented levels whose IDs sort against their ladder order.
+  const rung = (id: string, apart = false) => ({
+    id,
+    label: id,
+    one: `{count} ${id} thing`,
+    many: `{count} ${id} things`,
+    apart,
+    pack: "toy",
+  });
+  const levels = [
+    rung("intent", true),
+    rung("zeta"),
+    rung("mid"),
+    rung("alpha"),
+  ];
+  const [zeta, mid, alpha] = levels.slice(1);
+  const nodes = [
+    node("a:x:a", {
+      level: "intent",
+      counts: { alpha: 2, zeta: 1, mid: 18, stray: 5 },
+    }),
+  ];
+  const [block] = blocksOf(view({ levels, nodes }));
+  // `stray` has no ladder entry, so it has no words; `counts` still lists it.
+  expect(block?.countWords).toEqual([
+    fill(zeta?.one ?? "", { count: 1 }),
+    fill(mid?.many ?? "", { count: 18 }),
+    fill(alpha?.many ?? "", { count: 2 }),
+  ]);
+  expect(block?.counts.map((c) => c.level)).toEqual([
+    "zeta",
+    "mid",
+    "alpha",
+    "stray",
+  ]);
+  const [bare] = blocksOf(view({ levels: [], nodes }));
+  expect(bare?.countWords).toEqual([]);
 });

@@ -83,6 +83,6 @@ pub use stream::StreamFrame;
 pub use view::{
     BatchInfo, Choice, Crumb, DecisionCard, DiffLine, DriftLine, EngineState, EngineStatus, Focus, LastSeq,
     LayoutKey, LiftedEdge, MapNode, MapView, MiniBlock, MiniEdge, MiniMap, OutboxEntry, PaneModel, PaneState,
-    Position, PresenceRow, Progress, ScanState, Stakes, Tone, TurnSeq,
+    Position, PresenceRow, Progress, ScanState, Stakes, Tone, TurnSeq, Yarn,
 };
 pub use vocab::{KindVocab, LensVocab, LevelVocab, RelationVocab, Vocabulary};

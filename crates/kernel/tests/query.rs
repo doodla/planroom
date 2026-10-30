@@ -66,6 +66,7 @@ fn lens(id: &str, relations: &[&str], backward: &[&str], level: LevelId) -> Lens
         kinds: vec![],
         level,
         default: false,
+        yarn: None,
     }
 }
 
