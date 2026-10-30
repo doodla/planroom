@@ -457,6 +457,48 @@ button.lid-ancestor:hover {
   box-shadow: inset 4px 0 0 var(--chalk);
 }
 
+.picker-entry-flat {
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
+
+.lens-switcher .picker-sheet {
+  min-width: 240px;
+}
+
+.picker-sheet ul + .picker-extra {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: var(--border) solid var(--muted);
+}
+
+.theme-choice-label {
+  margin: 4px 6px 6px;
+  font-weight: 600;
+}
+
+.theme-choice-radios {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(var(--target), 1fr));
+  gap: 4px;
+}
+
+.theme-choice-radio {
+  min-width: var(--target);
+  min-height: var(--target);
+  padding: 0 8px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.theme-choice-radio[aria-checked="true"] {
+  font-weight: 600;
+  box-shadow: inset 0 -4px 0 var(--chalk);
+}
+
 /* The map: blocks on the felt, edges in the lens's yarn. */
 
 .map {

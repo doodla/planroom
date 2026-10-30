@@ -1,5 +1,6 @@
 /**
- * The canvas entry: tokens and faces first, then the store on its transport, then the app. The page
+ * The canvas entry: tokens and faces first, then the theme on the local transport only, then the
+ * store on its transport, then the app. The page
  * `share` writes marks its root `data-transport="artifact"`; every other page, the one `serve`
  * serves, talks to the engine through the local transport.
  */
@@ -20,20 +21,25 @@ import { layoutInWorker } from "./layout/elk";
 import { createCanvasStore } from "./store";
 import { artifactTransport, browserArtifactEnv } from "./transport/artifact";
 import { browserEnv, localTransport } from "./transport/local";
+import { ThemeContext, browserThemeEnv, startTheme } from "./theme";
 import { StoreContext } from "./use-canvas";
 
 const root = document.getElementById("root");
-const transport =
-  root?.dataset.transport === "artifact"
-    ? artifactTransport(browserArtifactEnv())
-    : localTransport(browserEnv());
+const local = root?.dataset.transport !== "artifact";
+const transport = local
+  ? localTransport(browserEnv())
+  : artifactTransport(browserArtifactEnv());
+// claude.ai owns the Artifact page's theme; only the local canvas keeps a pin [DR-122].
+const theme = local ? startTheme(browserThemeEnv()) : null;
 const store = createCanvasStore(transport, layoutInWorker);
 if (root) {
   createRoot(root).render(
     <StrictMode>
-      <StoreContext.Provider value={store}>
-        <App />
-      </StoreContext.Provider>
+      <ThemeContext.Provider value={theme}>
+        <StoreContext.Provider value={store}>
+          <App />
+        </StoreContext.Provider>
+      </ThemeContext.Provider>
     </StrictMode>,
   );
 }

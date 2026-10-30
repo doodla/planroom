@@ -135,8 +135,10 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 119 | One room: boards in areas, every view a link, repos and boards attached from anywhere, and plans that run side by side | DR-1, DR-29, DR-58, DR-77, DR-101, DR-115, DR-116, DR-118 | extended, amends DR-25, DR-29, DR-51, DR-65, DR-66, DR-71, DR-77, DR-78 and DR-101 | the owner's request of 2026-10-29 |
 | 120 | Ontologies as packs, chosen per board: domain concepts aligned to blocks at every level, and release management as the first domain | DR-9, DR-62, DR-109, DR-111, DR-114, DR-115, DR-116, DR-117, DR-119 | extended, amends DR-23, DR-36, DR-45, DR-46, DR-62, DR-74, DR-106 and DR-109 | the owner's request of 2026-10-29 |
 | 121 | The band offers undo, the pane's key map, and `/room` and the tools from one synopsis per leaf | DR-8, DR-14, DR-21, DR-54, DR-65, DR-66, DR-77, DR-85, DR-89, DR-105, DR-111, DR-113 | extended, amends DR-8, DR-54, DR-66, DR-77, DR-85, DR-89 and DR-105 | the merge of M1's band, keys, `/room` and tools |
+| 122 | Themes follow the viewer: system, light and dark on the canvas, claude.ai's theme on the Artifact, the host's on the mod, and every theme held to contrast and distinctness bars | DR-46, DR-68, DR-77, DR-82, DR-86, DR-119, DR-123 | extended, amends DR-86 and DR-123 | the owner's request of 2026-10-29 |
 | 123 | A lens's yarn is pack data, the canvas's stream opens from the oldest seq it read, and the first look runs on the real engine | DR-46, DR-66, DR-82, DR-89, DR-111, DR-114, DR-121 | extended, amends DR-82 and DR-121 | the merge of M1's map view |
 | 124 | The user-level ledger records every answered Claude call, refusing before the call, and `gc` prunes after a scan, before its reply | DR-24, DR-47, DR-51, DR-65, DR-78, DR-96, DR-113 | extended, amends DR-24, DR-47 and DR-113 | the merge of M1's ledger and `gc` |
+| 125 | The boundary scan's exception for the theme preference, ratified after DR-124 | DR-79, DR-81, DR-122 | extended | the merge of M1's themes |
 
 ## Where the design reviews disagreed
 
@@ -2244,7 +2246,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-86: What the walking skeleton's review settled in round 2
 
-- **Status:** accepted (decided at the merge of round 2's fixes, 2026-10-26). Amended by DR-87, DR-100, DR-104 and DR-107.
+- **Status:** accepted (decided at the merge of round 2's fixes, 2026-10-26). Amended by DR-87, DR-100, DR-104, DR-107 and DR-122.
 - **Starting point:** extended "Extractors read the repo", "Actors: agents never act as a person" and "Surfaces read one contract".
 - **Origin:** round 2 of the walking skeleton's review. Its 16 material findings, 12 distinct defects, are in [the review's index](research/skeleton-review/README.md). Four fix branches fixed them (the scan, budget, guard and canvas fixes), and one was fixed in the plan.
 - **Context:** Round 1's fixes held. Round 2 found what they left: inputs outside a snapshot's key, a late scan that could move a repo back, a partial clone that fetched, one unreadable repo failing a whole scan, warnings and two leaves over budget, a guard with no write rule for Bash and no rule for recursive reads, and two canvas controls that led nowhere.
@@ -2278,6 +2280,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended by DR-100:** the per-blob cache's key adds the file's repo-qualified path to the options this record added.
 - **Amended by DR-104:** a repo another user owns, or one that borrows another user's object store, is skipped with `repo_skipped`, reason `other_owner`, and a `null` fix: its line says who can scan it, since no copy command works in every layout.
 - **Amended by DR-107:** the join across repos is the link snapshot's, so a repo's snapshot key holds no workspace repo names again: adding or removing a repo re-keys only the link, and a late scan is never superseded because the repo set changed.
+- **Amended by DR-122:** on the local canvas the lens switcher is always a button, since its sheet holds the theme choice; with one lens the sheet shows that lens flat above the choice, so no press in it does nothing. On the Artifact the rule stands, and the project shelf's rule doesn't change.
 - **Sources (checked 2026-10-26):** `docs/contributing/research/skeleton-review/round2-*.json`; the four fix branches' reports; the merged tree's `cargo xtask check`, `test`, `test --installer` and `e2e`.
 
 ## DR-87: What the walking skeleton's review settled in round 3
@@ -4405,9 +4408,150 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended by DR-123:** `tool_results.map-container` is 728 and `tool_results.map-graph` 885 tokens, the measured cost of the map's `yarn` in its tool result.
 - **Sources (checked 2026-10-29):** `crates/contract/src/{command, requests, view}.rs`; `crates/planroom/src/cli.rs` (`with_usage`); `crates/xtask/src/{generate, modgen}.rs`; `packages/mod/src/{tools, room, room-args, prompt, catalogue, layout}.ts` and `register.tsx`; `packages/mod/plugin-tests/host.ts`; `packages/ui/src/{keys, rows}.ts`; `crates/planroom/text/en.toml`; `budgets.json`; `vitest.config.js`; [The mod](architecture.md#the-mod); [Contracts](contracts.md#mod-tool-schemas-state-and-the-room-family).
 
+## DR-122: Themes follow the viewer: system, light and dark on the canvas, claude.ai's theme on the Artifact, the host's on the mod, and every theme held to contrast and distinctness bars
+
+- **Status:** accepted (decided on the owner's request of 2026-10-29, and brought up to what was built at the merge of M1's themes, 2026-10-30).
+- **Starting point:** keeps KICKOFF's Look and feel, "A cohesive palette as CSS variables. A dark mode that's designed, not inverted" and "Commit to one concept across the canvas, the mod and the art" (KICKOFF.md:255-256), and R14's "Before adding a concept, flag or setting, check whether a better default would remove the need for it" (KICKOFF.md:111). Extends DR-46 (tones), DR-68 (accessibility), DR-77 (nothing adds a sixth concept) and DR-82 (one yarn token per lens). Amends DR-86's picker rule for the lens switcher on the local canvas, and DR-123's yarn palette (one plum value per theme, and a distinctness bar beside the mark bar). DR-119's plan tints join its distinctness check when they land.
+- **Origin:** the owner, 2026-10-29: "Can you also add theming support to the frontend?" The build's findings were folded in at its merge.
+- **Context:**
+  - `@planroom/ui` already ships two designed palettes. `tokensCss()` puts light on `:root`, dark under `prefers-color-scheme: dark` unless `data-theme="light"` pins light, and dark again under `data-theme="dark"` (`packages/ui/src/tokens.ts:160-195`). Nothing in the canvas sets `data-theme`, so the canvas follows the system and a person can't pick.
+  - claude.ai sets `data-theme` on an Artifact page only when the viewer picked light or dark there; on "system" it sets nothing (research/artifact.md:46-48). Those are the selectors `tokensCss()` already writes.
+  - The mod draws through the host's `Box`, `Text` and `Button`. A paint prop takes a host theme key, which follows the person's Claude Code theme, or a raw color (`packages/mod/vendor/claude-code.d.ts:1712-1719`, the keys at :13455). The mod uses only `dimColor`, `bold` and `color="warning"` today (`packages/mod/src/register.tsx:495-569`).
+  - The engine's text output carries no color. clap styles its own usage errors on a terminal and follows `NO_COLOR`.
+  - The contrast bar is checked (`tokens.test.ts::contrast_meets_the_bar`, DR-77). Nothing checks that tones stay apart from each other. Measured with CIEDE2000, the closest tone fills are 34.8 apart in light and 28.0 in dark, but only 10.8 in dark under simulated deuteranopia (service and store).
+  - The top level holds five concepts (DR-77), and the phone's top row four targets (DR-86). A picker with nothing to pick isn't a button (DR-86).
+  - DR-78 gives each workspace its own canvas port in M1; DR-119 moves every board onto one room port in M3. Browser storage is per origin.
+  - The build found two things this record first assumed otherwise. DR-123's lens yarn, merged before the build, missed the yarn bar of 15 under normal vision: indigo against plum measured 13.4 in light and 13.1 in dark, and plum against berry 13.3 in dark. And `system` is a built-in level ID (`packs/code/pack.toml:18`), which the literal scan refuses in `packages/ui`'s and `packages/canvas`'s sources outside `boundaries.toml`'s `level_words`.
+  - At the build's base the lens switcher had no sheet: the canvas shell, which merges later, adds the lens list. The switcher's sheet had to be built so the shell can add the list without moving the theme row.
+- **Decision:**
+  - **A theme is a complete palette.** It names a value for every color token and the `color-scheme` it declares. Type, shape and motion are one design language and never vary by theme: motion already follows `prefers-reduced-motion`, and type follows the browser's zoom.
+    - The built-in themes are `light` and `dark`, as they stand, and in M5 a contrast twin of each, `light-contrast` and `dark-contrast`. All four live in `@planroom/ui`'s `PALETTE`. Every one stays in the felt family, and the Don't list holds for every one.
+    - Themes are built in only. A pack's one say on color stays its kinds' tones (DR-46).
+  - **You pick a scheme; contrast follows your system.**
+    - The preference is `system`, the default, `light` or `dark`. `system` follows `prefers-color-scheme`.
+    - In M5, `prefers-contrast: more` swaps in the contrast twin of whichever scheme is in force, whether the system, a canvas pin or claude.ai chose it. There's no separate contrast choice.
+    - Under `forced-colors: active` the browser's colors win. Blocks keep their border and their kind's label, and tape keeps its `+`, `−` and `~`, so nothing depends on a palette there.
+  - **The local canvas.**
+    - The choice is a radio group, System, Light and Dark, at the foot of the lens switcher's sheet. Lenses are how you look at the table, so the theme adds no sixth concept and no fifth phone target. Each radio is a 44 px target.
+    - **Amends DR-86:** on the local canvas the lens switcher is always a button, since its sheet always holds the choice. With one lens, the sheet shows that lens flat above the choice, so no press does nothing. The project shelf's rule and the Artifact's lens switcher don't change.
+    - The choice lives in the browser: `localStorage["planroom.theme"]`, holding `light` or `dark`, removed for `system`. Every read is in try/catch, and a value the reader doesn't know reads as `system`. With storage blocked, a choice holds for that page only.
+    - A pinned scheme sets `data-theme` on the page root; `system` removes it. `tokensCss()` needs no change for that.
+    - `assets/theme.js`, a classic script of under 400 bytes generated from `@planroom/ui`'s `themeScript()`, runs first in the head and applies a stored pin before the felt first paints. The local CSP already allows `script-src 'self'`.
+    - A `storage` event carries a choice to every open tab of the origin.
+    - **The sheet.** `Picker` takes an optional `extra`, drawn below its entries; a picker with `extra` is always a button. Its entries draw as buttons only when `onPick` is set and one isn't current; otherwise they draw flat, the current one marked, and with no entries the list isn't drawn. The shell adds the lens list as the switcher's entries and `onPick`, and the theme row stays in `extra` where it is.
+    - **Every picker takes the focus on open and gives it back.** Opening a sheet focuses the picker's own current entry, else its first entry button; only when no entry can be pressed does it focus the checked control in `extra`, else its first button. So a lens list keeps the focus ahead of the theme row. Escape or a pick closes the sheet and returns the focus to the picker; a press outside closes it and leaves the focus where the press put it. This holds for every `Picker`, the phone's `⋯` lid among them.
+    - **Arrow keys move the focus without choosing.** In the theme radio group the arrows, Home and End move the focus between System, Light and Dark, and Enter, Space or a press chooses. This departs from the plain WAI-ARIA radio pattern, where the arrows also check: here a choice closes the sheet, so choosing as the focus moved would shut it on the first press. The checked radio is the group's one Tab stop.
+    - **The literal `system`.** The preference keeps the name `system`, and `boundaries.toml`'s `level_words` gains one exception for it, in `packages/ui/src/theme.ts` alone. Every other file reaches the preference through `THEME_PREFERENCES`, `themeAttribute` and unquoted keys, so the scan still refuses the level ID everywhere else in `packages/ui` and `packages/canvas`.
+  - **The Artifact page follows claude.ai.** The viewer picks light, dark or system in claude.ai, and the page follows through the same selectors. `share` leaves `assets/theme.js` out of the page fragment and out of the published files. The page never writes `data-theme` or `planroom.theme`, and offers no choice.
+  - **The mod follows Claude Code.**
+    - Claude Code owns the pane's and the band's colors through its `/config` theme. The mod never reads or sets that setting, and offers no choice of its own.
+    - The mod paints only with `dimColor`, `bold`, the host's primary `Button`, `Code format="diff"`, and these host theme keys, never with a raw color or hex:
+
+      | Meaning | Host paint |
+      |---|---|
+      | secondary text, ghosts | `dimColor` |
+      | the next action, emphasis | the primary `Button`; `bold` |
+      | attention: drift, a failing duty | `warning` |
+      | a check passed or failed | `success`, `error` |
+      | diff lines | `Code format="diff"`, which draws the host's diff colors |
+      | the current lens's arrows in the mini-map | `suggestion`: one lens shows at a time, named in the focus header |
+      | a kind's tone | no color: the kind's label and its `▣` glyph carry it |
+
+    - So the mod can theme nothing itself. What it can do is stay inside the host's keys, which follow every Claude Code theme, the colorblind and ANSI ones included.
+  - **The CLI has nothing to theme.** The engine's text carries no color escapes, and the display-sanitizing pass shows any ESC in repo text as `\x1b` (DR-64). clap's usage errors follow `NO_COLOR` and the terminal.
+  - **Every theme passes two bars, in CI.**
+    - **Contrast**, WCAG 2, against `--table` and `--card`: text 4.5:1, marks 3:1 and block borders 4.5:1, as now. The contrast twins raise text to 7:1 and marks and borders to 4.5:1.
+    - **Distinctness**, CIEDE2000, normal vision and simulated protanopia, deuteranopia and tritanopia (Machado, Oliveira and Fernandes, 2009, severity 1.0, in linear RGB):
+
+      | Group | Pairs | Normal vision | Each simulated deficiency |
+      |---|---|---|---|
+      | Tone fills | each pair, and each fill against `--card` (a block with no tone) | ≥ 20 | ≥ 10 |
+      | States (`pass`, `fail`, `wait`) | each pair | ≥ 20 | none: tape carries `+`, `−`, `~` |
+      | Lens yarn | each pair | ≥ 15 | none: one lens shows at a time, by name |
+      | Plan tints (DR-119, M3) | each pair | ≥ 10 | none: a block's plans are named in its popover and the CLI's plans column |
+
+    - A value that misses a bar changes; the bar doesn't. A group with fewer than two tokens fails the check, so it can't pass on an empty set.
+    - **`--yarn-plum` moves (amends DR-123).** Light `#7d2f8f` becomes `#79177b` and dark `#e09cf0` becomes `#e478fc`, so the yarn clears its bar of 15, which it missed at 13.4 in light and 13.1 in dark (indigo against plum). The new values were picked by a nearest-colour search for the closest colour to the old plum that clears 15 against every other yarn while keeping the 3:1 mark bar, not by design review; the screenshot pass shows them. The yarn's closest pair is now plum against berry, 16.5 in both themes, and plum's contrast is 7.20:1 on `--table` and 8.12:1 on `--card` in light, 6.55:1 and 5.56:1 in dark. No other token moves.
+    - **Measured minima,** by the build's own measure, which the bar tests repeat: tone fills 30.0 in light (infra against `--card`) and 28.0 in dark (store against infra); simulated, light 16.2 protan, 16.5 deutan and 15.5 tritan, dark 12.5 protan, 10.8 deutan (service against store) and 11.6 tritan. States 24.5 in light and 28.1 in dark. `themeScript()` is 136 bytes.
+  - **What's persisted where:**
+
+    | What | Where | Written by |
+    |---|---|---|
+    | The local canvas's scheme | `localStorage["planroom.theme"]` on the canvas's origin | your press on the lens switcher's sheet |
+    | The Artifact's scheme | claude.ai's theme setting, reaching the page as `data-theme` | you, in claude.ai |
+    | The mod's colors | Claude Code's `/config` theme | you, in Claude Code |
+    | Contrast | your operating system's increase-contrast setting | you, in the system |
+
+    Nothing reaches the engine: no config key, no `PLANROOM_*` variable, nothing in the store, the snapshot, `room.json` or any reply.
+- **Alternatives rejected:**
+  - **A `[ui] theme` config key:** "system" is a default that works for everyone, and the choice is the viewer's, not the workspace's (R14, AGENTS.md's Configuration rules). The engine would have to carry the key to the page, and an Artifact viewer doesn't own the config.
+  - **A theme per board:** a theme answers to your eyes and your room's light, not to a project. Boards are told apart by name and by DR-119's plan tints. A felt per board would need every tone and tint to clear both bars on every felt.
+  - **Themes in packs, or your own CSS:** a pack's palette could break the contrast bars or recolor `pass` and `fail`; packs keep one say on color, their tones (DR-46). Your own CSS would need `style-src` from elsewhere, against the local CSP and the Artifact's.
+  - **Themed type, radii or motion:** one concept across every surface (KICKOFF.md:255).
+  - **A theme button in the top row:** a sixth concept (DR-77), and a fifth target on the phone (DR-86).
+  - **A theme choice on the Artifact page:** it would fight claude.ai's `data-theme`, and the viewer already picks there.
+  - **An explicit contrast choice:** a second control for a setting the system already carries.
+  - **Raw colors in the mod:** a terminal's background is unknown, so no raw color can be held to a bar. Host keys follow every Claude Code theme.
+  - **Applying the pin from the app's module:** it runs after the first paint, so a pin opposite the system would flash. An inline script is refused by the local CSP.
+  - **Renaming the preference to dodge the level ID** (`auto`, say): it changes the decided names System, Light and Dark, and a stored `system` would read as unknown. Building the string so the scan can't see it would defeat the gate. One `level_words` line is the honest exception.
+  - **Arrow keys that check as they move:** the choice closes the sheet, so the first arrow would shut it.
+  - **Focusing the checked radio first whatever the sheet holds:** once the shell adds the lens list, opening the lens switcher would skip it and land on the theme row.
+  - **Pixel-diff screenshots in CI:** fonts and rasterization differ between runners, so a gate would flake or need a baseline per runner. Computed styles and axe check the same things deterministically. The screenshot pass still writes every view in each theme for a person to look at.
+- **Consequences:**
+  - **Contracts:** none. No public type, command, error or warning code, config key, event or persisted format changes, and `schema_version` stays. `planroom.theme` is a browser convenience, not a Planroom format: its reader takes anything it doesn't know as `system`, so it carries no format tag.
+  - **Layout:** no directory, no package export or dependency, and no third-party package. AGENTS.md's gated sections and the area contracts table don't change: `@planroom/ui` already owns "design tokens … light and dark". `boundaries.toml` changes, a gated surface ratified by DR-125 with `gen --layout-lock DR-125`, since the lock names records in increasing order and already named DR-124 when this record merged: `level_words` gains `{ file = "packages/ui/src/theme.ts", word = "system" }`, because the theme preference shares its name with the code pack's `system` level. The Layout lists of `packages/ui/AGENTS.md`, `packages/canvas/AGENTS.md` and `tests/e2e/AGENTS.md` name the new files.
+  - **Code:**
+    - `packages/ui/src/theme.ts`: `ThemePreference`, `THEME_STORAGE_KEY`, `parsePreference`, `resolveTheme`, `themeAttribute`, `themeScript`, `DISTINCT_GROUPS`. `packages/ui/src/distinct.ts`: `deltaE2000`, `deltaE2000Lab`, `simulateVision`. Both pure, as the package's contract asks.
+    - `packages/canvas/src/theme.ts` (`startTheme`, `browserThemeEnv`, `ThemeContext`, `useThemeChoice`); `src/shell/theme-choice.tsx`; `Picker`'s `extra`; the lens switcher's sheet; `main.tsx` starting the theme on the local transport only; `vite.config.js` emitting and linking `assets/theme.js`.
+    - `crates/planroom/src/app/share.rs`: `THEME_SCRIPT`; the fragment and `published()`, the copy loop's filter, leave out `assets/theme.js`.
+    - `packages/canvas/src/shell/picker.tsx`: `firstFocus`, the order above, and `Picker`'s focus on open and return on close.
+    - `packages/ui/src/{theme, distinct}.ts` keep out of the mod's bundle: `DISTINCT_GROUPS`'s `Object.values` calls are marked pure and `distinct.ts`'s constants are literals, so esbuild drops the colour checks the mod never runs.
+    - `tests/e2e/src/fixtures.ts` holds `hitSize`, moved from `surface.spec.ts` so `theme.spec.ts` measures the theme radios with the same helper, by what a press reaches.
+    - M5: the contrast twins in `PALETTE`, `Theme` widened to four and a scheme per theme, and `tokensCss()`'s `prefers-contrast: more` blocks.
+  - **Docs:**
+    - design-language.md is the home: a Themes section after Palette, with what a theme is and who picks on each surface; the distinctness bars after the contrast paragraph, and the new plum in the palette table; the theme choice among the things that add no sixth concept; Touch's picker rule for the lens switcher; the Keyboard bullets for a picker's focus and the theme group's arrows. In M5, the palette table gains the twins' columns.
+    - architecture.md: The canvas's Lenses bullet and the Artifact publish step link to it; the Milestones below.
+    - `packages/canvas/AGENTS.md`'s Layout names `assets/theme.js`; `packages/ui/AGENTS.md`'s names the theme preference and the colour-difference math; `tests/e2e/AGENTS.md`'s names `theme.spec.ts` and `fixtures.ts`'s `hitSize`.
+    - traceability.md: S13's row, whose tests cell names every C19 test, and the Look and feel row.
+    - feature_list.json: a tier C entry, `C19` "Themes follow the viewer" (R13, R14), with the tests below and M5's carrying `due: "M5"`. It stays `failing` until M5, since an entry marked passing carries no `due`; every test without one passes on its CI path.
+  - **Milestones:**
+
+    | Slice | Milestone | h |
+    |---|---|---|
+    | ‖ Themes: system, light and dark on the local canvas, picked on the lens switcher's sheet and kept in the browser, applied before the first paint and across tabs; the Artifact following the viewer's claude.ai theme with no theme script; tone, state and yarn distinctness at their bars in every theme | M1 | 5 |
+    | ‖ Contrast twins and forced colors: `light-contrast` and `dark-contrast` designed and measured at 7:1 and 4.5:1, `prefers-contrast: more` in `tokensCss()`, the forced-colors check, axe in both schemes, the mod's paint check, the screenshot pass of the twins | M5 | 5 |
+
+    M1 grows by 5 h, from 140 to 145, and M5 by 5 h, from 85 to 90; the total goes from 689.5 to 699.5 h. The M1 slice needs nothing M1 hasn't built. The M5 slice follows M5's accessibility slice, whose axe audit it runs in both schemes. DR-119's plan tints join `DISTINCT_GROUPS` inside its own M3 canvas slice, at no extra hours.
+  - **Tests** (offline, in CI):
+    - M1, `packages/ui/src/theme.test.ts`: `a_stored_choice_reads_back_and_anything_else_is_system`, `system_follows_the_scheme_and_a_pin_wins`, `the_attribute_is_the_pin_or_nothing`, `the_pre_paint_script_sets_a_stored_pin_and_survives_blocked_storage`, `tones_stay_distinct_in_every_theme`, `states_stay_distinct_in_every_theme`, `lens_yarn_stays_distinct_in_every_theme`, `every_distinct_group_holds_two_tokens_or_more`;
+    - M1, `packages/ui/src/distinct.test.ts`: `delta_e_2000_matches_the_published_pairs` (pairs 1, 7, 17 and 34 of Sharma, Wu and Dalal's Table 1, to 1e-4), `simulated_vision_keeps_greys_and_pulls_red_and_green_together`;
+    - M1, `packages/canvas/src/theme.test.ts`: `a_stored_pin_applies_at_start_and_system_leaves_the_root_bare`, `choosing_a_theme_stores_it_and_sets_the_root`, `choosing_system_clears_the_root_and_the_store`, `a_choice_in_another_tab_applies_here`, `with_storage_blocked_a_choice_holds_for_this_page`;
+    - M1, `packages/canvas/src/shell/picker.test.ts`: `the_sheet_focuses_its_own_current_entry_before_the_extra`;
+    - M1, `crates/planroom/src/app/share.rs`: `the_theme_script_is_neither_in_the_fragment_nor_published`;
+    - M1, `crates/xtask/src/modgen.rs`: `the_mod_bundle_carries_none_of_the_colour_checks`; `crates/xtask/tests/docs.rs`: `s13s_row_names_every_test_the_theme_entry_lists`;
+    - M1, `tests/e2e/src/theme.spec.ts`: `the_canvas_follows_the_system_theme_by_default`, `a_pin_wins_over_the_system_and_applies_before_first_paint`, `a_choice_in_one_tab_reaches_another`, `the_theme_choice_is_three_44px_radios_on_the_phone` (the sheet inside the 390 px viewport too), `the_artifact_follows_the_viewers_theme_and_offers_no_choice` (the host shim sets `data-theme` on the page root, as claude.ai does);
+    - M1, `tests/e2e/src/surface.spec.ts`: `offersOnlyWhatWorks`, the helper behind `the_lens_switcher_and_the_project_shelf_offer_only_what_works` and its phone twin checks the amended rule;
+    - M5, `packages/ui/src/tokens.test.ts::contrast_twins_meet_the_raised_bar`; `packages/ui/src/theme.test.ts::the_css_picks_the_contrast_twin_only_under_more_contrast`; `tests/e2e/src/theme.spec.ts::more_contrast_picks_the_twin_of_the_scheme_in_force` (Playwright's `contrast` media emulation, against each scheme and each pin) and `forced_colors_keep_every_block_labelled_and_bordered`; `tests/e2e/src/quality.spec.ts::axe_finds_no_serious_violation` runs in light and in dark, its name unchanged; `packages/mod/src/paint.test.ts::the_mod_paints_only_with_host_theme_keys` (a scan of the mod's sources: every paint prop holds a key from the vendored `ThemeKey`, and no hex or `rgb(` literal appears);
+    - the screenshot pass (`cargo xtask e2e --screens`) keeps writing every view in light and dark, and in M5 in the twins too: evidence, not a gate.
+  - **Known gaps:**
+    - The choice is per browser origin. Until DR-119's room server (M3) puts every board on one port, each workspace's canvas keeps its own.
+    - An Artifact viewer picks only in claude.ai. A viewer who wants the page dark while claude.ai is light can't have it.
+    - A terminal's own palette can make the host's keys low in contrast. Planroom can't measure it.
+    - The empty-state art has one rendering for every theme.
+    - Until M5, increased contrast gets the plain palettes.
+    - No browser picker yet has both pressable entries and `extra`, so the focus order is checked on `firstFocus` in vitest; the e2e specs check it with one lens drawn flat.
+    - The new plum was chosen by search, not by eye; a design review may move it again, within both bars.
+    - The claude.ai side of the Artifact's theme rests on the platform's documented `data-theme` behaviour; CI checks it against the host shim, not claude.ai itself.
+  - **Users:**
+    - The canvas follows your system's light or dark. To pin one, open the lens switcher and pick Light or Dark. Every open tab follows, and a reload keeps it.
+    - On a phone or in a cloud session, the Artifact page follows your claude.ai theme setting.
+    - In Claude Code, the pane and the band follow your `/config` theme.
+    - With your system's increase-contrast setting on (M5), the canvas and the Artifact switch to a higher-contrast felt.
+- **Sources (checked 2026-10-29, the build's rows 2026-10-30):** KICKOFF.md:111 and :254-257; `boundaries.toml`'s `level_words`; `packs/code/pack.toml:18`; `crates/xtask/src/boundaries.rs`; `packages/canvas/src/shell/{picker, theme-choice, top-row}.tsx`; WAI-ARIA Authoring Practices, the radio group pattern; [Design language](design-language.md) (Palette, Touch, Don't); `packages/ui/src/tokens.ts:160-234` and `tokens.test.ts`; research/artifact.md:43-48; `packages/mod/vendor/claude-code.d.ts:1712-1719` and :13455; `packages/mod/src/register.tsx:495-569`; `crates/planroom/src/app/share.rs:199-231`; `crates/planroom/src/server/routes.rs:51-53`; WCAG 2.2 success criteria 1.4.3, 1.4.6 and 1.4.11; G. Sharma, W. Wu and E. Dalal, "The CIEDE2000 color-difference formula" (2005); G. Machado, M. Oliveira and L. Fernandes, "A physiologically-based model for simulation of color vision deficiency" (2009).
+
 ## DR-123: A lens's yarn is pack data, the canvas's stream opens from the oldest seq it read, and the first look runs on the real engine
 
-- **Status:** accepted (decided at the merge of M1's map view, 2026-10-30).
+- **Status:** accepted (decided at the merge of M1's map view, 2026-10-30). Amended by DR-122.
 - **Starting point:** extends DR-46, DR-66, DR-82, DR-111 and DR-114; amends DR-82 and DR-121. Builds on DR-89, which says what a raise is.
 - **Origin:** the merge of M1's map view, read against the docs at the merge.
 - **Context:**
@@ -4442,6 +4586,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Known gaps: the canvas's lens switcher stays muted with no entries until the shell's lens picker; the mod's mini-map draws no yarn and `/room`'s count rows keep raw IDs (DR-121's gaps); `viewKey` and `structureHash` in `packages/ui/src/map.ts` are unused and disagree with the engine's layout key; a pin on a structure with no cached layout can overlap a computed block, since ELK doesn't know pins (`packages/canvas/src/layout/graph.ts`).
   - Tests: `crates/kernel/src/lens.rs::a_lens_puts_its_yarn_on_the_view_and_no_lens_puts_none`; `crates/planroom/tests/lens.rs::each_lens_map_carries_its_own_yarn_and_lens_all_carries_none`; `crates/planroom/tests/packs.rs::a_lens_keeps_its_yarn_in_every_pack_set`; `packages/ui/src/tokens.test.ts::every_yarn_has_a_token`; `packages/ui/src/map.test.ts`'s "block counts read one or many from the ladder, top level first"; `packages/canvas/src/transport/local.test.ts`'s "the stream opens from the oldest seq the loaded views were read at"; `tests/e2e/src/surface.spec.ts::a_commit_before_the_stream_opens_still_reaches_the_page`; `tests/e2e/src/first-look.spec.ts::{the_first_look_draws_every_block_in_its_tone_with_its_kind, every_lifted_edge_draws_in_the_lens_yarn_with_its_count, a_blocks_counts_drop_whole_levels_from_the_bottom, a_pinned_block_keeps_its_place_over_the_stored_layout, the_phone_draws_the_same_blocks_and_edges}`.
   - Users: a person sees which lens is shown by the color of its edges, reads a block's counts as words, and sees a commit made while the page loads.
+- **Amended by DR-122:** the yarn tokens are also held apart, each pair at CIEDE2000 15 or more in every theme, beside the 3:1 mark bar. `--yarn-plum` moves from `#7d2f8f` to `#79177b` in light and from `#e09cf0` to `#e478fc` in dark to clear it.
 - **Sources (checked 2026-10-30):** `crates/contract/src/{view, pack, vocab}.rs`; `crates/kernel/src/lens.rs`; `crates/planroom/src/packs/{mod, state}.rs`; `packs/code/pack.toml`; `packages/ui/src/{tokens, map}.ts`; `packages/canvas/src/{styles.css, views/map-view.tsx, views/block-node.tsx, views/outline.tsx, transport/local.ts}`; `packages/mod/src/{engine, tools.test}.ts`; `budgets.json`; `tests/golden/cli/{map-container, map-graph, map-empty}.json`; `tests/e2e/src/{first-look, surface, standin}.spec.ts`; [Local server and live stream](architecture.md#local-server-and-live-stream); [Design language](design-language.md).
 
 ## DR-124: The user-level ledger records every answered Claude call, refusing before the call, and `gc` prunes after a scan, before its reply
@@ -4484,3 +4629,25 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `crates/planroom/src/app/models.rs::{a_replayed_call_is_recorded_in_the_ledger_at_no_cost, a_newer_ledger_refuses_the_call_before_it_is_sent, a_live_call_is_refused_before_the_ledger_opens}`; `crates/store/tests/ledger.rs::{an_older_engine_reads_a_newer_ledger, a_raised_min_reader_version_refuses_a_ledger_already_open, a_ledger_migration_keeps_a_copy, an_existing_data_root_keeps_its_mode}`; `crates/store/tests/lease.rs::an_expired_lease_is_taken_over_and_fences_its_old_holder`; `crates/store/src/gc.rs::{one_run_prunes_at_most_two_per_repo, model_cache_rows_of_unpinned_models_go}`; `crates/planroom/tests/gc.rs::gc_keeps_what_a_reader_may_need`; `crates/planroom/tests/docs.rs::every_crate_test_file_is_in_the_test_inventory`. One existing test changed: `crates/models/tests/replay.rs::a_recorded_call_replays_with_no_network` now checks that the live reply isn't marked replayed and compares the recorded answers with `Reply { replayed: true, .. }`.
   - Users: a person's ledger shows every Claude call Planroom answered, at no cost when replayed, and an older engine never makes a call a newer ledger refuses.
 - **Sources (checked 2026-10-30):** `crates/store/src/{ledger, lease, gc, migrate}.rs`; `crates/store/ledger/0001_init.sql`; `crates/planroom/src/app/{models, intent, gc}.rs`; `crates/planroom/src/{cli.rs, server/routes.rs}`; `crates/models/src/claude.rs`; `crates/planroom/tests/docs.rs`; [Duties](architecture.md#duties); [Spend guards](architecture.md#spend-guards); [Contracts](contracts.md#store-schema-and-migrations).
+
+## DR-125: The boundary scan's exception for the theme preference, ratified after DR-124
+
+- **Status:** accepted (decided at the merge of M1's themes, 2026-10-30).
+- **Starting point:** extends DR-79 (a branch never writes the lock; its merge commit ratifies) and DR-81 (every later lock change adds its record in the same commit). Ratifies the `boundaries.toml` change DR-122 decides, as DR-82 ratified the mod's dependency names, and changes no rule of DR-122.
+- **Origin:** the merge of M1's themes, where `cargo xtask gen --layout-lock DR-122` refused.
+- **Context:**
+  - DR-122's number was reserved while the themes were built, before DR-123 and DR-124 merged. DR-124's merge wrote `layout.lock` naming DR-124.
+  - `gen --layout-lock DR-n` refuses unless DR-n is newer than every record the lock already names ([Repo layout](repo-layout.md#decision-record-gate)), so it refused DR-122: "DR-122 isn't newer than DR-124, which layout.lock already names; ratify with a new record".
+  - The change itself is DR-122's: one `level_words` exception in `boundaries.toml` (DR-122's Layout consequence).
+- **Decision:**
+  - `layout.lock` ratifies the `boundaries.toml` change that DR-122 decides, by naming DR-125. The exception's one home stays DR-122's Layout consequence.
+  - A record whose number was reserved before later records merged ratifies its gated change through the next free number, because the lock names records in increasing order. It keeps its own number as the home of what it decides.
+- **Alternatives rejected:**
+  - Renumbering DR-122 to DR-125: it leaves a permanent gap at 122 and rewrites every reference to it.
+  - Weakening the lock's ordering check, to accept any record that exists: the order is what lets a state check, on any checkout, tell a stale ratification from a fresh one.
+- **Consequences:**
+  - Gated: `boundaries.toml`, recorded with `cargo xtask gen --layout-lock DR-125` in the themes' merge commit.
+  - Contracts: none. `schema_version` stays.
+  - Docs: DR-122's Layout consequence names DR-125 as the ratifying record.
+  - Users: none.
+- **Sources (checked 2026-10-30):** `crates/xtask/src/layout.rs` (the lock's order check); [Repo layout](repo-layout.md#decision-record-gate); DR-122's Layout consequence.

@@ -181,3 +181,35 @@ fn a_stub_leaves_out_a_nested_generated_directory() {
         "{inner}"
     );
 }
+
+/// S13's row in traceability.md names, file and function, every test the feature list's theme
+/// entry (C19) lists, so a theme test can't be tracked in one home and missing from the other.
+#[test]
+fn s13s_row_names_every_test_the_theme_entry_lists() {
+    let list: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(repo().join("feature_list.json")).unwrap()).unwrap();
+    let entry = list["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == "C19")
+        .expect("feature_list.json has C19");
+    let tests: Vec<&str> = entry["tests"].as_array().unwrap().iter().map(|t| t.as_str().unwrap()).collect();
+    assert!(tests.len() >= 2, "C19 lists {} tests", tests.len());
+    let traceability = fs::read_to_string(repo().join("docs/contributing/traceability.md")).unwrap();
+    let row = traceability.lines().find(|l| l.starts_with("| S13 ")).expect("traceability.md has S13's row");
+    let cells: Vec<&str> = row.split(" | ").collect();
+    let tests_cell = cells[3];
+    let untraced: Vec<&str> = tests
+        .iter()
+        .copied()
+        .filter(|test| {
+            let (file, function) = test.rsplit_once("::").unwrap();
+            let named = tests_cell.contains(&format!("`{test}`"))
+                || (tests_cell.contains(&format!("`{file}::"))
+                    && tests_cell.contains(&format!("`{function}`")));
+            !named
+        })
+        .collect();
+    assert!(untraced.is_empty(), "S13's row doesn't name {untraced:?}");
+}

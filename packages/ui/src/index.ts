@@ -49,3 +49,23 @@ export {
   type ColorToken,
   type Theme,
 } from "./tokens";
+export {
+  deltaE2000,
+  deltaE2000Lab,
+  labOf,
+  simulateVision,
+  type Deficiency,
+  type Lab,
+  type Vision,
+} from "./distinct";
+export {
+  DISTINCT_GROUPS,
+  THEME_PREFERENCES,
+  THEME_STORAGE_KEY,
+  parsePreference,
+  resolveTheme,
+  themeAttribute,
+  themeScript,
+  type DistinctGroup,
+  type ThemePreference,
+} from "./theme";

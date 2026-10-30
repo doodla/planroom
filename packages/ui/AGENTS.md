@@ -19,4 +19,4 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 
 ## Layout
 
-- `src/`: the design tokens, view-model rows, hotkeys and row keys, truncation and the display-sanitizing pass, each with its vitest file, and `index.ts`, the package's one export.
+- `src/`: the design tokens, the theme preference and pre-paint script, the colour-difference math, view-model rows, hotkeys and row keys, truncation and the display-sanitizing pass, each with its vitest file, and `index.ts`, the package's one export.

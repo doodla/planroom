@@ -1,7 +1,8 @@
 /**
  * The top row (design-language.md, "Layout" and "Touch"): the breadcrumb of stacked lids with
- * search inside the current lid (Levels), the yarn-color lens switcher (Lenses) and the project
- * shelf (Intent). On the phone it holds at most four targets and never wraps.
+ * search inside the current lid (Levels), the yarn-color lens switcher (Lenses), whose sheet also
+ * holds the theme choice on the local canvas, and the project shelf (Intent). On the phone it holds
+ * at most four targets and never wraps.
  */
 
 import { blocksOf, matchBlocks, sanitize } from "@planroom/ui";
@@ -9,10 +10,12 @@ import { useMemo, useRef, useState } from "react";
 
 import { crumbsAt, type LevelCrumb } from "../levels";
 import { STRINGS } from "../strings";
+import { useThemeChoice } from "../theme";
 import { PHONE, useCanvas, useMedia } from "../use-canvas";
 import { CloseIcon, SearchIcon, YarnIcon } from "./icons";
 import { useTopName } from "./next-action";
 import { Picker } from "./picker";
+import { ThemeChoice } from "./theme-choice";
 
 /** The last part of an ID, `plan:checkout:retries` reads `retries`. */
 function idKey(id: string): string {
@@ -154,8 +157,9 @@ function Breadcrumb() {
 }
 
 /**
- * Until packs bring more lenses and `intent new` makes projects (M1), neither picker has anything
- * to pick, so each shows the lens or the project it holds without opening a sheet.
+ * The lens switcher's sheet holds the theme choice on the local canvas, so it is a button there
+ * even with one lens, which the sheet shows flat above the choice. The shelf still shows what it
+ * holds, without opening a sheet, until `intent new` makes projects (M1).
  */
 export function TopRow() {
   const map = useCanvas((s) => s.map);
@@ -163,6 +167,7 @@ export function TopRow() {
   const phone = useMedia(PHONE);
   const lens = map?.lens ?? pane?.focus.lens ?? "";
   const project = pane?.focus.project ?? null;
+  const theme = useThemeChoice();
   return (
     <header className="top-row">
       <Breadcrumb />
@@ -171,6 +176,7 @@ export function TopRow() {
         label={STRINGS.lenses}
         className="lens-switcher"
         entries={[{ key: lens, label: sanitize(lens), current: true }]}
+        extra={theme === null ? undefined : <ThemeChoice />}
       >
         <YarnIcon />
         <span className={phone ? "visually-hidden" : "picker-label"}>

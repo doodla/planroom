@@ -2434,6 +2434,71 @@
       ],
       "due": {},
       "decision": "DR-42, DR-45, DR-46"
+    },
+    {
+      "id": "C19",
+      "title": "Themes follow the viewer",
+      "tier": "C",
+      "status": "failing",
+      "requirements": [
+        "R13",
+        "R14"
+      ],
+      "ci_path": {
+        "fixture": "cargo xtask fixture $OUT: the plain fixture",
+        "steps": [
+          "vitest: the preference reads back and anything unknown is system; the pre-paint script; tone fills, states and lens yarn distinct at their bars in every theme, under normal vision and three simulated deficiencies; the sheet focuses its own entries before the theme choice",
+          "Playwright: system, a pin, a reload before first paint and a second tab on the local canvas; the phone's theme radios at 44 px",
+          "Playwright: the Artifact page follows the host's data-theme and the system scheme, loads no theme script and offers no choice"
+        ],
+        "compare": [],
+        "stand_ins": []
+      },
+      "evidence_path": {
+        "dir": "docs/screenshots/",
+        "steps": [
+          "cargo xtask e2e --screens writes every view in each theme"
+        ]
+      },
+      "tests": [
+        "packages/ui/src/theme.test.ts::a_stored_choice_reads_back_and_anything_else_is_system",
+        "packages/ui/src/theme.test.ts::system_follows_the_scheme_and_a_pin_wins",
+        "packages/ui/src/theme.test.ts::the_attribute_is_the_pin_or_nothing",
+        "packages/ui/src/theme.test.ts::the_pre_paint_script_sets_a_stored_pin_and_survives_blocked_storage",
+        "packages/ui/src/theme.test.ts::tones_stay_distinct_in_every_theme",
+        "packages/ui/src/theme.test.ts::states_stay_distinct_in_every_theme",
+        "packages/ui/src/theme.test.ts::lens_yarn_stays_distinct_in_every_theme",
+        "packages/ui/src/theme.test.ts::every_distinct_group_holds_two_tokens_or_more",
+        "packages/ui/src/distinct.test.ts::delta_e_2000_matches_the_published_pairs",
+        "packages/ui/src/distinct.test.ts::simulated_vision_keeps_greys_and_pulls_red_and_green_together",
+        "packages/canvas/src/theme.test.ts::a_stored_pin_applies_at_start_and_system_leaves_the_root_bare",
+        "packages/canvas/src/theme.test.ts::choosing_a_theme_stores_it_and_sets_the_root",
+        "packages/canvas/src/theme.test.ts::choosing_system_clears_the_root_and_the_store",
+        "packages/canvas/src/theme.test.ts::a_choice_in_another_tab_applies_here",
+        "packages/canvas/src/theme.test.ts::with_storage_blocked_a_choice_holds_for_this_page",
+        "packages/canvas/src/shell/picker.test.ts::the_sheet_focuses_its_own_current_entry_before_the_extra",
+        "crates/planroom/src/app/share.rs::the_theme_script_is_neither_in_the_fragment_nor_published",
+        "tests/e2e/src/theme.spec.ts::the_canvas_follows_the_system_theme_by_default",
+        "tests/e2e/src/theme.spec.ts::a_pin_wins_over_the_system_and_applies_before_first_paint",
+        "tests/e2e/src/theme.spec.ts::a_choice_in_one_tab_reaches_another",
+        "tests/e2e/src/theme.spec.ts::the_theme_choice_is_three_44px_radios_on_the_phone",
+        "tests/e2e/src/theme.spec.ts::the_artifact_follows_the_viewers_theme_and_offers_no_choice",
+        "tests/e2e/src/surface.spec.ts::the_lens_switcher_and_the_project_shelf_offer_only_what_works",
+        "tests/e2e/src/surface.spec.ts::the_lens_switcher_and_the_project_shelf_offer_only_what_works_on_the_phone",
+        "packages/ui/src/tokens.test.ts::contrast_twins_meet_the_raised_bar",
+        "packages/ui/src/theme.test.ts::the_css_picks_the_contrast_twin_only_under_more_contrast",
+        "tests/e2e/src/theme.spec.ts::more_contrast_picks_the_twin_of_the_scheme_in_force",
+        "tests/e2e/src/theme.spec.ts::forced_colors_keep_every_block_labelled_and_bordered",
+        "packages/mod/src/paint.test.ts::the_mod_paints_only_with_host_theme_keys"
+      ],
+      "due": {
+        "packages/ui/src/tokens.test.ts::contrast_twins_meet_the_raised_bar": "M5",
+        "packages/ui/src/theme.test.ts::the_css_picks_the_contrast_twin_only_under_more_contrast": "M5",
+        "tests/e2e/src/theme.spec.ts::more_contrast_picks_the_twin_of_the_scheme_in_force": "M5",
+        "tests/e2e/src/theme.spec.ts::forced_colors_keep_every_block_labelled_and_bordered": "M5",
+        "packages/mod/src/paint.test.ts::the_mod_paints_only_with_host_theme_keys": "M5"
+      },
+      "decision": "DR-122"
     }
   ]
 }

@@ -8,6 +8,7 @@ import {
   test as base,
   expect,
   type BrowserContext,
+  type Locator,
   type Page,
   type Request,
 } from "@playwright/test";
@@ -101,4 +102,40 @@ export { expect };
 export async function openMap(page: Page, url: string): Promise<void> {
   await page.goto(url);
   await page.locator(".map[data-ready]").waitFor();
+}
+
+/**
+ * How much of `target` a press reaches, in CSS px: `document.elementFromPoint` sampled once a
+ * pixel across its middle row, then down the middle of what that row hit. A neighbour that paints
+ * over part of a target takes those hits, which its bounding box never shows.
+ */
+export async function hitSize(
+  target: Locator,
+): Promise<{ width: number; height: number }> {
+  return target.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const owns = (x: number, y: number) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit !== null && el.contains(hit);
+    };
+    // Whole pixels: Chromium rounds a fractional point before it hit-tests.
+    const y = Math.round(r.top + r.height / 2);
+    const xs: number[] = [];
+    for (let x = Math.ceil(r.left); x < r.right; x++) {
+      if (owns(x, y)) {
+        xs.push(x);
+      }
+    }
+    if (xs.length === 0) {
+      return { width: 0, height: 0 };
+    }
+    const x = xs[Math.floor(xs.length / 2)]!;
+    let height = 0;
+    for (let yy = Math.ceil(r.top); yy < r.bottom; yy++) {
+      if (owns(x, yy)) {
+        height++;
+      }
+    }
+    return { width: xs.length, height };
+  });
 }

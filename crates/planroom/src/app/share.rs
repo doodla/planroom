@@ -36,6 +36,9 @@ pub const PAGE: &str = "page.html";
 pub const LIVE_HEAD_FILE: &str = "db/live-head.json";
 /// Where the published snapshot's `seq` is kept.
 pub const SNAPSHOT_SEQ_META: &str = "share_snapshot_seq";
+/// The canvas's pre-paint theme script: the Artifact page leaves it out, so claude.ai's own
+/// `data-theme` is the only theme there [DR-122].
+const THEME_SCRIPT: &str = "assets/theme.js";
 
 pub fn run(req: &ShareReq, cwd: &Path) -> Result<Reply<ShareResult>, AppError> {
     let root = workspace::find_root(cwd).ok_or_else(|| AppError::workspace_not_found(cwd))?;
@@ -82,7 +85,7 @@ pub fn run(req: &ShareReq, cwd: &Path) -> Result<Reply<ShareResult>, AppError> {
         Ok(())
     };
     put(PAGE, page.as_bytes(), false, true)?;
-    for (rel, body) in canvas::files().filter(|(rel, _)| *rel != "index.html") {
+    for (rel, body) in canvas::files().filter(|(rel, _)| published(rel)) {
         put(rel, body, true, false)?;
     }
     put(SNAPSHOT_PATH, &bytes, true, true)?;
@@ -193,9 +196,15 @@ pub fn capabilities() -> serde_json::Value {
     })
 }
 
+/// Whether a canvas build file goes into the publish: the page itself is rewritten into a fragment,
+/// and the theme script stays out.
+fn published(rel: &str) -> bool {
+    rel != "index.html" && rel != THEME_SCRIPT
+}
+
 /// The Vite page as an Artifact page fragment: the platform wraps the page in its own document,
 /// so the fragment keeps only the title, the stylesheets, the root marked for the artifact
-/// transport and the module script, all by relative path [artifact §5].
+/// transport and the module script, never the theme script, all by relative path [artifact §5].
 fn fragment(index: &str) -> Result<String, AppError> {
     let tags = |open: &str, close: &str| -> Vec<String> {
         let mut found = Vec::new();
@@ -211,7 +220,8 @@ fn fragment(index: &str) -> Result<String, AppError> {
     let mut links = tags("<link ", ">");
     // The design tokens first, so the felt paints before the app's own stylesheet loads.
     links.sort_by_key(|l| !l.contains("tokens.css"));
-    let scripts = tags("<script ", "</script>");
+    let scripts: Vec<String> =
+        tags("<script ", "</script>").into_iter().filter(|s| !s.contains(THEME_SCRIPT)).collect();
     if scripts.is_empty() {
         return Err(AppError::internal("the canvas build's index.html has no module script"));
     }
@@ -274,5 +284,21 @@ mod tests {
              <script type=\"module\" crossorigin src=\"./assets/index.js\"></script>\n"
         );
         assert!(!page.contains("<!doctype") && !page.contains("<html") && !page.contains("<body"));
+    }
+
+    #[test]
+    fn the_theme_script_is_neither_in_the_fragment_nor_published() {
+        let index = r#"<!doctype html>
+<html lang="en"><head><script src="./assets/theme.js"></script><meta charset="utf-8" /><title>Planroom</title>
+<script type="module" crossorigin src="./assets/index.js"></script>
+<link rel="stylesheet" href="./assets/tokens.css">
+</head><body><div id="root"></div></body></html>"#;
+        let page = fragment(index).unwrap();
+        assert!(!page.contains("theme.js"));
+        assert!(page.ends_with("<script type=\"module\" crossorigin src=\"./assets/index.js\"></script>\n"));
+        assert!(!published("assets/theme.js"));
+        assert!(!published("index.html"));
+        assert!(published("assets/index.js"));
+        assert!(published("assets/tokens.css"));
     }
 }

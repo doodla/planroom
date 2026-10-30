@@ -3,21 +3,29 @@
 // names stable, so the same files serve from 127.0.0.1 and from an Artifact's sub-path.
 import { URL, fileURLToPath } from "node:url";
 
-import { tokensCss } from "@planroom/ui";
+import { themeScript, tokensCss } from "@planroom/ui";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const TOKENS = "assets/tokens.css";
+const THEME_SCRIPT = "assets/theme.js";
 
 /**
  * The design tokens from @planroom/ui as their own stylesheet, linked first in the page's head, so
- * the felt paints before any script runs and the CSP needs no inline style for it.
+ * the felt paints before any script runs and the CSP needs no inline style for it. The pre-paint
+ * theme script goes first in the head, so a stored pin applies before the felt paints; it is a file
+ * of its own because the local CSP's `script-src 'self'` allows no inline script.
  */
 function tokens() {
   return {
     name: "planroom-tokens",
     transformIndexHtml() {
       return [
+        {
+          tag: "script",
+          attrs: { src: `./${THEME_SCRIPT}` },
+          injectTo: "head-prepend",
+        },
         {
           tag: "link",
           attrs: { rel: "stylesheet", href: `./${TOKENS}` },
@@ -30,9 +38,18 @@ function tokens() {
         res.setHeader("Content-Type", "text/css");
         res.end(tokensCss());
       });
+      server.middlewares.use(`/${THEME_SCRIPT}`, (_req, res) => {
+        res.setHeader("Content-Type", "text/javascript");
+        res.end(themeScript());
+      });
     },
     generateBundle() {
       this.emitFile({ type: "asset", fileName: TOKENS, source: tokensCss() });
+      this.emitFile({
+        type: "asset",
+        fileName: THEME_SCRIPT,
+        source: themeScript(),
+      });
     },
   };
 }

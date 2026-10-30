@@ -19,7 +19,7 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 
 ## Layout
 
-- `index.html`, `vite.config.js`: the Vite app; `cargo xtask gen --canvas` builds it into `target/canvas/` with relative paths and stable file names, and the config links the tokens from `@planroom/ui` as `assets/tokens.css`.
+- `index.html`, `vite.config.js`: the Vite app; `cargo xtask gen --canvas` builds it into `target/canvas/` with relative paths and stable file names, and the config links the tokens from `@planroom/ui` as `assets/tokens.css` and the pre-paint theme script as `assets/theme.js`, which `share` leaves out of the Artifact page.
 - `src/transport/`: the `Transport` interface, the local transport (login code, bearer token, the stream read through `fetch`) and its SSE parser, and the artifact transport (`./data/snapshot.json`, the `db` document `live/head`, read request rows to `inbox/{self}` and their `answers/{docId}`), which `main.tsx` picks when `share`'s page marks the root `data-transport="artifact"`.
 - `src/layout/`: the `MapView` to ELK mapping and ELK in its Web Worker.
 - `src/views/`: `MapView` and its blocks, the screen-reader outline, empty states, and the Artifact's request state for a view the snapshot doesn't hold.

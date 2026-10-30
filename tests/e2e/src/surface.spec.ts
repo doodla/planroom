@@ -16,6 +16,7 @@ import {
   DESKTOP,
   PHONE,
   expect,
+  hitSize,
   openMap,
   settled,
   test,
@@ -60,42 +61,6 @@ function countWords(view: MapView, node: MapNode): string[] {
 }
 
 /**
- * How much of `target` a press reaches, in CSS px: `document.elementFromPoint` sampled once a
- * pixel across its middle row, then down the middle of what that row hit. A neighbour that paints
- * over part of a target takes those hits, which its bounding box never shows (ux-b).
- */
-async function hitSize(
-  target: Locator,
-): Promise<{ width: number; height: number }> {
-  return target.evaluate((el) => {
-    const r = el.getBoundingClientRect();
-    const owns = (x: number, y: number) => {
-      const hit = document.elementFromPoint(x, y);
-      return hit !== null && el.contains(hit);
-    };
-    // Whole pixels: Chromium rounds a fractional point before it hit-tests.
-    const y = Math.round(r.top + r.height / 2);
-    const xs: number[] = [];
-    for (let x = Math.ceil(r.left); x < r.right; x++) {
-      if (owns(x, y)) {
-        xs.push(x);
-      }
-    }
-    if (xs.length === 0) {
-      return { width: 0, height: 0 };
-    }
-    const x = xs[Math.floor(xs.length / 2)]!;
-    let height = 0;
-    for (let yy = Math.ceil(r.top); yy < r.bottom; yy++) {
-      if (owns(x, yy)) {
-        height++;
-      }
-    }
-    return { width: xs.length, height };
-  });
-}
-
-/**
  * The phone's top row (design-language.md, "Touch"): four targets at most, the part of each a
  * press reaches at least 44 px both ways, every visible target's box too, and no overflow.
  */
@@ -130,28 +95,40 @@ async function topRowHolds(page: Page): Promise<void> {
 }
 
 /**
- * The map shows the default lens and the fixture has no project, and until the lens picker lands
- * neither picker has anything to pick: each shows what it holds, isn't a button, and a press opens
- * no sheet.
+ * The map shows the default lens and the fixture has no project. On the local canvas the lens
+ * switcher is a button whose sheet holds the theme choice, and while there is one lens the sheet
+ * shows it flat, with no lens button to press. The shelf has nothing to pick: it shows what it
+ * holds, isn't a button, and a press opens no sheet.
  */
 async function offersOnlyWhatWorks(page: Page, phone: boolean) {
   const lens = page.locator(".top-row [data-concept=lenses]");
   const shelf = page.locator(".top-row [data-concept=intent]");
+  const press = (control: Locator) => (phone ? control.tap() : control.click());
   await expect(lens.locator(".yarn")).toBeVisible();
   // The lens's name; on the phone it's for a screen reader, beside the swatch.
   await expect(lens).toContainText("runtime");
   await expect(shelf).toContainText("No project");
-  await expect(lens.getByRole("button")).toHaveCount(0);
+  await expect(lens.getByRole("button", { name: "Lenses" })).toHaveCount(1);
   await expect(shelf.getByRole("button")).toHaveCount(0);
-  for (const control of [lens, shelf]) {
-    if (phone) {
-      await control.tap();
-    } else {
-      await control.click();
-    }
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(page.locator(".picker-sheet")).toHaveCount(0);
-  }
+
+  await press(lens.getByRole("button", { name: "Lenses" }));
+  const sheet = page.locator(".picker-sheet");
+  await expect(sheet).toBeVisible();
+  const theme = sheet.getByRole("radiogroup", { name: "Theme" });
+  await expect(theme).toBeVisible();
+  await expect(theme.getByRole("radio")).toHaveCount(3);
+  const entry = sheet.locator(".picker-entry");
+  await expect(entry).toHaveCount(1);
+  await expect(entry).toContainText("runtime");
+  await expect(entry).toHaveAttribute("aria-current", "true");
+  await expect(sheet.locator("button.picker-entry")).toHaveCount(0);
+  await expect(sheet.locator("button:not([role=radio])")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+
+  await press(shelf);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator(".picker-sheet")).toHaveCount(0);
 }
 
 test.describe("at 1440x900", () => {

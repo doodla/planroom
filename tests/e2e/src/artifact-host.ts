@@ -102,10 +102,14 @@ export function shareFixture(): SharedWorkspace {
   };
 }
 
-/** The platform's skeleton around the page fragment [artifact §1]. */
-function skeleton(fragment: string): string {
+/**
+ * The platform's skeleton around the page fragment [artifact §1]. With `theme`, the root carries
+ * `data-theme`, as claude.ai marks it for a viewer who picked a theme.
+ */
+function skeleton(fragment: string, theme?: "light" | "dark"): string {
+  const attribute = theme === undefined ? "" : ` data-theme="${theme}"`;
   return (
-    '<!doctype html><html><head><meta charset="utf-8">' +
+    `<!doctype html><html${attribute}><head><meta charset="utf-8">` +
     '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
     "<style>:root{color-scheme:light}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>" +
     `</head><body>${fragment}</body></html>`
@@ -120,11 +124,18 @@ export interface ArtifactHostServer {
   close(): Promise<void>;
 }
 
-/** Serve `share`'s publish: the page at `/`, each published file at its own path. */
+/**
+ * Serve `share`'s publish: the page at `/`, each published file at its own path. `options.theme`
+ * is the theme the viewer picked on the platform, which the skeleton's root carries.
+ */
 export async function hostArtifact(
   share: ShareResult,
+  options: { theme?: "light" | "dark" } = {},
 ): Promise<ArtifactHostServer> {
-  const page = skeleton(readFileSync(share.publish.file_path, "utf8"));
+  const page = skeleton(
+    readFileSync(share.publish.file_path, "utf8"),
+    options.theme,
+  );
   const files = share.publish.files;
   const requested: string[] = [];
   const server: Server = createServer((req, res) => {

@@ -20,10 +20,11 @@ Everything else lives inside those five, so nothing adds a sixth [DR-77]:
 - **Ask Claude** is a choice on a block's evidence sheet, under Levels, or on a card, under Decisions.
 - **Signing in** has no control. A tab that needs a fresh link shows a full-page empty state with its one next action.
 - **Pickers** in the pane are cards dealt face up, and each belongs to the idea it picks from: lenses to Lenses, projects and stages to Intent, hand-offs to Diffs, and the remote actions, which act on cards and edits, to Decisions.
+- **Theme** is a group on the lens switcher's sheet, under Lenses, on the local canvas only ([Themes](#themes)) [DR-122].
 
 ## Palette
 
-Colors are CSS variables in `packages/ui`, with a designed dark mode, not an inverted one. The table is felt, not paper: never a cream or off-white background. Panels stay in the felt family too, because the bottom sheet at half height covers half a phone screen.
+Colors are CSS variables in `packages/ui`, with a [designed dark mode, not an inverted one](#themes). The table is felt, not paper: never a cream or off-white background. Panels stay in the felt family too, because the bottom sheet at half height covers half a phone screen.
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
@@ -37,7 +38,7 @@ Colors are CSS variables in `packages/ui`, with a designed dark mode, not an inv
 | `--block-store` | `#f2b632` sunflower | `#f5c95c` | Datastores and queues |
 | `--block-infra` | `#6b8f71` sage | `#8fb596` | Tooling and observability |
 | `--block-service-border`, `--block-library-border`, `--block-store-border`, `--block-infra-border` | `#bc2f14`, `#1f43a8`, `#835c08`, `#4f6953` | `#ffa48e`, `#aabdff`, `#f8dc96`, `#b4cfb8` | Block borders: a darker shade in light mode and a lighter one in dark mode, at least 4.5:1 on the felt [DR-77] |
-| `--yarn-teal`, `--yarn-indigo`, `--yarn-ochre`, `--yarn-plum`, `--yarn-berry`, `--yarn-copper` | `#0b6b70`, `#4b3fb8`, `#7a5200`, `#7d2f8f`, `#b0175f`, `#a3360f` | `#5fd6d6`, `#b0a8ff`, `#f0b860`, `#e09cf0`, `#ff8fc0`, `#ff9d6e` | Lens yarn: the lifted edges of the lens shown, solid; `--lens all` draws in `--muted` |
+| `--yarn-teal`, `--yarn-indigo`, `--yarn-ochre`, `--yarn-plum`, `--yarn-berry`, `--yarn-copper` | `#0b6b70`, `#4b3fb8`, `#7a5200`, `#79177b`, `#b0175f`, `#a3360f` | `#5fd6d6`, `#b0a8ff`, `#f0b860`, `#e478fc`, `#ff8fc0`, `#ff9d6e` | Lens yarn: the lifted edges of the lens shown, solid; `--lens all` draws in `--muted` |
 | `--pass`, `--fail`, `--wait` | `#1a6b43`, `#b3261e`, `#6b5c0c` | `#5fd39a`, `#ff8a80`, `#e6cf6a` | Semantic states and diff tape, separate from block colors |
 
 Block colors encode a kind's `tone`, which its pack declares as `service`, `library`, `store` or `infra`, one per block token above. A kind with no tone draws as `--card` with its label. Surfaces read the tone from the view model and never switch on a kind ID [DR-46]. Block colors are never the only signal: each block also carries its kind as a label or icon. Tape isn't told by color alone either: added tape carries `+`, removed tape `−` and changed tape `~`.
@@ -45,6 +46,31 @@ Block colors encode a kind's `tone`, which its pack declares as `service`, `libr
 A lens names its yarn in its pack, surfaces read it from `MapView.yarn`, and each yarn is held to the 3:1 mark bar below [DR-82, DR-123].
 
 Every token meets a contrast bar against `--table` and `--card` in both themes: 4.5:1 for text, and 3:1 for marks such as chalk outlines, tape and edges. A block's fill leans on its border and its label, so the border is the mark that counts. The bar checks the border tokens for blocks, since the fills alone measure as low as 1.39:1 on the light felt. `packages/ui/src/tokens.test.ts::contrast_meets_the_bar` checks every pair [DR-77]. White chalk on the light felt measured 1.24:1, which is why light mode draws dark chalk.
+
+Contrast says a mark can be read. It doesn't say two marks can be told apart, so each group of tokens that tells things apart by color is also held to a distance, in every theme. The distance is CIEDE2000, and the three deficiencies are simulated with the Machado, Oliveira and Fernandes (2009) matrices at severity 1.0.
+
+| Group | Pairs | Normal vision | Each of protan, deutan, tritan |
+|---|---|---|---|
+| Tone fills | each pair, and each fill against `--card` (a block with no tone) | ≥ 20 | ≥ 10 |
+| States (`--pass`, `--fail`, `--wait`) | each pair | ≥ 20 | none: tape carries `+`, `−` and `~` |
+| Lens yarn | each pair | ≥ 15 | none: one lens shows at a time, named in the switcher |
+
+`packages/ui/src/theme.test.ts::tones_stay_distinct_in_every_theme`, `states_stay_distinct_in_every_theme` and `lens_yarn_stays_distinct_in_every_theme` check the bars, and `every_distinct_group_holds_two_tokens_or_more` keeps a group from passing on an empty set. A value that misses a bar changes; the bar doesn't. `--yarn-plum` moved for this reason, since it sat too near indigo [DR-122].
+
+## Themes
+
+A theme is a complete palette: a value for every color token, plus the `color-scheme` it declares. Type, shape and motion never vary by theme. The built-in themes are `light` and `dark`.
+
+You pick a preference: `system`, `light` or `dark`. `system` is the default and follows `prefers-color-scheme`. You pick on the lens switcher's sheet, where the theme choice is three radios.
+
+| Surface | Who picks | How it follows |
+|---|---|---|
+| Local canvas | You, on the lens switcher's sheet | Kept in this browser for this address, applied before the first paint, and every open tab follows |
+| Artifact page | You, in claude.ai's theme setting | The page follows claude.ai's `data-theme` and never offers a choice |
+| The mod | You, in Claude Code's `/config` theme | The mod paints only with the host's theme keys [DR-122] |
+| The CLI | Nothing to pick | Its text carries no color, and clap's usage errors follow `NO_COLOR` |
+
+The engine never knows the preference: it has no config key and no variable, and nothing in the store or the snapshot holds it [DR-122].
 
 ## Type
 
@@ -84,14 +110,16 @@ The top row never wraps or shrinks a target. On the phone it holds four targets 
 
 - the current level's lid, with search inside it;
 - a `⋯` lid that opens the ancestors as a list, shown below the top level;
-- the lens switcher as one swatch of the current lens, which opens a sheet of the lenses;
+- the lens switcher as one swatch of the current lens, which opens a sheet of the lenses and, on the local canvas, the theme choice;
 - the project shelf as one chip, which opens a sheet of the projects.
 
 The swatch and the chip open a sheet only once there is something to pick. A picker with nothing to pick, such as a switcher with one lens or a shelf with no project to change to, isn't a button. It shows what it holds, flat on the felt. A project shelf with nothing to pick is a dashed chalk outline, whether or not it holds a project. Until M1 brings more lenses and `intent new`, both show what they hold [DR-86].
 
+The exception is the swatch on the local canvas. Its sheet holds the theme choice, so it always opens. With one lens, the sheet shows that lens flat above the choice. On the Artifact the rule stands as written, and the shelf's rule doesn't change [DR-86, DR-122].
+
 The current lid stacks over the last 10 px of the lid before it. So each ancestor lid, the `⋯` lid among them, is that much wider than a target, and the part a press reaches stays at least 44 px [DR-86].
 
-`tests/e2e/surface.spec.ts::the_top_row_holds_four_targets_at_most_every_target_is_44px_and_nothing_overflows` checks the row at the top and one level down. It measures what a press reaches with `elementFromPoint`, since a box can't show what a neighbor paints over. `the_lens_switcher_and_the_project_shelf_offer_only_what_works` and `the_lens_switcher_and_the_project_shelf_offer_only_what_works_on_the_phone` check the pickers at both sizes. `tests/e2e/quality.spec.ts::top_row_fits_at_the_deepest_level`, planned for M1, will check the row at code level with several projects and every lens.
+`tests/e2e/surface.spec.ts::the_top_row_holds_four_targets_at_most_every_target_is_44px_and_nothing_overflows` checks the row at the top and one level down. It measures what a press reaches with `elementFromPoint`, since a box can't show what a neighbor paints over. `the_lens_switcher_and_the_project_shelf_offer_only_what_works` and `the_lens_switcher_and_the_project_shelf_offer_only_what_works_on_the_phone` check the pickers at both sizes. `tests/e2e/theme.spec.ts::the_theme_choice_is_three_44px_radios_on_the_phone` measures the theme radios the same way. `tests/e2e/quality.spec.ts::top_row_fits_at_the_deepest_level`, planned for M1, will check the row at code level with several projects and every lens.
 
 | Gesture | Does |
 |---|---|
@@ -126,6 +154,8 @@ The canvas follows the pane's model, so a person who never touches a pointer can
 - Tab reaches the top-level controls in order, and every control shows a visible focus ring.
 - On the map, the arrow keys move the selection between sibling blocks, Enter dives into the selected block, and Escape goes up a level.
 - The selected block's action tray takes the focus with one Tab, and Enter or Space presses its buttons.
+- A picker's sheet takes the focus when it opens: on the picker's current entry, or, when the sheet has no entry to press, on the theme choice's checked radio. Escape or a pick closes the sheet and gives the focus back to the picker.
+- In the theme group on the lens switcher's sheet, the arrow keys move between System, Light and Dark without picking, since a pick closes the sheet. Enter or Space picks one.
 - A visually hidden outline of the `MapView` rows, from `@planroom/ui`, has `role="tree"`, so a screen reader announces each block with its kind, level and lifted edges.
 
 `tests/e2e/quality.spec.ts::keyboard_reaches_every_block_and_action` drives the map with keys alone, and `axe_finds_no_serious_violation` runs `@axe-core/playwright` on every view.

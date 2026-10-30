@@ -16,8 +16,8 @@ sha256 = "c2aa46b2b39e72105c61f9427a43a7750efaea1e71b036a5dd17106b182f4ff2"
 record = "DR-124"
 
 ["boundaries.toml"]
-sha256 = "6829c75a69ad4e073c2f5eadca79cc40441e43c19a504cdc1ec3f7e97fe54ce7"
-record = "DR-111"
+sha256 = "cd8bee9ac74ca5caf0f366f60d0f43fbedb297303b4c4d296c90f214e77c0026"
+record = "DR-125"
 
 ["crate dependencies"]
 sha256 = "ba9f235626be545b2cb4de4730f86fbb48a028c771336ee0cfaa9faff31ef115"

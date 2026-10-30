@@ -69,6 +69,7 @@ level_words = [
   { file = "packages/canvas/src/transport/local.ts", word = "code" },        # the login link's `code` parameter
   { file = "packages/mod/src/room.ts", word = "code" },                      # /room's code row
   { file = "packages/mod/src/register.tsx", word = "code" },                 # /room's code row
+  { file = "packages/ui/src/theme.ts", word = "system" },                    # the theme preference that follows prefers-color-scheme [DR-122]
 ]
 test_tooling = { files = ["**/*.test.ts", "**/*.test.tsx", "packages/canvas/vite.config.js", "tests/e2e/playwright.config.ts"],
                  third_party = ["vitest", "vite", "@vitejs/plugin-react"] }

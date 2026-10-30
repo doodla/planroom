@@ -372,4 +372,16 @@ mod tests {
             "CatalogueLeaf.tool lists its own names"
         );
     }
+
+    /// The mod paints with the host's theme, never runs the colour checks that hold each theme's
+    /// tones, states and yarn apart, so the bundle carries none of their module-scope work. The
+    /// committed bundle is the fresh one: `cargo xtask check` fails on a stale generated file.
+    #[test]
+    fn the_mod_bundle_carries_none_of_the_colour_checks() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let bundle = fs::read_to_string(root.join(BUNDLE)).unwrap();
+        for unused in ["DISTINCT_GROUPS", "// ../ui/src/distinct.ts"] {
+            assert!(!bundle.contains(unused), "the mod bundle carries {unused}");
+        }
+    }
 }
