@@ -202,7 +202,8 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     let Some(mut store) = store else {
         let view = map::not_scanned_view(&ws.root, vocabulary)?;
         let summary = summary(&write, &map::count_words(&ladder, counted.as_str(), 0), 0);
-        return Ok(Reply { result: ScanResult { map: view, next: next() }, seq: 0, warnings, text: summary });
+        let result = ScanResult { map: view, next: next(), workspace_id: None };
+        return Ok(Reply { result, seq: 0, warnings, text: summary });
     };
     // A scan that read the config's list records the set it extracted with, inside its own
     // transaction, unless a concurrent `pack add` or `pack remove` moved the record since it read
@@ -318,6 +319,7 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     // map never holds an event past the reply's `meta.seq`.
     let snapshot = store.snapshot()?;
     let seq = snapshot.seq();
+    let workspace_id = snapshot.meta("workspace_id")?;
     let mut view = map::top_in(&snapshot, &ws.root, None, vocabulary)?;
     let counted_blocks = map::top_in(&snapshot, &ws.root, Some(counted.clone()), vocabulary)?.nodes.len();
     let units = map::count_words(&ladder, counted.as_str(), counted_blocks as u64);
@@ -328,7 +330,7 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     let cut = map::fit_beside(&mut view, budget, None, &warnings, &about, &ladder);
     warnings.extend(cut);
     let summary = summary(&write, &units, recorded);
-    Ok(Reply { result: ScanResult { map: view, next: next() }, seq, warnings, text: summary })
+    Ok(Reply { result: ScanResult { map: view, next: next(), workspace_id }, seq, warnings, text: summary })
 }
 
 /// Whether the workspace's store holds a project, a person's or a ghost: what makes a workspace
@@ -351,8 +353,9 @@ fn plan_only(ws: &Workspace, warnings: Vec<Warning>) -> Result<Reply<ScanResult>
     let set = state::for_snapshot(&snapshot, &ws.root)?;
     let view = map::top_in(&snapshot, &ws.root, None, set.vocabulary())?;
     let next = view.empty.as_ref().map_or_else(next, |e| e.next.clone());
+    let workspace_id = snapshot.meta("workspace_id")?;
     Ok(Reply {
-        result: ScanResult { map: view, next },
+        result: ScanResult { map: view, next, workspace_id },
         seq: snapshot.seq(),
         warnings,
         text: text::get("scan.plan_only", &[]),

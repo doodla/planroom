@@ -60,8 +60,9 @@ pub struct State {
     /// The control token in this server's record under the data root, which registers login codes
     /// and drains it.
     pub control_token: String,
-    /// The connection for the layout cache, which isn't an event and makes no frame: none until
-    /// a scan makes the store, when the first layout opens it.
+    /// The connection for the layout cache, which isn't an event and makes no frame, and for the
+    /// session reply's workspace ID: none until a scan makes the store, when the first layout or
+    /// sign-in opens it.
     pub store: Mutex<Option<Store>>,
     /// Every frame the live loop sends, for each stream client.
     pub frames: broadcast::Sender<StreamFrame>,
@@ -311,17 +312,32 @@ async fn session(Shared(state): Shared_, headers: HeaderMap, body: Bytes) -> Res
     let exchanged = state.auth.lock().expect("the auth lock is never poisoned").exchange(&req.code);
     match exchanged {
         Ok(token) => {
-            let mut page = state.login_page.lock().expect("the page lock is never poisoned");
-            if page.as_ref().is_some_and(|(code, _)| *code == auth::code_digest(&req.code))
-                && let Some((_, page)) = page.take()
             {
-                let _ = std::fs::remove_file(page);
+                let mut page = state.login_page.lock().expect("the page lock is never poisoned");
+                if page.as_ref().is_some_and(|(code, _)| *code == auth::code_digest(&req.code))
+                    && let Some((_, page)) = page.take()
+                {
+                    let _ = std::fs::remove_file(page);
+                }
             }
-            drop(page);
+            // The ID comes through the server's own store connection, on the blocking pool and
+            // under the request limit, as the layout route reads it. A store that won't open, or
+            // a read past the limit, leaves the ID out; the token is still issued.
+            let shared = state.clone();
+            let workspace_id = within(REQUEST_LIMIT, move || {
+                let mut store = shared.store.lock().expect("the store lock is never poisoned");
+                if store.is_none() {
+                    *store = Store::open_existing(&shared.store_path).ok().flatten();
+                }
+                store.as_ref().and_then(|s| s.meta("workspace_id").ok().flatten())
+            })
+            .await
+            .ok()
+            .flatten();
             let text = text::get("serve.session", &[]);
             reply(
                 "serve",
-                Ok(Reply { result: SessionToken { token }, seq: 0, warnings: vec![], text }),
+                Ok(Reply { result: SessionToken { token, workspace_id }, seq: 0, warnings: vec![], text }),
                 started,
             )
         }

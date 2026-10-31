@@ -21,9 +21,10 @@ Read first, from [Repo layout](../../docs/contributing/repo-layout.md#read-first
 
 - `index.html`, `vite.config.js`: the Vite app; `cargo xtask gen --canvas` builds it into `target/canvas/` with relative paths and stable file names, and the config links the tokens from `@planroom/ui` as `assets/tokens.css` and the pre-paint theme script as `assets/theme.js`, which `share` leaves out of the Artifact page.
 - `src/transport/`: the `Transport` interface, the local transport (login code, bearer token, the stream read through `fetch`) and its SSE parser, and the artifact transport (`./data/snapshot.json`, the `db` document `live/head`, read request rows to `inbox/{self}` and their `answers/{docId}`), which `main.tsx` picks when `share`'s page marks the root `data-transport="artifact"`.
+- `src/edits/`: hand edits: the tab's client ID, pending edits per workspace in `localStorage`, the flush that sends them with their original idempotency keys and tab IDs (DR-8, DR-73), the gesture-to-`edit` builders and the "Your edits" list.
 - `src/layout/`: the `MapView` to ELK mapping and ELK in its Web Worker.
 - `src/views/`: `MapView` and its blocks, the screen-reader outline, empty states, which next actions the canvas runs, and the Artifact's request state for a view the snapshot doesn't hold.
-- `src/shell/`: the five concepts around the map: the top row (breadcrumb and search, lenses, projects), the zoom rail, the card stack, the diff tray, the phone's bottom sheet, the evidence sheet an edge opens, and the notices that show what the engine said in place.
+- `src/shell/`: the five concepts around the map: the top row (breadcrumb and search, lenses, projects), the zoom rail, the card stack, the diff tray, the action tray, the phone's bottom sheet, the evidence sheet an edge opens, and the notices that show what the engine said in place.
 - `src/assets/`: the Iris empty-state art from `docs/art/`, cropped and converted to WebP.
 
 The canvas's own lines are `CANVAS_STRINGS` from `@planroom/contract`, generated from the `[canvas]` table of `crates/planroom/text/en.toml`; fill a template with `fill` from `@planroom/ui` and pass the result through `sanitize`.

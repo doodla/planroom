@@ -34,6 +34,10 @@ export interface Sent {
   origin: string | undefined;
   /** It got its response, or failed; until then its headers may not be known yet. */
   done: boolean;
+  /** The request body as sent, when it had one. */
+  body: string | null;
+  /** The request's headers, lower-cased, once known. */
+  headers: Record<string, string>;
 }
 
 /** Every request `context`'s pages send from now on, in order. */
@@ -46,6 +50,8 @@ export function record(context: BrowserContext): Sent[] {
       path: new URL(r.url()).pathname,
       origin: undefined,
       done: false,
+      body: r.postData(),
+      headers: {},
     };
     entries.set(r, entry);
     sent.push(entry);
@@ -53,6 +59,7 @@ export function record(context: BrowserContext): Sent[] {
       .allHeaders()
       .then((h) => {
         entry.origin = h.origin;
+        entry.headers = h;
       })
       .catch(() => undefined);
   });
@@ -319,4 +326,91 @@ export async function goToLevel(
       .getByRole("button", { name: label, exact: true })
       .click();
   }
+}
+
+/** One `edit` request the browser sent: its JSON body and its `Idempotency-Key` header. */
+export interface EditSent {
+  body: Record<string, unknown> & {
+    op: string;
+    client?: string;
+    idem?: string;
+    base?: number;
+  };
+  idemKey: string | undefined;
+}
+
+/** The `edit` requests `sent` saw so far, oldest first. */
+export function editBodies(sent: Sent[]): EditSent[] {
+  return sent
+    .filter((r) => r.method === "POST" && r.path === "/api/v1/edit")
+    .map((r) => ({
+      body: JSON.parse(r.body ?? "{}") as EditSent["body"],
+      idemKey: r.headers["idempotency-key"],
+    }));
+}
+
+/**
+ * Select the block `id` and wait for its action tray: a click on the desktop, where the tray sits
+ * under the block, and a long press on the phone, where it opens the bottom sheet to half.
+ */
+export async function openTray(
+  page: Page,
+  id: string,
+  phone: boolean,
+): Promise<Locator> {
+  const block = page.locator(`.react-flow__node[data-id="${id}"]`);
+  if (phone) {
+    await longPress(page, block);
+  } else {
+    await block.click();
+  }
+  const tray = page.getByRole("toolbar", { name: CANVAS_STRINGS.tray });
+  await tray.waitFor();
+  return tray;
+}
+
+/**
+ * A long press with one finger: a touch pointer goes down on the middle of `target`, stays there
+ * past the canvas's 500 ms, and lifts.
+ */
+export async function longPress(page: Page, target: Locator): Promise<void> {
+  const box = (await target.boundingBox())!;
+  const at = {
+    pointerType: "touch",
+    isPrimary: true,
+    clientX: box.x + box.width / 2,
+    clientY: box.y + box.height / 2,
+    bubbles: true,
+  };
+  await target.dispatchEvent("pointerdown", at);
+  await page.waitForTimeout(650);
+  await target.dispatchEvent("pointerup", at);
+}
+
+/**
+ * Drag with the mouse from the middle of `from` to `to` in ten moves. `hold` runs before the
+ * button comes up, for a check on what the drag shows while it lasts.
+ */
+export async function dragTo(
+  page: Page,
+  from: Locator,
+  to: { x: number; y: number },
+  hold?: () => Promise<void>,
+): Promise<void> {
+  const box = (await from.boundingBox())!;
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 10 });
+  await hold?.();
+  await page.mouse.up();
+}
+
+/** The middle of `target` on the page. */
+export async function centreOf(
+  target: Locator,
+): Promise<{ x: number; y: number }> {
+  const box = (await target.boundingBox())!;
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }

@@ -26,6 +26,9 @@ import {
 /** Where the tab keeps its bearer token. */
 export const TOKEN_KEY = "planroom.token";
 
+/** Where the tab keeps the workspace the session reply named, beside its token. */
+export const WORKSPACE_KEY = "planroom.workspace";
+
 /** The browser pieces the transport uses, passed in so tests can stand them in. */
 export interface LocalEnv {
   readonly fetch: typeof fetch;
@@ -75,6 +78,7 @@ export function localTransport(env: LocalEnv): Transport {
     try {
       if (token === null) {
         env.storage?.removeItem(TOKEN_KEY);
+        env.storage?.removeItem(WORKSPACE_KEY);
       } else {
         env.storage?.setItem(TOKEN_KEY, token);
       }
@@ -82,7 +86,27 @@ export function localTransport(env: LocalEnv): Transport {
       // Storage blocked: the token lives as long as this page.
     }
   };
+  const readWorkspace = (): string | null => {
+    try {
+      return env.storage?.getItem(WORKSPACE_KEY) ?? null;
+    } catch {
+      return null;
+    }
+  };
+  const keepWorkspace = (id: string | null) => {
+    try {
+      if (id === null) {
+        env.storage?.removeItem(WORKSPACE_KEY);
+      } else {
+        env.storage?.setItem(WORKSPACE_KEY, id);
+      }
+    } catch {
+      // Storage blocked: the workspace lives as long as this page.
+    }
+  };
   let token = read();
+  // The workspace the session reply named: it keys this tab's pending edits (DR-73).
+  let workspaceId = token === null ? null : readWorkspace();
   // The code this page already exchanged. `env.href` is read once, so its fragment keeps naming
   // the spent code; a second `login` (Retry after the engine stopped answering) must not send it.
   let exchanged: string | null = null;
@@ -97,6 +121,7 @@ export function localTransport(env: LocalEnv): Transport {
     method: string,
     path: string,
     body?: unknown,
+    extra: Record<string, string> = {},
   ): Promise<Response> {
     if (token === null) {
       throw new TransportError("needs_login", "no token");
@@ -108,6 +133,7 @@ export function localTransport(env: LocalEnv): Transport {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
+          ...extra,
         },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
@@ -116,14 +142,24 @@ export function localTransport(env: LocalEnv): Transport {
     }
     if (response.status === 401) {
       token = null;
+      workspaceId = null;
       keep(null);
       throw new TransportError("needs_login", "the token was refused");
     }
     return response;
   }
 
-  async function call(name: string, body: unknown): Promise<Envelope> {
-    const response = await send("POST", name.split(" ").join("/"), body);
+  async function call(
+    name: string,
+    body: unknown,
+    headers: Record<string, string> = {},
+  ): Promise<Envelope> {
+    const response = await send(
+      "POST",
+      name.split(" ").join("/"),
+      body,
+      headers,
+    );
     let envelope: Envelope;
     try {
       envelope = (await response.json()) as Envelope;
@@ -139,17 +175,20 @@ export function localTransport(env: LocalEnv): Transport {
     return envelope;
   }
 
-  async function command<T>(name: string, body: unknown): Promise<T> {
-    return (await call(name, body)).result as T;
-  }
-
   const replyOf = <T>(envelope: Envelope): Reply<T> => ({
     result: envelope.result as T,
     warnings: envelope.meta?.warnings ?? [],
     next: envelope.meta?.next ?? null,
+    seq: envelope.meta.seq,
+    replayed: envelope.meta?.replayed ?? false,
+    summary: envelope.summary ?? null,
   });
 
-  const capabilities: Capabilities = { views: "all", layoutWriteBack: true };
+  const capabilities: Capabilities = {
+    views: "all",
+    layoutWriteBack: true,
+    edits: true,
+  };
 
   return {
     capabilities,
@@ -177,17 +216,23 @@ export function localTransport(env: LocalEnv): Transport {
       exchanged = code;
       if (!response.ok) {
         token = null;
+        workspaceId = null;
         keep(null);
         return false;
       }
       // The reply is the envelope every route answers with, its result the token.
       const reply = (await response.json()) as Envelope;
-      const issued: unknown = (reply.result as SessionToken | undefined)?.token;
+      const session = reply.result as SessionToken | undefined;
+      const issued: unknown = session?.token;
       if (typeof issued !== "string") {
         return false;
       }
       token = issued;
       keep(token);
+      // The workspace has no ID until it has a store; then the tab has no pending edits to keep.
+      workspaceId =
+        typeof session?.workspace_id === "string" ? session.workspace_id : null;
+      keepWorkspace(workspaceId);
       return true;
     },
 
@@ -199,9 +244,24 @@ export function localTransport(env: LocalEnv): Transport {
       }
       return replyOf(envelope);
     },
-    write: (name, request) => command(name, request),
-    run: async (handle: Handle) =>
-      replyOf(await call(handle.command, requestOf(handle))),
+    write: async (name, request, { idem }) =>
+      replyOf(
+        await call(name, { ...request, idem }, { "Idempotency-Key": idem }),
+      ),
+    workspace: () => workspaceId,
+    async run(handle: Handle) {
+      const envelope = await call(handle.command, requestOf(handle));
+      // A scan that made the store names its workspace, so a tab that signed in before the first
+      // scan offers hand edits without a new sign-in (DR-73).
+      const named: unknown = (
+        envelope.result as { workspace_id?: unknown } | null
+      )?.workspace_id;
+      if (typeof named === "string" && named !== workspaceId) {
+        workspaceId = named;
+        keepWorkspace(workspaceId);
+      }
+      return replyOf(envelope);
+    },
 
     async saveLayout(layout: LayoutPut) {
       const response = await send("PUT", "layout", layout);
@@ -237,6 +297,7 @@ export function localTransport(env: LocalEnv): Transport {
             });
             if (response.status === 401) {
               token = null;
+              workspaceId = null;
               keep(null);
               throw new TransportError("needs_login", "the token was refused");
             }

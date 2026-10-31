@@ -128,24 +128,24 @@ The current lid stacks over the last 10 px of the lid before it. So each ancesto
 | Tap a block | selects and focuses it: the ego view of its neighbors |
 | Double tap a block, or on the desktop press the open lid the breadcrumb shows for the selected block | dives one level into the block, with the lid-lift motion |
 | Tap the `⋯` lid, then a level in its list | goes to that level, the top-level map included |
-| Long press a block or an edge | opens the bottom sheet with its evidence and the action tray (see [Edit by hand](#edit-by-hand)) |
+| Long press a block | opens the action tray in the bottom sheet (see [Edit by hand](#edit-by-hand)); a tap on an edge opens its evidence |
 | Tap a card's choice | picks it, in one tap |
 
 `tests/e2e/quality.spec.ts::gestures_follow_the_gesture_table` drives each row at 390×844 with touch emulation.
 
 ## Edit by hand
 
-You shape the map with your hands, the way you'd move blocks on a table. Each edit runs one catalogue `edit` leaf and shows as pending until the engine confirms it, with an Undo that runs `edit undo`.
+You shape the map with your hands, the way you'd move blocks on a table. Each edit runs one catalogue `edit` leaf and shows as pending until the engine confirms it. "Your edits" lists the tab's edits, each confirmed one with an Undo that runs `edit undo`: in the diff drawer on the desktop and in the half sheet on the phone, and the newest row also in the drawer's head and the phone's peek, so Undo is one press.
 
 | You do | On the desktop | On the phone | Runs |
 |---|---|---|---|
-| Rename, group with, hide or pin a block | the selected block's action tray, under the block | the action tray in the long-press sheet | `edit rename`, `edit group`, `edit hide`, `edit pin` |
-| Move a block into another | drop it on the other block's lid | the tray's Move into, with the target picked from a list | `edit move` |
-| Pin a block's position | drag it and drop it on empty felt | the tray's Pin, at its current place | `edit pin` |
-| Make an intended relation | draw chalk: drag from the selected block's chalk handle to another block, with a dashed chalk line following the pointer | the tray's Relate to, with the target picked from a list | `edit relate --layer intended` |
-| Forbid a relation | the relation's popover offers Forbid | the same popover, from a tap on the relation | `edit forbid` |
+| Rename, group with, hide or pin a block | the selected block's action tray, under the block, with Move into and Relate to beside them so the keyboard reaches every edit | the action tray in the long-press sheet | `edit rename`, `edit group`, `edit hide`, `edit pin` |
+| Move a block into another | drop it inside the other block, which raises its lid, or press the tray's Move into and pick the target from a list | the tray's Move into, with the target picked from a list | `edit move` |
+| Pin a block's position | drag it and drop it on empty felt | the tray's Pin here, at its current place | `edit pin` |
+| Make an intended relation | draw chalk: drag from the selected block's chalk handle to another block, with a dashed chalk line following the pointer, then pick the relation among the kinds the view draws | the tray's Relate to, with the target picked from a list and then the relation | `edit relate` |
+| Forbid a relation | the evidence sheet an edge opens offers Forbid, one for each kind between its two blocks | the same sheet, from a tap on the edge | `edit forbid` |
 
-On the phone a one-finger drag always pans, so nothing moves a block by dragging there. The action tray belongs to Levels and the relation popover to Intent, so neither adds a top-level concept.
+On the phone a one-finger drag always pans, so nothing moves a block by dragging there. The action tray and Forbid belong to Levels and "Your edits" to Diffs, so none adds a top-level concept.
 
 ## Keyboard and screen readers
 
@@ -153,7 +153,7 @@ The canvas follows the pane's model, so a person who never touches a pointer can
 
 - Tab reaches the top-level controls in order, and every control shows a visible focus ring.
 - On the map, the arrow keys move the selection between sibling blocks, Enter dives into the selected block, and Escape goes up a level.
-- The selected block's action tray takes the focus with one Tab, and Enter or Space presses its buttons.
+- The selected block's action tray takes the focus with one Tab from the block, and Enter or Space presses its buttons.
 - A picker's sheet takes the focus when it opens: on the picker's current entry, or, when the sheet has no entry to press, on the theme choice's checked radio. Escape or a pick closes the sheet and gives the focus back to the picker.
 - In the theme group on the lens switcher's sheet, the arrow keys move between System, Light and Dark without picking, since a pick closes the sheet. Enter or Space picks one.
 - A visually hidden outline of the `MapView` rows, from `@planroom/ui`, has `role="tree"`, so a screen reader announces each block with its kind, level and lifted edges.

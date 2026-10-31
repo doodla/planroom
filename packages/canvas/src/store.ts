@@ -33,6 +33,18 @@ import {
   type ElkGraphOut,
 } from "./layout/graph";
 import { isLensItem } from "./lens-switcher";
+import { browserEditsEnv, type EditsEnv } from "./edits/env";
+import { flush } from "./edits/flush";
+import {
+  editRequest,
+  pendingLine,
+  editUndo,
+  undoLine,
+  undoRequest,
+  type Gesture,
+} from "./edits/ops";
+import { pendingStore, type PendingEdit } from "./edits/pending";
+import { tabId } from "./edits/tab";
 import { atTop, diveOf, mapRequest, topOf, viewOf } from "./levels";
 import { noticesOf, type Notice } from "./notices";
 import { canRun } from "./transport/request";
@@ -73,6 +85,20 @@ export interface Evidence {
   readonly warnings: readonly Warning[];
 }
 
+/** One of this tab's edits as "Your edits" lists it. */
+export interface EditEntry {
+  readonly idem: string;
+  /** The line shown: the unsent edit's, then the engine's summary or the conflict's message. */
+  readonly line: string;
+  readonly state: "sending" | "done" | "conflict";
+  /** What undoes the edit once the engine has written it. */
+  readonly undo: Handle | null;
+  readonly at: number;
+}
+
+/** How many of this tab's edits "Your edits" keeps. */
+const EDIT_ROWS = 10;
+
 export interface CanvasState {
   phase: Phase;
   /** The engine's message when it couldn't answer, if it sent one. */
@@ -80,6 +106,16 @@ export interface CanvasState {
   /** The command that clears `problem`, when the engine named one; sanitized. */
   hint: string | null;
   map: MapView | null;
+  /** The `seq` the drawn map was read at: the `base` of an edit made on it (DR-8). */
+  mapSeq: number | null;
+  /** The workspace the tab is signed in to; null before a store exists. */
+  workspaceId: string | null;
+  /** The workspace's unsent edits, oldest first. */
+  pending: readonly PendingEdit[];
+  /** This tab's edits, newest first. */
+  edits: readonly EditEntry[];
+  /** Whether the action tray is open on the selected block. */
+  trayOpen: boolean;
   pane: PaneModel | null;
   positions: Record<NodeId, Position>;
   /** Whether this load computed the layout (no stored positions), for the e2e checks. */
@@ -113,6 +149,15 @@ export interface CanvasState {
   start: () => Promise<void>;
   refresh: () => Promise<void>;
   select: (id: NodeId | null) => void;
+  /** Whether a hand edit may be made now: the transport writes, a store exists and a map is drawn. */
+  canEdit: () => boolean;
+  /** Make one hand edit: keep it pending, then send it (DR-8). */
+  edit: (gesture: Gesture) => Promise<void>;
+  /** Undo a landed edit of this tab, as a new edit. */
+  undo: (entry: EditEntry) => Promise<void>;
+  /** Select a block and open the action tray on it. */
+  openTray: (id: NodeId) => void;
+  closeTray: () => void;
   /** Select a block and bring it into view. */
   reveal: (id: NodeId) => void;
   search: (query: string) => void;
@@ -163,6 +208,7 @@ interface Asked {
 export function createCanvasStore(
   transport: Transport,
   layout: (graph: ElkGraphIn) => Promise<ElkGraphOut>,
+  edits: EditsEnv = browserEditsEnv(),
 ): CanvasStore {
   let unsubscribe: (() => void) | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -175,8 +221,12 @@ export function createCanvasStore(
   let shown: Asked = { level: null, lens: null, trail: [] };
   /** The parts of `notices`, in the engine's order: error, press, view. */
   let errorNotice: Notice | null = null;
+  /** The notice a held edit set, and that edit: it leaves when the edit is no longer pending. */
+  let heldNotice: { idem: string; notice: Notice } | null = null;
   let pressWarnings: readonly Warning[] = [];
   let viewWarnings: readonly Warning[] = [];
+  /** The tail of the tab's flushes: a flush starts only after the one before it ended. */
+  let flushing: Promise<void> = Promise.resolve();
 
   return createStore<CanvasState>()((set, get) => {
     const derived = () => noticesOf(errorNotice, pressWarnings, viewWarnings);
@@ -358,14 +408,17 @@ export function createCanvasStore(
       }
       shown = asked;
       // The view's own warnings are `map`'s and then `focus`'s, replaced on each load. A
-      // refresh the stream started leaves the error on screen until a person's press clears it.
+      // refresh the stream started leaves the error on screen until a person's press clears it,
+      // or, for a held edit's notice, until that edit lands or is dropped.
       viewWarnings = [...mapReply.warnings, ...(paneReply?.warnings ?? [])];
       if (!keepError) {
         errorNotice = null;
       }
       const selected = get().selected;
+      const kept = selected !== null && positions[selected] ? selected : null;
       set({
         map,
+        mapSeq: mapReply.seq,
         pane: paneReply?.result ?? null,
         positions,
         laidOut,
@@ -375,7 +428,8 @@ export function createCanvasStore(
         request: null,
         note,
         notices: derived(),
-        selected: selected !== null && positions[selected] ? selected : null,
+        selected: kept,
+        trayOpen: kept === null ? false : get().trayOpen,
       });
       void loadChoices(!beforeAScan(map.empty));
     }
@@ -412,18 +466,115 @@ export function createCanvasStore(
 
     /** Ask for a view: set it, drop the selection and load. */
     const show = (view: Partial<Asked>) => {
-      set({ ...view, selected: null });
+      set({ ...view, selected: null, trayOpen: false });
       return get().refresh();
     };
 
     const topId = (): Level | null =>
       topOf(get().map?.levels ?? [])?.id ?? null;
 
+    /** The pending store of `workspace`, which is the signed-in one unless `start` names it first. */
+    const store = (
+      workspace: string | null = get().workspaceId,
+    ): ReturnType<typeof pendingStore> | null => {
+      return workspace === null ? null : pendingStore(edits.local, workspace);
+    };
+
+    const setRow = (idem: string, row: Partial<EditEntry>) =>
+      set({
+        edits: get().edits.map((e) => (e.idem === idem ? { ...e, ...row } : e)),
+      });
+
+    /** One flush of the workspace's pending edits, and what it did to this tab's rows. */
+    const flushOnce = async (): Promise<void> => {
+      const pending = store();
+      if (pending === null) {
+        return;
+      }
+      const done = await flush(transport, pending);
+      for (const o of done.outcomes) {
+        const row = get().edits.find((e) => e.idem === o.idem);
+        if (o.state === "landed") {
+          if (row !== undefined) {
+            setRow(o.idem, {
+              state: "done",
+              line: sanitize(o.summary ?? row.line),
+              undo: editUndo(o.result.undo),
+            });
+          }
+        } else if (o.state === "conflict") {
+          setRow(o.idem, { state: "conflict", line: sanitize(o.message) });
+        } else if (o.state === "held") {
+          // The edit stays pending and its row sending; the next flush sends it again.
+          errorNotice = { line: o.message, hint: o.hint };
+          heldNotice = { idem: o.idem, notice: errorNotice };
+          set({ notices: derived() });
+        } else {
+          set({ edits: get().edits.filter((e) => e.idem !== o.idem) });
+          errorNotice = { line: o.message, hint: o.hint };
+          set({ notices: derived() });
+        }
+      }
+      set({ pending: pending.list() });
+      // A held edit's notice belongs to that edit: once it landed or was dropped, the notice goes,
+      // unless something else has put its own notice in its place since.
+      if (
+        heldNotice !== null &&
+        !pending.list().some((e) => e.idem === heldNotice?.idem)
+      ) {
+        if (errorNotice === heldNotice.notice) {
+          errorNotice = null;
+          set({ notices: derived() });
+        }
+        heldNotice = null;
+      }
+      if (done.stopped?.kind === "needs_login") {
+        fail(done.stopped);
+      } else if (done.outcomes.some((o) => o.state !== "held")) {
+        await load(true);
+      }
+    };
+
+    /** Flush, after any flush already running in this tab; an error never blocks the next one. */
+    const runFlush = (): Promise<void> => {
+      const next = flushing.then(flushOnce, flushOnce);
+      flushing = next.catch(() => undefined);
+      return next;
+    };
+
+    /** Keep an edit pending, list it as sending and flush. */
+    const send = async (
+      request: PendingEdit["request"],
+      line: string,
+    ): Promise<void> => {
+      const pending = store();
+      if (pending === null) {
+        return;
+      }
+      const client = tabId(edits.session);
+      const idem = edits.uuid();
+      const at = edits.now();
+      pending.add({ idem, client, request: { ...request, client }, line, at });
+      set({
+        pending: pending.list(),
+        edits: [
+          { idem, line, state: "sending" as const, undo: null, at },
+          ...get().edits,
+        ].slice(0, EDIT_ROWS),
+      });
+      await runFlush();
+    };
+
     return {
       phase: "starting",
       problem: null,
       hint: null,
       map: null,
+      mapSeq: null,
+      workspaceId: null,
+      pending: [],
+      edits: [],
+      trayOpen: false,
       pane: null,
       positions: {},
       laidOut: false,
@@ -446,6 +597,12 @@ export function createCanvasStore(
             set({ phase: "needs_login" });
             return;
           }
+          const workspaceId = transport.workspace();
+          set({ workspaceId, pending: store(workspaceId)?.list() ?? [] });
+          // Edits a closed tab or a stopped engine left are sent before the first view is read.
+          if (get().pending.length > 0) {
+            await runFlush();
+          }
           lastFetch = Date.now();
           await load();
           unsubscribe ??= transport.subscribe(
@@ -454,6 +611,11 @@ export function createCanvasStore(
               // ping or who else is here says nothing about it.
               if (frame.type === "event" || frame.type === "reset") {
                 scheduleRefresh();
+              }
+              // Each connection opens with a ping and one comes every 15 s: a reconnect, or an
+              // edit the engine couldn't be reached for, flushes here.
+              if (frame.type === "ping" && get().pending.length > 0) {
+                runFlush().catch(() => undefined);
               }
             },
             (e) => fail(e),
@@ -466,7 +628,43 @@ export function createCanvasStore(
         await load();
       },
       select(id) {
-        set({ selected: id });
+        set({
+          selected: id,
+          trayOpen: id !== null && id === get().selected && get().trayOpen,
+        });
+      },
+      canEdit() {
+        const { workspaceId, map } = get();
+        return (
+          transport.capabilities.edits &&
+          workspaceId !== null &&
+          map?.layout != null &&
+          map.empty == null
+        );
+      },
+      async edit(gesture) {
+        const { map, mapSeq } = get();
+        if (!get().canEdit() || map === null || mapSeq === null) {
+          return;
+        }
+        await send(
+          editRequest(gesture, map, mapSeq),
+          pendingLine(gesture, map),
+        );
+      },
+      async undo(entry) {
+        const row = get().edits.find((e) => e.idem === entry.idem);
+        const handle = editUndo(row?.undo ?? null);
+        if (row === undefined || row.state !== "done" || handle === null) {
+          return;
+        }
+        await send(undoRequest(handle), undoLine(row.line));
+      },
+      openTray(id) {
+        set({ selected: id, trayOpen: true });
+      },
+      closeTray() {
+        set({ trayOpen: false });
       },
       reveal(id) {
         set({ selected: id, revealed: { id } });
@@ -577,6 +775,11 @@ export function createCanvasStore(
           pressWarnings = reply.warnings;
           errorNotice = null;
           set({ notices: derived() });
+          // A press can make the store (the first scan): its workspace keys this tab's edits.
+          const workspaceId = transport.workspace();
+          if (workspaceId !== get().workspaceId) {
+            set({ workspaceId, pending: store(workspaceId)?.list() ?? [] });
+          }
         } catch (e) {
           refused(e, "press");
           return;

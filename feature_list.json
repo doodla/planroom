@@ -330,6 +330,7 @@
         "tests/e2e/src/edit.spec.ts::chalk_makes_an_intended_relation_and_forbid",
         "tests/e2e/src/edit.spec.ts::the_phone_tray_moves_and_relates",
         "tests/e2e/src/edit.spec.ts::each_hand_edit_undoes",
+        "tests/e2e/src/edit.spec.ts::the_first_scan_from_the_empty_state_offers_hand_edits",
         "crates/extract/tests/link.rs::a_wrapper_call_binds_method_and_path",
         "crates/kernel/tests/fold.rs::an_override_follows_a_git_rename",
         "crates/kernel/tests/fold.rs::a_moved_directory_carries_its_regroup",
@@ -360,11 +361,6 @@
         "crates/kernel/tests/reconcile.rs::a_sibling_branch_pauses_reconciliation": "M2",
         "crates/kernel/tests/reconcile.rs::a_rewritten_tracked_branch_restarts_the_window": "M2",
         "crates/kernel/tests/reconcile.rs::a_return_to_the_tracked_branch_resumes": "M2",
-        "tests/e2e/src/edit.spec.ts::regroup_by_a_lid_drop_and_by_the_tray": "M1",
-        "tests/e2e/src/edit.spec.ts::rename_hide_and_pin_from_the_tray": "M1",
-        "tests/e2e/src/edit.spec.ts::chalk_makes_an_intended_relation_and_forbid": "M1",
-        "tests/e2e/src/edit.spec.ts::the_phone_tray_moves_and_relates": "M1",
-        "tests/e2e/src/edit.spec.ts::each_hand_edit_undoes": "M1",
         "crates/kernel/tests/reconcile.rs::a_squash_merged_handoff_is_done": "M2",
         "crates/kernel/tests/reconcile.rs::a_rebase_merged_handoff_is_done": "M2",
         "crates/kernel/tests/reconcile.rs::an_edited_pull_request_whose_rules_hold_is_done": "M2",
@@ -686,9 +682,7 @@
         "tests/e2e/src/s08-tab.spec.ts::rendered_within_1_s": "M2",
         "packages/mod/src/refresh.test.ts::pane_within_1_s_under_s8_frames": "M2",
         "crates/planroom/tests/stream.rs::a_watch_duty_rescan_sends_a_frame": "M2",
-        "crates/planroom/tests/duties.rs::a_dead_holders_lease_is_taken_over_at_once": "M2",
-        "tests/e2e/src/surface.spec.ts::a_flush_by_another_tab_keeps_the_original_writer": "M1",
-        "tests/e2e/src/surface.spec.ts::a_flush_of_a_committed_edit_replays": "M1"
+        "crates/planroom/tests/duties.rs::a_dead_holders_lease_is_taken_over_at_once": "M2"
       }
     },
     {
@@ -2304,12 +2298,33 @@
         "tests/e2e/src/surface.spec.ts::serve_restart_keeps_pending_edits",
         "crates/planroom/tests/open.rs::open_without_a_display_offers_share",
         "crates/planroom/tests/server_auth.rs::two_workspaces_never_record_one_port",
-        "crates/planroom/tests/server_auth.rs::a_moved_workspace_keeps_its_port"
+        "crates/planroom/tests/server_auth.rs::a_moved_workspace_keeps_its_port",
+        "packages/canvas/src/edits/pending.test.ts::a_pending_edit_keeps_its_idem_and_its_tabs_client",
+        "packages/canvas/src/edits/pending.test.ts::a_tab_id_a_page_stored_is_reused_and_anything_else_is_replaced",
+        "packages/canvas/src/edits/pending.test.ts::two_stores_over_one_storage_interleave_per_call",
+        "packages/canvas/src/edits/pending.test.ts::a_stored_value_that_is_not_a_list_reads_as_empty",
+        "packages/canvas/src/edits/pending.test.ts::another_workspaces_pending_edits_are_never_sent",
+        "packages/canvas/src/edits/pending.test.ts::blocked_storage_keeps_pending_edits_for_this_page",
+        "packages/canvas/src/edits/flush.test.ts::a_replayed_flush_drops_the_edit_as_landed",
+        "packages/canvas/src/edits/flush.test.ts::a_stale_write_drops_the_edit_and_shows_the_conflict",
+        "packages/canvas/src/edits/flush.test.ts::any_other_refusal_drops_the_edit_with_its_hint",
+        "packages/canvas/src/edits/flush.test.ts::an_unreachable_engine_keeps_the_rest_in_order",
+        "packages/canvas/src/edits/flush.test.ts::an_error_that_is_not_the_engines_is_rethrown",
+        "packages/canvas/src/transport/local.test.ts::an_edit_sends_its_idem_and_its_client",
+        "packages/canvas/src/transport/local.test.ts::the_session_reply_keeps_the_workspace_id_beside_the_token",
+        "packages/canvas/src/transport/local.test.ts::a_reload_reads_the_workspace_id_from_the_tab",
+        "crates/planroom/tests/server_auth.rs::the_session_reply_names_the_workspace",
+        "packages/canvas/src/store.test.ts::edits_an_earlier_page_left_are_sent_before_the_first_view_is_read",
+        "tests/e2e/src/surface.spec.ts::a_flush_by_another_tab_keeps_the_original_writer",
+        "tests/e2e/src/surface.spec.ts::a_flush_of_a_committed_edit_replays",
+        "packages/canvas/src/edits/flush.test.ts::a_refusal_to_retry_keeps_the_edit_and_the_rest_for_the_next_flush",
+        "packages/canvas/src/store.test.ts::a_busy_store_keeps_the_edit_sending_until_the_next_flush",
+        "packages/canvas/src/store.test.ts::a_held_edits_notice_leaves_when_that_edit_lands_and_no_other_notice_does",
+        "packages/canvas/src/transport/local.test.ts::a_scan_that_makes_the_store_names_the_workspace_without_a_new_sign_in",
+        "packages/canvas/src/store.test.ts::a_scan_the_canvas_runs_offers_edits_without_a_new_sign_in",
+        "crates/planroom/tests/server_auth.rs::a_scan_that_makes_the_store_names_its_workspace"
       ],
-      "due": {
-        "tests/e2e/src/surface.spec.ts::reload_mid_edit_keeps_the_edit": "M1",
-        "tests/e2e/src/surface.spec.ts::serve_restart_keeps_pending_edits": "M1"
-      },
+      "due": {},
       "decision": "DR-29, DR-64, DR-78"
     },
     {

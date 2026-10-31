@@ -33,6 +33,15 @@ export const BIN =
 export const FIXTURE =
   process.env.PLANROOM_E2E_FIXTURE ?? join(ROOT, "target/e2e/fixture/shop");
 
+/** One event as the data root's event backup holds it: the fields a spec checks. */
+export interface ExportedEvent {
+  seq: number;
+  /** The write's idempotency key; a command's events are keyed `KEY#1`, `KEY#2` and so on. */
+  idem: string;
+  client: { surface: string; id: string };
+  [field: string]: unknown;
+}
+
 export interface Engine {
   /** `http://127.0.0.1:PORT/`, with no code. */
   readonly url: string;
@@ -45,6 +54,17 @@ export interface Engine {
    * a write needs (`intent new`); a read sets none.
    */
   cli(args: readonly string[], actor?: string): Envelope;
+  /**
+   * Every event the person-authored commits wrote through to the data root's event backup
+   * (`backups/<workspace_id>/events.ndjson`), oldest first, with the idem and client each carries.
+   */
+  exported(): ExportedEvent[];
+  /**
+   * Kill `serve` and start it again on the same workspace, environment and data root. It fails
+   * when the new server listens on another port, since a page's `localStorage` is per origin.
+   * `loginUrl()` works again after it.
+   */
+  restart(): Promise<void>;
   /** Write `files` into one of the workspace's repos and commit them there. */
   commit(repo: string, files: Record<string, string>, message: string): void;
   close(): void;
@@ -132,40 +152,50 @@ export async function startEngine(
     }
   }
 
-  const child: ChildProcess = spawn(BIN, ["serve", "--json"], {
-    cwd: root,
-    env,
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  const info = await new Promise<ServeInfo>((resolve, reject) => {
-    const lines = createInterface({ input: child.stdout! });
-    child.once("error", reject);
-    child.once("exit", (code) =>
-      reject(new Error(`planroom serve exited with ${code}`)),
-    );
-    lines.once("line", (line) => {
-      const envelope = JSON.parse(line) as Envelope;
-      if (!envelope.ok) {
-        reject(new Error(`planroom serve: ${line}`));
-        return;
-      }
-      resolve(envelope.result as ServeInfo);
+  /** Start `serve` and wait for its first stdout line, which names the port and the login page. */
+  const serve = async (): Promise<{ child: ChildProcess; info: ServeInfo }> => {
+    const child: ChildProcess = spawn(BIN, ["serve", "--json"], {
+      cwd: root,
+      env,
+      stdio: ["ignore", "pipe", "inherit"],
     });
-  });
-  const origin = `http://127.0.0.1:${info.port}`;
-  // The control token is in the server's record under the data root, never in the workspace.
-  const control = (
-    JSON.parse(
-      readFileSync(join(tmp, "data", "serve", `${info.port}.json`), "utf8"),
-    ) as {
-      control_token: string;
-    }
-  ).control_token;
-  // The first sign-in uses the code serve put in its login page; reading the page is what
-  // opening it in a browser does.
-  let firstCode: string | null =
+    const info = await new Promise<ServeInfo>((resolve, reject) => {
+      const lines = createInterface({ input: child.stdout! });
+      child.once("error", reject);
+      child.once("exit", (code) =>
+        reject(new Error(`planroom serve exited with ${code}`)),
+      );
+      lines.once("line", (line) => {
+        const envelope = JSON.parse(line) as Envelope;
+        if (!envelope.ok) {
+          reject(new Error(`planroom serve: ${line}`));
+          return;
+        }
+        resolve(envelope.result as ServeInfo);
+      });
+    });
+    return { child, info };
+  };
+  /** The control token is in the server's record under the data root, never in the workspace. */
+  const controlOf = (port: number): string =>
+    (
+      JSON.parse(
+        readFileSync(join(tmp, "data", "serve", `${port}.json`), "utf8"),
+      ) as {
+        control_token: string;
+      }
+    ).control_token;
+  /** The first sign-in uses the code serve put in its login page; reading the page is what opening it in a browser does. */
+  const codeOf = (info: ServeInfo): string | null =>
     /#code=([0-9a-f]+)/.exec(readFileSync(info.login_page, "utf8"))?.[1] ??
     null;
+
+  const started = await serve();
+  let child = started.child;
+  const port = started.info.port;
+  const origin = `http://127.0.0.1:${port}`;
+  let control = controlOf(port);
+  let firstCode = codeOf(started.info);
 
   return {
     url: `${origin}/`,
@@ -195,6 +225,36 @@ export async function startEngine(
       return `${origin}/#code=${code}`;
     },
     cli,
+    exported() {
+      const backups = join(tmp, "data", "backups");
+      if (!existsSync(backups)) {
+        return [];
+      }
+      return readdirSync(backups)
+        .map((id) => join(backups, id, "events.ndjson"))
+        .filter((file) => existsSync(file))
+        .flatMap((file) => readFileSync(file, "utf8").split("\n"))
+        .filter((line) => line.startsWith("{"))
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((line) => typeof line.idem === "string")
+        .map((line) => line as ExportedEvent)
+        .sort((a, b) => a.seq - b.seq);
+    },
+    async restart() {
+      const gone = new Promise((resolve) => child.once("exit", resolve));
+      child.kill("SIGKILL");
+      await gone;
+      const next = await serve();
+      if (next.info.port !== port) {
+        next.child.kill("SIGKILL");
+        throw new Error(
+          `planroom serve came back on port ${next.info.port}, not ${port}`,
+        );
+      }
+      child = next.child;
+      control = controlOf(port);
+      firstCode = codeOf(next.info);
+    },
     commit(repo, files, message) {
       const dir = join(root, repo);
       for (const [path, text] of Object.entries(files)) {

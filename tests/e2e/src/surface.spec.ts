@@ -25,10 +25,13 @@ import {
   conceptsOf,
   doublePress,
   drawnIds,
+  editBodies,
   expect,
   goToLevel,
+  longPress,
   lensItems,
   openMap,
+  openTray,
   pressEdge,
   tokenColor,
   settled,
@@ -236,8 +239,32 @@ async function everyControlHasAConcept(
   const evidence = page.getByRole("dialog", { name: CANVAS_STRINGS.evidence });
   await expect(evidence).toBeVisible();
   await conceptsOf(page);
+  // Its choice row holds Forbid, one per relation kind drawn between the two blocks, under Levels.
+  await expect(
+    page.getByRole("button", {
+      name: new RegExp(`^${CANVAS_STRINGS.forbid.split("{kind}")[0]}`),
+    }),
+  ).not.toHaveCount(0);
+  await conceptsOf(page);
   await page.keyboard.press("Escape");
   await expect(evidence).toHaveCount(0);
+
+  // The action tray of a selected block: under the block on the desktop, and in the half sheet
+  // that a long press opens on the phone.
+  const first = page.locator(".react-flow__node").first();
+  if (phone) {
+    await longPress(page, first);
+  } else {
+    await first.click();
+  }
+  await expect(
+    page.getByRole("toolbar", { name: CANVAS_STRINGS.tray }),
+  ).toBeVisible();
+  await conceptsOf(page);
+  await page.locator(".react-flow__pane").click({ position: { x: 4, y: 4 } });
+  await expect(
+    page.getByRole("toolbar", { name: CANVAS_STRINGS.tray }),
+  ).toHaveCount(0);
 
   if (phone) {
     await press(page.getByRole("button", { name: CANVAS_STRINGS.sheet_half }));
@@ -1671,3 +1698,162 @@ for (const viewport of [DESKTOP, PHONE]) {
     await everyEmptyStateHolds(browser, viewport === PHONE);
   });
 }
+
+// Hand edits the engine has not confirmed wait in the origin's `localStorage` and go out with the
+// idem and the tab ID they were made with, from whichever tab signs in next (DR-8, DR-73).
+test.describe("pending edits", () => {
+  const EDIT = "**/api/v1/edit";
+  const isEdit = (r: { url(): string; request(): { method(): string } }) =>
+    r.url().endsWith("/api/v1/edit") && r.request().method() === "POST";
+
+  /** The edits waiting in this page's origin, across workspaces, oldest first. */
+  const waiting = (page: Page) =>
+    page.evaluate(() =>
+      Object.entries(localStorage)
+        .filter(([key]) => key.startsWith("planroom.pending."))
+        .flatMap(
+          ([, value]) =>
+            JSON.parse(String(value)) as { idem: string; client: string }[],
+        ),
+    );
+
+  /** Rename the first top-level block through the tray; the request is whatever the page's routes do. */
+  async function rename(page: Page, engine: Engine, name: string) {
+    const block = engineMap(engine).nodes.find((n) => n.parent == null)!;
+    const tray = await openTray(page, block.id, false);
+    await tray.getByRole("button", { name: CANVAS_STRINGS.rename }).click();
+    const field = page.getByLabel(CANVAS_STRINGS.name_field);
+    await field.fill(name);
+    await field.press("Enter");
+    return block;
+  }
+
+  /** The events the engine wrote for `idem`, from its event backup. */
+  const wrote = (engine: Engine, idem: string) =>
+    engine.exported().filter((e) => e.idem.split("#")[0] === idem);
+
+  test("reload_mid_edit_keeps_the_edit", async ({ page, engine }) => {
+    await page.setViewportSize(DESKTOP);
+    await page.route(EDIT, () => {});
+    await openMap(page, await engine.loginUrl());
+    const held = page.waitForRequest(EDIT);
+    await rename(page, engine, "held by a reload");
+    await held;
+    const [entry, ...rest] = await waiting(page);
+    expect(rest).toEqual([]);
+    expect(wrote(engine, entry!.idem)).toEqual([]);
+
+    await page.unroute(EDIT);
+    const landed = page.waitForResponse(isEdit);
+    await page.reload();
+    const reply = (await (await landed).json()) as { ok: boolean };
+    expect(reply.ok).toBe(true);
+    await expect.poll(() => wrote(engine, entry!.idem).length).toBe(1);
+    expect(wrote(engine, entry!.idem)[0]!.client.id).toBe(entry!.client);
+    expect(await waiting(page)).toEqual([]);
+    // The list of this tab's edits is not kept across a reload; the event stays undoable.
+    await page.locator(".map[data-ready]").waitFor();
+    await expect(page.locator(".edit-row")).toHaveCount(0);
+  });
+
+  test("serve_restart_keeps_pending_edits", async ({
+    page,
+    engine,
+    consoleErrors,
+  }) => {
+    await page.setViewportSize(DESKTOP);
+    await page.route(EDIT, () => {});
+    await openMap(page, await engine.loginUrl());
+    const held = page.waitForRequest(EDIT);
+    await rename(page, engine, "held by a restart");
+    await held;
+    const [entry] = await waiting(page);
+    expect(entry).toBeDefined();
+
+    await engine.restart();
+    // The open page leaves, as a person closes it, and opens the new link in a fresh visit to the
+    // same origin; the stream it lost to the kill is the event under test, not a fault.
+    await page.goto("about:blank");
+    consoleErrors.length = 0;
+    await page.unroute(EDIT);
+    const landed = page.waitForResponse(isEdit);
+    await page.goto(await engine.loginUrl());
+    const reply = (await (await landed).json()) as { ok: boolean };
+    expect(reply.ok).toBe(true);
+    await expect.poll(() => wrote(engine, entry!.idem).length).toBe(1);
+    expect(wrote(engine, entry!.idem)[0]!.client.id).toBe(entry!.client);
+    expect(await waiting(page)).toEqual([]);
+  });
+
+  test("a_flush_by_another_tab_keeps_the_original_writer", async ({
+    context,
+    engine,
+    sent,
+  }) => {
+    const a = await context.newPage();
+    await a.setViewportSize(DESKTOP);
+    await a.route(EDIT, (route) => route.abort());
+    await openMap(a, await engine.loginUrl());
+    const attempted = a.waitForRequest(EDIT);
+    await rename(a, engine, "left by tab A");
+    await attempted;
+    const tabA = await a.evaluate(() => sessionStorage.getItem("planroom.tab"));
+    const [entry] = await waiting(a);
+    expect(entry!.client).toBe(tabA);
+    await a.close();
+
+    const b = await context.newPage();
+    await b.setViewportSize(DESKTOP);
+    const landed = b.waitForResponse(isEdit);
+    await openMap(b, await engine.loginUrl());
+    expect(((await (await landed).json()) as { ok: boolean }).ok).toBe(true);
+    const tabB = await b.evaluate(() => sessionStorage.getItem("planroom.tab"));
+    expect(tabB).not.toBe(tabA);
+    const sentByB = editBodies(sent).at(-1)!;
+    expect(sentByB.body.client).toBe(tabA);
+    expect(sentByB.idemKey).toBe(entry!.idem);
+    await expect.poll(() => wrote(engine, entry!.idem).length).toBe(1);
+    expect(wrote(engine, entry!.idem)[0]!.client.id).toBe(tabA);
+  });
+
+  test("a_flush_of_a_committed_edit_replays", async ({
+    page,
+    engine,
+    consoleErrors,
+  }) => {
+    await page.setViewportSize(DESKTOP);
+    // The engine commits, and the reply never reaches the page: the entry has to stay.
+    await page.route(
+      EDIT,
+      async (route) => {
+        await route.fetch();
+        await route.abort();
+      },
+      { times: 1 },
+    );
+    await openMap(page, await engine.loginUrl());
+    const attempted = page.waitForRequest(EDIT);
+    await rename(page, engine, "committed, reply lost");
+    await attempted;
+    const [entry] = await waiting(page);
+    expect(entry).toBeDefined();
+    await expect.poll(() => wrote(engine, entry!.idem).length).toBe(1);
+    expect(await waiting(page)).toHaveLength(1);
+    // The browser reports the dropped reply as a failed load; it is the fault injected here.
+    await expect.poll(() => consoleErrors.length).toBe(1);
+    expect(consoleErrors[0]).toContain("ERR_FAILED");
+    consoleErrors.length = 0;
+
+    await page.unroute(EDIT);
+    const again = page.waitForResponse(isEdit);
+    await page.reload();
+    const reply = (await (await again).json()) as {
+      ok: boolean;
+      meta: { replayed?: boolean };
+    };
+    expect(reply.ok).toBe(true);
+    expect(reply.meta.replayed).toBe(true);
+    await expect.poll(() => waiting(page)).toEqual([]);
+    expect(wrote(engine, entry!.idem)).toHaveLength(1);
+  });
+});

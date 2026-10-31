@@ -4,8 +4,10 @@
  * ways between everything under the two blocks, of every relation. It draws the engine's summary,
  * each item's reason and its map handles as buttons, which run and close the sheet. It closes on
  * its Close button, on Escape, on a press on the felt (the map's) and after a handle runs. Every
- * control sits in the Levels concept; Confirm, Reject and Ask Claude have no leaf in M1, so their
- * place, a choice row below the items, draws nothing yet.
+ * control sits in the Levels concept. Below the items is the choice row: it holds Forbid now, one
+ * button per relation kind the map draws between the two blocks (DR-68), which sends that `edit
+ * forbid` and closes the sheet; Confirm, Reject and Ask Claude have no leaf in M1, so they draw
+ * nothing yet.
  */
 
 import { CANVAS_STRINGS } from "@planroom/contract";
@@ -13,12 +15,16 @@ import { fill, sanitize } from "@planroom/ui";
 import { useEffect } from "react";
 
 import { PHONE, useCanvas, useMedia } from "../use-canvas";
+import { forbidChoices } from "../edits/ops";
 import { emptyWords } from "../views/engine-empty";
 import { CloseIcon } from "./icons";
 
 export function Evidence() {
   const evidence = useCanvas((s) => s.evidence);
-  const nodes = useCanvas((s) => s.map?.nodes);
+  const map = useCanvas((s) => s.map);
+  const nodes = map?.nodes;
+  const canEdit = useCanvas((s) => s.canEdit());
+  const edit = useCanvas((s) => s.edit);
   const run = useCanvas((s) => s.run);
   const canRun = useCanvas((s) => s.canRun);
   const closeEvidence = useCanvas((s) => s.closeEvidence);
@@ -47,6 +53,10 @@ export function Evidence() {
   const result = evidence.result;
   const empty = result?.empty ?? null;
   const words = empty === null ? null : emptyWords(empty);
+  const forbids =
+    canEdit && map !== null
+      ? forbidChoices(map, evidence.from, evidence.to)
+      : [];
   const truncated = evidence.warnings.filter((w) => w.code === "truncated");
   return (
     <section
@@ -102,6 +112,23 @@ export function Evidence() {
               </li>
             ))}
           </ul>
+          {forbids.length > 0 && (
+            <div className="evidence-choices">
+              {forbids.map((choice) => (
+                <button
+                  key={`${choice.from} ${choice.to} ${choice.kind}`}
+                  type="button"
+                  className="button"
+                  onClick={() => {
+                    void edit({ op: "forbid", ...choice });
+                    closeEvidence();
+                  }}
+                >
+                  {fill(CANVAS_STRINGS.forbid, { kind: sanitize(choice.kind) })}
+                </button>
+              ))}
+            </div>
+          )}
           {empty !== null && words !== null && (
             <div className="evidence-empty">
               {words.line !== undefined && <p>{words.line}</p>}

@@ -18,6 +18,8 @@ export interface Capabilities {
   readonly views: "all" | readonly string[];
   /** Whether layouts the canvas computes can be stored for every tab and the Artifact. */
   readonly layoutWriteBack: boolean;
+  /** Whether the canvas may write hand edits: local true, the Artifact false in M1. */
+  readonly edits: boolean;
 }
 
 /**
@@ -74,13 +76,19 @@ export interface PartialViews {
 }
 
 /**
- * A read or a press as the engine answered it: the result, the warnings its envelope carried
- * (`meta.warnings`) and the cursor of the next page (`meta.next`). The Artifact has neither.
+ * A read, a press or a write as the engine answered it: the result, the warnings its envelope
+ * carried (`meta.warnings`), the cursor of the next page (`meta.next`), the `seq` it was read or
+ * written at (`meta.seq`), whether it replays a stored reply (`meta.replayed`) and the envelope's
+ * summary line, which is the line "Your edits" shows for a confirmed edit. The Artifact has no
+ * warnings, pages, replays or summaries; its `seq` is its head's or its snapshot's.
  */
 export interface Reply<T> {
   readonly result: T;
   readonly warnings: readonly Warning[];
   readonly next: Cursor | null;
+  readonly seq: number;
+  readonly replayed: boolean;
+  readonly summary: string | null;
 }
 
 export interface Transport {
@@ -94,8 +102,21 @@ export interface Transport {
   login(): Promise<boolean>;
   /** A read command's reply. */
   query<T>(command: string, request: object): Promise<Reply<T>>;
-  /** A write command's result. */
-  write<T>(command: string, request: object): Promise<T>;
+  /**
+   * A write command's reply. `idem` is the write's idempotency key: a repeat of it replays the
+   * stored reply instead of writing again (DR-8).
+   */
+  write<T>(
+    command: string,
+    request: object,
+    opts: { idem: string },
+  ): Promise<Reply<T>>;
+  /**
+   * The workspace the tab is signed in to, from the session reply, or from the reply of a scan
+   * the tab ran that made the store; null before a store exists, when signed out, and on the
+   * Artifact.
+   */
+  workspace(): string | null;
   /** Run an engine-authored handle, such as an empty state's next action. */
   run(handle: Handle): Promise<Reply<unknown>>;
   /** Store a computed layout. */

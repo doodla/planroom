@@ -144,6 +144,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 | 128 | The canvas shell: every view one `map` handle, lenses and projects to pick, a dive through `map --focus`, evidence from `ask why`, and the engine's errors and warnings in place | DR-77, DR-82, DR-85, DR-86, DR-111, DR-114, DR-119, DR-122, DR-123, DR-126 | extended, amends DR-77, DR-82, DR-85, DR-86, DR-122 and DR-123 | the merge of M1's canvas shell |
 | 129 | The mod checks its host before it registers anything, probes the rest at their first use, compares its engine's catalogue, resolves a gone binary once more, and shows the copy-out and store-mismatch lines | DR-53, DR-58, DR-69, DR-75, DR-76, DR-77, DR-84, DR-128 | extended, amends DR-53, DR-58, DR-69, DR-75, DR-76 and DR-77 | the merge of M1's host check |
 | 130 | Start a plan in an empty folder: `intent new` makes a plan-only workspace, `no_repos` offers it, a kept `.planroom/` survives `git init`, and the canvas names the pane for a next action it can't run | DR-57, DR-74, DR-85, DR-87, DR-101, DR-106, DR-115, DR-119, DR-121, DR-128 | extended, amends DR-57, DR-87, DR-115, DR-119, DR-121 and DR-128 | the merge of M1's plan-only workspace |
+| 131 | The canvas edits by hand: the action tray, lid drops, felt pins and chalk, Forbid in the evidence sheet, and pending edits each tab flushes with the edit's own `idem` and client | DR-5, DR-8, DR-29, DR-68, DR-73, DR-85, DR-92, DR-128 | extended, amends DR-8, DR-29, DR-68, DR-73 and DR-128 | the merge of M1's hand edits |
 
 ## Where the design reviews disagreed
 
@@ -324,7 +325,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-8: Idempotency with request hashes, replays and a mod outbox
 
-- **Status:** accepted. Amended in review rounds 1, 2 and 3, and by DR-86 and DR-121.
+- **Status:** accepted. Amended in review rounds 1, 2 and 3, and by DR-86, DR-121 and DR-131.
 - **Starting point:** extended "Events carry ... an idempotency key."
 - **Origin:** the concurrency-first design (§3.8, §3.10, §7.5).
 - **Context:** S8 requires safe retries. A reused key with a different payload silently replayed the wrong result in the simplicity-first design, as a design review found. Spawned children and module state die on a mod reload [mod-api §7], so an in-flight write could be lost.
@@ -344,6 +345,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended by DR-86:** a scan's key takes the snapshot's extraction-inputs hash where it took `packs_hash`, so a scan under other inputs at the same commit is another key.
 - **Amended by DR-121:** the outbox atom is `OutboxEntry`: a write's `idem`, its argv, the names of the variables it set (never their values), its stdin, its cause and its session. It is kept from before the process starts until any reply, and a reload resends it once, before the watch loop, as the same actor and client, so the store writes one event; a leaf that takes no `--idem` stays out of it.
 - **Sources (checked 2026-10-25):** [mod-api §7, §10]; candidate-concurrency-agents §3.8; the design reviews.
+- **Amended by DR-131:** the canvas keys its pending edits by the workspace ID the session reply names, or the reply of a scan the tab runs that made the store; a tab that knows no workspace keeps nothing pending. A flush keeps an edit whose refusal has the retry class `now` or `later` for the next flush, with the same key, so one that committed replays.
 
 ## DR-9: Packs are data; built-in extractors and linkers are declared by packs
 
@@ -671,7 +673,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-29: Browser login with a one-time code
 
-- **Status:** accepted. Amended in review rounds 1, 2 and 3. Amended by DR-119.
+- **Status:** accepted. Amended in review rounds 1, 2 and 3. Amended by DR-119 and DR-131.
 - **Starting point:** extended "A single-writer local server per workspace" (its exposure).
 - **Origin:** the concurrency-first design (§12.2); a design review flagged the simplicity-first design's `?t=` query-string token.
 - **Context:** a token in a query string lands in logs and history.
@@ -683,6 +685,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 - **Amended in review round 3:** `serve` never moves off its workspace's port. `workspaces.json` gives each workspace its own, another program holding it is `port_in_use`, and `serve --port N` is the deliberate move, so a tab's pending edits never strand in another origin. `server_auth.rs::serve_port_moves_only_when_asked` replaces `serve_prefers_its_last_port` (F8, unasked-7) [DR-78].
 - **Amended by DR-119:** one room server and port serves every workspace, with workspace routes under `/w/{id}`; a new tab takes the token from an open tab.
 - **Sources (checked 2026-10-25):** candidate-concurrency-agents §12.2; the design reviews.
+- **Amended by DR-131:** the session reply is `{token, workspace_id}`, `workspace_id` being the store's `meta.workspace_id`, absent before a store exists; the tab keeps it in `sessionStorage` beside the token and drops it with the token.
 
 ## DR-30: Skills hidden from the slash menu
 
@@ -1583,7 +1586,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-68: The canvas edits by hand and answers to the keyboard
 
-- **Status:** accepted (decided in review round 2, E9); built in M1 and M5.
+- **Status:** accepted (decided in review round 2, E9); built in M1 and M5. Amended by DR-131.
 - **Starting point:** none; implements R6's "shaped by hand on the canvas", R13's mobile-first canvas and R14's five concepts.
 - **Origin:** review round 2: ux-2; the minor findings ux-9, ux-12 and unasked-10.
 - **Context:**
@@ -1611,6 +1614,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Milestones: M1's canvas slice grows 3 h, and M5's accessibility slice 2 h.
   - It extends DR-54.
 - **Sources (checked 2026-10-26):** KICKOFF R6, R13, R14, S4, S13 and the look-and-feel don't-list; review round 2 ux-2, ux-9, ux-12 and unasked-10, and owner decision E9.
+- **Amended by DR-131:** built in M1 as DR-131 records. The desktop tray also holds Move into and Relate to, so the keyboard reaches every edit, and a drop inside another block, which raises its lid, runs `edit move`. Chalk and Relate to run `edit relate` with the relation picked among the kinds the view's lifted edges draw, and are drawn only where the view draws edges; `edit relate` has no `--layer`. Forbid sits in the evidence sheet an edge opens, under Levels, not in a popover under Intent. Undo sits in "Your edits" under Diffs. On the phone a long press opens the tray, and a tap on an edge opens its evidence. Contracts: `SessionToken.workspace_id` and `ScanResult.workspace_id`, both additive, so `schema_version` stays 1. The tests are under `tests/e2e/src/`.
 
 ## DR-69: Releases from main, a portable detach and a resolver contract
 
@@ -1739,7 +1743,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-73: A person's work outlasts automatic writes, flushes and restores
 
-- **Status:** accepted (decided in review round 3, F1, F3 and F4). Amended by DR-127.
+- **Status:** accepted (decided in review round 3, F1, F3 and F4). Amended by DR-127 and DR-131.
 - **Starting point:** extended "Optimistic concurrency on entity versions" and "Jev policy. Each decision kind declares its question, thresholds and escalation."
 - **Origin:** review round 3: correctness-1, correctness-3 and correctness-4; the minor findings correctness-7, correctness-8 and correctness-9.
 - **Context:**
@@ -1769,6 +1773,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - It amends DR-1, DR-2, DR-5, DR-8, DR-24, DR-50 and DR-53.
 - **Amended by DR-127:** M1's `Scan` has no reconcile outcome, so a restore writes no `scan` event with snapshot 0, and `a_restore_keeps_done_classes` waits for M2's field. A replay set is the person-authored events whose ID the restored copy lacks, not those above its last `seq`; each still takes the copy's last `seq` as its base, and a replayed edit whose check closes a loop or finds it superseded is skipped and counted.
 - **Sources (checked 2026-10-26):** KICKOFF R6, R10 and principle 1; review round 3 correctness-1, correctness-3, correctness-4, correctness-7 to correctness-9 and owner decisions F1, F3 and F4.
+- **Amended by DR-131:** the workspace whose pending edits a tab flushes comes from the session reply, or from the reply of a scan the tab runs that made the store. A refusal whose retry class is `now` or `later` stops the flush and keeps that edit and the rest, in order; any other refusal but `stale_write` drops the edit and shows as a notice.
 
 ## DR-74: Repo namespaces that survive duplicates and renames, and a single repo's state in its git directory
 
@@ -4788,7 +4793,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
 
 ## DR-128: The canvas shell: every view one `map` handle, lenses and projects to pick, a dive through `map --focus`, evidence from `ask why`, and the engine's errors and warnings in place
 
-- **Status:** accepted (decided at the merge of M1's canvas shell, 2026-10-30). Amended by DR-130.
+- **Status:** accepted (decided at the merge of M1's canvas shell, 2026-10-30). Amended by DR-130 and DR-131.
 - **Starting point:** extends DR-77, DR-82, DR-85, DR-86, DR-119, DR-122 and DR-123; amends DR-77, DR-82, DR-85, DR-86, DR-122 and DR-123, and the `⋯` lid's rule in [Design language](design-language.md#touch). Builds on DR-111, whose levels the canvas reads only from `map.levels`, DR-114, whose `packs_not_loaded` the canvas shows, and DR-126, whose `presence` frames reach every stream.
 - **Origin:** the merge of M1's canvas shell, read against the docs by an independent check and a re-check.
 - **Context:**
@@ -4847,6 +4852,7 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Users: you pick a lens or a project at the top of the canvas, double-press a block to go into it, press an edge to read why it's there, and see the engine's warnings and refusals without losing the map. On a phone, the `⋯` lid reaches every level.
 - **Amended by DR-130:** a next action whose command isn't one the canvas draws (`map`, `scan`, `focus`) is a line naming the pane, never a button; a plan-only top keeps the shell, so its project shelf can pick the plan; and the first known gap is closed: a focus on a project with no items answers with its own `no_plan_items` view.
 - **Sources (checked 2026-10-30):** `crates/planroom/src/server/routes.rs`; `crates/planroom/tests/{privacy, server_auth}.rs`; `crates/planroom/text/en.toml` `[canvas]`; `crates/xtask/src/{generate, report}.rs`; `packages/canvas/src/{store, levels, lens-switcher, notices, styles.css}`; `packages/canvas/src/shell/{picker, top-row, zoom-rail, evidence, notices, card-stack}.tsx`; `packages/canvas/src/transport/{local, request}.ts`; `packages/canvas/src/views/{map-view, engine-empty}`; `tests/e2e/src/`; [The canvas](architecture.md#the-canvas); [Design language](design-language.md#touch).
+- **Amended by DR-131:** the evidence sheet's choice row holds Forbid, one per distinct kind between its two blocks, still under Levels; the desktop drawer, above the diff tray's list, and the phone's half sheet hold "Your edits", under Diffs, with its newest row in the drawer's head and the phone's peek.
 
 ## DR-129: The mod checks its host before it registers anything, probes the rest at their first use, compares its engine's catalogue, resolves a gone binary once more, and shows the copy-out and store-mismatch lines
 
@@ -4971,3 +4977,67 @@ This page holds Planroom's numbered decision records. Each one gives the context
   - Tests: `crates/planroom/tests/greenfield.rs::{intent_new_in_an_empty_folder_starts_a_plan_only_workspace, a_person_token_cannot_start_a_workspace_no_key_is_registered_in, intent_new_refuses_the_home_directory_and_the_filesystem_root, an_agents_intent_new_in_an_empty_folder_waits_as_a_ghost_project, scan_in_a_plan_only_workspace_maps_nothing_and_keeps_the_plan, focusing_a_project_with_no_items_shows_its_empty_view, a_project_with_no_items_never_takes_a_blocks_focus, intent_new_beside_repos_never_says_there_are_none, intent_new_in_a_repos_working_tree_is_refused_as_scan_refuses_there, a_folder_in_an_unscanned_repo_offers_that_repos_scan_not_a_plan, a_folder_in_a_repo_with_no_commit_says_so_instead_of_offering_its_scan, a_folder_in_a_repo_git_cannot_read_says_so_instead_of_offering_its_scan, a_repo_whose_submodules_git_cannot_list_says_so_at_its_root_and_below, a_repo_with_an_oversized_gitmodules_inside_another_repo_never_offers_the_outer_scan, scan_with_no_repos_answers_ok_only_where_the_store_holds_a_plan, a_plan_begun_before_git_init_stays_the_workspace, a_committed_planroom_dir_at_a_repo_root_still_loads_nothing}`; `crates/planroom/src/app/confine.rs::a_plan_folder_at_the_filesystem_root_is_refused`; `crates/planroom/tests/empty_states.rs::{no_repos_offers_to_start_a_plan, a_plan_only_workspace_says_the_map_fills_from_the_plan, a_plan_wins_over_repos_unborn_but_not_over_repos_unreadable}`; `packages/mod/src/watch.test.ts::a_plan_only_workspaces_store_starts_the_watch`; `packages/canvas/src/views/engine-empty.test.ts::{a_handle_the_canvas_cannot_draw_names_the_pane, a_top_that_holds_a_plan_keeps_the_shell_and_its_project_shelf}`; `tests/e2e/src/surface.spec.ts::empty_state_audit` (gains `plan_only` and the project pick); `golden.rs` with `focus-plan-only.json`. The tests beyond DR-115's list are the token refusal, the two focus tests, the line beside repos, the working-tree refusal, the repo's scan offered below its root and the states that replace it, the scan with no plan, the path-only root check and the plan-only shell.
   - Users: in an empty folder the pane says "No git repos here. Start a plan, or add a repo." You describe what you want to build, the agent starts the plan as a ghost for you to accept, and the canvas shows the plan with its project on the shelf. `git init` in that folder keeps the plan.
 - **Sources (checked 2026-10-30):** `crates/planroom/src/app/{intent, scan, workspace, trust, confine, edit, focus, find, ask}.rs`; `crates/planroom/src/app/map/{mod, read}.rs`; `crates/planroom/src/server/mod.rs` (`claim`); `crates/planroom/text/en.toml`; `crates/planroom/tests/{greenfield, empty_states, golden}.rs`; `packages/canvas/src/views/engine-empty.ts`, `packages/canvas/src/app.tsx`; `tests/e2e/src/surface.spec.ts`; `budgets.json`; [Where the workspace lives](architecture.md#where-the-workspace-lives); [Contracts](contracts.md#cli-json-envelope).
+
+## DR-131: The canvas edits by hand: the action tray, lid drops, felt pins and chalk, Forbid in the evidence sheet, and pending edits each tab flushes with the edit's own `idem` and client
+
+- **Status:** accepted (decided at the merge of M1's hand edits, 2026-10-31).
+- **Starting point:** builds DR-68's M1 slice, the hand edits on the local canvas and the phone, over the engine's existing `edit` leaves and `POST /api/v1/edit` with its `Idempotency-Key` and `client` (DR-8, DR-73, DR-92). Extends DR-5, DR-8, DR-29, DR-68, DR-73, DR-85, DR-92 and DR-128. Amends DR-8 and DR-73 (where the tab's workspace ID comes from; which refusals keep a pending edit), DR-29 (the session reply's field), DR-68 (the desktop tray, the chalk's relation, Forbid's place, Undo's place, the phone's long press, "Contracts: none") and DR-128 (the evidence sheet's choice row holds Forbid; the drawer and the sheet hold "Your edits"). The Artifact edits nothing in M1.
+- **Origin:** the merge of M1's hand edits, read against the docs by an independent check and a re-check.
+- **Context:**
+  - The engine half was built: every hand edit is an `edit` leaf, the route honours the edit's `idem` and the request's `client`, a retry replays, and a person's stale write deals a conflict card. The canvas had no tray, no drag, no chalk and no pending store, and DR-68 named no place for the keyboard to reach Move into and Relate to on the desktop.
+  - DR-8 and DR-73 key pending edits by workspace, but no reply the tab read named the workspace, and `edit` over HTTP needs a `base`, which the canvas didn't keep.
+  - Two checks of the built branch found the tab learning its workspace ID only from the session reply at sign-in. Where the canvas ran the workspace's first scan itself, the empty state's next action, the ID stayed null, so no tray, drag, chalk or Forbid was offered, even after a reload, until a fresh login link. They also found every refusal but `stale_write` dropping the pending edit, `store_busy` (retry `now`) and `serve_limit` (retry `later`, where the command may still commit) among them.
+- **Decision:**
+  - **Built as DR-68 and the brief decide.**
+    - **The action tray** (`packages/canvas/src/shell/action-tray.tsx`) holds Rename, Group with, Hide, Pin here, Move into and Relate to on both sizes, each a 44 px target with a focus ring, under `data-concept="levels"`. On the desktop it sits under the selected block as `@xyflow/react`'s `NodeToolbar`; on the phone a long press of 500 ms with no move past 8 px selects the block and opens the bottom sheet to half with the tray at its top. Each button is one `edit` leaf, built with its pending line in `packages/canvas/src/edits/ops.ts`. Hand edits are offered only where the transport edits, the tab knows its workspace and the view has a `layout`.
+    - **Desktop drags.** Blocks drag only on the desktop with edits on. A drop with the pointer inside another block raises that block's lid (`data-drop-target`) and sends `edit move`; a drop on the felt sends `edit pin` at the drop place in the view's coordinates; a drop within 4 px of the start sends nothing. On the phone a one-finger drag pans and moves nothing.
+    - **Chalk.** The selected block shows one chalk handle; the line is the 2 px `--chalk` dash; a connection to another block picks the relation among the distinct `kind`s of the lifted edges the view draws, labelled by their sanitized IDs, and sends `edit relate`. One kind skips the step. The canvas names no built-in kind.
+    - **Pending, confirmed, undone.** A pending block carries `data-pending="true"` with a dashed `--chalk` border; a rename shows its name at once, a hide dims, a pin stays where it was dropped, and the next load draws what the engine made. "Your edits" lists this tab's edits on the workspace, newest first, at most 10, each with its line, its state (Sending, Done, Conflict) and, once confirmed, Undo, which sends the reply's `edit --base N undo EVENT` handle as a new pending edit with its own `idem` and the tab's client.
+    - **The pending store** is one `localStorage` key per workspace, `planroom.pending.<workspace_id>`, holding `PendingEdit {idem, client, request, line, at}`; the tab ID is `tab:` and 16 hex characters in `sessionStorage` under `planroom.tab`. Every read and write is in try/catch; with storage blocked the list lives for the page. A tab reads only its own workspace's key.
+    - **The flush** sends entries in `at` order, one flush at a time per tab, each with its own `idem` and `client`, never the flusher's. A landed reply, replayed or not, removes the entry; `stale_write` removes it and shows a conflict, whose card comes with the next load; an unreachable engine or a signed-out tab stops the flush and keeps that entry and the rest. It runs after each sign-in and start, before the first view is read when an earlier page left edits, after each gesture, and on the stream's ping (below).
+    - **Contract fields.** `SessionToken` gains `workspace_id`, the store's `meta.workspace_id`, absent before a store exists, which `serve` reads through its own store connection under the request limit. `Reply<T>` gains `seq` and `replayed`; `Transport.write(command, request, {idem})` sends `Idempotency-Key`; `Capabilities.edits` is true on the local transport and false on the Artifact, which draws no tray, chalk, Forbid or drag. The store keeps the drawn map's seq as every gesture's `base`.
+  - **Decided by the build beyond the brief, ratified here.**
+    - **`Reply.summary`.** The reply carries the envelope's `summary`, so a confirmed row in "Your edits" shows the engine's own line.
+    - **`Transport.workspace()`.** The store reads the workspace ID from the transport, which keeps it in `sessionStorage` under `planroom.workspace` beside the token and drops it with the token.
+    - **The flush on the stream's ping frame and every 15 s.** Each stream connection opens with a ping and one comes every 15 s; with edits pending, a ping flushes. That covers a reconnect and retries an edit the engine couldn't be reached for.
+    - **A refused edit leaves "Your edits" and shows as a notice,** with the engine's message and hint.
+    - **The undo handle is parsed in `ops.ts`.** `requestOf` can't parse `edit --base N undo EVENT`, since `edit` takes no positionals; a row offers Undo only for a real edit-undo handle, and an undo's pending line is `[canvas] undo_line`, "Undo: {line}".
+    - **Tab into the tray.** On the desktop a keydown handler moves the focus from the selected block into the tray with one Tab, since `NodeToolbar`'s place in the DOM doesn't fix the Tab order.
+    - **Chalk drops anywhere on a block,** through a target handle that covers the whole block only while a connection is in progress.
+  - **Where the build departs from the brief or DR-68, ratified here.**
+    - **`SessionToken.workspace_id` and `ScanResult.workspace_id` are additive,** so `schema_version` stays 1. DR-68's "Contracts: none" no longer holds: the hand edits add these two output fields and the canvas's transport fields.
+    - **Relate to and the chalk handle are drawn only where the view draws edges,** since their relation comes from the view's lifted edges and a control that can't complete is never offered (DR-85).
+    - **Forbid sits in the evidence sheet** an edge opens, one per distinct kind between its two blocks, under Levels as DR-128 built the sheet, not in a popover under Intent.
+    - **Undo sits under "Your edits"** in the Diffs concept: the drawer on the desktop, above the diff tray's list, and the half sheet on the phone, with the newest row also in the drawer's head and the phone's peek, so Undo is one press.
+    - **The desktop tray also holds Move into and Relate to,** so the keyboard reaches every edit. On the phone a long press opens the tray, and a tap on an edge opens its evidence.
+    - **The phone's sheet toggle** treats an open tray as open, and one press takes the sheet back to peek and closes the tray.
+  - **Fixed at the merge.**
+    - **A scan the canvas runs names the workspace.** `ScanResult` gains `workspace_id`, the store's `meta.workspace_id`, which the scan has at hand from its read transaction; absent where the scan made no store. The local transport keeps any `workspace_id` a run's reply names, as it keeps the session reply's, and the store re-reads `Transport.workspace()` after a press, so the first scan from the empty state offers hand edits without a new sign-in. Pending edits stay keyed per workspace, and a tab that knows no workspace offers no hand edit and keeps nothing pending.
+    - **A refusal to retry keeps the edit.** A refusal whose retry class, from the error registry by way of the envelope's `error.retry`, is `now` or `later` shows its message as a notice and stops the flush, keeping that entry and the rest, in order, for the next flush; the row stays Sending. A resend carries the same `idem`, so an edit that committed after all replays. `never` and `after_reread` refusals other than `stale_write` drop the edit as before; `stale_write` is unchanged.
+  - **Doc corrections.** [Design language](design-language.md#edit-by-hand) said `edit relate --layer intended`; `EditOp::Relate` has no layer, so the table says `edit relate`. Its gesture table's long press, desktop tray, Forbid and Undo follow the build.
+- **Alternatives rejected:**
+  - **Re-reading the workspace through a `POST /api/v1/session` that takes the bearer token and no code:** a new input on the login route, where a scan's own reply already has the ID at hand.
+  - **`Meta.workspace_id` on every reply:** a wider surface than the one write that can make the store.
+  - **Recording the first-scan gap as known:** the empty state's next action is how a first-time person meets the canvas, so the gap would hide hand edits exactly there.
+  - **A hard-coded list of retryable codes in the canvas:** the registry already gives every code its retry class, and the envelope carries it.
+  - **Retrying a held edit at once in a loop:** the stream's 15 s ping already paces it, and `serve_limit`'s `later` asks for a wait.
+  - **Dragging a block on the phone:** it clashes with the one-finger pan (DR-68).
+- **Consequences:**
+  - Behaviour: the canvas edits by hand on both sizes; unsent edits survive a reload, a closed tab and a `serve` restart; any signed-in tab of the workspace sends them with their minting tab's client; a first scan from the canvas offers hand edits at once; a busy or limited engine keeps the edit for the next flush.
+  - Contracts: `SessionToken.workspace_id` and `ScanResult.workspace_id`, both optional output fields; the canvas's `Reply.seq`, `replayed` and `summary`, `Capabilities.edits`, `Transport.write` and `Transport.workspace()`. Strings: `en.toml`'s `[canvas]` gains `tray`, `rename`, `group_with`, `hide`, `pin`, `move_into`, `relate_to`, `forbid`, `name_field`, `done`, `cancel`, `pick_blocks`, `pick_block`, `pick_relation`, `chalk`, `your_edits`, `sending`, `landed`, `conflict`, `undo`, `pending_line` and `undo_line`. No error or warning code is added, so `schema_version` stays 1.
+  - Gated: none. `packages/canvas/src/edits/` is an area subdirectory with its Layout line, and no dependency, export name or boundary changes.
+  - Docs: [Architecture](architecture.md#the-canvas)'s Writes and Edit by hand and its canvas listing; [Design language](design-language.md#edit-by-hand)'s long-press row, Edit by hand table and keyboard line; [Contracts](contracts.md#http-api-and-live-stream)' session route; `packages/canvas/AGENTS.md` and `tests/e2e/AGENTS.md`; [Traceability](traceability.md) R6, R10, S4 and S8.
+  - Feature list: S4's five `edit.spec.ts` tests leave `due`, and `the_first_scan_from_the_empty_state_offers_hand_edits` joins its `tests`; S8's two flush tests leave `due`; C15's `due` empties and its `tests` gain the pending, flush, transport, store and session tests below. No `status` changes here.
+  - Known gaps:
+    - `localStorage` has no transaction across tabs, so two tabs that change one workspace's pending key at the same moment can lose one add.
+    - The needs-login page doesn't count pending edits, though [Architecture](architecture.md#local-server-and-live-stream) and S15 say it does.
+    - Playwright's touch emulation dispatches pointer events, so the long press and the one-finger pan are checked in emulation, not on a device.
+    - An intended relation draws as its lens's solid edge once confirmed; the dashed chalk of the intended layer waits for a layer on `LiftedEdge` (DR-115's M2 surfaces slice).
+    - The chalk and Relate to offer only kinds the view already draws.
+    - A duplicated browser tab copies `sessionStorage`, and so its tab ID.
+    - The Artifact edits nothing until M3's remote edits.
+    - "Your edits" keeps 10 rows and forgets them on reload, though their events stay undoable with `edit undo`.
+    - A tab learns the workspace from its sign-in or from a scan it runs itself; a store first made any other way after the tab signed in (a terminal scan, another canvas tab's scan, a scan from the pane, `intent new`) still needs a fresh link before hand edits show.
+  - Tests: `tests/e2e/src/edit.spec.ts::{regroup_by_a_lid_drop_and_by_the_tray, rename_hide_and_pin_from_the_tray, chalk_makes_an_intended_relation_and_forbid, the_phone_tray_moves_and_relates, each_hand_edit_undoes, one_tab_from_the_selected_block_reaches_the_tray, the_first_scan_from_the_empty_state_offers_hand_edits}`; `tests/e2e/src/surface.spec.ts::{reload_mid_edit_keeps_the_edit, serve_restart_keeps_pending_edits, a_flush_by_another_tab_keeps_the_original_writer, a_flush_of_a_committed_edit_replays}`, and `exactly_five_concepts` at both sizes with the tray and the evidence sheet's Forbid open; `packages/canvas/src/edits/pending.test.ts` (six tests), `flush.test.ts::{a_replayed_flush_drops_the_edit_as_landed, a_stale_write_drops_the_edit_and_shows_the_conflict, any_other_refusal_drops_the_edit_with_its_hint, a_refusal_to_retry_keeps_the_edit_and_the_rest_for_the_next_flush, an_unreachable_engine_keeps_the_rest_in_order, an_error_that_is_not_the_engines_is_rethrown}`, `ops.test.ts::{each_gesture_builds_its_edit_leaf, relate_offers_only_the_kinds_the_view_draws, pending_edits_mark_the_blocks_they_touch}`; `packages/canvas/src/transport/local.test.ts::{an_edit_sends_its_idem_and_its_client, the_session_reply_keeps_the_workspace_id_beside_the_token, a_reload_reads_the_workspace_id_from_the_tab, a_scan_that_makes_the_store_names_the_workspace_without_a_new_sign_in}`; `packages/canvas/src/store.test.ts`'s "hand edits" block, `a_scan_the_canvas_runs_offers_edits_without_a_new_sign_in` and `a_busy_store_keeps_the_edit_sending_until_the_next_flush` among them; `crates/planroom/tests/server_auth.rs::{the_session_reply_names_the_workspace, the_session_reply_reads_the_workspace_through_the_servers_own_store, a_scan_that_makes_the_store_names_its_workspace}`, new tests in a listed file, so the Test inventory doesn't change.
+  - Users: select a block and its tray offers every edit; drag it into another block or onto the felt, or draw chalk to relate it; your edit shows as pending at once and lands even if you reload or `serve` restarts; "Your edits" undoes it in one press.
+- **Sources (checked 2026-10-31):** `crates/contract/src/command.rs` (`SessionToken`, `ScanResult`); `crates/planroom/src/server/routes.rs` (`session`); `crates/planroom/src/app/scan.rs`; `packages/canvas/src/edits/{tab, pending, flush, ops, env, edit-list}.ts(x)`; `packages/canvas/src/transport/{types, local, artifact}.ts`; `packages/canvas/src/store.ts`; `packages/canvas/src/views/{map-view, block-node}.tsx`; `packages/canvas/src/shell/{action-tray, evidence, shell}.tsx`; `docs/reference/errors.md` (`store_busy`, `serve_limit`); `tests/e2e/src/{edit, surface}.spec.ts`, `tests/e2e/src/engine.ts`; [The canvas](architecture.md#the-canvas); [Edit by hand](design-language.md#edit-by-hand).

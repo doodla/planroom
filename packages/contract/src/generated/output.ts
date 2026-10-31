@@ -4585,6 +4585,12 @@ export interface ReviewResult {
 export interface ScanResult {
   map: MapView;
   next: Handle1;
+  /**
+   * The store's `meta.workspace_id`, so a tab that signed in before the first scan made the
+   * store learns the workspace its pending edits are keyed by (DR-73); absent while the
+   * workspace has no store.
+   */
+  workspace_id?: string | null;
 }
 /**
  * What `schema` returns: the schema's ID and version, and handles to read further.
@@ -4641,6 +4647,11 @@ export interface SessionReq {
  */
 export interface SessionToken {
   token: string;
+  /**
+   * The store's `meta.workspace_id`, which keys the tab's pending edits (DR-8, DR-73); absent
+   * while the workspace has no store.
+   */
+  workspace_id?: string | null;
 }
 /**
  * What `share` returns: the publish to make, the `db` writes that seed `live/head`, and what the

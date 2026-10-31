@@ -503,7 +503,7 @@ The engine verifies the token against `meta.person_pubkey`, the registered publi
 | `GET /api/v1/stream?since=SEQ` | `Last-Event-ID` resumes; read with `fetch`, so the token goes in a header | SSE with `event: <type>`, `id: <seq>`, `data: <StreamFrame JSON>` |
 | `PUT /api/v1/layout` | `{view_key, structure_hash, positions}` | `204`; a cache, last-writer-wins |
 | `POST /api/v1/code` | `CodeReq {code_sha256}`, with `Authorization: Bearer <control_token>` from the server's record under the data root | `204`; the code is valid once, for 60 s, for this `serve` process |
-| `POST /api/v1/session` | `{code}` from the URL fragment | `200` with the envelope, `result: {token}`: a random bearer token the tab keeps in `sessionStorage`; a code works once, and a second try at it revokes the token the first issued (DR-64) |
+| `POST /api/v1/session` | `{code}` from the URL fragment | `200` with the envelope, `result: {token, workspace_id}`: a random bearer token the tab keeps in `sessionStorage`, and the store's workspace ID, which keys the tab's pending edits and is absent before a store exists; a code works once, and a second try at it revokes the token the first issued (DR-64) |
 | `POST /api/v1/drain` | `{token}`, the control token from the server's record under the data root | `202`; the server finishes in-flight requests and exits |
 | `GET /`, `GET /assets/*` | | the canvas build embedded in the binary; a binary built without it serves one engine-rendered page naming `cargo xtask gen --canvas` (DR-58) |
 

@@ -7602,6 +7602,13 @@
         },
         "next": {
           "$ref": "#/$defs/Handle"
+        },
+        "workspace_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The store's `meta.workspace_id`, so a tab that signed in before the first scan made the\nstore learns the workspace its pending edits are keyed by (DR-73); absent while the\nworkspace has no store."
         }
       },
       "required": [
@@ -7807,6 +7814,13 @@
       "properties": {
         "token": {
           "type": "string"
+        },
+        "workspace_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The store's `meta.workspace_id`, which keys the tab's pending edits (DR-8, DR-73); absent\nwhile the workspace has no store."
         }
       },
       "required": [

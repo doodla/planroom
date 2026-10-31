@@ -1141,3 +1141,89 @@ fn an_expired_or_reused_code_is_refused() {
     assert!(!auth.bearer_ok(Some(&format!("Bearer {token}"))), "the reuse revoked the first token");
     assert_eq!(auth.exchange("new-code"), Err(Refused::Expired));
 }
+
+#[test]
+fn the_session_reply_names_the_workspace() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("shop");
+    fixture(&root);
+    let (s, _) = serve(&root);
+    let exchange = |code: &str| {
+        let (status, body) = http(
+            s.port,
+            "POST",
+            "/api/v1/session",
+            &[("Origin", &origin(s.port))],
+            &json!({"code": code}).to_string(),
+        );
+        assert_eq!(status, 200, "{body}");
+        serde_json::from_str::<Value>(&body).unwrap()
+    };
+    // Before a scan there is no store, so the reply holds the token alone.
+    let env = exchange(&s.code);
+    assert!(env["result"]["token"].is_string(), "{env}");
+    assert!(env["result"].get("workspace_id").is_none(), "{env}");
+
+    // After a scan the reply names the store's workspace.
+    assert!(planroom(&root).args(["scan", "--json"]).output().unwrap().status.success());
+    let code = "0123456789abcdef0123456789abcdef";
+    let body = json!({"code_sha256": planroom::server::auth::code_digest(code)}).to_string();
+    let bearer = format!("Bearer {}", control_token(&root.join(".data"), s.port));
+    assert_eq!(http(s.port, "POST", "/api/v1/code", &[("Authorization", &bearer)], &body).0, 204);
+    let env = exchange(code);
+    let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
+    let id = store.meta("workspace_id").unwrap().unwrap();
+    assert_eq!(env["result"]["workspace_id"], json!(id), "{env}");
+}
+
+#[test]
+fn a_scan_that_makes_the_store_names_its_workspace() {
+    // A tab signed in before any store existed learns the workspace from the scan it runs.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("shop");
+    fixture(&root);
+    let (s, _) = serve(&root);
+    let token = login(&s);
+    let (status, body) = api(&s, &token, "POST", "/api/v1/scan", "{}");
+    assert_eq!(status, 200, "{body}");
+    let env: Value = serde_json::from_str(&body).unwrap();
+    let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
+    let id = store.meta("workspace_id").unwrap().unwrap();
+    assert_eq!(env["result"]["workspace_id"], json!(id), "{env}");
+}
+
+#[test]
+fn the_session_reply_reads_the_workspace_through_the_servers_own_store() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("shop");
+    fixture(&root);
+    assert!(planroom(&root).args(["scan", "--json"]).output().unwrap().status.success());
+    let id = {
+        let store = Store::open_existing(&root.join(".planroom/store.db")).unwrap().unwrap();
+        store.meta("workspace_id").unwrap().unwrap()
+    };
+    let (s, _) = serve(&root);
+    let exchange = |code: &str| {
+        let (status, body) = http(
+            s.port,
+            "POST",
+            "/api/v1/session",
+            &[("Origin", &origin(s.port))],
+            &json!({"code": code}).to_string(),
+        );
+        assert_eq!(status, 200, "{body}");
+        serde_json::from_str::<Value>(&body).unwrap()
+    };
+    // The first sign-in answers once the server holds its store connection.
+    assert_eq!(exchange(&s.code)["result"]["workspace_id"], json!(id));
+    let code = "0123456789abcdef0123456789abcdef";
+    let body = json!({"code_sha256": planroom::server::auth::code_digest(code)}).to_string();
+    let bearer = format!("Bearer {}", control_token(&root.join(".data"), s.port));
+    assert_eq!(http(s.port, "POST", "/api/v1/code", &[("Authorization", &bearer)], &body).0, 204);
+    // With the file out of its place, only that connection can still name the workspace: the
+    // exchange opens no second one.
+    std::fs::rename(root.join(".planroom/store.db"), root.join(".planroom/store.db.aside")).unwrap();
+    let env = exchange(code);
+    std::fs::rename(root.join(".planroom/store.db.aside"), root.join(".planroom/store.db")).unwrap();
+    assert_eq!(env["result"]["workspace_id"], json!(id), "{env}");
+}

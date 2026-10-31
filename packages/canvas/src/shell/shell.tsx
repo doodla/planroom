@@ -8,9 +8,11 @@
 import { useState } from "react";
 
 import { CANVAS_STRINGS } from "@planroom/contract";
+import { EditList, EditPeek } from "../edits/edit-list";
 import { PHONE, useCanvas, useMedia } from "../use-canvas";
 import { MapCanvas } from "../views/map-view";
 import { RequestState, TransportNote } from "../views/request-state";
+import { ActionTray } from "./action-tray";
 import { CardStack } from "./card-stack";
 import { TrayBadge, TrayList, TrayPeek } from "./diff-tray";
 import { Evidence } from "./evidence";
@@ -23,27 +25,44 @@ function BottomSheet() {
   const [half, setHalf] = useState(false);
   // The evidence sheet opens the bottom sheet to half; its own state comes back when it closes.
   const evidence = useCanvas((s) => s.evidence !== null);
-  const shown = half || evidence;
+  // A tray for the selected block opens it too (the phone's long press).
+  const trayOpen = useCanvas((s) => s.trayOpen);
+  const closeTray = useCanvas((s) => s.closeTray);
+  const selected = useCanvas((s) => s.selected);
+  const shown = half || evidence || trayOpen;
+  // The toggle reads the tray as open too, so its press takes a long press's sheet back to peek.
+  const open = half || trayOpen;
+  const toggle = () => {
+    if (open) {
+      setHalf(false);
+      closeTray();
+    } else {
+      setHalf(true);
+    }
+  };
   return (
     <section className="sheet panel" data-detent={shown ? "half" : "peek"}>
       <div className="sheet-head">
-        <TrayBadge open={half} onPress={() => setHalf(!half)} />
+        <TrayBadge open={open} onPress={toggle} />
         <button
           type="button"
           className="icon-button sheet-toggle"
           data-concept="diffs"
           aria-label={
-            half ? CANVAS_STRINGS.sheet_peek : CANVAS_STRINGS.sheet_half
+            open ? CANVAS_STRINGS.sheet_peek : CANVAS_STRINGS.sheet_half
           }
-          aria-expanded={half}
-          onClick={() => setHalf(!half)}
+          aria-expanded={open}
+          onClick={toggle}
         >
-          <ChevronIcon up={!half} />
+          <ChevronIcon up={!open} />
         </button>
       </div>
       <div className="sheet-body">
+        {trayOpen && selected !== null && <ActionTray id={selected} />}
         <Evidence />
+        {!half && <EditPeek />}
         <CardStack />
+        {half && <EditList />}
         {half && <TrayList />}
       </div>
     </section>
@@ -84,7 +103,9 @@ export function Shell() {
         <div className="drawer-head">
           <TrayBadge open={trayOpen} onPress={() => setTrayOpen(!trayOpen)} />
           {!trayOpen && <TrayPeek />}
+          {!trayOpen && <EditPeek />}
         </div>
+        {trayOpen && <EditList />}
         {trayOpen && <TrayList />}
       </footer>
     </div>

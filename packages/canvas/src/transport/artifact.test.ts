@@ -163,12 +163,21 @@ describe("the artifact transport", () => {
     expect(fetched).toEqual(["./data/snapshot.json"]);
     expect(
       await t.query<MapView>("map", { detail: "graph", level: null }),
-    ).toEqual({ result: snapshot.maps[0], warnings: [], next: null });
+    ).toEqual({
+      result: snapshot.maps[0],
+      warnings: [],
+      next: null,
+      seq: snapshot.seq,
+      replayed: false,
+      summary: null,
+    });
     expect((await t.query<PaneModel>("focus", {})).result).toEqual(pane);
     expect(t.capabilities).toMatchObject({
       views: ["map:system:all", "pane"],
       layoutWriteBack: false,
+      edits: false,
     });
+    expect(t.workspace()).toBeNull();
   });
 
   test("with no store it renders the snapshot alone, with a note, and can't ask", async () => {

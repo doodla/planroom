@@ -1,7 +1,12 @@
 import type { StreamFrame } from "@planroom/contract";
 import { describe, expect, test } from "vitest";
 
-import { TOKEN_KEY, localTransport, type LocalEnv } from "./local";
+import {
+  TOKEN_KEY,
+  WORKSPACE_KEY,
+  localTransport,
+  type LocalEnv,
+} from "./local";
 import { CommandError, TransportError } from "./types";
 
 interface Call {
@@ -273,12 +278,18 @@ describe("requests", () => {
       result: { items: [] },
       warnings: [warning],
       next: "page-2",
+      seq: 1,
+      replayed: false,
+      summary: null,
     });
     // An envelope that carries neither has none.
     expect(await transport.query("focus", {})).toEqual({
       result: { ok: 1 },
       warnings: [],
       next: null,
+      seq: 1,
+      replayed: false,
+      summary: null,
     });
     // A press carries the warnings of its reply too.
     const press = await transport.run({
@@ -287,6 +298,87 @@ describe("requests", () => {
       label: "",
     });
     expect(press.warnings).toEqual([warning]);
+  });
+
+  test("an_edit_sends_its_idem_and_its_client", async () => {
+    const { t, transport } = await signedIn({
+      "POST /api/v1/edit": () =>
+        json({
+          ...envelope({ event: "e1" }, true, "edit", 4),
+          summary: "Hid the shop.",
+          meta: { seq: 4, size: { bytes: 0, tokens_est: 0 }, replayed: true },
+        }),
+    });
+    const reply = await transport.write(
+      "edit",
+      { op: "hide", id: "x", base: 3, client: "tab:0123456789abcdef" },
+      { idem: "u1" },
+    );
+    const sent = t.calls.at(-1);
+    expect(sent?.headers["Idempotency-Key"]).toBe("u1");
+    expect(sent?.body).toEqual({
+      op: "hide",
+      id: "x",
+      base: 3,
+      client: "tab:0123456789abcdef",
+      idem: "u1",
+    });
+    expect(reply).toEqual({
+      result: { event: "e1" },
+      warnings: [],
+      next: null,
+      seq: 4,
+      replayed: true,
+      summary: "Hid the shop.",
+    });
+  });
+
+  test("the_session_reply_keeps_the_workspace_id_beside_the_token", async () => {
+    const t = env({
+      "POST /api/v1/session": () =>
+        json(envelope({ token: "t", workspace_id: "w1" }, true, "serve")),
+      "POST /api/v1/map": () => json({}, 401),
+    });
+    const transport = localTransport(t.env);
+    expect(transport.workspace()).toBeNull();
+    await transport.login();
+    expect(transport.workspace()).toBe("w1");
+    expect(t.storage.items.get(WORKSPACE_KEY)).toBe("w1");
+    await transport.query("map", {}).catch(() => undefined);
+    expect(transport.workspace()).toBeNull();
+    expect(t.storage.items.has(WORKSPACE_KEY)).toBe(false);
+    expect(t.storage.items.has(TOKEN_KEY)).toBe(false);
+  });
+
+  test("a_scan_that_makes_the_store_names_the_workspace_without_a_new_sign_in", async () => {
+    const t = env({
+      // Signed in before any store existed: the reply names no workspace.
+      "POST /api/v1/session": () =>
+        json(envelope({ token: "t" }, true, "serve")),
+      "POST /api/v1/scan": () =>
+        json(
+          envelope(
+            { map: { nodes: [] }, next: {}, workspace_id: "w7" },
+            true,
+            "scan",
+            3,
+          ),
+        ),
+    });
+    const transport = localTransport(t.env);
+    await transport.login();
+    expect(transport.workspace()).toBeNull();
+    await transport.run({ command: "scan", args: [], label: "Map" });
+    expect(transport.workspace()).toBe("w7");
+    // A reload of the tab keeps it, as it keeps the session reply's.
+    expect(t.storage.items.get(WORKSPACE_KEY)).toBe("w7");
+    expect(localTransport(t.env).workspace()).toBe("w7");
+  });
+
+  test("a_reload_reads_the_workspace_id_from_the_tab", () => {
+    const storage = memoryStorage({ [TOKEN_KEY]: "t", [WORKSPACE_KEY]: "w9" });
+    const t = env({}, { storage });
+    expect(localTransport(t.env).workspace()).toBe("w9");
   });
 
   test("a layout is stored with PUT", async () => {

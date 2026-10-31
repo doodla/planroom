@@ -11,6 +11,8 @@ import type {
 import { describe, expect, test, vi } from "vitest";
 
 import type { ElkGraphIn } from "./layout/graph";
+import type { EditsEnv } from "./edits/env";
+import { pendingStore } from "./edits/pending";
 import { createCanvasStore } from "./store";
 import {
   CommandError,
@@ -129,7 +131,8 @@ function fake(answers: {
   const choices: { command: string; request: object }[] = [];
   let onFrame: (f: StreamFrame) => void = () => undefined;
   const transport: Transport = {
-    capabilities: { views: "all", layoutWriteBack: true },
+    capabilities: { views: "all", layoutWriteBack: true, edits: false },
+    workspace: () => null,
     partial: null,
     login: () => Promise.resolve(answers.login ?? true),
     query: <T>(command: string, request: object) => {
@@ -156,7 +159,14 @@ function fake(answers: {
         } else {
           result = (answers.focus ?? (() => pane))();
         }
-        return Promise.resolve({ result, warnings, next: null } as Reply<T>);
+        return Promise.resolve({
+          result,
+          warnings,
+          next: null,
+          seq: 0,
+          replayed: false,
+          summary: null,
+        } as Reply<T>);
       } catch (e) {
         return Promise.reject(e instanceof Error ? e : new Error(String(e)));
       }
@@ -168,6 +178,9 @@ function fake(answers: {
         result: null,
         warnings: answers.pressWarnings?.() ?? [],
         next: null,
+        seq: 0,
+        replayed: false,
+        summary: null,
       });
     },
     saveLayout: (l) => {
@@ -376,6 +389,7 @@ describe("a transport that holds only some views", () => {
       capabilities: {
         views: ["map:container:all", "pane"],
         layoutWriteBack: false,
+        edits: false,
       },
       partial: {
         serves: (command, request) =>
@@ -494,6 +508,9 @@ const page = <T>(result: T, next: string | null = null): Reply<T> => ({
   result,
   warnings: [],
   next,
+  seq: 0,
+  replayed: false,
+  summary: null,
 });
 
 test("only_event_and_reset_frames_refetch_the_views", async () => {
@@ -877,6 +894,9 @@ describe("the evidence sheet", () => {
               },
               warnings: [warning("truncated")],
               next: null,
+              seq: 0,
+              replayed: false,
+              summary: null,
             }
           : undefined,
     });
@@ -925,6 +945,9 @@ describe("the evidence sheet", () => {
           },
           warnings: [],
           next: null,
+          seq: 0,
+          replayed: false,
+          summary: null,
         };
       },
     });
@@ -1040,5 +1063,375 @@ describe("a transport that holds only some views, part two", () => {
         reason,
       ).not.toContain("intent list");
     }
+  });
+});
+
+describe("hand edits", () => {
+  const memory = () => {
+    const items = new Map<string, string>();
+    return {
+      getItem: (k: string) => items.get(k) ?? null,
+      setItem: (k: string, v: string) => void items.set(k, v),
+      removeItem: (k: string) => void items.delete(k),
+    };
+  };
+
+  const landed = (summary: string | null = "Hid it."): Reply<unknown> => ({
+    result: {
+      event: "E1",
+      count: 1,
+      status: "applied",
+      targets: ["a"],
+      undo: {
+        command: "edit",
+        args: ["--base", "8", "undo", "E1"],
+        label: "Undo",
+      },
+    },
+    warnings: [],
+    next: null,
+    seq: 8,
+    replayed: false,
+    summary,
+  });
+
+  const stale = () =>
+    new CommandError({
+      schema_version: 1,
+      ok: false,
+      command: "edit",
+      error: {
+        code: "stale_write",
+        message: "The map moved on.",
+        retry: "after_reread",
+      },
+      meta: { seq: 9, size: { bytes: 0, tokens_est: 0 } },
+    } as never);
+
+  function setup(
+    write: (
+      request: Record<string, unknown>,
+      idem: string,
+      n: number,
+    ) => Promise<Reply<unknown>>,
+    edits = true,
+  ) {
+    const f = fake({
+      over: (command) =>
+        command === "map"
+          ? {
+              result: map(),
+              warnings: [],
+              next: null,
+              seq: 7,
+              replayed: false,
+              summary: null,
+            }
+          : undefined,
+    });
+    const sent: { request: Record<string, unknown>; idem: string }[] = [];
+    const transport: Transport = {
+      ...f.transport,
+      capabilities: { views: "all", layoutWriteBack: true, edits },
+      workspace: () => "w1",
+      write: <T>(_command: string, request: object, opts: { idem: string }) => {
+        sent.push({
+          request: request as Record<string, unknown>,
+          idem: opts.idem,
+        });
+        return write(
+          request as Record<string, unknown>,
+          opts.idem,
+          sent.length,
+        ) as Promise<Reply<T>>;
+      },
+    };
+    let n = 0;
+    const env: EditsEnv = {
+      local: memory(),
+      session: memory(),
+      uuid: () => `u${++n}`,
+      now: () => 100 + n,
+    };
+    const store = createCanvasStore(transport, f.layout, env);
+    return { store, f, sent, env, transport };
+  }
+
+  test("a_gesture_is_stored_then_sent_with_the_seq_of_the_map_drawn", async () => {
+    const t = setup(() => Promise.resolve(landed()));
+    await t.store.getState().start();
+    expect(t.store.getState().canEdit()).toBe(true);
+    const before = t.f.queries.filter((q) => q.command === "map").length;
+    await t.store.getState().edit({ op: "hide", id: "a" });
+    expect(t.sent).toHaveLength(1);
+    expect(t.sent[0]?.request).toMatchObject({ op: "hide", id: "a", base: 7 });
+    expect(String(t.sent[0]?.request.client)).toMatch(/^tab:[0-9a-f]{16}$/);
+    const state = t.store.getState();
+    expect(state.pending).toEqual([]);
+    expect(state.edits.map((e) => [e.state, e.line])).toEqual([
+      ["done", "Hid it."],
+    ]);
+    expect(state.edits[0]?.undo?.args).toEqual(["--base", "8", "undo", "E1"]);
+    await vi.waitFor(() =>
+      expect(
+        t.f.queries.filter((q) => q.command === "map").length,
+      ).toBeGreaterThan(before),
+    );
+  });
+
+  test("an_edit_sent_while_the_engine_is_unreachable_stays_pending_until_a_ping", async () => {
+    let up = false;
+    const t = setup(() =>
+      up
+        ? Promise.resolve(landed())
+        : Promise.reject(new TransportError("unreachable", "down")),
+    );
+    await t.store.getState().start();
+    await t.store.getState().edit({ op: "hide", id: "a" });
+    expect(t.store.getState().pending).toHaveLength(1);
+    expect(t.store.getState().edits[0]?.state).toBe("sending");
+    up = true;
+    t.f.frame({ type: "ping" });
+    await vi.waitFor(() => expect(t.store.getState().pending).toEqual([]));
+    expect(t.store.getState().edits[0]?.state).toBe("done");
+    expect(t.sent[1]?.idem).toBe(t.sent[0]?.idem);
+  });
+
+  test("edits_an_earlier_page_left_are_sent_before_the_first_view_is_read", async () => {
+    const t = setup(() => Promise.resolve(landed()));
+    pendingStore(t.env.local, "w1").add({
+      idem: "kept",
+      client: "tab:0123456789abcdef",
+      request: {
+        op: "hide",
+        id: "a",
+        base: 3,
+        client: "tab:0123456789abcdef",
+      },
+      line: "Your edit to a",
+      at: 50,
+    });
+    await t.store.getState().start();
+    expect(t.sent.map((s) => s.idem)).toEqual(["kept"]);
+    expect(t.sent[0]?.request.client).toBe("tab:0123456789abcdef");
+    expect(t.store.getState().pending).toEqual([]);
+  });
+
+  test("a_scan_the_canvas_runs_offers_edits_without_a_new_sign_in", async () => {
+    const t = setup(() => Promise.resolve(landed()));
+    // Signed in before the first scan: the tab knows no workspace until the scan's reply names it.
+    let workspace: string | null = null;
+    const transport: Transport = {
+      ...t.f.transport,
+      capabilities: { views: "all", layoutWriteBack: true, edits: true },
+      workspace: () => workspace,
+      run: (h) => {
+        workspace = "w1";
+        return t.f.transport.run(h);
+      },
+      write: <T>(_command: string, request: object, opts: { idem: string }) => {
+        t.sent.push({
+          request: request as Record<string, unknown>,
+          idem: opts.idem,
+        });
+        return Promise.resolve(landed() as Reply<T>);
+      },
+    };
+    const store = createCanvasStore(transport, t.f.layout, t.env);
+    await store.getState().start();
+    expect(store.getState().workspaceId).toBeNull();
+    expect(store.getState().canEdit()).toBe(false);
+    // Nothing is kept for a tab that knows no workspace.
+    await store.getState().edit({ op: "hide", id: "a" });
+    expect(t.sent).toEqual([]);
+    expect(store.getState().pending).toEqual([]);
+    await store
+      .getState()
+      .run({ command: "scan", args: ["/home/you/shop"], label: "Map" });
+    expect(store.getState().workspaceId).toBe("w1");
+    expect(store.getState().canEdit()).toBe(true);
+    await store.getState().edit({ op: "hide", id: "a" });
+    expect(t.sent).toHaveLength(1);
+    expect(store.getState().edits[0]?.state).toBe("done");
+  });
+
+  test("a_busy_store_keeps_the_edit_sending_until_the_next_flush", async () => {
+    let busy = true;
+    const t = setup(() =>
+      busy
+        ? Promise.reject(
+            new CommandError({
+              schema_version: 1,
+              ok: false,
+              command: "edit",
+              error: {
+                code: "store_busy",
+                message: "The store is busy.",
+                retry: "now",
+              },
+              meta: { seq: 7, size: { bytes: 0, tokens_est: 0 } },
+            } as never),
+          )
+        : Promise.resolve(landed()),
+    );
+    await t.store.getState().start();
+    await t.store.getState().edit({ op: "hide", id: "a" });
+    expect(t.store.getState().pending).toHaveLength(1);
+    expect(t.store.getState().edits[0]?.state).toBe("sending");
+    busy = false;
+    t.f.frame({ type: "ping" });
+    await vi.waitFor(() => expect(t.store.getState().pending).toEqual([]));
+    expect(t.store.getState().edits[0]?.state).toBe("done");
+    expect(t.sent[1]?.idem).toBe(t.sent[0]?.idem);
+  });
+
+  test("a_held_edits_notice_leaves_when_that_edit_lands_and_no_other_notice_does", async () => {
+    let busy = true;
+    const t = setup(() =>
+      busy
+        ? Promise.reject(
+            new CommandError({
+              schema_version: 1,
+              ok: false,
+              command: "edit",
+              error: {
+                code: "store_busy",
+                message: "The store is busy.",
+                retry: "now",
+              },
+              meta: { seq: 7, size: { bytes: 0, tokens_est: 0 } },
+            } as never),
+          )
+        : Promise.resolve(landed()),
+    );
+    const lines = () => t.store.getState().notices.map((n) => n.line);
+    await t.store.getState().start();
+    // The held edit's notice goes once that edit lands.
+    await t.store.getState().edit({ op: "hide", id: "a" });
+    expect(lines()).toEqual(["The store is busy."]);
+    busy = false;
+    t.f.frame({ type: "ping" });
+    await vi.waitFor(() =>
+      expect(t.store.getState().edits[0]?.state).toBe("done"),
+    );
+    await vi.waitFor(() => expect(lines()).toEqual([]));
+    // A notice for something else, shown after the hold, stays when the held edit lands.
+    busy = true;
+    await t.store.getState().edit({ op: "hide", id: "b" });
+    expect(lines()).toEqual(["The store is busy."]);
+    t.transport.run = () => Promise.reject(refusal("No such block."));
+    await t.store
+      .getState()
+      .run({ command: "scan", args: ["/home/you/shop"], label: "Map" });
+    expect(lines()).toEqual(["No such block."]);
+    busy = false;
+    t.f.frame({ type: "ping" });
+    await vi.waitFor(() => expect(t.store.getState().pending).toEqual([]));
+    expect(t.store.getState().edits[0]?.state).toBe("done");
+    expect(lines()).toEqual(["No such block."]);
+  });
+
+  test("a_stale_edit_shows_a_conflict_row_and_leaves_the_store", async () => {
+    const t = setup(() => Promise.reject(stale()));
+    await t.store.getState().start();
+    await t.store.getState().edit({ op: "hide", id: "a" });
+    const state = t.store.getState();
+    expect(state.pending).toEqual([]);
+    expect(state.edits.map((e) => [e.state, e.line])).toEqual([
+      ["conflict", "The map moved on."],
+    ]);
+  });
+
+  test("edits_flush_one_at_a_time_in_the_order_made", async () => {
+    let open = 0;
+    let most = 0;
+    const t = setup(async () => {
+      most = Math.max(most, ++open);
+      await new Promise((r) => setTimeout(r, 5));
+      open--;
+      return landed();
+    });
+    await t.store.getState().start();
+    await Promise.all([
+      t.store.getState().edit({ op: "hide", id: "a" }),
+      t.store.getState().edit({ op: "rename", id: "b", name: "B2" }),
+    ]);
+    await vi.waitFor(() => expect(t.sent).toHaveLength(2));
+    await vi.waitFor(() => expect(t.store.getState().pending).toEqual([]));
+    expect(most).toBe(1);
+    expect(t.sent.map((s) => s.request.op)).toEqual(["hide", "rename"]);
+  });
+
+  test("an_undo_is_a_new_edit_with_its_own_idem", async () => {
+    const t = setup(() => Promise.resolve(landed()));
+    await t.store.getState().start();
+    await t.store.getState().edit({ op: "hide", id: "a" });
+    const row = t.store.getState().edits[0];
+    expect(row).toBeDefined();
+    await t.store.getState().undo(row!);
+    expect(t.sent[1]?.request).toMatchObject({
+      op: "undo",
+      event: "E1",
+      base: 8,
+    });
+    expect(t.sent[1]?.idem).not.toBe(t.sent[0]?.idem);
+  });
+
+  test("an_undo_row_says_what_it_undoes", async () => {
+    // The undo's reply never comes, so its row keeps the canvas's own line.
+    const t = setup((_r, _i, n) =>
+      n === 1 ? Promise.resolve(landed()) : new Promise(() => {}),
+    );
+    await t.store.getState().start();
+    await t.store.getState().edit({ op: "hide", id: "a" });
+    const row = t.store.getState().edits[0];
+    expect(row?.line).toBe("Hid it.");
+    void t.store.getState().undo(row!);
+    await vi.waitFor(() => expect(t.store.getState().edits).toHaveLength(2));
+    const [undo, edit] = t.store.getState().edits;
+    expect(edit?.line).toBe("Hid it.");
+    expect(undo?.line).toBe("Undo: Hid it.");
+  });
+
+  test("a_reply_whose_undo_is_no_edit_undo_offers_no_undo", async () => {
+    const odd = landed();
+    (odd.result as { undo: unknown }).undo = {
+      command: "edit",
+      args: ["undo", "E1"],
+      label: "Undo",
+    };
+    const t = setup(() => Promise.resolve(odd));
+    await t.store.getState().start();
+    await t.store.getState().edit({ op: "hide", id: "a" });
+    const row = t.store.getState().edits[0];
+    expect(row?.state).toBe("done");
+    expect(row?.undo).toBeNull();
+    // Pressing it anyway sends nothing and throws nothing.
+    await expect(t.store.getState().undo(row!)).resolves.toBeUndefined();
+    expect(t.sent).toHaveLength(1);
+  });
+
+  test("a_transport_without_edits_cannot_edit", async () => {
+    const t = setup(() => Promise.resolve(landed()), false);
+    await t.store.getState().start();
+    expect(t.store.getState().canEdit()).toBe(false);
+    await t.store.getState().edit({ op: "hide", id: "a" });
+    expect(t.sent).toEqual([]);
+    expect(t.store.getState().pending).toEqual([]);
+  });
+
+  test("the_tray_closes_when_the_selection_or_the_view_changes", async () => {
+    const t = setup(() => Promise.resolve(landed()));
+    await t.store.getState().start();
+    t.store.getState().openTray("a");
+    expect(t.store.getState().trayOpen).toBe(true);
+    expect(t.store.getState().selected).toBe("a");
+    t.store.getState().select("a");
+    expect(t.store.getState().trayOpen).toBe(true);
+    t.store.getState().select("b");
+    expect(t.store.getState().trayOpen).toBe(false);
+    t.store.getState().openTray("a");
+    await t.store.getState().showLevel("component");
+    expect(t.store.getState().trayOpen).toBe(false);
   });
 });

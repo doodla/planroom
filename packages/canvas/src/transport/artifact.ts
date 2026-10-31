@@ -110,12 +110,19 @@ export function viewKey(
 
 const INBOX_FORMAT = formatTag("inbox");
 
-/** A view the page holds, as a reply: the snapshot carries no warnings and no pages. */
-const held = <T>(result: T): Reply<T> => ({ result, warnings: [], next: null });
-
 export function artifactTransport(env: ArtifactEnv): Transport {
   let snapshot: Snapshot | null = null;
   let head: LiveHead | null = null;
+
+  /** A view the page holds, as a reply: the snapshot carries no warnings, pages or summaries. */
+  const heldReply = <T>(result: T): Reply<T> => ({
+    result,
+    warnings: [],
+    next: null,
+    seq: head?.seq ?? snapshot?.seq ?? 0,
+    replayed: false,
+    summary: null,
+  });
   let db: HostDb | null = null;
   let uid: string | null = null;
   /** Whether the platform has answered whether this view has a store. */
@@ -296,6 +303,7 @@ export function artifactTransport(env: ArtifactEnv): Transport {
       return snapshot?.capabilities ?? [];
     },
     layoutWriteBack: false,
+    edits: false,
   };
 
   return {
@@ -341,22 +349,24 @@ export function artifactTransport(env: ArtifactEnv): Transport {
         );
       }
       if (command === "focus") {
-        return Promise.resolve(held(snapshot.pane as T));
+        return Promise.resolve(heldReply(snapshot.pane as T));
       }
       const map = command === "map" ? mapOf(keyOf(command, request)) : null;
       if (map !== null) {
-        return Promise.resolve(held(map as T));
+        return Promise.resolve(heldReply(map as T));
       }
       return Promise.reject(
         new TransportError("unreachable", `${command}: not in this snapshot`),
       );
     },
 
-    write() {
+    write<T>(): Promise<Reply<T>> {
       return Promise.reject(
         new TransportError("unreachable", "the Artifact page writes only rows"),
       );
     },
+
+    workspace: () => null,
 
     run(handle: Handle) {
       return Promise.reject(

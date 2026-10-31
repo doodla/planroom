@@ -1436,6 +1436,10 @@ pub struct DrainReq {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SessionToken {
     pub token: String,
+    /// The store's `meta.workspace_id`, which keys the tab's pending edits (DR-8, DR-73); absent
+    /// while the workspace has no store.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
 }
 
 /// What `version` returns; the mod and the resolver match an engine by its catalogue hash.
@@ -1545,6 +1549,11 @@ pub struct PackSetResult {
 pub struct ScanResult {
     pub map: MapView,
     pub next: Handle,
+    /// The store's `meta.workspace_id`, so a tab that signed in before the first scan made the
+    /// store learns the workspace its pending edits are keyed by (DR-73); absent while the
+    /// workspace has no store.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
 }
 
 #[cfg(test)]

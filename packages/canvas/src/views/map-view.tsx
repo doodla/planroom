@@ -8,12 +8,22 @@
 import {
   MarkerType,
   ReactFlow,
+  NodeToolbar,
+  Position,
   ReactFlowProvider,
   useReactFlow,
   type Edge,
   type NodeChange,
+  type XYPosition,
 } from "@xyflow/react";
-import { blocksOf, edgesOf, fill, matchBlocks, yarnVar } from "@planroom/ui";
+import {
+  blocksOf,
+  edgesOf,
+  fill,
+  matchBlocks,
+  sanitize,
+  yarnVar,
+} from "@planroom/ui";
 import {
   useCallback,
   useEffect,
@@ -21,10 +31,14 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
 } from "react";
 
 import emptyMap from "../assets/empty-map.webp";
+import { moveTargets, pendingMarks, relationKinds } from "../edits/ops";
 import { BLOCK } from "../layout/graph";
+import { ActionTray } from "../shell/action-tray";
 import { useTopName } from "../shell/next-action";
 import { CANVAS_STRINGS } from "@planroom/contract";
 import { PHONE, useCanvas, useMedia } from "../use-canvas";
@@ -56,6 +70,21 @@ type Moment = "dive" | "rise" | undefined;
 /** Two presses on one block this close together, in milliseconds, are a dive. */
 const DIVE_WINDOW_MS = 300;
 
+/** A finger held this long on a block, in milliseconds, opens its tray (DR-68). */
+const LONG_PRESS_MS = 500;
+/** A finger or pointer that moves further than this, in px, is not holding still. */
+const HOLD_SLOP_PX = 8;
+/** A drag that ends within this many px of where it began changes nothing. */
+const DRAG_SLOP_PX = 4;
+
+/** One block being dragged: where it began, where it is, and the block under the pointer. */
+interface Drag {
+  id: string;
+  start: XYPosition;
+  at: XYPosition;
+  over: string | null;
+}
+
 function MapFlow({ moment }: { moment: Moment }) {
   const map = useCanvas((s) => s.map);
   const positions = useCanvas((s) => s.positions);
@@ -66,15 +95,37 @@ function MapFlow({ moment }: { moment: Moment }) {
   const canOpenEvidence = useCanvas((s) => s.canOpenEvidence);
   const openEvidence = useCanvas((s) => s.openEvidence);
   const closeEvidence = useCanvas((s) => s.closeEvidence);
+  const pending = useCanvas((s) => s.pending);
+  const canEdit = useCanvas((s) => s.canEdit());
+  const edit = useCanvas((s) => s.edit);
+  const openTray = useCanvas((s) => s.openTray);
   const phone = useMedia(PHONE);
+  const flow = useReactFlow();
+  // Blocks move by hand only on the desktop; the phone pans and long presses instead.
+  const drags = canEdit && !phone;
   const [ready, setReady] = useState(false);
+  const wrapper = useRef<HTMLDivElement>(null);
   // Each block's measured size. A controlled flow draws a node it has no size for hidden until it
   // measures it again, so a block rebuilt on a selection would vanish for a frame and a second
   // press of a dive would land on the felt.
   const measured = useRef(new Map<string, { width: number; height: number }>());
   const lastPress = useRef<{ id: string; at: number } | null>(null);
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const dragRef = useRef<Drag | null>(null);
+  // The chalk line just drawn: the block it ends on and a count that restarts the tray.
+  const [relate, setRelate] = useState<{ to: string; n: number } | null>(null);
+  // The phone's long press: the timer and where the finger went down, and the block whose
+  // release click the press already used.
+  const hold = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    x: number;
+    y: number;
+  } | null>(null);
+  const held = useRef<string | null>(null);
 
   const rows = useMemo(() => (map ? blocksOf(map) : []), [map]);
+  const kinds = useMemo(() => (map ? relationKinds(map) : []), [map]);
+  const chalking = drags && kinds.length > 0;
   const lifted = useMemo(() => (map ? edgesOf(map) : []), [map]);
   const matches = useMemo(() => matchBlocks(rows, query), [rows, query]);
   const near = useMemo(() => {
@@ -89,25 +140,44 @@ function MapFlow({ moment }: { moment: Moment }) {
     return ids;
   }, [selected, lifted]);
 
+  // What the workspace's unsent hand edits show now, before the engine's reply redraws the map.
+  const marks = useMemo(() => pendingMarks(pending), [pending]);
+
   const nodes: BlockNode[] = useMemo(
     () =>
       rows
         .filter((r) => positions[r.id])
-        .map((row) => ({
-          id: row.id,
-          type: "block" as const,
-          position: positions[row.id]!,
-          data: {
-            row,
-            dim: !matches.has(row.id) || (near !== null && !near.has(row.id)),
-          },
-          selected: row.id === selected,
-          measured: measured.current.get(row.id),
-          draggable: false,
-          connectable: false,
-          ariaLabel: `${row.name}, ${row.kindLabel}`,
-        })),
-    [rows, positions, matches, near, selected],
+        .map((plain) => {
+          const renamed = marks.names.get(plain.id);
+          const row =
+            renamed === undefined
+              ? plain
+              : { ...plain, name: sanitize(renamed) };
+          return {
+            id: row.id,
+            type: "block" as const,
+            position:
+              drag !== null && drag.id === row.id
+                ? drag.at
+                : (marks.pinned.get(row.id) ?? positions[row.id]!),
+            data: {
+              row,
+              dim:
+                !matches.has(row.id) ||
+                (near !== null && !near.has(row.id)) ||
+                marks.hidden.has(row.id),
+              pending: marks.marked.has(row.id),
+              dropTarget: drag !== null && drag.over === row.id,
+              chalk: chalking && row.id === selected,
+            },
+            selected: row.id === selected,
+            measured: measured.current.get(row.id),
+            draggable: drags,
+            connectable: chalking,
+            ariaLabel: `${row.name}, ${row.kindLabel}`,
+          };
+        }),
+    [rows, positions, matches, near, selected, marks, drag, drags, chalking],
   );
 
   const edges: Edge[] = useMemo(
@@ -140,10 +210,172 @@ function MapFlow({ moment }: { moment: Moment }) {
     [lifted, near, selected, canOpenEvidence],
   );
 
+  // An unsent relation draws as a dashed chalk line between its two blocks.
+  const chalked: Edge[] = useMemo(
+    () =>
+      marks.chalk
+        .filter((c) => positions[c.from] && positions[c.to])
+        .map((c) => ({
+          id: `pending:${c.idem}`,
+          source: c.from,
+          target: c.to,
+          className: "lifted pending-chalk",
+          selectable: false,
+          focusable: false,
+        })),
+    [marks, positions],
+  );
+
+  // The block a dragged block would move into: the one whose box holds the pointer, among the
+  // blocks it may move into.
+  const blockUnder = useCallback(
+    (x: number, y: number, id: string): string | null => {
+      if (!map) {
+        return null;
+      }
+      const at = flow.screenToFlowPosition({ x, y });
+      for (const target of moveTargets(map, id)) {
+        const place = marks.pinned.get(target.id) ?? positions[target.id];
+        if (!place) {
+          continue;
+        }
+        const size = measured.current.get(target.id) ?? BLOCK;
+        if (
+          at.x >= place.x &&
+          at.x <= place.x + size.width &&
+          at.y >= place.y &&
+          at.y <= place.y + size.height
+        ) {
+          return target.id;
+        }
+      }
+      return null;
+    },
+    [map, flow, marks, positions],
+  );
+
+  const onNodeDragStart = useCallback(
+    (_: unknown, node: { id: string; position: XYPosition }) => {
+      dragRef.current = {
+        id: node.id,
+        start: { ...node.position },
+        at: { ...node.position },
+        over: null,
+      };
+      setDrag(dragRef.current);
+    },
+    [],
+  );
+
+  const onNodeDrag = useCallback(
+    (event: MouseEvent | TouchEvent, node: { id: string }) => {
+      const d = dragRef.current;
+      if (d === null || d.id !== node.id) {
+        return;
+      }
+      const point = "touches" in event ? event.touches[0] : event;
+      const over = point
+        ? blockUnder(point.clientX, point.clientY, d.id)
+        : null;
+      if (over !== d.over) {
+        dragRef.current = { ...d, over };
+        setDrag(dragRef.current);
+      }
+    },
+    [blockUnder],
+  );
+
+  // A drop inside a block moves into it; a drop on the felt pins the block where it landed; a
+  // drop back where it began, or within a few px, does nothing (DR-68).
+  const onNodeDragStop = useCallback(
+    (_: unknown, node: { id: string; position: XYPosition }) => {
+      const d = dragRef.current;
+      dragRef.current = null;
+      setDrag(null);
+      if (d === null || d.id !== node.id) {
+        return;
+      }
+      const moved = Math.hypot(
+        node.position.x - d.start.x,
+        node.position.y - d.start.y,
+      );
+      if (moved < DRAG_SLOP_PX) {
+        return;
+      }
+      if (d.over !== null) {
+        void edit({ op: "move", id: d.id, parent: d.over });
+      } else {
+        void edit({ op: "pin", id: d.id, ...node.position });
+      }
+    },
+    [edit],
+  );
+
+  // A chalk line drawn onto another block: one relation kind sends at once, several ask which.
+  const onConnect = useCallback(
+    ({ source, target }: { source: string; target: string }) => {
+      if (source === target) {
+        return;
+      }
+      if (kinds.length === 1) {
+        void edit({ op: "relate", from: source, to: target, kind: kinds[0]! });
+      } else {
+        setRelate({ to: target, n: performance.now() });
+      }
+    },
+    [kinds, edit],
+  );
+  useEffect(() => setRelate(null), [selected]);
+
+  const clearHold = () => {
+    if (hold.current !== null) {
+      clearTimeout(hold.current.timer);
+      hold.current = null;
+    }
+  };
+  useEffect(() => clearHold, []);
+
+  // On the phone a finger held still on a block opens its tray (DR-68).
+  const onPointerDown = (e: PointerEvent) => {
+    held.current = null;
+    if (!phone || !canEdit || e.pointerType === "mouse") {
+      return;
+    }
+    const id = (e.target as Element)
+      .closest(".react-flow__node")
+      ?.getAttribute("data-id");
+    if (!id) {
+      return;
+    }
+    clearHold();
+    hold.current = {
+      x: e.clientX,
+      y: e.clientY,
+      timer: setTimeout(() => {
+        hold.current = null;
+        held.current = id;
+        openTray(id);
+      }, LONG_PRESS_MS),
+    };
+  };
+  const onPointerMove = (e: PointerEvent) => {
+    const h = hold.current;
+    if (
+      h !== null &&
+      Math.hypot(e.clientX - h.x, e.clientY - h.y) > HOLD_SLOP_PX
+    ) {
+      clearHold();
+    }
+  };
+
   // Two presses on one block within the window go into it; one only selects. A tap and a click
-  // both arrive here.
+  // both arrive here. The click that ends a long press has already had its use.
   const onNodeClick = useCallback(
     (_: unknown, node: { id: string }) => {
+      if (held.current === node.id) {
+        held.current = null;
+        return;
+      }
       const now = performance.now();
       const last = lastPress.current;
       if (
@@ -175,6 +407,13 @@ function MapFlow({ moment }: { moment: Moment }) {
       for (const c of changes) {
         if (c.type === "dimensions" && c.dimensions) {
           measured.current.set(c.id, c.dimensions);
+        } else if (
+          c.type === "position" &&
+          c.position &&
+          dragRef.current?.id === c.id
+        ) {
+          dragRef.current = { ...dragRef.current, at: c.position };
+          setDrag(dragRef.current);
         }
       }
       if (
@@ -191,9 +430,37 @@ function MapFlow({ moment }: { moment: Moment }) {
     [ready, nodes],
   );
 
+  // One Tab from the selected block reaches its tray (design-language.md, "Keyboard and screen
+  // readers"): the tray sits in the flow's overlay, far from the block in the tab order.
+  const onKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || e.shiftKey || selected === null) {
+        return;
+      }
+      const block = wrapper.current?.querySelector(
+        `.react-flow__node[data-id="${CSS.escape(selected)}"]`,
+      );
+      const first = wrapper.current?.querySelector<HTMLElement>(
+        ".action-tray button",
+      );
+      if (block !== null && block === document.activeElement && first) {
+        e.preventDefault();
+        first.focus();
+      }
+    },
+    [selected],
+  );
+
   return (
     <div
+      ref={wrapper}
       className="map"
+      onKeyDown={onKeyDown}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={clearHold}
+      onPointerCancel={clearHold}
+      onContextMenu={phone ? (e) => e.preventDefault() : undefined}
       style={{ "--yarn": yarnVar(map?.yarn ?? null) } as CSSProperties}
       data-ready={ready || undefined}
       data-moment={moment}
@@ -201,7 +468,7 @@ function MapFlow({ moment }: { moment: Moment }) {
     >
       <ReactFlow<BlockNode, Edge>
         nodes={nodes}
-        edges={edges}
+        edges={chalked.length === 0 ? edges : [...edges, ...chalked]}
         nodeTypes={NODE_TYPES}
         onNodesChange={onNodesChange}
         fitView
@@ -212,8 +479,17 @@ function MapFlow({ moment }: { moment: Moment }) {
         }}
         minZoom={0.2}
         maxZoom={2}
-        nodesDraggable={false}
-        nodesConnectable={false}
+        nodesDraggable={drags}
+        nodesConnectable={chalking}
+        connectionLineStyle={{
+          stroke: "var(--chalk)",
+          strokeWidth: 2,
+          strokeDasharray: "6 4",
+        }}
+        onConnect={onConnect}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDrag={onNodeDrag}
+        onNodeDragStop={onNodeDragStop}
         elementsSelectable
         zoomOnDoubleClick={false}
         onNodeClick={onNodeClick}
@@ -223,12 +499,22 @@ function MapFlow({ moment }: { moment: Moment }) {
             : undefined
         }
         onPaneClick={() => {
+          setRelate(null);
           select(null);
           closeEvidence();
         }}
         proOptions={{ hideAttribution: true }}
       >
         <Revealer />
+        {!phone && selected !== null && canEdit && (
+          <NodeToolbar nodeId={selected} position={Position.Bottom} isVisible>
+            <ActionTray
+              key={relate?.n ?? 0}
+              id={selected}
+              startRelateTo={relate?.to}
+            />
+          </NodeToolbar>
+        )}
       </ReactFlow>
       <Outline levels={map?.levels ?? []} rows={rows} edges={lifted} />
     </div>
