@@ -1,13 +1,16 @@
 //! Golden CLI outputs from real runs on the built fixture, which the mod's and the canvas's tests
 //! read (DR-6, DR-79): `tests/golden/cli/focus.json`, `tests/golden/cli/focus-no-repos.json`,
-//! `tests/golden/cli/map-container.json`, `tests/golden/cli/map-graph.json`,
+//! `tests/golden/cli/focus-plan-only.json`, `tests/golden/cli/map-container.json`,
+//! `tests/golden/cli/map-graph.json`,
 //! `tests/golden/cli/map-empty.json`, `tests/golden/cli/watch-frames.json` and
 //! `tests/golden/cli/invalid-argument.json`, a wrong `--detail` with its synopsis and schema handle,
 //! and the three pickers `focus --picker lens|project|stage` returns: `focus-picker-lens.json`,
 //! `focus-picker-project.json` and `focus-picker-stage.json`, the last two over a plan project an
 //! agent started.
 //! `focus-no-repos.json` is `focus` in an empty directory, not yet a workspace, whose next action
-//! is `focus` again; `map-container.json` is the scanned fixture's container level, which the
+//! is `schema --command "intent new"`, which starts a plan; `focus-plan-only.json` is `focus` in a
+//! directory where an agent started a plan and no repo exists: `plan_only`, whose next action is
+//! `intent list`; `map-container.json` is the scanned fixture's container level, which the
 //! pane's next action opens.
 //!
 //! A plain run compares the engine's output with the committed files. `cargo xtask gen --golden`
@@ -239,12 +242,26 @@ fn golden_runs(tmp: &Path) -> Vec<Golden> {
     assert!(unscanned.nodes.is_empty() && unscanned.empty.is_some(), "an unscanned workspace maps empty");
     keep("map-empty.json", &root, empty.clone(), normalized(rooted(empty, &root)));
 
-    // An empty directory is no workspace and holds no repo: the pane's empty state checks again.
+    // An empty directory is no workspace and holds no repo: the pane's empty state offers to start
+    // a plan.
     let bare = tmp.join("bare");
     std::fs::create_dir(&bare).unwrap();
     let no_repos = run(&bare, &["focus", "--json"]);
-    assert_eq!(no_repos["result"]["next"]["command"], "focus", "{no_repos}");
+    assert_eq!(no_repos["result"]["next"]["command"], "schema", "{no_repos}");
     keep("focus-no-repos.json", &bare, no_repos.clone(), normalized(rooted(no_repos, &bare)));
+
+    // An agent starts a plan in an empty directory: the workspace holds a plan and no repo.
+    let greenfield = tmp.join("greenfield");
+    std::fs::create_dir(&greenfield).unwrap();
+    let (begun, ok) = run_as(
+        &greenfield,
+        &["intent", "new", "Add a billing service", "--json"],
+        &[("PLANROOM_ACTOR", "agent:aaaaaaaa:chat")],
+    );
+    assert!(ok, "{begun}");
+    let plan_only = run(&greenfield, &["focus", "--json"]);
+    assert_eq!(plan_only["result"]["empty"]["reason"], "plan_only", "{plan_only}");
+    keep("focus-plan-only.json", &greenfield, plan_only.clone(), normalized(rooted(plan_only, &greenfield)));
 
     run(&root, &["scan", "--json"]);
 

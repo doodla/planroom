@@ -54,7 +54,11 @@ export function TrayList() {
       <EmptyState
         art={emptyDiffs}
         concept="diffs"
-        {...(next ? { action: next } : {})}
+        {...(next === null
+          ? {}
+          : next.onPress !== null
+            ? { action: { label: next.label, onPress: next.onPress } }
+            : { elsewhere: next.label })}
       />
     );
   }

@@ -1,7 +1,7 @@
 import type { Empty } from "@planroom/contract";
 import { expect, test } from "vitest";
 
-import { emptyWords } from "./engine-empty";
+import { drawsHere, emptyWords, fillsThePage, inPane } from "./engine-empty";
 
 const CHECK_AGAIN = { command: "focus", args: [], label: "Check again" };
 
@@ -32,4 +32,37 @@ test("an_empty_states_line_and_label_pass_the_display_sanitizing_pass", () => {
   });
   expect(words.line).toBe("git can't read evil⟨U+202E⟩gpj.exe\\x1b[2J here");
   expect(words.label).toBe("Check⟨U+200B⟩ again");
+});
+
+test("a_handle_the_canvas_cannot_draw_names_the_pane", () => {
+  expect(drawsHere({ command: "map", args: [], label: "x" })).toBe(true);
+  expect(drawsHere({ command: "scan", args: [], label: "x" })).toBe(true);
+  expect(drawsHere({ command: "focus", args: [], label: "x" })).toBe(true);
+  expect(
+    drawsHere({
+      command: "schema",
+      args: ["--command", "intent new"],
+      label: "Start a plan here",
+    }),
+  ).toBe(false);
+  const show = { command: "intent list", args: [], label: "Show the plan" };
+  expect(drawsHere(show)).toBe(false);
+  expect(inPane(show)).toBe(
+    "Show the plan: in Claude Code, in Planroom's pane.",
+  );
+});
+
+test("a_top_that_holds_a_plan_keeps_the_shell_and_its_project_shelf", () => {
+  const show = { command: "intent list", args: [], label: "Show the plan" };
+  expect(fillsThePage({ reason: "plan_only", line: "x", next: show })).toBe(
+    false,
+  );
+  for (const reason of [
+    "not_scanned",
+    "no_repos",
+    "repos_unborn",
+    "repos_unreadable",
+  ]) {
+    expect(fillsThePage({ reason, next: CHECK_AGAIN }), reason).toBe(true);
+  }
 });

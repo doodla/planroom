@@ -194,13 +194,44 @@ pub(crate) fn writer_for(
         actor::spend(store, digest, now, &name, path)
             .map_err(|e| actor::naming_line(e, &name, path, line))?;
     }
-    let default = match (&acting.actor, caller.actor.as_deref()) {
+    Ok(writer_of(acting.actor, caller, common))
+}
+
+/// The CLI's writer instance for `actor`: its client is the request's, else the caller's, else
+/// the agent's own name or the process.
+fn writer_of(actor: Actor, caller: &Caller, common: &planroom_contract::WriteCommon) -> Writer {
+    let default = match (&actor, caller.actor.as_deref()) {
         (Actor::Agent { .. }, Some(named)) => named.to_owned(),
         _ => format!("cli:{}", std::process::id()),
     };
     let id = common.client.clone().or_else(|| caller.client.clone()).unwrap_or(default);
     let surface = if id.starts_with("mod:") { Surface::Mod } else { Surface::Cli };
-    Ok(Writer { actor: acting.actor, client: Client { surface, id } })
+    Writer { actor, client: Client { surface, id } }
+}
+
+/// [`writer_for`] where no store exists yet, so no person key is registered anywhere: an agent's
+/// `PLANROOM_ACTOR` gives the agent, a person at a terminal confirms, and nothing at all is
+/// `actor_required`. A person's token can't be verified against any key, so it is `person_required`
+/// and spends nothing. A refusal makes nothing, since the caller makes the workspace only after.
+pub(crate) fn writer_without_store(
+    spec: &'static CommandSpec,
+    common: &planroom_contract::WriteCommon,
+    line: &str,
+    caller: &Caller,
+    terminal: &mut dyn Terminal,
+) -> Result<Writer, AppError> {
+    let name = spec.name();
+    let path = actor::TerminalPath::Takes;
+    let agent = caller.actor.as_deref().is_some_and(|a| !a.starts_with("person:"));
+    if caller.token.is_some() && !agent {
+        return Err(actor::person_required(&name, actor::Refused::BadSignature, path)
+            .with_hint(text::get("hint.person_required_key", &[])));
+    }
+    let now = clock::unix_micros() / 1_000_000;
+    let bound = Bound { idem: common.idem.as_deref(), base: common.base };
+    let acting = actor::writer(caller, spec, &bound, &[], now, terminal)
+        .map_err(|e| actor::naming_line(e, &name, path, line))?;
+    Ok(writer_of(acting.actor, caller, common))
 }
 
 /// What a commit stores as the command's reply on its first event: the result and its line, or the

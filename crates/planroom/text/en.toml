@@ -75,6 +75,7 @@ model_unknown_model = "planroom doctor"
 model_purpose = "planroom doctor"
 model_model_setting = "planroom doctor"
 model_replay_dir_relative = "export PLANROOM_REPLAY_DIR=\"$(git rev-parse --show-toplevel)/tests/replay\""
+path_refused_plan_folder = "mkdir DIR && cd DIR"
 
 # The data root's shared files (DR-78).
 [data]
@@ -186,7 +187,7 @@ unsafe_filesystem_data_root = "The store at {store} is on a filesystem that can'
 [empty]
 not_scanned = "Nothing is mapped here yet; {count} repos can be."
 not_scanned_next = "Map these {count} repos? About 2 s."
-no_repos = "No git repos here. Open Planroom in a folder that holds your repos, or clone one here, then check again."
+no_repos = "No git repos here. Start a plan, or add a repo."
 no_intent = "No plans at the intent level yet."
 empty_level = "Nothing at the {level} level here."
 top_next = "Show the top of the map"
@@ -220,6 +221,11 @@ no_plan_items = "The plan {project} has no items yet; its next stage is {stage}.
 no_plan_items_next = "Show the next stage's checklist"
 no_findings = "Lint finds nothing missing in the plan {project}."
 no_findings_next = "Show the plan"
+no_repos_next = "Start a plan here"
+in_repo = "This folder is in the repo {name}, which isn't mapped yet. Map it to start a plan here."
+in_repo_next = "Map the repo this folder is in? About 2 s."
+plan_only = "Your plan is kept here. The map fills from each repo's first commit."
+plan_only_next = "Show the plan"
 
 # The fix a repo_skipped warning names for git_failed. other_owner has none: Planroom never runs git
 # in another user's repo, and names no command to run there.
@@ -231,6 +237,7 @@ git_failed_not_a_file = "Run ls -l {path} to see what it is: git needs a directo
 summary = "Mapped {repos} repos, {moved} of them moved: {units}, {nodes} nodes, {hints} hints."
 unborn = "No commits yet in {names}; each maps after its first commit."
 next_label = "Show the map"
+plan_only = "No repos to map yet; your plan is kept."
 
 [focus]
 summary = "{name} · {level} · lens {lens} · seq {seq}"
@@ -416,6 +423,7 @@ close = "Close"
 notices = "What Planroom said"
 more_notices = "{count} more"
 card_in_pane = "Pick this card in Claude Code, in Planroom's pane."
+next_in_pane = "{label}: in Claude Code, in Planroom's pane."
 
 [version]
 summary = "planroom {version} for {target}, catalogue {hash}."
@@ -673,6 +681,7 @@ label_secret = "That label reads like it holds a secret, and a label is passed b
 label_taken = "The plan {project} already has a version labelled {label}."
 no_project = "No plan here yet: start one with planroom intent new \"TEXT\", then propose its items."
 project_missing = "plan {project}"
+workspace_started = "Started the plan {name}, {id}, in {dir}/. No repos yet."
 project_mismatch = "The proposal names the plan {named}, but --project names {flag}; give one of them."
 project_ghost = "The plan {id} waits as a proposal; a person accepts it before adding items or versions to it."
 parent_ghost = "The item {id} waits as a proposal, so a person's items can't go under it until it is accepted."
@@ -814,6 +823,8 @@ restore_mixed = "This workspace already holds a person's edits, so a restore wou
 outside_workspace = "it's outside this workspace's repos"
 outside_root = "it's outside this workspace's root, or in its state directory or a git directory"
 credential = "it may hold a credential, so only a person may name it"
+home_directory = "it's your home directory, and a plan there would take in every folder below it"
+filesystem_root = "it's the filesystem root, and a plan there would take in every folder below it"
 
 # The mod's own lines: what the pane, the band, /room and the tools draw around the engine's
 # strings. `cargo xtask gen` writes them into catalogue.ts as MOD_STRINGS, as it writes the

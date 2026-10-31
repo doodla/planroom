@@ -8,17 +8,23 @@ import { Shell } from "./shell/shell";
 import { CANVAS_STRINGS } from "@planroom/contract";
 import { useCanvas } from "./use-canvas";
 import { EmptyState } from "./views/empty-state";
-import { emptyWords } from "./views/engine-empty";
+import {
+  drawsHere,
+  emptyWords,
+  fillsThePage,
+  inPane,
+} from "./views/engine-empty";
 
 export function App() {
   const phase = useCanvas((s) => s.phase);
   const problem = useCanvas((s) => s.problem);
   const hint = useCanvas((s) => s.hint);
   // The top level's empty state fills the page; a level below it keeps the shell, so its
-  // breadcrumb and rail still lead back up (ux-3).
+  // breadcrumb and rail still lead back up (ux-3), and so does a top that holds a plan, so its
+  // project shelf is on screen.
   const empty = useCanvas((s) => {
     const map = s.map;
-    if (map === null) {
+    if (map === null || map.empty == null || !fillsThePage(map.empty)) {
       return null;
     }
     const top = topOf(map.levels ?? [])?.id ?? null;
@@ -28,6 +34,7 @@ export function App() {
   });
   const start = useCanvas((s) => s.start);
   const run = useCanvas((s) => s.run);
+  const canRun = useCanvas((s) => s.canRun);
 
   switch (phase) {
     case "starting":
@@ -62,16 +69,21 @@ export function App() {
         // The engine's line says why the page is empty and what to do; the button is its short
         // action, which says little alone ("Check again").
         const words = emptyWords(empty);
+        const runs = drawsHere(empty.next) && canRun(empty.next);
         return (
           <main className="page">
             <EmptyState
               art={emptyMap}
               concept="levels"
               line={words.line}
-              action={{
-                label: words.label,
-                onPress: () => void run(empty.next),
-              }}
+              {...(runs
+                ? {
+                    action: {
+                      label: words.label,
+                      onPress: () => void run(empty.next),
+                    },
+                  }
+                : { elsewhere: inPane(empty.next) })}
             />
           </main>
         );

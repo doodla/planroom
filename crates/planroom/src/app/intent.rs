@@ -24,8 +24,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use planroom_contract::{
-    Actor, Command, CommandName, Cursor, EditResult, Empty, EmptyReason, ErrorCode, EventBody, EventId,
-    Handle, IntentListReq, IntentListResult, IntentNewReq, IntentNextReq, IntentVersionReq, LevelId,
+    Actor, Command, CommandName, CommandSpec, Cursor, EditResult, Empty, EmptyReason, ErrorCode, EventBody,
+    EventId, Handle, IntentListReq, IntentListResult, IntentNewReq, IntentNextReq, IntentVersionReq, LevelId,
     LintFinding, LintReq, LintResult, ModelTier, ModelUse, Node, NodeId, PlanItem, PlanProject, PlanProposal,
     PlanVersion, ProposeReq, RuleDecl, Seq, StageDecl, Status, Usage, Vocabulary, Warning, WarningCode,
 };
@@ -41,7 +41,7 @@ use serde_json::{Map, Value, json};
 use crate::app::actor::{Caller, Terminal};
 use crate::app::edit::{self, Plan, Writing, Written, q};
 use crate::app::error::AppError;
-use crate::app::{Paged, Reply, confine, workspace};
+use crate::app::{Paged, Reply, confine, scan, workspace};
 use crate::packs::{Loaded, state};
 use crate::{live, text};
 
@@ -226,12 +226,57 @@ pub fn new(
     if name.chars().count() > TEXT_MAX {
         return Err(AppError::invalid_argument("text", "intent.text_long"));
     }
-    let (root, mut store) = open_write(cwd)?;
     let spec = Command::IntentNew(req.clone()).spec();
     let line = line("intent new", req.common.base, req.common.project.as_ref(), &[], Some(&req.text));
-    let writer =
-        edit::writer_for(spec, &req.common, &line, caller, &mut store, &root, req.common.base, terminal)?;
     let id = plan::project_id(&plan::project_slug(&name));
+    let dir = std::fs::canonicalize(cwd).map_err(|_| AppError::workspace_not_found(cwd))?;
+    let root = workspace::find_root(&dir).unwrap_or(dir);
+    if let Some(mut store) = Store::open_existing(&workspace::store_path(&root))? {
+        crate::app::hook(&mut store);
+        let writer =
+            edit::writer_for(spec, &req.common, &line, caller, &mut store, &root, req.common.base, terminal)?;
+        let made = text::get("intent.created", &[("name", &q(&name)), ("id", &id.0)]);
+        return put_project(&mut store, &root, spec, req, writer, &name, &id, made);
+    }
+    // No store here: this plan makes the workspace, in a folder that may hold one. Who writes and
+    // whether the folder may hold a workspace are settled first, so a refusal makes nothing.
+    if let Some(refused) = confine::plan_folder_refused(&root) {
+        return Err(refused);
+    }
+    // A folder inside a repo's working tree, with no repo below it, is where `scan` refuses: the
+    // plan starts where a scan would make the store, or nowhere, and is refused as the scan is.
+    let ws = workspace::discover(&root)?;
+    if ws.repos.is_empty() && workspace::in_working_tree(&ws.root) {
+        return Err(AppError::workspace_not_found(&ws.root));
+    }
+    let writer = edit::writer_without_store(spec, &req.common, &line, caller, terminal)?;
+    let mut store = scan::open_store(&ws)?;
+    // The plan-only workspace's line says no repo is there yet; beside repos, which a scan maps,
+    // the plan's own line is the true one.
+    let made = if ws.repos.is_empty() {
+        let dir_name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        text::get(
+            "intent.workspace_started",
+            &[("name", &q(&name)), ("id", &id.0), ("dir", &planroom_kernel::display::sanitize(&dir_name))],
+        )
+    } else {
+        text::get("intent.created", &[("name", &q(&name)), ("id", &id.0)])
+    };
+    put_project(&mut store, &root, spec, req, writer, &name, &id, made)
+}
+
+/// The one `put` of the project `id` named `name`, with `made` for the reply's line.
+#[allow(clippy::too_many_arguments)]
+fn put_project(
+    store: &mut Store,
+    root: &Path,
+    spec: &'static CommandSpec,
+    req: &IntentNewReq,
+    writer: Writer,
+    name: &str,
+    id: &NodeId,
+    made: String,
+) -> Result<Written<EditResult>, AppError> {
     let writing = Writing {
         spec,
         args: json!({"text": req.text}),
@@ -240,20 +285,20 @@ pub fn new(
         writer: writer.clone(),
         base: req.common.base,
     };
-    edit::commit(&mut store, &root, writing, |_, folded, base| {
-        if plan::projects(folded).iter().any(|p| p.id == id) {
+    edit::commit(store, root, writing, |_, folded, base| {
+        if plan::projects(folded).iter().any(|p| p.id == *id) {
             let what = text::get("intent.exists", &[("id", &id.0)]);
             return Err(AppError::new(ErrorCode::InvalidArgument, &[("what", &what)])
                 .details(json!({"field": "text"})));
         }
-        let put = plan::project_put(&id, &name, base);
+        let put = plan::project_put(id, name, base);
         let check = cas::check_edits(folded, &proposed(&writer, base), std::slice::from_ref(&put));
         Ok(Plan {
             bodies: vec![(Some(id.0.clone()), EventBody::Edit(put))],
             targets: vec![id.0.clone()],
             check,
-            line: text::get("intent.created", &[("name", &q(&name)), ("id", &id.0)]),
-            names: BTreeMap::from([(id.0.clone(), name.clone())]),
+            line: made,
+            names: BTreeMap::from([(id.0.clone(), name.to_owned())]),
             closes: vec![],
             project: Some(id.clone()),
         })
@@ -1101,6 +1146,23 @@ fn after(mark: &Mark, entries: &[Entry]) -> usize {
     }
 }
 
+/// The empty state of a project with no items: its next stage, with the command that asks for it,
+/// or the plan's own empty state when the plan pack declares no stage to ask.
+pub(crate) fn project_empty(project: &plan::Project, stages: &[StageDecl]) -> Empty {
+    let Some(next) = plan::next_stage(stages, &[]).map(|s| s.id.clone()) else {
+        return no_intent();
+    };
+    Empty {
+        reason: EmptyReason("no_plan_items".into()),
+        line: Some(text::get("empty.no_plan_items", &[("project", &q(&project.name)), ("stage", &next)])),
+        next: Handle {
+            command: CommandName("ask".into()),
+            args: vec!["stage".into(), next.clone(), project.id.0.clone()],
+            label: text::label("empty.no_plan_items_next", &[]),
+        },
+    }
+}
+
 /// `planroom intent list [--project P] [--cursor C]`: every project, then the named or only
 /// project's items, paged within the leaf's budget.
 pub fn list(req: &IntentListReq, cwd: &Path) -> Result<Paged<IntentListResult>, AppError> {
@@ -1137,18 +1199,7 @@ pub fn list(req: &IntentListReq, cwd: &Path) -> Result<Paged<IntentListResult>, 
         && items.is_empty()
     {
         // With no items, the next stage is the first: the stages come from the plan pack.
-        let Some(next) = plan::next_stage(&stages, &items).map(|s| s.id.clone()) else {
-            return Ok(empty_reply(no_intent(), listed, seq));
-        };
-        let none = Empty {
-            reason: EmptyReason("no_plan_items".into()),
-            line: Some(text::get("empty.no_plan_items", &[("project", &q(&project.name)), ("stage", &next)])),
-            next: Handle {
-                command: CommandName("ask".into()),
-                args: vec!["stage".into(), next.clone(), project.id.0.clone()],
-                label: text::label("empty.no_plan_items_next", &[]),
-            },
-        };
+        let none = project_empty(project, &stages);
         return Ok(empty_reply(none, listed, seq));
     }
     let entries: Vec<Entry> = listed

@@ -601,9 +601,18 @@ test("pane_shows_the_engines_summary_line", async ($, on) => {
 });
 
 test("a_check_again_press_refreshes_the_pane_with_no_way_back", async ($, on) => {
+  const checkAgain = { command: "focus", args: [], label: "Check again" };
+  const answer = {
+    ...noRepos,
+    result: {
+      ...noRepos.result,
+      next: checkAgain,
+      empty: { ...noRepos.result.empty, next: checkAgain },
+    },
+  };
   const h = host(on, (argv) =>
     argv[0] === ENGINE && argv[1] === "focus"
-      ? { exitCode: 0, stdout: JSON.stringify(noRepos) }
+      ? { exitCode: 0, stdout: JSON.stringify(answer) }
       : readyEngine(argv),
   );
   await $.session.start(START);
@@ -611,7 +620,7 @@ test("a_check_again_press_refreshes_the_pane_with_no_way_back", async ($, on) =>
 
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
   const next = await ui.find({ key: "next" });
-  expect(next?.text).toBe(noRepos.result.next.label);
+  expect(next?.text).toBe(answer.result.next.label);
   const focused = focusRuns(h).length;
   await ui.press({ key: "next" });
   await h.clock.settle();
@@ -623,9 +632,7 @@ test("a_check_again_press_refreshes_the_pane_with_no_way_back", async ($, on) =>
   ).not.toHaveProperty("PLANROOM_PERSON_TOKEN");
   expect(h.toasts).toEqual([]);
   expect(await ui.find({ key: "back" })).toBeUndefined();
-  expect((await ui.find({ key: "next" }))?.text).toBe(
-    noRepos.result.next.label,
-  );
+  expect((await ui.find({ key: "next" }))?.text).toBe(answer.result.next.label);
   await ui.unmount();
 });
 

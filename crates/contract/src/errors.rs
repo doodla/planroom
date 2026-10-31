@@ -149,7 +149,7 @@ error_codes! {
         "a model-only command before the person allowed this provider for the workspace; only the person's pick on the consent card clears it",
         ["provider", "card"];
     PathRefused = "path_refused", Permission, Never,
-        "a read named a path outside the workspace's repos and scanned files, a non-person named a credential path, or a repo's git directory belongs to another user",
+        "a read named a path outside the workspace's repos and scanned files, a non-person named a credential path, or a repo's git directory belongs to another user, or `intent new` would make a workspace in the home directory or at the filesystem root",
         ["path", "reason"];
     RepoConfigRefused = "repo_config_refused", Permission, Never,
         "a checkout or merge in a workspace repo whose local git config names a command git would run",

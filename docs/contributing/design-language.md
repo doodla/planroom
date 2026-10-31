@@ -162,7 +162,7 @@ The canvas follows the pane's model, so a person who never touches a pointer can
 
 ## Empty states
 
-No screen is blank. Every empty state shows the felt with one block waiting on it, the engine's line that says why it is empty and what to do, and the single next action as a button, for example "Check again". The label alone says little, so the pane and the canvas draw the line with it whenever the engine sends one. The empty-state art comes from Iris, with its prompt beside it under `docs/art/`.
+No screen is blank. Every empty state shows the felt with one block waiting on it, the engine's line that says why it is empty and what to do, and the single next action as a button, for example "Check again", or, when it runs where the page can't show its answer, a line naming the pane. The label alone says little, so the pane and the canvas draw the line with it whenever the engine sends one. The empty-state art comes from Iris, with its prompt beside it under `docs/art/`.
 
 ## Don't
 

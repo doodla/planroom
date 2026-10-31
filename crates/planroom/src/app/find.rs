@@ -45,18 +45,18 @@ pub fn run(req: &FindReq, cwd: &Path) -> Result<Reply<FindResult>, AppError> {
         return Err(AppError::invalid_argument("text", "argument.find_text"));
     }
     let Some(root) = workspace::find_root(cwd) else {
-        return Ok(not_scanned(cwd, 0));
+        return Ok(not_scanned(cwd, 0, false));
     };
     let Some(store) = Store::open_existing(&workspace::store_path(&root))? else {
-        return Ok(not_scanned(&root, 0));
+        return Ok(not_scanned(&root, 0, false));
     };
     let snapshot = store.snapshot()?;
     let seq = snapshot.seq();
-    if snapshot.active_set()?.repos.is_empty() {
-        return Ok(not_scanned(&root, seq));
-    }
     // The set the workspace records, read in this transaction; one that didn't load says so.
     let set = state::for_snapshot(&snapshot, &root)?;
+    if snapshot.active_set()?.repos.is_empty() {
+        return Ok(not_scanned(&root, seq, map::plan_held(&snapshot, set.vocabulary())?));
+    }
     let vocabulary = set.vocabulary();
     let model = live::model(&snapshot, vocabulary)?;
     let hits = find::find(&model.nodes, &Ladder::of(vocabulary), &req.text);
@@ -177,9 +177,10 @@ fn item(node: &Node, present: &HashSet<&str>, parents: &HashSet<&str>) -> FindIt
     }
 }
 
-/// A directory with no scan: the empty state `map` shows there.
-fn not_scanned(dir: &Path, seq: Seq) -> Reply<FindResult> {
-    let empty = map::scan_empty(dir, &workspace::scannable(dir));
+/// A directory with no scan: the empty state `map` shows there; `plan` is whether the store holds
+/// a project.
+fn not_scanned(dir: &Path, seq: Seq, plan: bool) -> Reply<FindResult> {
+    let empty = map::scan_empty(dir, &workspace::scannable(dir), plan);
     empty_reply(empty, seq)
 }
 

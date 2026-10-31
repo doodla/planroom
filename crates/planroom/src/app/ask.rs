@@ -152,15 +152,16 @@ fn reply(
     }
     let asked = asked(decl, &req.args);
     let Some(root) = root else {
-        return Ok(Paged::whole(not_scanned(decl, cwd, 0)));
+        return Ok(Paged::whole(not_scanned(decl, cwd, 0, false)));
     };
     let Some(store) = store else {
-        return Ok(Paged::whole(not_scanned(decl, root, 0)));
+        return Ok(Paged::whole(not_scanned(decl, root, 0, false)));
     };
     let snapshot = store.snapshot()?;
     let seq = snapshot.seq();
     if snapshot.active_set()?.repos.is_empty() {
-        return Ok(Paged::whole(not_scanned(decl, root, seq)));
+        let plan = map::plan_held(&snapshot, &loaded.vocabulary)?;
+        return Ok(Paged::whole(not_scanned(decl, root, seq, plan)));
     }
     let vocabulary = &loaded.vocabulary;
     let model = live::model(&snapshot, vocabulary)?;
@@ -517,9 +518,10 @@ fn sent_tokens(result: &AskResult) -> usize {
     bytes(result).max(bytes(&redacted)).div_ceil(4) + ENVELOPE_TOKENS
 }
 
-/// A directory with no scan: the empty state `map` shows there.
-fn not_scanned(decl: &QuestionDecl, dir: &Path, seq: Seq) -> Reply<AskResult> {
-    empty_reply(decl, map::scan_empty(dir, &workspace::scannable(dir)), seq)
+/// A directory with no scan: the empty state `map` shows there; `plan` is whether the store holds
+/// a project.
+fn not_scanned(decl: &QuestionDecl, dir: &Path, seq: Seq, plan: bool) -> Reply<AskResult> {
+    empty_reply(decl, map::scan_empty(dir, &workspace::scannable(dir), plan), seq)
 }
 
 /// Nothing on the map answers the question: the next action lists what can be asked.

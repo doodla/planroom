@@ -1,11 +1,14 @@
 import { expect, test } from "vitest";
-import type { StreamFrame } from "@planroom/contract";
+import type { PaneModel, StreamFrame } from "@planroom/contract";
 
+import focusNoRepos from "../../../tests/golden/cli/focus-no-repos.json";
+import focusPlanOnly from "../../../tests/golden/cli/focus-plan-only.json";
 import frames from "../../../tests/golden/cli/watch-frames.json";
 import {
   advanceCursor,
   frameRefreshes,
   frameSeq,
+  hasStore,
   IDLE,
   LineReader,
   MAX_WAIT_MS,
@@ -214,4 +217,9 @@ test("a dead child restarts after 1 s, backing off to 30 s", () => {
   expect(restartDelay(1)).toBe(2_000);
   expect(restartDelay(3)).toBe(8_000);
   expect(restartDelay(10)).toBe(30_000);
+});
+
+test("a_plan_only_workspaces_store_starts_the_watch", () => {
+  expect(hasStore(focusPlanOnly.result as PaneModel)).toBe(true);
+  expect(hasStore(focusNoRepos.result as PaneModel)).toBe(false);
 });

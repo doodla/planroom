@@ -11,11 +11,16 @@
 //!   failure counts as untrusted.
 //! - A person's accept of the trust card records it too (`by: person`), and waives the git check,
 //!   since accepting is what trusts a `.planroom/` a repo commits (DR-89).
+//! - A `.planroom/` at a repo's root is that repo's state directory only when the data root records
+//!   exactly that directory as trusted and git tracks nothing in it, as when a plan began in the
+//!   folder before `git init` (DR-115); see [`kept_at_repo_root`].
 //! - With no data root to read, nothing is trusted.
 
+use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
 
 use planroom_extract::git::Git;
@@ -94,6 +99,42 @@ pub fn dir_name(root: &Path) -> &'static str {
     if workspace::state_dir(root) == root.join(workspace::DIR) { ".planroom/" } else { ".git/planroom/" }
 }
 
+/// Whether the `.planroom/` at the root of the repo `root` is that repo's state directory: the
+/// data root records exactly that directory as trusted, by the engine or a person, and git tracks
+/// nothing in it. A plan begun in a folder before `git init` has such a record, so it keeps its
+/// state directory; a `.planroom/` a repo commits or a clone brings has none, so it changes
+/// nothing (DR-115).
+///
+/// It reads the directory's identity itself rather than through [`workspace::state_dir`], which
+/// asks this function, and the answer holds for the life of the process: the state directory
+/// can't move under a running command, and each command asks for it many times. A root with no
+/// `.planroom/` directory answers false without being remembered.
+pub fn kept_at_repo_root(root: &Path) -> bool {
+    static KEPT: OnceLock<Mutex<HashMap<PathBuf, bool>>> = OnceLock::new();
+    let dir = root.join(workspace::DIR);
+    if !fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir()) {
+        return false;
+    }
+    let Ok(canonical) = fs::canonicalize(root) else { return false };
+    let cache = KEPT.get_or_init(Default::default);
+    if let Some(&kept) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&canonical) {
+        return kept;
+    }
+    let kept = compute_kept(&canonical);
+    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(canonical, kept);
+    kept
+}
+
+fn compute_kept(canonical: &Path) -> bool {
+    let Found::Dir(id) = identity_at(canonical.to_path_buf(), canonical.join(workspace::DIR)) else {
+        return false;
+    };
+    let Ok(data) = data::root() else { return false };
+    let Ok(records) = data::trusted(&data, &id.root) else { return false };
+    records.iter().any(|r| id.matches(r))
+        && Git::new(canonical).tracks_any(Path::new(workspace::DIR)) == Ok(false)
+}
+
 /// A state directory as a trust record names it.
 struct Identity {
     root: String,
@@ -126,6 +167,11 @@ enum Found {
 fn identity(root: &Path) -> Found {
     let Ok(root) = fs::canonicalize(root) else { return Found::Unreadable };
     let state = workspace::state_dir(&root);
+    identity_at(root, state)
+}
+
+/// The identity of `state`, the state directory of the workspace at the canonical `root`.
+fn identity_at(root: PathBuf, state: PathBuf) -> Found {
     let (Some(parent), Some(name)) = (state.parent(), state.file_name()) else { return Found::Unreadable };
     let parent = match fs::canonicalize(parent) {
         Ok(parent) => parent,

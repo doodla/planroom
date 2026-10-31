@@ -612,6 +612,7 @@ const INTENT_NEW_ERRORS: &[ErrorCode] = &[
     ErrorCode::ActorRequired,
     ErrorCode::PersonRequired,
     ErrorCode::WorkspaceNotFound,
+    ErrorCode::PathRefused,
     ErrorCode::IdempotencyMismatch,
     ErrorCode::PacksMismatch,
     ErrorCode::StoreBusy,

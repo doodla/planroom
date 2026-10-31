@@ -7,6 +7,7 @@
 import { fill, sanitize } from "@planroom/ui";
 
 import { alreadyShown, atTop, topOf } from "../levels";
+import { drawsHere, inPane } from "../views/engine-empty";
 import { CANVAS_STRINGS } from "@planroom/contract";
 import { useCanvas } from "../use-canvas";
 
@@ -24,7 +25,8 @@ export function useTopName(): string {
 
 export interface NextPress {
   readonly label: string;
-  readonly onPress: () => void;
+  /** Null when the canvas can't run the action: the label then names the pane that can. */
+  readonly onPress: (() => void) | null;
 }
 
 /** The next action's press, the way back up once its level shows, or null when neither applies. */
@@ -32,6 +34,7 @@ export function useNextAction(): NextPress | null {
   const pane = useCanvas((s) => s.pane);
   const map = useCanvas((s) => s.map);
   const run = useCanvas((s) => s.run);
+  const canRun = useCanvas((s) => s.canRun);
   const back = useCanvas((s) => s.back);
   const top = useTopName();
   if (pane === null) {
@@ -53,6 +56,9 @@ export function useNextAction(): NextPress | null {
           label: fill(CANVAS_STRINGS.back_to, { place: top }),
           onPress: () => void back(),
         };
+  }
+  if (!drawsHere(next) || !canRun(next)) {
+    return { label: inPane(next), onPress: null };
   }
   return { label: sanitize(next.label), onPress: () => void run(next) };
 }

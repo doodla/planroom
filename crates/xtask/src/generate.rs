@@ -58,6 +58,7 @@ pub const GOLDEN_TESTS: &[(&str, &str, &[&str])] = &[(
     &[
         "tests/golden/cli/focus.json",
         "tests/golden/cli/focus-no-repos.json",
+        "tests/golden/cli/focus-plan-only.json",
         "tests/golden/cli/map-container.json",
         "tests/golden/cli/map-graph.json",
         "tests/golden/cli/map-empty.json",

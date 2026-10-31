@@ -11,6 +11,7 @@ import { expect, test } from "vitest";
 
 import focus from "../../../tests/golden/cli/focus.json";
 import focusNoRepos from "../../../tests/golden/cli/focus-no-repos.json";
+import focusPlanOnly from "../../../tests/golden/cli/focus-plan-only.json";
 import focusPickerLens from "../../../tests/golden/cli/focus-picker-lens.json";
 import focusPickerProject from "../../../tests/golden/cli/focus-picker-project.json";
 import focusPickerStage from "../../../tests/golden/cli/focus-picker-stage.json";
@@ -35,6 +36,7 @@ import {
 const GOLDENS: Record<string, unknown> = {
   focus,
   "focus-no-repos": focusNoRepos,
+  "focus-plan-only": focusPlanOnly,
   "focus-picker-lens": focusPickerLens,
   "focus-picker-project": focusPickerProject,
   "focus-picker-stage": focusPickerStage,

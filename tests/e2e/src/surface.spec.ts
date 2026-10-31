@@ -346,8 +346,10 @@ async function everyEmptyStateHolds(
   const fresh = async (
     options: Parameters<typeof startEngine>[0],
     then: (engine: Engine, page: Page) => Promise<void>,
+    before?: (engine: Engine) => void,
   ) => {
     const engine = await startEngine(options);
+    before?.(engine);
     const own = await ownPage(browser, phone);
     try {
       await own.page.goto(await engine.loginUrl());
@@ -359,11 +361,31 @@ async function everyEmptyStateHolds(
     }
   };
   const emptyOf = (page: Page) => page.locator("[data-empty]");
+  // The line a next action the canvas can't run is drawn as.
+  const inPaneLine = (label: string) =>
+    CANVAS_STRINGS.next_in_pane.replace("{label}", label);
+  const startPlans =
+    (...titles: string[]) =>
+    (engine: Engine) => {
+      for (const title of titles) {
+        engine.cli(["intent", "new", title], "agent:aaaaaaaa:chat");
+      }
+    };
 
-  // A workspace no scan has touched, one with no repo, and one whose repos have no commit.
-  const states: [string, Parameters<typeof startEngine>[0]][] = [
+  // A workspace no scan has touched, one with no repo, one with a plan and no repo, and one whose
+  // repos have no commit.
+  const states: [
+    string,
+    Parameters<typeof startEngine>[0],
+    ((engine: Engine) => void)?,
+  ][] = [
     ["not_scanned", { scanned: false }],
     ["no_repos", { scanned: false, prepare: removeRepos }],
+    [
+      "plan_only",
+      { scanned: false, prepare: removeRepos },
+      startPlans("Add a billing service"),
+    ],
     [
       "repos_unborn",
       {
@@ -376,13 +398,71 @@ async function everyEmptyStateHolds(
       },
     ],
   ];
-  for (const [reason, options] of states) {
-    await fresh(options, async (engine, page) => {
-      const empty = engineEmpty(engine)!;
-      expect(empty.reason, "the engine's reason").toBe(reason);
-      await emptyOf(page).locator("img").waitFor();
-      await emptyStateHolds(page, emptyOf(page), empty.line!);
-    });
+  for (const [reason, options, before] of states) {
+    await fresh(
+      options,
+      async (engine, page) => {
+        const empty = engineEmpty(engine)!;
+        expect(empty.reason, "the engine's reason").toBe(reason);
+        await emptyOf(page).locator("img").waitFor();
+        await emptyStateHolds(page, emptyOf(page), empty.line!);
+        if (reason === "no_repos" || reason === "plan_only") {
+          // The canvas can't run this action, so it names the pane that can instead of a button.
+          await expect(emptyOf(page).locator("button")).toHaveCount(0);
+          await expect(emptyOf(page).locator(".empty-elsewhere")).toHaveText(
+            inPaneLine(empty.next.label),
+          );
+        }
+      },
+      before,
+    );
+  }
+
+  // Picking a project that holds no items yet lands on its empty view, whose next action is
+  // another command the canvas can't run: in the scanned fixture, and in a plan-only workspace,
+  // whose top keeps the shell so its project shelf is on screen.
+  const pickings: [boolean, Parameters<typeof startEngine>[0]][] = [
+    [true, {}],
+    [false, { scanned: false, prepare: removeRepos }],
+  ];
+  for (const [scanned, options] of pickings) {
+    await fresh(
+      options,
+      async (engine, page) => {
+        if (scanned) {
+          await page.locator(".map[data-ready]").waitFor();
+        }
+        const shelf = page.locator(".top-row [data-concept=intent]");
+        await press(
+          shelf.getByRole("button", { name: CANVAS_STRINGS.projects }),
+        );
+        await press(
+          page
+            .locator(".picker-sheet .picker-entry")
+            .filter({ hasText: "Add a billing service" }),
+        );
+        await emptyOf(page).locator("img").waitFor();
+        const listed = engine.cli(["intent", "list"]).result as {
+          projects: { id: string; name: string }[];
+        };
+        const project = listed.projects.find(
+          (p) => p.name === "Add a billing service",
+        )!;
+        const empty = engineEmpty(engine, [
+          "--level",
+          "intent",
+          "--focus",
+          project.id,
+        ])!;
+        expect(empty.reason, "the engine's reason").toBe("no_plan_items");
+        await emptyStateHolds(page, emptyOf(page), empty.line!);
+        await expect(emptyOf(page).locator("button")).toHaveCount(0);
+        await expect(emptyOf(page).locator(".empty-elsewhere")).toHaveText(
+          inPaneLine(empty.next.label),
+        );
+      },
+      startPlans("Add a billing service", "Add a search page"),
+    );
   }
 
   // The scanned fixture: the level apart from the chain, every lens at every level, the tray.

@@ -1,6 +1,6 @@
 {
   "format": "planroom.feature-list/v1",
-  "about": "One entry per acceptance scenario S1 to S15 from KICKOFF.md, plus tier C entries for things the design adds. ci_path is the deterministic path: named CLI --json queries and harness steps, compared with examples/TRUTH.json where a compare list is given, with every Jev and Claude call replayed and the fixture implementer in place of the implementer agent. evidence_path is run live once and recorded under docs/evidence/. Status turns passing only when every listed test passes on the CI path. Never weaken or delete an entry except through an approved infeasibility decision record.",
+  "about": "One entry per acceptance scenario S1 to S15 from KICKOFF.md, plus tier C entries for things the design adds, or tier A where the owner made one a must, by a decision record. ci_path is the deterministic path: named CLI --json queries and harness steps, compared with examples/TRUTH.json where a compare list is given, with every Jev and Claude call replayed and the fixture implementer in place of the implementer agent. evidence_path is run live once and recorded under docs/evidence/. Status turns passing only when every listed test passes on the CI path. Never weaken or delete an entry except through an approved infeasibility decision record.",
   "fixture_note": "Every CI path builds its own fixture with cargo xtask fixture, which runs examples/build-fixture and writes OUT/.planroom/config.toml loading examples/packs/ruby, because TRUTH.json lists the healthcheck container and its edges (DR-13). S10 uses --no-packs. It also records OUT as a trusted workspace in a temporary data root (PLANROOM_DATA), so each run's ledger, backups, trust records and hand-off clones start empty (DR-48, DR-53), and strict replay counts as consent to every provider (DR-49). The Ruby pack is out of tree, but the fixture's config adds it, so it loads with no card (DR-60). Strict replay also counts as a configured Jev backend, so no Jev setup card is dealt (DR-50).",
   "features": [
     {
@@ -2545,6 +2545,64 @@
         "packages/mod/src/paint.test.ts::the_mod_paints_only_with_host_theme_keys": "M5"
       },
       "decision": "DR-122"
+    },
+    {
+      "id": "C20",
+      "title": "Start from nothing",
+      "tier": "A",
+      "status": "failing",
+      "requirements": [
+        "R5",
+        "R6",
+        "R8"
+      ],
+      "ci_path": {
+        "fixture": "an empty temporary folder and data root; no fixture",
+        "steps": [
+          "planroom intent new TEXT in an empty folder (agent), then focus, map, scan and intent list --json: a plan-only workspace whose map says plan_only and whose scan writes no event",
+          "git init in the folder, then a first commit and planroom scan --json: the same store maps the repo",
+          "an empty folder to a mapped, reconciled repo through one patch hand-off"
+        ],
+        "compare": [],
+        "stand_ins": []
+      },
+      "evidence_path": {
+        "dir": null,
+        "steps": [
+          "none: CI only"
+        ]
+      },
+      "tests": [
+        "crates/planroom/tests/greenfield.rs::intent_new_in_an_empty_folder_starts_a_plan_only_workspace",
+        "crates/planroom/tests/greenfield.rs::an_agents_intent_new_in_an_empty_folder_waits_as_a_ghost_project",
+        "crates/planroom/tests/greenfield.rs::intent_new_refuses_the_home_directory_and_the_filesystem_root",
+        "crates/planroom/src/app/confine.rs::a_plan_folder_at_the_filesystem_root_is_refused",
+        "crates/planroom/tests/greenfield.rs::a_person_token_cannot_start_a_workspace_no_key_is_registered_in",
+        "crates/planroom/tests/greenfield.rs::scan_in_a_plan_only_workspace_maps_nothing_and_keeps_the_plan",
+        "crates/planroom/tests/greenfield.rs::a_plan_begun_before_git_init_stays_the_workspace",
+        "crates/planroom/tests/greenfield.rs::a_committed_planroom_dir_at_a_repo_root_still_loads_nothing",
+        "crates/planroom/tests/greenfield.rs::focusing_a_project_with_no_items_shows_its_empty_view",
+        "crates/planroom/tests/greenfield.rs::a_project_with_no_items_never_takes_a_blocks_focus",
+        "crates/planroom/tests/greenfield.rs::intent_new_beside_repos_never_says_there_are_none",
+        "crates/planroom/tests/greenfield.rs::intent_new_in_a_repos_working_tree_is_refused_as_scan_refuses_there",
+        "crates/planroom/tests/greenfield.rs::a_folder_in_an_unscanned_repo_offers_that_repos_scan_not_a_plan",
+        "crates/planroom/tests/greenfield.rs::a_folder_in_a_repo_with_no_commit_says_so_instead_of_offering_its_scan",
+        "crates/planroom/tests/greenfield.rs::a_folder_in_a_repo_git_cannot_read_says_so_instead_of_offering_its_scan",
+        "crates/planroom/tests/greenfield.rs::a_repo_whose_submodules_git_cannot_list_says_so_at_its_root_and_below",
+        "crates/planroom/tests/greenfield.rs::a_repo_with_an_oversized_gitmodules_inside_another_repo_never_offers_the_outer_scan",
+        "crates/planroom/tests/greenfield.rs::scan_with_no_repos_answers_ok_only_where_the_store_holds_a_plan",
+        "crates/planroom/tests/empty_states.rs::no_repos_offers_to_start_a_plan",
+        "crates/planroom/tests/empty_states.rs::a_plan_only_workspace_says_the_map_fills_from_the_plan",
+        "crates/planroom/tests/empty_states.rs::a_plan_wins_over_repos_unborn_but_not_over_repos_unreadable",
+        "packages/mod/src/watch.test.ts::a_plan_only_workspaces_store_starts_the_watch",
+        "packages/canvas/src/views/engine-empty.test.ts::a_handle_the_canvas_cannot_draw_names_the_pane",
+        "packages/canvas/src/views/engine-empty.test.ts::a_top_that_holds_a_plan_keeps_the_shell_and_its_project_shelf",
+        "crates/planroom/tests/greenfield.rs::an_empty_folder_reaches_a_mapped_repo_through_one_handoff"
+      ],
+      "due": {
+        "crates/planroom/tests/greenfield.rs::an_empty_folder_reaches_a_mapped_repo_through_one_handoff": "M2"
+      },
+      "decision": "DR-115"
     }
   ]
 }

@@ -33,10 +33,11 @@ use serde_json::json;
 use crate::app::error::AppError;
 use crate::app::workspace;
 use crate::app::{Paged, Reply};
+use crate::packs::state::ReadSet;
 use crate::text;
 
 pub(crate) use page::fit_beside;
-pub(crate) use read::{not_scanned_view, scan_empty};
+pub(crate) use read::{not_scanned_view, plan_held, scan_empty};
 pub use read::{top, top_in};
 
 /// Block names the one-line summary lists before "and N more".
@@ -74,7 +75,7 @@ fn run_within(req: &MapReq, cwd: &Path, budget: Option<u32>) -> Result<Paged<Map
         let lens_id = lens::asked(vocabulary, req.lens.as_deref())?;
         asked_level(vocabulary, req.level.as_ref())?;
         let level = level_of(req, vocabulary);
-        let mut reply = read::not_scanned(dir, lens_id, level, 0, vocabulary)?;
+        let mut reply = read::not_scanned(dir, lens_id, level, 0, vocabulary, false)?;
         with_ladder(&mut reply.result, req.detail, vocabulary);
         Ok(Paged::whole(reply))
     };
@@ -102,7 +103,10 @@ fn reply_in(
     asked_level(vocabulary, req.level.as_ref())?;
     let level = level_of(req, vocabulary);
     let seq = snapshot.seq();
-    let (mut view, under) = read::view(snapshot, root, level.clone(), req.focus.as_deref(), vocabulary)?;
+    let (mut view, under) = match req.focus.as_deref() {
+        Some(target) => focused(snapshot, root, &set, level.as_ref(), target)?,
+        None => read::view(snapshot, root, level.clone(), None, vocabulary)?,
+    };
     view.lens = lens_id.clone();
     let mut view = lens::filter(view, vocabulary, &lens_id);
     if view.empty.is_none() {
@@ -181,6 +185,37 @@ pub(crate) fn label_of(ladder: &Ladder<'_>, level: &LevelId) -> String {
         .iter()
         .find(|l| l.id == *level)
         .map_or_else(|| level.as_str().to_owned(), |l| l.label.clone())
+}
+
+/// The view `--focus target` asks for. A project that holds no items has no block to resolve, so
+/// its own view answers: always for its ID, which no block shares, and for its key or name only
+/// where no block answers to the target, or no repo is mapped, so a project, an agent's proposal
+/// among them, never takes a block's focus or hides an ambiguity.
+fn focused(
+    snapshot: &Snapshot<'_>,
+    root: &Path,
+    set: &ReadSet,
+    level: Option<&LevelId>,
+    target: &str,
+) -> Result<(MapView, Option<String>), AppError> {
+    let vocabulary = set.vocabulary();
+    if let Some(found) = read::project_without_items(snapshot, set, target, level, read::ProjectBy::Id)? {
+        return Ok(found);
+    }
+    // With no repo mapped there is no block, and `view` answers with the top's empty state.
+    let missing = if snapshot.active_set()?.repos.is_empty() {
+        None
+    } else {
+        match read::view(snapshot, root, level.cloned(), Some(target), vocabulary) {
+            Err(e) if e.code == ErrorCode::NotFound => Some(e),
+            answered => return answered,
+        }
+    };
+    match (read::project_without_items(snapshot, set, target, level, read::ProjectBy::Any)?, missing) {
+        (Some(found), _) => Ok(found),
+        (None, Some(e)) => Err(e),
+        (None, None) => read::view(snapshot, root, level.cloned(), Some(target), vocabulary),
+    }
 }
 
 /// The level a request shows: the one it names, or with `--lens X` alone and no `--focus`, the

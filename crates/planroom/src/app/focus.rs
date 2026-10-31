@@ -45,13 +45,23 @@ pub fn run(req: &FocusReq, cwd: &Path) -> Result<Paged<FocusResult>, AppError> {
         return Ok(as_result(paged));
     };
     let Some(root) = workspace::find_root(cwd) else {
-        return not_a_workspace(cwd).map(|reply| as_result(Paged::whole(reply)));
+        return not_a_workspace(cwd, 0, false).map(|reply| as_result(Paged::whole(reply)));
     };
     let Some(store) = Store::open_existing(&workspace::store_path(&root))? else {
-        return not_a_workspace(&root).map(|reply| as_result(Paged::whole(reply)));
+        return not_a_workspace(&root, 0, false).map(|reply| as_result(Paged::whole(reply)));
     };
-    if store.snapshot()?.active_set()?.repos.is_empty() {
-        return not_a_workspace(&root).map(|reply| as_result(Paged::whole(reply)));
+    // The picker reads its own transaction, so this one ends before it starts.
+    let unmapped = {
+        let snapshot = store.snapshot()?;
+        if snapshot.active_set()?.repos.is_empty() {
+            let set = state::for_snapshot(&snapshot, &root)?;
+            Some((snapshot.seq(), map::plan_held(&snapshot, set.vocabulary())?))
+        } else {
+            None
+        }
+    };
+    if let Some((seq, plan)) = unmapped {
+        return not_a_workspace(&root, seq, plan).map(|reply| as_result(Paged::whole(reply)));
     }
     let Reply { text, result, seq, warnings } = picker::run(req, name, &store, &root)?;
     Ok(Paged::whole(Reply { text, result: FocusResult::Picker(result), seq, warnings }))
@@ -70,10 +80,10 @@ fn as_result(paged: Paged<PaneModel>) -> Paged<FocusResult> {
 /// [`run`] at full detail, for `session` when the mod asks.
 fn whole_detail(cwd: &Path, session: Option<&str>) -> Result<Paged<PaneModel>, AppError> {
     let Some(root) = workspace::find_root(cwd) else {
-        return not_a_workspace(cwd).map(Paged::whole);
+        return not_a_workspace(cwd, 0, false).map(Paged::whole);
     };
     let Some(store) = Store::open_existing(&workspace::store_path(&root))? else {
-        return not_a_workspace(&root).map(Paged::whole);
+        return not_a_workspace(&root, 0, false).map(Paged::whole);
     };
     let snapshot = store.snapshot()?;
     let set = state::for_snapshot(&snapshot, &root)?;
@@ -105,7 +115,7 @@ fn reply_with(
     session: Option<&str>,
 ) -> Result<Reply<PaneModel>, AppError> {
     if snapshot.active_set()?.repos.is_empty() {
-        return not_a_workspace(root);
+        return not_a_workspace(root, snapshot.seq(), map::plan_held(snapshot, set.vocabulary())?);
     }
     let pane = pane_in(store, snapshot, root, set.vocabulary(), session)?;
     let seq = pane.focus.seq;
@@ -254,9 +264,11 @@ fn no_drift() -> DriftLine {
 }
 
 /// Not yet a workspace: no store, or a store with no scan. Its next action is the scan of the
-/// repos git can read, or, when it can read none, a check again: never a scan that can't map.
-fn not_a_workspace(dir: &Path) -> Result<Reply<PaneModel>, AppError> {
-    let empty = map::scan_empty(dir, &workspace::scannable(dir));
+/// repos git can read, or, when it can read none, what the state says: a check again, the plan, or
+/// starting one; never a scan that can't map. `seq` is the store's (0 with none) and `plan`
+/// whether it holds a project.
+fn not_a_workspace(dir: &Path, seq: Seq, plan: bool) -> Result<Reply<PaneModel>, AppError> {
+    let empty = map::scan_empty(dir, &workspace::scannable(dir), plan);
     let vocabulary = crate::packs::vocabulary()?;
     let top = Ladder::of(vocabulary).top().clone();
     let pane = PaneModel {
@@ -265,7 +277,7 @@ fn not_a_workspace(dir: &Path) -> Result<Reply<PaneModel>, AppError> {
             level: top.clone(),
             lens: map::lens::default_id(vocabulary),
             project: None,
-            seq: 0,
+            seq,
         },
         decision: None,
         more_decisions: 0,
@@ -277,7 +289,7 @@ fn not_a_workspace(dir: &Path) -> Result<Reply<PaneModel>, AppError> {
         minimap: Some(MiniMap { level: top, blocks: vec![], edges: vec![] }),
         empty: Some(empty),
     };
-    Ok(Reply { text: text_of(&pane, None, vocabulary), result: pane, seq: 0, warnings: vec![] })
+    Ok(Reply { text: text_of(&pane, None, vocabulary), result: pane, seq, warnings: vec![] })
 }
 
 /// The pane as text: where you are, the top's blocks, the repos with uncommitted work when there
@@ -325,7 +337,8 @@ mod tests {
 
     #[test]
     fn drop_block_pops_the_last_block_and_its_edges() {
-        let mut pane = not_a_workspace(Path::new("/nonexistent/for/the/focus/test")).unwrap().result;
+        let mut pane =
+            not_a_workspace(Path::new("/nonexistent/for/the/focus/test"), 0, false).unwrap().result;
         pane.minimap = Some(MiniMap {
             level: "system".into(),
             blocks: (0..3).map(block).collect(),

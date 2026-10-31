@@ -56,7 +56,9 @@ export function CardStack() {
               </ul>
               <p className="card-in-pane">{CANVAS_STRINGS.card_in_pane}</p>
             </>
-          ) : next !== null ? (
+          ) : next !== null && next.onPress === null ? (
+            <p className="card-in-pane">{next.label}</p>
+          ) : next !== null && next.onPress !== null ? (
             <div className="card-choices">
               <button
                 type="button"

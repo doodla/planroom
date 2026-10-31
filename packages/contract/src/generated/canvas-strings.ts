@@ -4,7 +4,7 @@
  * The canvas's own lines, from the `[canvas]` table of `crates/planroom/text/en.toml`: templates whose
  * `{name}`s the canvas fills with `fill` from `@planroom/ui`, then sanitizes.
  */
-export const CANVAS_STRINGS: Readonly<Record<"asked" | "back_to" | "back_to_map" | "card_in_pane" | "close" | "close_search" | "decisions" | "diffs" | "evidence" | "evidence_between" | "evidence_reading" | "lenses" | "levels" | "levels_sheet" | "map" | "missing_checkout" | "missing_install" | "missing_title" | "more_notices" | "needs_login" | "newer_document" | "no_project" | "notices" | "open_block" | "open_search" | "outline" | "projects" | "refused" | "retry" | "search" | "sheet_half" | "sheet_peek" | "snapshot_missing" | "snapshot_only" | "starting" | "theme" | "theme_dark" | "theme_light" | "theme_system" | "unreachable" | "zoom_rail", string>> = {
+export const CANVAS_STRINGS: Readonly<Record<"asked" | "back_to" | "back_to_map" | "card_in_pane" | "close" | "close_search" | "decisions" | "diffs" | "evidence" | "evidence_between" | "evidence_reading" | "lenses" | "levels" | "levels_sheet" | "map" | "missing_checkout" | "missing_install" | "missing_title" | "more_notices" | "needs_login" | "newer_document" | "next_in_pane" | "no_project" | "notices" | "open_block" | "open_search" | "outline" | "projects" | "refused" | "retry" | "search" | "sheet_half" | "sheet_peek" | "snapshot_missing" | "snapshot_only" | "starting" | "theme" | "theme_dark" | "theme_light" | "theme_system" | "unreachable" | "zoom_rail", string>> = {
   "asked": "Asked · it arrives at the next sync",
   "back_to": "Back to {place}",
   "back_to_map": "Back to the map",
@@ -26,6 +26,7 @@ export const CANVAS_STRINGS: Readonly<Record<"asked" | "back_to" | "back_to_map"
   "more_notices": "{count} more",
   "needs_login": "This tab needs a fresh link: press e in the pane",
   "newer_document": "A newer Planroom wrote this, so this page can't read it. Share the workspace again with /room share.",
+  "next_in_pane": "{label}: in Claude Code, in Planroom's pane.",
   "no_project": "No project",
   "notices": "What Planroom said",
   "open_block": "Open {name}",

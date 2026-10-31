@@ -91,7 +91,10 @@ fn prepare_inner(req: &ScanReq, cwd: &Path, given: Option<Loaded>) -> Result<Pre
     planroom_extract::git::check_version().map_err(|e| AppError::git_too_old(&e))?;
     let dir = req.dir.as_deref().map_or_else(|| cwd.to_path_buf(), |d| cwd.join(d));
     let ws = workspace::discover(&dir)?;
-    if ws.repos.is_empty() {
+    // A workspace with no repos is one only while it holds a plan: a store with a plan and no repo
+    // to map is a plan-only workspace, and a scan of it extracts nothing (DR-115). With no store,
+    // or a store that holds no plan, no scan there can succeed (`no_repos`).
+    if ws.repos.is_empty() && !holds_plan(&ws)? {
         return Err(AppError::workspace_not_found(&ws.root));
     }
     // Read before any repo, so a scan that commits meanwhile is newer than this one; with it, the
@@ -160,6 +163,11 @@ fn prepare_inner(req: &ScanReq, cwd: &Path, given: Option<Loaded>) -> Result<Pre
 pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     let Prepared { ws, packs, started, repos, mut warnings, read_packs, config_packs, changed, restore } =
         prepared;
+    // A plan-only workspace has nothing to map: the scan answers with the plan's own view and
+    // writes nothing, so the plan stays as it is.
+    if ws.repos.is_empty() {
+        return plan_only(&ws, warnings);
+    }
     // With nothing to write, a workspace with no store stays without one: a repo with no commit
     // yet writes nothing (DR-86).
     let store = if repos.iter().all(|r| r.commit.is_empty()) {
@@ -321,6 +329,34 @@ pub fn commit(prepared: Prepared) -> Result<Reply<ScanResult>, AppError> {
     warnings.extend(cut);
     let summary = summary(&write, &units, recorded);
     Ok(Reply { result: ScanResult { map: view, next: next() }, seq, warnings, text: summary })
+}
+
+/// Whether the workspace's store holds a project, a person's or a ghost: what makes a workspace
+/// with no repos one. False with no store.
+fn holds_plan(ws: &Workspace) -> Result<bool, AppError> {
+    let Some(store) = Store::open_existing(&ws.store_path())? else { return Ok(false) };
+    let snapshot = store.snapshot()?;
+    let set = state::for_snapshot(&snapshot, &ws.root)?;
+    map::plan_held(&snapshot, set.vocabulary())
+}
+
+/// The reply of a scan over a workspace that holds a plan and no repos: the top of the map, which
+/// says the plan is kept, from one read transaction. No event, snapshot, card or pack record is
+/// written.
+fn plan_only(ws: &Workspace, warnings: Vec<Warning>) -> Result<Reply<ScanResult>, AppError> {
+    let Some(store) = Store::open_existing(&ws.store_path())? else {
+        return Err(AppError::workspace_not_found(&ws.root));
+    };
+    let snapshot = store.snapshot()?;
+    let set = state::for_snapshot(&snapshot, &ws.root)?;
+    let view = map::top_in(&snapshot, &ws.root, None, set.vocabulary())?;
+    let next = view.empty.as_ref().map_or_else(next, |e| e.next.clone());
+    Ok(Reply {
+        result: ScanResult { map: view, next },
+        seq: snapshot.seq(),
+        warnings,
+        text: text::get("scan.plan_only", &[]),
+    })
 }
 
 /// The scan's one line: the repos it mapped, those with a commit, and how many moved; then the

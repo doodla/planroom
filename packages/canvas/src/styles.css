@@ -1021,6 +1021,13 @@ ul.card-choices {
   line-height: 1.25;
 }
 
+.empty-elsewhere {
+  margin: 0;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.4;
+}
+
 .page .empty .button {
   font-size: 17px;
   padding: 0 22px;

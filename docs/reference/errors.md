@@ -44,7 +44,7 @@ marked (masked) holds repo-derived text, so its secrets are masked like a reply'
 | `already_resolved` | conflict | 4 | never | the card was already picked | `by`, `at`, `pick` |
 | `handoff_conflict` | conflict | 4 | never | the merge preflight failed; every repo untouched | `repo` (masked), `files` |
 | `consent_required` | permission | 5 | never | a model-only command before the person allowed this provider for the workspace; only the person's pick on the consent card clears it | `provider`, `card` |
-| `path_refused` | permission | 5 | never | a read named a path outside the workspace's repos and scanned files, a non-person named a credential path, or a repo's git directory belongs to another user | `path`, `reason` |
+| `path_refused` | permission | 5 | never | a read named a path outside the workspace's repos and scanned files, a non-person named a credential path, or a repo's git directory belongs to another user, or `intent new` would make a workspace in the home directory or at the filesystem root | `path`, `reason` |
 | `repo_config_refused` | permission | 5 | never | a checkout or merge in a workspace repo whose local git config names a command git would run | `repo` (masked), `keys`, `card` |
 | `budget_exceeded` | budget | 6 | later | a spend or size guard stopped a model-only command; decisions keep their default instead | `guard`, `limit`, `spent` |
 | `model_unavailable` | unavailable | 7 | later | a model-only command found Jev or Claude unreachable | `provider` |

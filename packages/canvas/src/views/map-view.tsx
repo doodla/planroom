@@ -30,7 +30,7 @@ import { CANVAS_STRINGS } from "@planroom/contract";
 import { PHONE, useCanvas, useMedia } from "../use-canvas";
 import { BlockNodeComponent, type BlockNode } from "./block-node";
 import { EmptyState } from "./empty-state";
-import { emptyWords } from "./engine-empty";
+import { drawsHere, emptyWords, inPane } from "./engine-empty";
 import { Outline } from "./outline";
 
 const NODE_TYPES = { block: BlockNodeComponent };
@@ -243,6 +243,7 @@ function MapFlow({ moment }: { moment: Moment }) {
 function LevelEmpty() {
   const map = useCanvas((s) => s.map);
   const run = useCanvas((s) => s.run);
+  const canRun = useCanvas((s) => s.canRun);
   const back = useCanvas((s) => s.back);
   const top = useTopName();
   if (map === null) {
@@ -250,20 +251,28 @@ function LevelEmpty() {
   }
   const next = map.empty?.next ?? null;
   const words = map.empty == null ? null : emptyWords(map.empty);
+  // The engine's next action is a button only when the canvas can run it and draw its answer;
+  // otherwise a line names the pane that can.
+  const action =
+    next !== null && words !== null
+      ? drawsHere(next) && canRun(next)
+        ? { label: words.label, onPress: () => void run(next) }
+        : null
+      : {
+          label: fill(CANVAS_STRINGS.back_to, { place: top }),
+          onPress: () => void back(),
+        };
   return (
     <div className="level-empty">
       <EmptyState
         art={emptyMap}
         concept="levels"
         line={words?.line}
-        action={
-          next !== null && words !== null
-            ? { label: words.label, onPress: () => void run(next) }
-            : {
-                label: fill(CANVAS_STRINGS.back_to, { place: top }),
-                onPress: () => void back(),
-              }
-        }
+        {...(action !== null
+          ? { action }
+          : next !== null
+            ? { elsewhere: inPane(next) }
+            : {})}
       />
     </div>
   );

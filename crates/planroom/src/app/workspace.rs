@@ -5,8 +5,10 @@
 //! A workspace whose root is itself a git repo, alone or with its submodules, keeps `planroom/`
 //! inside that repo's git directory, as `git rev-parse --absolute-git-dir` names it, so
 //! `git clean -x`, `git stash -u` and a copy of the working tree that leaves out `.git` never
-//! reach it. A `.planroom/` at a repo's root is never that repo's state directory, so one a
-//! clone brings changes nothing.
+//! reach it. A `.planroom/` at a repo's root is that repo's state directory only when the data
+//! root records exactly that directory as trusted and git tracks nothing in it, as when a plan
+//! began in the folder before `git init` (DR-115); a committed or cloned one has no such record,
+//! so it changes nothing. Such a kept `.planroom/` wins over `.git/planroom/`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, DirBuilder, OpenOptions};
@@ -60,12 +62,16 @@ impl Workspace {
 }
 
 /// The state directory of the workspace rooted at `root`, whether or not it exists yet:
-/// `planroom/` in the git directory when `root` is a repo, else `.planroom/` at `root`. A root
+/// `planroom/` in the git directory when `root` is a repo, else `.planroom/` at `root`; a repo's
+/// own kept `.planroom/` wins (see [`crate::app::trust::kept_at_repo_root`]). A root
 /// whose `.git` is a file naming a git directory git can't name, as when the owner check refuses
 /// the repo, has none: the path then sits under that file, where no store is found and none can be
 /// made, so the scan skips the root like any other repo it can't read.
 pub fn state_dir(root: &Path) -> PathBuf {
     if is_repo(root) {
+        if crate::app::trust::kept_at_repo_root(root) {
+            return root.join(DIR);
+        }
         return git_dir(root).unwrap_or_else(|| root.join(".git")).join(GIT_DIR_NAME);
     }
     root.join(DIR)
@@ -105,13 +111,26 @@ fn git_dir(repo: &Path) -> Option<PathBuf> {
     Git::new(repo).absolute_git_dir().ok()
 }
 
-/// Whether `dir` is a workspace root: a repo whose git directory holds `planroom/`, or a
-/// directory that holds `.planroom/` and isn't a repo.
+/// Whether `dir` is a workspace root: a repo whose git directory holds `planroom/` or whose
+/// `.planroom/` is kept, or a directory that holds `.planroom/` and isn't a repo.
 pub fn is_root(dir: &Path) -> bool {
     if is_repo(dir) {
-        return git_dir(dir).is_some_and(|g| g.join(GIT_DIR_NAME).is_dir());
+        return git_dir(dir).is_some_and(|g| g.join(GIT_DIR_NAME).is_dir())
+            || crate::app::trust::kept_at_repo_root(dir);
     }
     dir.join(DIR).is_dir()
+}
+
+/// Whether `dir` lies in a repo's working tree below that repo's root: an ancestor of it, itself
+/// left out, is a git repo.
+pub fn in_working_tree(dir: &Path) -> bool {
+    enclosing_repo(dir).is_some()
+}
+
+/// The root of the repo whose working tree `dir` lies in below its root: the nearest ancestor of
+/// it, itself left out, that is a git repo.
+pub fn enclosing_repo(dir: &Path) -> Option<PathBuf> {
+    dir.ancestors().skip(1).find(|d| is_repo(d)).map(Path::to_path_buf)
 }
 
 /// The nearest ancestor of `start`, itself included, that is a workspace root.
@@ -126,7 +145,35 @@ pub fn find_root(start: &Path) -> Option<PathBuf> {
 /// scan, or else the one [`assign`] gives it (DR-74).
 pub fn discover(dir: &Path) -> Result<Workspace, AppError> {
     let dir = fs::canonicalize(dir).map_err(|_| AppError::workspace_not_found(dir))?;
-    let root = find_root(&dir).unwrap_or(dir);
+    discover_at(find_root(&dir).unwrap_or(dir)).map_err(Undiscovered::into_error)
+}
+
+/// Why [`discover_at`] found no workspace.
+enum Undiscovered {
+    /// git couldn't list the submodules of the root repo `name` at `root`, so the repo set is
+    /// unknown.
+    Unlisted { name: String, root: PathBuf, error: Box<GitError> },
+    /// Anything else, such as a store whose `meta.repos` doesn't parse.
+    Failed(AppError),
+}
+
+impl Undiscovered {
+    fn into_error(self) -> AppError {
+        match self {
+            Undiscovered::Unlisted { name, root, error } => AppError::git(&name, &root, &error),
+            Undiscovered::Failed(e) => e,
+        }
+    }
+}
+
+impl From<AppError> for Undiscovered {
+    fn from(e: AppError) -> Self {
+        Undiscovered::Failed(e)
+    }
+}
+
+/// The workspace whose root is `root`, a canonical path: its repos as [`discover`] finds them.
+fn discover_at(root: PathBuf) -> Result<Workspace, Undiscovered> {
     let mut found: Vec<PathBuf> = Vec::new();
     let mut warnings = Vec::new();
     if is_repo(&root) {
@@ -139,9 +186,9 @@ pub fn discover(dir: &Path) -> Result<Workspace, AppError> {
         let subs = match Git::new(&root).submodules() {
             Ok(subs) => subs,
             Err(e) if e.is_other_owner() => Vec::new(),
-            Err(e) => {
+            Err(error) => {
                 let name = root.file_name().map_or_else(|| "root".to_owned(), |n| escape(n.as_bytes()));
-                return Err(AppError::git(&name, &root, &e));
+                return Err(Undiscovered::Unlisted { name, root, error: Box::new(error) });
             }
         };
         for sub in subs {
@@ -369,11 +416,37 @@ fn owner_of(path: &Path) -> Option<u32> {
     fs::metadata(path).ok().map(|m| m.uid())
 }
 
-/// Which of `dir`'s workspace repos a scan can map: one `git rev-parse` each.
+/// Which of `dir`'s workspace repos a scan can map: one `git rev-parse` each. A root repo whose
+/// submodules git can't list counts as one git can't read, since a scan there fails on it.
 pub fn scannable(dir: &Path) -> Scannable {
-    let Ok(ws) = discover(dir) else { return Scannable::default() };
+    let Ok(dir) = fs::canonicalize(dir) else { return Scannable::default() };
+    scannable_of(find_root(&dir).unwrap_or(dir))
+}
+
+/// Which repos a scan at `root` itself, taken as the workspace root, can map: what [`scannable`]
+/// says there when no workspace root lies above it, such as at the root of a repo whose working
+/// tree holds the folder asked about.
+pub fn scannable_at(root: &Path) -> Scannable {
+    let Ok(root) = fs::canonicalize(root) else { return Scannable::default() };
+    scannable_of(root)
+}
+
+/// The repos of the workspace whose root is `root`, a canonical path, sorted by whether a scan
+/// can map them.
+fn scannable_of(root: PathBuf) -> Scannable {
+    match discover_at(root) {
+        Ok(ws) => sorted(ws.repos),
+        Err(Undiscovered::Unlisted { name, .. }) => {
+            Scannable { unreadable: vec![name], ..Scannable::default() }
+        }
+        Err(Undiscovered::Failed(_)) => Scannable::default(),
+    }
+}
+
+/// `repos`, each sorted by whether a scan can map it: one `git rev-parse` each.
+fn sorted(repos: Vec<Repo>) -> Scannable {
     let mut out = Scannable::default();
-    for repo in ws.repos {
+    for repo in repos {
         let git = Git::new(&repo.path);
         match git.head() {
             Ok(_) => out.readable += 1,

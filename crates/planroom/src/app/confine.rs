@@ -208,6 +208,21 @@ fn refused_as(path: &str, reason: &str, why: &str) -> AppError {
         .details(json!({"path": path, "reason": reason}))
 }
 
+/// `path_refused` for a folder `intent new` would make a workspace in, when that workspace would
+/// take in every folder below it: the home directory and the filesystem root. `root` is the
+/// canonical folder; a workspace already there is not asked about, only making one is.
+pub(crate) fn plan_folder_refused(root: &Path) -> Option<AppError> {
+    let named = |reason: &str| {
+        refused_as(&root.display().to_string(), reason, reason)
+            .with_hint(text::get("hint.path_refused_plan_folder", &[]))
+    };
+    if root == Path::new("/") {
+        return Some(named("filesystem_root"));
+    }
+    let home = std::env::var_os("HOME").and_then(|h| std::fs::canonicalize(h).ok());
+    (home.as_deref() == Some(root)).then(|| named("home_directory"))
+}
+
 /// A path as given (made absolute and folded, links not followed) and as resolved.
 struct Named {
     given: Option<PathBuf>,
@@ -321,6 +336,16 @@ fn credential(path: &Path, home: Option<&Path>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The filesystem root's refusal is checked here, on the path alone: a command run there by a
+    // test would write to the host's root the moment the refusal regressed.
+    #[test]
+    fn a_plan_folder_at_the_filesystem_root_is_refused() {
+        let refused = plan_folder_refused(Path::new("/")).expect("the filesystem root is refused");
+        assert_eq!(refused.code, ErrorCode::PathRefused);
+        assert_eq!(refused.details["reason"], "filesystem_root");
+        assert_eq!(refused.hint.as_deref(), Some(text::get("hint.path_refused_plan_folder", &[]).as_str()));
+    }
 
     #[test]
     fn a_node_id_is_no_path_and_a_relative_path_is() {

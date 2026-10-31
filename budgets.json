@@ -12,7 +12,8 @@
   "room_text": 300,
   "tool_results": {
     "focus": 390,
-    "focus-no-repos": 175,
+    "focus-no-repos": 176,
+    "focus-plan-only": 170,
     "focus-picker-lens": 233,
     "focus-picker-project": 109,
     "focus-picker-stage": 365,
