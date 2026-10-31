@@ -29,7 +29,7 @@ A project is a `kernel.project` node, `plan:<slug>:project`. Each plan item is a
 
 An item type's props are every stage's props for it together, so a `work` item takes `method`, `scope` and `moscow`.
 
-A stage's `prompt` is its method's checklist, one step per line. `planroom ask stage STAGE` returns those lines, and `planroom intent next` sends them unchanged in the request's tail, after the shared prefix.
+A stage's `prompt` is its method's checklist, one step per line. `planroom ask stage STAGE` returns those lines, and `planroom intent next` sends them unchanged in the request's tail, after the shared prefix. Each drafting stage's checklist ends with the same line: "Where you had to guess, write a question: the guess as its assumption, what another answer changes, its stakes, and the items that rest on it." `intent next` lists the stage's own item types, then every `[[items]]` type, each with its props and an `enum` prop with its values, such as `stakes (low, medium or high)`, and the reply's schema offers them all.
 
 The shared prefix is `prompts/plan.md`: what each stage is for, the rules every drafted item follows, the reply's working limits and a worked example, then the reply's schema. It is the same bytes for every stage and every project, so after a plan's first stage each call reads the cache the first one wrote, for an hour. Keep each checklist in `pack.toml`, one step per line, and the prefix free of anything that names one stage's request.
 

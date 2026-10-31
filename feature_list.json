@@ -2632,7 +2632,7 @@
         "fixture": "cargo xtask fixture $OUT: examples/build-fixture $OUT, plus $OUT/.planroom/config.toml loading examples/packs/ruby (DR-13)",
         "steps": [
           "planroom intent new TEXT, intent propose with question items whose rests_on name the plan's items by key, then intent list and ask stage intent --json: each question's status, rests, score and sticky pick, the first 10 open in rank order",
-          "intent next for each stage, replayed: each draft's questions resolve their rests_on (after the re-record step)"
+          "intent next for each stage, replayed: the intent stage drafts a question, and each draft's questions resolve their rests_on"
         ],
         "compare": [],
         "stand_ins": [
@@ -2662,6 +2662,8 @@
         "crates/planroom/tests/packs.rs::an_items_type_a_stage_also_declares_is_refused",
         "crates/planroom/tests/packs.rs::an_item_type_two_packs_declare_is_pack_invalid",
         "crates/kernel/tests/lint.rs::a_question_without_an_assumption_or_resting_items_is_flagged",
+        "crates/planroom/src/app/draft.rs::the_reply_schema_offers_every_items_type",
+        "crates/planroom/tests/s03_plan.rs::a_drafted_stage_writes_its_guesses_as_questions",
         "crates/planroom/tests/questions.rs::a_persons_answer_applies_and_undoes",
         "crates/planroom/tests/questions.rs::answering_a_ghost_question_accepts_that_item_alone_and_one_undo_reverses_both",
         "crates/planroom/tests/questions.rs::an_agents_answer_without_from_chat_is_a_ghost",

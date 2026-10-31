@@ -3,13 +3,14 @@
 //! the reply read back into a [`PlanProposal`].
 //!
 //! - **The stable prefix** is the plan pack's one stage prompt, `prompts/plan.md`, then the reply's
-//!   schema, [`draft_reply_schema`] over every item type and prop the stages declare: the same
+//!   schema, [`draft_reply_schema`] over every item type and prop the stages and the packs'
+//!   `[[items]]` declare: the same
 //!   bytes for every stage and every project, so after a plan's first stage each call reads the
 //!   cache the first one wrote. The prompt's `[[prompts]]` entry gives its tier and its 1-hour TTL.
 //! - **The tail** is [`StageSlice`], built from the fold and passed through
 //!   [`models::request_tail`], which masks it and fences it, then the stage's question:
 //!   `intent.next_question`, filled with the stage's method, its checklist as the pack writes it,
-//!   and each item type it writes with its props.
+//!   each item type it writes with its props, then each `[[items]]` type with its props.
 //! - **The slice** holds the project, the stage and every item, live and ghost, in `intent list`'s
 //!   order, and for a stage that writes an item type a loaded rule requires a `kernel.touches` edge
 //!   of, the blocks on the map its items may touch: those `find` ranks best for the words of the
@@ -190,10 +191,10 @@ pub(crate) fn stage_tier(loaded: &Loaded) -> Result<planroom_contract::ModelTier
     Ok(prompt(loaded)?.0.tier)
 }
 
-/// The reply schema every stage shares: every item type the stages declare, and every prop of
-/// any of them. The `[[items]]` types join it with the recordings that carry them.
+/// The reply schema every stage shares: every item type a plan item may take, the stages' and
+/// each pack's `[[items]]` (DR-116), and every prop of any of them.
 pub fn reply_schema(loaded: &Loaded) -> Value {
-    let types = intent::stage_item_types(&intent::stages(loaded));
+    let types = intent::item_types(loaded);
     let props: BTreeSet<String> = types.values().flat_map(|p| p.keys().cloned()).collect();
     let names: Vec<String> = types.keys().cloned().collect();
     draft_reply_schema(&names, &props.into_iter().collect::<Vec<_>>())
@@ -202,7 +203,7 @@ pub fn reply_schema(loaded: &Loaded) -> Value {
 /// The call that drafts `stage` from `slice`.
 fn call(loaded: &Loaded, stage: &StageDecl, slice: &StageSlice) -> Result<Call, AppError> {
     let (decl, prompt) = prompt(loaded)?;
-    let tail = models::request_tail(slice, &question(stage))?;
+    let tail = models::request_tail(slice, &question(loaded, stage))?;
     let purpose = format!("{PURPOSE_PREFIX}{}", stage.id);
     Ok(Call {
         purpose: purpose.clone(),
@@ -219,22 +220,21 @@ fn call(loaded: &Loaded, stage: &StageDecl, slice: &StageSlice) -> Result<Call, 
 }
 
 /// The question that ends a stage's request: its method, its checklist one step per line as the
-/// pack writes it, and each item type it writes with its props.
-pub fn question(stage: &StageDecl) -> String {
-    let types: Vec<String> = stage
-        .items
-        .iter()
-        .map(|t| {
-            let props: Vec<&str> = t
-                .props
-                .get("properties")
-                .and_then(Value::as_object)
-                .map(|p| p.keys().map(String::as_str).collect())
-                .unwrap_or_default();
-            let props = if props.is_empty() { "no props".to_owned() } else { props.join(", ") };
-            format!("- {}: {props}", t.id)
-        })
-        .collect();
+/// pack writes it, each item type it writes with its props, then each pack's `[[items]]` types
+/// with theirs, which any stage may write (DR-116). A prop with an `enum` names its values, as
+/// `stakes (low, medium or high)`, since the reply's schema can't hold one prop's values.
+pub fn question(loaded: &Loaded, stage: &StageDecl) -> String {
+    let line = |id: &str, props: &Value| {
+        let props: Vec<String> = props
+            .get("properties")
+            .and_then(Value::as_object)
+            .map(|p| p.iter().map(|(name, schema)| prop_line(name, schema)).collect())
+            .unwrap_or_default();
+        let props = if props.is_empty() { "no props".to_owned() } else { props.join(", ") };
+        format!("- {id}: {props}")
+    };
+    let any = loaded.packs.iter().flat_map(|p| &p.file.items).map(|t| line(&t.id, &t.props));
+    let types: Vec<String> = stage.items.iter().map(|t| line(&t.id, &t.props)).chain(any).collect();
     text::get(
         "intent.next_question",
         &[
@@ -244,6 +244,22 @@ pub fn question(stage: &StageDecl) -> String {
             ("types", &types.join("\n")),
         ],
     )
+}
+
+/// A prop as the stage question names it: its name, and its values when its schema lists them.
+fn prop_line(name: &str, schema: &Value) -> String {
+    let values: Vec<&str> = schema
+        .get("enum")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    match values.split_last() {
+        None => name.to_owned(),
+        Some((last, [])) => format!("{name} ({last})"),
+        Some((last, rest)) => format!("{name} ({} or {last})", rest.join(", ")),
+    }
 }
 
 /// The item types a loaded rule requires a `kernel.touches` edge of, such as next actions.
@@ -580,6 +596,38 @@ mod tests {
         assert_eq!(prefixes.len(), 1, "one prefix for every stage: {prefixes:?}");
         let (hash, bytes) = prefixes.into_iter().next().unwrap();
         println!("the stage prefix: {bytes} bytes, prefix_hash {hash}");
+    }
+
+    #[test]
+    fn the_reply_schema_offers_every_items_type() {
+        let loaded = packs::loaded().unwrap();
+        let schema = reply_schema(loaded).to_string();
+        let any = intent::any_stage_types(loaded);
+        assert!(!any.is_empty(), "the plan pack declares an [[items]] type");
+        let types = intent::item_types(loaded);
+        for id in &any {
+            assert!(schema.contains(&format!("\"{id}\"")), "the type enum holds {id}: {schema}");
+            for prop in types[id].keys() {
+                assert!(
+                    schema.contains(&format!("\"{prop}\"")),
+                    "the prop enum holds {id}'s {prop}: {schema}"
+                );
+            }
+        }
+        // Every drafting stage's question lists each [[items]] type with its props, after its own.
+        for stage in intent::stages(loaded).iter().filter(|s| !s.items.is_empty()) {
+            let asked = question(loaded, stage);
+            let own = asked.find(&format!("- {}: ", stage.items[0].id)).unwrap();
+            for id in &any {
+                let props: Vec<String> =
+                    types[id].iter().map(|(name, schema)| prop_line(name, schema)).collect();
+                let line = format!("- {id}: {}", props.join(", "));
+                let at = asked.find(&line).unwrap_or_else(|| panic!("{}: no line {line}: {asked}", stage.id));
+                assert!(at > own, "{}: the stage's own types come first: {asked}", stage.id);
+            }
+            // A prop with values names them, so a drafted `stakes` is one the schema takes.
+            assert!(asked.contains("stakes (low, medium or high)"), "{}: {asked}", stage.id);
+        }
     }
 
     #[test]

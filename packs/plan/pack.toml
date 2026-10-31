@@ -24,6 +24,7 @@ Name the job as when, want and so that: the situation, the change, the outcome i
 Ladder up with why until the outcome is one the person cares about, then down with how.
 Keep each rung one short sentence, and stop where a rung repeats the one above it.
 Write one intent item per job; most plans have one.
+Where you had to guess, write a question: the guess as its assumption, what another answer changes, its stakes, and the items that rest on it.
 """
 
 [[stages.items]]
@@ -39,6 +40,7 @@ prompt = """
 State each outcome as a metric with a target and a deadline.
 Check it is specific, measurable, achievable, relevant and time-bound.
 Name what the plan won't do as non-goals, one item each.
+Where you had to guess, write a question: the guess as its assumption, what another answer changes, its stakes, and the items that rest on it.
 """
 
 [[stages.items]]
@@ -59,6 +61,7 @@ Break the work into a tree of work items, each with its method and its scope tag
 Give every child scope tags that together cover its parent's: the 100% rule.
 Keep siblings mutually exclusive: no scope tag in two children of one parent.
 Stop breaking down where a work item is small enough to act on.
+Where you had to guess, write a question: the guess as its assumption, what another answer changes, its stakes, and the items that rest on it.
 """
 
 [[stages.items]]
@@ -75,6 +78,7 @@ Under each leaf work item, write the next physical actions, each starting with a
 Give each a done test a person can check without asking you.
 Name what each touches by node ID from the map, found with find or map, never a guessed path.
 Give each the context it needs, such as the repo or the tool.
+Where you had to guess, write a question: the guess as its assumption, what another answer changes, its stakes, and the items that rest on it.
 """
 
 [[stages.items]]
@@ -90,6 +94,7 @@ prompt = """
 Rate every work item and next action must, should, could or wont.
 Keep the musts to what the outcome can't be met without.
 Re-propose each rated item with its moscow prop set.
+Where you had to guess, write a question: the guess as its assumption, what another answer changes, its stakes, and the items that rest on it.
 """
 
 [[stages.items]]
@@ -109,6 +114,7 @@ prompt = """
 Imagine the plan has failed, and tell each way it failed as a short story.
 Rate each story's likelihood low, medium or high.
 Give every high one a mitigation, and add its work or next action to the plan.
+Where you had to guess, write a question: the guess as its assumption, what another answer changes, its stakes, and the items that rest on it.
 """
 
 [[stages.items]]

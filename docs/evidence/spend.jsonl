@@ -15,3 +15,17 @@
 {"at":"2026-10-29T14:36:52Z","generation_id":"gen_01M641F7ZTVP6E0TMGGXMYXP1F","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.089085,"scenario":"plan.stage.priorities","phase":"settled"}
 {"at":"2026-10-29T14:36:59Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.premortem","phase":"reserved"}
 {"at":"2026-10-29T14:37:09Z","generation_id":"gen_01M641FJ01C698S1FE9YFDVFK0","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.084415,"scenario":"plan.stage.premortem","phase":"settled"}
+{"at":"2026-10-31T05:13:31Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.intent","phase":"reserved"}
+{"at":"2026-10-31T05:13:37Z","generation_id":"gen_01M68615K2RYTEJKPVZFHN1KK5","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.061502,"scenario":"plan.stage.intent","phase":"settled"}
+{"at":"2026-10-31T06:17:25Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.intent","phase":"reserved"}
+{"at":"2026-10-31T06:17:30Z","generation_id":"gen_01M689P5R2VF9R5YWASV9K1JST","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.061736,"scenario":"plan.stage.intent","phase":"settled"}
+{"at":"2026-10-31T06:17:42Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.outcome","phase":"reserved"}
+{"at":"2026-10-31T06:17:50Z","generation_id":"gen_01M689PPXG0AQMSJ9KAV765KT1","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.086336,"scenario":"plan.stage.outcome","phase":"settled"}
+{"at":"2026-10-31T06:17:55Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.breakdown","phase":"reserved"}
+{"at":"2026-10-31T06:18:00Z","generation_id":"gen_01M689Q3DSQKFGX4H60CRN6YZC","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.087978,"scenario":"plan.stage.breakdown","phase":"settled"}
+{"at":"2026-10-31T06:18:05Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.next_actions","phase":"reserved"}
+{"at":"2026-10-31T06:18:12Z","generation_id":"gen_01M689QCRYQTE5FZF5DN6AZ163","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.082852,"scenario":"plan.stage.next_actions","phase":"settled"}
+{"at":"2026-10-31T06:18:18Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.priorities","phase":"reserved"}
+{"at":"2026-10-31T06:18:22Z","generation_id":"gen_01M689QSB8VPR9AE1MW5MQEXPE","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.085202,"scenario":"plan.stage.priorities","phase":"settled"}
+{"at":"2026-10-31T06:18:32Z","generation_id":null,"provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":0.1,"scenario":"plan.stage.premortem","phase":"reserved"}
+{"at":"2026-10-31T06:18:37Z","generation_id":"gen_01M689R7A32KDZ8CMA50XFWV6C","provider":"gateway","model":"anthropic/claude-sonnet-5.5","cost_usd":-0.086542,"scenario":"plan.stage.premortem","phase":"settled"}

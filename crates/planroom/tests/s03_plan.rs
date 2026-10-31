@@ -275,6 +275,47 @@ fn item_by<'a>(items: &'a [Value], id: &str) -> &'a Value {
     items.iter().find(|i| i["id"] == id).unwrap_or_else(|| panic!("no item {id} in {items:?}"))
 }
 
+/// The questions among `items`: each item `intent list` gives a question state.
+fn questions(items: &[Value]) -> Vec<&Value> {
+    items.iter().filter(|i| i["question"].is_object()).collect()
+}
+
+/// The intent stage's checklist asks for its guesses as questions (DR-116): the recorded draft
+/// holds at least one, with an assumption and items resting on it that its `rests_on` resolved
+/// to among the plan's, and `intent list` gives each its state.
+#[test]
+fn a_drafted_stage_writes_its_guesses_as_questions() {
+    let (_tmp, root) = workspace();
+    let (code, env) = person(&root, "intent new", &[INTENT], "", "");
+    assert_eq!(code, 0, "{env}");
+    let project = env["result"]["targets"][0].as_str().unwrap().to_owned();
+    let (code, env) = person(&root, "intent next", &["--stage", "intent"], "", "");
+    assert_eq!((code, env["result"]["status"].as_str()), (0, Some("ghost")), "{env}");
+
+    let listed = items(&root);
+    let asked = questions(&listed);
+    assert!(!asked.is_empty(), "the intent stage writes a question: {listed:?}");
+    for question in &asked {
+        assert_eq!(question["status"], "ghost", "{question}");
+        assert!(question["stage"].is_null(), "a question belongs to no stage: {question}");
+        assert!(question["question"]["rests"].as_u64().unwrap() >= 1, "rests_on resolves: {question}");
+        assert_eq!(question["question"]["status"], "open", "{question}");
+    }
+
+    // `ask stage` shows each open question's assumption.
+    let (code, env) = run(&root, &["ask", "stage", "intent", &project], &[], "");
+    assert_eq!(code, 0, "{env}");
+    let rows = env["result"]["items"].as_array().unwrap();
+    let shown: Vec<&Value> = rows.iter().filter(|r| asked.iter().any(|q| q["id"] == r["id"])).collect();
+    assert!(!shown.is_empty(), "{env}");
+    for row in shown {
+        let why = row["why"].as_str().unwrap();
+        let assumption =
+            why.strip_prefix("Assumed: ").and_then(|w| w.split(" · ").next()).unwrap_or_default();
+        assert!(!assumption.trim().is_empty(), "the question has its assumption: {row}");
+    }
+}
+
 #[test]
 fn stages_produce_ghosts_until_accepted() {
     let (_tmp, root) = workspace();
@@ -305,6 +346,10 @@ fn stages_produce_ghosts_until_accepted() {
         // priorities rates does. The reply names the IDs that fit its budget and counts the rest,
         // and before the stage every item was accepted, so the items that wait now are the stage's.
         let listed = items(&root);
+        if stage == "intent" {
+            // The first stage writes its guesses as questions; without one, no later stage runs.
+            assert!(!questions(&listed).is_empty(), "the intent stage writes a question: {listed:?}");
+        }
         let waiting = |item: &Value| !item["pending"].as_array().unwrap().is_empty();
         let targets: Vec<String> =
             listed.iter().filter(|i| waiting(i)).map(|i| i["id"].as_str().unwrap().to_owned()).collect();

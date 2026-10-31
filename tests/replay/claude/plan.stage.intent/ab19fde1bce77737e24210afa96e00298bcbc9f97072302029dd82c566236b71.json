@@ -1,7 +1,7 @@
 {
   "format": "planroom.replay/v1",
-  "key": "fe9f6b765cee61b4578036dd0508f8373dcb1fd4b3767946cdc1d212c78476ea",
-  "purpose": "plan.stage.premortem",
+  "key": "ab19fde1bce77737e24210afa96e00298bcbc9f97072302029dd82c566236b71",
+  "purpose": "plan.stage.intent",
   "request": {
     "method": "POST",
     "url": "https://ai-gateway.vercel.sh/v1/messages",
@@ -16,7 +16,7 @@
       ],
       [
         "x-session-affinity",
-        "a0be2b7cbc980fcbb7a301ddaf5f103550e922329f0d40cec0b07859832114a7"
+        "d46d370bfb5eb798809a0797af54e31668b33ed93b7a41cb9b16300cb9abfaac"
       ]
     ],
     "body": {
@@ -29,7 +29,7 @@
         },
         {
           "type": "text",
-          "text": "{\"additionalProperties\":false,\"description\":\"What an engine-run plan stage asks Claude to return: [`PlanProposal`]'s strict form. Structured\\noutput refuses an open object, so each item's props are name-value pairs, and the engine maps\\nthe reply back to a `PlanProposal` before it checks and writes it. Like the proposal, it is\\nread once and never stored on its own, so it carries no `format` tag.\",\"properties\":{\"items\":{\"description\":\"The stage's items, new and re-proposed.\",\"items\":{\"additionalProperties\":false,\"description\":\"One drafted item.\",\"properties\":{\"key\":{\"description\":\"The item's key: a new one, or an existing item's to re-propose it.\",\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"parent\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"null\"}],\"description\":\"A key of this reply, a key of the slice's items, or `project`; null keeps an existing\\nitem's parent and puts a new one under the project.\"},\"props\":{\"items\":{\"additionalProperties\":false,\"description\":\"One prop of a drafted item.\",\"properties\":{\"name\":{\"enum\":[\"context\",\"deadline\",\"done_test\",\"ladder\",\"likelihood\",\"method\",\"metric\",\"mitigation\",\"moscow\",\"scope\",\"so_that\",\"story\",\"target\",\"verb\",\"want\",\"when\"],\"type\":\"string\"},\"value\":{\"anyOf\":[{\"type\":\"string\"},{\"items\":{\"type\":\"string\"},\"type\":\"array\"}],\"description\":\"A prop's value: text, or a list of text.\"}},\"required\":[\"name\",\"value\"],\"type\":\"object\"},\"type\":\"array\"},\"touches\":{\"description\":\"Block IDs from the slice's targets.\",\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"type\":{\"description\":\"The item type.\",\"enum\":[\"intent\",\"next_action\",\"non_goal\",\"outcome\",\"risk\",\"work\"],\"type\":\"string\"}},\"required\":[\"key\",\"type\",\"name\",\"parent\",\"touches\",\"props\"],\"type\":\"object\"},\"type\":\"array\"}},\"required\":[\"items\"],\"type\":\"object\"}",
+          "text": "{\"additionalProperties\":false,\"description\":\"What an engine-run plan stage asks Claude to return: [`PlanProposal`]'s strict form. Structured\\noutput refuses an open object, so each item's props are name-value pairs, and the engine maps\\nthe reply back to a `PlanProposal` before it checks and writes it. Like the proposal, it is\\nread once and never stored on its own, so it carries no `format` tag.\",\"properties\":{\"items\":{\"description\":\"The stage's items, new and re-proposed.\",\"items\":{\"additionalProperties\":false,\"description\":\"One drafted item.\",\"properties\":{\"key\":{\"description\":\"The item's key: a new one, or an existing item's to re-propose it.\",\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"parent\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"null\"}],\"description\":\"A key of this reply, a key of the slice's items, or `project`; null keeps an existing\\nitem's parent and puts a new one under the project.\"},\"props\":{\"items\":{\"additionalProperties\":false,\"description\":\"One prop of a drafted item.\",\"properties\":{\"name\":{\"enum\":[\"answer\",\"assumption\",\"changes\",\"context\",\"deadline\",\"done_test\",\"ladder\",\"likelihood\",\"method\",\"metric\",\"mitigation\",\"moscow\",\"options\",\"rests_on\",\"scope\",\"so_that\",\"stakes\",\"story\",\"target\",\"verb\",\"want\",\"when\"],\"type\":\"string\"},\"value\":{\"anyOf\":[{\"type\":\"string\"},{\"items\":{\"type\":\"string\"},\"type\":\"array\"}],\"description\":\"A prop's value: text, or a list of text.\"}},\"required\":[\"name\",\"value\"],\"type\":\"object\"},\"type\":\"array\"},\"touches\":{\"description\":\"Block IDs from the slice's targets.\",\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"type\":{\"description\":\"The item type.\",\"enum\":[\"intent\",\"next_action\",\"non_goal\",\"outcome\",\"question\",\"risk\",\"work\"],\"type\":\"string\"}},\"required\":[\"key\",\"type\",\"name\",\"parent\",\"touches\",\"props\"],\"type\":\"object\"},\"type\":\"array\"}},\"required\":[\"items\"],\"type\":\"object\"}",
           "cache_control": {
             "type": "ephemeral",
             "ttl": "1h"
@@ -42,11 +42,11 @@
           "content": [
             {
               "type": "text",
-              "text": "<repo-data id=\"rcc7c50b4be9bed40\">{\"items\":[{\"key\":\"retry-failed-jobs\",\"name\":\"The worker recovers from transient failures on its own\",\"parent\":\"project\",\"props\":{\"ladder\":[\"People can trust the system to finish the work they hand it\",\"Nobody is woken or interrupted to rerun a job that would have worked\",\"Transient failures are absorbed without a person stepping in\",\"The worker retries a failed job a bounded number of times\"],\"so_that\":\"Brief faults no longer lose work or need a person to rerun the job\",\"want\":\"Have the worker retry the failed job automatically, with limits on how often and how long\",\"when\":\"A job fails in the worker because of a brief fault, such as a timeout or a busy dependency\"},\"status\":\"applied\",\"touches\":[],\"type\":\"intent\"},{\"key\":\"manual-reruns-drop\",\"name\":\"Manual reruns of failed jobs drop\",\"parent\":\"project\",\"props\":{\"deadline\":\"8 weeks after the release that ships worker retries\",\"metric\":\"Manual job reruns per week, read from the job log\",\"target\":\"Down 80% from the weekly average of the 4 weeks before release\"},\"status\":\"applied\",\"touches\":[],\"type\":\"outcome\"},{\"key\":\"no-dead-letter-ui\",\"name\":\"No dashboard or UI for browsing failed jobs\",\"parent\":\"project\",\"props\":{},\"status\":\"applied\",\"touches\":[],\"type\":\"non_goal\"},{\"key\":\"no-dependency-fixes\",\"name\":\"No fixes for the flaky dependencies that cause the faults\",\"parent\":\"project\",\"props\":{},\"status\":\"applied\",\"touches\":[],\"type\":\"non_goal\"},{\"key\":\"no-new-queue\",\"name\":\"No replacement of the job queue or worker framework\",\"parent\":\"project\",\"props\":{},\"status\":\"applied\",\"touches\":[],\"type\":\"non_goal\"},{\"key\":\"no-retry-permanent-errors\",\"name\":\"No retries of permanent failures such as invalid input\",\"parent\":\"project\",\"props\":{},\"status\":\"applied\",\"touches\":[],\"type\":\"non_goal\"},{\"key\":\"retries-stay-bounded\",\"name\":\"No job retries beyond its limit\",\"parent\":\"project\",\"props\":{\"deadline\":\"The release that ships worker retries\",\"metric\":\"Count of jobs that run more attempts than the configured maximum or outlast the retry time limit\",\"target\":\"0\"},\"status\":\"applied\",\"touches\":[],\"type\":\"outcome\"},{\"key\":\"transient-failures-recover\",\"name\":\"Transient job failures finish without a person\",\"parent\":\"project\",\"props\":{\"deadline\":\"The release that ships worker retries, measured over its first 30 days\",\"metric\":\"Share of jobs that fail once on a transient fault and then succeed with no manual rerun\",\"target\":\"At least 95%\"},\"status\":\"applied\",\"touches\":[],\"type\":\"outcome\"},{\"key\":\"classify-failures\",\"name\":\"Tell transient failures from permanent ones\",\"parent\":\"worker-retries\",\"props\":{\"method\":\"Map error types and codes to a retryable or permanent flag\",\"moscow\":\"must\",\"scope\":[\"failure-classification\"]},\"status\":\"applied\",\"touches\":[],\"type\":\"work\"},{\"key\":\"retry-policy\",\"name\":\"Define attempt, backoff and time limits\",\"parent\":\"worker-retries\",\"props\":{\"method\":\"Configurable max attempts, exponential backoff with jitter, total time cap\",\"moscow\":\"must\",\"scope\":[\"retry-policy\"]},\"status\":\"applied\",\"touches\":[],\"type\":\"work\"},{\"key\":\"retry-runner\",\"name\":\"Re-run failed jobs under the policy\",\"parent\":\"worker-retries\",\"props\":{\"method\":\"Reschedule a transient failure with a delay and track its attempt count\",\"moscow\":\"must\",\"scope\":[\"retry-execution\"]},\"status\":\"applied\",\"touches\":[],\"type\":\"work\"},{\"key\":\"retry-visibility\",\"name\":\"Log and measure retries\",\"parent\":\"worker-retries\",\"props\":{\"method\":\"Log each attempt and emit counters for retries and exhaustion\",\"moscow\":\"should\",\"scope\":[\"retry-observability\"]},\"status\":\"applied\",\"touches\":[],\"type\":\"work\"},{\"key\":\"worker-retries\",\"name\":\"Bounded automatic retries in the worker\",\"parent\":\"project\",\"props\":{\"method\":\"Add a retry layer around job execution in the existing worker\",\"moscow\":\"must\",\"scope\":[\"failure-classification\",\"retry-policy\",\"retry-execution\",\"retry-observability\"]},\"status\":\"applied\",\"touches\":[],\"type\":\"work\"},{\"key\":\"map-error-classes\",\"name\":\"Map worker error types to retryable or permanent flags\",\"parent\":\"classify-failures\",\"props\":{\"context\":\"worker repo, Go; touches the order lifecycle code\",\"done_test\":\"A unit test shows a timeout is flagged retryable and invalid input is flagged permanent\",\"moscow\":\"must\",\"verb\":\"map\"},\"status\":\"applied\",\"touches\":[\"orders:file:internal/order/lifecycle.go\"],\"type\":\"next_action\"}],\"items_left_out\":0,\"name\":\"Add retries to the worker\",\"project\":\"plan:add-retries-to-the-worker:project\",\"stage\":\"premortem\",\"targets\":[],\"targets_left_out\":0}</repo-data>"
+              "text": "<repo-data id=\"rccbda3c8ab0a9f9f\">{\"items\":[],\"items_left_out\":0,\"name\":\"Add retries to the worker\",\"project\":\"plan:add-retries-to-the-worker:project\",\"stage\":\"intent\",\"targets\":[],\"targets_left_out\":0}</repo-data>"
             },
             {
               "type": "text",
-              "text": "Draft the premortem stage of the plan in the repo-data block above. Its method is pre-mortem, and its checklist is: Imagine the plan has failed, and tell each way it failed as a short story.\\x0aRate each story's likelihood low, medium or high.\\x0aGive every high one a mitigation, and add its work or next action to the plan. Write only these item types, each with only the props listed after it: - risk: likelihood, mitigation, story Return only the JSON the output schema describes."
+              "text": "Draft the intent stage of the plan in the repo-data block above. Its method is Jobs-to-be-Done, laddering, and its checklist is: Name the job as when, want and so that: the situation, the change, the outcome it serves.\\x0aLadder up with why until the outcome is one the person cares about, then down with how.\\x0aKeep each rung one short sentence, and stop where a rung repeats the one above it.\\x0aWrite one intent item per job; most plans have one.\\x0aWhere you had to guess, write a question: the guess as its assumption, what another answer changes, its stakes, and the items that rest on it. Write only these item types, each with only the props listed after it: - intent: ladder, so_that, want, when\\x0a- question: answer, assumption, changes, options, rests_on, stakes (low, medium or high) Return only the JSON the output schema describes."
             }
           ]
         }
@@ -90,6 +90,9 @@
                         "properties": {
                           "name": {
                             "enum": [
+                              "answer",
+                              "assumption",
+                              "changes",
                               "context",
                               "deadline",
                               "done_test",
@@ -99,8 +102,11 @@
                               "metric",
                               "mitigation",
                               "moscow",
+                              "options",
+                              "rests_on",
                               "scope",
                               "so_that",
+                              "stakes",
                               "story",
                               "target",
                               "verb",
@@ -146,6 +152,7 @@
                         "next_action",
                         "non_goal",
                         "outcome",
+                        "question",
                         "risk",
                         "work"
                       ],
@@ -190,26 +197,26 @@
       ]
     ],
     "body": {
-      "id": "gen_01M641FJ01C698S1FE9YFDVFK0",
+      "id": "gen_01M689P5R2VF9R5YWASV9K1JST",
       "type": "message",
       "role": "assistant",
       "content": [
         {
           "type": "text",
-          "text": "{\"items\":[{\"key\":\"retry-storm\",\"name\":\"Retries pile onto a struggling dependency\",\"parent\":\"project\",\"props\":[{\"name\":\"story\",\"value\":\"A dependency slows down and every failing job retries at once. The extra load keeps it down, retries multiply, and an outage that would have passed in minutes lasts for hours.\"},{\"name\":\"likelihood\",\"value\":\"medium\"},{\"name\":\"mitigation\",\"value\":\"Use exponential backoff with jitter and cap how many retries run at the same time.\"}],\"touches\":[],\"type\":\"risk\"},{\"key\":\"permanent-misread\",\"name\":\"A permanent failure is classed as transient\",\"parent\":\"project\",\"props\":[{\"name\":\"story\",\"value\":\"An unmapped error type defaults to retryable, so invalid input is retried to the attempt limit. Each job wastes its whole retry budget and the failure surfaces late.\"},{\"name\":\"likelihood\",\"value\":\"high\"},{\"name\":\"mitigation\",\"value\":\"Treat unknown errors as permanent by default and list retryable errors explicitly, with a test for each class.\"}],\"touches\":[],\"type\":\"risk\"},{\"key\":\"duplicate-side-effects\",\"name\":\"A retried job repeats its side effects\",\"parent\":\"project\",\"props\":[{\"name\":\"story\",\"value\":\"A job fails after charging or sending a message but before it is marked done. The retry runs it again and the customer is charged or notified twice.\"},{\"name\":\"likelihood\",\"value\":\"high\"},{\"name\":\"mitigation\",\"value\":\"Check that each job type is idempotent before enabling retries for it, and enable retries per job type.\"}],\"touches\":[],\"type\":\"risk\"},{\"key\":\"silent-exhaustion\",\"name\":\"Exhausted retries go unnoticed\",\"parent\":\"project\",\"props\":[{\"name\":\"story\",\"value\":\"Jobs use up their attempts and are dropped with only a log line. Nobody sees them until a customer reports missing work, so people still rerun by hand.\"},{\"name\":\"likelihood\",\"value\":\"medium\"},{\"name\":\"mitigation\",\"value\":\"Emit an exhaustion counter and alert on it as part of the retry visibility work.\"}],\"touches\":[],\"type\":\"risk\"},{\"key\":\"attempt-count-lost\",\"name\":\"Attempt counts reset on worker restart\",\"parent\":\"project\",\"props\":[{\"name\":\"story\",\"value\":\"The attempt count lives in memory. A deploy restarts the worker mid-retry, the count resets, and a job runs past its configured maximum.\"},{\"name\":\"likelihood\",\"value\":\"low\"}],\"touches\":[],\"type\":\"risk\"},{\"key\":\"idempotency-audit\",\"name\":\"Audit job types for idempotency, for duplicate-side-effects\",\"parent\":\"retry-runner\",\"props\":[{\"name\":\"verb\",\"value\":\"audit\"},{\"name\":\"done_test\",\"value\":\"Each job type is listed as idempotent or excluded from retries, and the list is reviewed\"},{\"name\":\"context\",\"value\":\"worker repo, job handlers\"}],\"touches\":[],\"type\":\"next_action\"},{\"key\":\"default-unknown-permanent\",\"name\":\"Default unknown errors to permanent, for permanent-misread\",\"parent\":\"classify-failures\",\"props\":[{\"name\":\"verb\",\"value\":\"default\"},{\"name\":\"done_test\",\"value\":\"A unit test shows an unmapped error type is flagged permanent and not retried\"},{\"name\":\"context\",\"value\":\"worker repo, Go, failure classification\"}],\"touches\":[],\"type\":\"next_action\"}]}"
+          "text": "{\"items\":[{\"key\":\"worker-retries\",\"name\":\"Worker recovers from transient failures on its own\",\"parent\":null,\"props\":[{\"name\":\"when\",\"value\":\"A job fails in the worker because of a transient error, such as a timeout or a brief outage of a dependency\"},{\"name\":\"want\",\"value\":\"The worker retries the failed job automatically under a bounded policy\"},{\"name\":\"so_that\",\"value\":\"Transient failures don't need a person to rerun the job, and jobs still finish\"},{\"name\":\"ladder\",\"value\":[\"People trust the system to get work done without babysitting\",\"Jobs complete despite brief faults\",\"Transient failures are absorbed without a person stepping in\",\"The worker retries a failed job under a bounded policy\"]}],\"touches\":[],\"type\":\"intent\"},{\"key\":\"which-errors-retry\",\"name\":\"Which failures should the worker retry?\",\"parent\":null,\"props\":[{\"name\":\"assumption\",\"value\":\"Only transient errors (timeouts, connection resets, 5xx responses) are retried; permanent errors fail at once\"},{\"name\":\"options\",\"value\":[\"Transient errors only\",\"All errors up to the limit\",\"A per-job-type allowlist\"]},{\"name\":\"changes\",\"value\":\"A wider set means retrying non-idempotent or permanently failing jobs, which needs idempotency checks and a different retry limit\"},{\"name\":\"stakes\",\"value\":\"medium\"},{\"name\":\"rests_on\",\"value\":[\"worker-retries\"]}],\"touches\":[],\"type\":\"question\"}]}"
         }
       ],
       "model": "anthropic/claude-sonnet-5.5",
       "stop_reason": "end_turn",
       "stop_sequence": null,
       "usage": {
-        "input_tokens": 1823,
-        "output_tokens": 1113,
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 8092,
+        "input_tokens": 387,
+        "output_tokens": 483,
+        "cache_creation_input_tokens": 8165,
+        "cache_read_input_tokens": 0,
         "cache_creation": {
           "ephemeral_5m_input_tokens": 0,
-          "ephemeral_1h_input_tokens": 0
+          "ephemeral_1h_input_tokens": 8165
         },
         "speed": "standard",
         "service_tier": "standard",
@@ -220,22 +227,22 @@
       "provider_metadata": {
         "anthropic": {
           "usage": {
-            "input_tokens": 1823,
-            "output_tokens": 1113,
+            "input_tokens": 387,
+            "output_tokens": 483,
             "output_tokens_details": {
               "thinking_tokens": 0
             },
-            "cache_creation_input_tokens": 0,
-            "cache_read_input_tokens": 8092,
+            "cache_creation_input_tokens": 8165,
+            "cache_read_input_tokens": 0,
             "cache_creation": {
               "ephemeral_5m_input_tokens": 0,
-              "ephemeral_1h_input_tokens": 0
+              "ephemeral_1h_input_tokens": 8165
             },
             "service_tier": "standard",
             "inference_geo": "global",
             "speed": "standard"
           },
-          "cacheCreationInputTokens": 0,
+          "cacheCreationInputTokens": 8165,
           "stopSequence": null,
           "iterations": null,
           "container": null,
@@ -260,38 +267,37 @@
                     "provider": "anthropic",
                     "credentialType": "system",
                     "success": true,
-                    "startTime": 1793284622396,
-                    "endTime": 1793284632674,
-                    "providerRequestId": "req_011CgWhQnwkCX3r5BLKfR6oN",
+                    "startTime": 1793427445872,
+                    "endTime": 1793427450875,
+                    "providerRequestId": "req_011CgZpvvVaxm1yFatMDcwhV",
                     "statusCode": 200,
-                    "providerResponseId": "msg_011CgWhQoUjW219JKbcQSezb"
+                    "providerResponseId": "msg_011CgZpvw1avJWQ5sNJ1Rzvc"
                   }
                 ]
               }
             ],
             "totalProviderAttemptCount": 1,
             "affinity": {
-              "outcome": "confirmed",
-              "pinnedProvider": "anthropic"
+              "outcome": "no_pin"
             },
-            "clientSessionId": "a0be2b7cbc980fcbb7a301ddaf5f103550e922329f0d40cec0b07859832114a7",
+            "clientSessionId": "d46d370bfb5eb798809a0797af54e31668b33ed93b7a41cb9b16300cb9abfaac",
             "clientSessionIdSource": "explicit"
           },
-          "cost": "0.0155852",
-          "marketCost": "0.0155852",
+          "cost": "0.038264",
+          "marketCost": "0.038264",
           "surchargeCost": "0",
-          "gatewayCost": "0.0155852",
-          "inferenceCost": "0.0155852",
-          "inputInferenceCost": "0.0044552",
-          "outputInferenceCost": "0.01113",
-          "generationId": "gen_01M641FJ01C698S1FE9YFDVFK0"
+          "gatewayCost": "0.038264",
+          "inferenceCost": "0.038264",
+          "inputInferenceCost": "0.033434",
+          "outputInferenceCost": "0.00483",
+          "generationId": "gen_01M689P5R2VF9R5YWASV9K1JST"
         }
       }
     }
   },
   "measured": {
-    "wall_ms": 10475,
-    "recorded_at": "2026-10-29T14:37:09Z",
+    "wall_ms": 5873,
+    "recorded_at": "2026-10-31T06:17:30Z",
     "model_reported": "anthropic/claude-sonnet-5.5"
   }
 }
