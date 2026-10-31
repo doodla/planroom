@@ -27,7 +27,8 @@ use planroom_contract::{
     Actor, Command, CommandName, CommandSpec, Cursor, EditResult, Empty, EmptyReason, ErrorCode, EventBody,
     EventId, Handle, IntentListReq, IntentListResult, IntentNewReq, IntentNextReq, IntentVersionReq, LevelId,
     LintFinding, LintReq, LintResult, ModelTier, ModelUse, Node, NodeId, PlanItem, PlanProject, PlanProposal,
-    PlanVersion, ProposeReq, RuleDecl, Seq, StageDecl, Status, Usage, Vocabulary, Warning, WarningCode,
+    PlanVersion, ProposeReq, QuestionState, RuleDecl, Seq, StageDecl, Status, Usage, Vocabulary, Warning,
+    WarningCode,
 };
 use planroom_kernel::cas::{self, Authority, Check, Proposed};
 use planroom_kernel::fold::{Folded, Writer};
@@ -84,9 +85,9 @@ pub(crate) fn stages(loaded: &Loaded) -> Vec<StageDecl> {
     loaded.packs.iter().flat_map(|p| p.file.stages.iter().cloned()).collect()
 }
 
-/// Each item type's prop schema: the union of every stage's declaration of it, which the loader
-/// keeps free of a prop declared two ways.
-pub(crate) fn item_types(stages: &[StageDecl]) -> BTreeMap<String, Map<String, Value>> {
+/// Each item type the stages write, with its prop schema: the union of every stage's declaration
+/// of it, which the loader keeps free of a prop declared two ways.
+pub(crate) fn stage_item_types(stages: &[StageDecl]) -> BTreeMap<String, Map<String, Value>> {
     let mut out: BTreeMap<String, Map<String, Value>> = BTreeMap::new();
     for stage in stages {
         for item in &stage.items {
@@ -99,6 +100,51 @@ pub(crate) fn item_types(stages: &[StageDecl]) -> BTreeMap<String, Map<String, V
         }
     }
     out
+}
+
+/// Each item type a plan item may take: every stage's, then each pack's `[[items]]` in load order
+/// (DR-116).
+pub(crate) fn item_types(loaded: &Loaded) -> BTreeMap<String, Map<String, Value>> {
+    let mut out = stage_item_types(&stages(loaded));
+    for pack in &loaded.packs {
+        for item in &pack.file.items {
+            let props = out.entry(item.id.clone()).or_default();
+            if let Some(declared) = item.props.get("properties").and_then(Value::as_object) {
+                for (name, schema) in declared {
+                    props.entry(name.clone()).or_insert_with(|| schema.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Every pack's `[[items]]` IDs: the item types any stage may write.
+pub(crate) fn any_stage_types(loaded: &Loaded) -> BTreeSet<String> {
+    loaded.packs.iter().flat_map(|p| p.file.items.iter().map(|i| i.id.clone())).collect()
+}
+
+/// The `[[items]]` types whose props declare both an assumption and the items resting on it:
+/// the types the plan reads as questions (DR-116).
+pub(crate) fn question_types(loaded: &Loaded) -> BTreeSet<String> {
+    let declared = item_types(loaded);
+    any_stage_types(loaded)
+        .into_iter()
+        .filter(|id| {
+            declared
+                .get(id)
+                .is_some_and(|p| p.contains_key(plan::ASSUMPTION) && p.contains_key(plan::RESTS_ON))
+        })
+        .collect()
+}
+
+/// The item types whose props declare `rests_on`, a list of the items they rest on.
+fn resting_types(loaded: &Loaded) -> BTreeSet<String> {
+    item_types(loaded)
+        .into_iter()
+        .filter(|(_, props)| props.contains_key(plan::RESTS_ON))
+        .map(|(id, _)| id)
+        .collect()
 }
 
 /// Every loaded rule a plan's items or its project are the subject of, with its index in load
@@ -404,8 +450,7 @@ pub fn propose(
     };
     let proposal = parse(&bytes)?;
     let set = state::for_read(&root, store.recorded_packs()?.as_ref())?;
-    let stages = stages(&set);
-    check_items(&proposal, &stages)?;
+    check_items(&proposal, &set)?;
     // The key and the request hash read the proposal itself, never the file it came in, so two
     // proposals at one base never share a derived key and a retry of one replays.
     let writing = Writing {
@@ -419,6 +464,7 @@ pub fn propose(
     edit::commit(&mut store, &root, writing, |snapshot, folded, base| {
         plan_proposal(
             &proposal,
+            &resting_types(&set),
             req.common.project.as_ref(),
             snapshot,
             folded,
@@ -535,7 +581,7 @@ pub fn next(
             field.as_deref(),
         ))
     };
-    check_items(&proposal, &stages(&set)).map_err(invalid)?;
+    check_items(&proposal, &set).map_err(invalid)?;
     let count = proposal.items.len();
     let nothing_new = |e: AppError| {
         // The only `items` refusal a plan makes once its items are checked: nothing differs.
@@ -547,8 +593,10 @@ pub fn next(
         }
     };
     let mut written = edit::commit(&mut store, &root, writing(), |snapshot, folded, base| {
-        let mut plan = plan_proposal(&proposal, None, snapshot, folded, &writer, base, set.vocabulary())
-            .map_err(nothing_new)?;
+        let resting = resting_types(&set);
+        let mut plan =
+            plan_proposal(&proposal, &resting, None, snapshot, folded, &writer, base, set.vocabulary())
+                .map_err(nothing_new)?;
         let shown: Vec<String> = plan.targets.iter().take(3).map(|id| q(id)).collect();
         let key = if count == 1 { "intent.drafted_one" } else { "intent.drafted" };
         let vars: &[(&str, &dyn std::fmt::Display)] = &[
@@ -719,8 +767,10 @@ fn invalid(field: &str, key: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> A
 /// Check a proposal against the loaded stages, before any store is read: its bounds, its keys,
 /// each item's type, in the named stage when it names one, and each prop against its type's
 /// schema. A prop the schema doesn't declare is named by its item, never by its own key.
-fn check_items(proposal: &PlanProposal, stages: &[StageDecl]) -> Result<(), AppError> {
-    let types = item_types(stages);
+fn check_items(proposal: &PlanProposal, loaded: &Loaded) -> Result<(), AppError> {
+    let stages = stages(loaded);
+    let types = item_types(loaded);
+    let any = any_stage_types(loaded);
     let all_types: Vec<&str> = types.keys().map(String::as_str).collect();
     let stage = match &proposal.stage {
         Some(id) => Some(stages.iter().find(|s| &s.id == id).ok_or_else(|| {
@@ -751,6 +801,7 @@ fn check_items(proposal: &PlanProposal, stages: &[StageDecl]) -> Result<(), AppE
             return Err(invalid(&format!("{at}.type"), "intent.type_unknown", vars));
         };
         if let Some(stage) = stage
+            && !any.contains(&item.item_type)
             && !stage.items.iter().any(|t| t.id == item.item_type)
         {
             let writes: Vec<&str> = stage.items.iter().map(|t| t.id.as_str()).collect();
@@ -806,8 +857,10 @@ pub(crate) fn key_of(id: &NodeId) -> &str {
 
 /// Plan a proposal inside the write's transaction: its project, each item's parent and touch
 /// targets resolved against the commit's own snapshot, then the edits and their compare-and-set.
+#[allow(clippy::too_many_arguments)]
 fn plan_proposal(
     proposal: &PlanProposal,
+    resting: &BTreeSet<String>,
     flag: Option<&NodeId>,
     snapshot: &Snapshot<'_>,
     folded: &Folded,
@@ -870,6 +923,41 @@ fn plan_proposal(
         };
         parents.insert(item.key.clone(), plan::item_id(slug, &key));
     }
+    // `rests_on` is a list of IDs, not a tree edge, and the questions are about the draft under
+    // review, so it may name a pending ghost whoever proposes (DR-116). It is stored as full item
+    // IDs, so a re-proposal that names the same items by key reads as nothing new.
+    let mut resolved = proposal.clone();
+    for (i, item) in resolved.items.iter_mut().enumerate() {
+        if !resting.contains(&item.item_type) {
+            continue;
+        }
+        let Some(Value::Array(given)) = item.props.get(plan::RESTS_ON) else { continue };
+        let own = plan::item_id(slug, &item.key);
+        let mut ids: Vec<Value> = Vec::new();
+        for (j, entry) in given.iter().enumerate() {
+            let Some(entry) = entry.as_str() else { continue };
+            let field = format!("items[{i}].props.rests_on[{j}]");
+            let id = if batch.contains(entry) {
+                plan::item_id(slug, entry)
+            } else if let Some(key) = batch.iter().find(|k| plan::item_id(slug, k).0 == entry) {
+                plan::item_id(slug, key)
+            } else if let Some(found) = items.iter().find(|it| it.id.0 == entry || key_of(&it.id) == entry) {
+                found.id.clone()
+            } else {
+                let vars: &[(&str, &dyn std::fmt::Display)] =
+                    &[("entry", &q(entry)), ("project", &q(&project.name))];
+                return Err(invalid(&field, "intent.rests_on_missing", vars));
+            };
+            if id == own {
+                return Err(invalid(&field, "intent.rests_on_self", &[]));
+            }
+            if !ids.iter().any(|v| v.as_str() == Some(id.0.as_str())) {
+                ids.push(Value::String(id.0));
+            }
+        }
+        item.props.insert(plan::RESTS_ON.to_owned(), Value::Array(ids));
+    }
+    let proposal = &resolved;
     // Touch targets are blocks of the map, never plan items: nothing at a level apart from the
     // ladder.
     let ladder = Ladder::of(vocabulary);
@@ -1202,11 +1290,13 @@ pub fn list(req: &IntentListReq, cwd: &Path) -> Result<Paged<IntentListResult>, 
         let none = project_empty(project, &stages);
         return Ok(empty_reply(none, listed, seq));
     }
+    let questions: BTreeMap<NodeId, QuestionState> =
+        plan::questions(&items, &question_types(&set)).into_iter().collect();
     let entries: Vec<Entry> = listed
         .iter()
         .cloned()
         .map(Entry::Project)
-        .chain(items.iter().map(|i| Entry::Item(plan_item(i, &stages, seq))))
+        .chain(items.iter().map(|i| Entry::Item(plan_item(i, &stages, &questions, seq))))
         .collect();
     let summary = match chosen {
         Some(project) => {
@@ -1344,7 +1434,12 @@ fn plan_project(project: &Project, folded: &Folded) -> PlanProject {
     }
 }
 
-pub(crate) fn plan_item(item: &Item, stages: &[StageDecl], seq: Seq) -> PlanItem {
+pub(crate) fn plan_item(
+    item: &Item,
+    stages: &[StageDecl],
+    questions: &BTreeMap<NodeId, QuestionState>,
+    seq: Seq,
+) -> PlanItem {
     PlanItem {
         id: item.id.clone(),
         name: q(&item.name),
@@ -1355,6 +1450,7 @@ pub(crate) fn plan_item(item: &Item, stages: &[StageDecl], seq: Seq) -> PlanItem
         touches: item.touches.clone(),
         pending: item.pending.clone(),
         handles: item.pending.iter().take(REVIEWS_MAX).map(|e| review_handle(e, seq)).collect(),
+        question: questions.get(&item.id).cloned(),
     }
 }
 

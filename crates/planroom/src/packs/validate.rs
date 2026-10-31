@@ -301,6 +301,7 @@ pub fn check(packs: &[Pack]) -> Result<(), AppError> {
             }
         }
     }
+    items(packs, &names)?;
     // Two defaults load only when one of them is the code pack's, which stays the default.
     let of = |base: bool| -> Vec<(&str, &str, usize)> {
         defaults.iter().filter(|(.., b)| *b == base).map(|(pack, lens, i, _)| (*pack, *lens, *i)).collect()
@@ -1414,6 +1415,41 @@ fn stages(ctx: &Ctx<'_>, rules: &BTreeSet<&str>) -> Result<(), AppError> {
                         merged.insert(prop, schema);
                     }
                 }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Each pack's `[[items]]`: a declared ID, once per pack, its props a prop schema the runner reads,
+/// no stage's item type, and no other pack's `[[items]]` ID (DR-116).
+fn items(packs: &[Pack], names: &Names) -> Result<(), AppError> {
+    let stage_types: BTreeMap<&str, &str> = packs
+        .iter()
+        .flat_map(|p| {
+            p.file.stages.iter().flat_map(move |s| s.items.iter().map(move |i| (i.id.as_str(), p.id())))
+        })
+        .collect();
+    let mut declared: BTreeMap<&str, &str> = BTreeMap::new();
+    for pack in packs {
+        let ctx = Ctx { pack, names, scope: scope(pack), levels: BTreeSet::new() };
+        let mut seen = BTreeSet::new();
+        for (i, item) in pack.file.items.iter().enumerate() {
+            let at = KeyPath::root().key("items").at(i);
+            syntax(&pack.source, &at.key("id"), &item.id)?;
+            if !seen.insert(item.id.as_str()) {
+                return Err(twice(&ctx, &at.key("id"), "items", &item.id));
+            }
+            if !item.props.is_null() {
+                prop_schema(&ctx, &at.key("props"), &item.id, &item.props)?;
+            }
+            if let Some(other) = stage_types.get(item.id.as_str()) {
+                let vars: &Vars<'_> = &[("item", &item.id), ("other", other)];
+                return Err(ctx.bad(&at.key("id"), &item.id, "items_stage_clash", vars));
+            }
+            if let Some(other) = declared.insert(&item.id, pack.id()) {
+                let vars: &Vars<'_> = &[("item", &item.id), ("other", &other)];
+                return Err(ctx.bad(&at.key("id"), &item.id, "item_claimed", vars));
             }
         }
     }

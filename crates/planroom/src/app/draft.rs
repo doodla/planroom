@@ -191,9 +191,9 @@ pub(crate) fn stage_tier(loaded: &Loaded) -> Result<planroom_contract::ModelTier
 }
 
 /// The reply schema every stage shares: every item type the stages declare, and every prop of
-/// any of them.
-pub fn reply_schema(stages: &[StageDecl]) -> Value {
-    let types = intent::item_types(stages);
+/// any of them. The `[[items]]` types join it with the recordings that carry them.
+pub fn reply_schema(loaded: &Loaded) -> Value {
+    let types = intent::stage_item_types(&intent::stages(loaded));
     let props: BTreeSet<String> = types.values().flat_map(|p| p.keys().cloned()).collect();
     let names: Vec<String> = types.keys().cloned().collect();
     draft_reply_schema(&names, &props.into_iter().collect::<Vec<_>>())
@@ -202,7 +202,6 @@ pub fn reply_schema(stages: &[StageDecl]) -> Value {
 /// The call that drafts `stage` from `slice`.
 fn call(loaded: &Loaded, stage: &StageDecl, slice: &StageSlice) -> Result<Call, AppError> {
     let (decl, prompt) = prompt(loaded)?;
-    let stages = intent::stages(loaded);
     let tail = models::request_tail(slice, &question(stage))?;
     let purpose = format!("{PURPOSE_PREFIX}{}", stage.id);
     Ok(Call {
@@ -211,7 +210,7 @@ fn call(loaded: &Loaded, stage: &StageDecl, slice: &StageSlice) -> Result<Call, 
         prefix: vec![prompt.to_owned()],
         ttl: decl.ttl,
         tail,
-        output_schema: Some(reply_schema(&stages)),
+        output_schema: Some(reply_schema(loaded)),
         max_tokens: MAX_TOKENS,
         effort: None,
         ceiling_usd: STAGE_CEILING_USD,

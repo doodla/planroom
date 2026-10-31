@@ -2,18 +2,21 @@
 //! and lint (R5)"; DR-45): a project is the `kernel.project` node `plan:<slug>:project`, a plan
 //! item the `kernel.item` node `plan:<slug>:<key>` whose `type` prop names an item type a stage
 //! declares, and what an item touches a `kernel.touches` edge from it. Pure functions over the
-//! fold; the item types and stages arrive as data, and nothing here names one.
+//! fold; the item types and stages arrive as data, and nothing here names one. A question's state
+//! reads the prop names DR-116 fixes, [`ASSUMPTION`], [`ANSWER`], [`STAKES`] and [`RESTS_ON`]: prop
+//! names, never an item type, a kind or a relation; which item types are questions arrives as data too.
 //!
 //! A project's slug is its text as lowercase words, at most 48 characters, used only when
 //! redaction would leave the text as it is, since an ID is never masked; otherwise, and for an
 //! empty slug or the kernel's own `group` prefix, it is `p-` and 8 hex characters of the text's
 //! sha256. An item's project is read from its ID's prefix, so a ghost needs no chain walk.
 
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 
 use planroom_contract::{
-    Edit, EventId, Kind, Layer, LevelId, Node, NodeId, Op, PlanProposal, Provenance, Ref, Seq, StageDecl,
-    Target,
+    Edit, EventId, Kind, Layer, LevelId, Node, NodeId, Op, PlanProposal, Provenance, QuestionState,
+    QuestionStatus, Ref, Seq, StageDecl, Target,
 };
 use serde_json::{Value, json};
 
@@ -30,6 +33,14 @@ pub const TOUCHES: &str = "kernel.touches";
 pub const NAMESPACE: &str = "plan";
 /// The prop that names an item's type.
 pub const TYPE: &str = "type";
+/// The prop that holds the answer a question's plan is built on until someone answers.
+pub const ASSUMPTION: &str = "assumption";
+/// The prop that holds a question's answer.
+pub const ANSWER: &str = "answer";
+/// The prop that holds how much a wrong assumption would cost: `low`, `medium` or `high`.
+pub const STAKES: &str = "stakes";
+/// The prop that holds the IDs of the items resting on a question's assumption.
+pub const RESTS_ON: &str = "rests_on";
 /// The key of a project's own node, which no item takes.
 pub const PROJECT_KEY: &str = "project";
 /// The longest slug a project's text gives.
@@ -175,6 +186,10 @@ pub struct Item {
     pub touches: Vec<NodeId>,
     /// Its pending ghost edits, those on its touches included, in `seq` order.
     pub pending: Vec<EventId>,
+    /// The draft view: the model node's props, then each pending ghost put's or set's in seq order.
+    pub props: BTreeMap<String, Value>,
+    /// The model node's props alone: what a person accepted; empty when only a ghost holds the item.
+    pub accepted: BTreeMap<String, Value>,
 }
 
 /// The items of `project`: the model's, plus the overlay's pending ghost `put` and `set` edits on
@@ -202,9 +217,18 @@ pub fn items_of(folded: &Folded, project: &NodeId) -> Vec<Item> {
                         let pending = std::mem::take(&mut entry.pending);
                         let touches = std::mem::take(&mut entry.touches);
                         *entry = Item { pending, touches, ..item_of(&node, false) };
+                    } else {
+                        entry.props = node.props.clone();
                     }
                 }
                 if let Some(item) = items.get_mut(id) {
+                    if ghost.edit.op == Op::Set {
+                        for (field, value) in &ghost.edit.fields {
+                            if let Some(prop) = field.strip_prefix("props.") {
+                                item.props.insert(prop.to_owned(), value.clone());
+                            }
+                        }
+                    }
                     item.pending.push(ghost.event.clone());
                 }
             }
@@ -243,6 +267,8 @@ fn item_of(node: &Node, live: bool) -> Item {
         live,
         touches: vec![],
         pending: vec![],
+        props: node.props.clone(),
+        accepted: if live { node.props.clone() } else { BTreeMap::new() },
     }
 }
 
@@ -266,6 +292,67 @@ pub fn order(items: &mut [Item], stages: &[StageDecl]) {
             &b.id.0,
         ))
     });
+}
+
+/// The weight of a question's `stakes`: `medium` 3, `high` 9, anything else, absent included, 1.
+fn stakes_weight(item: &Item) -> u32 {
+    match item.props.get(STAKES).and_then(Value::as_str) {
+        Some("medium") => 3,
+        Some("high") => 9,
+        _ => 1,
+    }
+}
+
+/// Each question among `items`, those whose type is in `types`, with its state, in rank order: score
+/// descending, then higher stakes, then the lower ID (DR-116). It reads the draft view, ghosts included,
+/// except `answer`, which counts only once accepted.
+pub fn questions(items: &[Item], types: &BTreeSet<String>) -> Vec<(NodeId, QuestionState)> {
+    let mut children: BTreeMap<&NodeId, Vec<&NodeId>> = BTreeMap::new();
+    for item in items {
+        if let Some(parent) = &item.parent {
+            children.entry(parent).or_default().push(&item.id);
+        }
+    }
+    let known: BTreeSet<&NodeId> = items.iter().map(|i| &i.id).collect();
+    let mut ranked: Vec<(u32, &Item, QuestionState)> = Vec::new();
+    for item in items.iter().filter(|i| types.contains(&i.item_type)) {
+        let mut rests: BTreeSet<&NodeId> = BTreeSet::new();
+        let mut stack: Vec<&NodeId> = item
+            .props
+            .get(RESTS_ON)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter_map(|named| known.get(&NodeId(named.to_owned())).copied())
+            .collect();
+        while let Some(next) = stack.pop() {
+            if rests.insert(next) {
+                stack.extend(children.get(next).into_iter().flatten().copied());
+            }
+        }
+        rests.remove(&item.id);
+        let rests = rests.len() as u32;
+        let answer =
+            item.accepted.get(ANSWER).and_then(Value::as_str).map(str::trim).filter(|a| !a.is_empty());
+        let status = match (rests, answer) {
+            (0, _) => QuestionStatus::Dropped,
+            (_, None) => QuestionStatus::Open,
+            (_, Some(_)) => QuestionStatus::Answered,
+        };
+        let assumption = item.props.get(ASSUMPTION).and_then(Value::as_str).map(str::trim);
+        let kept = status == QuestionStatus::Answered && answer == assumption;
+        let weight = stakes_weight(item);
+        let state = QuestionState { status, kept, rests, score: weight * rests, sticky: false };
+        ranked.push((weight, item, state));
+    }
+    ranked.sort_by(|(wa, a, sa), (wb, b, sb)| {
+        (Reverse(sa.score), Reverse(*wa), &a.id).cmp(&(Reverse(sb.score), Reverse(*wb), &b.id))
+    });
+    for (_, _, state) in ranked.iter_mut().filter(|(_, _, s)| s.status == QuestionStatus::Open).take(2) {
+        state.sticky = true;
+    }
+    ranked.into_iter().map(|(_, item, state)| (item.id.clone(), state)).collect()
 }
 
 /// The edits that write `proposal` into `project` at `base`, with each item's parent and touch

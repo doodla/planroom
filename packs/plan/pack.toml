@@ -4,8 +4,9 @@
 # It declares no kinds or relations of its own: a project is a `kernel.project`, every plan item
 # a `kernel.item` whose `type` prop names one of the item types below, and what an item touches a
 # `kernel.touches` edge. An item type's props are the union of every stage's declaration of it,
-# and one prop is never declared two ways. No `required`: lint, not the schema, says what's
-# missing. A stage's `prompt` is its method checklist, one step per line.
+# and one prop is never declared two ways. An `[[items]]` type is one any stage may write and no
+# stage owns (DR-116). No `required`: lint, not the schema, says what's missing. A stage's
+# `prompt` is its method checklist, one step per line.
 
 format = "planroom.pack/v1"
 id = "plan"
@@ -119,12 +120,22 @@ id = "lint"
 method = "lint"
 label = "Lint"
 items = []
-lint = ["intent_so_that", "outcome_metric", "outcome_deadline", "work_covers_parent_scope", "work_children_disjoint", "next_action_done_test", "next_action_target", "item_moscow", "top_risk_mitigation"]
+lint = ["intent_so_that", "outcome_metric", "outcome_deadline", "work_covers_parent_scope", "work_children_disjoint", "next_action_done_test", "next_action_target", "item_moscow", "top_risk_mitigation", "question_assumption", "question_rests_on"]
 prompt = """
 Run intent lint and read each finding with its stage.
 Go back to the stage a finding names, and re-propose the items it flags.
 Repeat until lint has no findings, or the person accepts what remains.
 """
+
+# A question: any stage may write one, and no stage owns it (DR-116). Its `name` is the question as a
+# person would be asked it. `assumption` is the answer the plan is built on until someone answers;
+# `changes`, what a different answer would change; `stakes`, how costly a wrong assumption is;
+# `rests_on`, the items built on the assumption, stored as full item IDs; `options`, up to three
+# other likely answers; `answer`, the answer once someone gives one.
+
+[[items]]
+id = "question"
+props = { type = "object", properties = { assumption = { type = "string" }, changes = { type = "string" }, stakes = { type = "string", enum = ["low", "medium", "high"] }, rests_on = { type = "array", items = { type = "string" } }, options = { type = "array", items = { type = "string" }, description = "Up to three other likely answers." }, answer = { type = "string" } } }
 
 # The Claude prefix every engine-run stage shares (`intent next`): the planning rules and a worked
 # example, then the reply's schema. Each stage's checklist above goes in the request's tail.
@@ -201,3 +212,17 @@ kind = "requires_prop"
 subject = "kernel.item"
 params = { prop = "mitigation", "props.type" = "risk", "props.likelihood" = "high" }
 message = "A high-likelihood risk needs a mitigation."
+
+[[rules]]
+id = "question_assumption"
+kind = "requires_prop"
+subject = "kernel.item"
+params = { prop = "assumption", "props.type" = "question" }
+message = "A question needs its assumption: the answer the plan is built on until someone answers."
+
+[[rules]]
+id = "question_rests_on"
+kind = "requires_prop"
+subject = "kernel.item"
+params = { prop = "rests_on", "props.type" = "question" }
+message = "A question needs the items that rest on its assumption."

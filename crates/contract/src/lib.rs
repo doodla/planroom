@@ -60,16 +60,16 @@ pub use model::{
 pub use models::{Measured, REPLAY_FORMAT, RecordedRequest, RecordedResponse, ReplayRecord};
 pub use pack::{
     ActionDecl, ArgDecl, CacheTtl, EmitTemplate, ExtractorDecl, Flow, HintDecl, ImageRole, ItemType,
-    KindDecl, LanguageDecl, LensDecl, LevelDecl, LinkerDecl, ModelTier, PREDICATE_PARAMS, PackFile,
-    PackRecord, Param, ParamNames, PromptDecl, PromptRole, QuestionDecl, RelationDecl, RuleDecl, RuleType,
-    Shape, ShapeStep, StageDecl, SuggestionDecl,
+    ItemTypeDecl, KindDecl, LanguageDecl, LensDecl, LevelDecl, LinkerDecl, ModelTier, PREDICATE_PARAMS,
+    PackFile, PackRecord, Param, ParamNames, PromptDecl, PromptRole, QuestionDecl, RelationDecl, RuleDecl,
+    RuleType, Shape, ShapeStep, StageDecl, SuggestionDecl,
 };
 pub use plan::{
     DraftItem, DraftProp, DraftReply, DraftValue, SliceItem, SliceTarget, StageSlice, draft_reply_schema,
 };
 pub use plan::{
     IntentListReq, IntentListResult, IntentNewReq, IntentVersionReq, LintFinding, LintResult, PlanItem,
-    PlanProject, PlanProposal, PlanVersion, ProposedItem,
+    PlanProject, PlanProposal, PlanVersion, ProposedItem, QuestionState, QuestionStatus,
 };
 pub use remote::{
     Ack, AckStatus, Answer, DbBatch, DbOp, DbWrite, ImportCounts, ImportLine, ImportResult, ImportedRow,

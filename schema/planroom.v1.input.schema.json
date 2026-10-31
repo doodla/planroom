@@ -4215,6 +4215,24 @@
       ],
       "description": "One plan item type a stage writes."
     },
+    "ItemTypeDecl": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The item's `type` prop, such as `question`."
+        },
+        "props": {
+          "description": "A JSON Schema fragment, read as a stage item's.",
+          "default": null
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "description": "`[[items]]`: an item type any stage may write, which no stage owns (DR-116). A type of its own,\nnot `ItemType`, since later records add fields to it that no stage item takes."
+    },
     "Kind": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
@@ -5722,6 +5740,14 @@
           },
           "description": "The plan pack only.",
           "default": []
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ItemTypeDecl"
+          },
+          "description": "The item types any stage may write, which no stage owns (DR-116).",
+          "default": []
         }
       },
       "required": [
@@ -6336,6 +6362,17 @@
             "$ref": "#/$defs/Handle"
           },
           "description": "The review a person runs to accept each of its first pending ghosts."
+        },
+        "question": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QuestionState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its state when its type is a question type; absent otherwise."
         }
       },
       "required": [
@@ -7000,6 +7037,72 @@
         "summary"
       ],
       "description": "`[[questions]]`: a named pipeline of one to three query shapes."
+    },
+    "QuestionState": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/QuestionStatus"
+        },
+        "kept": {
+          "type": "boolean",
+          "description": "Answered with its assumption: the answer equals the assumption, both trimmed."
+        },
+        "rests": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The items resting on it: those its `rests_on` names and their descendants, each once."
+        },
+        "score": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The stakes weight (low 1, medium 3, high 9; low when absent) times `rests`."
+        },
+        "sticky": {
+          "type": "boolean",
+          "description": "One of the top two open questions by rank."
+        }
+      },
+      "required": [
+        "status",
+        "kept",
+        "rests",
+        "score",
+        "sticky"
+      ],
+      "description": "A question's state, derived on every read and never stored (DR-116)."
+    },
+    "QuestionStatus": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "open",
+          "description": "Something rests on it and nobody has answered."
+        },
+        {
+          "type": "string",
+          "const": "answered",
+          "description": "A person's answer, or an accepted one."
+        },
+        {
+          "type": "string",
+          "const": "from_chat",
+          "description": "Answered in chat and not yet confirmed: arrives with M2's chat answers; no M1 write gives it."
+        },
+        {
+          "type": "string",
+          "const": "from_poc",
+          "description": "Answered by a passed proof of concept: arrives with DR-118's POCs; no M1 write gives it."
+        },
+        {
+          "type": "string",
+          "const": "dropped",
+          "description": "Nothing rests on it."
+        }
+      ],
+      "description": "Where a question stands (DR-116)."
     },
     "RecordedRequest": {
       "type": "object",

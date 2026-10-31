@@ -148,6 +148,39 @@ pub struct PlanItem {
     pub pending: Vec<EventId>,
     /// The review a person runs to accept each of its first pending ghosts.
     pub handles: Vec<Handle>,
+    /// Its state when its type is a question type; absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<QuestionState>,
+}
+
+/// A question's state, derived on every read and never stored (DR-116).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct QuestionState {
+    pub status: QuestionStatus,
+    /// Answered with its assumption: the answer equals the assumption, both trimmed.
+    pub kept: bool,
+    /// The items resting on it: those its `rests_on` names and their descendants, each once.
+    pub rests: u32,
+    /// The stakes weight (low 1, medium 3, high 9; low when absent) times `rests`.
+    pub score: u32,
+    /// One of the top two open questions by rank.
+    pub sticky: bool,
+}
+
+/// Where a question stands (DR-116).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QuestionStatus {
+    /// Something rests on it and nobody has answered.
+    Open,
+    /// A person's answer, or an accepted one.
+    Answered,
+    /// Answered in chat and not yet confirmed: arrives with M2's chat answers; no M1 write gives it.
+    FromChat,
+    /// Answered by a passed proof of concept: arrives with DR-118's POCs; no M1 write gives it.
+    FromPoc,
+    /// Nothing rests on it.
+    Dropped,
 }
 
 /// What `intent lint` returns: the project's structural lint findings.

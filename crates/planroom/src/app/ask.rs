@@ -28,7 +28,8 @@ use std::path::Path;
 
 use planroom_contract::{
     AskItem, AskReq, AskResult, Command, CommandName, Cursor, Empty, EmptyReason, ErrorCode, Evidence,
-    Handle, Kind, Node, NodeId, Provenance, QuestionDecl, Seq, Shape, Vocabulary, Warning, WarningCode,
+    Handle, Kind, Node, NodeId, Provenance, QuestionDecl, QuestionStatus, Seq, Shape, Vocabulary, Warning,
+    WarningCode,
 };
 use planroom_kernel::ladder::Ladder;
 use planroom_kernel::query::lookup::Lookup;
@@ -64,6 +65,10 @@ const SUMMARY_NAMES: usize = 5;
 const NAME_CHARS: usize = 40;
 /// Characters an item's name keeps.
 const ITEM_NAME_CHARS: usize = 80;
+/// The open questions `ask stage` lists, highest rank first; the rest are counted in one row.
+const QUESTION_ROWS: usize = 10;
+/// Characters a question row quotes of its assumption.
+const QUESTION_ASSUMPTION_CHARS: usize = 160;
 /// Characters a line quotes of an evidence path, and of the evidence line's text.
 const PATH_CHARS: usize = 80;
 const CONTAINS_CHARS: usize = 60;
@@ -545,9 +550,21 @@ fn empty_reply(decl: &QuestionDecl, empty: Empty, seq: Seq) -> Reply<AskResult> 
     Reply { text: line, result, seq, warnings: vec![] }
 }
 
-/// `ask stage S [PROJECT]`: the stage's checklist and item types, then, for the named or only
-/// project, its items of those types with their status, the stage's lint findings and the blocks
-/// the plan touches, within `stage`'s budget.
+/// A question status as the wire names it.
+fn status_word(status: QuestionStatus) -> &'static str {
+    match status {
+        QuestionStatus::Open => "open",
+        QuestionStatus::Answered => "answered",
+        QuestionStatus::FromChat => "from_chat",
+        QuestionStatus::FromPoc => "from_poc",
+        QuestionStatus::Dropped => "dropped",
+    }
+}
+
+/// `ask stage S [PROJECT]`: the stage's checklist and item types, the types any stage may write,
+/// then, for the named or only project, its ten highest-ranked open questions (one more row counts
+/// the rest by status), its items of the stage's types with their status, the stage's lint
+/// findings and the blocks the plan touches, within `stage`'s budget.
 fn stage(loaded: &Loaded, args: &[String], store: Option<&Store>) -> Result<Paged<AskResult>, AppError> {
     let stages = intent::stages(loaded);
     let arity = || {
@@ -582,23 +599,35 @@ fn stage(loaded: &Loaded, args: &[String], store: Option<&Store>) -> Result<Page
             handles: vec![],
         })
         .collect();
-    let types = intent::item_types(&stages);
-    for item in &stage.items {
-        let fields: Vec<String> = types
-            .get(&item.id)
+    let types = intent::item_types(loaded);
+    let fields_of = |id: &str| -> Vec<String> {
+        types
+            .get(id)
             .into_iter()
             .flatten()
             .map(|(name, schema)| match schema.get("type").and_then(serde_json::Value::as_str) {
                 Some(kind) => format!("{name} ({kind})"),
                 None => name.clone(),
             })
-            .collect();
+            .collect()
+    };
+    for item in &stage.items {
+        let fields = fields_of(&item.id);
         let why = if fields.is_empty() {
             text::get("ask.stage_type_bare", &[("type", &item.id)])
         } else {
             text::get("ask.stage_type", &[("type", &item.id), ("fields", &fields.join(", "))])
         };
         items.push(AskItem { id: item.id.clone(), name: item.id.clone(), why, handles: vec![] });
+    }
+    for pack in &loaded.packs {
+        for item in &pack.file.items {
+            let why = text::get(
+                "ask.stage_type_any",
+                &[("type", &item.id), ("fields", &fields_of(&item.id).join(", "))],
+            );
+            items.push(AskItem { id: item.id.clone(), name: item.id.clone(), why, handles: vec![] });
+        }
     }
     let (mut count, mut waiting, mut findings) = (0, 0, 0);
     let mut empty = Some(intent::no_intent());
@@ -612,6 +641,59 @@ fn stage(loaded: &Loaded, args: &[String], store: Option<&Store>) -> Result<Page
             empty = None;
             let mut all = planroom_kernel::plan::items_of(&folded, &project.id);
             planroom_kernel::plan::order(&mut all, &stages);
+            let ranked = planroom_kernel::plan::questions(&all, &intent::question_types(loaded));
+            let mut open: Vec<&planroom_kernel::plan::Item> = Vec::new();
+            let (mut answered, mut dropped) = (0, 0);
+            for (id, state) in &ranked {
+                let Some(item) = all.iter().find(|i| &i.id == id) else { continue };
+                match state.status {
+                    QuestionStatus::Open if open.len() < QUESTION_ROWS => open.push(item),
+                    QuestionStatus::Open => {}
+                    QuestionStatus::Dropped => dropped += 1,
+                    QuestionStatus::Answered | QuestionStatus::FromChat | QuestionStatus::FromPoc => {
+                        answered += 1
+                    }
+                }
+            }
+            let hidden_open =
+                ranked.iter().filter(|(_, s)| s.status == QuestionStatus::Open).count() - open.len();
+            let questions: std::collections::BTreeMap<_, _> = ranked.into_iter().collect();
+            for item in &open {
+                let state = &questions[&item.id];
+                let shown = intent::plan_item(item, &stages, &questions, seq);
+                let assumption =
+                    item.props.get(planroom_kernel::plan::ASSUMPTION).and_then(serde_json::Value::as_str);
+                items.push(AskItem {
+                    id: item.id.0.clone(),
+                    name: shown.name,
+                    why: text::get(
+                        "ask.stage_question",
+                        &[
+                            ("assumption", &text::short(assumption.unwrap_or(""), QUESTION_ASSUMPTION_CHARS)),
+                            ("status", &status_word(state.status)),
+                            ("rests", &state.rests),
+                        ],
+                    ),
+                    handles: shown.handles.into_iter().take(1).collect(),
+                });
+            }
+            let more = hidden_open + answered + dropped;
+            if more > 0 {
+                items.push(AskItem {
+                    id: "questions".into(),
+                    name: text::label("ask.stage_questions_label", &[]),
+                    why: text::get(
+                        "ask.stage_questions_more",
+                        &[
+                            ("more", &more),
+                            ("open", &hidden_open),
+                            ("answered", &answered),
+                            ("dropped", &dropped),
+                        ],
+                    ),
+                    handles: vec![],
+                });
+            }
             let written: Vec<&str> = stage.items.iter().map(|t| t.id.as_str()).collect();
             for item in all.iter().filter(|i| written.contains(&i.item_type.as_str())) {
                 count += 1;
@@ -622,7 +704,7 @@ fn stage(loaded: &Loaded, args: &[String], store: Option<&Store>) -> Result<Page
                     waiting += 1;
                     text::get("ask.stage_waiting", &[])
                 };
-                let shown = intent::plan_item(item, &stages, seq);
+                let shown = intent::plan_item(item, &stages, &questions, seq);
                 items.push(AskItem {
                     id: item.id.0.clone(),
                     name: shown.name,

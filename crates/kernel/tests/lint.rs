@@ -222,3 +222,36 @@ fn mece_overlap() {
     nodes.push(item("act", "plan:retries:root", json!({"type": "next_action", "scope": ["a"]})));
     assert!(run(&model(nodes), &rules).is_empty());
 }
+
+#[test]
+fn a_question_without_an_assumption_or_resting_items_is_flagged() {
+    let rules = vec![
+        rule(
+            "question_assumption",
+            RuleType::RequiresProp,
+            json!({"prop": "assumption", "props.type": "question"}),
+        ),
+        rule(
+            "question_rests_on",
+            RuleType::RequiresProp,
+            json!({"prop": "rests_on", "props.type": "question"}),
+        ),
+    ];
+    let nodes = vec![
+        project(),
+        item("neither", PROJECT, json!({"type": "question"})),
+        item("no-items", PROJECT, json!({"type": "question", "assumption": "Redis", "rests_on": []})),
+        item(
+            "whole",
+            PROJECT,
+            json!({"type": "question", "assumption": "Redis", "rests_on": ["plan:retries:neither"]}),
+        ),
+        item("action", PROJECT, json!({"type": "next_action"})),
+    ];
+    let found = run(&model(nodes), &rules);
+    let flagged: Vec<(usize, &str)> = found.iter().map(|f| (f.rule, f.subject.0.as_str())).collect();
+    assert_eq!(
+        flagged,
+        [(0, "plan:retries:neither"), (1, "plan:retries:neither"), (1, "plan:retries:no-items")]
+    );
+}

@@ -396,6 +396,8 @@ pub struct DraftProp { pub name: String, pub value: DraftValue /* untagged: Text
 pub struct ProposedItem { pub key: String, #[serde(rename = "type")] pub item_type: String, pub name: String,
                           pub parent: Option<String> /* a key in the batch, a key of the project's items, or an item ID;
                                                         absent, a new item goes under the project and an existing one stays */,
+                          // a `rests_on` prop resolves as `parent` does and is stored as full item IDs; an unknown
+                          // entry, or the item itself, is invalid_argument at items[i].props.rests_on[j]
                           pub props: BTreeMap<String, Value>, pub touches: Vec<String> /* blocks: IDs, suffixes or names */ }
 pub struct IntentListResult { pub summary: String, pub projects: Vec<PlanProject>, pub items: Vec<PlanItem>,
                               pub empty: Option<Empty> }
@@ -404,7 +406,10 @@ pub struct PlanProject { pub id: NodeId, pub name: String, pub status: Status, p
 pub struct PlanVersion { pub label: String /* a handle, never masked */, pub seq: Seq }
 pub struct PlanItem { pub id: NodeId, pub name: String, pub item_type: String, pub stage: Option<String>,
                       pub status: Status, pub parent: Option<NodeId>, pub touches: Vec<NodeId>, pub pending: Vec<EventId>,
-                      pub handles: Vec<Handle> /* review --base SEQ EVENT accept, at most 3 */ }
+                      pub handles: Vec<Handle> /* review --base SEQ EVENT accept, at most 3 */,
+                      pub question: Option<QuestionState> /* absent unless its type is a question type */ }
+pub struct QuestionState { pub status: QuestionStatus, pub kept: bool, pub rests: u32, pub score: u32, pub sticky: bool }
+pub enum QuestionStatus { Open, Answered, FromChat /* M2 */, FromPoc /* DR-118 */, Dropped }
 pub struct LintResult { pub project: Option<NodeId>, pub summary: String, pub findings: Vec<LintFinding>,
                         pub empty: Option<Empty> }
 pub struct LintFinding { pub rule: String, pub stage: Option<String>, pub subject: NodeId, pub name: String,
@@ -878,6 +883,7 @@ pub struct PackFile {
     #[serde(default)] pub suggestions: Vec<SuggestionDecl>, // action: never a NotUndoable or Handoff-class leaf (DR-54)
     #[serde(default)] pub prompts: Vec<PromptDecl>,
     #[serde(default)] pub stages: Vec<StageDecl>,      // plan pack only
+    #[serde(default)] pub items: Vec<ItemTypeDecl>,       // item types any stage may write and no stage owns (DR-116); an ID a stage writes is pack_invalid (items_stage_clash), one two packs declare is pack_invalid (item_claimed)
 }
 pub struct LanguageDecl { pub id: String, pub extensions: Vec<String>, pub line_comment: Option<String>,
                           pub block_comment: Option<[String; 2]>,
@@ -956,6 +962,7 @@ pub struct StageDecl { pub id: String, pub label: Option<String> /* the pane's s
                       pub prompt: String /* the stage's method checklist, one step per non-blank line */,
                       pub lint: Vec<String> }
 pub struct ItemType { pub id: String /* the kernel.item type: "next_action" */, pub props: Value /* JSON Schema fragment */ }
+pub struct ItemTypeDecl { pub id: String, pub props: Value /* read as ItemType's */ }
 pub struct PromptDecl { pub id: String, pub file: String, pub tier: ModelTier /* Cheap | Capable */,
                         pub role: PromptRole /* Infer | Propose */, pub output: String /* a contract type name */,
                         pub ttl: CacheTtl /* M5 (default) | H1 for person-paced purposes */ }

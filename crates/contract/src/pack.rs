@@ -66,6 +66,9 @@ pub struct PackFile {
     /// The plan pack only.
     #[serde(default)]
     pub stages: Vec<StageDecl>,
+    /// The item types any stage may write, which no stage owns (DR-116).
+    #[serde(default)]
+    pub items: Vec<ItemTypeDecl>,
 }
 
 /// `[[languages]]`: a language's file extensions and comment forms.
@@ -611,6 +614,18 @@ pub struct ItemType {
     /// The item's `type` prop, such as `next_action`.
     pub id: String,
     /// A JSON Schema fragment.
+    #[serde(default)]
+    pub props: Value,
+}
+
+/// `[[items]]`: an item type any stage may write, which no stage owns (DR-116). A type of its own,
+/// not `ItemType`, since later records add fields to it that no stage item takes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ItemTypeDecl {
+    /// The item's `type` prop, such as `question`.
+    pub id: String,
+    /// A JSON Schema fragment, read as a stage item's.
     #[serde(default)]
     pub props: Value,
 }

@@ -76,6 +76,7 @@ pub const LABELS: &[&str] = &[
     "ask.show",
     "ask.show_level",
     "ask.show_lens",
+    "ask.stage_questions_label",
     "ask.why",
     "empty.check_again_next",
     "empty.in_repo_next",

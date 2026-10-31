@@ -581,6 +581,40 @@ fn duplicate_table_keys_are_pack_invalid() {
 }
 
 #[test]
+fn an_items_type_a_stage_also_declares_is_refused() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = pack_dir(
+        tmp.path(),
+        "triage",
+        &["code"],
+        "[[items]]\nid = \"next_action\"\nprops = { type = \"object\", properties = { note = { type = \"string\" } } }\n",
+    );
+    let env = doctor(&dir);
+    assert_invalid(&env, "next_action", "a stage of the plan pack writes it too");
+    // `manifest` writes five header lines and a blank one, so `[[items]]` is line 7 and its `id` line 8.
+    assert_eq!(env["error"]["details"]["line"], 8, "{env}");
+}
+
+#[test]
+fn an_item_type_two_packs_declare_is_pack_invalid() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = pack_dir(tmp.path(), "asks", &["code"], "[[items]]\nid = \"question\"\n");
+    assert_invalid(&doctor(&dir), "question", "already declared by the plan pack");
+    // One pack declaring a type twice.
+    let twice = "[[items]]\nid = \"ticket\"\n\n".repeat(2);
+    let dir = pack_dir(tmp.path(), "tickets", &["code"], &twice);
+    assert_invalid(&doctor(&dir), "ticket", "declares ticket twice");
+    // A type of its own, with props, loads.
+    let dir = pack_dir(
+        tmp.path(),
+        "sizes",
+        &["code"],
+        "[[items]]\nid = \"ticket\"\nprops = { type = \"object\", properties = { size = { type = \"integer\" } } }\n",
+    );
+    assert_eq!(doctor(&dir)["ok"], true);
+}
+
+#[test]
 fn two_default_lenses_are_pack_invalid() {
     let lens = |id: &str| {
         format!(

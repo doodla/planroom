@@ -931,6 +931,13 @@ export type ScanState = "never" | "running" | "done";
 export type HandoffState =
   "proposed" | "started" | "reported" | "failed" | "reviewing" | "merged" | "reconciled" | "dropped";
 /**
+ * Where a question stands (DR-116).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "QuestionStatus".
+ */
+export type QuestionStatus = "open" | "answered" | "from_chat" | "from_poc" | "dropped";
+/**
  * A kind's block color: surfaces style a block from its tone, never from a kind
  * ID (DR-46).
  *
@@ -3640,6 +3647,35 @@ export interface PlanItem {
    * The review a person runs to accept each of its first pending ghosts.
    */
   handles: Handle1[];
+  /**
+   * Its state when its type is a question type; absent otherwise.
+   */
+  question?: QuestionState | null;
+}
+/**
+ * A question's state, derived on every read and never stored (DR-116).
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "QuestionState".
+ */
+export interface QuestionState {
+  status: QuestionStatus;
+  /**
+   * Answered with its assumption: the answer equals the assumption, both trimmed.
+   */
+  kept: boolean;
+  /**
+   * The items resting on it: those its `rests_on` names and their descendants, each once.
+   */
+  rests: number;
+  /**
+   * The stakes weight (low 1, medium 3, high 9; low when absent) times `rests`.
+   */
+  score: number;
+  /**
+   * One of the top two open questions by rank.
+   */
+  sticky: boolean;
 }
 /**
  * One plan item type a stage writes.
@@ -3654,6 +3690,25 @@ export interface ItemType {
   id: string;
   /**
    * A JSON Schema fragment.
+   */
+  props: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * `[[items]]`: an item type any stage may write, which no stage owns (DR-116). A type of its own,
+ * not `ItemType`, since later records add fields to it that no stage item takes.
+ *
+ * This interface was referenced by `PlanroomContractV1`'s JSON-Schema
+ * via the `definition` "ItemTypeDecl".
+ */
+export interface ItemTypeDecl {
+  /**
+   * The item's `type` prop, such as `question`.
+   */
+  id: string;
+  /**
+   * A JSON Schema fragment, read as a stage item's.
    */
   props: {
     [k: string]: unknown;
@@ -4179,6 +4234,10 @@ export interface PackFile {
    * The plan pack only.
    */
   stages: StageDecl[];
+  /**
+   * The item types any stage may write, which no stage owns (DR-116).
+   */
+  items: ItemTypeDecl[];
 }
 /**
  * `[[relations]]`: an edge kind.
